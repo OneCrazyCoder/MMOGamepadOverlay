@@ -19,6 +19,9 @@ kVKeyCtrlMask = 0x0200,
 kVKeyAltMask = 0x0400,
 vKeyModMask = 0xFF00,
 vMkeyMask = 0x00FF,
+kMouseMaxSpeed = 256,
+kMouseToPixelDivisor = 8192,
+kMouseMaxDigitalVel = 32768,
 };
 
 
@@ -31,6 +34,12 @@ struct Config
 	int maxTaskQueuedTime; // tasks older than this in queue are skipped
 	int slashCommandPostFirstKeyDelay;
 	int modKeyReleaseLockTime;
+	double cursorDeadzone;
+	double cursorRange;
+	int cursorXSpeed;
+	int cursorYSpeed;
+	u8 mouseDPadAccel;
+
 	bool useScanCodes;
 
 	void load()
@@ -39,6 +48,13 @@ struct Config
 		slashCommandPostFirstKeyDelay = Profile::getInt("System/PostSlashKeyDelay", 0);
 		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 0);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
+		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
+		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
+		cursorYSpeed = Profile::getInt("Mouse/CursorYSpeed", cursorYSpeed);
+		cursorDeadzone = clamp(Profile::getInt("Mouse/CursorDeadzone", 25), 0, 100) / 100.0;
+		cursorRange = clamp(Profile::getInt("Mouse/CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
+		cursorRange = max(0, cursorRange - cursorDeadzone);
+		mouseDPadAccel = max(8, Profile::getInt("Mouse/DPadAccel", 50));
 	}
 };
 
@@ -137,6 +153,7 @@ struct DispatchTracker
 	std::vector<Input> inputs;
 	int queuePauseTime;
 	int modKeyReleaseLockTime;
+	int digitalMouseVel;
 	size_t currTaskProgress;
 	u16 modKeysDown;
 	u16 nextQueuedKey;
@@ -145,6 +162,7 @@ struct DispatchTracker
 		queuePauseTime(),
 		modKeyReleaseLockTime(),
 		currTaskProgress(),
+		digitalMouseVel(),
 		modKeysDown(),
 		nextQueuedKey()
 	{}
@@ -400,6 +418,12 @@ void update()
 		sendQueuedKey();
 	}
 
+	// Update mouse input
+	// ------------------
+	sTracker.digitalMouseVel = max(0,
+		sTracker.digitalMouseVel -
+		kConfig.mouseDPadAccel * 3 * gAppFrameTime);
+
 	// Dispatch input to system
 	// ------------------------
 	flushInputVector();
@@ -421,6 +445,73 @@ void sendMacro(const std::string& theMacro)
 		return;
 
 	sTracker.queue.push_back(theMacro);
+}
+
+
+void shiftMouseCursor(int dx, int dy, bool digital)
+{
+	// Get magnitude of desired mouse motion in 0 to 1.0f range
+    double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
+
+	// Apply deadzone and saturation to magnitude
+	if( aMagnitude < kConfig.cursorDeadzone )
+		return;
+	aMagnitude -= kConfig.cursorDeadzone;
+	aMagnitude = min(aMagnitude / kConfig.cursorRange, 1.0);
+
+	// Apply adjustments to allow for low-speed fine control
+	if( digital )
+	{// Apply acceleration to magnitude
+		sTracker.digitalMouseVel = min(
+			kMouseMaxDigitalVel,
+			sTracker.digitalMouseVel +
+				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
+		aMagnitude *= double(sTracker.digitalMouseVel) / kMouseMaxDigitalVel;
+	}
+	else
+	{// Apply exponential easing curve to magnitude
+		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
+	}
+
+	// Get angle of desired mouse motion
+	const double anAngle = atan2(double(dy), double(dx));
+
+	// Convert back into integer dx & dy w/ 32,768 range
+	dx = 32768.0 * aMagnitude * cos(anAngle);
+	dy = 32768.0 * aMagnitude * sin(anAngle);
+
+	// Apply speed setting
+	dx = dx * kConfig.cursorXSpeed / kMouseMaxSpeed * gAppFrameTime;
+	dy = dy * kConfig.cursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
+
+	// Add in previously-stored sub-pixel movement amounts
+	static int sMouseXSubPixel = 0;
+	static int sMouseYSubPixel = 0;
+	dx += sMouseXSubPixel;
+	dy += sMouseYSubPixel;
+
+	// Convert to pixels and retain sub-pixel amounts to add in later
+	// Sign of result of operator%() w/ negative dividend is
+	// implementation-defined, hence the extra sign check here
+	if( dx < 0 )
+		sMouseXSubPixel = -((-dx) % kMouseToPixelDivisor);
+	else
+		sMouseXSubPixel = dx % kMouseToPixelDivisor;
+	dx = dx / kMouseToPixelDivisor;
+
+	if( dy < 0 )
+		sMouseYSubPixel = -((-dy) % kMouseToPixelDivisor);
+	else
+		sMouseYSubPixel = dy % kMouseToPixelDivisor;
+	dy = dy / kMouseToPixelDivisor;
+
+	// Send the mouse movement to the OS
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.dx = dx;
+	anInput.mi.dy = dy;
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
+	SendInput(1, static_cast<INPUT*>(&anInput), sizeof(INPUT));
 }
 
 } // InputDispatcher

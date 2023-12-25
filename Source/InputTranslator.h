@@ -16,6 +16,7 @@
 namespace InputTranslator
 {
 
+// Call once per frame to translate GamePad into InputDispatcher w/ InputMap
 void update();
 
 } // InputTranslator
