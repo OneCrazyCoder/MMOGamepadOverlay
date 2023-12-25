@@ -518,8 +518,6 @@ std::string getStr(const std::string& theKey, const std::string& theDefaultValue
 	if( std::string* aString = sSettingsMap.find(upper(theKey)) )
 		return *aString;
 
-	if( !theDefaultValue.empty() )
-		setStr(theKey, theDefaultValue);
 	return theDefaultValue;
 }
 

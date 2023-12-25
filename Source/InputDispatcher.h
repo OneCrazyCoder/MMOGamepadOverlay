@@ -29,4 +29,9 @@ void cleanup();
 // Otherwise expects a series of keyboard scan codes
 void sendMacro(const std::string& theMacro);
 
+// Directly move the mouse cursor relative to current position
+// Amount specified by dx/dy is in relation to mouse speed
+// settings, and expected range of -255 to 255
+void shiftMouseCursor(int dx, int dy, bool digital);
+
 } // InputDispatcher

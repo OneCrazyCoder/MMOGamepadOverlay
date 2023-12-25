@@ -21,6 +21,10 @@ void update()
 {
 	using namespace Gamepad;
 
+	s16 aMouseMoveX = 0;
+	s16 aMouseMoveY = 0;
+	bool aMouseMoveDigital = false;
+
 	if( buttonDown(eBtn_L2) )
 	{
 		OverlayWindow::startAutoFadeOutTimer();
@@ -84,6 +88,34 @@ void update()
 			}
 		}
 	}
+	else
+	{
+		// Can move mouse with d-pad while not selecting macro
+		if( buttonDown(eBtn_DLeft) )
+			aMouseMoveX -= 255;
+		if( buttonDown(eBtn_DRight) )
+			aMouseMoveX += 255;
+		if( buttonDown(eBtn_DUp) )
+			aMouseMoveY -= 255;
+		if( buttonDown(eBtn_DDown) )
+			aMouseMoveY += 255;
+		if( aMouseMoveX || aMouseMoveY )
+			aMouseMoveDigital = true;
+	}
+
+	// Move mouse cursor with right analog stick
+	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSRight) )
+		aMouseMoveX += anAxisVal;
+	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSLeft) )
+		aMouseMoveX -= anAxisVal;
+	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSDown) )
+		aMouseMoveY += anAxisVal;
+	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSUp) )
+		aMouseMoveY -= anAxisVal;
+	
+	InputDispatcher::shiftMouseCursor(
+		aMouseMoveX, aMouseMoveY,
+		aMouseMoveDigital);
 }
 
 } // InputTranslator
