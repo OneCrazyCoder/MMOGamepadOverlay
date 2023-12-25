@@ -88,7 +88,7 @@ void update()
 			}
 		}
 	}
-	else
+	else if( !buttonDown(eBtn_R2) )
 	{
 		// Can move mouse with d-pad while not selecting macro
 		if( buttonDown(eBtn_DLeft) )
@@ -103,15 +103,34 @@ void update()
 			aMouseMoveDigital = true;
 	}
 
-	// Move mouse cursor with right analog stick
-	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSRight) )
-		aMouseMoveX += anAxisVal;
-	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSLeft) )
-		aMouseMoveX -= anAxisVal;
-	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSDown) )
-		aMouseMoveY += anAxisVal;
-	if( u8 anAxisVal = buttonAnalogVal(eBtn_RSUp) )
-		aMouseMoveY -= anAxisVal;
+	if( buttonDown(eBtn_R2) )
+	{
+		// Scroll mouse wheel with right stick or d-pad
+		s16 aMouseWheelY = 0;
+		if( buttonDown(eBtn_DUp) )
+			aMouseWheelY -= 255;
+		if( buttonDown(eBtn_DDown) )
+			aMouseWheelY += 255;
+		if( aMouseWheelY )
+			aMouseMoveDigital = true;
+		if( u8 anAxisVal = buttonAnalogVal(eBtn_RSDown) )
+			aMouseWheelY += anAxisVal;
+		if( u8 anAxisVal = buttonAnalogVal(eBtn_RSUp) )
+			aMouseWheelY -= anAxisVal;
+		InputDispatcher::scrollMouseWheel(aMouseWheelY, aMouseMoveDigital);
+	}
+	else
+	{
+		// Move mouse cursor with right analog stick
+		if( u8 anAxisVal = buttonAnalogVal(eBtn_RSRight) )
+			aMouseMoveX += anAxisVal;
+		if( u8 anAxisVal = buttonAnalogVal(eBtn_RSLeft) )
+			aMouseMoveX -= anAxisVal;
+		if( u8 anAxisVal = buttonAnalogVal(eBtn_RSDown) )
+			aMouseMoveY += anAxisVal;
+		if( u8 anAxisVal = buttonAnalogVal(eBtn_RSUp) )
+			aMouseMoveY -= anAxisVal;
+	}
 	
 	InputDispatcher::shiftMouseCursor(
 		aMouseMoveX, aMouseMoveY,

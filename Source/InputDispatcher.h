@@ -34,4 +34,10 @@ void sendMacro(const std::string& theMacro);
 // settings, and expected range of -255 to 255
 void shiftMouseCursor(int dx, int dy, bool digital);
 
+// Send mouse wheel up/down motion. Expected range of -255 to 255.
+// In cases where target app only responds to full "clicks" of the
+// wheel at a time and not smaller movements, set 'stepped' = true,
+// though it means the scroll motion will be much less smooth.
+void scrollMouseWheel(int dy, bool digital, bool stepped = false);
+
 } // InputDispatcher
