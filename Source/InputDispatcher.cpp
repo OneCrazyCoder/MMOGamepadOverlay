@@ -39,6 +39,9 @@ struct Config
 	int cursorXSpeed;
 	int cursorYSpeed;
 	u8 mouseDPadAccel;
+	double mouseWheelDeadzone;
+	double mouseWheelRange;
+	int mouseWheelSpeed;
 
 	bool useScanCodes;
 
@@ -55,6 +58,10 @@ struct Config
 		cursorRange = clamp(Profile::getInt("Mouse/CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
 		cursorRange = max(0, cursorRange - cursorDeadzone);
 		mouseDPadAccel = max(8, Profile::getInt("Mouse/DPadAccel", 50));
+		mouseWheelDeadzone = clamp(Profile::getInt("Mouse/WheelDeadzone", 25), 0, 100) / 100.0;
+		mouseWheelRange = clamp(Profile::getInt("Mouse/WheelSaturation", 100), cursorDeadzone, 100) / 100.0;
+		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
+		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
 	}
 };
 
@@ -511,6 +518,65 @@ void shiftMouseCursor(int dx, int dy, bool digital)
 	anInput.mi.dx = dx;
 	anInput.mi.dy = dy;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
+	SendInput(1, static_cast<INPUT*>(&anInput), sizeof(INPUT));
+}
+
+
+void scrollMouseWheel(int dy, bool digital, bool stepped)
+{
+	// Get magnitude of desired mouse motion in 0 to 1.0f range
+	double aMagnitude = abs(dy) / 255.0;
+
+	// Apply deadzone and saturation to dy
+	if( aMagnitude < kConfig.mouseWheelDeadzone )
+		return;
+	aMagnitude -= kConfig.mouseWheelDeadzone;
+	aMagnitude = min(aMagnitude / kConfig.mouseWheelRange, 1.0);
+
+	// Apply adjustments to allow for low-speed fine control
+	if( digital )
+	{// Apply acceleration to magnitude
+		sTracker.digitalMouseVel = min(
+			kMouseMaxDigitalVel,
+			sTracker.digitalMouseVel +
+				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
+		aMagnitude *= double(sTracker.digitalMouseVel) / kMouseMaxDigitalVel;
+	}
+	else
+	{// Apply exponential easing curve to magnitude
+		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
+	}
+
+	// Restrict to increments of WHEEL_DELTA when stepped == true
+	if( stepped )
+		aMagnitude /= WHEEL_DELTA;
+
+	// Convert back into integer dy w/ 32,768 range
+	dy = dy < 0 ? (-32768.0 * aMagnitude) : (32768.0 * aMagnitude);
+
+	// Apply speed setting
+	dy = dy * kConfig.mouseWheelSpeed / kMouseMaxSpeed * gAppFrameTime;
+
+	// Use same logic as shiftMouseCursor() for fractional speeds
+	// Especially important when restricting to WHEEL_DATA increments
+	static int sMouseWheelSubPixel = 0;
+	dy += sMouseWheelSubPixel;
+	if( dy < 0 )
+		sMouseWheelSubPixel = -((-dy) % kMouseToPixelDivisor);
+	else
+		sMouseWheelSubPixel = dy % kMouseToPixelDivisor;
+	dy = dy / kMouseToPixelDivisor;
+
+	// Counter above division by WHEEL_DELTA for true speed,
+	// but now resulting value will be a multiple of WHEEL_DATA
+	if( stepped )
+		dy *= WHEEL_DELTA;
+
+	// Send the mouse wheel movement to the OS
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.mouseData = DWORD(-dy);
+	anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
 	SendInput(1, static_cast<INPUT*>(&anInput), sizeof(INPUT));
 }
 
