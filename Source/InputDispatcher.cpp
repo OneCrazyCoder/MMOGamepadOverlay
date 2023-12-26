@@ -162,16 +162,17 @@ struct DispatchTracker
 	int modKeyReleaseLockTime;
 	int digitalMouseVel;
 	size_t currTaskProgress;
-	u16 modKeysDown;
-	u16 nextQueuedKey;
+	BitArray<0xFF> keysHeldDown;
+	BitArray<0xFF> keysWantDown;
+	u16 nextQueuedKeyTap;
 
 	DispatchTracker() :
 		queuePauseTime(),
 		modKeyReleaseLockTime(),
 		currTaskProgress(),
 		digitalMouseVel(),
-		modKeysDown(),
-		nextQueuedKey()
+		keysHeldDown(),
+		nextQueuedKeyTap()
 	{}
 };
 
@@ -197,22 +198,22 @@ static EResult popNextKey(const std::string& theVKeySequence)
 
 		if( aVKey == VK_SHIFT )
 		{
-			sTracker.nextQueuedKey |= kVKeyShiftMask;
+			sTracker.nextQueuedKeyTap |= kVKeyShiftMask;
 			sTracker.modKeyReleaseLockTime = kConfig.modKeyReleaseLockTime;
 		}
 		else if( aVKey == VK_CONTROL )
 		{
-			sTracker.nextQueuedKey |= kVKeyCtrlMask;
+			sTracker.nextQueuedKeyTap |= kVKeyCtrlMask;
 			sTracker.modKeyReleaseLockTime = kConfig.modKeyReleaseLockTime;
 		}
 		else if( aVKey == VK_MENU )
 		{
-			sTracker.nextQueuedKey |= kVKeyAltMask;
+			sTracker.nextQueuedKeyTap |= kVKeyAltMask;
 			sTracker.modKeyReleaseLockTime = kConfig.modKeyReleaseLockTime;
 		}
 		else
 		{
-			sTracker.nextQueuedKey |= aVKey;
+			sTracker.nextQueuedKeyTap |= aVKey;
 			break;
 		}
 	}
@@ -226,22 +227,26 @@ static EResult popNextKey(const std::string& theVKeySequence)
 
 static EResult popNextStringChar(const std::string& theString)
 {
-	DBG_ASSERT(theString[0] == '/' || theString[0] == '>');
+	DBG_ASSERT(
+		theString[0] == eCommandChar_SlashCommand ||
+		theString[0] == eCommandChar_SayString);
 
 	const size_t idx = sTracker.currTaskProgress++;
+	// End with carriage return, and start with it for say strings
 	const char c =
-		(idx == 0 && theString[0] == '>') || idx >= theString.size()
-		? '\r'
-		: theString[idx];
+		(idx == 0 && theString[0] == eCommandChar_SayString) ||
+		idx >= theString.size()
+			? '\r'
+			: theString[idx];
 
 	// Skip non-printable or non-ASCII characters
 	if( idx > 0 && idx < theString.size() && (c < ' ' || c > '~') )
 		return popNextStringChar(theString);
 
 	// Queue the key + modifiers (shift key)
-	sTracker.nextQueuedKey = VkKeyScan(c);
+	sTracker.nextQueuedKeyTap = VkKeyScan(c);
 
-	if( idx == 0 ) // the initial '/' or '\r' (from '>') character
+	if( idx == 0 ) // the initial key to switch to chat bar
 	{
 		// Add a pause to make sure async key checking switches to
 		// direct text input in chat box before 'typing' at full speed
@@ -257,76 +262,87 @@ static EResult popNextStringChar(const std::string& theString)
 }
 
 
-static void setShift(bool down)
+static EResult setKeyDown(u8 theKey, bool down)
 {
-	const bool shiftHeld = (sTracker.modKeysDown & kVKeyShiftMask) != 0;
-	if( down != shiftHeld )
-	{
-		sTracker.inputs.push_back(Input());
-		sTracker.inputs.back().type = INPUT_KEYBOARD;
-		sTracker.inputs.back().ki.wVk = VK_SHIFT;
-		sTracker.inputs.back().ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
-		if( down )
-			sTracker.modKeysDown |= kVKeyShiftMask;
-		else
-			sTracker.modKeysDown &= ~kVKeyShiftMask;
+	if( !down && sTracker.modKeyReleaseLockTime > 0 &&
+		(theKey == VK_SHIFT || theKey == VK_CONTROL || theKey == VK_MENU) )
+	{// Not allowed to release modifier keys yet
+		return eResult_NotAllowed;
 	}
+
+	if( down != sTracker.keysHeldDown.test(theKey) )
+	{
+		Input anInput;
+		switch(theKey)
+		{
+		case VK_LBUTTON:
+			anInput.type = INPUT_MOUSE;
+			anInput.mi.dwFlags = down
+				? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+			break;
+		case VK_RBUTTON:
+			anInput.type = INPUT_MOUSE;
+			anInput.mi.dwFlags = down
+				? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+			break;
+		case VK_MBUTTON:
+			anInput.type = INPUT_MOUSE;
+			anInput.mi.dwFlags = down
+				? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+			break;
+		default:
+			anInput.type = INPUT_KEYBOARD;
+			anInput.ki.wVk = theKey;
+			anInput.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
+			break;
+		}
+		sTracker.inputs.push_back(anInput);
+		sTracker.keysHeldDown.set(theKey, down);
+	}
+
+	return eResult_Ok;
 }
 
 
-static void setCtrl(bool down)
+static void sendQueuedKeyTap()
 {
-	const bool ctrlHeld = (sTracker.modKeysDown & kVKeyCtrlMask) != 0;
-	if( down != ctrlHeld )
+	const bool shiftDown = sTracker.keysHeldDown.test(VK_SHIFT);
+	const bool ctrlDown = sTracker.keysHeldDown.test(VK_CONTROL);
+	const bool altDown = sTracker.keysHeldDown.test(VK_MENU);
+	const bool wantShift = (sTracker.nextQueuedKeyTap & kVKeyShiftMask) != 0;
+	const bool wantCtrl = (sTracker.nextQueuedKeyTap & kVKeyCtrlMask) != 0;
+	const bool wantAlt = (sTracker.nextQueuedKeyTap & kVKeyAltMask) != 0;
+	if( shiftDown != wantShift || ctrlDown != wantCtrl || altDown != wantAlt )
+		return;
+
+	if( const u8 aVkey = sTracker.nextQueuedKeyTap & vMkeyMask )
 	{
-		sTracker.inputs.push_back(Input());
-		sTracker.inputs.back().type = INPUT_KEYBOARD;
-		sTracker.inputs.back().ki.wVk = VK_CONTROL;
-		sTracker.inputs.back().ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
-		if( down )
-			sTracker.modKeysDown |= kVKeyCtrlMask;
-		else
-			sTracker.modKeysDown &= ~kVKeyCtrlMask;
+		Input anInput;
+		anInput.type = INPUT_KEYBOARD;
+		anInput.ki.wVk = aVkey;
+		sTracker.inputs.push_back(anInput);
+
+		anInput.ki.dwFlags = KEYEVENTF_KEYUP;
+		sTracker.inputs.push_back(anInput);
 	}
+
+	sTracker.nextQueuedKeyTap = 0;
 }
 
 
-static void setAlt(bool down)
+static void releaseAllHeldKeys()
 {
-	const bool altHeld = (sTracker.modKeysDown & kVKeyAltMask) != 0;
-	if( down != altHeld )
+	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
+		aVKey < sTracker.keysHeldDown.size();
+		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		sTracker.inputs.push_back(Input());
-		sTracker.inputs.back().type = INPUT_KEYBOARD;
-		sTracker.inputs.back().ki.wVk = VK_MENU;
-		sTracker.inputs.back().ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
-		if( down )
-			sTracker.modKeysDown |= kVKeyAltMask;
-		else
-			sTracker.modKeysDown &= ~kVKeyAltMask;
+		Input anInput;
+		anInput.type = INPUT_KEYBOARD;
+		anInput.ki.wVk = aVKey;
+		anInput.ki.dwFlags = KEYEVENTF_KEYUP;
+		sTracker.inputs.push_back(anInput);
 	}
-}
-
-
-static void sendQueuedKey()
-{
-	setShift((sTracker.nextQueuedKey & kVKeyShiftMask) != 0);
-	setCtrl((sTracker.nextQueuedKey & kVKeyCtrlMask) != 0);
-	setAlt((sTracker.nextQueuedKey & kVKeyAltMask) != 0);
-
-	if( const u8 aVkey = sTracker.nextQueuedKey & vMkeyMask )
-	{
-		sTracker.inputs.push_back(Input());
-		sTracker.inputs.back().type = INPUT_KEYBOARD;
-		sTracker.inputs.back().ki.wVk = aVkey;
-
-		sTracker.inputs.push_back(Input());
-		sTracker.inputs.back().type = INPUT_KEYBOARD;
-		sTracker.inputs.back().ki.wVk = aVkey;
-		sTracker.inputs.back().ki.dwFlags = KEYEVENTF_KEYUP;
-	}
-
-	sTracker.nextQueuedKey = 0;
+	sTracker.keysHeldDown.reset();
 }
 
 
@@ -335,14 +351,25 @@ static void flushInputVector()
 	if( !sTracker.inputs.empty() )
 	{
 		if( kConfig.useScanCodes )
-		{// Convert virtual key codes into scan codes
+		{// Convert Virtual-Key Codes into scan codes
 			for(size_t i = 0; i < sTracker.inputs.size(); ++i)
 			{
 				if( sTracker.inputs[i].type == INPUT_KEYBOARD )
 				{
-					sTracker.inputs[i].ki.wScan =
+					sTracker.inputs[i].ki.wScan = 
 						MapVirtualKey(sTracker.inputs[i].ki.wVk, 0);
+					// Using this method for compatibility with older Windows
+					switch(sTracker.inputs[i].ki.wVk)
+					{
+					case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
+					case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
+					case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
+					case VK_NUMLOCK:
+						sTracker.inputs[i].ki.wScan |= 0xE000;
+						sTracker.inputs[i].ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+					}
 					sTracker.inputs[i].ki.dwFlags |= KEYEVENTF_SCANCODE;
+					sTracker.inputs[i].ki.wVk = 0;
 				}
 			}
 		}
@@ -352,20 +379,6 @@ static void flushInputVector()
 			sizeof(INPUT));
 		sTracker.inputs.clear();
 	}
-	#ifdef _DEBUG
-	else
-	{
-		// Try to flush out input stuck in the message queue by sending
-		// key presses of the non-existant virtual key code ID 0.
-		// Most apps don't seem to need this, but Notepad in Windows 11
-		// does for some reason, and I use it to test output
-		Input aDummyInput[2];
-		aDummyInput[0].type = INPUT_KEYBOARD;
-		aDummyInput[1].type = INPUT_KEYBOARD;
-		aDummyInput[1].ki.dwFlags = KEYEVENTF_KEYUP;
-		SendInput(2, static_cast<INPUT*>(aDummyInput), sizeof(INPUT));
-	}
-	#endif
 }
 
 
@@ -390,40 +403,98 @@ void update()
 
 	// Update queue
 	// ------------
-	if( sTracker.queuePauseTime <= 0 &&
-		sTracker.nextQueuedKey == 0 &&
-		!sTracker.queue.empty() )
+	while(sTracker.queuePauseTime <= 0 &&
+		  sTracker.nextQueuedKeyTap == 0 &&
+		  !sTracker.queue.empty() )
 	{
 		DispatchTask& aCurrTask = sTracker.queue.front();
+		const bool taskIsPastDue =
+			sTracker.currTaskProgress == 0 &&
+			(sTracker.queue.front().queuedTime
+				+ kConfig.maxTaskQueuedTime) < gAppRunTime;
+
 		EResult aTaskResult;
-		if( aCurrTask.keys[0] == '/' || aCurrTask.keys[0] == '>' )
-			aTaskResult = popNextStringChar(aCurrTask.keys);
-		else
-			aTaskResult = popNextKey(aCurrTask.keys);
+		DBG_ASSERT(aCurrTask.keys.length() > 1);
+		switch(aCurrTask.keys[0])
+		{
+		case eCommandChar_SlashCommand:
+		case eCommandChar_SayString:
+			if( taskIsPastDue )
+				aTaskResult = eResult_TaskCompleted;
+			else
+				aTaskResult = popNextStringChar(aCurrTask.keys);
+			break;
+		case eCommandChar_PressAndHoldKey:
+			sTracker.keysWantDown.set(aCurrTask.keys[1]);
+			aTaskResult = eResult_TaskCompleted;
+			break;
+		case eCommandChar_ReleaseKey:
+			sTracker.keysWantDown.reset(aCurrTask.keys[1]);
+			aTaskResult = eResult_TaskCompleted;
+			if( !taskIsPastDue )
+			{// Make sure not to skip a tap before next press
+				if( !sTracker.keysHeldDown.test(aCurrTask.keys[1]) )
+					setKeyDown(aCurrTask.keys[1], true);
+				if( setKeyDown(aCurrTask.keys[1], false) != eResult_Ok )
+					sTracker.queuePauseTime = 1;
+			}
+			break;
+		default:
+			if( taskIsPastDue )
+				aTaskResult = eResult_TaskCompleted;
+			else
+				aTaskResult = popNextKey(aCurrTask.keys);
+			break;
+		}
 		if( aTaskResult == eResult_TaskCompleted )
 		{
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
-			while(!sTracker.queue.empty() &&
-				  sTracker.queue.front().queuedTime + kConfig.maxTaskQueuedTime < gAppRunTime)
-			{// Get rid of super-old queued tasks
-				sTracker.queue.pop_front();
-			}
 		}
 	}
 
-	// Update keyboard input
-	// ---------------------
-	if( sTracker.modKeyReleaseLockTime > 0 )
-	{
-		// Don't send the key yet if need to release modifiers first
-		if( ((~sTracker.nextQueuedKey) & sTracker.modKeysDown) == 0 )
-			sendQueuedKey();
+	// Update special-case modifier keys (shift, ctrl, and alt)
+	// --------------------------------------------------------
+	const bool wantShift = sTracker.keysWantDown.test(VK_SHIFT);
+	const bool wantCtrl = sTracker.keysWantDown.test(VK_CONTROL);
+	const bool wantAlt = sTracker.keysWantDown.test(VK_MENU);
+	if( sTracker.nextQueuedKeyTap )
+	{// Modifier keys must match those desired by queued key tap
+		sTracker.keysWantDown.set(VK_SHIFT,
+			(sTracker.nextQueuedKeyTap & kVKeyShiftMask) != 0);
+		sTracker.keysWantDown.set(VK_CONTROL,
+			(sTracker.nextQueuedKeyTap & kVKeyCtrlMask) != 0);
+		sTracker.keysWantDown.set(VK_MENU,
+			(sTracker.nextQueuedKeyTap & kVKeyAltMask) != 0);
 	}
-	else
+
+	// Sync keys held to wanted keys held
+	// ----------------------------------
+	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
+		aVKey < sTracker.keysHeldDown.size();
+		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		sendQueuedKey();
+		if( !sTracker.keysWantDown.test(aVKey) )
+			setKeyDown(u8(aVKey), false);
 	}
+	for(int aVKey = sTracker.keysWantDown.firstSetBit();
+		aVKey < sTracker.keysWantDown.size();
+		aVKey = sTracker.keysWantDown.nextSetBit(aVKey+1))
+	{
+		if( !sTracker.keysHeldDown.test(aVKey) )
+			setKeyDown(u8(aVKey), true);
+	}
+
+	// Send queued key tap for key sequences / strings
+	// -----------------------------------------------
+	if( sTracker.nextQueuedKeyTap )
+		sendQueuedKeyTap();
+
+	// Restore desired modifier keys
+	// -----------------------------
+	sTracker.keysWantDown.set(VK_SHIFT, wantShift);
+	sTracker.keysWantDown.set(VK_CONTROL, wantCtrl);
+	sTracker.keysWantDown.set(VK_MENU, wantAlt);
 
 	// Update mouse input
 	// ------------------
@@ -439,19 +510,36 @@ void update()
 
 void cleanup()
 {
-	setShift(false);
-	setCtrl(false);
-	setAlt(false);
+	releaseAllHeldKeys();
 	flushInputVector();
+	sTracker = DispatchTracker();
 }
 
 
-void sendMacro(const std::string& theMacro)
+void sendKeySequence(const std::string& theMacro)
 {
 	if( theMacro.empty() )
 		return;
 
 	sTracker.queue.push_back(theMacro);
+}
+
+
+void setKeyHeld(u8 theVKey)
+{
+	std::string aCommand;
+	aCommand.push_back(eCommandChar_PressAndHoldKey);
+	aCommand.push_back(theVKey);
+	sTracker.queue.push_back(aCommand);
+}
+
+
+void setKeyReleased(u8 theVKey)
+{
+	std::string aCommand;
+	aCommand.push_back(eCommandChar_ReleaseKey);
+	aCommand.push_back(theVKey);
+	sTracker.queue.push_back(aCommand);
 }
 
 

@@ -24,10 +24,16 @@ void update();
 // Clean up and prepares for app shutdown
 void cleanup();
 
-// Sends the input for a macro
-// If the first character is '/', sends a string sequence
-// Otherwise expects a series of keyboard scan codes
-void sendMacro(const std::string& theMacro);
+// Sends the input for a sequence of key taps (or a single tap).
+// The first character is checked against ECommandChar to see if
+// it is a string of Virtual-Key Codes (no command char set) or
+// ASCII chars that should be "typed" into a text entry field.
+void sendKeySequence(const std::string& theMacro);
+
+// Requests given key (or mouse button) be held down until...
+void setKeyHeld(u8 theVKey);
+// Requests given key (or mouse button) being held down be released
+void setKeyReleased(u8 theVKey);
 
 // Directly move the mouse cursor relative to current position
 // Amount specified by dx/dy is in relation to mouse speed

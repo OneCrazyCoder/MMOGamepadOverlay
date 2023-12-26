@@ -228,7 +228,7 @@ static MacroData stringToMacroSlot(
 	if( aMacroData.label.empty() && !theString.empty() )
 	{// Having no : character means this is a sub-set
 		aMacroData.label = trim(theString);
-		aMacroData.keys.push_back(kMacroSetChangeChar);
+		aMacroData.keys.push_back(eCommandChar_ChangeMacroSet);
 		aMacroData.keys.push_back(u8(sMacroSets.size()));
 		if( sMacroSets.size() > 0xFF )
 			aMacroData.keys.push_back(u8(sMacroSets.size() >> 8));
@@ -242,8 +242,9 @@ static MacroData stringToMacroSlot(
 	if( theString.empty() )
 		return aMacroData;
 
-	// Check for a slash command or >, which outputs the string wholesale
-	if( theString[0] == '/' || theString[0] == '>' )
+	// Check for a slash command or say string, which outputs the whole string
+	if( theString[0] == eCommandChar_SlashCommand ||
+		theString[0] == eCommandChar_SayString )
 	{
 		aMacroData.keys = theString;
 		return aMacroData;

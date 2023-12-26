@@ -131,11 +131,12 @@ void setImpulseTriggersEnabled(bool);
 // Does NOT affect axisVal() or buttonAnalogVal()!
 void setDigitalDeadzone(EButton theButton, u8 theDeadzone = 100);
 
-// Returns true if given Code input trigger was hit on selected gamepad
-// between most recent update() call and the update() call prior to that.
-bool buttonHit(EButton theBtn);
-
-// Returns true if given Code input on selected gamepad is active
+// Check which buttons have been used on selected gamepad.
+// "Hit" is true if the button was just barely pressed,
+// "Released" if the button was just barely let go, and
+// "Down" means it is currently held down.
+bool buttonHit(EButton theButton);
+bool buttonReleased(EButton theButton);
 bool buttonDown(EButton theButton);
 
 // Returns a value between 0 and 255 for given axis.
