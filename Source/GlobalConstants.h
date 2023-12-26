@@ -10,8 +10,15 @@
 */
 
 
-enum {
-kMacroSetChangeChar = 0x01,
+// Used as first byte of key sequence strings to indicate purpose
+// If first char is none of these, a Virtual-Key Code sequence is assumed
+enum ECommandChar
+{
+	eCommandChar_ChangeMacroSet = 0x01,
+	eCommandChar_PressAndHoldKey = 0x02,
+	eCommandChar_ReleaseKey = 0x03,
+	eCommandChar_SlashCommand = '/',
+	eCommandChar_SayString = '>',
 };
 
 enum EResult
@@ -22,4 +29,5 @@ enum EResult
 	eResult_Fail,
 	eResult_NotFound,
 	eResult_Incomplete,
+	eResult_NotAllowed,
 };

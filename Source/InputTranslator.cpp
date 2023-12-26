@@ -27,6 +27,7 @@ void update()
 
 	if( buttonDown(eBtn_L2) )
 	{
+		// Select a macro with D-pad or face buttons while holding L2
 		OverlayWindow::startAutoFadeOutTimer();
 		OverlayWindow::fadeFullyIn();
 		if( buttonHit(eBtn_L2) )
@@ -67,7 +68,7 @@ void update()
 			{
 				// Do nothing
 			}
-			else if( aMacro[0] == kMacroSetChangeChar )
+			else if( aMacro[0] == eCommandChar_ChangeMacroSet )
 			{// Change macro set
 				switch(aMacro.size())
 				{
@@ -84,13 +85,13 @@ void update()
 			}
 			else
 			{// Dispatch macro
-				InputDispatcher::sendMacro(aMacro);
+				InputDispatcher::sendKeySequence(aMacro);
 			}
 		}
 	}
 	else if( !buttonDown(eBtn_R2) )
 	{
-		// Can move mouse with d-pad while not selecting macro
+		// Move mouse with d-pad while not selecting macro
 		if( buttonDown(eBtn_DLeft) )
 			aMouseMoveX -= 255;
 		if( buttonDown(eBtn_DRight) )
@@ -105,7 +106,7 @@ void update()
 
 	if( buttonDown(eBtn_R2) )
 	{
-		// Scroll mouse wheel with right stick or d-pad
+		// Scroll mouse wheel with right stick or d-pad while holding R2
 		s16 aMouseWheelY = 0;
 		if( buttonDown(eBtn_DUp) )
 			aMouseWheelY -= 255;
@@ -131,7 +132,37 @@ void update()
 		if( u8 anAxisVal = buttonAnalogVal(eBtn_RSUp) )
 			aMouseMoveY -= anAxisVal;
 	}
+
+	// Test holdinga modifier key with L1
+	if( buttonHit(eBtn_L1) )
+		InputDispatcher::setKeyHeld(VK_SHIFT);
+	if( buttonReleased(eBtn_L1) )
+		InputDispatcher::setKeyReleased(VK_SHIFT);
 	
+	// Test mouse button click with R1
+	if( buttonHit(eBtn_R1) )
+		InputDispatcher::setKeyHeld(VK_LBUTTON);
+	if( buttonReleased(eBtn_R1) )
+		InputDispatcher::setKeyReleased(VK_LBUTTON);
+
+	// Test basic arrow key movement with left stick
+	if( buttonHit(eBtn_LSUp) )
+		InputDispatcher::setKeyHeld(VK_UP);
+	if( buttonReleased(eBtn_LSUp) )
+		InputDispatcher::setKeyReleased(VK_UP);
+	if( buttonHit(eBtn_LSDown) )
+		InputDispatcher::setKeyHeld(VK_DOWN);
+	if( buttonReleased(eBtn_LSDown) )
+		InputDispatcher::setKeyReleased(VK_DOWN);
+	if( buttonHit(eBtn_LSLeft) )
+		InputDispatcher::setKeyHeld(VK_LEFT);
+	if( buttonReleased(eBtn_LSLeft) )
+		InputDispatcher::setKeyReleased(VK_LEFT);
+	if( buttonHit(eBtn_LSRight) )
+		InputDispatcher::setKeyHeld(VK_RIGHT);
+	if( buttonReleased(eBtn_LSRight) )
+		InputDispatcher::setKeyReleased(VK_RIGHT);
+
 	InputDispatcher::shiftMouseCursor(
 		aMouseMoveX, aMouseMoveY,
 		aMouseMoveDigital);
