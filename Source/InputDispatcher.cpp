@@ -38,6 +38,10 @@ struct Config
 	double cursorRange;
 	int cursorXSpeed;
 	int cursorYSpeed;
+	double mouseLookDeadzone;
+	double mouseLookRange;
+	int mouseLookXSpeed;
+	int mouseLookYSpeed;
 	u8 mouseDPadAccel;
 	double mouseWheelDeadzone;
 	double mouseWheelRange;
@@ -57,6 +61,12 @@ struct Config
 		cursorDeadzone = clamp(Profile::getInt("Mouse/CursorDeadzone", 25), 0, 100) / 100.0;
 		cursorRange = clamp(Profile::getInt("Mouse/CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
 		cursorRange = max(0, cursorRange - cursorDeadzone);
+		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse/MouseLookSpeed", 100);
+		mouseLookXSpeed = Profile::getInt("Mouse/MouseLookXSpeed", mouseLookXSpeed);
+		mouseLookYSpeed = Profile::getInt("Mouse/MouseLookYSpeed", mouseLookYSpeed);
+		mouseLookDeadzone = clamp(Profile::getInt("Mouse/MouseLookDeadzone", 25), 0, 100) / 100.0;
+		mouseLookRange = clamp(Profile::getInt("Mouse/MouseLookSaturation", 100), mouseLookDeadzone, 100) / 100.0;
+		mouseLookRange = max(0, mouseLookRange - mouseLookDeadzone);
 		mouseDPadAccel = max(8, Profile::getInt("Mouse/DPadAccel", 50));
 		mouseWheelDeadzone = clamp(Profile::getInt("Mouse/WheelDeadzone", 25), 0, 100) / 100.0;
 		mouseWheelRange = clamp(Profile::getInt("Mouse/WheelSaturation", 100), cursorDeadzone, 100) / 100.0;
@@ -165,6 +175,7 @@ struct DispatchTracker
 	BitArray<0xFF> keysHeldDown;
 	BitArray<0xFF> keysWantDown;
 	u16 nextQueuedKeyTap;
+	bool mouseLookActive;
 
 	DispatchTracker() :
 		queuePauseTime(),
@@ -172,7 +183,8 @@ struct DispatchTracker
 		currTaskProgress(),
 		digitalMouseVel(),
 		keysHeldDown(),
-		nextQueuedKeyTap()
+		nextQueuedKeyTap(),
+		mouseLookActive(false)
 	{}
 };
 
@@ -401,6 +413,7 @@ void update()
 	if( sTracker.modKeyReleaseLockTime > 0 )
 		sTracker.modKeyReleaseLockTime -= gAppFrameTime;
 
+
 	// Update queue
 	// ------------
 	while(sTracker.queuePauseTime <= 0 &&
@@ -429,15 +442,15 @@ void update()
 			aTaskResult = eResult_TaskCompleted;
 			break;
 		case eCommandChar_ReleaseKey:
-			sTracker.keysWantDown.reset(aCurrTask.keys[1]);
-			aTaskResult = eResult_TaskCompleted;
 			if( !taskIsPastDue )
 			{// Make sure not to skip a tap before next press
-				if( !sTracker.keysHeldDown.test(aCurrTask.keys[1]) )
+				if( sTracker.keysWantDown.test(aCurrTask.keys[1]) )
 					setKeyDown(aCurrTask.keys[1], true);
 				if( setKeyDown(aCurrTask.keys[1], false) != eResult_Ok )
 					sTracker.queuePauseTime = 1;
 			}
+			sTracker.keysWantDown.reset(aCurrTask.keys[1]);
+			aTaskResult = eResult_TaskCompleted;
 			break;
 		default:
 			if( taskIsPastDue )
@@ -453,11 +466,13 @@ void update()
 		}
 	}
 
-	// Update special-case modifier keys (shift, ctrl, and alt)
-	// --------------------------------------------------------
+
+	// Update special-case keys
+	// ------------------------
 	const bool wantShift = sTracker.keysWantDown.test(VK_SHIFT);
 	const bool wantCtrl = sTracker.keysWantDown.test(VK_CONTROL);
 	const bool wantAlt = sTracker.keysWantDown.test(VK_MENU);
+	const bool wantRMB = sTracker.keysWantDown.test(VK_RBUTTON);
 	if( sTracker.nextQueuedKeyTap )
 	{// Modifier keys must match those desired by queued key tap
 		sTracker.keysWantDown.set(VK_SHIFT,
@@ -467,6 +482,10 @@ void update()
 		sTracker.keysWantDown.set(VK_MENU,
 			(sTracker.nextQueuedKeyTap & kVKeyAltMask) != 0);
 	}
+	// Right mouse button must stay active while mouse-look is
+	if( sTracker.mouseLookActive )
+		sTracker.keysWantDown.set(VK_RBUTTON);
+
 
 	// Sync keys held to wanted keys held
 	// ----------------------------------
@@ -485,22 +504,27 @@ void update()
 			setKeyDown(u8(aVKey), true);
 	}
 
+
 	// Send queued key tap for key sequences / strings
 	// -----------------------------------------------
 	if( sTracker.nextQueuedKeyTap )
 		sendQueuedKeyTap();
 
-	// Restore desired modifier keys
-	// -----------------------------
+
+	// Restore status of special-case held keys
+	// ----------------------------------------
 	sTracker.keysWantDown.set(VK_SHIFT, wantShift);
 	sTracker.keysWantDown.set(VK_CONTROL, wantCtrl);
 	sTracker.keysWantDown.set(VK_MENU, wantAlt);
+	sTracker.keysWantDown.set(VK_RBUTTON, wantRMB);
+
 
 	// Update mouse input
 	// ------------------
 	sTracker.digitalMouseVel = max(0,
 		sTracker.digitalMouseVel -
 		kConfig.mouseDPadAccel * 3 * gAppFrameTime);
+
 
 	// Dispatch input to system
 	// ------------------------
@@ -512,7 +536,6 @@ void cleanup()
 {
 	releaseAllHeldKeys();
 	flushInputVector();
-	sTracker = DispatchTracker();
 }
 
 
@@ -543,16 +566,20 @@ void setKeyReleased(u8 theVKey)
 }
 
 
-void shiftMouseCursor(int dx, int dy, bool digital)
+void moveMouse(int dx, int dy, bool digital)
 {
 	// Get magnitude of desired mouse motion in 0 to 1.0f range
     double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
 
 	// Apply deadzone and saturation to magnitude
-	if( aMagnitude < kConfig.cursorDeadzone )
+	const double aDeadZone = sTracker.mouseLookActive
+		? kConfig.mouseLookDeadzone : kConfig.cursorDeadzone;
+	if( aMagnitude < aDeadZone )
 		return;
-	aMagnitude -= kConfig.cursorDeadzone;
-	aMagnitude = min(aMagnitude / kConfig.cursorRange, 1.0);
+	aMagnitude -= aDeadZone;
+	const double aRange = sTracker.mouseLookActive
+		? kConfig.mouseLookRange : kConfig.cursorRange;
+	aMagnitude = min(aMagnitude / aRange, 1.0);
 
 	// Apply adjustments to allow for low-speed fine control
 	if( digital )
@@ -576,8 +603,12 @@ void shiftMouseCursor(int dx, int dy, bool digital)
 	dy = 32768.0 * aMagnitude * sin(anAngle);
 
 	// Apply speed setting
-	dx = dx * kConfig.cursorXSpeed / kMouseMaxSpeed * gAppFrameTime;
-	dy = dy * kConfig.cursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
+	const int kCursorXSpeed = sTracker.mouseLookActive
+		? kConfig.mouseLookXSpeed : kConfig.cursorXSpeed;
+	dx = dx * kCursorXSpeed / kMouseMaxSpeed * gAppFrameTime;
+	const int kCursorYSpeed = sTracker.mouseLookActive
+		? kConfig.mouseLookYSpeed : kConfig.cursorYSpeed;
+	dy = dy * kCursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
 
 	// Add in previously-stored sub-pixel movement amounts
 	static int sMouseXSubPixel = 0;
@@ -586,8 +617,8 @@ void shiftMouseCursor(int dx, int dy, bool digital)
 	dy += sMouseYSubPixel;
 
 	// Convert to pixels and retain sub-pixel amounts to add in later
-	// Sign of result of operator%() w/ negative dividend is
-	// implementation-defined, hence the extra sign check here
+	// Sign of result of operator%() w/ negative dividend may
+	// differ by compiler, hence the extra sign check here
 	if( dx < 0 )
 		sMouseXSubPixel = -((-dx) % kMouseToPixelDivisor);
 	else
@@ -606,7 +637,30 @@ void shiftMouseCursor(int dx, int dy, bool digital)
 	anInput.mi.dx = dx;
 	anInput.mi.dy = dy;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
-	SendInput(1, static_cast<INPUT*>(&anInput), sizeof(INPUT));
+	sTracker.inputs.push_back(anInput);
+}
+
+
+void setMouseLookMode(bool active)
+{
+	sTracker.mouseLookActive = active;
+	if( active && !sTracker.keysHeldDown.test(VK_RBUTTON) )
+	{
+		// Jump to center screen first, then begin holding right-click
+		Input anInput;
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.dx = 32768;
+		anInput.mi.dy = 32768;
+		anInput.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+		sTracker.inputs.push_back(anInput);
+		setKeyDown(VK_RBUTTON, true);
+	}
+}
+
+
+bool isInMouseLookMode()
+{
+	return sTracker.mouseLookActive;
 }
 
 
@@ -665,7 +719,7 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	anInput.type = INPUT_MOUSE;
 	anInput.mi.mouseData = DWORD(-dy);
 	anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
-	SendInput(1, static_cast<INPUT*>(&anInput), sizeof(INPUT));
+	sTracker.inputs.push_back(anInput);
 }
 
 } // InputDispatcher

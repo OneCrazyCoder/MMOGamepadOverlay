@@ -91,6 +91,13 @@ void update()
 	}
 	else if( !buttonDown(eBtn_R2) )
 	{
+		// Toggle mouse look vs mouse cursor mode
+		if( buttonHit(eBtn_FUp) )
+		{
+			InputDispatcher::setMouseLookMode(
+				!InputDispatcher::isInMouseLookMode());
+		}
+
 		// Move mouse with d-pad while not selecting macro
 		if( buttonDown(eBtn_DLeft) )
 			aMouseMoveX -= 255;
@@ -102,6 +109,14 @@ void update()
 			aMouseMoveY += 255;
 		if( aMouseMoveX || aMouseMoveY )
 			aMouseMoveDigital = true;
+		
+		// Just move cursor now
+		InputDispatcher::moveMouse(
+			aMouseMoveX, aMouseMoveY,
+			aMouseMoveDigital);
+		aMouseMoveX = 0;
+		aMouseMoveY = 0;
+		aMouseMoveDigital = false;
 	}
 
 	if( buttonDown(eBtn_R2) )
@@ -133,17 +148,9 @@ void update()
 			aMouseMoveY -= anAxisVal;
 	}
 
-	// Test holdinga modifier key with L1
-	if( buttonHit(eBtn_L1) )
-		InputDispatcher::setKeyHeld(VK_SHIFT);
-	if( buttonReleased(eBtn_L1) )
-		InputDispatcher::setKeyReleased(VK_SHIFT);
-	
-	// Test mouse button click with R1
-	if( buttonHit(eBtn_R1) )
-		InputDispatcher::setKeyHeld(VK_LBUTTON);
-	if( buttonReleased(eBtn_R1) )
-		InputDispatcher::setKeyReleased(VK_LBUTTON);
+	InputDispatcher::moveMouse(
+		aMouseMoveX, aMouseMoveY,
+		aMouseMoveDigital);
 
 	// Test basic arrow key movement with left stick
 	if( buttonHit(eBtn_LSUp) )
@@ -163,9 +170,17 @@ void update()
 	if( buttonReleased(eBtn_LSRight) )
 		InputDispatcher::setKeyReleased(VK_RIGHT);
 
-	InputDispatcher::shiftMouseCursor(
-		aMouseMoveX, aMouseMoveY,
-		aMouseMoveDigital);
+	// Test holding a modifier key with L1
+	if( buttonHit(eBtn_L1) )
+		InputDispatcher::setKeyHeld(VK_SHIFT);
+	if( buttonReleased(eBtn_L1) )
+		InputDispatcher::setKeyReleased(VK_SHIFT);
+	
+	// Test mouse button click with R1
+	if( buttonHit(eBtn_R1) )
+		InputDispatcher::setKeyHeld(VK_LBUTTON);
+	if( buttonReleased(eBtn_R1) )
+		InputDispatcher::setKeyReleased(VK_LBUTTON);
 }
 
 } // InputTranslator

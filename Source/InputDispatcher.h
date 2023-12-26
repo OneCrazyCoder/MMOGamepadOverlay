@@ -35,10 +35,16 @@ void setKeyHeld(u8 theVKey);
 // Requests given key (or mouse button) being held down be released
 void setKeyReleased(u8 theVKey);
 
-// Directly move the mouse cursor relative to current position
+// Shift mouse mouse position relative to current position
 // Amount specified by dx/dy is in relation to mouse speed
-// settings, and expected range of -255 to 255
-void shiftMouseCursor(int dx, int dy, bool digital);
+// settings, and expected range of -255 to 255.
+void moveMouse(int dx, int dy, bool digital);
+
+// Adjusts speeds from moveMouse and, if true, causes
+// right mouse button to be held down.
+void setMouseLookMode(bool);
+// Returns if currently in MouseLook mode
+bool isInMouseLookMode();
 
 // Send mouse wheel up/down motion. Expected range of -255 to 255.
 // In cases where target app only responds to full "clicks" of the
