@@ -503,7 +503,7 @@ void queryUserForProfile()
 {
 	// TODO
 	// TEMP - just generate and select a default profile
-	static const size_t kDefaultProfileID = 4; // M&M
+	static const size_t kDefaultProfileID = 5; // PQ
 	//if( !profileExists(kResourceProfiles[kDefaultProfileID].name) )
 		generateResourceProfile(kDefaultProfileID);
 	sAvailableProfiles.push_back(kResourceProfiles[kDefaultProfileID].name);
