@@ -5,6 +5,7 @@
 #include "OverlayWindow.h"
 
 #include "HUD.h"
+#include "InputMap.h"
 #include "Profile.h"
 
 namespace OverlayWindow
@@ -16,21 +17,8 @@ namespace OverlayWindow
 
 struct Config
 {
-	int autoFadeDelay;
-	float minAlpha;
-	float maxAlpha;
-	float fadeInRate;
-	float fadeOutRate;
-
 	void load()
 	{
-		this->autoFadeDelay = max(1, Profile::getInt("HUD/FadeOutDelay", 500));
-		this->minAlpha = float(clamp(Profile::getInt("HUD/MinAlpha", 0), 0, 255));
-		this->maxAlpha = float(clamp(Profile::getInt("HUD/MaxAlpha", 255), 0, 255));
-		const int aFadeInTime = Profile::getInt("HUD/FadeInTime", 125);
-		this->fadeInRate = float(this->maxAlpha - this->minAlpha) / aFadeInTime;
-		const int aFadeOutTime = Profile::getInt("HUD/FadeOutTime", 650);
-		this->fadeOutRate = float(this->maxAlpha - this->minAlpha) / aFadeOutTime;
 	}
 };
 
@@ -48,10 +36,6 @@ HWND gHandle = NULL;
 
 static Config kConfig;
 static WNDCLASSEXW sWindowClass;
-static float sWindowAlpha = 0;
-static int sAutoFadeOutTimer = 0;
-static bool sFadingIn = false;
-static bool sFadingOut = false;
 
 
 //-----------------------------------------------------------------------------
@@ -119,7 +103,7 @@ void create(HINSTANCE theAppInstanceHandle)
 		return;
 	}
 
-	SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(0), LWA_COLORKEY | LWA_ALPHA);
+	SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(0), LWA_COLORKEY);
 	ShowWindow(gHandle, SW_SHOW);
 	UpdateWindow(gHandle);
 }
@@ -140,10 +124,6 @@ void loadProfile()
 {
 	kConfig.load();
 	HUD::init();
-	sWindowAlpha = clamp(sWindowAlpha, kConfig.minAlpha, kConfig.maxAlpha);
-	const BYTE anAlphaVal = u8(clamp(sWindowAlpha, 0.0, 255.0));
-	SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(anAlphaVal), LWA_COLORKEY | LWA_ALPHA);
-	redraw();
 }
 
 
@@ -151,31 +131,6 @@ void update()
 {
 	if( !gHandle )
 		return;
-
-	if( sFadingIn )
-	{
-		sWindowAlpha = min(sWindowAlpha + kConfig.fadeInRate * gAppFrameTime, kConfig.maxAlpha);
-		const BYTE anAlphaVal = u8(clamp(sWindowAlpha, 0.0, 255.0));
-		SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(anAlphaVal), LWA_COLORKEY | LWA_ALPHA);
-		if( sWindowAlpha >= kConfig.maxAlpha )
-			sFadingIn = false;
-	}
-
-	if( sFadingOut )
-	{
-		sWindowAlpha = max(sWindowAlpha - kConfig.fadeOutRate * gAppFrameTime, kConfig.minAlpha);
-		const BYTE anAlphaVal = u8(clamp(sWindowAlpha, 0.0, 255.0));
-		SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(anAlphaVal), LWA_COLORKEY | LWA_ALPHA);
-		if( sWindowAlpha <= kConfig.minAlpha )
-			sFadingOut = false;
-	}
-
-	if( sAutoFadeOutTimer > 0 )
-	{
-		sAutoFadeOutTimer -= gAppFrameTime;
-		if( sAutoFadeOutTimer <= 0 )
-			beginFadeOut();
-	}
 
 	HUD::update();
 }
@@ -185,38 +140,6 @@ void redraw()
 {
 	if( gHandle )
 		InvalidateRect(gHandle, NULL, true);
-}
-
-void fadeFullyIn()
-{
-	sFadingOut = false;
-	sFadingIn = true;
-}
-
-
-void beginFadeOut()
-{
-	abortAutoFadeOut();
-	sFadingOut = true;
-	sFadingIn = false;
-}
-
-
-void startAutoFadeOutTimer()
-{
-	sAutoFadeOutTimer = kConfig.autoFadeDelay;
-}
-
-
-void abortAutoFadeOut()
-{
-	sAutoFadeOutTimer = 0;
-}
-
-
-bool isAutoFadeOutTimeSet()
-{
-	return gHandle && sAutoFadeOutTimer > 0;
 }
 
 } // OverlayWindow

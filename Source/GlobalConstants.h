@@ -11,27 +11,30 @@
 
 enum EHUDElement
 {
-	eHUDElement_None		= 0x00,
-	eHUDElement_Abilities	= 0x01,
-	eHUDElement_Macros		= 0x02,
+	eHUDElement_None,
+	eHUDElement_Abilities,
+	eHUDElement_Macros,
+
+	eHUDElement_Num,
 };
 
-// Used as first byte of key sequence strings to indicate purpose
-// If first char is none of these, a Virtual-Key Code sequence is assumed
+// Used as first byte of output command strings to indicate purpose/format
 enum ECommandChar
 {
-	eCmdChar_ChangeMacroSet = 0x01,
-	eCmdChar_ChangeMode = 0x02,
-	eCmdChar_PressAndHoldKey = 0x03,
-	eCmdChar_ReleaseKey = 0x04,
-	eCmdChar_Mouse = 0x05,
-	eCmdChar_MoveCharacter = 0x06,
-	eCmdChar_SelectAbility = 0x07,
-	eCmdChar_SelectMacro = 0x0E,
-	eCmdChar_SelectMenu = 0x0F,
-	eCmdChar_ChangeMacro = 0x10,
-	eCmdChar_TargetGroup = 0x11,
-	eCmdChar_NextMouseHotspot = 0x12,
+	eCmdChar_Empty,
+	eCmdChar_ChangeMode,
+	eCmdChar_ChangeMacroSet,
+	eCmdChar_PressAndHoldKey,
+	eCmdChar_ReleaseKey,
+	eCmdChar_Mouse,
+	eCmdChar_MoveCharacter,
+	eCmdChar_SelectAbility,
+	eCmdChar_SelectMacro,
+	eCmdChar_SelectMenu,
+	eCmdChar_ChangeMacro,
+	eCmdChar_TargetGroup,
+	eCmdChar_NextMouseHotspot,
+	eCmdChar_VKeySequence = ' ',
 	eCmdChar_SlashCommand = '/',
 	eCmdChar_SayString = '>',
 };
@@ -39,11 +42,13 @@ enum ECommandChar
 // Used as the second byte for some of the above commands for more info
 enum ESubCommandChar
 {
-	eSubCmdChar_None,
+	// These first 4 must remain in this position & order!
+	// This is to align with the layout of macro sets
 	eSubCmdChar_Up,
-	eSubCmdChar_Down,
 	eSubCmdChar_Left,
 	eSubCmdChar_Right,
+	eSubCmdChar_Down,
+
 	eSubCmdChar_Prev,
 	eSubCmdChar_Next,
 	eSubCmdChar_Confirm,

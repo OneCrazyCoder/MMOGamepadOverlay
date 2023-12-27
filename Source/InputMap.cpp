@@ -46,23 +46,21 @@ struct MacroSetBuilder
 	std::string debugMacroSlotName;
 };
 
+struct ControlsMode
+{
+	Scheme scheme;
+	BitArray8<eHUDElement_Num> hud;
+
+	ControlsMode() : hud() {}
+};
+
 
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
 
 static std::vector<MacroSet> sMacroSets;
-static std::vector<Scheme> sSchemes;
-
-
-//-----------------------------------------------------------------------------
-// Scheme
-//-----------------------------------------------------------------------------
-
-Scheme::Scheme() :
-	mouseLookOn(false)
-{
-}
+static std::vector<ControlsMode> sModes;
 
 
 //-----------------------------------------------------------------------------
@@ -269,6 +267,7 @@ static MacroData stringToMacroSlot(
 		return aMacroData;
 
 	// Should be a key press sequence
+	aMacroData.keys.push_back(eCmdChar_VKeySequence);
 	for(int aWord = 0; aWord < theSetBuilder->parsedCommand.size(); ++aWord)
 	{
 		DBG_ASSERT(!theSetBuilder->parsedCommand[aWord].empty());
@@ -291,6 +290,10 @@ static MacroData stringToMacroSlot(
 			aMacroData.keys.push_back(aVKey);
 		}
 	}
+
+	// If no key sequence actually generated, leave .keys string empty
+	if( aMacroData.keys.length() == 1 )
+		aMacroData.keys.clear();
 
 	return aMacroData;
 }
@@ -324,8 +327,8 @@ static void buildControlSchemes()
 {
 	using namespace Gamepad;
 	// TEMP - hard coded for now
-	sSchemes.push_back(Scheme());
-	Scheme& aScheme = sSchemes.back();
+	sModes.push_back(ControlsMode());
+	Scheme& aScheme = sModes.back().scheme;
 	aScheme.mouseLookOn = false;
 
 	std::string aCmd;
@@ -338,6 +341,36 @@ static void buildControlSchemes()
 	aScheme.cmd[eBtn_RSUp].press = aCmd;
 	aCmd[1] = eSubCmdChar_Down;
 	aScheme.cmd[eBtn_RSDown].press = aCmd;
+
+	aCmd[0] = eCmdChar_ChangeMode;
+	aCmd[1] = 1;
+	aScheme.cmd[eBtn_L2].press = aCmd;
+
+	ControlsMode aMacroMode;
+	aMacroMode.hud.set(eHUDElement_Macros);
+	aMacroMode.scheme = aScheme;
+	aMacroMode.scheme.cmd[eBtn_L2] = Scheme::Commands();
+	aCmd[1] = 0;
+	aMacroMode.scheme.cmd[eBtn_L2].release = aCmd;
+
+	aCmd[0] = eCmdChar_ChangeMacroSet;
+	aMacroMode.scheme.cmd[eBtn_None].press = aCmd;
+
+	aCmd[0] = eCmdChar_SelectMacro;
+	aCmd[1] = 0;
+	aMacroMode.scheme.cmd[eBtn_DUp].tap = aCmd;
+	aMacroMode.scheme.cmd[eBtn_FUp].tap = aCmd;
+	aCmd[1] = 1;
+	aMacroMode.scheme.cmd[eBtn_DLeft].tap = aCmd;
+	aMacroMode.scheme.cmd[eBtn_FLeft].tap = aCmd;
+	aCmd[1] = 2;
+	aMacroMode.scheme.cmd[eBtn_DRight].tap = aCmd;
+	aMacroMode.scheme.cmd[eBtn_FRight].tap = aCmd;
+	aCmd[1] = 3;
+	aMacroMode.scheme.cmd[eBtn_DDown].tap = aCmd;
+	aMacroMode.scheme.cmd[eBtn_FDown].tap = aCmd;
+
+	sModes.push_back(aMacroMode);
 }
 
 
@@ -347,7 +380,7 @@ static void buildControlSchemes()
 
 void loadProfile()
 {
-	sSchemes.clear();
+	sModes.clear();
 	buildControlSchemes();
 	sMacroSets.clear();
 	buildMacroSets();
@@ -356,18 +389,19 @@ void loadProfile()
 
 const Scheme& controlScheme(int theModeID)
 {
-	DBG_ASSERT(theModeID == 0);
-	return sSchemes[0];
+	DBG_ASSERT(theModeID < sModes.size());
+	return sModes[theModeID].scheme;
 }
 
 
-u32 visibleHUDElements(int theMode)
+BitArray8<eHUDElement_Num> visibleHUDElements(int theModeID)
 {
-	return eHUDElement_None;
+	DBG_ASSERT(theModeID < sModes.size());
+	return sModes[theModeID].hud;
 }
 
 
-std::string macroOutput(int theMacroSetID, int theMacroSlotID)
+const std::string& macroOutput(int theMacroSetID, int theMacroSlotID)
 {
 	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
 	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
@@ -376,7 +410,7 @@ std::string macroOutput(int theMacroSetID, int theMacroSlotID)
 }
 
 
-std::string macroLabel(int theMacroSetID, int theMacroSlotID)
+const std::string& macroLabel(int theMacroSetID, int theMacroSlotID)
 {
 	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
 	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
