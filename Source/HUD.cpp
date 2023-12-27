@@ -153,7 +153,7 @@ void render(HWND theWindow)
 		// Interior background
 		FillRect(hdc, &aButtonRect, sButtonBrush);
 
-		const std::string& aLabel = InputMap::getMacroLabel(gMacroSetID, i);
+		const std::string& aLabel = InputMap::macroLabel(gMacroSetID, i);
 		if( !aLabel.empty() )
 		{// Text - word-wrapped + horizontal & vertical center justification
 			const std::wstring& aLabelW = widen(aLabel);

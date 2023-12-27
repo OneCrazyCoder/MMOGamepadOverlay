@@ -240,13 +240,13 @@ static EResult popNextKey(const std::string& theVKeySequence)
 static EResult popNextStringChar(const std::string& theString)
 {
 	DBG_ASSERT(
-		theString[0] == eCommandChar_SlashCommand ||
-		theString[0] == eCommandChar_SayString);
+		theString[0] == eCmdChar_SlashCommand ||
+		theString[0] == eCmdChar_SayString);
 
 	const size_t idx = sTracker.currTaskProgress++;
 	// End with carriage return, and start with it for say strings
 	const char c =
-		(idx == 0 && theString[0] == eCommandChar_SayString) ||
+		(idx == 0 && theString[0] == eCmdChar_SayString) ||
 		idx >= theString.size()
 			? '\r'
 			: theString[idx];
@@ -271,6 +271,37 @@ static EResult popNextStringChar(const std::string& theString)
 		return eResult_TaskCompleted;
 
 	return eResult_Incomplete;
+}
+
+
+static bool isSafeAsyncKey(u8 theVKey)
+{
+	// These are keys that can be pressed while typing
+	// in a macro into the chat box without interfering
+	// with the macro or being interfered with by it.
+	// This may need to be moved into use configuration if
+	// it differs by target application.
+	if( sTracker.keysHeldDown.test(VK_SHIFT) ||
+		sTracker.keysHeldDown.test(VK_CONTROL) ||
+		sTracker.keysHeldDown.test(VK_MENU) )
+		return false;
+
+	if( theVKey == VK_LBUTTON && sTracker.keysHeldDown.test(VK_RBUTTON) )
+		return true;
+
+	if( theVKey == VK_MBUTTON )
+		return true;
+
+	if( theVKey >= VK_PRIOR && theVKey <= VK_INSERT )
+		return true;
+
+	if( theVKey >= VK_NUMPAD0 && theVKey <= VK_NUMPAD9 )
+		return true;
+
+	if( theVKey >= VK_F1 && theVKey <= VK_F12 )
+		return true;
+
+	return false;
 }
 
 
@@ -404,6 +435,13 @@ void loadProfile()
 }
 
 
+void cleanup()
+{
+	releaseAllHeldKeys();
+	flushInputVector();
+}
+
+
 void update()
 {
 	// Update timers
@@ -430,18 +468,18 @@ void update()
 		DBG_ASSERT(aCurrTask.keys.length() > 1);
 		switch(aCurrTask.keys[0])
 		{
-		case eCommandChar_SlashCommand:
-		case eCommandChar_SayString:
+		case eCmdChar_SlashCommand:
+		case eCmdChar_SayString:
 			if( taskIsPastDue )
 				aTaskResult = eResult_TaskCompleted;
 			else
 				aTaskResult = popNextStringChar(aCurrTask.keys);
 			break;
-		case eCommandChar_PressAndHoldKey:
+		case eCmdChar_PressAndHoldKey:
 			sTracker.keysWantDown.set(aCurrTask.keys[1]);
 			aTaskResult = eResult_TaskCompleted;
 			break;
-		case eCommandChar_ReleaseKey:
+		case eCmdChar_ReleaseKey:
 			if( !taskIsPastDue )
 			{// Make sure not to skip a tap before next press
 				if( sTracker.keysWantDown.test(aCurrTask.keys[1]) )
@@ -532,26 +570,26 @@ void update()
 }
 
 
-void cleanup()
+void sendKeySequence(const char* theSequence)
 {
-	releaseAllHeldKeys();
-	flushInputVector();
-}
-
-
-void sendKeySequence(const std::string& theMacro)
-{
-	if( theMacro.empty() )
+	if( theSequence == NULL || theSequence[0] == '\0' )
 		return;
 
-	sTracker.queue.push_back(theMacro);
+	sTracker.queue.push_back(theSequence);
 }
 
 
 void setKeyHeld(u8 theVKey)
 {
+	if( isSafeAsyncKey(theVKey) &&
+		setKeyDown(theVKey, true) == eResult_Ok )
+	{// Don't need to queue this key
+		sTracker.keysWantDown.set(theVKey);
+		return;
+	}
+
 	std::string aCommand;
-	aCommand.push_back(eCommandChar_PressAndHoldKey);
+	aCommand.push_back(eCmdChar_PressAndHoldKey);
 	aCommand.push_back(theVKey);
 	sTracker.queue.push_back(aCommand);
 }
@@ -559,8 +597,16 @@ void setKeyHeld(u8 theVKey)
 
 void setKeyReleased(u8 theVKey)
 {
+	if( sTracker.keysHeldDown.test(theVKey) &&
+		sTracker.keysWantDown.test(theVKey) &&
+		setKeyDown(theVKey, false) == eResult_Ok )
+	{// Safely released key right away, no need to queue it
+		sTracker.keysWantDown.reset(theVKey);
+		return;
+	}
+
 	std::string aCommand;
-	aCommand.push_back(eCommandChar_ReleaseKey);
+	aCommand.push_back(eCmdChar_ReleaseKey);
 	aCommand.push_back(theVKey);
 	sTracker.queue.push_back(aCommand);
 }
@@ -568,18 +614,22 @@ void setKeyReleased(u8 theVKey)
 
 void moveMouse(int dx, int dy, bool digital)
 {
+	const bool kMouseLookSpeed =
+		sTracker.mouseLookActive ||
+		sTracker.keysHeldDown.test(VK_RBUTTON);
+
 	// Get magnitude of desired mouse motion in 0 to 1.0f range
     double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
 
 	// Apply deadzone and saturation to magnitude
-	const double aDeadZone = sTracker.mouseLookActive
+	const double kDeadZone = kMouseLookSpeed
 		? kConfig.mouseLookDeadzone : kConfig.cursorDeadzone;
-	if( aMagnitude < aDeadZone )
+	if( aMagnitude < kDeadZone )
 		return;
-	aMagnitude -= aDeadZone;
-	const double aRange = sTracker.mouseLookActive
+	aMagnitude -= kDeadZone;
+	const double kRange = kMouseLookSpeed
 		? kConfig.mouseLookRange : kConfig.cursorRange;
-	aMagnitude = min(aMagnitude / aRange, 1.0);
+	aMagnitude = min(aMagnitude / kRange, 1.0);
 
 	// Apply adjustments to allow for low-speed fine control
 	if( digital )
@@ -603,10 +653,10 @@ void moveMouse(int dx, int dy, bool digital)
 	dy = 32768.0 * aMagnitude * sin(anAngle);
 
 	// Apply speed setting
-	const int kCursorXSpeed = sTracker.mouseLookActive
+	const int kCursorXSpeed = kMouseLookSpeed
 		? kConfig.mouseLookXSpeed : kConfig.cursorXSpeed;
 	dx = dx * kCursorXSpeed / kMouseMaxSpeed * gAppFrameTime;
-	const int kCursorYSpeed = sTracker.mouseLookActive
+	const int kCursorYSpeed = kMouseLookSpeed
 		? kConfig.mouseLookYSpeed : kConfig.cursorYSpeed;
 	dy = dy * kCursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
 

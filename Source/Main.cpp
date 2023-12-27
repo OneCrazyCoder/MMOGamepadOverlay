@@ -58,6 +58,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			aMillisecsPerUpdate = (DWORD)
 				Profile::getInt("System/FrameTime", aMillisecsPerUpdate);
 			InputMap::loadProfile();
+			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
 			OverlayWindow::loadProfile();
 		}
@@ -108,6 +109,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		}
 
 		// Cleanup
+		InputTranslator::cleanup();
 		InputDispatcher::cleanup();
 		OverlayWindow::destroy();
 	}

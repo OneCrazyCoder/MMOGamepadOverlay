@@ -111,7 +111,6 @@ struct GamepadData : private ConstructFromZeroInitializedMemory<GamepadData>
 		DWORD xInputPacketNum;
 		BitArray<eBtn_Num> buttonsHit;
 		BitArray<eBtn_Num> buttonsDown;
-		BitArray<eBtn_Num> buttonsReleased;
 		BitArray<eBtn_Num> initialState;
 		EVendorID vendorID : 8;
 		u8 axisVal[eAxis_Num];
@@ -310,7 +309,6 @@ static void pollXInputGamepad(int theGamepadID)
 
 	GamepadData::Gamepad& aGamepad = sGamepadData.gamepad[theGamepadID];
 	aGamepad.buttonsHit.reset();
-	aGamepad.buttonsReleased.reset();
 
 	DWORD dwResult;	
 	XINPUT_STATE state;
@@ -386,8 +384,6 @@ static void pollXInputGamepad(int theGamepadID)
 				}
 				else
 				{
-					if( aGamepad.buttonsDown.test(i) )
-						aGamepad.buttonsReleased.set(i);
 					aGamepad.buttonsDown.reset(i);
 				}
 			}
@@ -511,7 +507,6 @@ static void releaseGamepad(int theGamepadID)
 	GamepadData::Gamepad& aGamepad = sGamepadData.gamepad[theGamepadID];
 	aGamepad.buttonsDown.reset();
 	aGamepad.buttonsHit.reset();
-	aGamepad.buttonsReleased.reset();
 	aGamepad.lastUpdateTime = 0;
 	aGamepad.xInputID = 0;
 	aGamepad.initialState.reset();
@@ -552,7 +547,6 @@ static void pollGamepad(int theGamepadID)
 	}
 	
 	aGamepad.buttonsHit.reset();
-	aGamepad.buttonsReleased.reset();
 	aGamepad.device->Poll();
 
 	DIDEVICEOBJECTDATA rgdod[kDIGamepadDataBufferSize]; 
@@ -602,7 +596,6 @@ static void pollGamepad(int theGamepadID)
 				else
 				{// Button is now up
 					aGamepad.buttonsDown.reset(aButton);
-					aGamepad.buttonsReleased.set(aButton);
 				}
 			}
 			else if( anInputOfs >= DIJOFS_X && anInputOfs <= DIJOFS_RZ )
@@ -648,8 +641,6 @@ static void pollGamepad(int theGamepadID)
 					}
 					else
 					{
-						if( aGamepad.buttonsDown.test(aButton) )
-							aGamepad.buttonsReleased.set(aButton);
 						aGamepad.buttonsDown.reset(aButton);
 					}
 				}
@@ -662,22 +653,32 @@ static void pollGamepad(int theGamepadID)
 				aGamepad.buttonsDown.reset(eBtn_DUp);
 				aGamepad.buttonsDown.reset(eBtn_DDown);
 				if( (signed)rgdod[i].dwData != -1 && (LOWORD(rgdod[i].dwData) != 0xFFFF) )
-				{// Direction pressed
-					// Left
+				{// Moved
 					if( rgdod[i].dwData >= 22500 && rgdod[i].dwData <= 31500 )
+					{// Left
+						if( !prevInputsDown.test(eBtn_DLeft) )
+							aGamepad.buttonsHit.set(eBtn_DLeft);
 						aGamepad.buttonsDown.set(eBtn_DLeft);
-					// Right
+					}
 					if( rgdod[i].dwData >= 4500 && rgdod[i].dwData <= 13500 )
+					{// Right
+						if( !prevInputsDown.test(eBtn_DRight) )
+							aGamepad.buttonsHit.set(eBtn_DRight);
 						aGamepad.buttonsDown.set(eBtn_DRight);
-					// Up
+					}
 					if( rgdod[i].dwData <= 4500 || rgdod[i].dwData >= 31500 )
+					{// Up
+						if( !prevInputsDown.test(eBtn_DUp) )
+							aGamepad.buttonsHit.set(eBtn_DUp);
 						aGamepad.buttonsDown.set(eBtn_DUp);
-					// Down
+					}
 					if( rgdod[i].dwData >= 13500 && rgdod[i].dwData <= 22500 )
+					{// Down
+						if( !prevInputsDown.test(eBtn_DDown) )
+							aGamepad.buttonsHit.set(eBtn_DDown);
 						aGamepad.buttonsDown.set(eBtn_DDown);
+					}
 				}
-				aGamepad.buttonsHit |= aGamepad.buttonsDown & ~prevInputsDown;
-				aGamepad.buttonsReleased |= prevInputsDown & ~aGamepad.buttonsDown;
 			}
 		}
 		if( readEvents )
@@ -1101,32 +1102,6 @@ bool buttonHit(EButton theButton)
 	{// See if button was hit on selected gamepad
 		return sGamepadData.gamepad[sGamepadData.selectedGamepadID]
 			.buttonsHit.test(theButton);
-	}
-
-	return false;
-}
-
-
-bool buttonReleased(EButton theButton)
-{
-	DBG_ASSERT(sGamepadData.initialized);
-	
-	if( (unsigned)theButton >= eBtn_Num )
-		return false;
-
-	if( sGamepadData.selectedGamepadID < 0 ||
-		sGamepadData.selectedGamepadID >= sGamepadData.deviceCountForDInput )
-	{// See if button was released on ANY gamepad
-		for( int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
-		{
-			if( sGamepadData.gamepad[i].buttonsReleased.test(theButton) )
-				return true;
-		}
-	}
-	else
-	{// See if button was released on selected gamepad
-		return sGamepadData.gamepad[sGamepadData.selectedGamepadID]
-			.buttonsReleased.test(theButton);
 	}
 
 	return false;

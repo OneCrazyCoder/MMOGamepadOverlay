@@ -7,8 +7,8 @@
 /*
 	Manages the gamepad connection, input polling, and state tracking.
 	Detects and handles gamepad connection and disconnection events.
-	Tracks gamepad buttons' pressed, held, and released states, as well
-	as analog values for axis-based inputs like analog sticks.
+	Tracks gamepad buttons' press and held states, as well as analog
+	values for axis-based inputs like analog sticks and triggers buttons.
 */
 
 #include "Common.h"
@@ -131,12 +131,12 @@ void setImpulseTriggersEnabled(bool);
 // Does NOT affect axisVal() or buttonAnalogVal()!
 void setDigitalDeadzone(EButton theButton, u8 theDeadzone = 100);
 
-// Check which buttons have been used on selected gamepad.
-// "Hit" is true if the button was just barely pressed,
-// "Released" if the button was just barely let go, and
-// "Down" means it is currently held down.
+// Returns true if given button was newly pressed on any active gamepad
+// Only checks selected gamepad if one is selected (auto or otherwise)
 bool buttonHit(EButton theButton);
-bool buttonReleased(EButton theButton);
+
+// Returns true if given button is held down on any active gamepad
+// Only checks selected gamepad if one is selected (auto or otherwise)
 bool buttonDown(EButton theButton);
 
 // Returns a value between 0 and 255 for given axis.
