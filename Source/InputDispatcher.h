@@ -26,9 +26,10 @@ void update();
 
 // Sends the input for a sequence of key taps (or a single tap).
 // The first character is checked against ECommandChar to see if
-// it is a string of Virtual-Key Codes (no command char set) or
-// ASCII chars that should be "typed" into a text entry field.
-void sendKeySequence(const char* theSequence);
+// it is a string of Virtual-Key Codes (eCmdChar_VKeySequence) or
+// ASCII chars that should be "typed" into a text entry field
+// (eCmdChar_SlashCommand or _SayString). Others are invalid!
+void sendMacro(const char* theMacro);
 
 // Requests given key (or mouse button) be held down or released
 void setKeyHeld(u8 theVKey);

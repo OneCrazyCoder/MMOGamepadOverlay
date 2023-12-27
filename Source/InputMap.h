@@ -34,7 +34,7 @@ struct Scheme
 	Commands cmd[kButtonsChecked];
 	bool mouseLookOn;
 
-	Scheme();
+	Scheme() : mouseLookOn() {}
 };
 
 // Load the input mappings and macro sets from current profile
@@ -44,12 +44,12 @@ void loadProfile();
 const Scheme& controlScheme(int theModeID);
 
 // Get bitfield of EHudElements that should be shown
-u32 visibleHUDElements(int theMode);
+BitArray8<eHUDElement_Num> visibleHUDElements(int theMode);
 
 // Get command for executing given macro slot in given set
-std::string macroOutput(int theMacroSetID, int theMacroSlotID);
+const std::string& macroOutput(int theMacroSetID, int theMacroSlotID);
 
 // Get macro name (label) for given macro set & slot
-std::string macroLabel(int theMacroSetID, int theMacroSlotID);
+const std::string& macroLabel(int theMacroSetID, int theMacroSlotID);
 
 } // InputMap

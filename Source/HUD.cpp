@@ -135,41 +135,45 @@ void render(HWND theWindow)
 		return;
 	}
 
-	HFONT anOldFont = (HFONT)SelectObject(hdc, sFont);
-	SetBkColor(hdc, kConfig.buttonColor);
-	SetTextColor(hdc, kConfig.labelColor);
-
-	// Draw each button
-	for(int i = 0; i < 4; ++i)
+	if( InputMap::visibleHUDElements(gControlsModeID).test(eHUDElement_Macros) )
 	{
-		RECT aButtonRect;
-		aButtonRect.left = kConfig.macroButtonPos[i].x;
-		aButtonRect.top = kConfig.macroButtonPos[i].y;
-		aButtonRect.right = kConfig.macroButtonPos[i].x + kConfig.macroButtonW;
-		aButtonRect.bottom = kConfig.macroButtonPos[i].y + kConfig.macroButtonH;
-		// Border
-		FillRect(hdc, &aButtonRect, sBorderBrush);
-		InflateRect(&aButtonRect, -kConfig.borderThickness, -kConfig.borderThickness);
-		// Interior background
-		FillRect(hdc, &aButtonRect, sButtonBrush);
+		HFONT anOldFont = (HFONT)SelectObject(hdc, sFont);
+		SetBkColor(hdc, kConfig.buttonColor);
+		SetTextColor(hdc, kConfig.labelColor);
 
-		const std::string& aLabel = InputMap::macroLabel(gMacroSetID, i);
-		if( !aLabel.empty() )
-		{// Text - word-wrapped + horizontal & vertical center justification
-			const std::wstring& aLabelW = widen(aLabel);
-			RECT aTextRect = aButtonRect;
-			aTextRect.bottom = aTextRect.top;
-			const int aTextHeight = DrawText(hdc, aLabelW.c_str(),
-				-1, &aTextRect, DT_WORDBREAK | DT_CENTER | DT_CALCRECT);
-			aTextRect.top += (aButtonRect.bottom - aButtonRect.top - aTextHeight) / 2;
-			aTextRect.right = aButtonRect.right;
-			aTextRect.bottom = aButtonRect.bottom;
-			DrawText(hdc, aLabelW.c_str(), -1, &aTextRect, DT_WORDBREAK | DT_CENTER);
+		// Draw each button
+		for(int i = 0; i < 4; ++i)
+		{
+			RECT aButtonRect;
+			aButtonRect.left = kConfig.macroButtonPos[i].x;
+			aButtonRect.top = kConfig.macroButtonPos[i].y;
+			aButtonRect.right = kConfig.macroButtonPos[i].x + kConfig.macroButtonW;
+			aButtonRect.bottom = kConfig.macroButtonPos[i].y + kConfig.macroButtonH;
+			// Border
+			FillRect(hdc, &aButtonRect, sBorderBrush);
+			InflateRect(&aButtonRect, -kConfig.borderThickness, -kConfig.borderThickness);
+			// Interior background
+			FillRect(hdc, &aButtonRect, sButtonBrush);
+
+			const std::string& aLabel = InputMap::macroLabel(gMacroSetID, i);
+			if( !aLabel.empty() )
+			{// Text - word-wrapped + horizontal & vertical center justification
+				const std::wstring& aLabelW = widen(aLabel);
+				RECT aTextRect = aButtonRect;
+				aTextRect.bottom = aTextRect.top;
+				const int aTextHeight = DrawText(hdc, aLabelW.c_str(),
+					-1, &aTextRect, DT_WORDBREAK | DT_CENTER | DT_CALCRECT);
+				aTextRect.top += (aButtonRect.bottom - aButtonRect.top - aTextHeight) / 2;
+				aTextRect.right = aButtonRect.right;
+				aTextRect.bottom = aButtonRect.bottom;
+				DrawText(hdc, aLabelW.c_str(), -1, &aTextRect, DT_WORDBREAK | DT_CENTER);
+			}
 		}
+
+		// Clean up
+		SelectObject(hdc, anOldFont);
 	}
 
-	// Clean up
-	SelectObject(hdc, anOldFont);
 	EndPaint(theWindow, &aPaintStruct);		
 }
 

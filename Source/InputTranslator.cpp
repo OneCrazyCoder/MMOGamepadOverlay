@@ -51,29 +51,23 @@ struct ButtonState
 struct InputResults
 {
 	int newMode;
-	int newMacroSet;
 	s16 mouseMoveX;
 	s16 mouseMoveY;
 	s16 mouseWheelY;
 	bool mouseMoveDigital;
 	bool mouseWheelDigital;
 	bool mouseWheelStepped;
-	std::vector<u8> heldKeys;
-	std::vector<u8> releasedKeys;
-	std::vector<const char*> keySequences;
+	std::vector<const char*> macros;
 
 	void clear()
 	{
 		newMode = gControlsModeID;
-		newMacroSet = gMacroSetID;
 		mouseMoveX = 0;
 		mouseMoveY = 0;
 		mouseWheelY = 0;
 		mouseMoveDigital = false;
 		mouseWheelDigital = false;
-		heldKeys.clear();
-		releasedKeys.clear();
-		keySequences.clear();
+		macros.clear();
 	}
 };
 
@@ -91,24 +85,38 @@ static InputResults sResults;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static void processCommand(const std::string& theCommandString)
+static void processCommand(const std::string& theCmd)
 {
-	DBG_ASSERT(theCommandString.size() > 1);
+	if( theCmd.empty() )
+		return;
 
 	// Check command char to know how to process the string
-	switch(theCommandString[0])
+	switch(theCmd[0])
 	{
+	case eCmdChar_Empty:
+		// Do nothing
+		break;
 	case eCmdChar_ChangeMode:
-		sResults.newMode = theCommandString[1];
+		DBG_ASSERT(theCmd.size() > 1);
+		sResults.newMode = theCmd[1];
+		break;
+	case eCmdChar_ChangeMacroSet:
+		switch(theCmd.size())
+		{
+		case 2: gMacroSetID = theCmd[1]; break;
+		case 3: gMacroSetID = (u16)theCmd[1] | (u16(theCmd[2]) << 8); break;
+		default: DBG_ASSERT(false); break;
+		}
+		// Temp hack
+		OverlayWindow::redraw();
 		break;
 	case eCmdChar_PressAndHoldKey:
-		sResults.heldKeys.push_back(theCommandString[1]);
+		DBG_ASSERT(theCmd.size() > 1);
+		InputDispatcher::setKeyHeld(theCmd[1]);
 		break;
 	case eCmdChar_ReleaseKey:
-		sResults.releasedKeys.push_back(theCommandString[1]);
-		break;
-	case eCmdChar_Mouse:
-		// Processed elsewhere
+		DBG_ASSERT(theCmd.size() > 1);
+		InputDispatcher::setKeyReleased(theCmd[1]);
 		break;
 	case eCmdChar_MoveCharacter:
 		// TODO
@@ -117,7 +125,9 @@ static void processCommand(const std::string& theCommandString)
 		// TODO
 		break;
 	case eCmdChar_SelectMacro:
-		// TODO
+		DBG_ASSERT(theCmd.size() > 1);
+		// Warning: only works because macroOutput returns by const reference!
+		processCommand(InputMap::macroOutput(gMacroSetID, theCmd[1]));
 		break;
 	case eCmdChar_SelectMenu:
 		// TODO
@@ -131,14 +141,23 @@ static void processCommand(const std::string& theCommandString)
 	case eCmdChar_NextMouseHotspot:
 		// TODO
 		break;
-	case eCmdChar_ChangeMacroSet:
-		// Should never reach here with these commands
-		DBG_ASSERT(false);
+	case eCmdChar_Mouse:
+		// Processed directly by processAnalogInput() instead,
+		// but not a bug to end up here first
 		break;
+	case eCmdChar_VKeySequence:
 	case eCmdChar_SlashCommand:
 	case eCmdChar_SayString:
+		// Queue these so they are sent last, since they can potentially
+		// block other inputs from being processed temporarily.
+		// WARNING: Only works if theCmd has been a const reference all
+		// the way from InputMap's data to this point, so the string
+		// pointed to by c_str() won't go out of scope!
+		sResults.macros.push_back(theCmd.c_str());
+		break;
 	default:
-		sResults.keySequences.push_back(theCommandString.c_str());
+		// Invalid command!
+		DBG_ASSERT(false);
 		break;
 	}
 }
@@ -157,9 +176,6 @@ static void processButtonPress(
 	// "stuck" held down forever, nor do we have to immediately force
 	// all keys to be released every time a control scheme changes.
 	sButtonStates[theButton].schemeWhenPressed = &theScheme;
-
-	if( aCmd.press.empty() )
-		return;
 
 	processCommand(aCmd.press);
 }
@@ -234,8 +250,6 @@ static void processButtonLongHold(
 		sButtonStates[theButton].schemeWhenPressed;
 	DBG_ASSERT(aScheme);
 	const InputMap::Scheme::Commands& aCmd = aScheme->cmd[theButton];
-	if( aCmd.held.empty() )
-		return;
 
 	processCommand(aCmd.held);
 }
@@ -252,8 +266,6 @@ static void processButtonTap(
 	if( aScheme->cmd[theButton].tap.empty() )
 		aScheme = &theScheme;
 	const InputMap::Scheme::Commands& aCmd = aScheme->cmd[theButton];
-	if( aCmd.tap.empty() )
-		return;
 	
 	processCommand(aCmd.tap);
 }
@@ -287,8 +299,6 @@ static void processButtonReleased(
 			return;
 	}
 	const InputMap::Scheme::Commands& aCmd = aScheme->cmd[theButton];
-	if( aCmd.release.empty() )
-		return;
 
 	processCommand(aCmd.release);
 }
@@ -372,6 +382,19 @@ void update()
 		sResults.mouseWheelY,
 		sResults.mouseWheelDigital,
 		sResults.mouseWheelStepped);
+	for(size_t i = 0; i < sResults.macros.size(); ++i)
+		InputDispatcher::sendMacro(sResults.macros[i]);
+
+	if( sResults.newMode != gControlsModeID )
+	{// Swap controls modes
+		gControlsModeID = sResults.newMode;
+		// See if have an auto-input for initializing new mode
+		const InputMap::Scheme& aNewScheme =
+			InputMap::controlScheme(gControlsModeID);
+		processCommand(aNewScheme.cmd[0].press);
+		// Temp hack
+		OverlayWindow::redraw();
+	}
 }
 
 } // InputTranslator

@@ -203,9 +203,9 @@ static DispatchTracker sTracker;
 
 static EResult popNextKey(const std::string& theVKeySequence)
 {
-	while( sTracker.currTaskProgress < theVKeySequence.size() )
+	while( ++sTracker.currTaskProgress < theVKeySequence.size() )
 	{
-		const size_t idx = sTracker.currTaskProgress++;
+		const size_t idx = sTracker.currTaskProgress;
 		u8 aVKey = theVKeySequence[idx];
 
 		if( aVKey == VK_SHIFT )
@@ -490,7 +490,7 @@ void update()
 			sTracker.keysWantDown.reset(aCurrTask.keys[1]);
 			aTaskResult = eResult_TaskCompleted;
 			break;
-		default:
+		case eCmdChar_VKeySequence:
 			if( taskIsPastDue )
 				aTaskResult = eResult_TaskCompleted;
 			else
@@ -570,12 +570,17 @@ void update()
 }
 
 
-void sendKeySequence(const char* theSequence)
+void sendMacro(const char* theMacro)
 {
-	if( theSequence == NULL || theSequence[0] == '\0' )
+	if( theMacro == NULL || theMacro[0] == '\0' )
 		return;
 
-	sTracker.queue.push_back(theSequence);
+	DBG_ASSERT(
+		theMacro[0] == eCmdChar_VKeySequence ||
+		theMacro[0] == eCmdChar_SlashCommand ||
+		theMacro[0] == eCmdChar_SayString);
+
+	sTracker.queue.push_back(theMacro);
 }
 
 
