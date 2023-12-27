@@ -4,6 +4,7 @@
 
 #include "InputMap.h"
 
+#include "Gamepad.h"
 #include "Lookup.h"
 #include "Profile.h"
 
@@ -51,6 +52,17 @@ struct MacroSetBuilder
 //-----------------------------------------------------------------------------
 
 static std::vector<MacroSet> sMacroSets;
+static std::vector<Scheme> sSchemes;
+
+
+//-----------------------------------------------------------------------------
+// Scheme
+//-----------------------------------------------------------------------------
+
+Scheme::Scheme() :
+	mouseLookOn(false)
+{
+}
 
 
 //-----------------------------------------------------------------------------
@@ -228,7 +240,7 @@ static MacroData stringToMacroSlot(
 	if( aMacroData.label.empty() && !theString.empty() )
 	{// Having no : character means this is a sub-set
 		aMacroData.label = trim(theString);
-		aMacroData.keys.push_back(eCommandChar_ChangeMacroSet);
+		aMacroData.keys.push_back(eCmdChar_ChangeMacroSet);
 		aMacroData.keys.push_back(u8(sMacroSets.size()));
 		if( sMacroSets.size() > 0xFF )
 			aMacroData.keys.push_back(u8(sMacroSets.size() >> 8));
@@ -243,8 +255,8 @@ static MacroData stringToMacroSlot(
 		return aMacroData;
 
 	// Check for a slash command or say string, which outputs the whole string
-	if( theString[0] == eCommandChar_SlashCommand ||
-		theString[0] == eCommandChar_SayString )
+	if( theString[0] == eCmdChar_SlashCommand ||
+		theString[0] == eCmdChar_SayString )
 	{
 		aMacroData.keys = theString;
 		return aMacroData;
@@ -308,18 +320,54 @@ static void buildMacroSets()
 }
 
 
+static void buildControlSchemes()
+{
+	using namespace Gamepad;
+	// TEMP - hard coded for now
+	sSchemes.push_back(Scheme());
+	Scheme& aScheme = sSchemes.back();
+	aScheme.mouseLookOn = false;
+
+	std::string aCmd;
+	aCmd.push_back(eCmdChar_Mouse);
+	aCmd.push_back(eSubCmdChar_Left);
+	aScheme.cmd[eBtn_RSLeft].press = aCmd;
+	aCmd[1] = eSubCmdChar_Right;
+	aScheme.cmd[eBtn_RSRight].press = aCmd;
+	aCmd[1] = eSubCmdChar_Up;
+	aScheme.cmd[eBtn_RSUp].press = aCmd;
+	aCmd[1] = eSubCmdChar_Down;
+	aScheme.cmd[eBtn_RSDown].press = aCmd;
+}
+
+
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
 
 void loadProfile()
 {
+	sSchemes.clear();
+	buildControlSchemes();
 	sMacroSets.clear();
 	buildMacroSets();
 }
 
 
-std::string getMacroOutput(int theMacroSetID, int theMacroSlotID)
+const Scheme& controlScheme(int theModeID)
+{
+	DBG_ASSERT(theModeID == 0);
+	return sSchemes[0];
+}
+
+
+u32 visibleHUDElements(int theMode)
+{
+	return eHUDElement_None;
+}
+
+
+std::string macroOutput(int theMacroSetID, int theMacroSlotID)
 {
 	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
 	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
@@ -328,7 +376,7 @@ std::string getMacroOutput(int theMacroSetID, int theMacroSlotID)
 }
 
 
-std::string getMacroLabel(int theMacroSetID, int theMacroSlotID)
+std::string macroLabel(int theMacroSetID, int theMacroSlotID)
 {
 	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
 	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);

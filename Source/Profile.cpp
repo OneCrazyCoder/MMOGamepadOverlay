@@ -540,6 +540,9 @@ bool getBool(const std::string& theKey, bool theDefaultValue)
 		aString[0] == 'N' || // No
 		aString[0] == 'f' || // false
 		aString[0] == 'F' || // False
+		(aString[0] == 'O' && aString[1] == 'F') || // OFF
+		(aString[0] == 'O' && aString[1] == 'f') || // Off
+		(aString[0] == 'o' && aString[1] == 'f') || // off
 		aString[0] == '\0' )
 	{
 		return false;

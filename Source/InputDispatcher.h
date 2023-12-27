@@ -18,30 +18,29 @@ namespace InputDispatcher
 // Load configuration settings from current profile
 void loadProfile();
 
-// Call once per frame to process the queue and dispatch input
-void update();
-
 // Clean up and prepares for app shutdown
 void cleanup();
+
+// Call once per frame to process the queue and dispatch input
+void update();
 
 // Sends the input for a sequence of key taps (or a single tap).
 // The first character is checked against ECommandChar to see if
 // it is a string of Virtual-Key Codes (no command char set) or
 // ASCII chars that should be "typed" into a text entry field.
-void sendKeySequence(const std::string& theMacro);
+void sendKeySequence(const char* theSequence);
 
-// Requests given key (or mouse button) be held down until...
+// Requests given key (or mouse button) be held down or released
 void setKeyHeld(u8 theVKey);
-// Requests given key (or mouse button) being held down be released
 void setKeyReleased(u8 theVKey);
 
-// Shift mouse mouse position relative to current position
+// Shift mouse mouse position relative to current position.
 // Amount specified by dx/dy is in relation to mouse speed
 // settings, and expected range of -255 to 255.
 void moveMouse(int dx, int dy, bool digital);
 
-// Adjusts speeds from moveMouse and, if true, causes
-// right mouse button to be held down.
+// Adjusts speeds used in moveMouse and (if true) causes
+// right mouse button to be held down indefinitely.
 void setMouseLookMode(bool);
 // Returns if currently in MouseLook mode
 bool isInMouseLookMode();
