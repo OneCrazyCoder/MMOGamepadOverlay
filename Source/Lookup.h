@@ -50,7 +50,7 @@ public:
 	typedef typename VectorOfPairs::const_iterator const_iterator;
 
 	// MUTATORS
-	// Sets the value for specified key, or adds new key/value pair
+	// Sets the value for specified key, or adds new key/value pair.
 	// For a new key, it is added in pre-sorted position so no need to sort(),
 	// though this method is much slower if adding many new keys at once.
 	V& setValue(const K& theKey, const V& theValue);

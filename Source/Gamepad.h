@@ -176,10 +176,14 @@ std::string gamepadName(int theGamepadID = -1);
 // Returns -1 if no gamepad is currently selected (or none were found).
 int selectedGamepadID();
 
-// Returns the name of the specified EButton
+// Returns the name of the specified EButton to display to user
 // (for use in printing in control configurations dialogs and such).
 // Button names may change depending on the current selectedGamepadID.
 const char* buttonName(EButton theButton);
+
+// Returns the name of the specified EButton in format used in Profile
+// configuration files (.ini files). Always the same for all gamepads.
+const char* profileButtonName(EButton theButton);
 
 // Returns vendor ID of controller (for button prompts, etc)
 // -1 is the same as sending selectedGamepadID()
