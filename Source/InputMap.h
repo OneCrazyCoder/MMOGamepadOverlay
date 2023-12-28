@@ -12,44 +12,30 @@
 */
 
 #include "Common.h"
+#include "Gamepad.h"
 
 namespace InputMap
 {
 
-struct Scheme
-{
-	static const int kButtonsChecked = 25; // Everything before Home
-	struct Commands
-	{
-		// Triggered when button first pressed
-		// (and continiously while held in cases like mouse movement)
-		std::string press;
-		// Triggered once when button released after short time
-		std::string tap;
-		// Triggered once when button held past "tap" time
-		std::string held;
-		// Triggered once when button released (regardless of hold time)
-		std::string release;
-	};
-	Commands cmd[kButtonsChecked];
-	bool mouseLookOn;
-
-	Scheme() : mouseLookOn() {}
-};
-
 // Load the input mappings and macro sets from current profile
 void loadProfile();
 
-// Get selected mode's control scheme
-const Scheme& controlScheme(int theModeID);
+// Checks if given controls mode should have mouse look turned on
+bool mouseLookShouldBeOn(int theModeID);
+
+// Get command to execute when given button performs given action
+Command commandForButton(
+	int theModeID,
+	Gamepad::EButton theButton,
+	EButtonAction theAction);
+
+// Get command for executing given macro slot in given set
+Command commandForMacro(int theMacroSetID, u8 theMacroSlotID);
 
 // Get bitfield of EHudElements that should be shown
 BitArray8<eHUDElement_Num> visibleHUDElements(int theMode);
 
-// Get command for executing given macro slot in given set
-const std::string& macroOutput(int theMacroSetID, int theMacroSlotID);
-
 // Get macro name (label) for given macro set & slot
-const std::string& macroLabel(int theMacroSetID, int theMacroSlotID);
+const std::string& macroLabel(int theMacroSetID, u8 theMacroSlotID);
 
 } // InputMap
