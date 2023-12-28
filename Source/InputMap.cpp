@@ -4,7 +4,6 @@
 
 #include "InputMap.h"
 
-#include "Gamepad.h"
 #include "Lookup.h"
 #include "Profile.h"
 
@@ -19,6 +18,7 @@ enum {
 kMacroSlotsPerSet = 4,
 };
 
+const char* kMainMacroSetLabel = "Macros";
 const char* kMacroSlotLabel[] = { "U", "L", "R", "D" };
 DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) >= kMacroSlotsPerSet);
 
@@ -27,16 +27,16 @@ DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) >= kMacroSlotsPerSet);
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct MacroData
+struct MacroSlot
 {
 	std::string label;
-	std::string keys;
+	Command cmd;
 };
 
 struct MacroSet
 {
 	std::string label;
-	MacroData slot[kMacroSlotsPerSet];
+	MacroSlot slot[kMacroSlotsPerSet];
 };
 
 struct MacroSetBuilder
@@ -46,12 +46,23 @@ struct MacroSetBuilder
 	std::string debugMacroSlotName;
 };
 
+struct ButtonActions
+{
+	Command cmd[eButtonAction_Num];
+};
+
+typedef VectorMap<Gamepad::EButton, ButtonActions> ButtonActionsMap;
+
 struct ControlsMode
 {
-	Scheme scheme;
+	ButtonActionsMap actions;
+	u8 parentMode;
 	BitArray8<eHUDElement_Num> hud;
+	bool mouseLookOn;
 
-	ControlsMode() : hud() {}
+	ControlsMode() :
+		parentMode(), hud(), mouseLookOn()
+	{}
 };
 
 
@@ -60,6 +71,7 @@ struct ControlsMode
 //-----------------------------------------------------------------------------
 
 static std::vector<MacroSet> sMacroSets;
+static std::vector<std::string> sKeyStrings;
 static std::vector<ControlsMode> sModes;
 
 
@@ -222,52 +234,58 @@ EResult checkForComboKeyName(std::string aKeyName, std::string* out)
 }
 
 
-static MacroData stringToMacroSlot(
+static MacroSlot stringToMacroSlot(
 	MacroSetBuilder* theSetBuilder,
 	std::string theString)
 {
 	DBG_ASSERT(theSetBuilder);
 
-	MacroData aMacroData;
+	MacroSlot aMacroSlot;
 	if( theString.empty() )
-		return aMacroData;
+		return aMacroSlot;
 
 	// Get the label (part of the string before first colon)
-	aMacroData.label = breakOffItemBeforeChar(theString, ':');
+	aMacroSlot.label = breakOffItemBeforeChar(theString, ':');
 
-	if( aMacroData.label.empty() && !theString.empty() )
-	{// Having no : character means this is a sub-set
-		aMacroData.label = trim(theString);
-		aMacroData.keys.push_back(eCmdChar_ChangeMacroSet);
-		aMacroData.keys.push_back(u8(sMacroSets.size()));
-		if( sMacroSets.size() > 0xFF )
-			aMacroData.keys.push_back(u8(sMacroSets.size() >> 8));
+	if( aMacroSlot.label.empty() && !theString.empty() )
+	{// Having no : character means this points to a sub-set
+		aMacroSlot.label = trim(theString);
+		aMacroSlot.cmd.type = eCmdType_ChangeMacroSet;
+		aMacroSlot.cmd.data = int(sMacroSets.size());
 		sMacroSets.push_back(MacroSet());
 		sMacroSets.back().label =
 			sMacroSets[theSetBuilder->currMacroSet].label +
-			"." + aMacroData.label;
-		return aMacroData;
+			"." + aMacroSlot.label;
+		return aMacroSlot;
 	}
 
 	if( theString.empty() )
-		return aMacroData;
+		return aMacroSlot;
 
 	// Check for a slash command or say string, which outputs the whole string
-	if( theString[0] == eCmdChar_SlashCommand ||
-		theString[0] == eCmdChar_SayString )
+	if( theString[0] == '/' )
 	{
-		aMacroData.keys = theString;
-		return aMacroData;
+		sKeyStrings.push_back(theString);
+		aMacroSlot.cmd.type = eCmdType_SlashCommand;
+		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+		return aMacroSlot;
+	}
+	if( theString[0] == '>' )
+	{
+		sKeyStrings.push_back(theString);
+		aMacroSlot.cmd.type = eCmdType_SayString;
+		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+		return aMacroSlot;
 	}
 
 	// Break the remaining string (after label) into individual words
 	theSetBuilder->parsedCommand.clear();
 	sanitizeSentence(theString, &theSetBuilder->parsedCommand);
 	if( theSetBuilder->parsedCommand.empty() )
-		return aMacroData;
+		return aMacroSlot;
 
 	// Should be a key press sequence
-	aMacroData.keys.push_back(eCmdChar_VKeySequence);
+	std::string aKeySeq;
 	for(int aWord = 0; aWord < theSetBuilder->parsedCommand.size(); ++aWord)
 	{
 		DBG_ASSERT(!theSetBuilder->parsedCommand[aWord].empty());
@@ -276,26 +294,32 @@ static MacroData stringToMacroSlot(
 		if( aVKey == 0 )
 		{
 			// Check if it's a modifier+key in one word like Shift2 or Alt1
-			if( checkForComboKeyName(aKeyName, &aMacroData.keys) != eResult_Ok )
+			if( checkForComboKeyName(aKeyName, &aKeySeq) != eResult_Ok )
 			{
 				// Probably just forgot the > at front of a plain string
-				aMacroData.keys.clear();
-				aMacroData.keys.push_back('>');
-				aMacroData.keys += theString;
-				return aMacroData;
+				aKeySeq.clear();
+				aKeySeq.push_back('>');
+				aKeySeq += theString;
+				sKeyStrings.push_back(aKeySeq);
+				aMacroSlot.cmd.type = eCmdType_SayString;
+				aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+				return aMacroSlot;
 			}
 		}
 		else
 		{
-			aMacroData.keys.push_back(aVKey);
+			aKeySeq.push_back(aVKey);
 		}
 	}
 
-	// If no key sequence actually generated, leave .keys string empty
-	if( aMacroData.keys.length() == 1 )
-		aMacroData.keys.clear();
+	if( !aKeySeq.empty() )
+	{
+		sKeyStrings.push_back(aKeySeq);
+		aMacroSlot.cmd.type = eCmdType_VKeySequence;
+		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+	}
 
-	return aMacroData;
+	return aMacroSlot;
 }
 
 
@@ -303,9 +327,8 @@ static void buildMacroSets()
 {
 	MacroSetBuilder aMacroSetBuilder;
 
-	// Root macro set is just named "Macros"
 	sMacroSets.push_back(MacroSet());
-	sMacroSets.back().label = "Macros";
+	sMacroSets.back().label = kMainMacroSetLabel;
 	for(int aSet = 0; aSet < sMacroSets.size(); ++aSet )
 	{
 		aMacroSetBuilder.currMacroSet = aSet;
@@ -326,51 +349,77 @@ static void buildMacroSets()
 static void buildControlSchemes()
 {
 	using namespace Gamepad;
+
 	// TEMP - hard coded for now
+	// First mode is empty so parentMode == 0 means no parent
+	// It will itself use the default mode as its parent so at
+	// startup, mode of '0' will refer to this one but end up
+	// returning the data from the default mode.
 	sModes.push_back(ControlsMode());
-	Scheme& aScheme = sModes.back().scheme;
-	aScheme.mouseLookOn = false;
+	sModes.back().parentMode = 1;
 
-	std::string aCmd;
-	aCmd.push_back(eCmdChar_Mouse);
-	aCmd.push_back(eSubCmdChar_Left);
-	aScheme.cmd[eBtn_RSLeft].press = aCmd;
-	aCmd[1] = eSubCmdChar_Right;
-	aScheme.cmd[eBtn_RSRight].press = aCmd;
-	aCmd[1] = eSubCmdChar_Up;
-	aScheme.cmd[eBtn_RSUp].press = aCmd;
-	aCmd[1] = eSubCmdChar_Down;
-	aScheme.cmd[eBtn_RSDown].press = aCmd;
+	sModes.push_back(ControlsMode());
+	ControlsMode& aCursorMode = sModes.back();
+	aCursorMode.parentMode = 0;
 
-	aCmd[0] = eCmdChar_ChangeMode;
-	aCmd[1] = 1;
-	aScheme.cmd[eBtn_L2].press = aCmd;
+	ButtonActions aCmdArray;
+	Command aCmd;
 
-	ControlsMode aMacroMode;
+	aCmd.type = eCmdType_MoveMouse;
+	aCmd.data = eCmdSubType_Left;
+	aCmdArray.cmd[eButtonAction_Analog] = aCmd;
+	aCursorMode.actions.addPair(eBtn_RSLeft, aCmdArray);
+	aCmdArray.cmd[eButtonAction_Analog].data = eCmdSubType_Right;
+	aCursorMode.actions.addPair(eBtn_RSRight, aCmdArray);
+	aCmdArray.cmd[eButtonAction_Analog].data = eCmdSubType_Up;
+	aCursorMode.actions.addPair(eBtn_RSUp, aCmdArray);
+	aCmdArray.cmd[eButtonAction_Analog].data = eCmdSubType_Down;
+	aCursorMode.actions.addPair(eBtn_RSDown, aCmdArray);
+
+	aCmdArray = ButtonActions();
+	aCmd.type = eCmdType_ChangeMode;
+	aCmd.data = 2;
+	aCmdArray.cmd[eButtonAction_Press] = aCmd;
+	aCursorMode.actions.addPair(eBtn_L2, aCmdArray);
+	aCursorMode.actions.sort();
+	aCursorMode.actions.trim();
+
+	sModes.push_back(ControlsMode());
+	ControlsMode& aMacroMode = sModes.back();
+	aMacroMode.parentMode = 1;
 	aMacroMode.hud.set(eHUDElement_Macros);
-	aMacroMode.scheme = aScheme;
-	aMacroMode.scheme.cmd[eBtn_L2] = Scheme::Commands();
-	aCmd[1] = 0;
-	aMacroMode.scheme.cmd[eBtn_L2].release = aCmd;
 
-	aCmd[0] = eCmdChar_ChangeMacroSet;
-	aMacroMode.scheme.cmd[eBtn_None].press = aCmd;
+	aCmdArray = ButtonActions();
+	aCmd.type = eCmdType_ChangeMode;
+	aCmd.data = 1;
+	aCmdArray.cmd[eButtonAction_Release] = aCmd;
+	aMacroMode.actions.addPair(eBtn_L2, aCmdArray);
 
-	aCmd[0] = eCmdChar_SelectMacro;
-	aCmd[1] = 0;
-	aMacroMode.scheme.cmd[eBtn_DUp].tap = aCmd;
-	aMacroMode.scheme.cmd[eBtn_FUp].tap = aCmd;
-	aCmd[1] = 1;
-	aMacroMode.scheme.cmd[eBtn_DLeft].tap = aCmd;
-	aMacroMode.scheme.cmd[eBtn_FLeft].tap = aCmd;
-	aCmd[1] = 2;
-	aMacroMode.scheme.cmd[eBtn_DRight].tap = aCmd;
-	aMacroMode.scheme.cmd[eBtn_FRight].tap = aCmd;
-	aCmd[1] = 3;
-	aMacroMode.scheme.cmd[eBtn_DDown].tap = aCmd;
-	aMacroMode.scheme.cmd[eBtn_FDown].tap = aCmd;
+	aCmdArray = ButtonActions();
+	aCmdArray.cmd[eButtonAction_Press].type = eCmdType_ChangeMacroSet;
+	aCmdArray.cmd[eButtonAction_Press].data = 0;
+	aMacroMode.actions.addPair(eBtn_None, aCmdArray);
 
-	sModes.push_back(aMacroMode);
+	aCmdArray = ButtonActions();
+	aCmdArray.cmd[eButtonAction_Tap].type = eCmdType_SelectMacro;
+	aCmdArray.cmd[eButtonAction_Tap].data = eCmdSubType_Left;
+	aMacroMode.actions.addPair(eBtn_DLeft, aCmdArray);
+	aMacroMode.actions.addPair(eBtn_FLeft, aCmdArray);
+
+	aCmdArray.cmd[eButtonAction_Tap].data = eCmdSubType_Right;
+	aMacroMode.actions.addPair(eBtn_DRight, aCmdArray);
+	aMacroMode.actions.addPair(eBtn_FRight, aCmdArray);
+
+	aCmdArray.cmd[eButtonAction_Tap].data = eCmdSubType_Up;
+	aMacroMode.actions.addPair(eBtn_DUp, aCmdArray);
+	aMacroMode.actions.addPair(eBtn_FUp, aCmdArray);
+
+	aCmdArray.cmd[eButtonAction_Tap].data = eCmdSubType_Down;
+	aMacroMode.actions.addPair(eBtn_DDown, aCmdArray);
+	aMacroMode.actions.addPair(eBtn_FDown, aCmdArray);
+
+	aMacroMode.actions.sort();
+	aMacroMode.actions.trim();
 }
 
 
@@ -380,6 +429,7 @@ static void buildControlSchemes()
 
 void loadProfile()
 {
+	sKeyStrings.clear();
 	sModes.clear();
 	buildControlSchemes();
 	sMacroSets.clear();
@@ -387,26 +437,80 @@ void loadProfile()
 }
 
 
-const Scheme& controlScheme(int theModeID)
+bool mouseLookShouldBeOn(int theModeID)
 {
-	DBG_ASSERT(theModeID < sModes.size());
-	return sModes[theModeID].scheme;
+	DBG_ASSERT((unsigned)theModeID < sModes.size());
+	return sModes[theModeID].mouseLookOn;
+}
+
+
+Command commandForButton(
+	int theModeID,
+	Gamepad::EButton theButton,
+	EButtonAction theAction)
+{
+	DBG_ASSERT((unsigned)theModeID < sModes.size());
+	DBG_ASSERT(theAction < eButtonAction_Num);
+
+	Command result;
+	ButtonActionsMap::const_iterator itr;
+	do
+	{
+		itr = sModes[theModeID].actions.find(Gamepad::EButton(theButton));
+		if( itr != sModes[theModeID].actions.end() )
+		{
+			result = itr->second.cmd[theAction];
+			switch(result.type)
+			{
+			case eCmdType_VKeySequence:
+			case eCmdType_SlashCommand:
+			case eCmdType_SayString:
+				DBG_ASSERT((unsigned)result.data < sKeyStrings.size());
+				// Important that this raw string pointer gets used before
+				// anything happens to our sMacroSets data or we'd get a
+				// dangling pointer - but this prevents string copies!
+				result.string = sKeyStrings[result.data].c_str();
+				break;
+			}
+			return result;
+		}
+		else
+		{
+			theModeID = sModes[theModeID].parentMode;
+		}
+	} while(theModeID != 0);
+
+	return result;
+}
+
+
+Command commandForMacro(int theMacroSetID, u8 theMacroSlotID)
+{
+	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
+	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
+	
+	Command result = sMacroSets[theMacroSetID].slot[theMacroSlotID].cmd;
+	switch(result.type)
+	{
+	case eCmdType_VKeySequence:
+	case eCmdType_SlashCommand:
+	case eCmdType_SayString:
+		DBG_ASSERT((unsigned)result.data < sKeyStrings.size());
+		// Important that this raw string pointer gets used before
+		// anything happens to our sMacroSets data or we'd get a
+		// dangling pointer - but this prevents string copies!
+		result.string = sKeyStrings[result.data].c_str();
+		break;
+	}
+
+	return result;
 }
 
 
 BitArray8<eHUDElement_Num> visibleHUDElements(int theModeID)
 {
-	DBG_ASSERT(theModeID < sModes.size());
+	DBG_ASSERT((unsigned)theModeID < sModes.size());
 	return sModes[theModeID].hud;
-}
-
-
-const std::string& macroOutput(int theMacroSetID, int theMacroSlotID)
-{
-	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
-	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
-
-	return sMacroSets[theMacroSetID].slot[theMacroSlotID].keys;
 }
 
 

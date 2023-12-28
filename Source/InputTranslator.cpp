@@ -41,9 +41,12 @@ struct Config
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct ButtonState
+struct ButtonState : public ConstructFromZeroInitializedMemory<ButtonState>
 {
-	const InputMap::Scheme* schemeWhenPressed;
+	Command tap;
+	Command onceHeld;
+	Command release;
+	Command analog;
 	u16 heldTime;
 };
 
@@ -57,7 +60,7 @@ struct InputResults
 	bool mouseMoveDigital;
 	bool mouseWheelDigital;
 	bool mouseWheelStepped;
-	std::vector<const char*> macros;
+	std::vector<Command> macros;
 
 	void clear()
 	{
@@ -77,7 +80,7 @@ struct InputResults
 //-----------------------------------------------------------------------------
 
 static Config kConfig;
-static ButtonState sButtonStates[InputMap::Scheme::kButtonsChecked] = { 0 };
+static ButtonState sButtonStates[Gamepad::eBtn_Num];
 static InputResults sResults;
 
 
@@ -85,116 +88,98 @@ static InputResults sResults;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static void processCommand(const std::string& theCmd)
+static void processCommand(const Command& theCmd)
 {
-	if( theCmd.empty() )
-		return;
-
-	// Check command char to know how to process the string
-	switch(theCmd[0])
+	switch(theCmd.type)
 	{
-	case eCmdChar_Empty:
+	case eCmdType_Empty:
 		// Do nothing
 		break;
-	case eCmdChar_ChangeMode:
-		DBG_ASSERT(theCmd.size() > 1);
-		sResults.newMode = theCmd[1];
+	case eCmdType_PressAndHoldKey:
+	case eCmdType_ReleaseKey:
+		// Send these right away since can often be instantly processed
+		InputDispatcher::sendKeyCommand(theCmd);
 		break;
-	case eCmdChar_ChangeMacroSet:
-		switch(theCmd.size())
-		{
-		case 2: gMacroSetID = theCmd[1]; break;
-		case 3: gMacroSetID = (u16)theCmd[1] | (u16(theCmd[2]) << 8); break;
-		default: DBG_ASSERT(false); break;
-		}
+	case eCmdType_VKeySequence:
+	case eCmdType_SlashCommand:
+	case eCmdType_SayString:
+		// Queue these so they are sent last, since they can potentially
+		// block other inputs from being processed temporarily.
+		sResults.macros.push_back(theCmd);
+		break;
+	case eCmdType_ChangeMode:
+		sResults.newMode = theCmd.data;
+		break;
+	case eCmdType_ChangeMacroSet:
+		gMacroSetID = theCmd.data;
 		// Temp hack
 		OverlayWindow::redraw();
 		break;
-	case eCmdChar_PressAndHoldKey:
-		DBG_ASSERT(theCmd.size() > 1);
-		InputDispatcher::setKeyHeld(theCmd[1]);
-		break;
-	case eCmdChar_ReleaseKey:
-		DBG_ASSERT(theCmd.size() > 1);
-		InputDispatcher::setKeyReleased(theCmd[1]);
-		break;
-	case eCmdChar_MoveCharacter:
+	case eCmdType_MoveCharacter:
 		// TODO
 		break;
-	case eCmdChar_SelectAbility:
+	case eCmdType_SelectAbility:
 		// TODO
 		break;
-	case eCmdChar_SelectMacro:
-		DBG_ASSERT(theCmd.size() > 1);
-		// Warning: only works because macroOutput returns by const reference!
-		processCommand(InputMap::macroOutput(gMacroSetID, theCmd[1]));
+	case eCmdType_SelectMacro:
+		processCommand(InputMap::commandForMacro(
+			gMacroSetID, theCmd.data));
 		break;
-	case eCmdChar_SelectMenu:
+	case eCmdType_SelectMenu:
 		// TODO
 		break;
-	case eCmdChar_ChangeMacro:
+	case eCmdType_RewriteMacro:
 		// TODO
 		break;
-	case eCmdChar_TargetGroup:
+	case eCmdType_TargetGroup:
 		// TODO
 		break;
-	case eCmdChar_NextMouseHotspot:
+	case eCmdType_NextMouseHotspot:
 		// TODO
-		break;
-	case eCmdChar_Mouse:
-		// Processed directly by processAnalogInput() instead,
-		// but not a bug to end up here first
-		break;
-	case eCmdChar_VKeySequence:
-	case eCmdChar_SlashCommand:
-	case eCmdChar_SayString:
-		// Queue these so they are sent last, since they can potentially
-		// block other inputs from being processed temporarily.
-		// WARNING: Only works if theCmd has been a const reference all
-		// the way from InputMap's data to this point, so the string
-		// pointed to by c_str() won't go out of scope!
-		sResults.macros.push_back(theCmd.c_str());
 		break;
 	default:
-		// Invalid command!
-		DBG_ASSERT(false);
+		// Invalid command for this function!
+		DBG_ASSERT(false && "Invalid command sent to processCommand()");
 		break;
 	}
 }
 
 
-static void processButtonPress(
-	Gamepad::EButton theButton,
-	const InputMap::Scheme& theScheme)
+static void processButtonPress(Gamepad::EButton theButton)
 {
-	const InputMap::Scheme::Commands& aCmd = theScheme.cmd[theButton];
-	
-	// Remember current scheme for when this button is released later.
+	const Command& aCmd = InputMap::commandForButton(
+		gControlsModeID, theButton, eButtonAction_Press);
+
+	// Store commands for other actions assigned to this button.
 	// This ensures that if control scheme is changed before this
 	// button is released, the original release event is still used,
 	// and don't end up in a situation where a keyboard key gets
 	// "stuck" held down forever, nor do we have to immediately force
 	// all keys to be released every time a control scheme changes.
-	sButtonStates[theButton].schemeWhenPressed = &theScheme;
+	sButtonStates[theButton].tap = InputMap::commandForButton(
+		gControlsModeID, theButton, eButtonAction_Tap);
+	sButtonStates[theButton].onceHeld = InputMap::commandForButton(
+		gControlsModeID, theButton, eButtonAction_OnceHeld);
+	sButtonStates[theButton].release = InputMap::commandForButton(
+		gControlsModeID, theButton, eButtonAction_Release);
+	sButtonStates[theButton].analog = InputMap::commandForButton(
+		gControlsModeID, theButton, eButtonAction_Analog);
 
-	processCommand(aCmd.press);
+	processCommand(aCmd);
 }
 
 
-static void processAnalogInput(
-	Gamepad::EButton theButton,
-	const InputMap::Scheme& theScheme)
+static void processAnalogInput(Gamepad::EButton theButton)
 {
-	// Use stored scheme unless it doesn't exist or has no 'press' entry
-	const InputMap::Scheme* aScheme =
-		sButtonStates[theButton].schemeWhenPressed;
-	if( !aScheme || aScheme->cmd[theButton].press.empty() )
-		aScheme = &theScheme;
-	const InputMap::Scheme::Commands& aCmd = aScheme->cmd[theButton];
-	if( aCmd.press.empty() )
-		return;
+	// Use stored command if one exists, otherwise use current mode's
+	Command aCmd = sButtonStates[theButton].analog;
+	if( aCmd.type == eCmdType_Empty )
+	{
+		aCmd = InputMap::commandForButton(
+			gControlsModeID, theButton, eButtonAction_Analog);
+	}
 
-	if( aCmd.press[0] == eCmdChar_Mouse && aCmd.press.size() > 0 )
+	if( aCmd.type == eCmdType_MoveMouse )
 	{// Update mouse motion in sResults
 		u8 anAnalogVal = Gamepad::buttonAnalogVal(theButton);
 		bool isDigitalPress = false;
@@ -205,102 +190,101 @@ static void processAnalogInput(
 		}
 		if( !anAnalogVal )
 			return;
-		switch(aCmd.press[1])
+		switch(aCmd.data)
 		{
-		case eSubCmdChar_Left:
+		case eCmdSubType_Left:
 			sResults.mouseMoveX -= anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eSubCmdChar_Right:
+		case eCmdSubType_Right:
 			sResults.mouseMoveX += anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eSubCmdChar_Up:
+		case eCmdSubType_Up:
 			sResults.mouseMoveY -= anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eSubCmdChar_Down:
+		case eCmdSubType_Down:
 			sResults.mouseMoveY += anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eSubCmdChar_WheelUpStepped:
+		case eCmdSubType_WheelUpStepped:
 			sResults.mouseWheelStepped = true;
 			// fall through
-		case eSubCmdChar_WheelUp:
+		case eCmdSubType_WheelUp:
 			sResults.mouseWheelY -= anAnalogVal;
 			sResults.mouseWheelDigital = isDigitalPress;
 			break;
-		case eSubCmdChar_WheelDownStepped:
+		case eCmdSubType_WheelDownStepped:
 			sResults.mouseWheelStepped = true;
 			// fall through
-		case eSubCmdChar_WheelDown:
+		case eCmdSubType_WheelDown:
 			sResults.mouseWheelY += anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
+			break;
+		default:
+			DBG_ASSERT(false && "Invalid sub-type set for MoveMouse command");
 			break;
 		}
 	}
 }
 
 
-static void processButtonLongHold(
-	Gamepad::EButton theButton)
+static void processButtonLongHold(Gamepad::EButton theButton)
 {
-	// Always use stored scheme for long hold events
-	const InputMap::Scheme* aScheme =
-		sButtonStates[theButton].schemeWhenPressed;
-	DBG_ASSERT(aScheme);
-	const InputMap::Scheme::Commands& aCmd = aScheme->cmd[theButton];
-
-	processCommand(aCmd.held);
+	// Only used stored command for long hold action
+	processCommand(sButtonStates[theButton].onceHeld);
 }
 
 
-static void processButtonTap(
-	Gamepad::EButton theButton,
-	const InputMap::Scheme& theScheme)
+static void processButtonTap(Gamepad::EButton theButton)
 {
-	// Use stored scheme by default, but if it has no entry, use current
-	const InputMap::Scheme* aScheme =
-		sButtonStates[theButton].schemeWhenPressed;
-	DBG_ASSERT(aScheme);
-	if( aScheme->cmd[theButton].tap.empty() )
-		aScheme = &theScheme;
-	const InputMap::Scheme::Commands& aCmd = aScheme->cmd[theButton];
+	// Use stored command if one exists, otherwise use current mode's
+	Command aCmd = sButtonStates[theButton].tap;
+	if( aCmd.type == eCmdType_Empty )
+	{
+		aCmd = InputMap::commandForButton(
+			gControlsModeID, theButton, eButtonAction_Tap);
+	}
 	
-	processCommand(aCmd.tap);
+	processCommand(aCmd);
 }
 
 
-static void processButtonReleased(
-	Gamepad::EButton theButton,
-	const InputMap::Scheme& theScheme)
+static void processButtonReleased(Gamepad::EButton theButton)
 {
 	// If released quickly enough, process 'tap' event
 	if( sButtonStates[theButton].heldTime <= kConfig.maxTapHoldTime )
-		processButtonTap(theButton, theScheme);
+		processButtonTap(theButton);
 
 	// Reset held time to 0
 	sButtonStates[theButton].heldTime = 0;
 
-	// Use stored scheme by default, but if it has no entry for 'release'
-	// and current scheme has no entry for 'press', use current scheme
-	// (assumed it is the case that the prior scheme switched to this
-	// scheme on press, and this scheme returns to prior on release,
+	// Use stored command for release by default, but if it is empty and
+	// and current mode has no command for 'press', use current mode's
+	// (assumed it is the case that the prior mode switched to this
+	// mode on press, and this mode returns to prior on release,
 	// and shouldn't have any problems with stuck buttons or the like if
 	// prior is missing 'release' and current is missing 'press').
-	const InputMap::Scheme* aScheme =
-		sButtonStates[theButton].schemeWhenPressed;
-	DBG_ASSERT(aScheme);
-	if( aScheme->cmd[theButton].release.empty() )
+	Command aCmd = sButtonStates[theButton].release;
+	if( aCmd.type == eCmdType_Empty )
 	{
-		if( theScheme.cmd[theButton].press.empty() )
-			aScheme = &theScheme;
-		else
-			return;
+		aCmd = InputMap::commandForButton(
+			gControlsModeID, theButton, eButtonAction_Press);
+		if( aCmd.type == eCmdType_Empty )
+		{
+			aCmd = InputMap::commandForButton(
+				gControlsModeID, theButton, eButtonAction_Release);
+		}
 	}
-	const InputMap::Scheme::Commands& aCmd = aScheme->cmd[theButton];
 
-	processCommand(aCmd.release);
+	processCommand(aCmd);
+
+	// Now that release has been processed, forget stored commands
+	sButtonStates[theButton].tap = Command();
+	sButtonStates[theButton].onceHeld = Command();
+	sButtonStates[theButton].release = Command();
+	sButtonStates[theButton].analog = Command();
 }
 
 
@@ -316,8 +300,9 @@ void loadProfile()
 
 void cleanup()
 {
-	ZeroMemory(&sButtonStates, sizeof(sButtonStates));
 	sResults.clear();
+	for(size_t i = 0; i < ARRAYSIZE(sButtonStates); ++i)
+		sButtonStates[i] = ButtonState();
 }
 
 
@@ -325,15 +310,12 @@ void update()
 {
 	sResults.clear();
 
-	// Get current active control scheme
-	const InputMap::Scheme& aScheme =
-		InputMap::controlScheme(gControlsModeID);
-
 	// Set mouse look mode based on current control scheme
-	InputDispatcher::setMouseLookMode(aScheme.mouseLookOn);
+	InputDispatcher::setMouseLookMode(
+		InputMap::mouseLookShouldBeOn(gControlsModeID));
 
 	for(Gamepad::EButton aBtn = Gamepad::EButton(1);
-		aBtn < InputMap::Scheme::kButtonsChecked;
+		aBtn < Gamepad::eBtn_Num;
 		aBtn = Gamepad::EButton(aBtn+1))
 	{
 		const bool wasDown = sButtonStates[aBtn].heldTime > 0;
@@ -344,21 +326,21 @@ void update()
 		// isn't down any more, then it must have been released, and we should
 		// process that before any new hits since it may use a prior scheme.
 		if( wasDown && (!isDown || wasHit) )
-			processButtonReleased(aBtn, aScheme);
+			processButtonReleased(aBtn);
 
 		// If was hit (or somehow is down but wasn't before), process a press
 		if( wasHit || (isDown && !wasDown) )
 		{
-			processButtonPress(aBtn, aScheme);
+			processButtonPress(aBtn);
 			// Now that have processed a press, if it's not down any more,
 			// it must have already been released, so process that as well.
 			if( !isDown )
-				processButtonReleased(aBtn, aScheme);
+				processButtonReleased(aBtn);
 		}
 
 		// Check for analog axis values, which do not return on "hit" when
 		// lightly pressed so must be checked continuously
-		processAnalogInput(aBtn, aScheme);
+		processAnalogInput(aBtn);
 
 		// Update heldTime value and see if need to process a long hold
 		if( isDown )
@@ -383,15 +365,18 @@ void update()
 		sResults.mouseWheelDigital,
 		sResults.mouseWheelStepped);
 	for(size_t i = 0; i < sResults.macros.size(); ++i)
-		InputDispatcher::sendMacro(sResults.macros[i]);
+		InputDispatcher::sendKeyCommand(sResults.macros[i]);
 
 	if( sResults.newMode != gControlsModeID )
 	{// Swap controls modes
 		gControlsModeID = sResults.newMode;
 		// See if have an auto-input for initializing new mode
-		const InputMap::Scheme& aNewScheme =
-			InputMap::controlScheme(gControlsModeID);
-		processCommand(aNewScheme.cmd[0].press);
+		// This is stored in the 'press' action for eBtn_None
+		const Command& anAutoCmd = InputMap::commandForButton(
+			sResults.newMode,
+			Gamepad::eBtn_None,
+			eButtonAction_Press);
+		processCommand(anAutoCmd);
 		// Temp hack
 		OverlayWindow::redraw();
 	}

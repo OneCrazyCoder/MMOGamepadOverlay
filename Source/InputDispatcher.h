@@ -24,16 +24,9 @@ void cleanup();
 // Call once per frame to process the queue and dispatch input
 void update();
 
-// Sends the input for a sequence of key taps (or a single tap).
-// The first character is checked against ECommandChar to see if
-// it is a string of Virtual-Key Codes (eCmdChar_VKeySequence) or
-// ASCII chars that should be "typed" into a text entry field
-// (eCmdChar_SlashCommand or _SayString). Others are invalid!
-void sendMacro(const char* theMacro);
-
-// Requests given key (or mouse button) be held down or released
-void setKeyHeld(u8 theVKey);
-void setKeyReleased(u8 theVKey);
+// Sends the input for given command, for those that are valid
+// as key inputs (see GlobalConstants.h)
+void sendKeyCommand(const Command& theCommand);
 
 // Shift mouse mouse position relative to current position.
 // Amount specified by dx/dy is in relation to mouse speed

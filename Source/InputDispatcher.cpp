@@ -90,7 +90,7 @@ struct Input : public INPUT
 
 struct DispatchTask
 {
-	std::string keys;
+	Command cmd;
 	u32 queuedTime;
 };
 
@@ -111,7 +111,7 @@ public:
 	}
 
 
-	void push_back(const std::string& theKeys)
+	void push_back(const Command& theCommand)
 	{
 		if( ((mTail + 1) & (mBuffer.size() - 1)) == mHead )
 		{// Buffer is full, resize by doubling to keep power-of-2 size
@@ -125,7 +125,7 @@ public:
 			swap(mBuffer, newBuffer);
 		}
 
-		mBuffer[mTail].keys = theKeys;
+		mBuffer[mTail].cmd = theCommand;
 		mBuffer[mTail].queuedTime = gAppRunTime;
 		mTail = (mTail + 1) & (mBuffer.size() - 1);
 	}
@@ -201,11 +201,11 @@ static DispatchTracker sTracker;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static EResult popNextKey(const std::string& theVKeySequence)
+static EResult popNextKey(const char* theVKeySequence)
 {
-	while( ++sTracker.currTaskProgress < theVKeySequence.size() )
+	while( theVKeySequence[sTracker.currTaskProgress] != '\0' )
 	{
-		const size_t idx = sTracker.currTaskProgress;
+		const size_t idx = sTracker.currTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];
 
 		if( aVKey == VK_SHIFT )
@@ -230,35 +230,34 @@ static EResult popNextKey(const std::string& theVKeySequence)
 		}
 	}
 
-	if( sTracker.currTaskProgress >= theVKeySequence.size() )
+	if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
 		return eResult_TaskCompleted;
 
 	return eResult_Incomplete;
 }
 
 
-static EResult popNextStringChar(const std::string& theString)
+static EResult popNextStringChar(const char* theString)
 {
-	DBG_ASSERT(
-		theString[0] == eCmdChar_SlashCommand ||
-		theString[0] == eCmdChar_SayString);
+	// Strings should start with '/' or '>'
+	DBG_ASSERT(theString && (theString[0] == '/' || theString[0] == '>'));
+	DBG_ASSERT(sTracker.currTaskProgress <= strlen(theString));
 
 	const size_t idx = sTracker.currTaskProgress++;
 	// End with carriage return, and start with it for say strings
 	const char c =
-		(idx == 0 && theString[0] == eCmdChar_SayString) ||
-		idx >= theString.size()
+		(idx == 0 && theString[0] == '>') || theString[idx] == '\0'
 			? '\r'
 			: theString[idx];
 
 	// Skip non-printable or non-ASCII characters
-	if( idx > 0 && idx < theString.size() && (c < ' ' || c > '~') )
+	if( idx > 0 && theString[idx] != '\0' && (c < ' ' || c > '~') )
 		return popNextStringChar(theString);
 
 	// Queue the key + modifiers (shift key)
 	sTracker.nextQueuedKeyTap = VkKeyScan(c);
 
-	if( idx == 0 ) // the initial key to switch to chat bar
+	if( idx == 0 ) // the initial key to switch to chat bar (/ or Enter)
 	{
 		// Add a pause to make sure async key checking switches to
 		// direct text input in chat box before 'typing' at full speed
@@ -267,7 +266,7 @@ static EResult popNextStringChar(const std::string& theString)
 				kConfig.slashCommandPostFirstKeyDelay);
 	}
 
-	if( idx >= theString.size() )
+	if( theString[idx] == '\0' )
 		return eResult_TaskCompleted;
 
 	return eResult_Incomplete;
@@ -465,36 +464,35 @@ void update()
 				+ kConfig.maxTaskQueuedTime) < gAppRunTime;
 
 		EResult aTaskResult;
-		DBG_ASSERT(aCurrTask.keys.length() > 1);
-		switch(aCurrTask.keys[0])
+		switch(aCurrTask.cmd.type)
 		{
-		case eCmdChar_SlashCommand:
-		case eCmdChar_SayString:
+		case eCmdType_SlashCommand:
+		case eCmdType_SayString:
 			if( taskIsPastDue )
 				aTaskResult = eResult_TaskCompleted;
 			else
-				aTaskResult = popNextStringChar(aCurrTask.keys);
+				aTaskResult = popNextStringChar(aCurrTask.cmd.string);
 			break;
-		case eCmdChar_PressAndHoldKey:
-			sTracker.keysWantDown.set(aCurrTask.keys[1]);
+		case eCmdType_PressAndHoldKey:
+			sTracker.keysWantDown.set(aCurrTask.cmd.data);
 			aTaskResult = eResult_TaskCompleted;
 			break;
-		case eCmdChar_ReleaseKey:
+		case eCmdType_ReleaseKey:
 			if( !taskIsPastDue )
 			{// Make sure not to skip a tap before next press
-				if( sTracker.keysWantDown.test(aCurrTask.keys[1]) )
-					setKeyDown(aCurrTask.keys[1], true);
-				if( setKeyDown(aCurrTask.keys[1], false) != eResult_Ok )
+				if( sTracker.keysWantDown.test(aCurrTask.cmd.data) )
+					setKeyDown(aCurrTask.cmd.data, true);
+				if( setKeyDown(aCurrTask.cmd.data, false) != eResult_Ok )
 					sTracker.queuePauseTime = 1;
 			}
-			sTracker.keysWantDown.reset(aCurrTask.keys[1]);
+			sTracker.keysWantDown.reset(aCurrTask.cmd.data);
 			aTaskResult = eResult_TaskCompleted;
 			break;
-		case eCmdChar_VKeySequence:
+		case eCmdType_VKeySequence:
 			if( taskIsPastDue )
 				aTaskResult = eResult_TaskCompleted;
 			else
-				aTaskResult = popNextKey(aCurrTask.keys);
+				aTaskResult = popNextKey(aCurrTask.cmd.string);
 			break;
 		}
 		if( aTaskResult == eResult_TaskCompleted )
@@ -570,50 +568,40 @@ void update()
 }
 
 
-void sendMacro(const char* theMacro)
+void sendKeyCommand(const Command& theCommand)
 {
-	if( theMacro == NULL || theMacro[0] == '\0' )
-		return;
-
-	DBG_ASSERT(
-		theMacro[0] == eCmdChar_VKeySequence ||
-		theMacro[0] == eCmdChar_SlashCommand ||
-		theMacro[0] == eCmdChar_SayString);
-
-	sTracker.queue.push_back(theMacro);
-}
-
-
-void setKeyHeld(u8 theVKey)
-{
-	if( isSafeAsyncKey(theVKey) &&
-		setKeyDown(theVKey, true) == eResult_Ok )
-	{// Don't need to queue this key
-		sTracker.keysWantDown.set(theVKey);
-		return;
+	switch(theCommand.type)
+	{
+	case eCmdType_Empty:
+		// Do nothing, but don't assert either
+		break;
+	case eCmdType_PressAndHoldKey:
+		if( isSafeAsyncKey(theCommand.data) &&
+			setKeyDown(theCommand.data, true) == eResult_Ok )
+		{// Don't need to queue this key
+			sTracker.keysWantDown.set(theCommand.data);
+			break;
+		}
+		sTracker.queue.push_back(theCommand);
+		break;
+	case eCmdType_ReleaseKey:
+		if( sTracker.keysHeldDown.test(theCommand.data) &&
+			sTracker.keysWantDown.test(theCommand.data) &&
+			setKeyDown(theCommand.data, false) == eResult_Ok )
+		{// Safely released key right away, no need to queue it
+			sTracker.keysWantDown.reset(theCommand.data);
+			break;
+		}
+		sTracker.queue.push_back(theCommand);
+		break;
+	case eCmdType_VKeySequence:
+	case eCmdType_SlashCommand:
+	case eCmdType_SayString:
+		sTracker.queue.push_back(theCommand);
+		break;
+	default:
+		DBG_ASSERT(false && "Invalid command type for sendkeyCommand()!");
 	}
-
-	std::string aCommand;
-	aCommand.push_back(eCmdChar_PressAndHoldKey);
-	aCommand.push_back(theVKey);
-	sTracker.queue.push_back(aCommand);
-}
-
-
-void setKeyReleased(u8 theVKey)
-{
-	if( sTracker.keysHeldDown.test(theVKey) &&
-		sTracker.keysWantDown.test(theVKey) &&
-		setKeyDown(theVKey, false) == eResult_Ok )
-	{// Safely released key right away, no need to queue it
-		sTracker.keysWantDown.reset(theVKey);
-		return;
-	}
-
-	std::string aCommand;
-	aCommand.push_back(eCmdChar_ReleaseKey);
-	aCommand.push_back(theVKey);
-	sTracker.queue.push_back(aCommand);
 }
 
 
