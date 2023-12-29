@@ -553,12 +553,27 @@ bool getBool(const std::string& theKey, bool theDefaultValue)
 
 void getIntArray(const std::string& theKey, std::vector<int>* out)
 {
-	const std::string& aString = getStr(theKey);	
+	DBG_ASSERT(out);
+
+	const std::string& aString = getStr(theKey);
 	StringsVec aParsedString;
 	sanitizeSentence(aString, &aParsedString);
 	out->resize(max(out->size(), aParsedString.size()));
 	for(size_t i = 0; i < aParsedString.size(); ++i)
 		(*out)[i] = intFromString(aParsedString[i]);
+}
+
+
+KeyValuePairs getAllKeys(const std::string& thePrefix)
+{
+	StringsMap::IndexVector prefixedIndices =
+		sSettingsMap.findAllWithPrefix(upper(thePrefix));
+	KeyValuePairs result;
+	for(size_t i = 0; i < prefixedIndices.size(); ++i)
+		result.push_back(std::make_pair(
+			sSettingsMap.keys()[prefixedIndices[i]].c_str(),
+			sSettingsMap.values()[prefixedIndices[i]].c_str()));
+	return result;
 }
 
 

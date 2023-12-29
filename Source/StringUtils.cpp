@@ -259,7 +259,7 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>* re
 		{
 			word += c;
 		}
-		else if( !word.empty() )
+		else if( c != '-' && !word.empty() )
 		{
 			result->push_back(word);
 			word.clear();

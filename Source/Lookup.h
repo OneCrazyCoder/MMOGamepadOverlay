@@ -125,14 +125,12 @@ public:
 
 	Some things to be aware of:
 
-	*	Erasing keys is relatively slow compared to adding or finding them, and
-		uses a large and complex function. There is also no option to erase by
-		iterator, since even if HAD iterators or indexing, that isn't enough
-		information for erase() to work (has to gather info as it searches), so
-		can't optimize find()->check value->erase() as can with other maps.
-		Therefore, if possible it is better to just set the value for a key to
-		a special 'invalid' setting instead of repeatedly erasing and re-adding
-		the same keys.
+	*	There is no way to erase a key/value pairs without erasing everything.
+		I have a function written that does it (contact me if really needed),
+		but it is incredibly complex and slow. This structure was just not
+		designed for random erasing of keys. Instead of attempting to erase
+		keys, just set their associated values to some sentinal value that
+		indicates it is no longer valid (null, -1, etc).
 
 	*	Searches are case-sensitive, as this depends on direct bit comparisons
 		rather than any form of lexicographical comparisons.
@@ -140,8 +138,8 @@ public:
 	*	No sorts happen, so although can iterate over the key & value vectors
 		(for serialization and the like), they will be in no particular order
 		(unlike VectorMap or stl map which are sorted). This also means can't
-		do range searches and such, only single key finds (though a potential
-		upgrade would allow for fast searches for "all keys with X prefix").
+		do range searches and such, only single key finds (though can use
+		findAllWithPrefix() to get all keys with a given prefix).
 
 	*	Unlike an stl map, existing values can be moved in memory when keys
 		are added or removed, so pointers, iterators, and references to
@@ -163,12 +161,14 @@ public:
 	// TYPES & CONSTANTS
 	typedef std::string Key;
 	typedef V Value;
+	typedef I IndexType;
 	typedef std::vector<Key> KeyVector;
 	// Avoid vector<bool> issues by using vector<u8> instead when 'V' is bool
 	template<class T> struct ValueTrait { typedef T Type; };
 	template<> struct ValueTrait<bool> { typedef u8 Type; };
 	typedef typename ValueTrait<V>::Type StoredValueType;
 	typedef std::vector<StoredValueType> ValueVector;
+	typedef std::vector<IndexType> IndexVector;
 
 	// CONSTRUCTOR/DESTRUCTOR
 	StringToValueMap();
@@ -178,8 +178,6 @@ public:
 	void clear();
 	// Sets the value for specified key, or adds new key/value pair
 	V& setValue(const Key& theKey, const V& theValue);
-	// Finds the key and removes it, or returns false if it wasn't found
-	bool erase(const Key& theKey);
 	// Reserves memory for number of entries (unique keys) expect to add
 	void reserve(size_t theCapacity);
 	// Can save memory for cases where build up once then only search it
@@ -211,6 +209,11 @@ public:
 	// Acts like quickFind but returns index into values() (and keys() if it
 	// hasn't been freed). Provided largely just for debugging purposes.
 	size_t quickFindIndex(const Key& theKey) const;
+	// Returns a list of indexes for all key/value pairs where the key
+	// starts with the given prefix (in no particular order), which can then
+	// be used to index into keys()/values(). Can be used after freeKeys()
+	// but result will not be valid if no keys actually have given prefix!
+	IndexVector findAllWithPrefix(const Key& thePrefix) const;
 	// Const access to the vectors of keys & values, for direct iteration.
 	// These are not guaranteed to be in any particular order, except in
 	// relation to each other (i.e. keyVector()[idx] returns the key for

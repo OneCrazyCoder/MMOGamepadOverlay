@@ -14,25 +14,18 @@ namespace InputTranslator
 {
 
 //-----------------------------------------------------------------------------
-// Const Data
-//-----------------------------------------------------------------------------
-
-enum {
-kHoldEventDisabled = 0xFFFF,
-};
-
-
-//-----------------------------------------------------------------------------
 // Config
 //-----------------------------------------------------------------------------
 
 struct Config
 {
-	u16 maxTapHoldTime;
+	u16 shortHoldTime;
+	u16 longHoldTime;
 
 	void load()
 	{
-		maxTapHoldTime = Profile::getInt("System/MaxTapHoldTime", 40);		
+		shortHoldTime = Profile::getInt("System/ButtonShortHoldTime", 400);
+		longHoldTime = Profile::getInt("System/ButtonLongHoldTime", 1200);
 	}
 };
 
@@ -43,11 +36,10 @@ struct Config
 
 struct ButtonState : public ConstructFromZeroInitializedMemory<ButtonState>
 {
-	Command tap;
-	Command onceHeld;
-	Command release;
-	Command analog;
 	u16 heldTime;
+	u8 modeWhenPressed;
+	bool shortHoldDone;
+	bool longHoldDone;
 };
 
 
@@ -147,33 +139,30 @@ static void processCommand(const Command& theCmd)
 
 static void processButtonPress(Gamepad::EButton theButton)
 {
-	const Command& aCmd = InputMap::commandForButton(
-		gControlsModeID, theButton, eButtonAction_Press);
-
-	// Store commands for other actions assigned to this button.
+	// Store mode when pressed to use by other button actions.
 	// This ensures that if control scheme is changed before this
 	// button is released, the original release event is still used,
 	// and don't end up in a situation where a keyboard key gets
 	// "stuck" held down forever, nor do we have to immediately force
 	// all keys to be released every time a control scheme changes.
-	sButtonStates[theButton].tap = InputMap::commandForButton(
-		gControlsModeID, theButton, eButtonAction_Tap);
-	sButtonStates[theButton].onceHeld = InputMap::commandForButton(
-		gControlsModeID, theButton, eButtonAction_OnceHeld);
-	sButtonStates[theButton].release = InputMap::commandForButton(
-		gControlsModeID, theButton, eButtonAction_Release);
-	sButtonStates[theButton].analog = InputMap::commandForButton(
-		gControlsModeID, theButton, eButtonAction_Analog);
+	sButtonStates[theButton].modeWhenPressed = gControlsModeID;
 
-	processCommand(aCmd);
+	processCommand(InputMap::commandForButton(
+		gControlsModeID, theButton, eButtonAction_PressAndHold));
+	processCommand(InputMap::commandForButton(
+		gControlsModeID, theButton, eButtonAction_Press));
 }
 
 
 static void processAnalogInput(Gamepad::EButton theButton)
 {
-	// Use stored command if one exists, otherwise use current mode's
-	Command aCmd = sButtonStates[theButton].analog;
-	if( aCmd.type == eCmdType_Empty )
+	// Use modeWhenPressed if it has an analog action,
+	// otherwise use current mode
+	Command aCmd = InputMap::commandForButton(
+		sButtonStates[theButton].modeWhenPressed,
+		theButton, eButtonAction_Analog);
+	if( aCmd.type == eCmdType_Empty &&
+		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
 		aCmd = InputMap::commandForButton(
 			gControlsModeID, theButton, eButtonAction_Analog);
@@ -230,18 +219,35 @@ static void processAnalogInput(Gamepad::EButton theButton)
 }
 
 
+static void processButtonShortHold(Gamepad::EButton theButton)
+{
+	sButtonStates[theButton].shortHoldDone = true;
+	// Only use modeWhenPressed for short hold action
+	processCommand(InputMap::commandForButton(
+		sButtonStates[theButton].modeWhenPressed,
+		theButton, eButtonAction_ShortHold));
+}
+
+
 static void processButtonLongHold(Gamepad::EButton theButton)
 {
-	// Only used stored command for long hold action
-	processCommand(sButtonStates[theButton].onceHeld);
+	sButtonStates[theButton].longHoldDone = true;
+	// Only use modeWhenPressed for long hold action
+	processCommand(InputMap::commandForButton(
+		sButtonStates[theButton].modeWhenPressed,
+		theButton, eButtonAction_LongHold));
 }
 
 
 static void processButtonTap(Gamepad::EButton theButton)
 {
-	// Use stored command if one exists, otherwise use current mode's
-	Command aCmd = sButtonStates[theButton].tap;
-	if( aCmd.type == eCmdType_Empty )
+	// Use modeWhenPressed if it has a tap action,
+	// otherwise use current mode
+	Command aCmd = InputMap::commandForButton(
+		sButtonStates[theButton].modeWhenPressed,
+		theButton, eButtonAction_Tap);
+	if( aCmd.type == eCmdType_Empty &&
+		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
 		aCmd = InputMap::commandForButton(
 			gControlsModeID, theButton, eButtonAction_Tap);
@@ -253,38 +259,31 @@ static void processButtonTap(Gamepad::EButton theButton)
 
 static void processButtonReleased(Gamepad::EButton theButton)
 {
+	// Only use modeWhenPressed for Hold Release action!
+	processCommand(InputMap::commandForButton(
+		sButtonStates[theButton].modeWhenPressed,
+		theButton, eButtonAction_HoldRelease));
+
 	// If released quickly enough, process 'tap' event
-	if( sButtonStates[theButton].heldTime <= kConfig.maxTapHoldTime )
+	if( sButtonStates[theButton].heldTime < kConfig.shortHoldTime )
 		processButtonTap(theButton);
 
-	// Reset held time to 0
-	sButtonStates[theButton].heldTime = 0;
-
-	// Use stored command for release by default, but if it is empty and
-	// and current mode has no command for 'press', use current mode's
-	// (assumed it is the case that the prior mode switched to this
-	// mode on press, and this mode returns to prior on release,
-	// and shouldn't have any problems with stuck buttons or the like if
-	// prior is missing 'release' and current is missing 'press').
-	Command aCmd = sButtonStates[theButton].release;
-	if( aCmd.type == eCmdType_Empty )
+	// Use modeWhenPressed if it has a normal release action,
+	// otherwise use current mode.
+	Command aCmd = InputMap::commandForButton(
+		sButtonStates[theButton].modeWhenPressed,
+		theButton, eButtonAction_Release);
+	if( aCmd.type == eCmdType_Empty &&
+		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
 		aCmd = InputMap::commandForButton(
-			gControlsModeID, theButton, eButtonAction_Press);
-		if( aCmd.type == eCmdType_Empty )
-		{
-			aCmd = InputMap::commandForButton(
-				gControlsModeID, theButton, eButtonAction_Release);
-		}
+			gControlsModeID, theButton, eButtonAction_Release);
 	}
 
 	processCommand(aCmd);
 
-	// Now that release has been processed, forget stored commands
-	sButtonStates[theButton].tap = Command();
-	sButtonStates[theButton].onceHeld = Command();
-	sButtonStates[theButton].release = Command();
-	sButtonStates[theButton].analog = Command();
+	// Reset button state now that it is released (sets heldTime to 0)
+	sButtonStates[theButton] = ButtonState();
 }
 
 
@@ -345,13 +344,17 @@ void update()
 		// Update heldTime value and see if need to process a long hold
 		if( isDown )
 		{
-			if( sButtonStates[aBtn].heldTime != kHoldEventDisabled )
+			if( sButtonStates[aBtn].heldTime < (0xFFFF - gAppFrameTime) )
 				sButtonStates[aBtn].heldTime += gAppFrameTime;
-			if( sButtonStates[aBtn].heldTime > kConfig.maxTapHoldTime &&
-				sButtonStates[aBtn].heldTime != kHoldEventDisabled )
+			if( sButtonStates[aBtn].heldTime >= kConfig.shortHoldTime &&
+				!sButtonStates[aBtn].shortHoldDone )
+			{
+				processButtonShortHold(aBtn);
+			}
+			if( sButtonStates[aBtn].heldTime >= kConfig.longHoldTime &&
+				!sButtonStates[aBtn].longHoldDone )
 			{
 				processButtonLongHold(aBtn);
-				sButtonStates[aBtn].heldTime = kHoldEventDisabled;
 			}
 		}
 	}
