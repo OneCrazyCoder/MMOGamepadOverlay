@@ -73,11 +73,14 @@ enum ECommandSubType
 
 enum EButtonAction
 {
-	eButtonAction_Press,	// First pushed
-	eButtonAction_Tap,		// Released quickly after pressed
-	eButtonAction_OnceHeld,	// Held past "tap" time (once per press only)
-	eButtonAction_Release,	// Released (after any hold time)
-	eButtonAction_Analog,	// Continuous analog input (mouse)
+	eButtonAction_PressAndHold,	// Key held as long as button is held
+	eButtonAction_Press,		// First pushed (assigned key is tapped)
+	eButtonAction_ShortHold,	// Held a short time (key tapped once)
+	eButtonAction_LongHold,		// Held a long time (key tapped once)
+	eButtonAction_Tap,			// Released before short hold time
+	eButtonAction_Release,		// Released (any hold time, key tapped once)
+	eButtonAction_HoldRelease,	// Releases key held by _PressAndHold
+	eButtonAction_Analog,		// Continuous analog input (mouse)
 
 	eButtonAction_Num
 };
@@ -91,6 +94,8 @@ enum EResult
 	eResult_NotFound,
 	eResult_Incomplete,
 	eResult_NotAllowed,
+	eResult_Malformed,
+	eResult_Empty,
 };
 
 struct Command : public ConstructFromZeroInitializedMemory<Command>

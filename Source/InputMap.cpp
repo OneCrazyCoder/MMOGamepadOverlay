@@ -24,23 +24,25 @@ kExButtonFPad = -1,
 };
 
 const char* kMainMacroSetLabel = "Macros";
-const char* kModePrefix = "Mode.";
+const std::string kModePrefix("Mode");
 const char* kMacroSlotLabel[] = { "U", "L", "R", "D" };
 DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) == kMacroSlotsPerSet);
 
-const char* kParentModeKey = "Inherits";
+const char* kParentModeKeys[] = { "Default", "Inherits", "Parent" };
 const char* kHUDSettingsKey = "HUD";
 const char* kMouseLookKey = "MouseLook";
 
 const char* kButtonActionPrefx[] =
 {
+	"",			// eButtonAction_PressAndHold
 	"Press",	// eButtonAction_Press
+	"Hold",		// eButtonAction_ShortHold
+	"LongHold",	// eButtonAction_LongHold
 	"Tap",		// eButtonAction_Tap
-	"Hold",		// eButtonAction_OnceHeld
 	"Release",	// eButtonAction_Release
-	"",			// eButtonAction_Analog
+	// HoldRelease and Analog are intentionally left out
+	// as they can not be directly assigned from Profile
 };
-DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eButtonAction_Num);
 
 
 //-----------------------------------------------------------------------------
@@ -59,16 +61,13 @@ struct MacroSet
 	MacroSlot slot[kMacroSlotsPerSet];
 };
 
-struct ButtonActions
-{
-	Command cmd[eButtonAction_Num];
-};
 
-typedef VectorMap<Gamepad::EButton, ButtonActions> ButtonActionsMap;
+typedef std::pair<Gamepad::EButton, EButtonAction> ButtonAction;
+typedef VectorMap<ButtonAction, Command> ButtonActionsCommands;
 
 struct ControlsMode
 {
-	ButtonActionsMap actions;
+	ButtonActionsCommands commands;
 	u8 parentMode;
 	BitArray8<eHUDElement_Num> hud;
 	bool mouseLookOn;
@@ -80,8 +79,9 @@ struct ControlsMode
 
 struct InputMapBuilder
 {
-	size_t currentItem;
-	std::vector<std::string> parsedCommand;
+	size_t currentSet;
+	std::string debugSetName;
+	std::vector<std::string> parsedString;
 	StringToValueMap<u8> nameToIdxMap;
 };
 
@@ -227,7 +227,10 @@ static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 }
 
 
-EResult checkForComboKeyName(std::string aKeyName, std::string* out)
+EResult checkForComboKeyName(
+	std::string aKeyName,
+	std::string* out,
+	bool allowMouse)
 {
 	std::string aModKeyName;
 	aModKeyName.push_back(aKeyName[0]);
@@ -236,14 +239,14 @@ EResult checkForComboKeyName(std::string aKeyName, std::string* out)
 	{
 		aModKeyName.push_back(aKeyName[0]);
 		aKeyName = aKeyName.substr(1);
-		const u8 aModKey = keyNameToVirtualKey(aModKeyName, false);
+		const u8 aModKey = keyNameToVirtualKey(aModKeyName, allowMouse);
 		if( aModKey != 0 &&
 			(aModKey == VK_SHIFT ||
 			 aModKey == VK_CONTROL ||
 			 aModKey == VK_MENU) )
 		{// Found a valid modifier key
 			// Is rest of the name a valid key now?
-			if( u8 aMainKey = keyNameToVirtualKey(aKeyName, false))
+			if( u8 aMainKey = keyNameToVirtualKey(aKeyName, allowMouse))
 			{// We have a valid key combo!
 				out->push_back(aModKey);
 				out->push_back(aMainKey);
@@ -251,7 +254,7 @@ EResult checkForComboKeyName(std::string aKeyName, std::string* out)
 			}
 			// Perhaps remainder is another mod+key, like ShiftCtrlA?
 			std::string suffix;
-			if( checkForComboKeyName(aKeyName, &suffix) )
+			if( checkForComboKeyName(aKeyName, &suffix, allowMouse) )
 			{
 				out->push_back(aModKey);
 				out->append(suffix);
@@ -262,6 +265,37 @@ EResult checkForComboKeyName(std::string aKeyName, std::string* out)
 
 	// No valid modifier key found
 	return eResult_NotFound;
+}
+
+
+static EResult namesToVKeySequence(
+	const std::vector<std::string>& theNames,
+	std::string* out,
+	bool allowMouse)
+{
+	DBG_ASSERT(out);
+
+	if( theNames.empty() )
+		return eResult_Empty;
+
+	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
+	{
+		DBG_ASSERT(!theNames[aNameIdx].empty());
+		const u8 aVKey = keyNameToVirtualKey(theNames[aNameIdx], allowMouse);
+		if( aVKey == 0 )
+		{
+			// Check if it's a modifier+key in one word like Shift2 or Alt1
+			if( checkForComboKeyName(
+					theNames[aNameIdx], out, allowMouse) != eResult_Ok )
+				return eResult_Malformed;
+		}
+		else
+		{
+			out->push_back(aVKey);
+		}
+	}
+
+	return eResult_Ok;
 }
 
 
@@ -285,7 +319,7 @@ static MacroSlot stringToMacroSlot(
 		aMacroSlot.cmd.data = int(sMacroSets.size());
 		sMacroSets.push_back(MacroSet());
 		sMacroSets.back().label =
-			sMacroSets[theBuilder->currentItem].label +
+			sMacroSets[theBuilder->currentSet].label +
 			"." + aMacroSlot.label;
 		return aMacroSlot;
 	}
@@ -310,43 +344,23 @@ static MacroSlot stringToMacroSlot(
 	}
 
 	// Break the remaining string (after label) into individual words
-	theBuilder->parsedCommand.clear();
-	sanitizeSentence(theString, &theBuilder->parsedCommand);
-	if( theBuilder->parsedCommand.empty() )
-		return aMacroSlot;
+	theBuilder->parsedString.clear();
+	sanitizeSentence(theString, &theBuilder->parsedString);
 
-	// Should be a key press sequence
-	std::string aKeySeq;
-	for(int aWord = 0; aWord < theBuilder->parsedCommand.size(); ++aWord)
+	// Process the words as a sequence of Virtual-Key Code names
+	std::string aVKeySeq;
+	if( namesToVKeySequence(
+			theBuilder->parsedString, &aVKeySeq, false) == eResult_Ok )
 	{
-		DBG_ASSERT(!theBuilder->parsedCommand[aWord].empty());
-		const std::string& aKeyName = theBuilder->parsedCommand[aWord];
-		const u8 aVKey = keyNameToVirtualKey(aKeyName, false);
-		if( aVKey == 0 )
-		{
-			// Check if it's a modifier+key in one word like Shift2 or Alt1
-			if( checkForComboKeyName(aKeyName, &aKeySeq) != eResult_Ok )
-			{
-				// Probably just forgot the > at front of a plain string
-				aKeySeq.clear();
-				aKeySeq.push_back('>');
-				aKeySeq += theString;
-				sKeyStrings.push_back(aKeySeq);
-				aMacroSlot.cmd.type = eCmdType_SayString;
-				aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
-				return aMacroSlot;
-			}
-		}
-		else
-		{
-			aKeySeq.push_back(aVKey);
-		}
-	}
-
-	if( !aKeySeq.empty() )
-	{
-		sKeyStrings.push_back(aKeySeq);
+		sKeyStrings.push_back(aVKeySeq);
 		aMacroSlot.cmd.type = eCmdType_VKeySequence;
+		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+	}
+	else
+	{
+		// Probably just forgot the > at front of a plain string
+		sKeyStrings.push_back(std::string(">") + theString);
+		aMacroSlot.cmd.type = eCmdType_SayString;
 		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
 	}
 
@@ -362,7 +376,7 @@ static void buildMacroSets(InputMapBuilder* theBuilder)
 	sMacroSets.back().label = kMainMacroSetLabel;
 	for(int aSet = 0; aSet < sMacroSets.size(); ++aSet )
 	{
-		theBuilder->currentItem = aSet;
+		theBuilder->currentSet = aSet;
 		const std::string aPrefix = sMacroSets[aSet].label;
 		for(int aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
 		{
@@ -396,15 +410,21 @@ static void addButtonAction(
 	u8 theModeIdx,
 	int theButton,
 	u8 theAction,
-	const std::string& theCmdStr)
+	const std::string& theString)
 {
 	DBG_ASSERT(theBuilder);
 
-	debugPrint("Assign %s Mode: %s %s to: %s\n",
-		theBuilder->nameToIdxMap.keys()[theModeIdx-1].c_str(),
+	debugPrint("Assigning %s Mode: %s %s to: %s\n",
+		theBuilder->debugSetName.c_str(),
 		kButtonActionPrefx[theAction],
 		exButtonName(theButton),
-		theCmdStr.c_str());
+		theString.c_str());
+
+	// Break the string into individual words
+	theBuilder->parsedString.clear();
+	sanitizeSentence(theString, &theBuilder->parsedString);
+
+	// TODO
 }
 
 
@@ -418,27 +438,35 @@ static u8 getOrCreateMode(
 	if( idx == sModes.size() )
 	{// Need to create the new mode
 		sModes.push_back(ControlsMode());
-		const std::string aModePrefix(kModePrefix + theModeName + "/");
-		// Get (or make) parent mode, if has one
-		const std::string& aParentModeName =
-			Profile::getStr(aModePrefix + kParentModeKey);
-		if( !aParentModeName.empty() )
-		{
-			sModes[idx].parentMode =
-				getOrCreateMode(theBuilder, aParentModeName);
+		const std::string aModePrefix(kModePrefix + "." + theModeName + "/");
+		{// Get (or make) parent mode, if has one
+			std::string aParentModeName;
+			for(int i = 0; i < ARRAYSIZE(kParentModeKeys); ++i)
+			{
+				aParentModeName = Profile::getStr(
+					aModePrefix + kParentModeKeys[i],
+					aParentModeName);
+			}
+			if( !aParentModeName.empty() )
+			{
+				sModes[idx].parentMode =
+					getOrCreateMode(theBuilder, aParentModeName);
+			}
 		}
+		theBuilder->debugSetName = theModeName;
+		
 		// TODO: Figure out hud bits, starting w/ parent and looking up show/hide
+		
 		// Use parent mouselook setting unless have our own specified
 		sModes[idx].mouseLookOn = Profile::getBool(
 			aModePrefix + kMouseLookKey,
 			sModes[sModes[idx].parentMode].mouseLookOn);
-		// TODO: Get special-case things like assigning "Move" to "LStick" to set
-		// defaults for individual LStick axis all in one step
+
 		// Check every action for every button for things to assign
 		for(int aBtn = kFirstExButton; aBtn < Gamepad::eBtn_Num; ++aBtn)
 		{
 			const std::string aBtnName(exButtonName(aBtn));
-			for(u8 act = 0; act < eButtonAction_Num; ++act)
+			for(u8 act = 0; act < ARRAYSIZE(kButtonActionPrefx); ++act)
 			{
 				const std::string aCmdStr = Profile::getStr(
 					aModePrefix + kButtonActionPrefx[act] + aBtnName);
@@ -446,6 +474,9 @@ static u8 getOrCreateMode(
 					addButtonAction(theBuilder, idx, aBtn, act, aCmdStr);
 			}
 		}
+
+		sModes[idx].commands.sort();
+		sModes[idx].commands.trim();
 	}
 
 	return idx;
@@ -462,12 +493,18 @@ static void buildControlSchemes(InputMapBuilder* theBuilder)
 	// returning the button assignments from the default mode.
 	sModes.push_back(ControlsMode());
 
-	// Get name of default mode
-	std::string aDefaultModeName = Profile::getStr("Setup/Mode");
-	if( aDefaultModeName.empty() )
+	// Get name of default mode (parent to mode 0)
+	std::string aParentModeName;
+	for(int i = 0; i < ARRAYSIZE(kParentModeKeys); ++i)
+	{
+		aParentModeName = Profile::getStr(
+			kModePrefix + "/" + kParentModeKeys[i],
+			aParentModeName);
+	}
+	if( aParentModeName.empty() )
 		return;
 
-	sModes[0].parentMode = getOrCreateMode(theBuilder, aDefaultModeName);
+	sModes[0].parentMode = getOrCreateMode(theBuilder, aParentModeName);
 	DBG_ASSERT(sModes[0].parentMode != 0);
 	DBG_ASSERT(sModes[0].parentMode < sModes.size());
 	sModes[0].hud = sModes[sModes[0].parentMode].hud;
@@ -515,13 +552,16 @@ Command commandForButton(
 	DBG_ASSERT(theAction < eButtonAction_Num);
 
 	Command result;
-	ButtonActionsMap::const_iterator itr;
+	ButtonActionsCommands::const_iterator itr;
 	do
 	{
-		itr = sModes[theModeID].actions.find(Gamepad::EButton(theButton));
-		if( itr != sModes[theModeID].actions.end() )
+		const ButtonAction anAction = std::make_pair(
+			Gamepad::EButton(theButton),
+			EButtonAction(theAction));
+		itr = sModes[theModeID].commands.find(anAction);
+		if( itr != sModes[theModeID].commands.end() )
 		{
-			result = itr->second.cmd[theAction];
+			result = itr->second;
 			switch(result.type)
 			{
 			case eCmdType_VKeySequence:

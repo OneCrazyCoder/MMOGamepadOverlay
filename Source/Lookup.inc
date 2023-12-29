@@ -182,238 +182,6 @@ V& StringToValueMap<V, I>::setValue(const Key& theKey, const V& theValue)
 
 
 template<class V, class I> inline
-bool StringToValueMap<V, I>::erase(const Key& theKey)
-{
-	// This function is quite complex, so it helps to know the terms used
-	// in the comments and variable names.
-
-	// The "key node" is the final node returned by a search for a Key, which
-	// will share the same index as a key in mKeys and value in mValues.
-
-	// The "parent" of a node is the one earlier in the tree that has one of
-	// it's child pointers (left or right) point at the node, and that the node
-	// pointed at has a higher bitPos than the parent's bitPos (searches start
-	// at a low bitPos and get higher as search through the Key string).
-
-	// A "back pointer" or BP node is the one that ended the search by having
-	// one of its child pointers point to a node earlier in the tree (i.e. one
-	// that has the same or smaller bitPos as it does). This is the signal that
-	// the search has ended. Note that a node may be its own back pointer, if
-	// one of its child pointers points at itself. Note also that just because
-	// a node points to itself, that doesn't mean that's how the search stops
-	// at that node! It might instead have passed through the node's other
-	// child pointer, and any number of other nodes after that, before one of
-	// them finally had a back pointer to the original node to end the search.
-
-	// First, need to find if the key even exists!
-	// Walk the tree with the same technique as bestNodeIndexForFind(),
-	// but while keeping track of some other nodes along the way
-	I aCheckNodeIdx = mHeadNodeIndex;
-	I aBPointerToKeyNodeIdx = aCheckNodeIdx;
-	I aParentOfBPointerNodeIdx;
-	u16 aLastCheckedNodeBitPos;
-	do
-	{
-		aParentOfBPointerNodeIdx = aBPointerToKeyNodeIdx;
-		aBPointerToKeyNodeIdx = aCheckNodeIdx;
-		aLastCheckedNodeBitPos = mTrie[aCheckNodeIdx].bitPos;
-		aCheckNodeIdx = getBitAtPos(theKey, aLastCheckedNodeBitPos)
-			? mTrie[aCheckNodeIdx].right
-			: mTrie[aCheckNodeIdx].left;
-	} while(aLastCheckedNodeBitPos < mTrie[aCheckNodeIdx].bitPos);
-	const I aKeyNodeIdx = aCheckNodeIdx;
-
-	// Early out if the key wasn't found (key does not exactly match)
-	DBG_ASSERT(mKeys.size() == mValues.size());
-	DBG_ASSERT(mValues.size() == mTrie.size());
-	if( theKey != mKeys[aKeyNodeIdx] )
-		return false;
-
-	if( mTrie.size() == 1 )
-	{// Only node left, so just delete everything
-		clear();
-		return true;
-	}
-
-	// For now, set the key node to be deleted, but this may change
-	I aNodeToDeleteIdx = aKeyNodeIdx;	
-
-	// How to delete the node depends on what its child pointers are set to
-	const bool aKeyNodeLeftIsSelf = mTrie[aKeyNodeIdx].left == aKeyNodeIdx;
-	const bool aKeyNodeRightIsSelf = mTrie[aKeyNodeIdx].right == aKeyNodeIdx;
-
-	// Now must update related nodes to no longer point to the node to be
-	// deleted, while preserving the structure needed for all other nodes
-	if( aKeyNodeLeftIsSelf || aKeyNodeRightIsSelf )
-	{
-		// Simple case - at most only one true child node, possibly none
-		// Need to know the key node's parent to update it to point elsewhere
-		I aParentOfKeyNodeIdx = aParentOfBPointerNodeIdx;
-		if( aBPointerToKeyNodeIdx != aKeyNodeIdx )
-		{
-			// Since the key node isn't its own back pointer, we don't yet know
-			// for sure what its parent node is. The parent node may have been
-			// several steps before encountering the back pointer, and at first
-			// walk through the tree didn't yet know what we were looking for.
-			// So need to walk again to find the actual parent.
-			aCheckNodeIdx = mHeadNodeIndex;
-			do
-			{
-				aParentOfKeyNodeIdx = aCheckNodeIdx;
-				aLastCheckedNodeBitPos = mTrie[aCheckNodeIdx].bitPos;
-				aCheckNodeIdx = getBitAtPos(theKey, aLastCheckedNodeBitPos)
-					? mTrie[aCheckNodeIdx].right
-					: mTrie[aCheckNodeIdx].left;
-			} while(aLastCheckedNodeBitPos < mTrie[aCheckNodeIdx].bitPos &&
-					aCheckNodeIdx != aKeyNodeIdx);
-		}
-		if( aKeyNodeLeftIsSelf && aKeyNodeRightIsSelf )
-		{
-			// Simplest case - key node ONLY points to self, no children
-			// Just update parent of key node to point to itself instead
-			if( mTrie[aParentOfKeyNodeIdx].left == aKeyNodeIdx )
-				mTrie[aParentOfKeyNodeIdx].left = aParentOfKeyNodeIdx;
-			else
-				mTrie[aParentOfKeyNodeIdx].right = aParentOfKeyNodeIdx;
-		}
-		else
-		{
-			// Key node has one true child node (not itself)
-			const I aKeyNodeTrueChildIdx =
-				mTrie[aKeyNodeIdx].left == aKeyNodeIdx
-					? mTrie[aKeyNodeIdx].right
-					: mTrie[aKeyNodeIdx].left;
-			if( aKeyNodeIdx == mHeadNodeIndex )
-			{// Head node has no parent to update - set its child as new head
-				mHeadNodeIndex = aKeyNodeTrueChildIdx;
-			}
-			else
-			{
-				// Have Key node's parent skip over it and point to grandchild
-				if( mTrie[aParentOfKeyNodeIdx].left == aKeyNodeIdx )
-					mTrie[aParentOfKeyNodeIdx].left = aKeyNodeTrueChildIdx;
-				else
-					mTrie[aParentOfKeyNodeIdx].right = aKeyNodeTrueChildIdx;
-			}
-			// Have back pointer node just point back to itself instead
-			// (harmless no-op if are back pointing to self already anyway)
-			if( mTrie[aBPointerToKeyNodeIdx].left == aKeyNodeIdx )
-				mTrie[aBPointerToKeyNodeIdx].left = aBPointerToKeyNodeIdx;
-			else
-				mTrie[aBPointerToKeyNodeIdx].right = aBPointerToKeyNodeIdx;
-		}
-	}
-	else
-	{
-		// Complex case - 2 unique child nodes, back pointer must not be self
-		DBG_ASSERT(aBPointerToKeyNodeIdx != aKeyNodeIdx);
-
-		// Easier solution is if the BP node has no children to deal with
-		// (uses its 2 pointers to point at itself and the key node)
-		if( mTrie[aBPointerToKeyNodeIdx].left == aBPointerToKeyNodeIdx ||
-			mTrie[aBPointerToKeyNodeIdx].right == aBPointerToKeyNodeIdx )
-		{
-			// Have BP node's parent point directly to Key node,
-			// have Key node take over BP node's key/value, and
-			// then delete BP node instead of the Key node.
-			if( mTrie[aParentOfBPointerNodeIdx].left == aBPointerToKeyNodeIdx )
-				mTrie[aParentOfBPointerNodeIdx].left = aKeyNodeIdx;
-			else
-				mTrie[aParentOfBPointerNodeIdx].right = aKeyNodeIdx;
-			mKeys[aKeyNodeIdx] = mKeys[aBPointerToKeyNodeIdx];
-			mValues[aKeyNodeIdx] = mValues[aBPointerToKeyNodeIdx];
-			aNodeToDeleteIdx = aBPointerToKeyNodeIdx;
-		}
-		else
-		{
-			// Most complex case - Key has 2 children and BP node has one too
-
-			// First, find the node that acts as the back pointer to BP node
-			// when treat BP node's key as the desired search key.
-			I aBPToBPNodeIdx;
-			Key* const aTestKey = &mKeys[aBPointerToKeyNodeIdx];
-			aCheckNodeIdx = aBPointerToKeyNodeIdx;
-			do
-			{
-				aBPToBPNodeIdx = aCheckNodeIdx;
-				aLastCheckedNodeBitPos = mTrie[aCheckNodeIdx].bitPos;
-				aCheckNodeIdx = getBitAtPos(*aTestKey, aLastCheckedNodeBitPos)
-					? mTrie[aCheckNodeIdx].right
-					: mTrie[aCheckNodeIdx].left;
-			} while(aLastCheckedNodeBitPos < mTrie[aCheckNodeIdx].bitPos);
-			// Should have wrapped back around to the same node again, but now
-			// know the node that points back to it
-			DBG_ASSERT(aCheckNodeIdx == aBPointerToKeyNodeIdx);
-			
-			// Have Key node take over the key/values of BP node
-			mKeys[aKeyNodeIdx] = mKeys[aBPointerToKeyNodeIdx];
-			mValues[aKeyNodeIdx] = mValues[aBPointerToKeyNodeIdx];
-
-			// Have parent of BP node skip over it and point to grandchild
-			const I aBPointerNodeChildIdx =
-				mTrie[aBPointerToKeyNodeIdx].left == aKeyNodeIdx
-					? mTrie[aBPointerToKeyNodeIdx].right
-					: mTrie[aBPointerToKeyNodeIdx].left;
-			if( mTrie[aParentOfBPointerNodeIdx].left == aBPointerToKeyNodeIdx )
-				mTrie[aParentOfBPointerNodeIdx].left = aBPointerNodeChildIdx;
-			else
-				mTrie[aParentOfBPointerNodeIdx].right = aBPointerNodeChildIdx;
-
-			// Have back-pointer-to-back-pointer node point to Key node instead
-			if( mTrie[aBPToBPNodeIdx].left == aBPointerToKeyNodeIdx )
-				mTrie[aBPToBPNodeIdx].left = aKeyNodeIdx;
-			else
-				mTrie[aBPToBPNodeIdx].right = aKeyNodeIdx;
-
-			// Now delete back pointer node instead of Key node
-			aNodeToDeleteIdx = aBPointerToKeyNodeIdx;
-		}
-	}
-
-	// Now actually delete a node by using the swap-and-pop method
-	DBG_ASSERT(aNodeToDeleteIdx != mHeadNodeIndex);
-	if( aNodeToDeleteIdx < mTrie.size()-1 ) // can skip "swap" if are last node
-	{
-		// Overwrite dead node's values with values from the last node
-		mKeys[aNodeToDeleteIdx] = mKeys.back();
-		mValues[aNodeToDeleteIdx] = mValues.back();
-		mTrie[aNodeToDeleteIdx] = mTrie.back();
-
-		// Update head node index if last node happens to be head node
-		if( mHeadNodeIndex == mTrie.size() - 1 )
-			mHeadNodeIndex = aNodeToDeleteIdx;
-
-		// Now need to make sure anything pointing at the last node will point
-		// to its new position at aNodeToDeleteIdx. Do this by simulating a
-		// search for the last node's key and updating any links to its old
-		// position along the way. This will even update the node's pointers to
-		// itself as well, since search always passes through a key node once
-		// before actually stopping at it.
-		I aCheckNodeIdx = mHeadNodeIndex;
-		do
-		{
-			if( mTrie[aCheckNodeIdx].left == mTrie.size()-1 )
-				mTrie[aCheckNodeIdx].left = aNodeToDeleteIdx;
-			if( mTrie[aCheckNodeIdx].right == mTrie.size()-1 )
-				mTrie[aCheckNodeIdx].right = aNodeToDeleteIdx;
-			aLastCheckedNodeBitPos = mTrie[aCheckNodeIdx].bitPos;
-			aCheckNodeIdx = getBitAtPos(
-				mKeys[aNodeToDeleteIdx], mTrie[aCheckNodeIdx].bitPos)
-					? mTrie[aCheckNodeIdx].right
-					: mTrie[aCheckNodeIdx].left;
-		} while(aLastCheckedNodeBitPos < mTrie[aCheckNodeIdx].bitPos);
-	}
-
-	// And finally, can pop the old copy of the last node off the vectors
-	mKeys.pop_back();
-	mValues.pop_back();
-	mTrie.pop_back();
-
-	return true;
-}
-
-
-template<class V, class I> inline
 void StringToValueMap<V, I>::reserve(size_t theCapacity)
 {
 	mTrie.reserve(theCapacity);
@@ -518,6 +286,74 @@ size_t StringToValueMap<V, I>::quickFindIndex(const Key& theKey) const
 
 
 template<class V, class I> inline
+typename StringToValueMap<V, I>::IndexVector
+StringToValueMap<V, I>::findAllWithPrefix(const Key& thePrefix) const
+{
+	std::vector<I> result;
+	if( mTrie.empty() )
+		return result;
+
+	// Walk the tree searching for thePrefix until find a node whose
+	// bitpos is >= the length of thePrefix (or a back-pointing node).
+	I aCheckNodeIdx = mHeadNodeIndex;
+	u16 aMaxBitPos = u16(thePrefix.length() * 8);
+	s32 aLastCheckedNodeBitPos = -1;
+	bool foundBPNode = false;
+	while(mTrie[aCheckNodeIdx].bitPos < aMaxBitPos && !foundBPNode)
+	{
+		aLastCheckedNodeBitPos = mTrie[aCheckNodeIdx].bitPos;
+		aCheckNodeIdx = getBitAtPos(thePrefix, mTrie[aCheckNodeIdx].bitPos)
+			? mTrie[aCheckNodeIdx].right
+			: mTrie[aCheckNodeIdx].left;
+		foundBPNode = mTrie[aCheckNodeIdx].bitPos <= aLastCheckedNodeBitPos;
+	}
+
+	// Add end points of every branch further down the tree to 'result'
+	struct CheckNode { s32 prevBitPos; I index; };
+	std::vector<CheckNode> aCheckQueue;
+	CheckNode aCheckNode;
+	aCheckNode.prevBitPos = aLastCheckedNodeBitPos;
+	aCheckNode.index = aCheckNodeIdx;
+	aCheckQueue.push_back(aCheckNode);
+
+	while(!aCheckQueue.empty())
+	{
+		aCheckNodeIdx = aCheckQueue.back().index;
+		const s32 aPrevBitPos = aCheckQueue.back().prevBitPos;
+		aCheckQueue.pop_back();
+
+		if( mTrie[aCheckNodeIdx].bitPos <= aPrevBitPos )
+		{// Reached an end point node, add it to results list
+			// Make sure first found result actually has the prefix
+			// (only checked if has not used freeKeys())
+			// If first result is correct, rest do not need to be checked
+			if( result.empty() && mKeys.size() == mTrie.size() &&
+				mKeys[aCheckNodeIdx].compare(
+					0, thePrefix.length(), thePrefix) )
+			{
+				return result;
+			}
+
+			result.push_back(aCheckNodeIdx);
+		}
+		else
+		{// Add node's children to the check queue
+			aCheckNode.prevBitPos = mTrie[aCheckNodeIdx].bitPos;
+			aCheckNode.index = mTrie[aCheckNodeIdx].left;
+			aCheckQueue.push_back(aCheckNode);
+			if( mTrie[aCheckNodeIdx].left != mTrie[aCheckNodeIdx].right )
+			{// Only add right child if different from left
+				aCheckNode.index = mTrie[aCheckNodeIdx].right;
+				aCheckQueue.push_back(aCheckNode);
+			}
+		}
+	}
+
+	return result;
+}
+
+
+template<class V, class I> inline
 I StringToValueMap<V, I>::addNewNode(const Key& theKey, const V& theValue)
 {
 	DBG_ASSERT(mTrie.size() < (1 << (sizeof(I) * 8)));
@@ -603,7 +439,7 @@ V& StringToValueMap<V, I>::insertNewPair(
 		// (it may have 2 pointers to self and we are using the other one),
 		// before setting new node to point back to theFoundIndex.
 		// This may seem a pointless check since what harm would a back pointer
-		// that's never reached do? But it is equired for erase() function that
+		// that's never reached do? But it is required for logic elsewhere that
 		// every external pointer to a node is reached when searching its key.
 		if( theFoundIndex != theBPIndex ||
 			getBitAtPos(mKeys[theFoundIndex], mTrie[theBPIndex].bitPos) ==
