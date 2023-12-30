@@ -138,7 +138,10 @@ static GamepadData sGamepadData;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-void filterInitialInputs(int theGamepadID)
+// Forward declares
+static EResult activateGamepad(int);
+
+static void filterInitialInputs(int theGamepadID)
 {
 	// This function exists to make sure that if a gamepad is sending constant
 	// data that a button is held down or a stick is being pressed, it doesn't
@@ -526,7 +529,6 @@ static void releaseGamepad(int theGamepadID)
 }
 
 
-static EResult activateGamepad(int);
 static void pollGamepad(int theGamepadID)
 {
 	DBG_ASSERT(theGamepadID >= 0 && theGamepadID < kMaxGamepadsEnumerated);

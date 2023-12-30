@@ -126,7 +126,7 @@ static void processCommand(const Command& theCmd)
 	case eCmdType_TargetGroup:
 		// TODO
 		break;
-	case eCmdType_NextMouseHotspot:
+	case eCmdType_SelectHotspot:
 		// TODO
 		break;
 	default:

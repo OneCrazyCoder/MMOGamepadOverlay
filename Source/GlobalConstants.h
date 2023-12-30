@@ -40,7 +40,7 @@ enum ECommandType
 	eCmdType_SelectMenu,
 	eCmdType_RewriteMacro,
 	eCmdType_TargetGroup,
-	eCmdType_NextMouseHotspot,
+	eCmdType_SelectHotspot,
 	eCmdType_MoveMouse,
 
 	eCmdType_Num
