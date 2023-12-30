@@ -32,10 +32,10 @@ bool getBool(const std::string& theKey, bool theDefaultValue = false);
 // If 'out' already has more values than settings file includes, the extras are left as-is
 void getIntArray(const std::string& theKey, std::vector<int>* out);
 // Directly returns all key/value pairs whose keys start with given prefix
-// (namely category name), though returned key names will be in all-caps.
+// (i.e. category). Returned key names will be in all-caps and sans prefix.
 // WARNING: Returned pointers may be invalidated with any modifications to profile!
 typedef std::vector<std::pair<const char*, const char*> > KeyValuePairs;
-KeyValuePairs getAllKeys(const std::string& thePrefix);
+void getAllKeys(const std::string& thePrefix, KeyValuePairs* out);
 
 // Add or modify profile settings
 void setStr(const std::string& theKey, const std::string& theString);

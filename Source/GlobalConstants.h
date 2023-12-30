@@ -9,6 +9,8 @@
 	data lookup tables that are needed by multiple modules.
 */
 
+#include "Common.h"
+
 enum EHUDElement
 {
 	eHUDElement_None,
@@ -43,7 +45,6 @@ enum ECommandType
 
 	eCmdType_Num
 };
-DBG_CTASSERT(eCmdType_Num <= 256);
 
 enum ECommandSubType
 {
@@ -73,16 +74,64 @@ enum ECommandSubType
 
 enum EButtonAction
 {
-	eButtonAction_PressAndHold,	// Key held as long as button is held
-	eButtonAction_Press,		// First pushed (assigned key is tapped)
-	eButtonAction_ShortHold,	// Held a short time (key tapped once)
-	eButtonAction_LongHold,		// Held a long time (key tapped once)
-	eButtonAction_Tap,			// Released before short hold time
-	eButtonAction_Release,		// Released (any hold time, key tapped once)
-	eButtonAction_HoldRelease,	// Releases key held by _PressAndHold
-	eButtonAction_Analog,		// Continuous analog input (mouse)
+	eBtnAct_PressAndHold,	// Key held as long as button is held
+	eBtnAct_Press,			// First pushed (assigned key is tapped)
+	eBtnAct_ShortHold,		// Held a short time (key tapped once)
+	eBtnAct_LongHold,		// Held a long time (key tapped once)
+	eBtnAct_Tap,			// Released before short hold time
+	eBtnAct_Release,		// Released (any hold time, key tapped once)
+	eBtnAct_HoldRelease,	// Releases key held by _PressAndHold
+	eBtnAct_Analog,			// Continuous analog input (mouse)
 
-	eButtonAction_Num
+	eBtnAct_Num
+};
+
+enum EButton
+{
+	eBtn_None = 0,
+
+	// Left analog stick (pushed past set digital deadzone)
+	eBtn_LSLeft,
+	eBtn_LSRight,
+	eBtn_LSUp,
+	eBtn_LSDown,
+
+	// Right analog stick (pushed past set digital deadzone)
+	eBtn_RSLeft,
+	eBtn_RSRight,
+	eBtn_RSUp,
+	eBtn_RSDown,
+
+	// D-pad
+	eBtn_DLeft,
+	eBtn_DRight,
+	eBtn_DUp,
+	eBtn_DDown,
+
+	// Face buttons
+	eBtn_FLeft,		// Left face button - PS=Sqr, XB=X, N=Y
+	eBtn_FRight,	// Right face button - PS=Cir, XB=B, N=A
+	eBtn_FUp,		// Top face button - PS=Tri, XB=Y, N=X
+	eBtn_FDown,		// Bottom face button - PS=X, XB=A, N=B
+
+	// Shoulder buttons
+	eBtn_L1,
+	eBtn_R1,
+	eBtn_L2,
+	eBtn_R2,
+
+	// Other buttons
+	eBtn_Select,	// Or Back or Share or whatever
+	eBtn_Start,		// Or Menu or Options or whatever
+	eBtn_L3,		// Pressing in on the left analog stick
+	eBtn_R3,		// Pressing in on the right analog stick
+	eBtn_Home,		// PS button, XB Guide button, etc
+	eBtn_Extra,		// Touchpad on PS, Capture on NSwitch
+
+	eBtn_Num,
+	eBtn_FirstDigital = eBtn_DLeft,
+	eBtn_FirstDInputBtn = eBtn_FLeft,
+	eBtn_DInputBtnNum = eBtn_Num - eBtn_FirstDInputBtn,
 };
 
 enum EResult
@@ -107,3 +156,6 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 		const char* string;
 	};
 };
+
+// Generic button names used in Profile .ini files
+extern const char* kProfileButtonName[];

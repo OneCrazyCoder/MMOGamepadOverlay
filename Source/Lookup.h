@@ -209,11 +209,11 @@ public:
 	// Acts like quickFind but returns index into values() (and keys() if it
 	// hasn't been freed). Provided largely just for debugging purposes.
 	size_t quickFindIndex(const Key& theKey) const;
-	// Returns a list of indexes for all key/value pairs where the key
+	// Appends to a vector of indexes all key/value pairs where the key
 	// starts with the given prefix (in no particular order), which can then
 	// be used to index into keys()/values(). Can be used after freeKeys()
 	// but result will not be valid if no keys actually have given prefix!
-	IndexVector findAllWithPrefix(const Key& thePrefix) const;
+	void findAllWithPrefix(const Key& thePrefix, IndexVector* out) const;
 	// Const access to the vectors of keys & values, for direct iteration.
 	// These are not guaranteed to be in any particular order, except in
 	// relation to each other (i.e. keyVector()[idx] returns the key for

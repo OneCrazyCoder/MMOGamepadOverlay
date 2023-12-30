@@ -16,54 +16,6 @@
 namespace Gamepad
 {
 
-enum EButton
-{
-	eBtn_None = 0,
-
-	// Left analog stick (pushed past set digital deadzone)
-	eBtn_LSLeft,
-	eBtn_LSRight,
-	eBtn_LSUp,
-	eBtn_LSDown,
-
-	// Right analog stick (pushed past set digital deadzone)
-	eBtn_RSLeft,
-	eBtn_RSRight,
-	eBtn_RSUp,
-	eBtn_RSDown,
-
-	// D-pad
-	eBtn_DLeft,
-	eBtn_DRight,
-	eBtn_DUp,
-	eBtn_DDown,
-
-	// Face buttons
-	eBtn_FLeft,		// Left face button - PS=Sqr, XB=X, N=Y
-	eBtn_FRight,	// Right face button - PS=Cir, XB=B, N=A
-	eBtn_FUp,		// Top face button - PS=Tri, XB=Y, N=X
-	eBtn_FDown,		// Bottom face button - PS=X, XB=A, N=B
-
-	// Shoulder buttons
-	eBtn_L1,
-	eBtn_R1,
-	eBtn_L2,
-	eBtn_R2,
-
-	// Other buttons
-	eBtn_Select,	// Or Back or Share or whatever
-	eBtn_Start,		// Or Menu or Options or whatever
-	eBtn_L3,		// Pressing in on the left analog stick
-	eBtn_R3,		// Pressing in on the right analog stick
-	eBtn_Home,		// PS button, XB Guide button, etc
-	eBtn_Extra,		// Touchpad on PS, Capture on NSwitch
-
-	eBtn_Num,
-	eBtn_FirstDigital = eBtn_DLeft,
-	eBtn_FirstDInputBtn = eBtn_FLeft,
-	eBtn_DInputBtnNum = eBtn_Num - eBtn_FirstDInputBtn,
-};
-
 enum EAxis
 {
 	eAxis_None = 0,
@@ -180,10 +132,6 @@ int selectedGamepadID();
 // (for use in printing in control configurations dialogs and such).
 // Button names may change depending on the current selectedGamepadID.
 const char* buttonName(EButton theButton);
-
-// Returns the name of the specified EButton in format used in Profile
-// configuration files (.ini files). Always the same for all gamepads.
-const char* profileButtonName(EButton theButton);
 
 // Returns vendor ID of controller (for button prompts, etc)
 // -1 is the same as sending selectedGamepadID()

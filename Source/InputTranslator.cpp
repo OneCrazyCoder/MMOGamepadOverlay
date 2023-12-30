@@ -72,7 +72,7 @@ struct InputResults
 //-----------------------------------------------------------------------------
 
 static Config kConfig;
-static ButtonState sButtonStates[Gamepad::eBtn_Num];
+static ButtonState sButtonStates[eBtn_Num];
 static InputResults sResults;
 
 
@@ -137,7 +137,7 @@ static void processCommand(const Command& theCmd)
 }
 
 
-static void processButtonPress(Gamepad::EButton theButton)
+static void processButtonPress(EButton theButton)
 {
 	// Store mode when pressed to use by other button actions.
 	// This ensures that if control scheme is changed before this
@@ -147,25 +147,25 @@ static void processButtonPress(Gamepad::EButton theButton)
 	// all keys to be released every time a control scheme changes.
 	sButtonStates[theButton].modeWhenPressed = gControlsModeID;
 
-	processCommand(InputMap::commandForButton(
-		gControlsModeID, theButton, eButtonAction_PressAndHold));
-	processCommand(InputMap::commandForButton(
-		gControlsModeID, theButton, eButtonAction_Press));
+	processCommand(InputMap::commandForButtonAction(
+		gControlsModeID, theButton, eBtnAct_PressAndHold));
+	processCommand(InputMap::commandForButtonAction(
+		gControlsModeID, theButton, eBtnAct_Press));
 }
 
 
-static void processAnalogInput(Gamepad::EButton theButton)
+static void processAnalogInput(EButton theButton)
 {
 	// Use modeWhenPressed if it has an analog action,
 	// otherwise use current mode
-	Command aCmd = InputMap::commandForButton(
+	Command aCmd = InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eButtonAction_Analog);
+		theButton, eBtnAct_Analog);
 	if( aCmd.type == eCmdType_Empty &&
 		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
-		aCmd = InputMap::commandForButton(
-			gControlsModeID, theButton, eButtonAction_Analog);
+		aCmd = InputMap::commandForButtonAction(
+			gControlsModeID, theButton, eBtnAct_Analog);
 	}
 
 	if( aCmd.type == eCmdType_MoveMouse )
@@ -219,50 +219,50 @@ static void processAnalogInput(Gamepad::EButton theButton)
 }
 
 
-static void processButtonShortHold(Gamepad::EButton theButton)
+static void processButtonShortHold(EButton theButton)
 {
 	sButtonStates[theButton].shortHoldDone = true;
 	// Only use modeWhenPressed for short hold action
-	processCommand(InputMap::commandForButton(
+	processCommand(InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eButtonAction_ShortHold));
+		theButton, eBtnAct_ShortHold));
 }
 
 
-static void processButtonLongHold(Gamepad::EButton theButton)
+static void processButtonLongHold(EButton theButton)
 {
 	sButtonStates[theButton].longHoldDone = true;
 	// Only use modeWhenPressed for long hold action
-	processCommand(InputMap::commandForButton(
+	processCommand(InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eButtonAction_LongHold));
+		theButton, eBtnAct_LongHold));
 }
 
 
-static void processButtonTap(Gamepad::EButton theButton)
+static void processButtonTap(EButton theButton)
 {
 	// Use modeWhenPressed if it has a tap action,
 	// otherwise use current mode
-	Command aCmd = InputMap::commandForButton(
+	Command aCmd = InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eButtonAction_Tap);
+		theButton, eBtnAct_Tap);
 	if( aCmd.type == eCmdType_Empty &&
 		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
-		aCmd = InputMap::commandForButton(
-			gControlsModeID, theButton, eButtonAction_Tap);
+		aCmd = InputMap::commandForButtonAction(
+			gControlsModeID, theButton, eBtnAct_Tap);
 	}
 	
 	processCommand(aCmd);
 }
 
 
-static void processButtonReleased(Gamepad::EButton theButton)
+static void processButtonReleased(EButton theButton)
 {
 	// Only use modeWhenPressed for Hold Release action!
-	processCommand(InputMap::commandForButton(
+	processCommand(InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eButtonAction_HoldRelease));
+		theButton, eBtnAct_HoldRelease));
 
 	// If released quickly enough, process 'tap' event
 	if( sButtonStates[theButton].heldTime < kConfig.shortHoldTime )
@@ -270,14 +270,14 @@ static void processButtonReleased(Gamepad::EButton theButton)
 
 	// Use modeWhenPressed if it has a normal release action,
 	// otherwise use current mode.
-	Command aCmd = InputMap::commandForButton(
+	Command aCmd = InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eButtonAction_Release);
+		theButton, eBtnAct_Release);
 	if( aCmd.type == eCmdType_Empty &&
 		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
-		aCmd = InputMap::commandForButton(
-			gControlsModeID, theButton, eButtonAction_Release);
+		aCmd = InputMap::commandForButtonAction(
+			gControlsModeID, theButton, eBtnAct_Release);
 	}
 
 	processCommand(aCmd);
@@ -313,9 +313,9 @@ void update()
 	InputDispatcher::setMouseLookMode(
 		InputMap::mouseLookShouldBeOn(gControlsModeID));
 
-	for(Gamepad::EButton aBtn = Gamepad::EButton(1);
-		aBtn < Gamepad::eBtn_Num;
-		aBtn = Gamepad::EButton(aBtn+1))
+	for(EButton aBtn = EButton(1);
+		aBtn < eBtn_Num;
+		aBtn = EButton(aBtn+1))
 	{
 		const bool wasDown = sButtonStates[aBtn].heldTime > 0;
 		const bool isDown = Gamepad::buttonDown(aBtn);
@@ -375,10 +375,10 @@ void update()
 		gControlsModeID = sResults.newMode;
 		// See if have an auto-input for initializing new mode
 		// This is stored in the 'press' action for eBtn_None
-		const Command& anAutoCmd = InputMap::commandForButton(
+		const Command& anAutoCmd = InputMap::commandForButtonAction(
 			sResults.newMode,
-			Gamepad::eBtn_None,
-			eButtonAction_Press);
+			eBtn_None,
+			eBtnAct_Press);
 		processCommand(anAutoCmd);
 		// Temp hack
 		OverlayWindow::redraw();
