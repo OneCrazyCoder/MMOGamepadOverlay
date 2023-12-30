@@ -286,12 +286,11 @@ size_t StringToValueMap<V, I>::quickFindIndex(const Key& theKey) const
 
 
 template<class V, class I> inline
-typename StringToValueMap<V, I>::IndexVector
-StringToValueMap<V, I>::findAllWithPrefix(const Key& thePrefix) const
+void StringToValueMap<V, I>::findAllWithPrefix(
+	const Key& thePrefix, IndexVector* out) const
 {
-	std::vector<I> result;
-	if( mTrie.empty() )
-		return result;
+	if( mTrie.empty() || !out )
+		return;
 
 	// Walk the tree searching for thePrefix until find a node whose
 	// bitpos is >= the length of thePrefix (or a back-pointing node).
@@ -316,6 +315,7 @@ StringToValueMap<V, I>::findAllWithPrefix(const Key& thePrefix) const
 	aCheckNode.index = aCheckNodeIdx;
 	aCheckQueue.push_back(aCheckNode);
 
+	bool addedIndex = false;
 	while(!aCheckQueue.empty())
 	{
 		aCheckNodeIdx = aCheckQueue.back().index;
@@ -327,14 +327,15 @@ StringToValueMap<V, I>::findAllWithPrefix(const Key& thePrefix) const
 			// Make sure first found result actually has the prefix
 			// (only checked if has not used freeKeys())
 			// If first result is correct, rest do not need to be checked
-			if( result.empty() && mKeys.size() == mTrie.size() &&
+			if( !addedIndex && mKeys.size() == mTrie.size() &&
 				mKeys[aCheckNodeIdx].compare(
 					0, thePrefix.length(), thePrefix) )
 			{
-				return result;
+				return;
 			}
 
-			result.push_back(aCheckNodeIdx);
+			addedIndex = true;
+			out->push_back(aCheckNodeIdx);
 		}
 		else
 		{// Add node's children to the check queue
@@ -348,8 +349,6 @@ StringToValueMap<V, I>::findAllWithPrefix(const Key& thePrefix) const
 			}
 		}
 	}
-
-	return result;
 }
 
 

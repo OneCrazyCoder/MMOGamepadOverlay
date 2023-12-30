@@ -415,6 +415,10 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Source\GlobalConstants.cpp"
+			>
+		</File>
+		<File
 			RelativePath=".\Source\GlobalConstants.h"
 			>
 		</File>

@@ -221,8 +221,8 @@ static void parseINI(
 				{// Abort - invalid key
 					aState = ePIState_Whitespace;
 				}
-				else
-				{
+				else if( c > ' ' && c != '-' && c != '_' )
+				{// Keys are all upper-case and no spaces/etc
 					aKey.push_back(toupper(c));
 				}
 				break;
@@ -284,15 +284,15 @@ static void generateResourceProfile(size_t theProfileID)
 
 		if( hGlobal != NULL )
 		{
-			void* data = LockResource(hGlobal);
-			DWORD size = SizeofResource(hModule, hResource);
+			void* aData = LockResource(hGlobal);
+			DWORD aSize = SizeofResource(hModule, hResource);
 
 			std::ofstream aFile(
 				widen(iniFolderPath() + aFileName).c_str(),
 				std::ios::binary);
 			if( aFile.is_open() )
 			{
-				aFile << static_cast<char*>(data);
+				aFile.write(static_cast<char*>(aData), aSize);
 				aFile.close();
 			}
 			else
@@ -503,7 +503,7 @@ void queryUserForProfile()
 {
 	// TODO
 	// TEMP - just generate and select a default profile
-	static const size_t kDefaultProfileID = 5; // PQ
+	static const size_t kDefaultProfileID = 6; // PQ
 	//if( !profileExists(kResourceProfiles[kDefaultProfileID].name) )
 		generateResourceProfile(kDefaultProfileID);
 	sAvailableProfiles.push_back(kResourceProfiles[kDefaultProfileID].name);
@@ -564,16 +564,20 @@ void getIntArray(const std::string& theKey, std::vector<int>* out)
 }
 
 
-KeyValuePairs getAllKeys(const std::string& thePrefix)
+void getAllKeys(const std::string& thePrefix, KeyValuePairs* out)
 {
-	StringsMap::IndexVector prefixedIndices =
-		sSettingsMap.findAllWithPrefix(upper(thePrefix));
-	KeyValuePairs result;
-	for(size_t i = 0; i < prefixedIndices.size(); ++i)
-		result.push_back(std::make_pair(
-			sSettingsMap.keys()[prefixedIndices[i]].c_str(),
-			sSettingsMap.values()[prefixedIndices[i]].c_str()));
-	return result;
+	DBG_ASSERT(out);
+
+	const size_t aPrefixLength = thePrefix.length();
+	StringsMap::IndexVector anIndexSet;
+	sSettingsMap.findAllWithPrefix(upper(thePrefix), &anIndexSet);
+
+	for(size_t i = 0; i < anIndexSet.size(); ++i)
+	{
+		out->push_back(std::make_pair(
+			sSettingsMap.keys()[anIndexSet[i]].c_str() + aPrefixLength,
+			sSettingsMap.values()[anIndexSet[i]].c_str()));
+	}
 }
 
 

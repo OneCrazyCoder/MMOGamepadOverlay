@@ -12,7 +12,6 @@
 */
 
 #include "Common.h"
-#include "Gamepad.h"
 
 namespace InputMap
 {
@@ -24,9 +23,9 @@ void loadProfile();
 bool mouseLookShouldBeOn(int theModeID);
 
 // Get command to execute when given button performs given action
-Command commandForButton(
+Command commandForButtonAction(
 	int theModeID,
-	Gamepad::EButton theButton,
+	EButton theButton,
 	EButtonAction theAction);
 
 // Get command for executing given macro slot in given set
