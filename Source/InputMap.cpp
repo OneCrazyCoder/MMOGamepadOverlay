@@ -35,6 +35,26 @@ const char* kMouseLookKey = "MOUSELOOK";
 const char* k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
+struct CommandKeyWord { char* str; ECommandType cmd; bool alt; };
+const CommandKeyWord kCmdKeyWords[] =
+{// In order of priority, earlier words supersede later ones
+	{ "MODE", eCmdType_ChangeMode },
+	{ "MOUSE", eCmdType_MoveMouse },
+	{ "WHEEL", eCmdType_MoveMouse, true },
+	{ "MOUSEWHEEL", eCmdType_MoveMouse, true },
+	{ "MOVETURN", eCmdType_MoveCharacter },
+	{ "STRAFE", eCmdType_MoveCharacter, true },
+	{ "MOVESTRAFE", eCmdType_MoveCharacter, true },
+	{ "MOVE", eCmdType_MoveCharacter },
+	{ "ABILITY", eCmdType_SelectAbility },
+	{ "SPELL", eCmdType_SelectAbility },
+	{ "RESET",	eCmdType_SelectMacro, true },
+	{ "REWRITE", eCmdType_RewriteMacro },
+	{ "MACRO",	eCmdType_SelectMacro },
+	{ "HOTSPOT", eCmdType_SelectHotspot },
+	{ "TARGET",	eCmdType_TargetGroup },
+	{ "MENU", eCmdType_SelectMenu },
+};
 
 const char* kButtonActionPrefx[] =
 {
@@ -66,24 +86,11 @@ struct MacroSet
 	MacroSlot slot[kMacroSlotsPerSet];
 };
 
-struct ButtonActionID
+struct ButtonActions
 {
-	EButton btn : 8;
-	EButtonAction act : 8;
-
-	ButtonActionID() : btn(eBtn_Num), act(eBtnAct_Num) {}
-	ButtonActionID(EButton theBtn, EButtonAction theAct)
-		: btn(theBtn), act(theAct) {}
-	operator bool() const
-		{ return btn != eBtn_Num && act != eBtnAct_Num; }
-	bool operator<(const ButtonActionID& rhs) const
-		{ return btn < rhs.btn || (btn == rhs.btn && act < rhs.act); }
-	bool operator==(const ButtonActionID& rhs) const
-		{ return btn == rhs.btn && act == rhs.act; }
-	bool operator!=(const ButtonActionID& rhs) const
-		{ return !(*this == rhs); }
+	Command cmd[eBtnAct_Num];
 };
-typedef VectorMap<ButtonActionID, Command> ButtonActionsCommands;
+typedef VectorMap<EButton, ButtonActions> ButtonActionsCommands;
 
 struct ControlsMode
 {
@@ -117,8 +124,11 @@ static std::vector<ControlsMode> sModes;
 
 
 //-----------------------------------------------------------------------------
-// Local Functions
+// Const Data Lookup Functions
 //-----------------------------------------------------------------------------
+
+// Forward declares
+static u8 getOrCreateMode(InputMapBuilder*, const std::string&);
 
 static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 {
@@ -249,43 +259,8 @@ static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 }
 
 
-static ButtonActionID buttonActionNameToID(std::string theString)
-{
-	DBG_ASSERT(!theString.empty());
-
-	ButtonActionID result;
-	
-	// Assume press-and-hold action if none specified by a prefix
-	result.act = eBtnAct_PressAndHold;
-
-	// Check for action prefix - not many so just linear search
-	for(size_t i = 0; i < eBtnAct_Num; ++i)
-	{
-		if( kButtonActionPrefx[i][0] == '\0' )
-			continue;
-		const char* aPrefixChar = &kButtonActionPrefx[i][0];
-		const char* aStrChar = theString.c_str();
-		bool matchFound = true;
-		for(; *aPrefixChar; ++aPrefixChar, ++aStrChar)
-		{
-			// Ignore whitespace in the string
-			while(*aStrChar <= ' ') ++aStrChar;
-			// Mismatch if reach end of string or chars don't match
-			if( !*aStrChar || ::toupper(*aPrefixChar) != ::toupper(*aStrChar) )
-			{
-				matchFound = false;
-				break;
-			}
-		}
-		if( matchFound )
-		{
-			result.act = EButtonAction(i);
-			// Chop the prefix (and any whitespace after) off the front of the string
-			theString = trim(aStrChar);
-			break;
-		}
-	}
-
+static EButton buttonNameToID(const std::string& theString)
+{	
 	struct NameToEnumMapper
 	{
 		typedef StringToValueMap<EButton, u8> NameToEnumMap;
@@ -294,6 +269,7 @@ static ButtonActionID buttonActionNameToID(std::string theString)
 		{
 			const size_t kMapSize = eBtn_Num + 38;
 			map.reserve(kMapSize);
+			// Add default names for each button to map
 			for(int i = 0; i < eBtn_Num; ++i)
 				map.setValue(upper(kProfileButtonName[i]), EButton(i));
 			// Add some extra aliases
@@ -340,14 +316,16 @@ static ButtonActionID buttonActionNameToID(std::string theString)
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
-	if( EButton* aBtnID = sNameToEnumMapper.map.find(upper(theString)) )
-		result.btn = *aBtnID;
-	
-	return result;
+	EButton* result = sNameToEnumMapper.map.find(upper(theString));
+	return result ? *result : eBtn_Num;
 }
 
 
-EResult checkForComboKeyName(
+//-----------------------------------------------------------------------------
+// Local Functions
+//-----------------------------------------------------------------------------
+
+static EResult checkForComboKeyName(
 	std::string aKeyName,
 	std::string* out,
 	bool allowMouse)
@@ -568,37 +546,146 @@ static void buildKeyBinds(InputMapBuilder* theBuilder)
 }
 
 
+static Command buildSpecialCommand(InputMapBuilder* theBuilder)
+{
+	DBG_ASSERT(theBuilder);
+	const std::vector<std::string>& aCmdStrings = theBuilder->parsedString;
+
+	Command result;
+	bool altType = false;
+
+	// Search for key words in order of priority
+	for(size_t i = 0; i < ARRAYSIZE(kCmdKeyWords); ++i)
+	{
+		const char* aCheckWord = kCmdKeyWords[i].str;
+		// Searh all but the last 'word' in parsed string for a match
+		for(size_t aWordIdx = 0; aWordIdx < aCmdStrings.size()-1; ++aWordIdx)
+		{
+			const std::string& aTestWord = upper(aCmdStrings[aWordIdx]);
+			if( aTestWord == aCheckWord )
+			{
+				result.type = kCmdKeyWords[i].cmd;
+				altType = kCmdKeyWords[i].alt;
+				break;
+			}
+		}
+		if( result.type != eCmdType_Empty )
+			break;
+	}
+
+	if( result.type == eCmdType_Empty )
+		return result;
+
+	switch(result.type)
+	{
+	case eCmdType_ChangeMode:
+		// Mode may not exist yet, so this can be slightly tricky (recursion)
+		{
+			std::string aBackupSlotName = theBuilder->debugSlotName;
+			// We're done with ->parsedString or would back it up too
+			result.data = getOrCreateMode(
+				theBuilder,
+				aCmdStrings.back());
+			if( theBuilder->debugSlotName != aBackupSlotName )
+			{
+				theBuilder->debugSlotName = aBackupSlotName;
+				debugPrint("Resuming building contrlos mode: %s\n",
+					theBuilder->debugSlotName.c_str());
+			}
+		}
+		break;
+	case eCmdType_MoveCharacter:
+	case eCmdType_SelectAbility:
+	case eCmdType_SelectMacro:
+	case eCmdType_SelectMenu:
+	case eCmdType_RewriteMacro:
+	case eCmdType_TargetGroup:
+	case eCmdType_SelectHotspot:
+	case eCmdType_MoveMouse:
+		result.type = eCmdType_Empty;
+		break;
+	}
+
+	return result;
+}
+
+
+static EButtonAction breakOffButtonAction(std::string* theButtonActionName)
+{
+	DBG_ASSERT(theButtonActionName && !theButtonActionName->empty());
+
+	// Assume press-and-hold action if none specified by a prefix
+	EButtonAction result = eBtnAct_PressAndHold;
+
+	// Check for action prefix - not many so just linear search
+	for(size_t i = 0; i < eBtnAct_Num; ++i)
+	{
+		if( kButtonActionPrefx[i][0] == '\0' )
+			continue;
+		const char* aPrefixChar = &kButtonActionPrefx[i][0];
+		const char* aStrChar = theButtonActionName->c_str();
+		bool matchFound = true;
+		for(; *aPrefixChar; ++aPrefixChar, ++aStrChar)
+		{
+			// Ignore whitespace in the string
+			while(*aStrChar <= ' ') ++aStrChar;
+			// Mismatch if reach end of string or chars don't match
+			if( !*aStrChar || ::toupper(*aPrefixChar) != ::toupper(*aStrChar) )
+			{
+				matchFound = false;
+				break;
+			}
+		}
+		if( matchFound )
+		{
+			result = EButtonAction(i);
+			// Chop the prefix (and any whitespace after) off the front of the string
+			*theButtonActionName = trim(aStrChar);
+			break;
+		}
+	}
+
+	return result;
+}
+
+	
 static void addButtonAction(
 	InputMapBuilder* theBuilder,
-	ButtonActionsCommands* theCommands,
-	const std::string& theBtnName,
+	size_t theModeIdx,
+	std::string theBtnName,
 	const std::string& theCmdStr)
 {
 	DBG_ASSERT(theBuilder);
-	DBG_ASSERT(theCommands);
+	DBG_ASSERT(theModeIdx < sModes.size());
 	if( theBtnName.empty() || theCmdStr.empty() )
 		return;
 
 	// Handle shortcuts for assigning multiple at once
 	for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
 	{
-		if( theBtnName == k4DirButtons[i] )
+		// Check if the *end* (after action tag) of button name matches
+		if( theBtnName.size() >= k4DirButtons[i].size() &&
+			theBtnName.compare(
+				theBtnName.size() - k4DirButtons[i].size(),
+				k4DirButtons[i].size(),
+				k4DirButtons[i]) == 0 )
 		{
-			addButtonAction(theBuilder, theCommands,
+			addButtonAction(theBuilder, theModeIdx,
 				theBtnName + "UP", theCmdStr + " Up");
-			addButtonAction(theBuilder, theCommands,
+			addButtonAction(theBuilder, theModeIdx,
 				theBtnName + "DOWN", theCmdStr + " Down");
-			addButtonAction(theBuilder, theCommands,
+			addButtonAction(theBuilder, theModeIdx,
 				theBtnName + "LEFT", theCmdStr + " Left");
-			addButtonAction(theBuilder, theCommands,
+			addButtonAction(theBuilder, theModeIdx,
 				theBtnName + "RIGHT", theCmdStr + " Right");
 			return;
 		}
 	}
 
 	// Determine button & action to assign command to
-	ButtonActionID aButtonActionID = buttonActionNameToID(theBtnName);
-	if( !aButtonActionID )
+	EButtonAction aBtnAct = breakOffButtonAction(&theBtnName);
+	EButton aBtnID = buttonNameToID(theBtnName);
+	if( aBtnID >= eBtn_Num )
 	{
 		logError("Unable to identify Gamepad Button '%s' requested in [%s.%s]",
 			theBtnName.c_str(),
@@ -612,64 +699,68 @@ static void addButtonAction(
 	sanitizeSentence(theCmdStr, &theBuilder->parsedString);
 
 	// Check for special commands
-	// TODO
+	Command aCmd = buildSpecialCommand(theBuilder);
 
-	// Check for keybind alias
-	std::string* aVKeySeqPtr = NULL;
-	if( int* aKeyStringIdxPtr = sKeyBinds.find(upper(theCmdStr)) )
-		aVKeySeqPtr = &sKeyStrings[*aKeyStringIdxPtr];
-
-	// Check for direct key sequence
-	std::string aVKeySeq;
-	if( !aVKeySeqPtr )
+	// Check for VKey sequence if no special command found
+	if( aCmd.type == eCmdType_Empty )
 	{
-		aVKeySeq = namesToVKeySequence(
-				theBuilder->parsedString, true);
-		aVKeySeqPtr = &aVKeySeq;
-	}
+		std::string* aVKeySeqPtr = NULL;
+		// Check for alias to a keybind
+		if( int* aKeyStringIdxPtr = sKeyBinds.find(upper(theCmdStr)) )
+			aVKeySeqPtr = &sKeyStrings[*aKeyStringIdxPtr];
 
-	Command aCmd;
-	if( aVKeySeqPtr && aVKeySeqPtr->size() == 1 &&
-		aButtonActionID.act == eBtnAct_PressAndHold )
-	{
-		// True press-and-hold only works with a single key.
-		// If more than one key was specified, this will be
-		// skipped and _PressAndHold will just act like the
-		// normal _Press action (possibly having 2), and no
-		// _HoldRelease command will be added with it.
-		aCmd.data = (*aVKeySeqPtr)[0];
-
-		// Add the extra release command now
-		aCmd.type = eCmdType_ReleaseKey;
-		aButtonActionID.act = eBtnAct_HoldRelease;
-		theCommands->addPair(aButtonActionID, aCmd);
-
-		aButtonActionID.act = eBtnAct_PressAndHold;
-		aCmd.type = eCmdType_PressAndHoldKey;
-	}
-
-	if( aCmd.type == eCmdType_Empty &&
-		aVKeySeqPtr && !aVKeySeqPtr->empty() )
-	{
-		if( aVKeySeqPtr == &aVKeySeq )
+		// Check for direct key sequence
+		std::string aVKeySeq;
+		if( !aVKeySeqPtr )
 		{
-			sKeyStrings.push_back(aVKeySeq);
-			aVKeySeqPtr = &sKeyStrings[sKeyStrings.size()-1];
+			aVKeySeq = namesToVKeySequence(theBuilder->parsedString, true);
+			aVKeySeqPtr = &aVKeySeq;
 		}
-		DBG_ASSERT(aVKeySeqPtr >= &sKeyStrings[0]);
-		DBG_ASSERT(aVKeySeqPtr < &sKeyStrings[0] + sKeyStrings.size());
-		aCmd.data = int(aVKeySeqPtr - &sKeyStrings[0]);
-		aCmd.type = eCmdType_VKeySequence;
+
+		if( aVKeySeqPtr && aVKeySeqPtr->size() == 1 &&
+			aBtnAct == eBtnAct_PressAndHold )
+		{
+			// True press-and-hold only works with a single key.
+			// If more than one key was specified, this will be
+			// skipped and _PressAndHold will just act like the
+			// normal _Press action (possibly having 2), and no
+			// _HoldRelease command will be added with it.
+			aCmd.data = (*aVKeySeqPtr)[0];
+
+			// Add the extra release command now
+			aCmd.type = eCmdType_ReleaseKey;
+			ButtonActions& aBtnActSet =
+				sModes[theModeIdx].commands.findOrAdd(aBtnID);
+			aBtnActSet.cmd[eBtnAct_HoldRelease] = aCmd;
+
+			aCmd.type = eCmdType_PressAndHoldKey;
+		}
+
+		if( aCmd.type == eCmdType_Empty &&
+			aVKeySeqPtr && !aVKeySeqPtr->empty() )
+		{
+			if( aVKeySeqPtr == &aVKeySeq )
+			{
+				sKeyStrings.push_back(aVKeySeq);
+				aVKeySeqPtr = &sKeyStrings[sKeyStrings.size()-1];
+			}
+			DBG_ASSERT(aVKeySeqPtr >= &sKeyStrings[0]);
+			DBG_ASSERT(aVKeySeqPtr < &sKeyStrings[0] + sKeyStrings.size());
+			aCmd.data = int(aVKeySeqPtr - &sKeyStrings[0]);
+			aCmd.type = eCmdType_VKeySequence;
+		}
 	}
 
 	if( aCmd.type != eCmdType_Empty )
 	{
-		theCommands->addPair(aButtonActionID, aCmd);
+		ButtonActions& aBtnActSet =
+			sModes[theModeIdx].commands.findOrAdd(aBtnID);
+		aBtnActSet.cmd[aBtnAct] = aCmd;
 		mapDebugPrint("[Mode.%s]: Assigned '%s%s%s' to '%s'\n",
 			theBuilder->debugSlotName.c_str(),
-			kButtonActionPrefx[aButtonActionID.act],
-			kButtonActionPrefx[aButtonActionID.act][0] ? " " : "",
-			kProfileButtonName[aButtonActionID.btn],
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
 			theCmdStr.c_str());
 	}
 	else
@@ -689,7 +780,8 @@ static u8 getOrCreateMode(
 {
 	DBG_ASSERT(theBuilder);
 
-	u8 idx = theBuilder->nameToIdxMap.findOrAdd(theModeName, (u8)sModes.size());
+	u8 idx = theBuilder->nameToIdxMap.findOrAdd(
+				upper(theModeName), (u8)sModes.size());
 	if( idx == sModes.size() )
 	{// Need to create the new mode
 		sModes.push_back(ControlsMode());
@@ -747,15 +839,8 @@ static u8 getOrCreateMode(
 			}
 
 			// Parse and add assignment to this mode's commands map
-			addButtonAction(
-				theBuilder,
-				&sModes[idx].commands,
-				aKey,
-				itr->second);
+			addButtonAction(theBuilder, idx, aKey, itr->second);
 		}
-
-		sModes[idx].commands.sort();
-		sModes[idx].commands.removeDuplicates();
 		sModes[idx].commands.trim();
 	}
 
@@ -839,12 +924,10 @@ Command commandForButtonAction(
 	ButtonActionsCommands::const_iterator itr;
 	do
 	{
-		const ButtonActionID aBtnAct = ButtonActionID(
-			EButton(theButton), EButtonAction(theAction));
-		itr = sModes[theModeID].commands.find(aBtnAct);
+		itr = sModes[theModeID].commands.find(theButton);
 		if( itr != sModes[theModeID].commands.end() )
 		{
-			result = itr->second;
+			result = itr->second.cmd[theAction];
 			switch(result.type)
 			{
 			case eCmdType_VKeySequence:
