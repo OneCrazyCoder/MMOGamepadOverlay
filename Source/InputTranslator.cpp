@@ -104,29 +104,22 @@ static void processCommand(const Command& theCmd)
 		break;
 	case eCmdType_ChangeMacroSet:
 		gMacroSetID = theCmd.data;
-		// Temp hack
+		// TODO: Stop using this temp hack
 		OverlayWindow::redraw();
 		break;
-	case eCmdType_MoveCharacter:
-		// TODO
-		break;
+	case eCmdType_UseAbility:
+	case eCmdType_ConfirmMenu:
+	case eCmdType_CancelMenu:
 	case eCmdType_SelectAbility:
+	case eCmdType_SelectMenu:
+	case eCmdType_SelectHotspot:
 		// TODO
 		break;
 	case eCmdType_SelectMacro:
 		processCommand(InputMap::commandForMacro(
 			gMacroSetID, theCmd.data));
 		break;
-	case eCmdType_SelectMenu:
-		// TODO
-		break;
 	case eCmdType_RewriteMacro:
-		// TODO
-		break;
-	case eCmdType_TargetGroup:
-		// TODO
-		break;
-	case eCmdType_SelectHotspot:
 		// TODO
 		break;
 	default:
@@ -147,72 +140,122 @@ static void processButtonPress(EButton theButton)
 	// all keys to be released every time a control scheme changes.
 	sButtonStates[theButton].modeWhenPressed = gControlsModeID;
 
-	processCommand(InputMap::commandForButtonAction(
-		gControlsModeID, theButton, eBtnAct_PressAndHold));
+	// Get default command for this button (_PressAndHold action)
+	const Command& aCmd = InputMap::commandForButtonAction(
+		gControlsModeID, theButton, eBtnAct_PressAndHold);
+
+	switch(aCmd.type)
+	{
+	case eCmdType_MoveTurn:
+	case eCmdType_MoveStrafe:
+	case eCmdType_MoveMouse:
+	case eCmdType_SmoothMouseWheel:
+	case eCmdType_StepMouseWheel:
+		// Handled in processContinuousInput instead
+		return;
+	}
+
+	processCommand(aCmd);
 	processCommand(InputMap::commandForButtonAction(
 		gControlsModeID, theButton, eBtnAct_Press));
 }
 
 
-static void processAnalogInput(EButton theButton)
+static void processContinuousInput(EButton theButton)
 {
-	// Use modeWhenPressed if it has an analog action,
-	// otherwise use current mode
+	// Use modeWhenPressed if it has a continuous action, otherwise current
 	Command aCmd = InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eBtnAct_Analog);
+		theButton, eBtnAct_PressAndHold);
 	if( aCmd.type == eCmdType_Empty &&
 		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
 		aCmd = InputMap::commandForButtonAction(
-			gControlsModeID, theButton, eBtnAct_Analog);
+			gControlsModeID, theButton, eBtnAct_PressAndHold);
 	}
 
+	switch(aCmd.type)
+	{
+	case eCmdType_MoveTurn:
+	case eCmdType_MoveStrafe:
+	case eCmdType_MoveMouse:
+	case eCmdType_SmoothMouseWheel:
+	case eCmdType_StepMouseWheel:
+		// Allow continue to analog checks below
+		break;
+	default:
+		// Handled elsewhere
+		return;
+	}
+
+	u8 anAnalogVal = Gamepad::buttonAnalogVal(theButton);
+	bool isDigitalPress = false;
+	if( !anAnalogVal && Gamepad::buttonDown(theButton) )
+	{
+		anAnalogVal = 255;
+		isDigitalPress = true;
+	}
+	if( !anAnalogVal )
+		return;
+
 	if( aCmd.type == eCmdType_MoveMouse )
-	{// Update mouse motion in sResults
-		u8 anAnalogVal = Gamepad::buttonAnalogVal(theButton);
-		bool isDigitalPress = false;
-		if( !anAnalogVal && Gamepad::buttonDown(theButton) )
-		{
-			anAnalogVal = 255;
-			isDigitalPress = true;
-		}
-		if( !anAnalogVal )
-			return;
+	{
 		switch(aCmd.data)
 		{
-		case eCmdSubType_Left:
+		case eCmdDir_Left:
 			sResults.mouseMoveX -= anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eCmdSubType_Right:
+		case eCmdDir_Right:
 			sResults.mouseMoveX += anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eCmdSubType_Up:
+		case eCmdDir_Up:
 			sResults.mouseMoveY -= anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eCmdSubType_Down:
+		case eCmdDir_Down:
 			sResults.mouseMoveY += anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
-		case eCmdSubType_WheelUpStepped:
-			sResults.mouseWheelStepped = true;
-			// fall through
-		case eCmdSubType_WheelUp:
+		default:
+			DBG_ASSERT(false && "Invalid dir for eCmdType_MoveMouse");
+			break;
+		}
+	}
+	else if( aCmd.type == eCmdType_SmoothMouseWheel )
+	{
+		switch(aCmd.data)
+		{
+		case eCmdDir_Up:
 			sResults.mouseWheelY -= anAnalogVal;
 			sResults.mouseWheelDigital = isDigitalPress;
 			break;
-		case eCmdSubType_WheelDownStepped:
-			sResults.mouseWheelStepped = true;
-			// fall through
-		case eCmdSubType_WheelDown:
+		case eCmdDir_Down:
 			sResults.mouseWheelY += anAnalogVal;
 			sResults.mouseMoveDigital = isDigitalPress;
 			break;
 		default:
-			DBG_ASSERT(false && "Invalid sub-type set for MoveMouse command");
+			DBG_ASSERT(false && "Mouse wheel only supports up and down dir");
+			break;
+		}
+	}
+	else if( aCmd.type == eCmdType_StepMouseWheel )
+	{
+		switch(aCmd.data)
+		{
+		case eCmdDir_Up:
+			sResults.mouseWheelStepped = true;
+			sResults.mouseWheelY -= anAnalogVal;
+			sResults.mouseWheelDigital = isDigitalPress;
+			break;
+		case eCmdDir_Down:
+			sResults.mouseWheelStepped = true;
+			sResults.mouseWheelY += anAnalogVal;
+			sResults.mouseMoveDigital = isDigitalPress;
+			break;
+		default:
+			DBG_ASSERT(false && "Mouse wheel only supports up and down dir");
 			break;
 		}
 	}
@@ -337,9 +380,9 @@ void update()
 				processButtonReleased(aBtn);
 		}
 
-		// Check for analog axis values, which do not return on "hit" when
-		// lightly pressed so must be checked continuously
-		processAnalogInput(aBtn);
+		// Process continuous input, such as for analog axis values which
+		// which do not necessarily return hit/release when lightly pressed
+		processContinuousInput(aBtn);
 
 		// Update heldTime value and see if need to process a long hold
 		if( isDown )
@@ -374,13 +417,13 @@ void update()
 	{// Swap controls modes
 		gControlsModeID = sResults.newMode;
 		// See if have an auto-input for initializing new mode
-		// This is stored in the 'press' action for eBtn_None
+		// This is stored in the '_PressAndHold' action for button _None
 		const Command& anAutoCmd = InputMap::commandForButtonAction(
 			sResults.newMode,
 			eBtn_None,
-			eBtnAct_Press);
+			eBtnAct_PressAndHold);
 		processCommand(anAutoCmd);
-		// Temp hack
+		// TODO: Stop using this temp hack
 		OverlayWindow::redraw();
 	}
 }

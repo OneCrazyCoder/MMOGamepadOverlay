@@ -37,9 +37,9 @@ std::string addTrailingSlash(const std::string& theDirectory, bool backSlash = f
 // If theChar is not found, returns empty string and leaves theString as-is
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
 // Breaks the string into individual sub-strings of ASCII alhanumeric characters,
-// and appends them to the passed-in vector of strings. All other characters
-// are stripped and act as separators for each "word" (sub-string), except
-// for hyphenated words which are conjoined (Left-Click becomes LeftClick).
+// (in all caps) and appends them to the passed-in vector of strings.
+// All other characters are stripped and act as separators for each "word"
+// except for hyphenated words which are conjoined (Left-Click->LEFTCLICK).
 void sanitizeSentence(const std::string& theString, std::vector<std::string>* result);
 
 

@@ -20,39 +20,49 @@ namespace InputMap
 
 enum {
 kMacroSlotsPerSet = 4,
+kInvalidHUDElementVal = -3,
+kHideHUDElementVal = -2,
+kShowHUDElementVal = -1,
 };
 
 const char* kMainMacroSetLabel = "Macros";
 const std::string kModePrefix("Mode");
 const char* kKeybindsPrefix("KeyBinds/");
-const char* kMacroSlotLabel[] = { "U", "L", "R", "D" };
+const char* kMacroSlotLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
 DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) == kMacroSlotsPerSet);
 
 // These need to be in all upper case
 const char* kParentModeKeys[] = { "DEFAULT", "INHERITS", "PARENT" };
 const char* kHUDSettingsKey = "HUD";
 const char* kMouseLookKey = "MOUSELOOK";
-const char* k4DirButtons[] =
+const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
-struct CommandKeyWord { char* str; ECommandType cmd; bool alt; };
+struct CommandKeyWord { char* str; ECommandType cmd; };
 const CommandKeyWord kCmdKeyWords[] =
 {// In order of priority, earlier words supersede later ones
 	{ "MODE", eCmdType_ChangeMode },
+	{ "SMOOTH", eCmdType_SmoothMouseWheel },
+	{ "STEP", eCmdType_StepMouseWheel },
+	{ "STEPPED", eCmdType_StepMouseWheel },
+	{ "WHEEL", eCmdType_SmoothMouseWheel },
+	{ "MOUSEWHEEL", eCmdType_SmoothMouseWheel },
 	{ "MOUSE", eCmdType_MoveMouse },
-	{ "WHEEL", eCmdType_MoveMouse, true },
-	{ "MOUSEWHEEL", eCmdType_MoveMouse, true },
-	{ "MOVETURN", eCmdType_MoveCharacter },
-	{ "STRAFE", eCmdType_MoveCharacter, true },
-	{ "MOVESTRAFE", eCmdType_MoveCharacter, true },
-	{ "MOVE", eCmdType_MoveCharacter },
+	{ "MOVETURN", eCmdType_MoveTurn },
+	{ "STRAFE", eCmdType_MoveStrafe },
+	{ "MOVESTRAFE", eCmdType_MoveStrafe },
+	{ "MOVE", eCmdType_MoveTurn },
+	{ "CAST", eCmdType_UseAbility },
+	{ "USE", eCmdType_UseAbility },
 	{ "ABILITY", eCmdType_SelectAbility },
 	{ "SPELL", eCmdType_SelectAbility },
-	{ "RESET",	eCmdType_SelectMacro, true },
+	{ "HOTBAR", eCmdType_SelectAbility },
+	{ "RESET",	eCmdType_ChangeMacroSet },
 	{ "REWRITE", eCmdType_RewriteMacro },
 	{ "MACRO",	eCmdType_SelectMacro },
 	{ "HOTSPOT", eCmdType_SelectHotspot },
-	{ "TARGET",	eCmdType_TargetGroup },
+	{ "CONFIRM", eCmdType_ConfirmMenu },
+	{ "CANCEL", eCmdType_CancelMenu },
 	{ "MENU", eCmdType_SelectMenu },
 };
 
@@ -65,7 +75,6 @@ const char* kButtonActionPrefx[] =
 	"Tap",		// eBtnAct_Tap
 	"Release",	// eBtnAct_Release
 	"",			// eBtnAct_HoldRelease
-	"",			// eBtnAct_Analog
 };
 DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
 
@@ -134,7 +143,7 @@ static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 {
 	if( theKeyName.size() == 1 )
 	{
-		SHORT aVKey = VkKeyScan(tolower(theKeyName[0]));
+		SHORT aVKey = VkKeyScan(::tolower(theKeyName[0]));
 		DBG_ASSERT(aVKey <= 0xFF);
 		return u8(aVKey);
 	}
@@ -253,7 +262,7 @@ static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 	};
 	static NameToVKeyMapper sKeyMapper;
 
-	u8* result = sKeyMapper.map.find(upper(theKeyName));
+	u8* result = sKeyMapper.map.find(theKeyName);
 	if( !allowMouse && result && *result <= 0x07) result = NULL;
 	return result ? *result : 0;
 }
@@ -316,8 +325,36 @@ static EButton buttonNameToID(const std::string& theString)
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
-	EButton* result = sNameToEnumMapper.map.find(upper(theString));
+	EButton* result = sNameToEnumMapper.map.find(theString);
 	return result ? *result : eBtn_Num;
+}
+
+
+s8 hudElementNameToID(const std::string& theString)
+{	
+	struct NameToElemMapper
+	{
+		typedef StringToValueMap<s8, u8> NameToElemMap;
+		NameToElemMap map;
+		NameToElemMapper()
+		{
+			const size_t kMapSize = 8;
+			map.reserve(kMapSize);
+			map.setValue("SHOW",		kShowHUDElementVal);
+			map.setValue("HIDE",		kHideHUDElementVal);
+			map.setValue("MACROS",		eHUDElement_Macros);
+			map.setValue("ABILITIES",	eHUDElement_Abilities);
+			map.setValue("ABILITY",		eHUDElement_Abilities);
+			map.setValue("SPELLS",		eHUDElement_Abilities);
+			map.setValue("GRID",		eHUDElement_Abilities);
+			map.setValue("HOTBAR",		eHUDElement_Abilities);
+			DBG_ASSERT(map.size() == kMapSize);
+		}
+	};
+	static NameToElemMapper sNameToElemMapper;
+
+	s8* result = sNameToElemMapper.map.find(theString);
+	return result ? *result : kInvalidHUDElementVal;
 }
 
 
@@ -531,7 +568,7 @@ static void buildKeyBinds(InputMapBuilder* theBuilder)
 		if( !aVKeySeq.empty() )
 		{
 			sKeyStrings.push_back(aVKeySeq);
-			sKeyBinds.setValue(upper(anActionName), (int)sKeyStrings.size()-1);
+			sKeyBinds.setValue(anActionName, (int)sKeyStrings.size()-1);
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
 				anActionName, aKeysDescription);
@@ -552,7 +589,8 @@ static Command buildSpecialCommand(InputMapBuilder* theBuilder)
 	const std::vector<std::string>& aCmdStrings = theBuilder->parsedString;
 
 	Command result;
-	bool altType = false;
+	if( aCmdStrings.empty() || aCmdStrings.front().empty() )
+		return result;
 
 	// Search for key words in order of priority
 	for(size_t i = 0; i < ARRAYSIZE(kCmdKeyWords); ++i)
@@ -561,11 +599,10 @@ static Command buildSpecialCommand(InputMapBuilder* theBuilder)
 		// Searh all but the last 'word' in parsed string for a match
 		for(size_t aWordIdx = 0; aWordIdx < aCmdStrings.size()-1; ++aWordIdx)
 		{
-			const std::string& aTestWord = upper(aCmdStrings[aWordIdx]);
+			const std::string& aTestWord = aCmdStrings[aWordIdx];
 			if( aTestWord == aCheckWord )
 			{
 				result.type = kCmdKeyWords[i].cmd;
-				altType = kCmdKeyWords[i].alt;
 				break;
 			}
 		}
@@ -581,29 +618,68 @@ static Command buildSpecialCommand(InputMapBuilder* theBuilder)
 	case eCmdType_ChangeMode:
 		// Mode may not exist yet, so this can be slightly tricky (recursion)
 		{
-			std::string aBackupSlotName = theBuilder->debugSlotName;
-			// We're done with ->parsedString or would back it up too
-			result.data = getOrCreateMode(
-				theBuilder,
-				aCmdStrings.back());
+			// Assume last word in the command is the mode name,
+			// and for debug print and error log make it a Proper Noun
+			std::string aModeName = lower(aCmdStrings.back());
+			aModeName[0] = ::toupper(aModeName[0]);
+
+			const std::string aBackupSlotName = theBuilder->debugSlotName;
+			// We're done with ->parsedString or would back it up too...
+			result.data = getOrCreateMode(theBuilder, aModeName);
+
+			// Restore backup to resume mode previously being built
 			if( theBuilder->debugSlotName != aBackupSlotName )
 			{
 				theBuilder->debugSlotName = aBackupSlotName;
-				debugPrint("Resuming building contrlos mode: %s\n",
+				debugPrint("Resuming building controls mode: %s\n",
 					theBuilder->debugSlotName.c_str());
 			}
 		}
 		break;
-	case eCmdType_MoveCharacter:
-	case eCmdType_SelectAbility:
-	case eCmdType_SelectMacro:
-	case eCmdType_SelectMenu:
-	case eCmdType_RewriteMacro:
-	case eCmdType_TargetGroup:
-	case eCmdType_SelectHotspot:
-	case eCmdType_MoveMouse:
-		result.type = eCmdType_Empty;
+	case eCmdType_ChangeMacroSet:
+	case eCmdType_UseAbility:
+	case eCmdType_ConfirmMenu:
+	case eCmdType_CancelMenu:
+		// No data field needed (or 0 IS what it should be set to)
 		break;
+	case eCmdType_SelectAbility:
+	case eCmdType_SelectMenu:
+	case eCmdType_SelectHotspot:
+	case eCmdType_SelectMacro:
+	case eCmdType_RewriteMacro:
+	case eCmdType_MoveTurn:
+	case eCmdType_MoveStrafe:
+	case eCmdType_MoveMouse:
+	case eCmdType_SmoothMouseWheel:
+	case eCmdType_StepMouseWheel:
+		// Set data to ECommandDir based on direction
+		// Get direction by first character of last word
+		switch(aCmdStrings.back()[0])
+		{
+		case 'U': // Up
+		case 'F': // Forward
+		case 'P': // Previous
+			result.data = eCmdDir_Up;
+			break;
+		case 'D': // Down
+		case 'B': // Back
+		case 'N': // Next
+			result.data = eCmdDir_Down;
+			break;
+		case 'L': // Left
+			result.data = eCmdDir_Left;
+			break;
+		case 'R': // Right
+			result.data = eCmdDir_Right;
+			break;
+		default:
+			// Can't figure out direction
+			result.type = eCmdType_Empty;
+			break;
+		}
+		break;
+	default:
+		DBG_ASSERT(false && "unhandled special command type");
 	}
 
 	return result;
@@ -630,7 +706,7 @@ static EButtonAction breakOffButtonAction(std::string* theButtonActionName)
 			// Ignore whitespace in the string
 			while(*aStrChar <= ' ') ++aStrChar;
 			// Mismatch if reach end of string or chars don't match
-			if( !*aStrChar || ::toupper(*aPrefixChar) != ::toupper(*aStrChar) )
+			if( !*aStrChar || ::toupper(*aPrefixChar) != *aStrChar )
 			{
 				matchFound = false;
 				break;
@@ -774,6 +850,44 @@ static void addButtonAction(
 }
 
 
+static void updateModeHUDSettings(
+	InputMapBuilder* theBuilder,
+	size_t theModeIdx,
+	const std::string& theString)
+{
+	// Break the string into individual words
+	theBuilder->parsedString.clear();
+	sanitizeSentence(theString, &theBuilder->parsedString);
+	
+	bool show = true;
+	for(size_t i = 0; i < theBuilder->parsedString.size(); ++i)
+	{
+		const s8 aHUD_ID = hudElementNameToID(theBuilder->parsedString[i]);
+		if( aHUD_ID == kInvalidHUDElementVal )
+		{
+			logError("Uknown HUD element specified for [%s.%s]: %s",
+				kModePrefix.c_str(),
+				theBuilder->debugSlotName.c_str(),
+				theString.c_str());
+			return;
+		}
+		else if( aHUD_ID == kHideHUDElementVal )
+		{
+			show = false;
+		}
+		else if( aHUD_ID == kShowHUDElementVal )
+		{
+			show = true;
+		}
+		else
+		{
+			DBG_ASSERT((unsigned)aHUD_ID < eHUDElement_Num);
+			sModes[theModeIdx].hud.set(aHUD_ID, show);
+		}
+	}
+}
+
+
 static u8 getOrCreateMode(
 	InputMapBuilder* theBuilder,
 	const std::string& theModeName)
@@ -834,7 +948,7 @@ static u8 getOrCreateMode(
 
 			if( aKey == kHUDSettingsKey )
 			{
-				// TODO
+				updateModeHUDSettings(theBuilder, idx, itr->second);
 				continue;
 			}
 

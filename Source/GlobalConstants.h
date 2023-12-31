@@ -13,9 +13,8 @@
 
 enum EHUDElement
 {
-	eHUDElement_None,
-	eHUDElement_Abilities,
 	eHUDElement_Macros,
+	eHUDElement_Abilities,
 
 	eHUDElement_Num,
 };
@@ -24,52 +23,59 @@ enum ECommandType
 {
 	eCmdType_Empty,
 
-	// These are valid for InputDispatcher::sendKeyCommand()
+	// First group are valid for InputDispatcher::sendKeyCommand()
 	eCmdType_PressAndHoldKey,
 	eCmdType_ReleaseKey,
 	eCmdType_VKeySequence,
 	eCmdType_SlashCommand,
 	eCmdType_SayString,
 
-	// These are translated into other forms by InputTranslator
+	// These trigger an action or state change in InputTranslator
 	eCmdType_ChangeMode,
 	eCmdType_ChangeMacroSet,
-	eCmdType_MoveCharacter,
+	eCmdType_UseAbility, // includes spells, skills, & hotbuttons
+	eCmdType_ConfirmMenu,
+	eCmdType_CancelMenu,
+
+	// These should have 'data' set to an ECommandDir (below)
 	eCmdType_SelectAbility,
-	eCmdType_SelectMacro,
 	eCmdType_SelectMenu,
-	eCmdType_RewriteMacro,
-	eCmdType_TargetGroup,
 	eCmdType_SelectHotspot,
+	eCmdType_SelectMacro,
+	eCmdType_RewriteMacro,
+
+	// These should be processed continuously, not just on digital press
+	// (may respond to analog axis data), and also have data as ECommandDir
+	eCmdType_MoveTurn,
+	eCmdType_MoveStrafe,
 	eCmdType_MoveMouse,
+	eCmdType_SmoothMouseWheel,
+	eCmdType_StepMouseWheel,
 
 	eCmdType_Num
 };
 
-enum ECommandSubType
+enum ECommandDir
 {
-	// These first 4 must remain in this position & order!
-	// This is to align with the layout of macro sets
-	eCmdSubType_Up,
-	eCmdSubType_Left,
-	eCmdSubType_Right,
-	eCmdSubType_Down,
+	eCmdDir_L,
+	eCmdDir_R,
+	eCmdDir_U,
+	eCmdDir_D,
 
-	eCmdSubType_Forward = eCmdSubType_Up,
-	eCmdSubType_Back = eCmdSubType_Down,
-	eCmdSubType_Prev,
-	eCmdSubType_Next,
-	eCmdSubType_Confirm,
-	eCmdSubType_Cancel,
-	eCmdSubType_Load,
-	eCmdSubType_Save,
-	eCmdSubType_Repeat,
-	eCmdSubType_StrafeLeft,
-	eCmdSubType_StrafeRight,
-	eCmdSubType_WheelUp,
-	eCmdSubType_WheelDown,
-	eCmdSubType_WheelUpStepped,
-	eCmdSubType_WheelDownStepped,
+	eCmdDir_Num,
+	eCmdDir_None = eCmdDir_Num,
+
+	eCmdDir_Left = eCmdDir_L,
+	eCmdDir_Right = eCmdDir_R,
+	eCmdDir_Up = eCmdDir_U,
+	eCmdDir_Down = eCmdDir_D,
+
+	eCmdDir_Forward = eCmdDir_Up,
+	eCmdDir_Back = eCmdDir_Down,
+	eCmdDir_Prev = eCmdDir_Up,
+	eCmdDir_Next = eCmdDir_Down,
+	eCmdDir_Top = eCmdDir_Up,
+	eCmdDir_Bottom = eCmdDir_Down,
 };
 
 enum EButtonAction
@@ -81,7 +87,6 @@ enum EButtonAction
 	eBtnAct_Tap,			// Released before short hold time
 	eBtnAct_Release,		// Released (any hold time, key tapped once)
 	eBtnAct_HoldRelease,	// Releases key held by _PressAndHold
-	eBtnAct_Analog,			// Continuous analog input (mouse)
 
 	eBtnAct_Num
 };

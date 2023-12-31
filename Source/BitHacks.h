@@ -482,7 +482,7 @@ inline int nextSetBit(const u32* bitArray, int size, int pos)
 	if( pos >= size ) return size;
 	pos = max(pos, 0);
 	int fieldID = pos / 32;
-	u32 field = bitArray[fieldID] & ~((1U << (pos % 32)) - 1U);
+	u32 field = bitArray[fieldID] & ~((u32(1) << (pos % 32)) - u32(1));
 	int next = !field ? 32 : trailingZeroBits(field);
 	const int kBitArraySize = (size + 31) / 32;
 	while(next == 32 && ++fieldID < kBitArraySize)
@@ -500,7 +500,7 @@ inline int prevSetBit(const u32* bitArray, int size, int pos)
 	if( pos < 0 ) return -1;
 	pos = min(pos, size-1);
 	int fieldID = pos / 32;
-	u32 field = bitArray[fieldID] & ((2U << (pos % 32)) - 1U);
+	u32 field = bitArray[fieldID] & ((u32(2) << (pos % 32)) - u32(1));
 	int prev = !field ? -1 : bitsRequired(field)-1;
 	while(prev == -1 && --fieldID >= 0)
 	{
@@ -517,7 +517,7 @@ inline int nextClearBit(const u32* bitArray, int size, int pos)
 	if( pos >= size ) return size;
 	pos = max(pos, 0);
 	int fieldID = pos / 32;
-	u32 field = ~(bitArray[fieldID] | ((1U << (pos % 32)) - 1U));
+	u32 field = ~(bitArray[fieldID] | ((u32(1) << (pos % 32)) - u32(1)));
 	int next = !field ? 32 : trailingZeroBits(field);
 	const int kBitArraySize = (size + 31) / 32;
 	while(next == 32 && ++fieldID < kBitArraySize)
@@ -535,7 +535,7 @@ inline int prevClearBit(const u32* bitArray, int size, int pos)
 	if( pos < 0 ) return -1;
 	pos = min(pos, size-1);
 	int fieldID = pos / 32;
-	u32 field = ~bitArray[fieldID] & ((2U << (pos % 32)) - 1U);
+	u32 field = ~bitArray[fieldID] & ((u32(2) << (pos % 32)) - u32(1));
 	int prev = !field ? -1 : bitsRequired(field)-1;
 	while(prev == -1 && --fieldID >= 0)
 	{
@@ -561,7 +561,7 @@ template<size_t S> inline void BitArray<S>::set()
 template<size_t S> inline void BitArray<S>::set(size_t pos)
 {
 	DBG_ASSERT(pos < kBitSize);
-	bits[pos / 32] |= (1U << (pos % 32));
+	bits[pos / 32] |= (u32(1) << u32(pos % 32));
 }
 
 
@@ -569,7 +569,7 @@ template<size_t S> inline void BitArray<S>::set(size_t pos, bool val)
 {
 	DBG_ASSERT(pos < kBitSize);
 	const s32 bit = val;
-	const u32 mask = 1U << (pos % 32);
+	const u32 mask = u32(1) << u32(pos % 32);
 	u32& bitfield = bits[pos / 32];
 	bitfield = (bitfield & ~mask) | (u32(-bit) & mask);
 }
@@ -585,7 +585,7 @@ template<size_t S> inline void BitArray<S>::reset()
 template<size_t S> inline void BitArray<S>::reset(size_t pos)
 {
 	DBG_ASSERT(pos < kBitSize);
-	bits[pos / 32] &= ~(1U << (pos % 32));
+	bits[pos / 32] &= ~(u32(1) << u32(pos % 32));
 }
 
 
@@ -599,13 +599,13 @@ template<size_t S> inline void BitArray<S>::flip()
 template<size_t S> inline void BitArray<S>::flip(size_t pos)
 {
 	DBG_ASSERT(pos < kBitSize);
-	bits[pos / 32] ^= (1U << (pos % 32));
+	bits[pos / 32] ^= (u32(1) << u32(pos % 32));
 }
 
 
 template<size_t S> inline bool BitArray<S>::test(size_t pos) const
 {
-	return (bits[pos / 32] >> (pos % 32)) & 1U;
+	return (bits[pos / 32] >> u32(pos % 32)) & u32(1);
 }
 
 
@@ -840,7 +840,7 @@ template<size_t C> inline void BitVector<C>::set()
 template<size_t C> inline void BitVector<C>::set(size_t pos)
 {
 	DBG_ASSERT(pos < mSizeInBits);
-	bits[pos / 32] |= (1U << (pos % 32));
+	bits[pos / 32] |= (u32(1) << u32(pos % 32));
 }
 
 
@@ -848,7 +848,7 @@ template<size_t C> inline void BitVector<C>::set(size_t pos, bool val)
 {
 	DBG_ASSERT(pos < mSizeInBits);
 	const s32 bit = val;
-	const u32 mask = 1U << (pos % 32);
+	const u32 mask = u32(1) << u32(pos % 32);
 	u32& bitfield = bits[pos / 32];
 	bitfield = (bitfield & ~mask) | (u32(-bit) & mask);
 }
@@ -864,7 +864,7 @@ template<size_t C> inline void BitVector<C>::reset()
 template<size_t C> inline void BitVector<C>::reset(size_t pos)
 {
 	DBG_ASSERT(pos < mSizeInBits);
-	bits[pos / 32] &= ~(1U << (pos % 32));
+	bits[pos / 32] &= ~(u32(1) << u32(pos % 32));
 }
 
 
@@ -878,13 +878,13 @@ template<size_t C> inline void BitVector<C>::flip()
 template<size_t C> inline void BitVector<C>::flip(size_t pos)
 {
 	DBG_ASSERT(pos < mSizeInBits);
-	bits[pos / 32] ^= (1U << (pos % 32));
+	bits[pos / 32] ^= (u32(1) << u32(pos % 32));
 }
 
 
 template<size_t C> inline bool BitVector<C>::test(size_t pos) const
 {
-	return (bits[pos / 32] >> (pos % 32)) & 1U;
+	return (bits[pos / 32] >> u32(pos % 32)) & u32(1);
 }
 
 
@@ -894,7 +894,7 @@ template<size_t C> inline size_t BitVector<C>::count() const
 	for(size_t i = 0; i < mArrayLength - 1; ++i)
 		r += numberOfSetBits(bits[i]);
 	const u32 lastBitMask = (mSizeInBits % 32)
-		? (1U << (mSizeInBits % 32)) - 1 : u32(-1);
+		? (u32(1) << (mSizeInBits % 32)) - 1 : u32(-1);
 	const u32 last = bits[mArrayLength - 1] & lastBitMask;
 	r += numberOfSetBits(last);
 	return r;
@@ -906,7 +906,7 @@ template<size_t C> inline bool BitVector<C>::any() const
 	for(size_t i = 0; i < mArrayLength - 1; ++i)
 		if( bits[i] ) return true;
 	const u32 lastBitMask = (mSizeInBits % 32)
-		? (1U << (mSizeInBits % 32)) - 1 : u32(-1);
+		? (u32(1) << (mSizeInBits % 32)) - 1 : u32(-1);
 	const u32 last = bits[mArrayLength - 1] & lastBitMask;
 	return last != 0;
 }
@@ -923,7 +923,7 @@ template<size_t C> inline bool BitVector<C>::all() const
 	for(size_t i = 0; i < mArrayLength - 1; ++i)
 		if( bits[i] != 0xFFFFFFFF ) return false;
 	const u32 lastBitMask = (mSizeInBits % 32)
-		? (1U << (mSizeInBits % 32)) - 1 : u32(-1);
+		? (u32(1) << (mSizeInBits % 32)) - 1 : u32(-1);
 	const u32 last = bits[mArrayLength - 1] | ~lastBitMask;
 	return last == 0xFFFFFFFF;
 }
@@ -967,7 +967,7 @@ template<size_t S> inline void BitArray8<S>::set()
 template<size_t S> inline void BitArray8<S>::set(size_t pos)
 {
 	DBG_ASSERT(pos < kBitSize);
-	bits[pos / 8] |= (1U << (pos % 8));
+	bits[pos / 8] |= (u8(1) << u8(pos % 8));
 }
 
 
@@ -975,7 +975,7 @@ template<size_t S> inline void BitArray8<S>::set(size_t pos, bool val)
 {
 	DBG_ASSERT(pos < kBitSize);
 	const s8 bit = val;
-	const u8 mask = 1U << (pos % 8);
+	const u8 mask = u8(1) << u8(pos % 8);
 	u8& bitfield = bits[pos / 8];
 	bitfield = (bitfield & ~mask) | (u8(-bit) & mask);
 }
@@ -991,7 +991,7 @@ template<size_t S> inline void BitArray8<S>::reset()
 template<size_t S> inline void BitArray8<S>::reset(size_t pos)
 {
 	DBG_ASSERT(pos < kBitSize);
-	bits[pos / 8] &= ~(1U << (pos % 8));
+	bits[pos / 8] &= ~(u8(1) << u8(pos % 8));
 }
 
 
@@ -1005,13 +1005,13 @@ template<size_t S> inline void BitArray8<S>::flip()
 template<size_t S> inline void BitArray8<S>::flip(size_t pos)
 {
 	DBG_ASSERT(pos < kBitSize);
-	bits[pos / 8] ^= (1U << (pos % 8));
+	bits[pos / 8] ^= (u8(1) << u8(pos % 8));
 }
 
 
 template<size_t S> inline bool BitArray8<S>::test(size_t pos) const
 {
-	return (bits[pos / 8] >> (pos % 8)) & 1U;
+	return (bits[pos / 8] >> u8(pos % 8)) & u8(1);
 }
 
 
