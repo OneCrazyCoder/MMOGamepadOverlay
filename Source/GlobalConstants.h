@@ -37,7 +37,7 @@ enum ECommandType
 	eCmdType_ConfirmMenu,
 	eCmdType_CancelMenu,
 
-	// These should have 'data' set to an ECommandDir (below)
+	// These should have 'data' set to an ECommandDir
 	eCmdType_SelectAbility,
 	eCmdType_SelectMenu,
 	eCmdType_SelectHotspot,
@@ -45,14 +45,18 @@ enum ECommandType
 	eCmdType_RewriteMacro,
 
 	// These should be processed continuously, not just on digital press
-	// (may respond to analog axis data), and also have data as ECommandDir
+	// (may respond to analog axis data), and also have 'data' as ECommandDir
 	eCmdType_MoveTurn,
 	eCmdType_MoveStrafe,
 	eCmdType_MoveMouse,
 	eCmdType_SmoothMouseWheel,
 	eCmdType_StepMouseWheel,
 
-	eCmdType_Num
+	eCmdType_Num,
+
+	eCmdType_LastDirectInput = eCmdType_SayString,
+	eCmdType_FirstDirectional = eCmdType_SelectAbility,
+	eCmdType_FirstContinuous = eCmdType_MoveTurn,
 };
 
 enum ECommandDir
@@ -80,13 +84,12 @@ enum ECommandDir
 
 enum EButtonAction
 {
-	eBtnAct_PressAndHold,	// Key held as long as button is held
-	eBtnAct_Press,			// First pushed (assigned key is tapped)
-	eBtnAct_ShortHold,		// Held a short time (key tapped once)
-	eBtnAct_LongHold,		// Held a long time (key tapped once)
-	eBtnAct_Tap,			// Released before short hold time
-	eBtnAct_Release,		// Released (any hold time, key tapped once)
-	eBtnAct_HoldRelease,	// Releases key held by _PressAndHold
+	eBtnAct_Down,		// Key held as long as button is held
+	eBtnAct_Press,		// First pushed (assigned key is tapped)
+	eBtnAct_ShortHold,	// Held a short time (key tapped once)
+	eBtnAct_LongHold,	// Held a long time (key tapped once)
+	eBtnAct_Tap,		// Released before short hold time
+	eBtnAct_Release,	// Released (any hold time, key tapped once)
 
 	eBtnAct_Num
 };

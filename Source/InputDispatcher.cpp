@@ -357,15 +357,15 @@ static void sendQueuedKeyTap()
 	if( shiftDown != wantShift || ctrlDown != wantCtrl || altDown != wantAlt )
 		return;
 
-	if( const u8 aVkey = sTracker.nextQueuedKeyTap & vMkeyMask )
+	if( const u8 aVKey = (sTracker.nextQueuedKeyTap & vMkeyMask) )
 	{
-		Input anInput;
-		anInput.type = INPUT_KEYBOARD;
-		anInput.ki.wVk = aVkey;
-		sTracker.inputs.push_back(anInput);
+		// Can't tap key if it's held already, so make sure is released first
+		if( setKeyDown(aVKey, false) != eResult_Ok )
+			return;
 
-		anInput.ki.dwFlags = KEYEVENTF_KEYUP;
-		sTracker.inputs.push_back(anInput);
+		// Press and then release the key to simulate a "tap" of the key
+		setKeyDown(aVKey, true);
+		setKeyDown(aVKey, false);
 	}
 
 	sTracker.nextQueuedKeyTap = 0;
@@ -698,12 +698,6 @@ void setMouseLookMode(bool active)
 		sTracker.inputs.push_back(anInput);
 		setKeyDown(VK_RBUTTON, true);
 	}
-}
-
-
-bool isInMouseLookMode()
-{
-	return sTracker.mouseLookActive;
 }
 
 
