@@ -254,10 +254,13 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>* re
 	{
 		const char c = theString[i];
 		if( (c >= '0' && c <= '9') ||
-			(c >= 'A' && c <= 'Z') ||
-			(c >= 'a' && c <= 'z') )
+			(c >= 'A' && c <= 'Z') )
 		{
 			word += c;
+		}
+		else if( c >= 'a' && c <= 'z' )
+		{
+			word += 'A' + c - 'a';
 		}
 		else if( c != '-' && c != '_' && !word.empty() )
 		{
