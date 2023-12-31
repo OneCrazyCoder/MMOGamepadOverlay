@@ -14,6 +14,14 @@ namespace InputTranslator
 {
 
 //-----------------------------------------------------------------------------
+// Const Data
+//-----------------------------------------------------------------------------
+
+enum {
+kMinMouseLookTimeForAltMove = 50,
+};
+
+//-----------------------------------------------------------------------------
 // Config
 //-----------------------------------------------------------------------------
 
@@ -34,14 +42,19 @@ struct Config
 // Local Structures
 //-----------------------------------------------------------------------------
 
+struct ModeState : public ConstructFromZeroInitializedMemory<ModeState>
+{
+	int mouseLookTime;
+};
+
 struct ButtonState : public ConstructFromZeroInitializedMemory<ButtonState>
 {
 	u16 heldTime;
+	u8 vKeyHeld;
 	u8 modeWhenPressed;
 	bool shortHoldDone;
 	bool longHoldDone;
 };
-
 
 struct InputResults
 {
@@ -52,6 +65,7 @@ struct InputResults
 	bool mouseMoveDigital;
 	bool mouseWheelDigital;
 	bool mouseWheelStepped;
+	std::vector<Command> keys;
 	std::vector<Command> macros;
 
 	void clear()
@@ -62,6 +76,8 @@ struct InputResults
 		mouseWheelY = 0;
 		mouseMoveDigital = false;
 		mouseWheelDigital = false;
+		mouseWheelStepped = false;
+		keys.clear();
 		macros.clear();
 	}
 };
@@ -72,6 +88,7 @@ struct InputResults
 //-----------------------------------------------------------------------------
 
 static Config kConfig;
+static ModeState sModeState;
 static ButtonState sButtonStates[eBtn_Num];
 static InputResults sResults;
 
@@ -80,7 +97,20 @@ static InputResults sResults;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static void processCommand(const Command& theCmd)
+static void releaseKeyHeldByButton(EButton theButton)
+{
+	if( sButtonStates[theButton].vKeyHeld )
+	{
+		Command aCmd;
+		aCmd.type = eCmdType_ReleaseKey;
+		aCmd.data = sButtonStates[theButton].vKeyHeld;
+		InputDispatcher::sendKeyCommand(aCmd);
+		sButtonStates[theButton].vKeyHeld = 0;
+	}
+}
+
+
+static void processCommand(EButton theButton, const Command& theCmd)
 {
 	switch(theCmd.type)
 	{
@@ -88,15 +118,21 @@ static void processCommand(const Command& theCmd)
 		// Do nothing
 		break;
 	case eCmdType_PressAndHoldKey:
-	case eCmdType_ReleaseKey:
-		// Send these right away since can often be instantly processed
+		// Release any previously-held key first!
+		releaseKeyHeldByButton(theButton);
+		// Send this right away since can often be instantly processed
+		// instead of needing to wait for input queue
 		InputDispatcher::sendKeyCommand(theCmd);
+		// Make note that this button is holding this key
+		sButtonStates[theButton].vKeyHeld = theCmd.data;
 		break;
 	case eCmdType_VKeySequence:
+		// Queue to send after press/release commands but before macros
+		sResults.keys.push_back(theCmd);
+		break;
 	case eCmdType_SlashCommand:
 	case eCmdType_SayString:
-		// Queue these so they are sent last, since they can potentially
-		// block other inputs from being processed temporarily.
+		// Queue to send last, since can block other input the longest
 		sResults.macros.push_back(theCmd);
 		break;
 	case eCmdType_ChangeMode:
@@ -116,7 +152,7 @@ static void processCommand(const Command& theCmd)
 		// TODO
 		break;
 	case eCmdType_SelectMacro:
-		processCommand(InputMap::commandForMacro(
+		processCommand(theButton, InputMap::commandForMacro(
 			gMacroSetID, theCmd.data));
 		break;
 	case eCmdType_RewriteMacro:
@@ -140,9 +176,9 @@ static void processButtonPress(EButton theButton)
 	// all keys to be released every time a control scheme changes.
 	sButtonStates[theButton].modeWhenPressed = gControlsModeID;
 
-	// Get default command for this button (_PressAndHold action)
+	// Get default command for pressing this button (_Down action)
 	const Command& aCmd = InputMap::commandForButtonAction(
-		gControlsModeID, theButton, eBtnAct_PressAndHold);
+		gControlsModeID, theButton, eBtnAct_Down);
 
 	switch(aCmd.type)
 	{
@@ -155,33 +191,67 @@ static void processButtonPress(EButton theButton)
 		return;
 	}
 
-	processCommand(aCmd);
-	processCommand(InputMap::commandForButtonAction(
+	processCommand(theButton, aCmd);
+	processCommand(theButton, InputMap::commandForButtonAction(
 		gControlsModeID, theButton, eBtnAct_Press));
 }
 
 
-static void processContinuousInput(EButton theButton)
+static void processContinuousInput(EButton theButton, bool isDigitalDown)
 {
 	// Use modeWhenPressed if it has a continuous action, otherwise current
+	// These inputs should always be assigned to the _Down button action
 	Command aCmd = InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
-		theButton, eBtnAct_PressAndHold);
+		theButton, eBtnAct_Down);
 	if( aCmd.type == eCmdType_Empty &&
 		gControlsModeID != sButtonStates[theButton].modeWhenPressed )
 	{
 		aCmd = InputMap::commandForButtonAction(
-			gControlsModeID, theButton, eBtnAct_PressAndHold);
+			gControlsModeID, theButton, eBtnAct_Down);
 	}
 
 	switch(aCmd.type)
 	{
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
+		// Translate into key held/release commands
+		if( isDigitalDown )
+		{
+			aCmd.type = eCmdType_PressAndHoldKey;
+			const ECommandDir aDir = ECommandDir(aCmd.data);
+			// Use mouse look movement controls (i.e. left-click for forward)
+			// only if were already in mouse look mode before pressed the
+			// button, or have been in mouselook mode a minimum time
+			// (instant switching when start the mode while already holding
+			// the button may not register with target application).
+			if( sButtonStates[theButton].heldTime < sModeState.mouseLookTime ||
+				sModeState.mouseLookTime > kMinMouseLookTimeForAltMove )
+			{
+				if( aCmd.type == eCmdType_MoveStrafe )
+					aCmd.data = InputMap::keyForMouseLookMoveStrafe(aDir);
+				else
+					aCmd.data = InputMap::keyForMouseLookMoveTurn(aDir);
+			}
+			else
+			{
+				if( aCmd.type == eCmdType_MoveStrafe )
+					aCmd.data = InputMap::keyForMoveStrafe(aDir);
+				else
+					aCmd.data = InputMap::keyForMoveTurn(aDir);
+			}
+			if( aCmd.data != sButtonStates[theButton].vKeyHeld )
+				processCommand(theButton, aCmd);
+		}
+		else
+		{
+			releaseKeyHeldByButton(theButton);
+		}
+		break;
 	case eCmdType_MoveMouse:
 	case eCmdType_SmoothMouseWheel:
 	case eCmdType_StepMouseWheel:
-		// Allow continue to analog checks below
+		// Continue to analog checks below
 		break;
 	default:
 		// Handled elsewhere
@@ -189,13 +259,11 @@ static void processContinuousInput(EButton theButton)
 	}
 
 	u8 anAnalogVal = Gamepad::buttonAnalogVal(theButton);
-	bool isDigitalPress = false;
-	if( !anAnalogVal && Gamepad::buttonDown(theButton) )
-	{
+	if( anAnalogVal )
+		isDigitalDown = false;
+	else if( isDigitalDown )
 		anAnalogVal = 255;
-		isDigitalPress = true;
-	}
-	if( !anAnalogVal )
+	else // if( anAnalogVal == 0 && !isDigitalDown )
 		return;
 
 	if( aCmd.type == eCmdType_MoveMouse )
@@ -204,19 +272,19 @@ static void processContinuousInput(EButton theButton)
 		{
 		case eCmdDir_Left:
 			sResults.mouseMoveX -= anAnalogVal;
-			sResults.mouseMoveDigital = isDigitalPress;
+			sResults.mouseMoveDigital = isDigitalDown;
 			break;
 		case eCmdDir_Right:
 			sResults.mouseMoveX += anAnalogVal;
-			sResults.mouseMoveDigital = isDigitalPress;
+			sResults.mouseMoveDigital = isDigitalDown;
 			break;
 		case eCmdDir_Up:
 			sResults.mouseMoveY -= anAnalogVal;
-			sResults.mouseMoveDigital = isDigitalPress;
+			sResults.mouseMoveDigital = isDigitalDown;
 			break;
 		case eCmdDir_Down:
 			sResults.mouseMoveY += anAnalogVal;
-			sResults.mouseMoveDigital = isDigitalPress;
+			sResults.mouseMoveDigital = isDigitalDown;
 			break;
 		default:
 			DBG_ASSERT(false && "Invalid dir for eCmdType_MoveMouse");
@@ -229,11 +297,11 @@ static void processContinuousInput(EButton theButton)
 		{
 		case eCmdDir_Up:
 			sResults.mouseWheelY -= anAnalogVal;
-			sResults.mouseWheelDigital = isDigitalPress;
+			sResults.mouseWheelDigital = isDigitalDown;
 			break;
 		case eCmdDir_Down:
 			sResults.mouseWheelY += anAnalogVal;
-			sResults.mouseMoveDigital = isDigitalPress;
+			sResults.mouseMoveDigital = isDigitalDown;
 			break;
 		default:
 			DBG_ASSERT(false && "Mouse wheel only supports up and down dir");
@@ -247,12 +315,12 @@ static void processContinuousInput(EButton theButton)
 		case eCmdDir_Up:
 			sResults.mouseWheelStepped = true;
 			sResults.mouseWheelY -= anAnalogVal;
-			sResults.mouseWheelDigital = isDigitalPress;
+			sResults.mouseWheelDigital = isDigitalDown;
 			break;
 		case eCmdDir_Down:
 			sResults.mouseWheelStepped = true;
 			sResults.mouseWheelY += anAnalogVal;
-			sResults.mouseMoveDigital = isDigitalPress;
+			sResults.mouseMoveDigital = isDigitalDown;
 			break;
 		default:
 			DBG_ASSERT(false && "Mouse wheel only supports up and down dir");
@@ -266,7 +334,7 @@ static void processButtonShortHold(EButton theButton)
 {
 	sButtonStates[theButton].shortHoldDone = true;
 	// Only use modeWhenPressed for short hold action
-	processCommand(InputMap::commandForButtonAction(
+	processCommand(theButton, InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
 		theButton, eBtnAct_ShortHold));
 }
@@ -276,7 +344,7 @@ static void processButtonLongHold(EButton theButton)
 {
 	sButtonStates[theButton].longHoldDone = true;
 	// Only use modeWhenPressed for long hold action
-	processCommand(InputMap::commandForButtonAction(
+	processCommand(theButton, InputMap::commandForButtonAction(
 		sButtonStates[theButton].modeWhenPressed,
 		theButton, eBtnAct_LongHold));
 }
@@ -296,16 +364,14 @@ static void processButtonTap(EButton theButton)
 			gControlsModeID, theButton, eBtnAct_Tap);
 	}
 	
-	processCommand(aCmd);
+	processCommand(theButton, aCmd);
 }
 
 
 static void processButtonReleased(EButton theButton)
 {
-	// Only use modeWhenPressed for Hold Release action!
-	processCommand(InputMap::commandForButtonAction(
-		sButtonStates[theButton].modeWhenPressed,
-		theButton, eBtnAct_HoldRelease));
+	// First, release any key being held by this button
+	releaseKeyHeldByButton(theButton);
 
 	// If released quickly enough, process 'tap' event
 	if( sButtonStates[theButton].heldTime < kConfig.shortHoldTime )
@@ -323,7 +389,10 @@ static void processButtonReleased(EButton theButton)
 			gControlsModeID, theButton, eBtnAct_Release);
 	}
 
-	processCommand(aCmd);
+	processCommand(theButton, aCmd);
+
+	// At this point no key should be held by this button - confirm that!
+	releaseKeyHeldByButton(theButton);
 
 	// Reset button state now that it is released (sets heldTime to 0)
 	sButtonStates[theButton] = ButtonState();
@@ -343,8 +412,12 @@ void loadProfile()
 void cleanup()
 {
 	sResults.clear();
+	sModeState = ModeState();
 	for(size_t i = 0; i < ARRAYSIZE(sButtonStates); ++i)
+	{
+		releaseKeyHeldByButton(EButton(i));
 		sButtonStates[i] = ButtonState();
+	}
 }
 
 
@@ -353,10 +426,11 @@ void update()
 	sResults.clear();
 
 	// Set mouse look mode based on current control scheme
-	InputDispatcher::setMouseLookMode(
-		InputMap::mouseLookShouldBeOn(gControlsModeID));
+	const bool wantMouseLook = InputMap::mouseLookShouldBeOn(gControlsModeID);
+	InputDispatcher::setMouseLookMode(wantMouseLook);
+	if( !wantMouseLook ) sModeState.mouseLookTime = 0;
 
-	for(EButton aBtn = EButton(1);
+	for(EButton aBtn = EButton(1); // skip button 0 (eBtn_None)
 		aBtn < eBtn_Num;
 		aBtn = EButton(aBtn+1))
 	{
@@ -382,7 +456,7 @@ void update()
 
 		// Process continuous input, such as for analog axis values which
 		// which do not necessarily return hit/release when lightly pressed
-		processContinuousInput(aBtn);
+		processContinuousInput(aBtn, isDown);
 
 		// Update heldTime value and see if need to process a long hold
 		if( isDown )
@@ -402,6 +476,24 @@ void update()
 		}
 	}
 
+	if( sResults.newMode != gControlsModeID )
+	{// Swap controls modes
+		// In Profile .ini file, eBtn_None is referenced as "Auto" and
+		// can be assigned like any other button to commands. But it
+		// is "pressed" when the mode starts, and "released" when the
+		// mode stops. Actions like _ShortHold will never trigger though.
+		processButtonReleased(eBtn_None);
+
+		gControlsModeID = sResults.newMode;
+
+		// Now press the "Auto=" button for the newly started mode
+		processButtonPress(eBtn_None);
+
+		// TODO: Stop using this temp hack
+		OverlayWindow::redraw();
+	}
+
+	// Send input that was queued up by any of the above
 	InputDispatcher::moveMouse(
 		sResults.mouseMoveX,
 		sResults.mouseMoveY,
@@ -410,22 +502,14 @@ void update()
 		sResults.mouseWheelY,
 		sResults.mouseWheelDigital,
 		sResults.mouseWheelStepped);
+	for(size_t i = 0; i < sResults.keys.size(); ++i)
+		InputDispatcher::sendKeyCommand(sResults.keys[i]);
 	for(size_t i = 0; i < sResults.macros.size(); ++i)
 		InputDispatcher::sendKeyCommand(sResults.macros[i]);
 
-	if( sResults.newMode != gControlsModeID )
-	{// Swap controls modes
-		gControlsModeID = sResults.newMode;
-		// See if have an auto-input for initializing new mode
-		// This is stored in the '_PressAndHold' action for button _None
-		const Command& anAutoCmd = InputMap::commandForButtonAction(
-			sResults.newMode,
-			eBtn_None,
-			eBtnAct_PressAndHold);
-		processCommand(anAutoCmd);
-		// TODO: Stop using this temp hack
-		OverlayWindow::redraw();
-	}
+	// Track time spent in mouselook mode
+	if( wantMouseLook )
+		sModeState.mouseLookTime += gAppFrameTime;
 }
 
 } // InputTranslator

@@ -36,8 +36,6 @@ void moveMouse(int dx, int dy, bool digital);
 // Adjusts speeds used in moveMouse and (if true) causes
 // right mouse button to be held down indefinitely.
 void setMouseLookMode(bool);
-// Returns if currently in MouseLook mode
-bool isInMouseLookMode();
 
 // Send mouse wheel up/down motion. Expected range of -255 to 255.
 // In cases where target app only responds to full "clicks" of the

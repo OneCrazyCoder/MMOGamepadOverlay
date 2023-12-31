@@ -68,15 +68,49 @@ const CommandKeyWord kCmdKeyWords[] =
 
 const char* kButtonActionPrefx[] =
 {
-	"",			// eBtnAct_PressAndHold
+	"",			// eBtnAct_Down
 	"Press",	// eBtnAct_Press
 	"Hold",		// eBtnAct_ShortHold
 	"LongHold",	// eBtnAct_LongHold
 	"Tap",		// eBtnAct_Tap
 	"Release",	// eBtnAct_Release
-	"",			// eBtnAct_HoldRelease
 };
 DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
+
+enum ESpecialKeys
+{
+	eSpecialKey_MoveF,
+	eSpecialKey_MoveB,
+	eSpecialKey_TurnL,
+	eSpecialKey_TurnR,
+	eSpecialKey_StrafeL,
+	eSpecialKey_StrafeR,
+	eSpecialKey_MLMoveF,
+	eSpecialKey_MLMoveB,
+	eSpecialKey_MLTurnL,
+	eSpecialKey_MLTurnR,
+	eSpecialKey_MLStrafeL,
+	eSpecialKey_MLStrafeR,
+
+	eSpecialKey_Num
+};
+
+const char* kSpecialKeyNames[] =
+{
+	"MOVEFORWARD",			// eSpecialKey_MoveF
+	"MOVEBACK",				// eSpecialKey_MoveB
+	"TURNLEFT",				// eSpecialKey_TurnL
+	"TURNRIGHT",			// eSpecialKey_TurnR
+	"STRAFELEFT",			// eSpecialKey_StrafeL
+	"STRAFERIGHT",			// eSpecialKey_StrafeR
+	"MOUSELOOKMOVEFORWARD",	// eSpecialKey_MLMoveF
+	"MOUSELOOKMOVEBACK",	// eSpecialKey_MLMoveB
+	"MOUSELOOKTURNLEFT",	// eSpecialKey_MLTurnL
+	"MOUSELOOKTURNRIGHT",	// eSpecialKey_MLTurnR
+	"MOUSELOOKSTRAFELEFT",	// eSpecialKey_MLStrafeL
+	"MOUSELOOKSTRAFERIGHT",	// eSpecialKey_MLStrafeR
+};
+DBG_CTASSERT(ARRAYSIZE(kSpecialKeyNames) == eSpecialKey_Num);
 
 
 //-----------------------------------------------------------------------------
@@ -119,6 +153,7 @@ struct InputMapBuilder
 	std::string debugSlotName;
 	std::vector<std::string> parsedString;
 	StringToValueMap<u8> nameToIdxMap;
+	StringToValueMap<int> keyAliases;
 };
 
 
@@ -128,9 +163,8 @@ struct InputMapBuilder
 
 static std::vector<MacroSet> sMacroSets;
 static std::vector<std::string> sKeyStrings;
-static StringToValueMap<int> sKeyBinds;
 static std::vector<ControlsMode> sModes;
-
+static u8 sSpecialKeys[eSpecialKey_Num];
 
 //-----------------------------------------------------------------------------
 // Const Data Lookup Functions
@@ -549,7 +583,7 @@ static void buildMacroSets(InputMapBuilder* theBuilder)
 }
 
 
-static void buildKeyBinds(InputMapBuilder* theBuilder)
+static void buildKeyAliases(InputMapBuilder* theBuilder)
 {
 	mapDebugPrint("Assigning KeyBinds...\n");
 
@@ -568,7 +602,8 @@ static void buildKeyBinds(InputMapBuilder* theBuilder)
 		if( !aVKeySeq.empty() )
 		{
 			sKeyStrings.push_back(aVKeySeq);
-			sKeyBinds.setValue(anActionName, (int)sKeyStrings.size()-1);
+			theBuilder->keyAliases.setValue(
+				anActionName, (int)sKeyStrings.size()-1);
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
 				anActionName, aKeysDescription);
@@ -576,8 +611,8 @@ static void buildKeyBinds(InputMapBuilder* theBuilder)
 		else
 		{
 			logError(
-				"Keybind '%s': Unable to decipher and assign '%s'",
-				anActionName, aKeysDescription);
+				"%s%s: Unable to decipher and assign '%s'",
+				kKeybindsPrefix, anActionName, aKeysDescription);
 		}
 	}
 }
@@ -690,8 +725,8 @@ static EButtonAction breakOffButtonAction(std::string* theButtonActionName)
 {
 	DBG_ASSERT(theButtonActionName && !theButtonActionName->empty());
 
-	// Assume press-and-hold action if none specified by a prefix
-	EButtonAction result = eBtnAct_PressAndHold;
+	// Assume default "Down" action if none specified by a prefix
+	EButtonAction result = eBtnAct_Down;
 
 	// Check for action prefix - not many so just linear search
 	for(size_t i = 0; i < eBtnAct_Num; ++i)
@@ -763,7 +798,8 @@ static void addButtonAction(
 	EButton aBtnID = buttonNameToID(theBtnName);
 	if( aBtnID >= eBtn_Num )
 	{
-		logError("Unable to identify Gamepad Button '%s' requested in [%s.%s]",
+		logError("Unable to identify Gamepad Button '%s%s' requested in [%s.%s]",
+			kButtonActionPrefx[aBtnAct],
 			theBtnName.c_str(),
 			kModePrefix.c_str(),
 			theBuilder->debugSlotName.c_str());
@@ -781,9 +817,14 @@ static void addButtonAction(
 	if( aCmd.type == eCmdType_Empty )
 	{
 		std::string* aVKeySeqPtr = NULL;
+
 		// Check for alias to a keybind
-		if( int* aKeyStringIdxPtr = sKeyBinds.find(upper(theCmdStr)) )
-			aVKeySeqPtr = &sKeyStrings[*aKeyStringIdxPtr];
+		{
+			int* aKeyStringIdxPtr =
+				theBuilder->keyAliases.find(upper(theCmdStr));
+			if( aKeyStringIdxPtr )
+				aVKeySeqPtr = &sKeyStrings[*aKeyStringIdxPtr];
+		}
 
 		// Check for direct key sequence
 		std::string aVKeySeq;
@@ -794,22 +835,14 @@ static void addButtonAction(
 		}
 
 		if( aVKeySeqPtr && aVKeySeqPtr->size() == 1 &&
-			aBtnAct == eBtnAct_PressAndHold )
+			aBtnAct == eBtnAct_Down )
 		{
-			// True press-and-hold only works with a single key.
+			// True "while held down" only works with a single key.
 			// If more than one key was specified, this will be
-			// skipped and _PressAndHold will just act like the
-			// normal _Press action (possibly having 2), and no
-			// _HoldRelease command will be added with it.
-			aCmd.data = (*aVKeySeqPtr)[0];
-
-			// Add the extra release command now
-			aCmd.type = eCmdType_ReleaseKey;
-			ButtonActions& aBtnActSet =
-				sModes[theModeIdx].commands.findOrAdd(aBtnID);
-			aBtnActSet.cmd[eBtnAct_HoldRelease] = aCmd;
-
+			// skipped and _Down will just act like another
+			// _Press action (meaning could have 2).
 			aCmd.type = eCmdType_PressAndHoldKey;
+			aCmd.data = (*aVKeySeqPtr)[0];
 		}
 
 		if( aCmd.type == eCmdType_Empty &&
@@ -827,26 +860,56 @@ static void addButtonAction(
 		}
 	}
 
-	if( aCmd.type != eCmdType_Empty )
+	// Check for bad combinations of button+action+command
+	if( aCmd.type == eCmdType_ChangeMode && aBtnID == eBtn_None )
 	{
-		ButtonActions& aBtnActSet =
-			sModes[theModeIdx].commands.findOrAdd(aBtnID);
-		aBtnActSet.cmd[aBtnAct] = aCmd;
-		mapDebugPrint("[Mode.%s]: Assigned '%s%s%s' to '%s'\n",
+		logError("Can not assign mode change to 'Auto' ([%s.%s] %s%s%s = %s)",
+			kModePrefix.c_str(),
 			theBuilder->debugSlotName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kButtonActionPrefx[aBtnAct][0] ? " " : "",
 			kProfileButtonName[aBtnID],
 			theCmdStr.c_str());
+		return;
 	}
-	else
+
+	if( aBtnAct != eBtnAct_Down && aCmd.type >= eCmdType_FirstContinuous )
 	{
-		logError("Not sure how to assign [%s.%s] %s = %s",
+		logError(
+			"[%s.%s]: Invalid assignment of '%s %s' action to '%s'! "
+			"Must remove the '%s' prefix for this command!",
 			kModePrefix.c_str(),
 			theBuilder->debugSlotName.c_str(),
-			theBtnName.c_str(),
-			theCmdStr.c_str());
+			kButtonActionPrefx[aBtnAct],
+			kProfileButtonName[aBtnID],
+			theCmdStr.c_str(),
+			kButtonActionPrefx[aBtnAct]);
+		return;
 	}
+
+	// Generic error for inability to parse the request
+	if( aCmd.type == eCmdType_Empty )
+	{
+		logError("[%s.%s]: Not sure how to assign '%s%s%s' to '%s'",
+			kModePrefix.c_str(),
+			theBuilder->debugSlotName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
+			theCmdStr.c_str());
+		return;
+	}
+
+	// Make the assignment!
+	sModes[theModeIdx].commands.findOrAdd(aBtnID).cmd[aBtnAct] = aCmd;
+
+	mapDebugPrint("[%s.%s]: Assigned '%s%s%s' to '%s'\n",
+		kModePrefix.c_str(),
+		theBuilder->debugSlotName.c_str(),
+		kButtonActionPrefx[aBtnAct],
+		kButtonActionPrefx[aBtnAct][0] ? " " : "",
+		kProfileButtonName[aBtnID],
+		theCmdStr.c_str());
 }
 
 
@@ -964,8 +1027,8 @@ static u8 getOrCreateMode(
 
 static void buildControlScheme(InputMapBuilder* theBuilder)
 {
-	// Set up keybinds used by control schemes
-	buildKeyBinds(theBuilder);
+	// Set up custom key aliases used by control schemes
+	buildKeyAliases(theBuilder);
 
 	mapDebugPrint("Building control scheme (modes)...\n");
 
@@ -994,20 +1057,43 @@ static void buildControlScheme(InputMapBuilder* theBuilder)
 }
 
 
+static void assignSpecialKeys(InputMapBuilder* theBuilder)
+{
+	for(size_t i = 0; i < eSpecialKey_Num; ++i)
+	{
+		int* aKeyStringIdxPtr =
+			theBuilder->keyAliases.find(kSpecialKeyNames[i]);
+		if( !aKeyStringIdxPtr )
+			continue;
+		if( sKeyStrings[*aKeyStringIdxPtr].size() != 1 )
+		{
+			logError("Can only assign a single key to %s!",
+				kSpecialKeyNames[i]);
+			continue;
+		}
+		sSpecialKeys[i] = sKeyStrings[*aKeyStringIdxPtr][0];
+	}
+}
+
+
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
 
 void loadProfile()
 {
+	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
 	sKeyStrings.clear();
-	sKeyBinds.clear();
 	sModes.clear();
 	sMacroSets.clear();
 
-	InputMapBuilder anInputMapBuilder;
-	buildControlScheme(&anInputMapBuilder);
-	buildMacroSets(&anInputMapBuilder);
+	// Build control scheme and macros
+	{
+		InputMapBuilder anInputMapBuilder;
+		buildControlScheme(&anInputMapBuilder);
+		buildMacroSets(&anInputMapBuilder);
+		assignSpecialKeys(&anInputMapBuilder);
+	}
 
 	// Trim unused memory
 	if( sMacroSets.size() < sMacroSets.capacity() )
@@ -1049,7 +1135,7 @@ Command commandForButtonAction(
 			case eCmdType_SayString:
 				DBG_ASSERT((unsigned)result.data < sKeyStrings.size());
 				// Important that this raw string pointer gets used before
-				// anything happens to our sMacroSets data or we'd get a
+				// anything happens to our sKeyStrings data or we'd get a
 				// dangling pointer - but this prevents string copies!
 				result.string = sKeyStrings[result.data].c_str();
 				break;
@@ -1085,6 +1171,67 @@ Command commandForMacro(int theMacroSetID, u8 theMacroSlotID)
 		break;
 	}
 
+	return result;
+}
+
+
+u8 keyForMoveTurn(ECommandDir theDir)
+{
+	switch(theDir)
+	{
+	case eCmdDir_L:	return sSpecialKeys[eSpecialKey_TurnL];
+	case eCmdDir_R:	return sSpecialKeys[eSpecialKey_TurnR];
+	case eCmdDir_U:	return sSpecialKeys[eSpecialKey_MoveF];
+	case eCmdDir_D:	return sSpecialKeys[eSpecialKey_MoveB];
+	}
+
+	return 0;
+}
+
+
+u8 keyForMoveStrafe(ECommandDir theDir)
+{
+	u8 result = 0;
+
+	switch(theDir)
+	{
+	case eCmdDir_L:	result = sSpecialKeys[eSpecialKey_StrafeL]; break;
+	case eCmdDir_R:	result = sSpecialKeys[eSpecialKey_StrafeR]; break;
+	}
+
+	if( !result ) result = keyForMoveTurn(theDir);
+	return result;
+}
+
+
+u8 keyForMouseLookMoveTurn(ECommandDir theDir)
+{
+	u8 result = 0;
+
+	switch(theDir)
+	{
+	case eCmdDir_L:	result = sSpecialKeys[eSpecialKey_MLTurnL]; break;
+	case eCmdDir_R:	result = sSpecialKeys[eSpecialKey_MLTurnR]; break;
+	case eCmdDir_U:	result = sSpecialKeys[eSpecialKey_MLMoveF]; break;
+	case eCmdDir_D:	result = sSpecialKeys[eSpecialKey_MLMoveB]; break;
+	}
+
+	if( !result ) result = keyForMoveTurn(theDir);
+	return result;
+}
+
+
+u8 keyForMouseLookMoveStrafe(ECommandDir theDir)
+{
+	u8 result = 0;
+
+	switch(theDir)
+	{
+	case eCmdDir_L:	result = sSpecialKeys[eSpecialKey_MLStrafeL]; break;
+	case eCmdDir_R:	result = sSpecialKeys[eSpecialKey_MLStrafeR]; break;
+	}
+
+	if( !result ) result = keyForMoveStrafe(theDir);
 	return result;
 }
 
