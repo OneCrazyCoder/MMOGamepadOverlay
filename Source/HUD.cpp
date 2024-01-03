@@ -33,11 +33,11 @@ struct Config
 		this->fontSize = Profile::getInt("HUD/FontSize", 13);
 		this->fontWeight = Profile::getInt("HUD/FontWeight", FW_NORMAL);
 		std::vector<int> anIntVec(10, 10);
-		Profile::getIntArray("HUD/MacrosXY", &anIntVec);
+		Profile::getIntArray("HUD/MacrosXY", anIntVec);
 		const int kMacrosX = anIntVec[0];
 		const int kMacrosY = anIntVec[1];
 		anIntVec[0] = 244; anIntVec[1] = 40;
-		Profile::getIntArray("HUD/MacroWH", &anIntVec);
+		Profile::getIntArray("HUD/MacroWH", anIntVec);
 		this->macroButtonW = max(1, anIntVec[0]);
 		this->macroButtonH = max(1, anIntVec[1]);
 		this->macroButtonPos[eCmdDir_U].x = kMacrosX+macroButtonW/2;
@@ -51,13 +51,13 @@ struct Config
 		this->borderThickness = max(0, Profile::getInt("HUD/BorderSize", 1));
 		anIntVec.resize(3);
 		anIntVec[0] = anIntVec[1] = anIntVec[2] = 100;
-		Profile::getIntArray("HUD/BorderRGB", &anIntVec);
+		Profile::getIntArray("HUD/BorderRGB", anIntVec);
 		this->borderColor = RGB(anIntVec[0], anIntVec[1], anIntVec[2]);
 		anIntVec[0] = anIntVec[1] = anIntVec[2] = 150;
-		Profile::getIntArray("HUD/ButtonRGB", &anIntVec);
+		Profile::getIntArray("HUD/ButtonRGB", anIntVec);
 		this->buttonColor = RGB(anIntVec[0], anIntVec[1], anIntVec[2]);
 		anIntVec[0] = anIntVec[1] = anIntVec[2] = 10;
-		Profile::getIntArray("HUD/LabelRGB", &anIntVec);
+		Profile::getIntArray("HUD/LabelRGB", anIntVec);
 		this->labelColor = RGB(anIntVec[0], anIntVec[1], anIntVec[2]);
 	}
 };
