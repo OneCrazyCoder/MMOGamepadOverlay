@@ -17,11 +17,14 @@ inline std::wstring widen(const std::string &s) { return widen(s.c_str()); }
 
 std::string vformat(const char* fmt, va_list argPtr);
 std::string strFormat(const char* fmt ...);
+// Remove leading and trailing whitespace
 std::string trim(const std::string& theString);
 // WARNING: Leaves all non-ASCII (0-127) characters as-is!
 // Should only really be used for case-insensitive comparisons to ASCII strings
 std::string upper(const std::string& theString);
 std::string lower(const std::string& theString);
+// Remove ALL whitespace (and - and _), and set to all upper-case
+std::string condense(const std::string& theString);
 
 // File/path utilities (works fine with UTF8-encoding strings)
 std::string getFileName(const std::string& thePath);
@@ -37,10 +40,10 @@ std::string addTrailingSlash(const std::string& theDirectory, bool backSlash = f
 // If theChar is not found, returns empty string and leaves theString as-is
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
 // Breaks the string into individual sub-strings of ASCII alhanumeric characters,
-// (in all caps) and appends them to the passed-in vector of strings.
-// All other characters are stripped and act as separators for each "word"
-// except for hyphenated words which are conjoined (Left-Click->LEFTCLICK).
-void sanitizeSentence(const std::string& theString, std::vector<std::string>* result);
+// and appends them to the passed-in vector of strings. All other characters are
+// stripped and act as separators for each "word" except for hyphenated or under-
+// scored words which are conjoined (Left-Click or Left_Click becomes LeftClick).
+void sanitizeSentence(const std::string& theString, std::vector<std::string>& out);
 
 
 // Conversion between numbers and (pure ASCII) strings

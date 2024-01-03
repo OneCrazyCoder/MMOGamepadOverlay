@@ -137,6 +137,7 @@ typedef VectorMap<EButton, ButtonActions> ButtonActionsCommands;
 
 struct ControlsMode
 {
+	std::string label;
 	ButtonActionsCommands commands;
 	u8 parentMode;
 	BitArray8<eHUDElement_Num> hud;
@@ -166,12 +167,13 @@ static std::vector<std::string> sKeyStrings;
 static std::vector<ControlsMode> sModes;
 static u8 sSpecialKeys[eSpecialKey_Num];
 
+
 //-----------------------------------------------------------------------------
 // Const Data Lookup Functions
 //-----------------------------------------------------------------------------
 
 // Forward declares
-static u8 getOrCreateMode(InputMapBuilder*, const std::string&);
+static u8 getOrCreateMode(InputMapBuilder&, const std::string&);
 
 static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 {
@@ -310,47 +312,79 @@ static EButton buttonNameToID(const std::string& theString)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			const size_t kMapSize = eBtn_Num + 38;
+			const size_t kMapSize = eBtn_Num + 70;
 			map.reserve(kMapSize);
 			// Add default names for each button to map
 			for(int i = 0; i < eBtn_Num; ++i)
 				map.setValue(upper(kProfileButtonName[i]), EButton(i));
 			// Add some extra aliases
+			map.setValue("LL",				eBtn_LSLeft);
+			map.setValue("LSL",				eBtn_LSLeft);
 			map.setValue("LSTICKLEFT",		eBtn_LSLeft);
-			map.setValue("LSTICKRIGHT",		eBtn_LSRight);
-			map.setValue("LSTICKUP",		eBtn_LSUp);
-			map.setValue("LSTICKDOWN",		eBtn_LSDown);
 			map.setValue("LEFTSTICKLEFT",	eBtn_LSLeft);
+			map.setValue("LR",				eBtn_LSRight);
+			map.setValue("LSR",				eBtn_LSRight);
+			map.setValue("LSTICKRIGHT",		eBtn_LSRight);
 			map.setValue("LEFTSTICKRIGHT",	eBtn_LSRight);
+			map.setValue("LU",				eBtn_LSUp);
+			map.setValue("LSU",				eBtn_LSUp);
+			map.setValue("LSTICKUP",		eBtn_LSUp);
 			map.setValue("LEFTSTICKUP",		eBtn_LSUp);
+			map.setValue("LD",				eBtn_LSDown);
+			map.setValue("LSD",				eBtn_LSDown);
+			map.setValue("LSTICKDOWN",		eBtn_LSDown);
 			map.setValue("LEFTSTICKDOWN",	eBtn_LSDown);
+			map.setValue("RL",				eBtn_RSLeft);
+			map.setValue("RSL",				eBtn_RSLeft);
 			map.setValue("RSTICKLEFT",		eBtn_RSLeft);
-			map.setValue("RSTICKRIGHT",		eBtn_RSRight);
-			map.setValue("RSTICKUP",		eBtn_RSUp);
-			map.setValue("RSTICKDOWN",		eBtn_RSDown);
 			map.setValue("RIGHTSTICKLEFT",	eBtn_RSLeft);
+			map.setValue("RR",				eBtn_RSRight);
+			map.setValue("RSR",				eBtn_RSRight);
+			map.setValue("RSTICKRIGHT",		eBtn_RSRight);
 			map.setValue("RIGHTSTICKRIGHT",	eBtn_RSRight);
+			map.setValue("RU",				eBtn_RSUp);
+			map.setValue("RSU",				eBtn_RSUp);
+			map.setValue("RSTICKUP",		eBtn_RSUp);
 			map.setValue("RIGHTSTICKUP",	eBtn_RSUp);
+			map.setValue("RD",				eBtn_RSDown);
+			map.setValue("RSD",				eBtn_RSDown);
+			map.setValue("RSTICKDOWN",		eBtn_RSDown);
 			map.setValue("RIGHTSTICKDOWN",	eBtn_RSDown);
+			map.setValue("DL",				eBtn_DLeft);
+			map.setValue("DPL",				eBtn_DLeft);
 			map.setValue("DPLEFT",			eBtn_DLeft);
 			map.setValue("DPADLEFT",		eBtn_DLeft);
+			map.setValue("DR",				eBtn_DRight);
+			map.setValue("DPR",				eBtn_DRight);
 			map.setValue("DPRIGHT",			eBtn_DRight);
 			map.setValue("DPADRIGHT",		eBtn_DRight);
+			map.setValue("DU",				eBtn_DUp);
+			map.setValue("DPU",				eBtn_DUp);
 			map.setValue("DPUP",			eBtn_DUp);
 			map.setValue("DPADUP",			eBtn_DUp);
+			map.setValue("DD",				eBtn_DDown);
+			map.setValue("DPD",				eBtn_DDown);
 			map.setValue("DPDOWN",			eBtn_DDown);
 			map.setValue("DPADDOWN",		eBtn_DDown);
+			map.setValue("FL",				eBtn_FLeft);
+			map.setValue("FPL",				eBtn_FLeft);
 			map.setValue("FPADLEFT",		eBtn_FLeft);
 			map.setValue("SQUARE",			eBtn_FLeft);
 			map.setValue("XBX",				eBtn_FLeft);
+			map.setValue("FR",				eBtn_FRight);
+			map.setValue("FPR",				eBtn_FRight);
 			map.setValue("FPADRIGHT",		eBtn_FRight);
 			map.setValue("CIRCLE",			eBtn_FRight);
 			map.setValue("CIRC",			eBtn_FRight);
 			map.setValue("XBB",				eBtn_FRight);
+			map.setValue("FU",				eBtn_FUp);
+			map.setValue("FPU",				eBtn_FUp);
 			map.setValue("FPADUP",			eBtn_FUp);
 			map.setValue("TRIANGLE",		eBtn_FUp);
 			map.setValue("TRI",				eBtn_FUp);
 			map.setValue("XBY",				eBtn_FUp);
+			map.setValue("FD",				eBtn_FDown);
+			map.setValue("FPD",				eBtn_FDown);
 			map.setValue("FPADDOWN",		eBtn_FDown);
 			map.setValue("XBA",				eBtn_FDown);
 			map.setValue("PSX",				eBtn_FDown);
@@ -398,7 +432,7 @@ s8 hudElementNameToID(const std::string& theString)
 
 static EResult checkForComboKeyName(
 	std::string aKeyName,
-	std::string* out,
+	std::string& out,
 	bool allowMouse)
 {
 	std::string aModKeyName;
@@ -417,16 +451,17 @@ static EResult checkForComboKeyName(
 			// Is rest of the name a valid key now?
 			if( u8 aMainKey = keyNameToVirtualKey(aKeyName, allowMouse))
 			{// We have a valid key combo!
-				out->push_back(aModKey);
-				out->push_back(aMainKey);
+				out.push_back(aModKey);
+				out.push_back(aMainKey);
 				return eResult_Ok;
 			}
 			// Perhaps remainder is another mod+key, like ShiftCtrlA?
 			std::string suffix;
-			if( checkForComboKeyName(aKeyName, &suffix, allowMouse) )
+			if( checkForComboKeyName(
+					aKeyName, suffix, allowMouse) == eResult_Ok )
 			{
-				out->push_back(aModKey);
-				out->append(suffix);
+				out.push_back(aModKey);
+				out.append(suffix);
 				return eResult_Ok;
 			}
 		}
@@ -448,13 +483,14 @@ static std::string namesToVKeySequence(
 
 	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
 	{
-		DBG_ASSERT(!theNames[aNameIdx].empty());
-		const u8 aVKey = keyNameToVirtualKey(theNames[aNameIdx], allowMouse);
+		const std::string& aName = upper(theNames[aNameIdx]);
+		DBG_ASSERT(!aName.empty());
+		const u8 aVKey = keyNameToVirtualKey(aName, allowMouse);
 		if( aVKey == 0 )
 		{
 			// Check if it's a modifier+key in one word like Shift2 or Alt1
 			if( checkForComboKeyName(
-					theNames[aNameIdx], &result, allowMouse) != eResult_Ok )
+					aName, result, allowMouse) != eResult_Ok )
 			{
 				result.clear();
 				return result;
@@ -471,11 +507,9 @@ static std::string namesToVKeySequence(
 
 
 static MacroSlot stringToMacroSlot(
-	InputMapBuilder* theBuilder,
+	InputMapBuilder& theBuilder,
 	std::string theString)
 {
-	DBG_ASSERT(theBuilder);
-
 	MacroSlot aMacroSlot;
 	if( theString.empty() )
 	{
@@ -493,7 +527,7 @@ static MacroSlot stringToMacroSlot(
 		aMacroSlot.cmd.data = int(sMacroSets.size());
 		sMacroSets.push_back(MacroSet());
 		sMacroSets.back().label =
-			sMacroSets[theBuilder->currentSet].label +
+			sMacroSets[theBuilder.currentSet].label +
 			"." + aMacroSlot.label;
 		mapDebugPrint("New Macro Set: '%s'\n",
 			aMacroSlot.label.c_str());
@@ -528,12 +562,12 @@ static MacroSlot stringToMacroSlot(
 	}
 
 	// Break the remaining string (after label) into individual words
-	theBuilder->parsedString.clear();
-	sanitizeSentence(theString, &theBuilder->parsedString);
+	theBuilder.parsedString.clear();
+	sanitizeSentence(theString, theBuilder.parsedString);
 
 	// Process the words as a sequence of Virtual-Key Code names
 	const std::string& aVKeySeq = namesToVKeySequence(
-		theBuilder->parsedString, false);
+		theBuilder.parsedString, false);
 	if( !aVKeySeq.empty() )
 	{
 		sKeyStrings.push_back(aVKeySeq);
@@ -554,24 +588,22 @@ static MacroSlot stringToMacroSlot(
 }
 
 
-static void buildMacroSets(InputMapBuilder* theBuilder)
+static void buildMacroSets(InputMapBuilder& theBuilder)
 {
-	DBG_ASSERT(theBuilder);
-
 	mapDebugPrint("Building Macro Sets...\n");
 
 	sMacroSets.push_back(MacroSet());
 	sMacroSets.back().label = kMainMacroSetLabel;
 	for(int aSet = 0; aSet < sMacroSets.size(); ++aSet )
 	{
-		theBuilder->currentSet = aSet;
+		theBuilder.currentSet = aSet;
 		const std::string aPrefix = sMacroSets[aSet].label;
 		for(int aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
 		{
-			theBuilder->debugSlotName =
+			theBuilder.debugSlotName =
 				aPrefix + " (" + kMacroSlotLabel[aSlot] + ")";
 			mapDebugPrint("Parsing macro for slot '%s'\n",
-				theBuilder->debugSlotName.c_str());
+				theBuilder.debugSlotName.c_str());
 
 			sMacroSets[aSet].slot[aSlot] =
 				stringToMacroSlot(
@@ -583,26 +615,26 @@ static void buildMacroSets(InputMapBuilder* theBuilder)
 }
 
 
-static void buildKeyAliases(InputMapBuilder* theBuilder)
+static void buildKeyAliases(InputMapBuilder& theBuilder)
 {
 	mapDebugPrint("Assigning KeyBinds...\n");
 
 	Profile::KeyValuePairs aKeyBindRequests;
-	Profile::getAllKeys(kKeybindsPrefix, &aKeyBindRequests);
+	Profile::getAllKeys(kKeybindsPrefix, aKeyBindRequests);
 	for(size_t i = 0; i < aKeyBindRequests.size(); ++i)
 	{
 		const char* anActionName = aKeyBindRequests[i].first;
 		const char* aKeysDescription = aKeyBindRequests[i].second;
 
 		// Break keys description string into individual words
-		theBuilder->parsedString.clear();
-		sanitizeSentence(aKeysDescription, &theBuilder->parsedString);
+		theBuilder.parsedString.clear();
+		sanitizeSentence(aKeysDescription, theBuilder.parsedString);
 		const std::string& aVKeySeq = namesToVKeySequence(
-			theBuilder->parsedString, true);
+			theBuilder.parsedString, true);
 		if( !aVKeySeq.empty() )
 		{
 			sKeyStrings.push_back(aVKeySeq);
-			theBuilder->keyAliases.setValue(
+			theBuilder.keyAliases.setValue(
 				anActionName, (int)sKeyStrings.size()-1);
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
@@ -618,10 +650,9 @@ static void buildKeyAliases(InputMapBuilder* theBuilder)
 }
 
 
-static Command buildSpecialCommand(InputMapBuilder* theBuilder)
+static Command buildSpecialCommand(InputMapBuilder& theBuilder)
 {
-	DBG_ASSERT(theBuilder);
-	const std::vector<std::string>& aCmdStrings = theBuilder->parsedString;
+	const std::vector<std::string>& aCmdStrings = theBuilder.parsedString;
 
 	Command result;
 	if( aCmdStrings.empty() || aCmdStrings.front().empty() )
@@ -634,7 +665,7 @@ static Command buildSpecialCommand(InputMapBuilder* theBuilder)
 		// Searh all but the last 'word' in parsed string for a match
 		for(size_t aWordIdx = 0; aWordIdx < aCmdStrings.size()-1; ++aWordIdx)
 		{
-			const std::string& aTestWord = aCmdStrings[aWordIdx];
+			const std::string& aTestWord = upper(aCmdStrings[aWordIdx]);
 			if( aTestWord == aCheckWord )
 			{
 				result.type = kCmdKeyWords[i].cmd;
@@ -653,21 +684,19 @@ static Command buildSpecialCommand(InputMapBuilder* theBuilder)
 	case eCmdType_ChangeMode:
 		// Mode may not exist yet, so this can be slightly tricky (recursion)
 		{
-			// Assume last word in the command is the mode name,
-			// and for debug print and error log make it a Proper Noun
-			std::string aModeName = lower(aCmdStrings.back());
-			aModeName[0] = ::toupper(aModeName[0]);
+			// Assume last word in the command is the mode name
+			std::string aModeName = aCmdStrings.back();
 
-			const std::string aBackupSlotName = theBuilder->debugSlotName;
+			const std::string aBackupSlotName = theBuilder.debugSlotName;
 			// We're done with ->parsedString or would back it up too...
 			result.data = getOrCreateMode(theBuilder, aModeName);
 
 			// Restore backup to resume mode previously being built
-			if( theBuilder->debugSlotName != aBackupSlotName )
+			if( theBuilder.debugSlotName != aBackupSlotName )
 			{
-				theBuilder->debugSlotName = aBackupSlotName;
+				theBuilder.debugSlotName = aBackupSlotName;
 				debugPrint("Resuming building controls mode: %s\n",
-					theBuilder->debugSlotName.c_str());
+					theBuilder.debugSlotName.c_str());
 			}
 		}
 		break;
@@ -721,9 +750,9 @@ static Command buildSpecialCommand(InputMapBuilder* theBuilder)
 }
 
 
-static EButtonAction breakOffButtonAction(std::string* theButtonActionName)
+static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 {
-	DBG_ASSERT(theButtonActionName && !theButtonActionName->empty());
+	DBG_ASSERT(!theButtonActionName.empty());
 
 	// Assume default "Down" action if none specified by a prefix
 	EButtonAction result = eBtnAct_Down;
@@ -734,7 +763,7 @@ static EButtonAction breakOffButtonAction(std::string* theButtonActionName)
 		if( kButtonActionPrefx[i][0] == '\0' )
 			continue;
 		const char* aPrefixChar = &kButtonActionPrefx[i][0];
-		const char* aStrChar = theButtonActionName->c_str();
+		const char* aStrChar = theButtonActionName.c_str();
 		bool matchFound = true;
 		for(; *aPrefixChar; ++aPrefixChar, ++aStrChar)
 		{
@@ -751,7 +780,7 @@ static EButtonAction breakOffButtonAction(std::string* theButtonActionName)
 		{
 			result = EButtonAction(i);
 			// Chop the prefix (and any whitespace after) off the front of the string
-			*theButtonActionName = trim(aStrChar);
+			theButtonActionName = trim(aStrChar);
 			break;
 		}
 	}
@@ -761,12 +790,11 @@ static EButtonAction breakOffButtonAction(std::string* theButtonActionName)
 
 	
 static void addButtonAction(
-	InputMapBuilder* theBuilder,
+	InputMapBuilder& theBuilder,
 	size_t theModeIdx,
 	std::string theBtnName,
 	const std::string& theCmdStr)
 {
-	DBG_ASSERT(theBuilder);
 	DBG_ASSERT(theModeIdx < sModes.size());
 	if( theBtnName.empty() || theCmdStr.empty() )
 		return;
@@ -794,7 +822,7 @@ static void addButtonAction(
 	}
 
 	// Determine button & action to assign command to
-	EButtonAction aBtnAct = breakOffButtonAction(&theBtnName);
+	EButtonAction aBtnAct = breakOffButtonAction(theBtnName);
 	EButton aBtnID = buttonNameToID(theBtnName);
 	if( aBtnID >= eBtn_Num )
 	{
@@ -802,13 +830,13 @@ static void addButtonAction(
 			kButtonActionPrefx[aBtnAct],
 			theBtnName.c_str(),
 			kModePrefix.c_str(),
-			theBuilder->debugSlotName.c_str());
+			theBuilder.debugSlotName.c_str());
 		return;
 	}
 
 	// Break command string into individual words
-	theBuilder->parsedString.clear();
-	sanitizeSentence(theCmdStr, &theBuilder->parsedString);
+	theBuilder.parsedString.clear();
+	sanitizeSentence(theCmdStr, theBuilder.parsedString);
 
 	// Check for special commands
 	Command aCmd = buildSpecialCommand(theBuilder);
@@ -821,7 +849,7 @@ static void addButtonAction(
 		// Check for alias to a keybind
 		{
 			int* aKeyStringIdxPtr =
-				theBuilder->keyAliases.find(upper(theCmdStr));
+				theBuilder.keyAliases.find(condense(theCmdStr));
 			if( aKeyStringIdxPtr )
 				aVKeySeqPtr = &sKeyStrings[*aKeyStringIdxPtr];
 		}
@@ -830,7 +858,7 @@ static void addButtonAction(
 		std::string aVKeySeq;
 		if( !aVKeySeqPtr )
 		{
-			aVKeySeq = namesToVKeySequence(theBuilder->parsedString, true);
+			aVKeySeq = namesToVKeySequence(theBuilder.parsedString, true);
 			aVKeySeqPtr = &aVKeySeq;
 		}
 
@@ -865,7 +893,7 @@ static void addButtonAction(
 	{
 		logError("Can not assign mode change to 'Auto' ([%s.%s] %s%s%s = %s)",
 			kModePrefix.c_str(),
-			theBuilder->debugSlotName.c_str(),
+			theBuilder.debugSlotName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kButtonActionPrefx[aBtnAct][0] ? " " : "",
 			kProfileButtonName[aBtnID],
@@ -879,7 +907,7 @@ static void addButtonAction(
 			"[%s.%s]: Invalid assignment of '%s %s' action to '%s'! "
 			"Must remove the '%s' prefix for this command!",
 			kModePrefix.c_str(),
-			theBuilder->debugSlotName.c_str(),
+			theBuilder.debugSlotName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kProfileButtonName[aBtnID],
 			theCmdStr.c_str(),
@@ -892,7 +920,7 @@ static void addButtonAction(
 	{
 		logError("[%s.%s]: Not sure how to assign '%s%s%s' to '%s'",
 			kModePrefix.c_str(),
-			theBuilder->debugSlotName.c_str(),
+			theBuilder.debugSlotName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kButtonActionPrefx[aBtnAct][0] ? " " : "",
 			kProfileButtonName[aBtnID],
@@ -905,7 +933,7 @@ static void addButtonAction(
 
 	mapDebugPrint("[%s.%s]: Assigned '%s%s%s' to '%s'\n",
 		kModePrefix.c_str(),
-		theBuilder->debugSlotName.c_str(),
+		theBuilder.debugSlotName.c_str(),
 		kButtonActionPrefx[aBtnAct],
 		kButtonActionPrefx[aBtnAct][0] ? " " : "",
 		kProfileButtonName[aBtnID],
@@ -914,23 +942,23 @@ static void addButtonAction(
 
 
 static void updateModeHUDSettings(
-	InputMapBuilder* theBuilder,
+	InputMapBuilder& theBuilder,
 	size_t theModeIdx,
 	const std::string& theString)
 {
 	// Break the string into individual words
-	theBuilder->parsedString.clear();
-	sanitizeSentence(theString, &theBuilder->parsedString);
+	theBuilder.parsedString.clear();
+	sanitizeSentence(upper(theString), theBuilder.parsedString);
 	
 	bool show = true;
-	for(size_t i = 0; i < theBuilder->parsedString.size(); ++i)
+	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
 	{
-		const s8 aHUD_ID = hudElementNameToID(theBuilder->parsedString[i]);
+		const s8 aHUD_ID = hudElementNameToID(theBuilder.parsedString[i]);
 		if( aHUD_ID == kInvalidHUDElementVal )
 		{
 			logError("Uknown HUD element specified for [%s.%s]: %s",
 				kModePrefix.c_str(),
-				theBuilder->debugSlotName.c_str(),
+				theBuilder.debugSlotName.c_str(),
 				theString.c_str());
 			return;
 		}
@@ -952,16 +980,15 @@ static void updateModeHUDSettings(
 
 
 static u8 getOrCreateMode(
-	InputMapBuilder* theBuilder,
+	InputMapBuilder& theBuilder,
 	const std::string& theModeName)
 {
-	DBG_ASSERT(theBuilder);
-
-	u8 idx = theBuilder->nameToIdxMap.findOrAdd(
+	u8 idx = theBuilder.nameToIdxMap.findOrAdd(
 				upper(theModeName), (u8)sModes.size());
 	if( idx == sModes.size() )
 	{// Need to create the new mode
 		sModes.push_back(ControlsMode());
+		sModes.back().label = theModeName;
 		const std::string aModePrefix(kModePrefix + "." + theModeName + "/");
 		{// Get (or make) parent mode first, if has one assigned
 			std::string aParentName;
@@ -974,13 +1001,21 @@ static u8 getOrCreateMode(
 			if( !aParentName.empty() )
 			{
 				const u8 aParentIdx = getOrCreateMode(theBuilder, aParentName);
-				// Inherit default settings from parent
-				sModes[idx].mouseLookOn = sModes[aParentIdx].mouseLookOn;
-				sModes[idx].hud = sModes[aParentIdx].hud;
-				sModes[idx].parentMode = aParentIdx;
+				if( modeInheritsFrom(aParentIdx, idx) )
+				{
+					logError("Infinite inheritance loop attempted with mode [%s.%s]!",
+						kModePrefix.c_str(), theModeName.c_str());
+				}
+				else
+				{
+					// Inherit default settings from parent
+					sModes[idx].mouseLookOn = sModes[aParentIdx].mouseLookOn;
+					sModes[idx].hud = sModes[aParentIdx].hud;
+					sModes[idx].parentMode = aParentIdx;
+				}
 			}
 		}
-		theBuilder->debugSlotName = theModeName;
+		theBuilder.debugSlotName = theModeName;
 		mapDebugPrint("Building controls mode: %s\n", theModeName.c_str());
 
 		// Get mouse look mode setting directly
@@ -990,7 +1025,7 @@ static u8 getOrCreateMode(
 
 		// Check each key-value pair for button assignment reqests
 		Profile::KeyValuePairs aSettings;
-		Profile::getAllKeys(aModePrefix, &aSettings);
+		Profile::getAllKeys(aModePrefix, aSettings);
 		for(Profile::KeyValuePairs::const_iterator itr = aSettings.begin();
 			itr != aSettings.end(); ++itr)
 		{
@@ -1025,7 +1060,7 @@ static u8 getOrCreateMode(
 }
 
 
-static void buildControlScheme(InputMapBuilder* theBuilder)
+static void buildControlScheme(InputMapBuilder& theBuilder)
 {
 	// Set up custom key aliases used by control schemes
 	buildKeyAliases(theBuilder);
@@ -1057,12 +1092,12 @@ static void buildControlScheme(InputMapBuilder* theBuilder)
 }
 
 
-static void assignSpecialKeys(InputMapBuilder* theBuilder)
+static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
 	for(size_t i = 0; i < eSpecialKey_Num; ++i)
 	{
 		int* aKeyStringIdxPtr =
-			theBuilder->keyAliases.find(kSpecialKeyNames[i]);
+			theBuilder.keyAliases.find(kSpecialKeyNames[i]);
 		if( !aKeyStringIdxPtr )
 			continue;
 		if( sKeyStrings[*aKeyStringIdxPtr].size() != 1 )
@@ -1072,6 +1107,49 @@ static void assignSpecialKeys(InputMapBuilder* theBuilder)
 			continue;
 		}
 		sSpecialKeys[i] = sKeyStrings[*aKeyStringIdxPtr][0];
+	}
+}
+
+
+void setCStringPointerFor(Command* theCommand)
+{
+	// Important that the raw string pointer set here is no longer held
+	// past anything happening to sKeyStrings vector (being resized/etc)
+	// or we'd get a dangling pointer - but passing strings to external
+	// modules this way saves on string copies! It should be fine as
+	// long as external modules release references to this data before
+	// loadProfile() is called again.
+
+	switch(theCommand->type)
+	{
+	case eCmdType_VKeySequence:
+	case eCmdType_SlashCommand:
+	case eCmdType_SayString:
+		DBG_ASSERT((unsigned)theCommand->data < sKeyStrings.size());
+		theCommand->string = sKeyStrings[theCommand->data].c_str();
+		break;
+	}
+}
+
+
+void convertKeyStringIndexesToPointers()
+{
+	for(std::vector<MacroSet>::iterator itr = sMacroSets.begin();
+		itr != sMacroSets.end(); ++itr)
+	{
+		for(size_t i = 0; i < kMacroSlotsPerSet; ++i)
+			setCStringPointerFor(&itr->slot[i].cmd);
+	}
+
+	for(std::vector<ControlsMode>::iterator itr = sModes.begin();
+		itr != sModes.end(); ++itr)
+	{
+		for(ButtonActionsCommands::iterator itr2 = itr->commands.begin();
+			itr2 != itr->commands.end(); ++itr2)
+		{
+			for(size_t i = 0; i < eBtnAct_Num; ++i)
+				setCStringPointerFor(&itr2->second.cmd[i]);
+		}
 	}
 }
 
@@ -1090,9 +1168,9 @@ void loadProfile()
 	// Build control scheme and macros
 	{
 		InputMapBuilder anInputMapBuilder;
-		buildControlScheme(&anInputMapBuilder);
-		buildMacroSets(&anInputMapBuilder);
-		assignSpecialKeys(&anInputMapBuilder);
+		buildControlScheme(anInputMapBuilder);
+		buildMacroSets(anInputMapBuilder);
+		assignSpecialKeys(anInputMapBuilder);
 	}
 
 	// Trim unused memory
@@ -1102,6 +1180,12 @@ void loadProfile()
 		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
 	if( sModes.size() < sModes.capacity() )
 		std::vector<ControlsMode>(sModes).swap(sModes);
+
+	// Now that are done messing with resizing vectors which can
+	// invalidate pointers, can convert Commands with 'data' field
+	// being an sKeyStrings index into having direct pointers to
+	// the C-strings for use in other modules.
+	convertKeyStringIndexesToPointers();
 }
 
 
@@ -1112,43 +1196,52 @@ bool mouseLookShouldBeOn(int theModeID)
 }
 
 
-Command commandForButtonAction(
-	int theModeID,
-	EButton theButton,
-	EButtonAction theAction)
+const Command* commandsForButton(int theModeID, EButton theButton)
 {
 	DBG_ASSERT((unsigned)theModeID < sModes.size());
-	DBG_ASSERT(theAction < eBtnAct_Num);
+	DBG_ASSERT((unsigned)theButton < eBtn_Num);
 
-	Command result;
 	ButtonActionsCommands::const_iterator itr;
-	do
-	{
+	do {
 		itr = sModes[theModeID].commands.find(theButton);
 		if( itr != sModes[theModeID].commands.end() )
-		{
-			result = itr->second.cmd[theAction];
-			switch(result.type)
-			{
-			case eCmdType_VKeySequence:
-			case eCmdType_SlashCommand:
-			case eCmdType_SayString:
-				DBG_ASSERT((unsigned)result.data < sKeyStrings.size());
-				// Important that this raw string pointer gets used before
-				// anything happens to our sKeyStrings data or we'd get a
-				// dangling pointer - but this prevents string copies!
-				result.string = sKeyStrings[result.data].c_str();
-				break;
-			}
-			return result;
+		{// Button has something assigned
+			return &itr->second.cmd[0];
+		}
+		else if( theButton == eBtn_None )
+		{// 'Auto' of parent modes should be ignored
+			theModeID = 0;
 		}
 		else
-		{
+		{// Check if parent mode has this button assigned
 			theModeID = sModes[theModeID].parentMode;
 		}
 	} while(theModeID != 0);
 
-	return result;
+	return NULL;
+}
+
+
+int parentModeOf(int theModeID)
+{
+	DBG_ASSERT((unsigned)theModeID < sModes.size());
+
+	return sModes[theModeID].parentMode;
+}
+
+
+bool modeInheritsFrom(int theModeID, int thePossibleParentModeID)
+{
+	DBG_ASSERT((unsigned)theModeID < sModes.size());
+	DBG_ASSERT((unsigned)thePossibleParentModeID < sModes.size());
+
+	do {
+		if( theModeID == thePossibleParentModeID )
+			return true;
+		theModeID = sModes[theModeID].parentMode;
+	} while(theModeID != 0);
+
+	return false;
 }
 
 
@@ -1157,21 +1250,7 @@ Command commandForMacro(int theMacroSetID, u8 theMacroSlotID)
 	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
 	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
 	
-	Command result = sMacroSets[theMacroSetID].slot[theMacroSlotID].cmd;
-	switch(result.type)
-	{
-	case eCmdType_VKeySequence:
-	case eCmdType_SlashCommand:
-	case eCmdType_SayString:
-		DBG_ASSERT((unsigned)result.data < sKeyStrings.size());
-		// Important that this raw string pointer gets used before
-		// anything happens to our sMacroSets data or we'd get a
-		// dangling pointer - but this prevents string copies!
-		result.string = sKeyStrings[result.data].c_str();
-		break;
-	}
-
-	return result;
+	return sMacroSets[theMacroSetID].slot[theMacroSlotID].cmd;
 }
 
 
@@ -1240,6 +1319,13 @@ BitArray8<eHUDElement_Num> visibleHUDElements(int theModeID)
 {
 	DBG_ASSERT((unsigned)theModeID < sModes.size());
 	return sModes[theModeID].hud;
+}
+
+
+const std::string& modeLabel(int theModeID)
+{
+	DBG_ASSERT((unsigned)theModeID < sModes.size());
+	return sModes[theModeID].label;
 }
 
 

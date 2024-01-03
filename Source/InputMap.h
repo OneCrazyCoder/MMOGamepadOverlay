@@ -22,11 +22,16 @@ void loadProfile();
 // Checks if given controls mode should have mouse look turned on
 bool mouseLookShouldBeOn(int theModeID);
 
-// Get command to execute when given button performs given action
-Command commandForButtonAction(
-	int theModeID,
-	EButton theButton,
-	EButtonAction theAction);
+// Get commands to execute for given button in given mode, in the
+// form of an array of 'Command' of size 'eBtnAct_Num', or NULL
+// if no commands have been assigned to given mode & button at all
+const Command* commandsForButton(int theModeID, EButton theButton);
+
+// Returns parent mode of theModeID (0 means no parent)
+int parentModeOf(int theModeID);
+
+// Returns true if theModeID inherits from (or is) thePossibleParentModeID
+bool modeInheritsFrom(int theModeID, int thePossibleParentModeID);
 
 // Get command for executing given macro slot in given set
 Command commandForMacro(int theMacroSetID, u8 theMacroSlotID);
@@ -39,6 +44,9 @@ u8 keyForMouseLookMoveStrafe(ECommandDir);
 
 // Get bitfield of EHudElements that should be shown
 BitArray8<eHUDElement_Num> visibleHUDElements(int theMode);
+
+// Get controls mode name (label) for given ID
+const std::string& modeLabel(int theModeID); 
 
 // Get macro name (label) for given macro set & slot
 const std::string& macroLabel(int theMacroSetID, u8 theMacroSlotID);

@@ -436,6 +436,7 @@ void loadProfile()
 
 void cleanup()
 {
+	setMouseLookMode(false);
 	releaseAllHeldKeys();
 	flushInputVector();
 }

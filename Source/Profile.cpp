@@ -551,30 +551,26 @@ bool getBool(const std::string& theKey, bool theDefaultValue)
 }
 
 
-void getIntArray(const std::string& theKey, std::vector<int>* out)
+void getIntArray(const std::string& theKey, std::vector<int>& out)
 {
-	DBG_ASSERT(out);
-
 	const std::string& aString = getStr(theKey);
 	StringsVec aParsedString;
-	sanitizeSentence(aString, &aParsedString);
-	out->resize(max(out->size(), aParsedString.size()));
+	sanitizeSentence(aString, aParsedString);
+	out.resize(max(out.size(), aParsedString.size()));
 	for(size_t i = 0; i < aParsedString.size(); ++i)
-		(*out)[i] = intFromString(aParsedString[i]);
+		out[i] = intFromString(aParsedString[i]);
 }
 
 
-void getAllKeys(const std::string& thePrefix, KeyValuePairs* out)
+void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 {
-	DBG_ASSERT(out);
-
 	const size_t aPrefixLength = thePrefix.length();
 	StringsMap::IndexVector anIndexSet;
 	sSettingsMap.findAllWithPrefix(upper(thePrefix), &anIndexSet);
 
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
 	{
-		out->push_back(std::make_pair(
+		out.push_back(std::make_pair(
 			sSettingsMap.keys()[anIndexSet[i]].c_str() + aPrefixLength,
 			sSettingsMap.values()[anIndexSet[i]].c_str()));
 	}

@@ -101,6 +101,7 @@ std::string trim(const std::string& theString)
 std::string upper(const std::string& theString)
 {
 	std::string aString;
+	aString.reserve(theString.size());
 
 	for(size_t i = 0; i < theString.length(); ++i)
 		aString += (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
@@ -112,9 +113,27 @@ std::string upper(const std::string& theString)
 std::string lower(const std::string& theString)
 {
 	std::string aString;
+	aString.reserve(theString.size());
 
 	for(size_t i = 0; i < theString.length(); ++i)
 		aString += (theString[i] & 0x80) ? theString[i] : ::tolower(theString[i]);
+
+	return aString;
+}
+
+
+std::string condense(const std::string& theString)
+{
+	std::string aString;
+	aString.reserve(theString.size());
+
+	for(size_t i = 0; i < theString.length(); ++i)
+	{
+		if( (unsigned)theString[i] > ' ' && theString[i] != '-' && theString[i] != '_' )
+		{
+			aString += (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
+		}
+	}
 
 	return aString;
 }
@@ -245,32 +264,27 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 }
 
 
-void sanitizeSentence(const std::string& theString, std::vector<std::string>* result)
+void sanitizeSentence(const std::string& theString, std::vector<std::string>& out)
 {
-	DBG_ASSERT(result);
-
 	std::string word;
 	for(size_t i = 0; i < theString.length(); ++i)
 	{
 		const char c = theString[i];
 		if( (c >= '0' && c <= '9') ||
-			(c >= 'A' && c <= 'Z') )
+			(c >= 'A' && c <= 'Z') ||
+			(c >= 'a' && c <= 'z') )
 		{
 			word += c;
 		}
-		else if( c >= 'a' && c <= 'z' )
-		{
-			word += 'A' + c - 'a';
-		}
 		else if( c != '-' && c != '_' && !word.empty() )
 		{
-			result->push_back(word);
+			out.push_back(word);
 			word.clear();
 		}
 	}
 
 	if( !word.empty() )
-		result->push_back(word);
+		out.push_back(word);
 }
 
 
