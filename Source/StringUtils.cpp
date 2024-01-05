@@ -2,7 +2,7 @@
 //	Originally written by Taron Millet, except where otherwise noted
 //-----------------------------------------------------------------------------
 
-#include "StringUtils.h"
+#include "Common.h"
 
 //-----------------------------------------------------------------------------
 // Global Functions

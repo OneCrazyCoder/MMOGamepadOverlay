@@ -19,22 +19,16 @@ namespace InputMap
 // Load the input mappings and macro sets from current profile
 void loadProfile();
 
-// Checks if given controls mode should have mouse look turned on
-bool mouseLookShouldBeOn(int theModeID);
+// Checks if given controls layer should have mouse look turned on
+bool mouseLookShouldBeOn(u16 theLayerID);
 
-// Get commands to execute for given button in given mode, in the
+// Get commands to execute for given button in given layer, in the
 // form of an array of 'Command' of size 'eBtnAct_Num', or NULL
-// if no commands have been assigned to given mode & button at all
-const Command* commandsForButton(int theModeID, EButton theButton);
-
-// Returns parent mode of theModeID (0 means no parent)
-int parentModeOf(int theModeID);
-
-// Returns true if theModeID inherits from (or is) thePossibleParentModeID
-bool modeInheritsFrom(int theModeID, int thePossibleParentModeID);
+// if no commands have been assigned to given layer & button at all
+const Command* commandsForButton(u16 theLayerID, EButton theButton);
 
 // Get command for executing given macro slot in given set
-Command commandForMacro(int theMacroSetID, u8 theMacroSlotID);
+Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID);
 
 // Get certain special-case keys directly
 u8 keyForMoveTurn(ECommandDir);
@@ -42,13 +36,10 @@ u8 keyForMoveStrafe(ECommandDir);
 u8 keyForMouseLookMoveTurn(ECommandDir);
 u8 keyForMouseLookMoveStrafe(ECommandDir);
 
-// Get bitfield of EHudElements that should be shown
-BitArray8<eHUDElement_Num> visibleHUDElements(int theMode);
-
-// Get controls mode name (label) for given ID
-const std::string& modeLabel(int theModeID); 
+// Get controls layer name (label) for given ID
+const std::string& layerLabel(u16 theLayerID); 
 
 // Get macro name (label) for given macro set & slot
-const std::string& macroLabel(int theMacroSetID, u8 theMacroSlotID);
+const std::string& macroLabel(u16 theMacroSetID, u8 theMacroSlotID);
 
 } // InputMap

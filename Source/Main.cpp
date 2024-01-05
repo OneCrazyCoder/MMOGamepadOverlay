@@ -103,7 +103,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			if( aTimeTakenByUpdate < aMillisecsPerUpdate )
 				Sleep(aMillisecsPerUpdate - aTimeTakenByUpdate);
 			else
-				Sleep(0);
+				Sleep(1);
 
 			++gAppUpdateCount;
 		}

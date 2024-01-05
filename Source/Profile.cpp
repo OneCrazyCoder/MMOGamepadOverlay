@@ -205,7 +205,9 @@ static void parseINI(
 					aState = ePIState_Whitespace;
 					break;
 				default:
-					aNewCategory.push_back(toupper(c));
+					// Categories are all upper-case and no spaces/etc
+					if( c > ' ' && c != '-' && c != '_' )
+						aNewCategory.push_back(toupper(c));
 				}
 				break;
 
@@ -232,8 +234,8 @@ static void parseINI(
 				if( c == '\r' || c == '\n' || c == '\0' )
 				{// Value string complete, time to process it!
 					aValue = trim(aValue);
-					if( !aValue.empty() )
-						theCallbackFunc(aKey, aValue, theUserData);
+					// An empty value may still have some meaning...
+					theCallbackFunc(aKey, aValue, theUserData);
 					aState = ePIState_Whitespace;
 				}
 				else
@@ -567,6 +569,11 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 	const size_t aPrefixLength = thePrefix.length();
 	StringsMap::IndexVector anIndexSet;
 	sSettingsMap.findAllWithPrefix(upper(thePrefix), &anIndexSet);
+
+	#ifndef NDEBUG
+	// Unnecessary but nice for debug output - sort to match order added to map
+	std::sort(anIndexSet.begin(), anIndexSet.end());
+	#endif
 
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
 	{

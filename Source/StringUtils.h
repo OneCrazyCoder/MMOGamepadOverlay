@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include "Common.h"
-
 #include <sstream>
 
 #pragma warning(disable: 4996)

@@ -2,7 +2,7 @@
 //	Originally written by Taron Millet, except where otherwise noted
 //-----------------------------------------------------------------------------
 
-#include "GlobalConstants.h"
+#include "Common.h"
 
 //-----------------------------------------------------------------------------
 // Data Tables

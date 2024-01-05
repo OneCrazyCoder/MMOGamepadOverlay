@@ -26,13 +26,14 @@ kShowHUDElementVal = -1,
 };
 
 const char* kMainMacroSetLabel = "Macros";
-const std::string kModePrefix("Mode");
-const char* kKeybindsPrefix("KeyBinds/");
+const char* kMainLayerLabel = "Scheme";
+const char* kLayerPrefix = "Layer.";
+const char* kKeybindsPrefix = "KeyBinds/";
 const char* kMacroSlotLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
 DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) == kMacroSlotsPerSet);
 
 // These need to be in all upper case
-const char* kParentModeKeys[] = { "DEFAULT", "INHERITS", "PARENT" };
+const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
 const char* kMouseLookKey = "MOUSELOOK";
 const std::string k4DirButtons[] =
@@ -41,7 +42,10 @@ const std::string k4DirButtons[] =
 struct CommandKeyWord { char* str; ECommandType cmd; };
 const CommandKeyWord kCmdKeyWords[] =
 {// In order of priority, earlier words supersede later ones
-	{ "MODE", eCmdType_ChangeMode },
+	{ "ADD", eCmdType_AddControlsLayer },
+	{ "REMOVE", eCmdType_RemoveControlsLayer },
+	{ "HOLD", eCmdType_HoldControlsLayer },
+	{ "LAYER", eCmdType_HoldControlsLayer },
 	{ "SMOOTH", eCmdType_SmoothMouseWheel },
 	{ "STEP", eCmdType_StepMouseWheel },
 	{ "STEPPED", eCmdType_StepMouseWheel },
@@ -131,20 +135,21 @@ struct MacroSet
 
 struct ButtonActions
 {
+	std::string label[eBtnAct_Num];
 	Command cmd[eBtnAct_Num];
 };
-typedef VectorMap<EButton, ButtonActions> ButtonActionsCommands;
+typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
 
-struct ControlsMode
+struct ControlsLayer
 {
 	std::string label;
-	ButtonActionsCommands commands;
-	u8 parentMode;
+	ButtonActionsMap map;
+	u16 includeLayer;
 	BitArray8<eHUDElement_Num> hud;
 	bool mouseLookOn;
 
-	ControlsMode() :
-		parentMode(), hud(), mouseLookOn()
+	ControlsLayer() :
+		includeLayer(), hud(), mouseLookOn()
 	{}
 };
 
@@ -153,8 +158,8 @@ struct InputMapBuilder
 	size_t currentSet;
 	std::string debugSlotName;
 	std::vector<std::string> parsedString;
-	StringToValueMap<u8> nameToIdxMap;
-	StringToValueMap<int> keyAliases;
+	StringToValueMap<u16> nameToIdxMap;
+	StringToValueMap<u16> keyAliases;
 };
 
 
@@ -164,16 +169,13 @@ struct InputMapBuilder
 
 static std::vector<MacroSet> sMacroSets;
 static std::vector<std::string> sKeyStrings;
-static std::vector<ControlsMode> sModes;
-static u8 sSpecialKeys[eSpecialKey_Num];
+static std::vector<ControlsLayer> sLayers;
+static u16 sSpecialKeys[eSpecialKey_Num];
 
 
 //-----------------------------------------------------------------------------
 // Const Data Lookup Functions
 //-----------------------------------------------------------------------------
-
-// Forward declares
-static u8 getOrCreateMode(InputMapBuilder&, const std::string&);
 
 static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 {
@@ -190,8 +192,9 @@ static u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 		NameToVKeyMap map;
 		NameToVKeyMapper()
 		{
-			const size_t kMapSize = 126;
+			const size_t kMapSize = 127;
 			map.reserve(kMapSize);
+			map.setValue("CLICK",			VK_LBUTTON);
 			map.setValue("LCLICK",			VK_LBUTTON);
 			map.setValue("LEFTCLICK",		VK_LBUTTON);
 			map.setValue("LMB",				VK_LBUTTON);
@@ -524,7 +527,7 @@ static MacroSlot stringToMacroSlot(
 	{// Having no : character means this points to a sub-set
 		aMacroSlot.label = trim(theString);
 		aMacroSlot.cmd.type = eCmdType_ChangeMacroSet;
-		aMacroSlot.cmd.data = int(sMacroSets.size());
+		aMacroSlot.cmd.data = u16(sMacroSets.size());
 		sMacroSets.push_back(MacroSet());
 		sMacroSets.back().label =
 			sMacroSets[theBuilder.currentSet].label +
@@ -546,7 +549,7 @@ static MacroSlot stringToMacroSlot(
 	{
 		sKeyStrings.push_back(theString);
 		aMacroSlot.cmd.type = eCmdType_SlashCommand;
-		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
 		mapDebugPrint("Macro '%s' assigned to command: %s\n",
 			aMacroSlot.label.c_str(), theString.c_str());
 		return aMacroSlot;
@@ -555,7 +558,7 @@ static MacroSlot stringToMacroSlot(
 	{
 		sKeyStrings.push_back(theString);
 		aMacroSlot.cmd.type = eCmdType_SayString;
-		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
 		mapDebugPrint("Macro '%s' assigned to string: %s\n",
 			aMacroSlot.label.c_str(), &theString[1]);
 		return aMacroSlot;
@@ -572,7 +575,7 @@ static MacroSlot stringToMacroSlot(
 	{
 		sKeyStrings.push_back(aVKeySeq);
 		aMacroSlot.cmd.type = eCmdType_VKeySequence;
-		aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
 		mapDebugPrint("Macro '%s' assigned to key sequence: %s\n",
 			aMacroSlot.label.c_str(), theString.c_str());
 		return aMacroSlot;
@@ -581,7 +584,7 @@ static MacroSlot stringToMacroSlot(
 	// Probably just forgot the > at front of a plain string
 	sKeyStrings.push_back(std::string(">") + theString);
 	aMacroSlot.cmd.type = eCmdType_SayString;
-	aMacroSlot.cmd.data = int(sKeyStrings.size()-1);
+	aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
 	mapDebugPrint("Macro '%s' assigned to string (forgot '>'?): %s\n",
 		aMacroSlot.label.c_str(), theString.c_str());
 	return aMacroSlot;
@@ -597,11 +600,12 @@ static void buildMacroSets(InputMapBuilder& theBuilder)
 	for(int aSet = 0; aSet < sMacroSets.size(); ++aSet )
 	{
 		theBuilder.currentSet = aSet;
-		const std::string aPrefix = sMacroSets[aSet].label;
+		const std::string& aPrefix = condense(sMacroSets[aSet].label);
 		for(int aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
 		{
-			theBuilder.debugSlotName =
-				aPrefix + " (" + kMacroSlotLabel[aSlot] + ")";
+			theBuilder.debugSlotName = std::string("[") +
+				sMacroSets[aSet].label + "] (" +
+				kMacroSlotLabel[aSlot] + ")";
 			mapDebugPrint("Parsing macro for slot '%s'\n",
 				theBuilder.debugSlotName.c_str());
 
@@ -626,6 +630,9 @@ static void buildKeyAliases(InputMapBuilder& theBuilder)
 		const char* anActionName = aKeyBindRequests[i].first;
 		const char* aKeysDescription = aKeyBindRequests[i].second;
 
+		if( !aKeysDescription || aKeysDescription[0] == '\0' )
+			continue;
+
 		// Break keys description string into individual words
 		theBuilder.parsedString.clear();
 		sanitizeSentence(aKeysDescription, theBuilder.parsedString);
@@ -635,7 +642,7 @@ static void buildKeyAliases(InputMapBuilder& theBuilder)
 		{
 			sKeyStrings.push_back(aVKeySeq);
 			theBuilder.keyAliases.setValue(
-				anActionName, (int)sKeyStrings.size()-1);
+				anActionName, u16(sKeyStrings.size()-1));
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
 				anActionName, aKeysDescription);
@@ -650,25 +657,102 @@ static void buildKeyAliases(InputMapBuilder& theBuilder)
 }
 
 
-static Command buildSpecialCommand(InputMapBuilder& theBuilder)
+static bool layerIncludes(size_t theLayerIdx, size_t theTestIdx)
 {
-	const std::vector<std::string>& aCmdStrings = theBuilder.parsedString;
+	DBG_ASSERT(theLayerIdx < sLayers.size());
+	DBG_ASSERT(theTestIdx < sLayers.size());
+
+	do {
+		if( theLayerIdx == theTestIdx )
+			return true;
+		theLayerIdx = sLayers[theLayerIdx].includeLayer;
+	} while(theLayerIdx != 0);
+
+	return false;
+}
+
+
+static u16 getOrCreateLayerID(
+	InputMapBuilder& theBuilder,
+	const std::string& theLayerName,
+	std::vector<std::string>& theChildList = std::vector<std::string>())
+{
+	DBG_ASSERT(!theLayerName.empty());
+
+	// Check if already exists, and if so return the index
+	const std::string& aLayerKeyName = upper(theLayerName);
+	if( u16* idx = theBuilder.nameToIdxMap.find(aLayerKeyName) )
+		return *idx;
+
+	// Check if has an "include=" layer specified that needs adding first
+	std::string aLayerPrefix;
+	if( sLayers.empty() )
+		aLayerPrefix = aLayerKeyName+"/";
+	else
+		aLayerPrefix = upper(kLayerPrefix)+aLayerKeyName+"/";
+	const std::string& anIncludeName =
+		Profile::getStr(aLayerPrefix + kIncludeKey);
+	u16 anIncludeIdx = 0;
+	if( sLayers.empty() && !anIncludeName.empty() )
+	{
+		logError("Root layer [%s] can not Include= another layer. "
+			"Consider using 'Auto = Layer %s' as only entry instead",
+			theLayerName.c_str(),
+			anIncludeName.c_str());
+	}
+	else if( !anIncludeName.empty() )
+	{
+		// Check for infinite recursion of include= statements
+		std::vector<std::string>::iterator itr = std::find(
+			theChildList.begin(),
+			theChildList.end(),
+			upper(anIncludeName));
+		if( itr != theChildList.end() )
+		{
+			logError("Infinite include loop with layer [%s%s]"
+				" trying to include layer %s",
+				kLayerPrefix, theLayerName.c_str(), itr->c_str());
+		}
+		else
+		{
+			theChildList.push_back(aLayerKeyName);
+			anIncludeIdx =
+				getOrCreateLayerID(theBuilder, anIncludeName, theChildList);
+		}
+	}
+
+	// Add new layer to sLayers and the name-to-index map
+	theBuilder.nameToIdxMap.setValue(aLayerKeyName, u16(sLayers.size()));
+	sLayers.push_back(ControlsLayer());
+	sLayers.back().label = theLayerName;
+	sLayers.back().includeLayer = anIncludeIdx;
+
+	return u16(sLayers.size() - 1);
+}
+
+
+static Command buildSpecialCommand(
+	InputMapBuilder& theBuilder,
+	u16 theLayerIdx)
+{
+	std::vector<std::string>& aCmdStrings = theBuilder.parsedString;
 
 	Command result;
 	if( aCmdStrings.empty() || aCmdStrings.front().empty() )
 		return result;
 
 	// Search for key words in order of priority
+	size_t aCommandWordIdx = 0;
 	for(size_t i = 0; i < ARRAYSIZE(kCmdKeyWords); ++i)
 	{
 		const char* aCheckWord = kCmdKeyWords[i].str;
-		// Searh all but the last 'word' in parsed string for a match
-		for(size_t aWordIdx = 0; aWordIdx < aCmdStrings.size()-1; ++aWordIdx)
+		for(size_t aWordIdx = 0; aWordIdx < aCmdStrings.size(); ++aWordIdx)
 		{
 			const std::string& aTestWord = upper(aCmdStrings[aWordIdx]);
 			if( aTestWord == aCheckWord )
 			{
 				result.type = kCmdKeyWords[i].cmd;
+				aCommandWordIdx = aWordIdx;
 				break;
 			}
 		}
@@ -681,22 +765,30 @@ static Command buildSpecialCommand(InputMapBuilder& theBuilder)
 
 	switch(result.type)
 	{
-	case eCmdType_ChangeMode:
-		// Mode may not exist yet, so this can be slightly tricky (recursion)
+	case eCmdType_HoldControlsLayer:
+	case eCmdType_AddControlsLayer:
+		if( aCommandWordIdx < aCmdStrings.size() - 1 )
 		{
-			// Assume last word in the command is the mode name
-			std::string aModeName = aCmdStrings.back();
+			// Assume last word in the command is the layer name
+			result.data = getOrCreateLayerID(theBuilder, aCmdStrings.back());
 
-			const std::string aBackupSlotName = theBuilder.debugSlotName;
-			// We're done with ->parsedString or would back it up too...
-			result.data = getOrCreateMode(theBuilder, aModeName);
-
-			// Restore backup to resume mode previously being built
-			if( theBuilder.debugSlotName != aBackupSlotName )
+			// Also need to know the parent layer of new added layer
+			result.data2 = theLayerIdx;
+		}
+		else
+		{
+			result.type = eCmdType_Empty;
+		}
+		break;
+	case eCmdType_RemoveControlsLayer:
+		// Assume mean own layer if none specified
+		result.data = theLayerIdx;
+		if( aCommandWordIdx < aCmdStrings.size() - 1 )
+		{// If last word matches existing layer, remove it instead
+			if( u16* aLayerIdx =
+				theBuilder.nameToIdxMap.find(aCmdStrings.back()) )
 			{
-				theBuilder.debugSlotName = aBackupSlotName;
-				debugPrint("Resuming building controls mode: %s\n",
-					theBuilder.debugSlotName.c_str());
+				result.data = *aLayerIdx;
 			}
 		}
 		break;
@@ -716,6 +808,11 @@ static Command buildSpecialCommand(InputMapBuilder& theBuilder)
 	case eCmdType_MoveMouse:
 	case eCmdType_SmoothMouseWheel:
 	case eCmdType_StepMouseWheel:
+		if( aCommandWordIdx >= aCmdStrings.size() - 1 )
+		{
+			result.type = eCmdType_Empty;
+			break;
+		}
 		// Set data to ECommandDir based on direction
 		// Get direction by first character of last word
 		switch(aCmdStrings.back()[0])
@@ -791,12 +888,12 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 	
 static void addButtonAction(
 	InputMapBuilder& theBuilder,
-	size_t theModeIdx,
+	u16 theLayerIdx,
 	std::string theBtnName,
 	const std::string& theCmdStr)
 {
-	DBG_ASSERT(theModeIdx < sModes.size());
-	if( theBtnName.empty() || theCmdStr.empty() )
+	DBG_ASSERT(theLayerIdx < sLayers.size());
+	if( theBtnName.empty() )
 		return;
 
 	// Handle shortcuts for assigning multiple at once
@@ -809,13 +906,13 @@ static void addButtonAction(
 				k4DirButtons[i].size(),
 				k4DirButtons[i]) == 0 )
 		{
-			addButtonAction(theBuilder, theModeIdx,
+			addButtonAction(theBuilder, theLayerIdx,
 				theBtnName + "UP", theCmdStr + " Up");
-			addButtonAction(theBuilder, theModeIdx,
+			addButtonAction(theBuilder, theLayerIdx,
 				theBtnName + "DOWN", theCmdStr + " Down");
-			addButtonAction(theBuilder, theModeIdx,
+			addButtonAction(theBuilder, theLayerIdx,
 				theBtnName + "LEFT", theCmdStr + " Left");
-			addButtonAction(theBuilder, theModeIdx,
+			addButtonAction(theBuilder, theLayerIdx,
 				theBtnName + "RIGHT", theCmdStr + " Right");
 			return;
 		}
@@ -826,87 +923,75 @@ static void addButtonAction(
 	EButton aBtnID = buttonNameToID(theBtnName);
 	if( aBtnID >= eBtn_Num )
 	{
-		logError("Unable to identify Gamepad Button '%s%s' requested in [%s.%s]",
+		logError("Unable to identify Gamepad Button '%s%s' requested in [%s]",
 			kButtonActionPrefx[aBtnAct],
 			theBtnName.c_str(),
-			kModePrefix.c_str(),
 			theBuilder.debugSlotName.c_str());
 		return;
 	}
 
-	// Break command string into individual words
-	theBuilder.parsedString.clear();
-	sanitizeSentence(theCmdStr, theBuilder.parsedString);
+	// Check for alias to a keybind
+	// Done first in case keybind name happens to contain a command word
+	Command aCmd;
+	if( u16* aKeyStringIdxPtr =
+			theBuilder.keyAliases.find(condense(theCmdStr)) )
+	{
+		aCmd.type = eCmdType_VKeySequence;
+		aCmd.data = *aKeyStringIdxPtr;
+	}
 
-	// Check for special commands
-	Command aCmd = buildSpecialCommand(theBuilder);
-
-	// Check for VKey sequence if no special command found
+	// Check for special command
 	if( aCmd.type == eCmdType_Empty )
 	{
-		std::string* aVKeySeqPtr = NULL;
+		theBuilder.parsedString.clear();
+		sanitizeSentence(theCmdStr, theBuilder.parsedString);
+		aCmd = buildSpecialCommand(theBuilder, theLayerIdx);
+	}
 
-		// Check for alias to a keybind
-		{
-			int* aKeyStringIdxPtr =
-				theBuilder.keyAliases.find(condense(theCmdStr));
-			if( aKeyStringIdxPtr )
-				aVKeySeqPtr = &sKeyStrings[*aKeyStringIdxPtr];
-		}
+	// Check for direct VKey sequence
+	if( aCmd.type == eCmdType_Empty )
+	{
+		// .parsedString was already generated for commands check above
+		const std::string& aVKeySeq =
+			namesToVKeySequence(theBuilder.parsedString, true);
 
-		// Check for direct key sequence
-		std::string aVKeySeq;
-		if( !aVKeySeqPtr )
+		if( !aVKeySeq.empty() )
 		{
-			aVKeySeq = namesToVKeySequence(theBuilder.parsedString, true);
-			aVKeySeqPtr = &aVKeySeq;
-		}
-
-		if( aVKeySeqPtr && aVKeySeqPtr->size() == 1 &&
-			aBtnAct == eBtnAct_Down )
-		{
-			// True "while held down" only works with a single key.
-			// If more than one key was specified, this will be
-			// skipped and _Down will just act like another
-			// _Press action (meaning could have 2).
-			aCmd.type = eCmdType_PressAndHoldKey;
-			aCmd.data = (*aVKeySeqPtr)[0];
-		}
-
-		if( aCmd.type == eCmdType_Empty &&
-			aVKeySeqPtr && !aVKeySeqPtr->empty() )
-		{
-			if( aVKeySeqPtr == &aVKeySeq )
-			{
-				sKeyStrings.push_back(aVKeySeq);
-				aVKeySeqPtr = &sKeyStrings[sKeyStrings.size()-1];
-			}
-			DBG_ASSERT(aVKeySeqPtr >= &sKeyStrings[0]);
-			DBG_ASSERT(aVKeySeqPtr < &sKeyStrings[0] + sKeyStrings.size());
-			aCmd.data = int(aVKeySeqPtr - &sKeyStrings[0]);
 			aCmd.type = eCmdType_VKeySequence;
+			aCmd.data = u16(sKeyStrings.size());
+			sKeyStrings.push_back(aVKeySeq);
 		}
 	}
 
-	// Check for bad combinations of button+action+command
-	if( aCmd.type == eCmdType_ChangeMode && aBtnID == eBtn_None )
+	// Convert eCmdType_VKeySequence to eCmdType_PressAndHoldKey? 
+	if( aCmd.type == eCmdType_VKeySequence &&
+		aBtnAct == eBtnAct_Down &&
+		sKeyStrings[aCmd.data].size() == 1 )
 	{
-		logError("Can not assign mode change to 'Auto' ([%s.%s] %s%s%s = %s)",
-			kModePrefix.c_str(),
+		// True "while held down" only works with a single key.
+		// If more than one key was specified, this will be
+		// skipped and _Down will just act like another
+		// _Press action (meaning could have 2).
+		aCmd.type = eCmdType_PressAndHoldKey;
+		aCmd.data = sKeyStrings[aCmd.data][0];
+	}
+
+	// Check for bad combinations of button+action+command
+	if( aCmd.type == eCmdType_RemoveControlsLayer && theLayerIdx == 0 )
+	{
+		logError("Can not remove root control layer ([%s] %s%s%s = %s)",
 			theBuilder.debugSlotName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kButtonActionPrefx[aBtnAct][0] ? " " : "",
 			kProfileButtonName[aBtnID],
 			theCmdStr.c_str());
-		return;
+		aCmd.type = eCmdType_Empty;
 	}
-
 	if( aBtnAct != eBtnAct_Down && aCmd.type >= eCmdType_FirstContinuous )
 	{
 		logError(
-			"[%s.%s]: Invalid assignment of '%s %s' action to '%s'! "
+			"[%s]: Invalid assignment of '%s %s' action to '%s'! "
 			"Must remove the '%s' prefix for this command!",
-			kModePrefix.c_str(),
 			theBuilder.debugSlotName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kProfileButtonName[aBtnID],
@@ -916,10 +1001,11 @@ static void addButtonAction(
 	}
 
 	// Generic error for inability to parse the request
-	if( aCmd.type == eCmdType_Empty )
+	// Note that an empty command string still counts as a valid assignment,
+	// possibly to block lower layers' assignments from doing anything
+	if( aCmd.type == eCmdType_Empty && !theCmdStr.empty() )
 	{
-		logError("[%s.%s]: Not sure how to assign '%s%s%s' to '%s'",
-			kModePrefix.c_str(),
+		logError("[%s]: Not sure how to assign '%s%s%s' to '%s'",
 			theBuilder.debugSlotName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kButtonActionPrefx[aBtnAct][0] ? " " : "",
@@ -929,21 +1015,20 @@ static void addButtonAction(
 	}
 
 	// Make the assignment!
-	sModes[theModeIdx].commands.findOrAdd(aBtnID).cmd[aBtnAct] = aCmd;
+	sLayers[theLayerIdx].map.findOrAdd(aBtnID).cmd[aBtnAct] = aCmd;
 
-	mapDebugPrint("[%s.%s]: Assigned '%s%s%s' to '%s'\n",
-		kModePrefix.c_str(),
+	mapDebugPrint("[%s]: Assigned '%s%s%s' to '%s'\n",
 		theBuilder.debugSlotName.c_str(),
 		kButtonActionPrefx[aBtnAct],
 		kButtonActionPrefx[aBtnAct][0] ? " " : "",
 		kProfileButtonName[aBtnID],
-		theCmdStr.c_str());
+		theCmdStr.empty() ? "<Do Nothing>" : theCmdStr.c_str());
 }
 
 
-static void updateModeHUDSettings(
+static void updateLayerHUDSettings(
 	InputMapBuilder& theBuilder,
-	size_t theModeIdx,
+	size_t theLayerIdx,
 	const std::string& theString)
 {
 	// Break the string into individual words
@@ -956,8 +1041,7 @@ static void updateModeHUDSettings(
 		const s8 aHUD_ID = hudElementNameToID(theBuilder.parsedString[i]);
 		if( aHUD_ID == kInvalidHUDElementVal )
 		{
-			logError("Uknown HUD element specified for [%s.%s]: %s",
-				kModePrefix.c_str(),
+			logError("Uknown HUD element specified for [%s]: %s",
 				theBuilder.debugSlotName.c_str(),
 				theString.c_str());
 			return;
@@ -973,90 +1057,65 @@ static void updateModeHUDSettings(
 		else
 		{
 			DBG_ASSERT((unsigned)aHUD_ID < eHUDElement_Num);
-			sModes[theModeIdx].hud.set(aHUD_ID, show);
+			sLayers[theLayerIdx].hud.set(aHUD_ID, show);
 		}
 	}
 }
 
 
-static u8 getOrCreateMode(
-	InputMapBuilder& theBuilder,
-	const std::string& theModeName)
+static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 {
-	u8 idx = theBuilder.nameToIdxMap.findOrAdd(
-				upper(theModeName), (u8)sModes.size());
-	if( idx == sModes.size() )
-	{// Need to create the new mode
-		sModes.push_back(ControlsMode());
-		sModes.back().label = theModeName;
-		const std::string aModePrefix(kModePrefix + "." + theModeName + "/");
-		{// Get (or make) parent mode first, if has one assigned
-			std::string aParentName;
-			for(int i = 0; i < ARRAYSIZE(kParentModeKeys); ++i)
-			{
-				aParentName = Profile::getStr(
-					aModePrefix + kParentModeKeys[i],
-					aParentName);
-			}
-			if( !aParentName.empty() )
-			{
-				const u8 aParentIdx = getOrCreateMode(theBuilder, aParentName);
-				if( modeInheritsFrom(aParentIdx, idx) )
-				{
-					logError("Infinite inheritance loop attempted with mode [%s.%s]!",
-						kModePrefix.c_str(), theModeName.c_str());
-				}
-				else
-				{
-					// Inherit default settings from parent
-					sModes[idx].mouseLookOn = sModes[aParentIdx].mouseLookOn;
-					sModes[idx].hud = sModes[aParentIdx].hud;
-					sModes[idx].parentMode = aParentIdx;
-				}
-			}
-		}
-		theBuilder.debugSlotName = theModeName;
-		mapDebugPrint("Building controls mode: %s\n", theModeName.c_str());
+	DBG_ASSERT(theLayerIdx < sLayers.size());
 
-		// Get mouse look mode setting directly
-		sModes[idx].mouseLookOn = Profile::getBool(
-			aModePrefix + kMouseLookKey,
-			sModes[idx].mouseLookOn);
-
-		// Check each key-value pair for button assignment reqests
-		Profile::KeyValuePairs aSettings;
-		Profile::getAllKeys(aModePrefix, aSettings);
-		for(Profile::KeyValuePairs::const_iterator itr = aSettings.begin();
-			itr != aSettings.end(); ++itr)
-		{
-			const std::string aKey = itr->first;
-			bool skipSetting = false;
-			for(size_t j = 0; j < ARRAYSIZE(kParentModeKeys); ++j)
-			{
-				if( aKey == kParentModeKeys[j] )
-				{
-					skipSetting = true;
-					break;
-				}
-			}
-			if( aKey == kMouseLookKey )
-				skipSetting = true;
-			if( skipSetting )
-				continue;
-
-			if( aKey == kHUDSettingsKey )
-			{
-				updateModeHUDSettings(theBuilder, idx, itr->second);
-				continue;
-			}
-
-			// Parse and add assignment to this mode's commands map
-			addButtonAction(theBuilder, idx, aKey, itr->second);
-		}
-		sModes[idx].commands.trim();
+	// If has an includeLayer, get default settings from it first
+	if( sLayers[theLayerIdx].includeLayer != 0 )
+	{
+		sLayers[theLayerIdx].mouseLookOn =
+			sLayers[sLayers[theLayerIdx].includeLayer].mouseLookOn;
+		sLayers[theLayerIdx].hud =
+			sLayers[sLayers[theLayerIdx].includeLayer].hud;
 	}
 
-	return idx;
+	const std::string& aLayerName = sLayers[theLayerIdx].label;
+	theBuilder.debugSlotName.clear();
+	if( theLayerIdx != 0 )
+	{
+		theBuilder.debugSlotName = kLayerPrefix;
+		mapDebugPrint("Building controls layer: %s\n", aLayerName.c_str());
+	}
+	theBuilder.debugSlotName += aLayerName;
+
+	std::string aLayerPrefix;
+	if( theLayerIdx == 0 )
+		aLayerPrefix = aLayerName+"/";
+	else
+		aLayerPrefix = std::string(kLayerPrefix)+aLayerName+"/";
+
+	// Get mouse look layer setting directly
+	sLayers[theLayerIdx].mouseLookOn = Profile::getBool(
+		aLayerPrefix + kMouseLookKey,
+		sLayers[theLayerIdx].mouseLookOn);
+
+	// Check each key-value pair for button assignment requests
+	Profile::KeyValuePairs aSettings;
+	Profile::getAllKeys(aLayerPrefix, aSettings);
+	for(Profile::KeyValuePairs::const_iterator itr = aSettings.begin();
+		itr != aSettings.end(); ++itr)
+	{
+		const std::string aKey = itr->first;
+		if( aKey == kIncludeKey || aKey == kMouseLookKey )
+			continue;
+
+		if( aKey == kHUDSettingsKey )
+		{
+			updateLayerHUDSettings(theBuilder, theLayerIdx, itr->second);
+			continue;
+		}
+
+		// Parse and add assignment to this layer's commands map
+		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second);
+	}
+	sLayers[theLayerIdx].map.trim();
 }
 
 
@@ -1065,30 +1124,11 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 	// Set up custom key aliases used by control schemes
 	buildKeyAliases(theBuilder);
 
-	mapDebugPrint("Building control scheme (modes)...\n");
+	mapDebugPrint("Building control scheme layers...\n");
 
-	// First mode is empty so parentMode == 0 means no parent.
-	// It will itself use the default mode as its parent so at
-	// startup, mode of '0' will refer to this one but end up
-	// returning the button assignments from the default mode.
-	sModes.push_back(ControlsMode());
-
-	// Get name of default mode (parent to mode 0)
-	std::string aParentName;
-	for(int i = 0; i < ARRAYSIZE(kParentModeKeys); ++i)
-	{
-		aParentName = Profile::getStr(
-			kModePrefix + "/" + kParentModeKeys[i],
-			aParentName);
-	}
-	if( aParentName.empty() )
-		return;
-
-	sModes[0].parentMode = getOrCreateMode(theBuilder, aParentName);
-	DBG_ASSERT(sModes[0].parentMode != 0);
-	DBG_ASSERT(sModes[0].parentMode < sModes.size());
-	sModes[0].hud = sModes[sModes[0].parentMode].hud;
-	sModes[0].mouseLookOn = sModes[sModes[0].parentMode].mouseLookOn;
+	getOrCreateLayerID(theBuilder, kMainLayerLabel);
+	for(u16 idx = 0; idx < sLayers.size(); ++idx)
+		buildControlsLayer(theBuilder, idx);
 }
 
 
@@ -1096,7 +1136,7 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
 	for(size_t i = 0; i < eSpecialKey_Num; ++i)
 	{
-		int* aKeyStringIdxPtr =
+		u16* aKeyStringIdxPtr =
 			theBuilder.keyAliases.find(kSpecialKeyNames[i]);
 		if( !aKeyStringIdxPtr )
 			continue;
@@ -1125,7 +1165,7 @@ void setCStringPointerFor(Command* theCommand)
 	case eCmdType_VKeySequence:
 	case eCmdType_SlashCommand:
 	case eCmdType_SayString:
-		DBG_ASSERT((unsigned)theCommand->data < sKeyStrings.size());
+		DBG_ASSERT(theCommand->data < sKeyStrings.size());
 		theCommand->string = sKeyStrings[theCommand->data].c_str();
 		break;
 	}
@@ -1141,11 +1181,11 @@ void convertKeyStringIndexesToPointers()
 			setCStringPointerFor(&itr->slot[i].cmd);
 	}
 
-	for(std::vector<ControlsMode>::iterator itr = sModes.begin();
-		itr != sModes.end(); ++itr)
+	for(std::vector<ControlsLayer>::iterator itr = sLayers.begin();
+		itr != sLayers.end(); ++itr)
 	{
-		for(ButtonActionsCommands::iterator itr2 = itr->commands.begin();
-			itr2 != itr->commands.end(); ++itr2)
+		for(ButtonActionsMap::iterator itr2 = itr->map.begin();
+			itr2 != itr->map.end(); ++itr2)
 		{
 			for(size_t i = 0; i < eBtnAct_Num; ++i)
 				setCStringPointerFor(&itr2->second.cmd[i]);
@@ -1162,7 +1202,7 @@ void loadProfile()
 {
 	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
 	sKeyStrings.clear();
-	sModes.clear();
+	sLayers.clear();
 	sMacroSets.clear();
 
 	// Build control scheme and macros
@@ -1178,8 +1218,8 @@ void loadProfile()
 		std::vector<MacroSet>(sMacroSets).swap(sMacroSets);
 	if( sKeyStrings.size() < sKeyStrings.capacity() )
 		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
-	if( sModes.size() < sModes.capacity() )
-		std::vector<ControlsMode>(sModes).swap(sModes);
+	if( sLayers.size() < sLayers.capacity() )
+		std::vector<ControlsLayer>(sLayers).swap(sLayers);
 
 	// Now that are done messing with resizing vectors which can
 	// invalidate pointers, can convert Commands with 'data' field
@@ -1189,66 +1229,39 @@ void loadProfile()
 }
 
 
-bool mouseLookShouldBeOn(int theModeID)
+bool mouseLookShouldBeOn(u16 theLayerID)
 {
-	DBG_ASSERT((unsigned)theModeID < sModes.size());
-	return sModes[theModeID].mouseLookOn;
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].mouseLookOn;
 }
 
 
-const Command* commandsForButton(int theModeID, EButton theButton)
+const Command* commandsForButton(u16 theLayerID, EButton theButton)
 {
-	DBG_ASSERT((unsigned)theModeID < sModes.size());
-	DBG_ASSERT((unsigned)theButton < eBtn_Num);
+	DBG_ASSERT(theLayerID < sLayers.size());
+	DBG_ASSERT(theButton < eBtn_Num);
 
-	ButtonActionsCommands::const_iterator itr;
+	ButtonActionsMap::const_iterator itr;
 	do {
-		itr = sModes[theModeID].commands.find(theButton);
-		if( itr != sModes[theModeID].commands.end() )
+		itr = sLayers[theLayerID].map.find(theButton);
+		if( itr != sLayers[theLayerID].map.end() )
 		{// Button has something assigned
 			return &itr->second.cmd[0];
 		}
-		else if( theButton == eBtn_None )
-		{// 'Auto' of parent modes should be ignored
-			theModeID = 0;
-		}
 		else
-		{// Check if parent mode has this button assigned
-			theModeID = sModes[theModeID].parentMode;
+		{// Check if included layer has this button assigned
+			theLayerID = sLayers[theLayerID].includeLayer;
 		}
-	} while(theModeID != 0);
+	} while(theLayerID != 0);
 
 	return NULL;
 }
 
 
-int parentModeOf(int theModeID)
+Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID)
 {
-	DBG_ASSERT((unsigned)theModeID < sModes.size());
-
-	return sModes[theModeID].parentMode;
-}
-
-
-bool modeInheritsFrom(int theModeID, int thePossibleParentModeID)
-{
-	DBG_ASSERT((unsigned)theModeID < sModes.size());
-	DBG_ASSERT((unsigned)thePossibleParentModeID < sModes.size());
-
-	do {
-		if( theModeID == thePossibleParentModeID )
-			return true;
-		theModeID = sModes[theModeID].parentMode;
-	} while(theModeID != 0);
-
-	return false;
-}
-
-
-Command commandForMacro(int theMacroSetID, u8 theMacroSlotID)
-{
-	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
-	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
+	DBG_ASSERT(theMacroSetID < sMacroSets.size());
+	DBG_ASSERT(theMacroSlotID < kMacroSlotsPerSet);
 	
 	return sMacroSets[theMacroSetID].slot[theMacroSlotID].cmd;
 }
@@ -1315,24 +1328,17 @@ u8 keyForMouseLookMoveStrafe(ECommandDir theDir)
 }
 
 
-BitArray8<eHUDElement_Num> visibleHUDElements(int theModeID)
+const std::string& layerLabel(u16 theLayerID)
 {
-	DBG_ASSERT((unsigned)theModeID < sModes.size());
-	return sModes[theModeID].hud;
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].label;
 }
 
 
-const std::string& modeLabel(int theModeID)
+const std::string& macroLabel(u16 theMacroSetID, u8 theMacroSlotID)
 {
-	DBG_ASSERT((unsigned)theModeID < sModes.size());
-	return sModes[theModeID].label;
-}
-
-
-const std::string& macroLabel(int theMacroSetID, u8 theMacroSlotID)
-{
-	DBG_ASSERT((unsigned)theMacroSetID < sMacroSets.size());
-	DBG_ASSERT((unsigned)theMacroSlotID < kMacroSlotsPerSet);
+	DBG_ASSERT(theMacroSetID < sMacroSets.size());
+	DBG_ASSERT(theMacroSlotID < kMacroSlotsPerSet);
 
 	return sMacroSets[theMacroSetID].slot[theMacroSlotID].label;
 }
