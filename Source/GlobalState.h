@@ -9,8 +9,6 @@
 	such as modes and timers, that are needed by multiple modules.
 */
 
-#include "Common.h"
-
 // Milliseconds since app started main loop
 extern u32 gAppRunTime;
 
@@ -20,8 +18,8 @@ extern int gAppFrameTime;
 // How many updates the main loop has gone through since starting
 extern u32 gAppUpdateCount;
 
-// Active control scheme & related UI (index into array of control schemes)
-extern u16 gControlsModeID;
+// Which HUD elements should be visible
+extern BitArray<eHUDElement_Num> gVisibleHUD;
 
 // Macro Set currently selected by user (index into array of sets)
 extern u16 gMacroSetID;

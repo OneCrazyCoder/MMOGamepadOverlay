@@ -278,25 +278,31 @@ static bool isSafeAsyncKey(u8 theVKey)
 	// These are keys that can be pressed while typing
 	// in a macro into the chat box without interfering
 	// with the macro or being interfered with by it.
-	// This may need to be moved into use configuration if
+	// This may need to be moved into user configuration if
 	// it differs by target application.
 	if( sTracker.keysHeldDown.test(VK_SHIFT) ||
 		sTracker.keysHeldDown.test(VK_CONTROL) ||
 		sTracker.keysHeldDown.test(VK_MENU) )
 		return false;
 
+	// Move forward during mouse look (won't cause a click on UI to abort chat)
 	if( theVKey == VK_LBUTTON && sTracker.keysHeldDown.test(VK_RBUTTON) )
 		return true;
 
+	// Middle click
 	if( theVKey == VK_MBUTTON )
 		return true;
 
+	// Includes arrow keys, but since can't get here while holding shift,
+	// does not include shift+arrow keys used for moving cursor in chat box
 	if( theVKey >= VK_PRIOR && theVKey <= VK_INSERT )
 		return true;
 
+	// Numpad keys don't actually type anything into chat box
 	if( theVKey >= VK_NUMPAD0 && theVKey <= VK_NUMPAD9 )
 		return true;
 
+	// Function keys have no effect on chat box
 	if( theVKey >= VK_F1 && theVKey <= VK_F12 )
 		return true;
 
@@ -406,7 +412,6 @@ static void flushInputVector()
 					case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
 					case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
 					case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
-					case VK_NUMLOCK:
 						sTracker.inputs[i].ki.wScan |= 0xE000;
 						sTracker.inputs[i].ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
 					}
@@ -589,7 +594,7 @@ void sendKeyCommand(const Command& theCommand)
 		if( sTracker.keysHeldDown.test(theCommand.data) &&
 			sTracker.keysWantDown.test(theCommand.data) &&
 			setKeyDown(theCommand.data, false) == eResult_Ok )
-		{// Safely released key right away, no need to queue it
+		{// Safely released key right away, no need to queue release
 			sTracker.keysWantDown.reset(theCommand.data);
 			break;
 		}

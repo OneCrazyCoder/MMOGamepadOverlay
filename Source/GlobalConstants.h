@@ -9,8 +9,6 @@
 	data lookup tables that are needed by multiple modules.
 */
 
-#include "Common.h"
-
 enum EHUDElement
 {
 	eHUDElement_Macros,
@@ -31,7 +29,9 @@ enum ECommandType
 	eCmdType_SayString,
 
 	// These trigger an action or state change in InputTranslator
-	eCmdType_ChangeMode,
+	eCmdType_HoldControlsLayer,
+	eCmdType_AddControlsLayer,
+	eCmdType_RemoveControlsLayer,
 	eCmdType_ChangeMacroSet,
 	eCmdType_UseAbility, // includes spells, skills, & hotbuttons
 	eCmdType_ConfirmMenu,
@@ -160,7 +160,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 	ECommandType type;
 	union
 	{
-		int data;
+		struct{ u16 data; u16 data2; };
 		const char* string;
 	};
 };

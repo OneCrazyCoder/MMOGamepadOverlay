@@ -129,7 +129,7 @@ template<size_t kInitialCapacityInBits = 32> class BitVector
 public:
 	static const size_t kInitialArraySize = (kInitialCapacityInBits + 31) / 32;
 
-	BitVector(size_t initialSizeInBits = kInitialCapacityInBits);
+	BitVector(size_t initialSizeInBits = 0);
 	~BitVector();
 
 	void clear() { clearAndResize(0); }

@@ -135,7 +135,7 @@ void render(HWND theWindow)
 		return;
 	}
 
-	if( InputMap::visibleHUDElements(gControlsModeID).test(eHUDElement_Macros) )
+	if( gVisibleHUD.test(eHUDElement_Macros) )
 	{
 		HFONT anOldFont = (HFONT)SelectObject(hdc, sFont);
 		SetBkColor(hdc, kConfig.buttonColor);

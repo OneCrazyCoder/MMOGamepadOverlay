@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "Debug.h"
+#include "Common.h"
 
 #include <iostream>
 #include <fstream>

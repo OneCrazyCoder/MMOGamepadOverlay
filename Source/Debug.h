@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "Common.h"
 #include <cassert>
 
 extern std::string gLastError;
