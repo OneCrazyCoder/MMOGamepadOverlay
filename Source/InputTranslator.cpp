@@ -7,20 +7,20 @@
 #include "Gamepad.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
-#include "Lookup.h"
-#include "OverlayWindow.h" // to set alpha fade in/out
+#include "OverlayWindow.h" // temp hack to force redraw()
 #include "Profile.h"
 
 namespace InputTranslator
 {
 
+// Whether or not debug messages print depends on which line is commented out
+//#define transDebugPrint(...) debugPrint("InputTranslator: " __VA_ARGS__)
+#define transDebugPrint(...) ((void)0)
+
+
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
-
-// Whether or not debug messages print depends on which line is commented out
-#define transDebugPrint(...) debugPrint("InputTranslator: " __VA_ARGS__)
-//#define transDebugPrint(...) ((void)0)
 
 enum {
 kMinMouseLookTimeForAltMove = 50,

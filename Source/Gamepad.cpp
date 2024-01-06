@@ -17,13 +17,13 @@
 namespace Gamepad
 {
 
-//-----------------------------------------------------------------------------
-// Const Data
-//-----------------------------------------------------------------------------
-
 // Whether or not debug messages print depends on which line is commented out
 //#define gamepadDebugPrint(...) debugPrint("Gamepad: " __VA_ARGS__)
 #define gamepadDebugPrint(...) ((void)0)
+
+//-----------------------------------------------------------------------------
+// Const Data
+//-----------------------------------------------------------------------------
 
 enum {
 kMaxGamepadsEnumerated = 8,
