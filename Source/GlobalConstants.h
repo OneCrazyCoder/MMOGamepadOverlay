@@ -9,6 +9,14 @@
 	data lookup tables that are needed by multiple modules.
 */
 
+enum {
+kVKeyShiftMask = 0x0100, // from MS docs for VkKeyScan()
+kVKeyCtrlMask = 0x0200,
+kVKeyAltMask = 0x0400,
+vKeyModMask = 0xFF00,
+vMkeyMask = 0x00FF,
+};
+
 enum EHUDElement
 {
 	eHUDElement_Macros,
@@ -167,3 +175,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 
 // Generic button names used in Profile .ini files
 extern const char* kProfileButtonName[];
+
+extern u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse);
+extern EButton buttonNameToID(const std::string& theString);
+extern EHUDElement hudElementNameToID(const std::string& theString);

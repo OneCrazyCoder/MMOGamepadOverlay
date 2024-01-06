@@ -9,16 +9,18 @@
 namespace InputDispatcher
 {
 
+// Uncomment this to print out sent input events to debug window
+//#define INPUT_DISPATCHER_DEBUG_PRINT
+
+// Uncomment this to not actually send anything (but still print via above)
+//#define INPUT_DISPATCHER_SIMULATION_ONLY
+	
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
 
+
 enum {
-kVKeyShiftMask = 0x0100, // from MS docs for VkKeyScan()
-kVKeyCtrlMask = 0x0200,
-kVKeyAltMask = 0x0400,
-vKeyModMask = 0xFF00,
-vMkeyMask = 0x00FF,
 kMouseMaxSpeed = 256,
 kMouseToPixelDivisor = 8192,
 kMouseMaxDigitalVel = 32768,
@@ -380,24 +382,72 @@ static void sendQueuedKeyTap()
 
 static void releaseAllHeldKeys()
 {
+	sTracker.modKeyReleaseLockTime = 0;
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		Input anInput;
-		anInput.type = INPUT_KEYBOARD;
-		anInput.ki.wVk = aVKey;
-		anInput.ki.dwFlags = KEYEVENTF_KEYUP;
-		sTracker.inputs.push_back(anInput);
+		setKeyDown(u8(aVKey), false);
 	}
 	sTracker.keysHeldDown.reset();
 }
 
 
+static void debugPrintInputVector()
+{
+#ifndef NDEBUG
+#ifdef INPUT_DISPATCHER_DEBUG_PRINT
+#define siPrint(fmt, ...) debugPrint( \
+	(strFormat("ID(%d): ", gAppRunTime) + fmt).c_str(), __VA_ARGS__)
+	for(size_t i = 0; i < sTracker.inputs.size(); ++i)
+	{
+		Input anInput = sTracker.inputs[i];
+		if( anInput.type == INPUT_MOUSE )
+		{
+			switch(anInput.mi.dwFlags)
+			{
+			case MOUSEEVENTF_LEFTDOWN: siPrint("LMB pressed\n"); break;
+			case MOUSEEVENTF_LEFTUP: siPrint("LMB released\n"); break;
+			case MOUSEEVENTF_RIGHTDOWN: siPrint("RMB pressed\n"); break;
+			case MOUSEEVENTF_RIGHTUP: siPrint("RMB released\n"); break;
+			case MOUSEEVENTF_MIDDLEDOWN: siPrint("MMB pressed\n"); break;
+			case MOUSEEVENTF_MIDDLEUP: siPrint("MMB released\n"); break;
+			}
+		}
+		else if( anInput.type == INPUT_KEYBOARD )
+		{
+			LONG aScanCode = MapVirtualKey(anInput.ki.wVk, 0) << 16;
+			switch(anInput.ki.wVk)
+			{
+			case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
+			case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
+			case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
+			case VK_NUMLOCK:
+				aScanCode |= (1 << 24);
+			}
+			aScanCode |= (1 << 25);
+			char aKeyName[256];
+			if( GetKeyNameTextA(aScanCode, aKeyName, 256) )
+			{
+				siPrint("%s %s\n",
+					aKeyName,
+					(anInput.ki.dwFlags & KEYEVENTF_KEYUP)
+						? "released" : "pressed");
+			}
+		}
+	}
+#undef siPrint
+#endif
+#endif
+}
+
+
 static void flushInputVector()
 {
+	debugPrintInputVector();
 	if( !sTracker.inputs.empty() )
 	{
+		#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 		if( kConfig.useScanCodes )
 		{// Convert Virtual-Key Codes into scan codes
 			for(size_t i = 0; i < sTracker.inputs.size(); ++i)
@@ -406,7 +456,6 @@ static void flushInputVector()
 				{
 					sTracker.inputs[i].ki.wScan = 
 						MapVirtualKey(sTracker.inputs[i].ki.wVk, 0);
-					// Using this method for compatibility with older Windows
 					switch(sTracker.inputs[i].ki.wVk)
 					{
 					case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
@@ -420,10 +469,11 @@ static void flushInputVector()
 				}
 			}
 		}
-		SendInput(
+ 		SendInput(
 			UINT(sTracker.inputs.size()),
 			static_cast<INPUT*>(&sTracker.inputs[0]),
 			sizeof(INPUT));
+		#endif
 		sTracker.inputs.clear();
 	}
 }
