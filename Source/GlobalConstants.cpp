@@ -156,6 +156,7 @@ u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 			map.setValue("CLOSEB",			VK_OEM_6);
 			map.setValue("CLOSEBRACKET",	VK_OEM_6);
 			map.setValue("QUOTE",			VK_OEM_7);
+			// VK_PAUSE not included because it has special use/meaning
 			for(int i = 0; i <= 9; ++i)
 			{
 				map.setValue((std::string("NUM") + toString(i)).c_str(), VK_NUMPAD0 + i);
