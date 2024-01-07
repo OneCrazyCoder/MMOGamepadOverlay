@@ -176,17 +176,17 @@ static u16 sSpecialKeys[eSpecialKey_Num];
 //-----------------------------------------------------------------------------
 
 static EResult checkForComboKeyName(
-	std::string aKeyName,
+	std::string theKeyName,
 	std::string& out,
 	bool allowMouse)
 {
 	std::string aModKeyName;
-	aModKeyName.push_back(aKeyName[0]);
-	aKeyName = aKeyName.substr(1);
-	while(aKeyName.size() > 1)
+	aModKeyName.push_back(theKeyName[0]);
+	theKeyName = theKeyName.substr(1);
+	while(theKeyName.size() > 1)
 	{
-		aModKeyName.push_back(aKeyName[0]);
-		aKeyName = aKeyName.substr(1);
+		aModKeyName.push_back(theKeyName[0]);
+		theKeyName = theKeyName.substr(1);
 		const u8 aModKey = keyNameToVirtualKey(aModKeyName, allowMouse);
 		if( aModKey != 0 &&
 			(aModKey == VK_SHIFT ||
@@ -194,7 +194,7 @@ static EResult checkForComboKeyName(
 			 aModKey == VK_MENU) )
 		{// Found a valid modifier key
 			// Is rest of the name a valid key now?
-			if( u8 aMainKey = keyNameToVirtualKey(aKeyName, allowMouse))
+			if( u8 aMainKey = keyNameToVirtualKey(theKeyName, allowMouse))
 			{// We have a valid key combo!
 				out.push_back(aModKey);
 				out.push_back(aMainKey);
@@ -203,7 +203,7 @@ static EResult checkForComboKeyName(
 			// Perhaps remainder is another mod+key, like ShiftCtrlA?
 			std::string suffix;
 			if( checkForComboKeyName(
-					aKeyName, suffix, allowMouse) == eResult_Ok )
+					theKeyName, suffix, allowMouse) == eResult_Ok )
 			{
 				out.push_back(aModKey);
 				out.append(suffix);
@@ -217,37 +217,124 @@ static EResult checkForComboKeyName(
 }
 
 
+static EResult checkForVKeySeqPause(
+	const std::string& theKeyName,
+	std::string& out,
+	bool timeOnly = false)
+{
+	size_t aStrPos = 0;
+	if( !timeOnly )
+	{
+		if( theKeyName.size() <= 1 )
+			return eResult_NotFound;
+
+		// See if starts with P(ause), W(ait), or D(elay)
+		switch(theKeyName[0])
+		{
+		case 'P': case 'D': case 'W': aStrPos = 1; break;
+		default: return eResult_NotFound;
+		}
+
+		if( theKeyName.compare(0, 5, "PAUSE") == 0 )
+			aStrPos = 5;
+		else if( theKeyName.compare(0, 5, "DELAY") == 0 )
+			aStrPos = 5;
+		else if( theKeyName.compare(0, 4, "WAIT") == 0 )
+			aStrPos = 4;
+		// If whole word is a valid name but nothing else remains,
+		// then it is valid but we need a second word for timeOnly
+		if( aStrPos == theKeyName.size() )
+			return eResult_Incomplete;
+	}
+
+	typedef unsigned int u32;
+	u32 aTime = 0;
+	for(; aStrPos < theKeyName.size(); ++aStrPos)
+	{
+		const char c = theKeyName[aStrPos];
+		// Check if is a valid integer digit
+		if( c < '0' || c > '9' )
+			return eResult_NotFound;
+		const u32 aDigit = c - '0';
+		aTime *= 10;
+		aTime += aDigit;
+		if( aTime > 0x3FFF )
+		{
+			aTime = 0x3FFF;
+			logError("Pause time in a key sequence can not exceed 16 seconds!");
+			break;
+		}
+	}
+
+	// Delay of 0 is technically valid but doesn't add to the sequence
+	if( aTime == 0 )
+		return eResult_Ok;
+
+
+	// Encode the special-case VK_PAUSE key and the delay amount as a 14-bit
+	// number using the 2 bytes after it in the string (making sure each byte
+	// has highest bit set so can't end up with either being 0 and acting as
+	// a terminator for the string).
+	out.push_back(VK_PAUSE);
+	out.push_back(((aTime >> 7) & 0x7F) | 0x80);
+	out.push_back((aTime & 0x7F) | 0x80);
+
+	// Success!
+	return eResult_Ok;
+}
+
+
 static std::string namesToVKeySequence(
 	const std::vector<std::string>& theNames,
 	bool allowMouse)
 {
-	std::string result;
+	std::string aVKeySeq;
 
 	if( theNames.empty() )
-		return result;
+		return aVKeySeq;
 
+	bool expectingWaitTime = false;
 	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
 	{
 		const std::string& aName = upper(theNames[aNameIdx]);
 		DBG_ASSERT(!aName.empty());
+		if( expectingWaitTime )
+		{
+			if( checkForVKeySeqPause(aName, aVKeySeq, true) != eResult_Ok )
+			{// Didn't get wait time as expected - abort!
+				aVKeySeq.clear();
+				return aVKeySeq;
+			}
+			expectingWaitTime = false;
+			continue;
+		}
 		const u8 aVKey = keyNameToVirtualKey(aName, allowMouse);
 		if( aVKey == 0 )
 		{
+			// Check if it's a pause/delay/wait command
+			EResult aResult = checkForVKeySeqPause(aName, aVKeySeq);
+			// Incomplete result means it WAS a wait, now need the time
+			if( aResult == eResult_Incomplete )
+				expectingWaitTime = true;
+			if( aResult != eResult_NotFound )
+				continue;
+
 			// Check if it's a modifier+key in one word like Shift2 or Alt1
-			if( checkForComboKeyName(
-					aName, result, allowMouse) != eResult_Ok )
+			aResult = checkForComboKeyName(aName, aVKeySeq, allowMouse);
+			if( aResult != eResult_Ok )
 			{
-				result.clear();
-				return result;
+				// Can't figure this word out at all, abort!
+				aVKeySeq.clear();
+				return aVKeySeq;
 			}
 		}
 		else
 		{
-			result.push_back(aVKey);
+			aVKeySeq.push_back(aVKey);
 		}
 	}
 
-	return result;
+	return aVKeySeq;
 }
 
 

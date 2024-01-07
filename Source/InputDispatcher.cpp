@@ -13,7 +13,7 @@ namespace InputDispatcher
 // Uncomment this to print out SendInput events to debug window
 //#define INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 
-// Uncomment this to not actually send anything (but still print via above)
+// Uncomment this to stop sending actual input (can still print via above)
 //#define INPUT_DISPATCHER_SIMULATION_ONLY
 
 
@@ -26,8 +26,8 @@ kMouseMaxSpeed = 256,
 kMouseToPixelDivisor = 8192,
 kMouseMaxDigitalVel = 32768,
 kVKeyModsMask = 0x3F00,
-kVKeyHoldFlag = 0x4000, // bits unused by VkKeyScan()
-kVKeyReleaseFlag = 0x8000,
+kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
+kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
 };
 
 
@@ -60,9 +60,9 @@ struct Config
 	void load()
 	{
 		maxTaskQueuedTime = Profile::getInt("System/MaxKeyQueueTime", 1000);
-		chatBoxPostFirstKeyDelay = Profile::getInt("System/ChatBoxStartDelay", 10);
-		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 10);
-		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 10);
+		chatBoxPostFirstKeyDelay = Profile::getInt("System/ChatBoxStartDelay", 0);
+		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 20);
+		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 20);
 		mouseButtonReleaseLockTime = Profile::getInt("System/MinMouseButtonHoldTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
@@ -218,6 +218,22 @@ static EResult popNextKey(const char* theVKeySequence)
 	{
 		const size_t idx = sTracker.currTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];
+
+		if( aVKey == VK_PAUSE )
+		{
+			// Special 3-byte sequence to add a forced pause
+			u8 c = theVKeySequence[sTracker.currTaskProgress++];
+			DBG_ASSERT(c != '\0');
+			u16 aDelay = (c & 0x7F) << 7;
+			c = theVKeySequence[sTracker.currTaskProgress++];
+			DBG_ASSERT(c != '\0');
+			aDelay |= (c & 0x7F);
+			// Delays at end of sequence are ignored
+			if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
+				return eResult_TaskCompleted;
+			sTracker.queuePauseTime = max(sTracker.queuePauseTime, aDelay);
+			return eResult_Incomplete;
+		}
 
 		if( aVKey == VK_SHIFT )
 			sTracker.nextQueuedKey |= kVKeyShiftFlag;
@@ -565,14 +581,15 @@ void update()
 		  !sTracker.queue.empty() )
 	{
 		const DispatchTask& aCurrTask = sTracker.queue.front();
+
 		const bool taskIsPastDue =
 			sTracker.currTaskProgress == 0 &&
-			(sTracker.queue.front().queuedTime
-				+ kConfig.maxTaskQueuedTime) < gAppRunTime;
+			(aCurrTask.queuedTime + kConfig.maxTaskQueuedTime) < gAppRunTime;
+
 		const Command& aCmd = aCurrTask.cmd;
 		VectorMap<u16, bool>::iterator aKeyWantDownItr;
-
 		EResult aTaskResult;
+
 		switch(aCmd.type)
 		{
 		case eCmdType_PressAndHoldKey:
