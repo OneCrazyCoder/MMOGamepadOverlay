@@ -10,11 +10,10 @@
 */
 
 enum {
-kVKeyShiftMask = 0x0100, // from MS docs for VkKeyScan()
-kVKeyCtrlMask = 0x0200,
-kVKeyAltMask = 0x0400,
-vKeyModMask = 0xFF00,
-vMkeyMask = 0x00FF,
+kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
+kVKeyCtrlFlag = 0x0200,
+kVKeyAltFlag = 0x0400,
+kVKeyMask = 0x00FF,
 };
 
 enum EHUDElement

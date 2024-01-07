@@ -25,6 +25,9 @@ enum {
 kMouseMaxSpeed = 256,
 kMouseToPixelDivisor = 8192,
 kMouseMaxDigitalVel = 32768,
+kVKeyModsMask = 0x3F00,
+kVKeyHoldFlag = 0x4000, // bits unused by VkKeyScan()
+kVKeyReleaseFlag = 0x8000,
 };
 
 
@@ -179,9 +182,10 @@ struct DispatchTracker
 	int digitalMouseVel;
 	size_t currTaskProgress;
 	BitArray<0xFF> keysHeldDown;
-	BitArray<0xFF> keysWantDown;
+	VectorMap<u16, bool> keysWantDown;
 	VectorMap<u8, int> keysLockedDown;
-	u16 nextQueuedKeyTap;
+	u16 nextQueuedKey;
+	u16 backupQueuedKey;
 	bool mouseLookActive;
 
 	DispatchTracker() :
@@ -189,7 +193,8 @@ struct DispatchTracker
 		currTaskProgress(),
 		digitalMouseVel(),
 		keysHeldDown(),
-		nextQueuedKeyTap(),
+		nextQueuedKey(),
+		backupQueuedKey(),
 		mouseLookActive(false)
 	{}
 };
@@ -215,14 +220,14 @@ static EResult popNextKey(const char* theVKeySequence)
 		u8 aVKey = theVKeySequence[idx];
 
 		if( aVKey == VK_SHIFT )
-			sTracker.nextQueuedKeyTap |= kVKeyShiftMask;
+			sTracker.nextQueuedKey |= kVKeyShiftFlag;
 		else if( aVKey == VK_CONTROL )
-			sTracker.nextQueuedKeyTap |= kVKeyCtrlMask;
+			sTracker.nextQueuedKey |= kVKeyCtrlFlag;
 		else if( aVKey == VK_MENU )
-			sTracker.nextQueuedKeyTap |= kVKeyAltMask;
+			sTracker.nextQueuedKey |= kVKeyAltFlag;
 		else
-			sTracker.nextQueuedKeyTap |= aVKey;
-		if( sTracker.nextQueuedKeyTap & vMkeyMask )
+			sTracker.nextQueuedKey |= aVKey;
+		if( sTracker.nextQueuedKey & kVKeyMask )
 			break;
 	}
 
@@ -251,7 +256,7 @@ static EResult popNextStringChar(const char* theString)
 		return popNextStringChar(theString);
 
 	// Queue the key + modifiers (shift key)
-	sTracker.nextQueuedKeyTap = VkKeyScan(c);
+	sTracker.nextQueuedKey = VkKeyScan(c);
 
 	if( idx == 0 ) // the initial key to switch to chat bar (/ or Enter)
 	{
@@ -306,13 +311,43 @@ static bool isSafeAsyncKey(u8 theVKey)
 }
 
 
-static EResult setKeyDown(u8 theKey, bool down)
+static bool isMouseButton(u16 theVKey)
 {
+	return (theVKey & kVKeyMask) > 0 && ((theVKey & kVKeyMask) < 0x07);
+}
+
+
+static u16 modKeysHeldAsFlags()
+{
+	u16 result = 0;
+	if( sTracker.keysHeldDown.test(VK_SHIFT) )
+		result |= kVKeyShiftFlag;
+	if( sTracker.keysHeldDown.test(VK_CONTROL) )
+		result |= kVKeyCtrlFlag;
+	if( sTracker.keysHeldDown.test(VK_MENU) )
+		result |= kVKeyAltFlag;
+
+	return result;
+}
+
+
+static bool areModKeysHeld(u16 theVKey)
+{
+	return
+		(theVKey & kVKeyModsMask) == modKeysHeldAsFlags();
+}
+
+
+static EResult setKeyDown(u16 theKey, bool down)
+{
+	// No flags should be set on key (break combo keys into individual keys!)
+	DBG_ASSERT((theKey & ~kVKeyMask) == 0);
+
 	if( theKey == 0 )
 		return eResult_InvalidParameter;
 
 	if( !down )
-	{// May not be allow to release the given key yet
+	{// May not be allowed to release the given key yet
 		VectorMap<u8, int>::iterator itr =
 			sTracker.keysLockedDown.find(theKey);
 		if( itr != sTracker.keysLockedDown.end() && itr->second > 0 )
@@ -392,6 +427,7 @@ static void releaseAllHeldKeys()
 		setKeyDown(u8(aVKey), false);
 	}
 	sTracker.keysHeldDown.reset();
+	sTracker.keysWantDown.clear();
 }
 
 
@@ -521,46 +557,75 @@ void update()
 
 	// Update queue
 	// ------------
+	if( !sTracker.nextQueuedKey )
+		sTracker.nextQueuedKey = sTracker.backupQueuedKey;
+	sTracker.backupQueuedKey = 0;
 	while(sTracker.queuePauseTime <= 0 &&
-		  sTracker.nextQueuedKeyTap == 0 &&
+		  sTracker.nextQueuedKey == 0 &&
 		  !sTracker.queue.empty() )
 	{
-		DispatchTask& aCurrTask = sTracker.queue.front();
+		const DispatchTask& aCurrTask = sTracker.queue.front();
 		const bool taskIsPastDue =
 			sTracker.currTaskProgress == 0 &&
 			(sTracker.queue.front().queuedTime
 				+ kConfig.maxTaskQueuedTime) < gAppRunTime;
+		const Command& aCmd = aCurrTask.cmd;
+		VectorMap<u16, bool>::iterator aKeyWantDownItr;
 
 		EResult aTaskResult;
-		switch(aCurrTask.cmd.type)
+		switch(aCmd.type)
 		{
-		case eCmdType_SlashCommand:
-		case eCmdType_SayString:
-			if( taskIsPastDue )
-				aTaskResult = eResult_TaskCompleted;
-			else
-				aTaskResult = popNextStringChar(aCurrTask.cmd.string);
-			break;
 		case eCmdType_PressAndHoldKey:
-			sTracker.keysWantDown.set(aCurrTask.cmd.data);
+			// Just set want the key/combo pressed
+			sTracker.keysWantDown.findOrAdd(aCmd.data, false);
 			aTaskResult = eResult_TaskCompleted;
 			break;
 		case eCmdType_ReleaseKey:
-			if( !taskIsPastDue )
-			{// Make sure not to skip a tap before next press
-				if( sTracker.keysWantDown.test(aCurrTask.cmd.data) )
-					setKeyDown(aCurrTask.cmd.data, true);
-				if( setKeyDown(aCurrTask.cmd.data, false) != eResult_Ok )
-					sTracker.queuePauseTime = 1;
+			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.data);
+			if( aKeyWantDownItr == sTracker.keysWantDown.end() )
+				break;
+			if( !aKeyWantDownItr->second )
+			{// Key hasn't been pressed yet
+				// If its a past due event, just forget it, otherwise
+				// abort the queue loop and wait for it to be pressed
+				if( taskIsPastDue )
+					sTracker.keysWantDown.erase(aKeyWantDownItr);
+				else
+					sTracker.queuePauseTime = 1; // to abort queue loop
 			}
-			sTracker.keysWantDown.reset(aCurrTask.cmd.data);
+			else
+			{// Key has been pressed - always release even if past due!
+				// If it's a keyboard key, or current modifier keys match
+				// those requested for a mouse button, then attempt to
+				// release right now so can continue to next queue item.
+				// Otherwise set the release request as the queued key.
+				if( (!isMouseButton(aCmd.data) ||
+					 areModKeysHeld(aCmd.data)) &&
+					setKeyDown(aCmd.data & kVKeyMask, false) == eResult_Ok )
+				{
+					// Was able to immediately release
+					sTracker.keysWantDown.erase(aKeyWantDownItr);
+				}
+				else
+				{
+					// Can't immediately release, use queue key instead
+					sTracker.nextQueuedKey = aCmd.data | kVKeyReleaseFlag;
+				}
+			}
 			aTaskResult = eResult_TaskCompleted;
 			break;
 		case eCmdType_VKeySequence:
 			if( taskIsPastDue )
 				aTaskResult = eResult_TaskCompleted;
 			else
-				aTaskResult = popNextKey(aCurrTask.cmd.string);
+				aTaskResult = popNextKey(aCmd.string);
+			break;
+		case eCmdType_SlashCommand:
+		case eCmdType_SayString:
+			if( taskIsPastDue )
+				aTaskResult = eResult_TaskCompleted;
+			else
+				aTaskResult = popNextStringChar(aCmd.string);
 			break;
 		}
 		if( aTaskResult == eResult_TaskCompleted )
@@ -571,39 +636,86 @@ void update()
 	}
 
 
-	// Determine desired state of each key
-	// -----------------------------------
-	BitArray<0xFF> aDesiredKeysDown = sTracker.keysWantDown;
-	bool canSendQueuedKeyTap = false;
-	if( sTracker.nextQueuedKeyTap )
-	{
-		// Make sure modifier keys match desired for tap
-		aDesiredKeysDown.set(VK_SHIFT,
-			(sTracker.nextQueuedKeyTap & kVKeyShiftMask) != 0);
-		aDesiredKeysDown.set(VK_CONTROL,
-			(sTracker.nextQueuedKeyTap & kVKeyCtrlMask) != 0);
-		aDesiredKeysDown.set(VK_MENU,
-			(sTracker.nextQueuedKeyTap & kVKeyAltMask) != 0);
-		// Make sure key to be tapped isn't already down
-		aDesiredKeysDown.reset(sTracker.nextQueuedKeyTap & vMkeyMask);
-		// Only allow tap if related keys are already in correct state
-		// Otherwise, they'll change state now and do the tap next update
-		// (or maybe after multiple updates if .modKeyReleaseLockTime > 0)
-		if( sTracker.keysHeldDown.test(VK_SHIFT) ==
-				aDesiredKeysDown.test(VK_SHIFT) &&
-			sTracker.keysHeldDown.test(VK_CONTROL) ==
-				aDesiredKeysDown.test(VK_CONTROL) &&
-			sTracker.keysHeldDown.test(VK_MENU) ==
-				aDesiredKeysDown.test(VK_MENU) &&
-			sTracker.keysHeldDown.test(
-				sTracker.nextQueuedKeyTap & vMkeyMask) == false )
-		{
-			canSendQueuedKeyTap = true;
-		}
-	}
-	// Right mouse button must stay active while mouse-look is
+	// Process keysWantDown
+	// --------------------
+	BitArray<0xFF> aDesiredKeysDown; aDesiredKeysDown.reset();
+	// Right mouse button should stay down during mouse-look mode
 	if( sTracker.mouseLookActive )
 		aDesiredKeysDown.set(VK_RBUTTON);
+	bool hasNonPressedKeyThatWantsHeldDown = false;
+	u16 aPressedKeysDesiredMods = 0;
+	for(size_t i = 0; i < sTracker.keysWantDown.size(); ++i)
+	{
+		const u16 aVKey = sTracker.keysWantDown[i].first;
+		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
+		const u16 aVKeyModFlags = aVKey & kVKeyModsMask;
+		const bool hasBeenPressed = sTracker.keysWantDown[i].second;
+
+		if( hasBeenPressed )
+		{// Already been pressed initially
+			aDesiredKeysDown.set(aBaseVKey);
+			aPressedKeysDesiredMods |= aVKeyModFlags;
+		}
+		else if( areModKeysHeld(aVKey) &&
+				 (sTracker.nextQueuedKey == 0 ||
+				  (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags) )
+		{// Doesn't need a change in mod keys, so can press safely
+			aDesiredKeysDown.set(aBaseVKey);
+			hasNonPressedKeyThatWantsHeldDown = true;
+		}
+		else
+		{// Needs a change in mod keys - take over queued key to do this
+			sTracker.backupQueuedKey = sTracker.nextQueuedKey;
+			sTracker.nextQueuedKey = aVKey | kVKeyHoldFlag;
+			hasNonPressedKeyThatWantsHeldDown = true;
+		}
+	}
+	if( !sTracker.nextQueuedKey && !hasNonPressedKeyThatWantsHeldDown )
+	{
+		aDesiredKeysDown.set(VK_SHIFT,
+			(aPressedKeysDesiredMods & kVKeyShiftFlag) != 0);
+		aDesiredKeysDown.set(VK_CONTROL,
+			(aPressedKeysDesiredMods & kVKeyCtrlFlag) != 0);
+		aDesiredKeysDown.set(VK_MENU,
+			(aPressedKeysDesiredMods& kVKeyAltFlag) != 0);
+	}
+
+
+	// Prepare for nextQueuedKey
+	// -------------------------
+	bool canSendQueuedKey = false;
+	if( sTracker.nextQueuedKey )
+	{
+		const u8 aBaseVKey = sTracker.nextQueuedKey & kVKeyMask;
+		const bool press = !(sTracker.nextQueuedKey & kVKeyReleaseFlag);
+		// Make sure desired modifier keys match those of the queued key
+		aDesiredKeysDown.set(VK_SHIFT,
+			(sTracker.nextQueuedKey & kVKeyShiftFlag) != 0);
+		aDesiredKeysDown.set(VK_CONTROL,
+			(sTracker.nextQueuedKey & kVKeyCtrlFlag) != 0);
+		aDesiredKeysDown.set(VK_MENU,
+			(sTracker.nextQueuedKey & kVKeyAltFlag) != 0);
+		// Make sure base key is in opposite of desired pressed state
+		aDesiredKeysDown.set(aBaseVKey, !press);
+		// Only send the key if related keys are already in correct state
+		// Otherwise, need to wait until other keys are ready from above
+		if( areModKeysHeld(sTracker.nextQueuedKey) &&
+			sTracker.keysHeldDown.test(aBaseVKey) == !press )
+		{
+			canSendQueuedKey = true;
+		}
+	}
+	/*
+		Note that the above logic allows shift/ctrl/alt to be force-released
+		temporarily to allow other keys to be pressed that do not want those
+		modifiers, even when they are supposed to be held down by a button.
+		The assumption is that target applications only check the modifier
+		keys at the point a keyboard key is initially pressed, or at press and
+		release time in the case of mouse buttons. If this turns out not to
+		be the case then the logic can change to just not allow any keys to
+		be pressed that don't align with the current modifiers being held down,
+		but this will obviously lower responsiveness.
+	*/
 
 
 	// Sync actual keys held to desired state
@@ -615,21 +727,40 @@ void update()
 		if( !aDesiredKeysDown.test(aVKey) )
 			setKeyDown(u8(aVKey), false);
 	}
+	const u16 aModKeysHeldAsFlags = modKeysHeldAsFlags();
 	for(int aVKey = aDesiredKeysDown.firstSetBit();
 		aVKey < aDesiredKeysDown.size();
 		aVKey = aDesiredKeysDown.nextSetBit(aVKey+1))
 	{
-		if( !sTracker.keysHeldDown.test(aVKey) )
-			setKeyDown(u8(aVKey), true);
+		if( !sTracker.keysHeldDown.test(aVKey) &&
+			setKeyDown(u8(aVKey), true) == eResult_Ok )
+		{
+			const u16 keyJustPressed = u16(aVKey) | aModKeysHeldAsFlags;
+			VectorMap<u16, bool>::iterator itr =
+				sTracker.keysWantDown.find(keyJustPressed);
+			if( itr != sTracker.keysWantDown.end() )
+				itr->second = true;
+		}
 	}
 
 
-	// Send queued key tap for key sequences / strings
-	// -----------------------------------------------
-	if( canSendQueuedKeyTap )
+	// Send queued key event for this update
+	// -------------------------------------
+	if( canSendQueuedKey )
 	{
-		setKeyDown(u8(sTracker.nextQueuedKeyTap & vMkeyMask), true);
-		sTracker.nextQueuedKeyTap = 0;
+		u16 aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
+		u8 aVKeyBase = u8(aVKey & kVKeyMask);
+		bool wantHold = (sTracker.nextQueuedKey & kVKeyHoldFlag) != 0;
+		bool wantRelease = (sTracker.nextQueuedKey & kVKeyReleaseFlag) != 0;
+
+		if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
+		{
+			if( wantHold )
+				sTracker.keysWantDown.setValue(aVKey, true);
+			else if( wantRelease )
+				sTracker.keysWantDown.erase(aVKey);
+			sTracker.nextQueuedKey = 0;
+		}
 	}
 
 
@@ -655,19 +786,22 @@ void sendKeyCommand(const Command& theCommand)
 		break;
 	case eCmdType_PressAndHoldKey:
 		if( isSafeAsyncKey(theCommand.data) &&
-			setKeyDown(theCommand.data, true) == eResult_Ok )
+			areModKeysHeld(theCommand.data) &&
+			setKeyDown(theCommand.data & kVKeyMask, true) == eResult_Ok )
 		{// Don't need to queue this key
-			sTracker.keysWantDown.set(theCommand.data);
+			sTracker.keysWantDown.setValue(theCommand.data, true);
 			break;
 		}
 		sTracker.queue.push_back(theCommand);
 		break;
 	case eCmdType_ReleaseKey:
-		if( sTracker.keysHeldDown.test(theCommand.data) &&
-			sTracker.keysWantDown.test(theCommand.data) &&
-			setKeyDown(theCommand.data, false) == eResult_Ok )
+		if( (!isMouseButton(theCommand.data) ||
+			 areModKeysHeld(theCommand.data)) &&
+			sTracker.keysHeldDown.test(theCommand.data & kVKeyMask) &&
+			sTracker.keysWantDown.contains(theCommand.data) &&
+			setKeyDown(theCommand.data & kVKeyMask, false) == eResult_Ok )
 		{// Safely released key right away, no need to queue release
-			sTracker.keysWantDown.reset(theCommand.data);
+			sTracker.keysWantDown.erase(theCommand.data);
 			break;
 		}
 		sTracker.queue.push_back(theCommand);
@@ -690,7 +824,7 @@ void moveMouse(int dx, int dy, bool digital)
 		sTracker.keysHeldDown.test(VK_RBUTTON);
 
 	// Get magnitude of desired mouse motion in 0 to 1.0f range
-    double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
+	double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
 
 	// Apply deadzone and saturation to magnitude
 	const double kDeadZone = kMouseLookSpeed

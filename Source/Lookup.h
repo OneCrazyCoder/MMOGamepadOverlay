@@ -7,7 +7,7 @@
 /*
 	These structures are used for storing and looking up data by a key value,
 	but using std::vector as a base instead of stl map for reduced memory use,
-	improved speed due to data locality, cache efficiency, ond less frequent
+	improved speed due to data locality, cache efficiency, and less frequent
 	memory allocations.
 */
 
