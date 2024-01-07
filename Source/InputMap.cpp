@@ -507,20 +507,16 @@ static Command buildSpecialCommand(
 
 	switch(result.type)
 	{
-	case eCmdType_HoldControlsLayer:
 	case eCmdType_AddControlsLayer:
+		// Need to know the parent layer of new added layer
+		result.data2 = theLayerIdx;
+		// fall through
+	case eCmdType_HoldControlsLayer:
+		// Assume last word in the command is the layer name
 		if( aCommandWordIdx < aCmdStrings.size() - 1 )
-		{
-			// Assume last word in the command is the layer name
 			result.data = getOrCreateLayerID(theBuilder, aCmdStrings.back());
-
-			// Also need to know the parent layer of new added layer
-			result.data2 = theLayerIdx;
-		}
 		else
-		{
 			result.type = eCmdType_Empty;
-		}
 		break;
 	case eCmdType_RemoveControlsLayer:
 		// Assume mean own layer if none specified
@@ -630,10 +626,43 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 
 static u16 vKeySeqToSingleKey(const std::string& theVKeySeq)
 {
-	// TODO: Proper check to include mod keys (shift, etc)
+	u16 result = 0;
 	if( theVKeySeq.size() == 1 )
-		return theVKeySeq[0];
-	return 0;
+	{
+		result = theVKeySeq[0];
+		return result;
+	}
+
+	bool hasNonModKey = false;
+	for(size_t i = 0; i < theVKeySeq.size(); ++i)
+	{
+		// If encounter anything else after the first non-mod key,
+		// it is must be a sequence of keys rather than of a "single key",
+		// and thus can not be used with _PressAndHoldKey or _ReleaseKey.
+		if( result & kVKeyMask )
+		{
+			result = 0;
+			return result;
+		}
+
+		switch(theVKeySeq[i])
+		{
+		case VK_SHIFT:
+			result |= kVKeyShiftFlag;
+			break;
+		case VK_CONTROL:
+			result |= kVKeyCtrlFlag;
+			break;
+		case VK_MENU:
+			result |= kVKeyAltFlag;
+			break;
+		default:
+			result |= theVKeySeq[i];
+			break;
+		}
+	}
+	
+	return result;
 }
 
 	
