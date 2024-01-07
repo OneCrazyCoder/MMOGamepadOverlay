@@ -157,6 +157,7 @@ enum EResult
 
 	eResult_Fail,
 	eResult_NotFound,
+	eResult_InvalidParameter,
 	eResult_Incomplete,
 	eResult_NotAllowed,
 	eResult_Malformed,

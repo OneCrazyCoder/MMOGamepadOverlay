@@ -4,21 +4,22 @@
 
 #include "InputDispatcher.h"
 
+#include "Lookup.h"
 #include "Profile.h"
 
 namespace InputDispatcher
 {
 
-// Uncomment this to print out sent input events to debug window
-//#define INPUT_DISPATCHER_DEBUG_PRINT
+// Uncomment this to print out SendInput events to debug window
+//#define INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 
 // Uncomment this to not actually send anything (but still print via above)
 //#define INPUT_DISPATCHER_SIMULATION_ONLY
-	
+
+
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
-
 
 enum {
 kMouseMaxSpeed = 256,
@@ -34,7 +35,9 @@ kMouseMaxDigitalVel = 32768,
 struct Config
 {
 	int maxTaskQueuedTime; // tasks older than this in queue are skipped
-	int slashCommandPostFirstKeyDelay;
+	int chatBoxPostFirstKeyDelay;
+	int baseKeyReleaseLockTime;
+	int mouseButtonReleaseLockTime;
 	int modKeyReleaseLockTime;
 	double cursorDeadzone;
 	double cursorRange;
@@ -54,8 +57,10 @@ struct Config
 	void load()
 	{
 		maxTaskQueuedTime = Profile::getInt("System/MaxKeyQueueTime", 1000);
-		slashCommandPostFirstKeyDelay = Profile::getInt("System/PostSlashKeyDelay", 0);
-		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 0);
+		chatBoxPostFirstKeyDelay = Profile::getInt("System/ChatBoxStartDelay", 10);
+		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 10);
+		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 10);
+		mouseButtonReleaseLockTime = Profile::getInt("System/MinMouseButtonHoldTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
 		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
@@ -171,17 +176,16 @@ struct DispatchTracker
 	DispatchQueue queue;
 	std::vector<Input> inputs;
 	int queuePauseTime;
-	int modKeyReleaseLockTime;
 	int digitalMouseVel;
 	size_t currTaskProgress;
 	BitArray<0xFF> keysHeldDown;
 	BitArray<0xFF> keysWantDown;
+	VectorMap<u8, int> keysLockedDown;
 	u16 nextQueuedKeyTap;
 	bool mouseLookActive;
 
 	DispatchTracker() :
 		queuePauseTime(),
-		modKeyReleaseLockTime(),
 		currTaskProgress(),
 		digitalMouseVel(),
 		keysHeldDown(),
@@ -211,25 +215,15 @@ static EResult popNextKey(const char* theVKeySequence)
 		u8 aVKey = theVKeySequence[idx];
 
 		if( aVKey == VK_SHIFT )
-		{
 			sTracker.nextQueuedKeyTap |= kVKeyShiftMask;
-			sTracker.modKeyReleaseLockTime = kConfig.modKeyReleaseLockTime;
-		}
 		else if( aVKey == VK_CONTROL )
-		{
 			sTracker.nextQueuedKeyTap |= kVKeyCtrlMask;
-			sTracker.modKeyReleaseLockTime = kConfig.modKeyReleaseLockTime;
-		}
 		else if( aVKey == VK_MENU )
-		{
 			sTracker.nextQueuedKeyTap |= kVKeyAltMask;
-			sTracker.modKeyReleaseLockTime = kConfig.modKeyReleaseLockTime;
-		}
 		else
-		{
 			sTracker.nextQueuedKeyTap |= aVKey;
+		if( sTracker.nextQueuedKeyTap & vMkeyMask )
 			break;
-		}
 	}
 
 	if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
@@ -265,7 +259,7 @@ static EResult popNextStringChar(const char* theString)
 		// direct text input in chat box before 'typing' at full speed
 		sTracker.queuePauseTime =
 			max(sTracker.queuePauseTime,
-				kConfig.slashCommandPostFirstKeyDelay);
+				kConfig.chatBoxPostFirstKeyDelay);
 	}
 
 	if( theString[idx] == '\0' )
@@ -314,32 +308,46 @@ static bool isSafeAsyncKey(u8 theVKey)
 
 static EResult setKeyDown(u8 theKey, bool down)
 {
-	if( !down && sTracker.modKeyReleaseLockTime > 0 &&
-		(theKey == VK_SHIFT || theKey == VK_CONTROL || theKey == VK_MENU) )
-	{// Not allowed to release modifier keys yet
-		return eResult_NotAllowed;
+	if( theKey == 0 )
+		return eResult_InvalidParameter;
+
+	if( !down )
+	{// May not be allow to release the given key yet
+		VectorMap<u8, int>::iterator itr =
+			sTracker.keysLockedDown.find(theKey);
+		if( itr != sTracker.keysLockedDown.end() && itr->second > 0 )
+			return eResult_NotAllowed;
 	}
 
 	if( down != sTracker.keysHeldDown.test(theKey) )
 	{
 		Input anInput;
+		int aLockDownTime = kConfig.baseKeyReleaseLockTime;
 		switch(theKey)
 		{
 		case VK_LBUTTON:
 			anInput.type = INPUT_MOUSE;
 			anInput.mi.dwFlags = down
 				? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+			aLockDownTime = kConfig.mouseButtonReleaseLockTime;
 			break;
 		case VK_RBUTTON:
 			anInput.type = INPUT_MOUSE;
 			anInput.mi.dwFlags = down
 				? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+			aLockDownTime = kConfig.mouseButtonReleaseLockTime;
 			break;
 		case VK_MBUTTON:
 			anInput.type = INPUT_MOUSE;
 			anInput.mi.dwFlags = down
 				? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+			aLockDownTime = kConfig.mouseButtonReleaseLockTime;
 			break;
+		case VK_SHIFT:
+		case VK_CONTROL:
+		case VK_MENU:
+			aLockDownTime = kConfig.modKeyReleaseLockTime;
+			// fall through
 		default:
 			anInput.type = INPUT_KEYBOARD;
 			anInput.ki.wVk = theKey;
@@ -348,41 +356,35 @@ static EResult setKeyDown(u8 theKey, bool down)
 		}
 		sTracker.inputs.push_back(anInput);
 		sTracker.keysHeldDown.set(theKey, down);
+		if( down )
+			sTracker.keysLockedDown.setValue(theKey, aLockDownTime);
+		if( anInput.type == INPUT_MOUSE )
+		{
+			// For mouse clicks, make sure any mod keys active for the
+			// click stay down until some time after the mouse button
+			// will be released, which is the true "click" time
+			// (unlike keyboard keys which are "clicked" at the moment
+			// pressed rather than when released in most cases).
+			if( down )
+				aLockDownTime += kConfig.modKeyReleaseLockTime;
+			else
+				aLockDownTime = kConfig.modKeyReleaseLockTime;
+			if( sTracker.keysHeldDown.test(VK_SHIFT) )
+				sTracker.keysLockedDown.setValue(VK_SHIFT, aLockDownTime);
+			if( sTracker.keysHeldDown.test(VK_CONTROL) )
+				sTracker.keysLockedDown.setValue(VK_CONTROL, aLockDownTime);
+			if( sTracker.keysHeldDown.test(VK_MENU) )
+				sTracker.keysLockedDown.setValue(VK_MENU, aLockDownTime);
+		}
 	}
 
 	return eResult_Ok;
 }
 
 
-static void sendQueuedKeyTap()
-{
-	const bool shiftDown = sTracker.keysHeldDown.test(VK_SHIFT);
-	const bool ctrlDown = sTracker.keysHeldDown.test(VK_CONTROL);
-	const bool altDown = sTracker.keysHeldDown.test(VK_MENU);
-	const bool wantShift = (sTracker.nextQueuedKeyTap & kVKeyShiftMask) != 0;
-	const bool wantCtrl = (sTracker.nextQueuedKeyTap & kVKeyCtrlMask) != 0;
-	const bool wantAlt = (sTracker.nextQueuedKeyTap & kVKeyAltMask) != 0;
-	if( shiftDown != wantShift || ctrlDown != wantCtrl || altDown != wantAlt )
-		return;
-
-	if( const u8 aVKey = (sTracker.nextQueuedKeyTap & vMkeyMask) )
-	{
-		// Can't tap key if it's held already, so make sure is released first
-		if( setKeyDown(aVKey, false) != eResult_Ok )
-			return;
-
-		// Press and then release the key to simulate a "tap" of the key
-		setKeyDown(aVKey, true);
-		setKeyDown(aVKey, false);
-	}
-
-	sTracker.nextQueuedKeyTap = 0;
-}
-
-
 static void releaseAllHeldKeys()
 {
-	sTracker.modKeyReleaseLockTime = 0;
+	sTracker.keysLockedDown.clear();
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
@@ -395,10 +397,14 @@ static void releaseAllHeldKeys()
 
 static void debugPrintInputVector()
 {
+	static u32 sUpdateCount = 0;
+	++sUpdateCount;
 #ifndef NDEBUG
-#ifdef INPUT_DISPATCHER_DEBUG_PRINT
+#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 #define siPrint(fmt, ...) debugPrint( \
-	(strFormat("ID(%d): ", gAppRunTime) + fmt).c_str(), __VA_ARGS__)
+	(strFormat("Dispatched on update %d (%dms): ", \
+	sUpdateCount, gAppRunTime) + fmt).c_str(), __VA_ARGS__)
+
 	for(size_t i = 0; i < sTracker.inputs.size(); ++i)
 	{
 		Input anInput = sTracker.inputs[i];
@@ -503,8 +509,14 @@ void update()
 	// -------------
 	if( sTracker.queuePauseTime > 0 )
 		sTracker.queuePauseTime -= gAppFrameTime;
-	if( sTracker.modKeyReleaseLockTime > 0 )
-		sTracker.modKeyReleaseLockTime -= gAppFrameTime;
+	for(VectorMap<u8, int>::iterator itr = sTracker.keysLockedDown.begin(),
+		next_itr = itr; itr != sTracker.keysLockedDown.end(); itr = next_itr)
+	{
+		++next_itr;
+		itr->second -= gAppFrameTime;
+		if( itr->second <= 0 )
+			next_itr = sTracker.keysLockedDown.erase(itr);
+	}
 
 
 	// Update queue
@@ -559,38 +571,53 @@ void update()
 	}
 
 
-	// Update special-case keys
-	// ------------------------
-	const bool wantShift = sTracker.keysWantDown.test(VK_SHIFT);
-	const bool wantCtrl = sTracker.keysWantDown.test(VK_CONTROL);
-	const bool wantAlt = sTracker.keysWantDown.test(VK_MENU);
-	const bool wantRMB = sTracker.keysWantDown.test(VK_RBUTTON);
+	// Determine desired state of each key
+	// -----------------------------------
+	BitArray<0xFF> aDesiredKeysDown = sTracker.keysWantDown;
+	bool canSendQueuedKeyTap = false;
 	if( sTracker.nextQueuedKeyTap )
-	{// Modifier keys must match those desired by queued key tap
-		sTracker.keysWantDown.set(VK_SHIFT,
+	{
+		// Make sure modifier keys match desired for tap
+		aDesiredKeysDown.set(VK_SHIFT,
 			(sTracker.nextQueuedKeyTap & kVKeyShiftMask) != 0);
-		sTracker.keysWantDown.set(VK_CONTROL,
+		aDesiredKeysDown.set(VK_CONTROL,
 			(sTracker.nextQueuedKeyTap & kVKeyCtrlMask) != 0);
-		sTracker.keysWantDown.set(VK_MENU,
+		aDesiredKeysDown.set(VK_MENU,
 			(sTracker.nextQueuedKeyTap & kVKeyAltMask) != 0);
+		// Make sure key to be tapped isn't already down
+		aDesiredKeysDown.reset(sTracker.nextQueuedKeyTap & vMkeyMask);
+		// Only allow tap if related keys are already in correct state
+		// Otherwise, they'll change state now and do the tap next update
+		// (or maybe after multiple updates if .modKeyReleaseLockTime > 0)
+		if( sTracker.keysHeldDown.test(VK_SHIFT) ==
+				aDesiredKeysDown.test(VK_SHIFT) &&
+			sTracker.keysHeldDown.test(VK_CONTROL) ==
+				aDesiredKeysDown.test(VK_CONTROL) &&
+			sTracker.keysHeldDown.test(VK_MENU) ==
+				aDesiredKeysDown.test(VK_MENU) &&
+			sTracker.keysHeldDown.test(
+				sTracker.nextQueuedKeyTap & vMkeyMask) == false )
+		{
+			canSendQueuedKeyTap = true;
+		}
 	}
 	// Right mouse button must stay active while mouse-look is
 	if( sTracker.mouseLookActive )
-		sTracker.keysWantDown.set(VK_RBUTTON);
+		aDesiredKeysDown.set(VK_RBUTTON);
 
 
-	// Sync keys held to wanted keys held
-	// ----------------------------------
+	// Sync actual keys held to desired state
+	// --------------------------------------
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		if( !sTracker.keysWantDown.test(aVKey) )
+		if( !aDesiredKeysDown.test(aVKey) )
 			setKeyDown(u8(aVKey), false);
 	}
-	for(int aVKey = sTracker.keysWantDown.firstSetBit();
-		aVKey < sTracker.keysWantDown.size();
-		aVKey = sTracker.keysWantDown.nextSetBit(aVKey+1))
+	for(int aVKey = aDesiredKeysDown.firstSetBit();
+		aVKey < aDesiredKeysDown.size();
+		aVKey = aDesiredKeysDown.nextSetBit(aVKey+1))
 	{
 		if( !sTracker.keysHeldDown.test(aVKey) )
 			setKeyDown(u8(aVKey), true);
@@ -599,20 +626,15 @@ void update()
 
 	// Send queued key tap for key sequences / strings
 	// -----------------------------------------------
-	if( sTracker.nextQueuedKeyTap )
-		sendQueuedKeyTap();
+	if( canSendQueuedKeyTap )
+	{
+		setKeyDown(u8(sTracker.nextQueuedKeyTap & vMkeyMask), true);
+		sTracker.nextQueuedKeyTap = 0;
+	}
 
 
-	// Restore status of special-case held keys
-	// ----------------------------------------
-	sTracker.keysWantDown.set(VK_SHIFT, wantShift);
-	sTracker.keysWantDown.set(VK_CONTROL, wantCtrl);
-	sTracker.keysWantDown.set(VK_MENU, wantAlt);
-	sTracker.keysWantDown.set(VK_RBUTTON, wantRMB);
-
-
-	// Update mouse input
-	// ------------------
+	// Update mouse acceleration from digital buttons
+	// ----------------------------------------------
 	sTracker.digitalMouseVel = max(0,
 		sTracker.digitalMouseVel -
 		kConfig.mouseDPadAccel * 3 * gAppFrameTime);
