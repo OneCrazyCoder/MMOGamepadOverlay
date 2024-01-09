@@ -14,6 +14,9 @@
 namespace Profile
 {
 
+// TEMP until add profile selection interface - index in kResourceProfiles[]
+#define DEFAULT_PROFILE_INDEX 4
+
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
@@ -505,10 +508,13 @@ void queryUserForProfile()
 {
 	// TODO
 	// TEMP - just generate and select a default profile
-	static const size_t kDefaultProfileID = 6; // PQ
-	//if( !profileExists(kResourceProfiles[kDefaultProfileID].name) )
-		generateResourceProfile(kDefaultProfileID);
-	sAvailableProfiles.push_back(kResourceProfiles[kDefaultProfileID].name);
+#ifdef _DEBUG
+	generateResourceProfile(DEFAULT_PROFILE_INDEX);
+#else
+	if( !profileExists(kResourceProfiles[DEFAULT_PROFILE_INDEX].name) )
+		generateResourceProfile(DEFAULT_PROFILE_INDEX);
+#endif
+	sAvailableProfiles.push_back(kResourceProfiles[DEFAULT_PROFILE_INDEX].name);
 	sAutoProfileIdx = sAvailableProfiles.size()-1;
 	loadProfile(sAvailableProfiles[sAutoProfileIdx]);
 	// END TEMP

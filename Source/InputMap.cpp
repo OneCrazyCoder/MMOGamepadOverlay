@@ -345,7 +345,8 @@ static MacroSlot stringToMacroSlot(
 	MacroSlot aMacroSlot;
 	if( theString.empty() )
 	{
-		mapDebugPrint("Macro left <unnamed> and <unassigned>!\n");
+		mapDebugPrint("%s: Left <unnamed> and <unassigned>!\n",
+			theBuilder.debugSlotName.c_str());
 		return aMacroSlot;
 	}
 
@@ -361,14 +362,16 @@ static MacroSlot stringToMacroSlot(
 		sMacroSets.back().label =
 			sMacroSets[theBuilder.currentSet].label +
 			"." + aMacroSlot.label;
-		mapDebugPrint("New Macro Set: '%s'\n",
+		mapDebugPrint("%s: Macro Set: '%s'\n",
+			theBuilder.debugSlotName.c_str(),
 			aMacroSlot.label.c_str());
 		return aMacroSlot;
 	}
 
 	if( theString.empty() )
 	{
-		mapDebugPrint("Macro '%s' left <unassigned>!\n",
+		mapDebugPrint("%s: Macro '%s' left <unassigned>!\n",
+			theBuilder.debugSlotName.c_str(),
 			aMacroSlot.label.c_str());
 		return aMacroSlot;
 	}
@@ -379,7 +382,8 @@ static MacroSlot stringToMacroSlot(
 		sKeyStrings.push_back(theString);
 		aMacroSlot.cmd.type = eCmdType_SlashCommand;
 		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		mapDebugPrint("Macro '%s' assigned to command: %s\n",
+		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
+			theBuilder.debugSlotName.c_str(),
 			aMacroSlot.label.c_str(), theString.c_str());
 		return aMacroSlot;
 	}
@@ -388,8 +392,21 @@ static MacroSlot stringToMacroSlot(
 		sKeyStrings.push_back(theString);
 		aMacroSlot.cmd.type = eCmdType_SayString;
 		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		mapDebugPrint("Macro '%s' assigned to string: %s\n",
+		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
+			theBuilder.debugSlotName.c_str(),
 			aMacroSlot.label.c_str(), &theString[1]);
+		return aMacroSlot;
+	}
+
+	// Check for alias to a keybind
+	if( u16* aKeyStringIdxPtr =
+			theBuilder.keyAliases.find(condense(theString)) )
+	{
+		aMacroSlot.cmd.type = eCmdType_VKeySequence;
+		aMacroSlot.cmd.data = *aKeyStringIdxPtr;
+		mapDebugPrint("%s: Macro '%s' assigned to KeyBind: '%s'\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
 		return aMacroSlot;
 	}
 
@@ -405,7 +422,8 @@ static MacroSlot stringToMacroSlot(
 		sKeyStrings.push_back(aVKeySeq);
 		aMacroSlot.cmd.type = eCmdType_VKeySequence;
 		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		mapDebugPrint("Macro '%s' assigned to key sequence: %s\n",
+		mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
+			theBuilder.debugSlotName.c_str(),
 			aMacroSlot.label.c_str(), theString.c_str());
 		return aMacroSlot;
 	}
@@ -414,8 +432,11 @@ static MacroSlot stringToMacroSlot(
 	sKeyStrings.push_back(std::string(">") + theString);
 	aMacroSlot.cmd.type = eCmdType_SayString;
 	aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-	mapDebugPrint("Macro '%s' assigned to string (forgot '>'?): %s\n",
-		aMacroSlot.label.c_str(), theString.c_str());
+	logError("%s: Macro '%s' unsure of meaning of '%s'. "
+			 "Assigning as a chat box say string. "
+			 "Add > to start of it if this was the intent.",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
 	return aMacroSlot;
 }
 
@@ -435,8 +456,6 @@ static void buildMacroSets(InputMapBuilder& theBuilder)
 			theBuilder.debugSlotName = std::string("[") +
 				sMacroSets[aSet].label + "] (" +
 				kMacroSlotLabel[aSlot] + ")";
-			mapDebugPrint("Parsing macro for slot '%s'\n",
-				theBuilder.debugSlotName.c_str());
 
 			sMacroSets[aSet].slot[aSlot] =
 				stringToMacroSlot(
@@ -989,9 +1008,6 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 
 static void buildControlScheme(InputMapBuilder& theBuilder)
 {
-	// Set up custom key aliases used by control schemes
-	buildKeyAliases(theBuilder);
-
 	mapDebugPrint("Building control scheme layers...\n");
 
 	getOrCreateLayerID(theBuilder, kMainLayerLabel);
@@ -1076,6 +1092,7 @@ void loadProfile()
 	// Build control scheme and macros
 	{
 		InputMapBuilder anInputMapBuilder;
+		buildKeyAliases(anInputMapBuilder);
 		buildControlScheme(anInputMapBuilder);
 		buildMacroSets(anInputMapBuilder);
 		assignSpecialKeys(anInputMapBuilder);
