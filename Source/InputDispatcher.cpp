@@ -193,6 +193,7 @@ struct DispatchTracker
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
 	bool mouseLookActive;
+	bool typingChatBoxString;
 
 	DispatchTracker() :
 		queuePauseTime(),
@@ -201,7 +202,8 @@ struct DispatchTracker
 		keysHeldDown(),
 		nextQueuedKey(),
 		backupQueuedKey(),
-		mouseLookActive(false)
+		mouseLookActive(),
+		typingChatBoxString()
 	{}
 };
 
@@ -287,6 +289,13 @@ static EResult popNextStringChar(const char* theString)
 		sTracker.queuePauseTime =
 			max(sTracker.queuePauseTime,
 				kConfig.chatBoxPostFirstKeyDelay);
+	}
+	else
+	{
+		// Allow releasing shift quickly to continue typing characters
+		// when are using chatbox (shouldn't have the same need for a delay
+		// as a key sequence since target likely uses keyboard events instead).
+		sTracker.typingChatBoxString = true;
 	}
 
 	if( theString[idx] == '\0' )
@@ -407,7 +416,8 @@ static EResult setKeyState(u16 theKey, EKeyState theNewState)
 	case VK_SHIFT:
 	case VK_CONTROL:
 	case VK_MENU:
-		aLockDownTime = kConfig.modKeyReleaseLockTime;
+		if( !sTracker.typingChatBoxString )
+			aLockDownTime = kConfig.modKeyReleaseLockTime;
 		// fall through
 	default:
 		anInput.type = INPUT_KEYBOARD;
@@ -794,7 +804,7 @@ void update()
 			sTracker.nextQueuedKey = 0;
 		}
 	}
-
+	sTracker.typingChatBoxString = false;
 
 	// Update mouse acceleration from digital buttons
 	// ----------------------------------------------

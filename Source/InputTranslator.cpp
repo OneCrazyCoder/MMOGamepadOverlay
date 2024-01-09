@@ -691,18 +691,31 @@ void update()
 		loadButtonCommandsForCurrentLayers();
 
 	// Update mouselook mode, HUD, etc for current (new) layer configuration
-	bool wantMouseLook = false;
-	for(u16 i = 0; i < sState.activeLayers.size(); ++i)
 	{
-		wantMouseLook = wantMouseLook ||
-			InputMap::mouseLookShouldBeOn(sState.activeLayers[i].layerID);
-		// TODO: update gVisibleHUD
+		bool wantMouseLook = false;
+		BitArray<eHUDElement_Num> wantedHUDElements;
+		wantedHUDElements.reset();
+		for(u16 i = 0; i < sState.activeLayers.size(); ++i)
+		{
+			wantMouseLook = wantMouseLook ||
+				InputMap::mouseLookShouldBeOn(sState.activeLayers[i].layerID);
+			wantedHUDElements |=
+				InputMap::hudElementsToShow(sState.activeLayers[i].layerID);
+			wantedHUDElements &=
+				~InputMap::hudElementsToHide(sState.activeLayers[i].layerID);
+		}
+		InputDispatcher::setMouseLookMode(wantMouseLook);
+		if( wantMouseLook )
+			sState.mouseLookTime += gAppFrameTime;
+		else
+			sState.mouseLookTime = 0;
+		if( gVisibleHUD != wantedHUDElements )
+		{
+			gVisibleHUD = wantedHUDElements;
+			// TODO: Stop using this temp hack
+			OverlayWindow::redraw();
+		}
 	}
-	InputDispatcher::setMouseLookMode(wantMouseLook);
-	if( wantMouseLook )
-		sState.mouseLookTime += gAppFrameTime;
-	else
-		sState.mouseLookTime = 0;
 
 	// Send input that was queued up by any of the above
 	InputDispatcher::moveMouse(

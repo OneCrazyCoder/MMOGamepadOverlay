@@ -143,11 +143,15 @@ struct ControlsLayer
 	std::string label;
 	ButtonActionsMap map;
 	u16 includeLayer;
-	BitArray8<eHUDElement_Num> hud;
+	BitArray<eHUDElement_Num> showHUD;
+	BitArray<eHUDElement_Num> hideHUD;
 	bool mouseLookOn;
 
 	ControlsLayer() :
-		includeLayer(), hud(), mouseLookOn()
+		includeLayer(),
+		showHUD(),
+		hideHUD(),
+		mouseLookOn()
 	{}
 };
 
@@ -929,7 +933,8 @@ static void updateLayerHUDSettings(
 		const EHUDElement aHUD_ID = hudElementNameToID(anElementName);
 		if( aHUD_ID != eHUDElement_Num )
 		{
-			sLayers[theLayerIdx].hud.set(aHUD_ID, show);
+			sLayers[theLayerIdx].showHUD.set(aHUD_ID, show);
+			sLayers[theLayerIdx].hideHUD.set(aHUD_ID, !show);
 		}
 		else if( anElementName == "HIDE" )
 		{
@@ -959,8 +964,10 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		sLayers[theLayerIdx].mouseLookOn =
 			sLayers[sLayers[theLayerIdx].includeLayer].mouseLookOn;
-		sLayers[theLayerIdx].hud =
-			sLayers[sLayers[theLayerIdx].includeLayer].hud;
+		sLayers[theLayerIdx].showHUD =
+			sLayers[sLayers[theLayerIdx].includeLayer].showHUD;
+		sLayers[theLayerIdx].hideHUD =
+			sLayers[sLayers[theLayerIdx].includeLayer].hideHUD;
 	}
 
 	const std::string& aLayerName = sLayers[theLayerIdx].label;
@@ -1118,6 +1125,20 @@ bool mouseLookShouldBeOn(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers[theLayerID].mouseLookOn;
+}
+
+
+const BitArray<eHUDElement_Num>& hudElementsToShow(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].showHUD;
+}
+
+
+const BitArray<eHUDElement_Num>& hudElementsToHide(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].hideHUD;
 }
 
 
