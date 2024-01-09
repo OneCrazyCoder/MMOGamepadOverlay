@@ -277,7 +277,7 @@ EHUDElement hudElementNameToID(const std::string& theString)
 		NameToElemMap map;
 		NameToElemMapper()
 		{
-			const size_t kMapSize = 8;
+			const size_t kMapSize = 6;
 			map.reserve(kMapSize);
 			map.setValue("MACROS",		eHUDElement_Macros);
 			map.setValue("ABILITIES",	eHUDElement_Abilities);
