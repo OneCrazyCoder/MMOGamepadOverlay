@@ -22,6 +22,13 @@ void loadProfile();
 // Checks if given controls layer should have mouse look turned on
 bool mouseLookShouldBeOn(u16 theLayerID);
 
+// Gets what HUD elements given layer specifically wants to show
+const BitArray<eHUDElement_Num>& hudElementsToShow(u16 theLayerID);
+
+// Gets what HUD elements given layer specifically wants to hide
+// (overrides any lower layers wishing to show these HUD elements)
+const BitArray<eHUDElement_Num>& hudElementsToHide(u16 theLayerID);
+
 // Get commands to execute for given button in given layer, in the
 // form of an array of 'Command' of size 'eBtnAct_Num', or NULL
 // if no commands have been assigned to given layer & button at all
