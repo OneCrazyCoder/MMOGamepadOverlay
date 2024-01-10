@@ -36,8 +36,8 @@ enum ECommandType
 	eCmdType_SayString,
 
 	// These trigger an action or state change in InputTranslator
-	eCmdType_HoldControlsLayer,
 	eCmdType_AddControlsLayer,
+	eCmdType_HoldControlsLayer,
 	eCmdType_RemoveControlsLayer,
 	eCmdType_ChangeMacroSet,
 	eCmdType_UseAbility, // includes spells, skills, & hotbuttons
