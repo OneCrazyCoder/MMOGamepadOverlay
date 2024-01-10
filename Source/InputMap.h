@@ -19,6 +19,9 @@ namespace InputMap
 // Load the input mappings and macro sets from current profile
 void loadProfile();
 
+// Returns how many valid Controls Layers there are
+size_t availableLayerCount();
+
 // Checks if given controls layer should have mouse look turned on
 bool mouseLookShouldBeOn(u16 theLayerID);
 

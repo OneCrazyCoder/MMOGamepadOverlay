@@ -24,6 +24,7 @@ namespace InputTranslator
 
 enum {
 kMinMouseLookTimeForAltMove = 50,
+kMaxLayerChangesPerUpdate = 20,
 };
 
 
@@ -59,49 +60,58 @@ struct ButtonState
 	bool heldDown;
 	bool shortHoldDone;
 	bool longHoldDone;
+	bool usedInButtonCombo;
 
 	void clear()
 	{
 		DBG_ASSERT(vKeyHeld == 0);
-		DBG_ASSERT(layerHeld == 0);
 		ZeroMemory(this, sizeof(ButtonState));
 	}
 
-	ButtonState() : vKeyHeld(), layerHeld() { clear(); }
+	ButtonState() : vKeyHeld() { clear(); }
 };
 
-struct LayerData
+struct LayerState
 {
-	u16 layerID;
-	u16 parentLayerID;
 	ButtonState autoButton;
+	u16 parentLayerID;
+	bool active;
+	bool newlyActive;
+	bool ownedButtonHit;
 
-	LayerData() : layerID(), parentLayerID() {}
+	void clear()
+	{
+		autoButton.clear();
+		parentLayerID = 0;
+		active = false;
+		newlyActive = false;
+		ownedButtonHit = false;
+	}
 };
 
 struct TranslatorState
 {
 	ButtonState gamepadButtons[eBtn_Num];
-	std::vector<LayerData> activeLayers;
-	BitVector<64> buttonFromLayerWasHit;
+	std::vector<LayerState> layers;
+	std::vector<u16> layerOrder;
 	int mouseLookTime;
+	bool mouseLookOn;
 
 	void clear()
 	{
 		for(size_t i = 0; i < ARRAYSIZE(gamepadButtons); ++i)
 			gamepadButtons[i].clear();
-		for(size_t i = 0; i < activeLayers.size(); ++i)
-			activeLayers[i].autoButton.clear();
-		activeLayers.clear();
+		for(size_t i = 0; i < layers.size(); ++i)
+			layers[i].autoButton.clear();
+		layers.clear();
+		layerOrder.clear();
 		mouseLookTime = 0;
-		buttonFromLayerWasHit.reset();
+		mouseLookOn = false;
 	}
 };
 
 struct InputResults
 {
-	std::vector< std::pair<u16, u16> > layersToAdd;
-	std::vector<u16> layersToRemove;
 	std::vector<Command> keys;
 	std::vector<Command> strings;
 	s16 mouseMoveX;
@@ -110,11 +120,10 @@ struct InputResults
 	bool mouseMoveDigital;
 	bool mouseWheelDigital;
 	bool mouseWheelStepped;
+	bool layerChangeMade;
 
 	void clear()
 	{
-		layersToAdd.clear();
-		layersToRemove.clear();
 		keys.clear();
 		strings.clear();
 		mouseMoveX = 0;
@@ -123,6 +132,7 @@ struct InputResults
 		mouseMoveDigital = false;
 		mouseWheelDigital = false;
 		mouseWheelStepped = false;
+		layerChangeMade = false;
 	}
 };
 
@@ -140,24 +150,105 @@ static InputResults sResults;
 // Local Functions
 //-----------------------------------------------------------------------------
 
+static void loadLayerData()
+{
+	DBG_ASSERT(sState.layers.empty());
+
+	sState.layers.reserve(InputMap::availableLayerCount());
+	sState.layers.resize(InputMap::availableLayerCount());
+	for(u16 i = 0; i < sState.layers.size(); ++i)
+	{
+		sState.layers[i].clear();
+		// Assign auto-button commands for this layer ID
+		// Note that these leave .commandsLayer as default 0 value,
+		// to prevent them from setting ownedButtonHit flags,
+		// which should only be set by actual gamepad button presses.
+		sState.layers[i].autoButton.commands =
+			InputMap::commandsForButton(i, eBtn_None);
+	}
+}
+
+
 static void	loadButtonCommandsForCurrentLayers()
 {
 	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
+		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
 		// Start with the front-most layer, and stop once get a non-null
-		for(std::vector<LayerData>::const_reverse_iterator itr =
-			sState.activeLayers.rbegin();
-			itr != sState.activeLayers.rend(); ++itr)
+		for(std::vector<u16>::const_reverse_iterator itr =
+			sState.layerOrder.rbegin();
+			itr != sState.layerOrder.rend(); ++itr)
 		{
-			sState.gamepadButtons[aBtnIdx].commands =
-				InputMap::commandsForButton(itr->layerID, EButton(aBtnIdx));
-			if( sState.gamepadButtons[aBtnIdx].commands )
+			aBtnState.commands =
+				InputMap::commandsForButton(*itr, EButton(aBtnIdx));
+			if( aBtnState.commands )
 			{
-				sState.gamepadButtons[aBtnIdx].commandsLayer = itr->layerID;
+				aBtnState.commandsLayer = *itr;
 				break;
 			}
 		}
 	}
+}
+
+
+static void removeControlsLayer(u16 theLayerID)
+{
+	if( theLayerID == 0 || !sState.layers[theLayerID].active )
+		return;
+
+	// Remove given layer ID and any other layers it spawned via 'Add'
+	// (reverse iteration so children likely to be removed first)
+	for(std::vector<u16>::reverse_iterator itr =
+		sState.layerOrder.rbegin(), next_itr = itr;
+		itr != sState.layerOrder.rend(); itr = next_itr)
+	{
+		++next_itr;
+		LayerState& aLayer = sState.layers[*itr];
+		if( aLayer.parentLayerID == theLayerID )
+		{
+			// Need to use recursion so also remove grandchildren, etc
+			removeControlsLayer(*itr);
+			// Recursion will mess up our iterator beyond reasonable recovery,
+			// so just start at the beginning (end) again
+			next_itr = sState.layerOrder.rbegin();
+		}	
+		else if( *itr == theLayerID )
+		{
+			transDebugPrint("Removing Controls Layer: %s\n",
+				InputMap::layerLabel(*itr).c_str());
+
+			// Reset some layer properties
+			aLayer.active = false;
+			aLayer.ownedButtonHit = false;
+			aLayer.newlyActive = false;
+			sResults.layerChangeMade = true;
+
+			// Remove from the layer order and recover iterator to continue
+			next_itr = std::vector<u16>::reverse_iterator(
+				sState.layerOrder.erase((itr+1).base()));
+		}
+	}
+}
+
+
+static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID = 0)
+{
+	DBG_ASSERT(theLayerID < sState.layers.size());
+	DBG_ASSERT(theSpawningLayerID < sState.layers.size());
+
+	// Remove the layer first if it is already active
+	removeControlsLayer(theLayerID);
+	DBG_ASSERT(!sState.layers[theLayerID].active);
+
+	transDebugPrint("Adding Controls Layer: %s\n",
+		InputMap::layerLabel(theLayerID).c_str());
+
+	sState.layerOrder.push_back(theLayerID);
+	LayerState& aLayer = sState.layers[theLayerID];
+	aLayer.parentLayerID = theSpawningLayerID;
+	aLayer.active = true;
+	aLayer.newlyActive = true;
+	sResults.layerChangeMade = true;
 }
 
 
@@ -171,23 +262,6 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 		InputDispatcher::sendKeyCommand(aCmd);
 		theBtnState.vKeyHeld = 0;
 	}
-}
-
-
-static void releaseLayerHeldByButton(ButtonState& theBtnState)
-{
-	if( theBtnState.layerHeld )
-	{
-		sResults.layersToRemove.push_back(theBtnState.layerHeld);
-		theBtnState.layerHeld = 0;
-	}
-}
-
-
-static void releaseAllHeldByButton(ButtonState& theBtnState)
-{
-	releaseKeyHeldByButton(theBtnState);
-	releaseLayerHeldByButton(theBtnState);
 }
 
 
@@ -216,18 +290,15 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		// Queue to send last, since can block other input the longest
 		sResults.strings.push_back(theCmd);
 		break;
-	case eCmdType_HoldControlsLayer:
-		if( theBtnState.layerHeld )
-			releaseLayerHeldByButton(theBtnState);
-		theBtnState.layerHeld = theCmd.data;
-		// fall through
 	case eCmdType_AddControlsLayer:
-		sResults.layersToAdd.push_back(
-			std::make_pair(theCmd.data, theCmd.data2));
+		addControlsLayer(theCmd.data, theCmd.data2);
+		break;
+	case eCmdType_HoldControlsLayer:
+		// Special-case, handled elsewhere
 		break;
 	case eCmdType_RemoveControlsLayer:
 		DBG_ASSERT(theCmd.data != 0);
-		sResults.layersToRemove.push_back(theCmd.data);
+		removeControlsLayer(theCmd.data);
 		break;
 	case eCmdType_ChangeMacroSet:
 		gMacroSetID = theCmd.data;
@@ -262,12 +333,12 @@ static void processButtonPress(ButtonState& theBtnState)
 	// When first pressed, back up copy of current commands to be referenced
 	// by other button actions later. This makes sure if layers change
 	// before the button is released, it will still behave as it would
-	// the previously, which could be important especially for cases
-	// like _Release matching up with a particular _Press.
+	// previously, which could be important - especially for cases like
+	// _Release matching up with a particular _Press.
 	theBtnState.commandsWhenPressed = theBtnState.commands;
 
 	// Log that at least one button in the assigned layer has been pressed
-	sState.buttonFromLayerWasHit.set(theBtnState.commandsLayer);
+	sState.layers[theBtnState.commandsLayer].ownedButtonHit = true;
 
 	if( !theBtnState.commands )
 		return;
@@ -429,10 +500,9 @@ static void processButtonShortHold(ButtonState& theBtnState)
 {
 	theBtnState.shortHoldDone = true;
 
-	// Skip if this button is holding a layer active and one of the other
-	// buttons from the layer has been pressed.
-	if( theBtnState.layerHeld > 0 &&
-		sState.buttonFromLayerWasHit.test(theBtnState.layerHeld) )
+	// Skip if this button was used as a modifier to execute a button
+	// combination command (i.e. is L2 for the combo L2+X).
+	if( theBtnState.usedInButtonCombo )
 		return;
 
 	// Only ever use commandsWhenPressed for short hold action
@@ -448,10 +518,9 @@ static void processButtonLongHold(ButtonState& theBtnState)
 {
 	theBtnState.longHoldDone = true;
 
-	// Skip if this button is holding a layer active and one of the other
-	// buttons from the layer has been pressed.
-	if( theBtnState.layerHeld > 0 &&
-		sState.buttonFromLayerWasHit.test(theBtnState.layerHeld) )
+	// Skip if this button was used as a modifier to execute a button
+	// combination command (i.e. is L2 for the combo L2+X).
+	if( theBtnState.usedInButtonCombo )
 		return;
 
 	// Only ever use commandsWhenPressed for long hold action
@@ -476,16 +545,13 @@ static void processButtonTap(ButtonState& theBtnState)
 
 static void processButtonReleased(ButtonState& theBtnState)
 {
-	// If this button is holding a layer active and one of the other
-	// buttons from the layer has been pressed, then do not perform
-	// any other actions for this button short of releasing the held
-	// layer (or any keys being held).
-	const bool skipReleaseCommands =
-		theBtnState.layerHeld > 0 &&
-		sState.buttonFromLayerWasHit.test(theBtnState.layerHeld);
+	// If this button was used as a modifier to execute a button combination
+	// command (i.e. is L2 for the combo L2+X), then do not perform any other
+	// actions for this button besides releasing held keys and resetting state.
+	const bool skipReleaseCommands = theBtnState.usedInButtonCombo;
 
-	// Release anything being held by this button
-	releaseAllHeldByButton(theBtnState);
+	// Release any key being held by this button
+	releaseKeyHeldByButton(theBtnState);
 
 	// If released quickly enough, process 'tap' event
 	if( !skipReleaseCommands && theBtnState.heldTime < kConfig.shortHoldTime )
@@ -511,10 +577,10 @@ static void processButtonReleased(ButtonState& theBtnState)
 	}
 	processCommand(theBtnState, aCmd);
 
-	// At this point nothing should be held by this button,
+	// At this point no keys should be held by this button,
 	// but maybe something weird happened with release/tap commands,
-	// so check again to make sure everything is released.
-	releaseAllHeldByButton(theBtnState);
+	// so check again to make sure
+	releaseKeyHeldByButton(theBtnState);
 
 	// Reset certain button states when button is released
 	theBtnState.heldTime = 0;
@@ -522,14 +588,14 @@ static void processButtonReleased(ButtonState& theBtnState)
 	theBtnState.heldDown = false;
 	theBtnState.shortHoldDone = false;
 	theBtnState.longHoldDone = false;
+	theBtnState.usedInButtonCombo = false;
 	DBG_ASSERT(theBtnState.vKeyHeld == 0);
-	DBG_ASSERT(theBtnState.layerHeld == 0);
 }
 
 
 static void processButtonState(
-	ButtonState& theBtnState, bool isDown,
-	bool wasHit = false, u8 theAnalogVal = 0)
+	ButtonState& theBtnState,
+	bool isDown, bool wasHit, u8 theAnalogVal = 0)
 {
 	const bool wasDown = theBtnState.heldDown;
 
@@ -557,6 +623,16 @@ static void processButtonState(
 	if( isDown )
 	{
 		theBtnState.heldDown = true;
+
+		// If this button is holding a layer active and another button that
+		// is assigned a command from that layer was pressed, then flag
+		// this button as being used as the modifier key in a button combo.
+		if( theBtnState.layerHeld &&
+			sState.layers[theBtnState.layerHeld].ownedButtonHit )
+		{
+			theBtnState.usedInButtonCombo = true;
+		}
+
 		if( wasDown && theBtnState.heldTime < (0xFFFF - gAppFrameTime) )
 			theBtnState.heldTime += gAppFrameTime;
 		if( theBtnState.heldTime >= kConfig.shortHoldTime &&
@@ -573,68 +649,151 @@ static void processButtonState(
 }
 
 
-static void removeControlsLayer(u16 theLayerID)
+static void releaseLayerHeldByButton(ButtonState& theBtnState)
 {
-	if( theLayerID == 0 )
-		return;
-
-	// Remove given layer ID and any other layers it spawned
-	// (reverse iteration so children likely to be removed first)
-	for(std::vector<LayerData>::reverse_iterator itr =
-		sState.activeLayers.rbegin(), next_itr = itr;
-		itr != sState.activeLayers.rend(); itr = next_itr)
+	if( theBtnState.layerHeld )
 	{
-		++next_itr;
-		if( itr->parentLayerID == theLayerID )
-		{
-			// Need to use recursion so also remove grandchildren, etc
-			removeControlsLayer(itr->layerID);
-			// Recursion will mess up our iterator beyond reasonable recovery,
-			// so just start at the beginning (end) again
-			next_itr = sState.activeLayers.rbegin();
-		}	
-		else if( itr->layerID == theLayerID )
-		{
-			transDebugPrint("Removing Controls Layer: %s\n",
-				InputMap::layerLabel(itr->layerID).c_str());
-
-			// Release the special "Auto" button (eBtn_None) for this layer
-			processButtonState(itr->autoButton, false);
-
-			// Erase the layer and recover iterator to continue
-			next_itr = std::vector<LayerData>::reverse_iterator(
-				sState.activeLayers.erase((itr+1).base()));
-		}
+		// Flag if used in a button combo, like L2 in L2+X
+		if( sState.layers[theBtnState.layerHeld].ownedButtonHit )
+			theBtnState.usedInButtonCombo = true;
+		removeControlsLayer(theBtnState.layerHeld);
+		theBtnState.layerHeld = 0;
 	}
 }
 
 
-static void addControlsLayer(std::pair<u16, u16> theLayerToAdd)
+static void holdLayerByButton(ButtonState& theBtnState, u16 theLayerID)
 {
-	const u16 aNewLayerID = theLayerToAdd.first;
-	const u16 aParentLayerID = theLayerToAdd.second;
+	releaseLayerHeldByButton(theBtnState);
+	addControlsLayer(theLayerID);
+	theBtnState.layerHeld = theLayerID;
+}
 
-	while(sState.buttonFromLayerWasHit.size() < aNewLayerID+1)
-		sState.buttonFromLayerWasHit.push_back(false);
-	sState.buttonFromLayerWasHit.reset(aNewLayerID);
 
-	// Remove the layer first if it is already active
-	removeControlsLayer(aNewLayerID);
+static bool tryAddLayerFromButton(
+	ButtonState& theBtnState, bool isDown, bool wasHit)
+{
+	// A hit and quick release again doesn't matter for holding layers active,
+	// so if the button isn't down right now then just release held layer.
+	if( !isDown )
+	{
+		releaseLayerHeldByButton(theBtnState);
+		return false;
+	}
 
-	transDebugPrint("Adding Controls Layer: %s\n",
-		InputMap::layerLabel(aNewLayerID).c_str());
+	// Only concerned with buttons that have _HoldControlsLayer for _Down
+	if( !theBtnState.commands )
+		return false;
+	const Command& aDownCmd = theBtnState.commands[eBtnAct_Down];
+	if( aDownCmd.type != eCmdType_HoldControlsLayer )
+		return false;
 
-	sState.activeLayers.push_back(LayerData());
-	sState.activeLayers.back().layerID = aNewLayerID;
-	sState.activeLayers.back().parentLayerID = aParentLayerID;
+	// Only concerned with layers that aren't already active
+	const u16 aLayerID = aDownCmd.data;
+	if( sState.layers[aLayerID].active )
+		return false;
+	
+	// If newly hit, replace any past layer with new layer
+	if( wasHit )
+	{
+		holdLayerByButton(theBtnState, aLayerID);
+		return true;
+	}
 
-	// Assign and "press" the special "Auto" button for this layer
-	// Note that these leave .commandsLayer as default 0 value,
-	// to prevent them from setting buttonFromLayerWasHit flags,
-	// which should only be set by actual gamepad button presses.
-	sState.activeLayers.back().autoButton.commands =
-		InputMap::commandsForButton(aNewLayerID, eBtn_None);
-	processButtonState(sState.activeLayers.back().autoButton, true, true);
+	// Generally if the button is just being held down and wasn't newly hit,
+	// nothing should change and we're done, but there is a special exception.
+	// Say want different actions for X, L2+X, R2+X, and L2+R2+X. Could use
+	// a Profile configuration such as (; = new line in actual .ini file):
+	// [Layer.A] L2 = Layer B; R2 = Layer C; X = A
+	// [Layer.B] R2 = Layer D; X = B
+	// [Layer.C] L2 = Layer D; X = C
+	// [Layer.D] X = D
+	// This will make 'X' press A, L2+X=B, R2+X=C, and L2+R2+X=D. However, if
+	// hold L2 (layer B), then hold R2 (layer D), then release L2 but continue
+	// to hold R2, then press X, would get 'D' even though L2 is no longer held,
+	// and pressing L2 again would change it to now be 'B' instead! User would
+	// likely expect that letting go of L2 would instead revert to layer C,
+	// then back to D again if press L2 again without ever releasing R2 at all.
+	// The below code is exclusively here to handle this specific execption.
+	// This altered behaviour should only occur in cases where the button sets
+	// a layer in both configurations and isn't doing anything else via the
+	// old layer's Auto button or having other commands besides holding layers.
+	if( theBtnState.layerHeld == 0 )
+		return false;
+
+	const Command* aCmdSet = theBtnState.commandsWhenPressed;
+	if( aCmdSet != null )
+	{
+		for( size_t i = 0; i < eBtnAct_Num; ++i)
+		{
+			if( i == eBtnAct_Down )
+				continue;
+			if( aCmdSet[i].type != eCmdType_Empty )
+				return false;
+		}
+	}
+
+	aCmdSet = sState.layers[aLayerID].autoButton.commands;
+	if( aCmdSet != null )
+	{
+		for( size_t i = 0; i < eBtnAct_Num; ++i)
+		{
+			if( aCmdSet[i].type != eCmdType_Empty &&
+				aCmdSet[i].type != eCmdType_HoldControlsLayer &&
+				aCmdSet[i].type != eCmdType_AddControlsLayer &&
+				aCmdSet[i].type != eCmdType_RemoveControlsLayer )
+				return false;
+		}
+	}
+
+	// Should be safe to directly transition from prior layer held to new one
+	holdLayerByButton(theBtnState, aLayerID);
+
+	return true;
+}
+
+
+static void processLayerHoldButtons()
+{
+	int aLoopCount = 0;
+	bool aLayerWasAdded = true;
+	while(aLayerWasAdded)
+	{
+		aLayerWasAdded = false;
+		for(size_t i = 1; i < eBtn_Num; ++i) // skip eBtn_None
+		{
+			aLayerWasAdded = aLayerWasAdded ||
+				tryAddLayerFromButton(
+					sState.gamepadButtons[i],
+					Gamepad::buttonDown(EButton(i)),
+					Gamepad::buttonHit(EButton(i)));
+		}
+		if( !aLayerWasAdded )
+		{
+			for(size_t i = 0; i < sState.layers.size(); ++i)
+			{
+				LayerState& aLayer = sState.layers[i];
+				aLayerWasAdded = aLayerWasAdded ||
+					tryAddLayerFromButton(
+						aLayer.autoButton,
+						aLayer.active,
+						aLayer.newlyActive);
+			}
+		}
+
+		// Update button commands for newly added layers
+		// (removed layers will be handled later in main update)
+		if( aLayerWasAdded )
+		{
+			loadButtonCommandsForCurrentLayers();
+			if( ++aLoopCount > kMaxLayerChangesPerUpdate )
+			{
+				logError("Infinite loop of Controls Layer changes detected!");
+				gHadFatalError = true;
+				break;
+			}
+		}
+	}
 }
 
 
@@ -645,7 +804,8 @@ static void addControlsLayer(std::pair<u16, u16> theLayerToAdd)
 void loadProfile()
 {
 	kConfig.load();
-	addControlsLayer(std::make_pair(0, 0));
+	loadLayerData();
+	addControlsLayer(0);
 	loadButtonCommandsForCurrentLayers();
 }
 
@@ -653,9 +813,9 @@ void loadProfile()
 void cleanup()
 {
 	for(size_t i = 0; i < ARRAYSIZE(sState.gamepadButtons); ++i)
-		releaseAllHeldByButton(sState.gamepadButtons[i]);
-	for(size_t i = 0; i < sState.activeLayers.size(); ++i)
-		releaseAllHeldByButton(sState.activeLayers[i].autoButton);
+		releaseKeyHeldByButton(sState.gamepadButtons[i]);
+	for(size_t i = 0; i < sState.layers.size(); ++i)
+		releaseKeyHeldByButton(sState.layers[i].autoButton);
 	sState.clear();
 	sResults.clear();
 	gMacroSetID = 0;
@@ -664,9 +824,21 @@ void cleanup()
 
 void update()
 {
-	// Every active layer's "auto" button is always considered "held down"
-	for(size_t i = 0; i < sState.activeLayers.size(); ++i)
-		processButtonState(sState.activeLayers[i].autoButton, true);
+	// Buttons that 'hold' layers need to be checked first, in order to make
+	// sure that combinations enabled through layers like 'L2+X' work when
+	// both buttons are pressed at exactly the same time.
+	processLayerHoldButtons();
+
+	// Treat each layer as also being a virtual button ("Auto" button)
+	for(size_t i = 0; i < sState.layers.size(); ++i)
+	{
+		LayerState& aLayer = sState.layers[i];
+		processButtonState(
+			aLayer.autoButton,
+			aLayer.active,
+			aLayer.newlyActive);
+		aLayer.newlyActive = false;
+	}
 
 	// Process state changes of actual physical Gamepad buttons
 	for(size_t i = 1; i < eBtn_Num; ++i) // skip eBtn_None
@@ -678,37 +850,22 @@ void update()
 			Gamepad::buttonAnalogVal(EButton(i)));
 	}
 
-	// Remove layers to be removed (and "release" their Auto buttons)
-	for(size_t i = 0; i < sResults.layersToRemove.size(); ++i)
-		removeControlsLayer(sResults.layersToRemove[i]);
-
-	// Add newly requested layers
-	for(size_t i = 0; i < sResults.layersToAdd.size(); ++i)
-		addControlsLayer(sResults.layersToAdd[i]);
-
-	// Update button commands to match layer changes
-	if( !sResults.layersToRemove.empty() || !sResults.layersToAdd.empty() )
-		loadButtonCommandsForCurrentLayers();
-
-	// Update mouselook mode, HUD, etc for current (new) layer configuration
+	// Update button commands, mouselook mode, HUD, etc for new layer order
+	if( sResults.layerChangeMade )
 	{
-		bool wantMouseLook = false;
+		loadButtonCommandsForCurrentLayers();
+		sState.mouseLookOn = false;
 		BitArray<eHUDElement_Num> wantedHUDElements;
 		wantedHUDElements.reset();
-		for(u16 i = 0; i < sState.activeLayers.size(); ++i)
+		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 		{
-			wantMouseLook = wantMouseLook ||
-				InputMap::mouseLookShouldBeOn(sState.activeLayers[i].layerID);
+			sState.mouseLookOn = sState.mouseLookOn ||
+				InputMap::mouseLookShouldBeOn(sState.layerOrder[i]);
 			wantedHUDElements |=
-				InputMap::hudElementsToShow(sState.activeLayers[i].layerID);
+				InputMap::hudElementsToShow(sState.layerOrder[i]);
 			wantedHUDElements &=
-				~InputMap::hudElementsToHide(sState.activeLayers[i].layerID);
+				~InputMap::hudElementsToHide(sState.layerOrder[i]);
 		}
-		InputDispatcher::setMouseLookMode(wantMouseLook);
-		if( wantMouseLook )
-			sState.mouseLookTime += gAppFrameTime;
-		else
-			sState.mouseLookTime = 0;
 		if( gVisibleHUD != wantedHUDElements )
 		{
 			gVisibleHUD = wantedHUDElements;
@@ -716,6 +873,13 @@ void update()
 			OverlayWindow::redraw();
 		}
 	}
+
+	// Update mouselook status continuously
+	InputDispatcher::setMouseLookMode(sState.mouseLookOn);
+	if( sState.mouseLookOn )
+		sState.mouseLookTime += gAppFrameTime;
+	else
+		sState.mouseLookTime = 0;
 
 	// Send input that was queued up by any of the above
 	InputDispatcher::moveMouse(

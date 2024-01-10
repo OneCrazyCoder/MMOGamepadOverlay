@@ -876,9 +876,12 @@ static void addButtonAction(
 			kButtonActionPrefx[aBtnAct][0] ? " " : "",
 			kProfileButtonName[aBtnID],
 			theCmdStr.c_str());
-		aCmd.type = eCmdType_Empty;
+		return;
 	}
-	if( aBtnAct != eBtnAct_Down && aCmd.type >= eCmdType_FirstContinuous )
+	if( aBtnAct != eBtnAct_Down &&
+		(aCmd.type >= eCmdType_FirstContinuous ||
+		 aCmd.type == eCmdType_HoldControlsLayer ||
+		 aCmd.type == eCmdType_PressAndHoldKey) )
 	{
 		logError(
 			"[%s]: Invalid assignment of '%s %s' action to '%s'! "
@@ -1118,6 +1121,12 @@ void loadProfile()
 	// being an sKeyStrings index into having direct pointers to
 	// the C-strings for use in other modules.
 	convertKeyStringIndexesToPointers();
+}
+
+
+size_t availableLayerCount()
+{
+	return sLayers.size();
 }
 
 
