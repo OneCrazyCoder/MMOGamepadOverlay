@@ -28,6 +28,7 @@ kMouseMaxDigitalVel = 32768,
 kVKeyModsMask = 0x3F00,
 kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
 kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
+kVKeyForceReleaseFlag = kVKeyHoldFlag | kVKeyReleaseFlag,
 };
 
 enum EKeyState
@@ -222,6 +223,7 @@ static DispatchTracker sTracker;
 
 static EResult popNextKey(const char* theVKeySequence)
 {
+	DBG_ASSERT(sTracker.nextQueuedKey = 0);
 	while( theVKeySequence[sTracker.currTaskProgress] != '\0' )
 	{
 		const size_t idx = sTracker.currTaskProgress++;
@@ -243,20 +245,59 @@ static EResult popNextKey(const char* theVKeySequence)
 			return eResult_Incomplete;
 		}
 
-		if( aVKey == VK_SHIFT )
-			sTracker.nextQueuedKey |= kVKeyShiftFlag;
-		else if( aVKey == VK_CONTROL )
-			sTracker.nextQueuedKey |= kVKeyCtrlFlag;
-		else if( aVKey == VK_MENU )
-			sTracker.nextQueuedKey |= kVKeyAltFlag;
-		else
+		if( aVKey == VK_CANCEL )
+		{
+			// Just set the flags since this can never be an actual key
+			sTracker.nextQueuedKey |= kVKeyForceReleaseFlag;
+		}
+		else if( sTracker.nextQueuedKey & kVKeyMask )
+		{
+			// Has a key assigned - must be a modifier key, so
+			// first convert it to a flag value instead
+			switch(sTracker.nextQueuedKey & kVKeyMask)
+			{
+			case VK_SHIFT:
+				sTracker.nextQueuedKey |= kVKeyShiftFlag;
+				break;
+			case VK_CONTROL:
+				sTracker.nextQueuedKey |= kVKeyCtrlFlag;
+				break;
+			case VK_MENU:
+				sTracker.nextQueuedKey |= kVKeyAltFlag;
+				break;
+			default:
+				// Should have exited aleady if it wasn't a modifier key!
+				DBG_ASSERT(false);
+			}
+			sTracker.nextQueuedKey &= ~kVKeyMask;
+			// Now add the actual key
 			sTracker.nextQueuedKey |= aVKey;
-		if( sTracker.nextQueuedKey & kVKeyMask )
+		}
+		else
+		{
+			// Add the key while maintaining flags.
+			// If this is a modifier key and is not the last one,
+			// the next value will convert this key to a flag instead.
+			sTracker.nextQueuedKey |= aVKey;
+		}
+		// Check if reached a non-modifier key to press
+		if( (sTracker.nextQueuedKey & kVKeyMask) != 0 &&
+			(sTracker.nextQueuedKey & kVKeyMask) != VK_SHIFT &&
+			(sTracker.nextQueuedKey & kVKeyMask) != VK_CONTROL &&
+			(sTracker.nextQueuedKey & kVKeyMask) != VK_MENU )
+		{
+			// Done for now
 			break;
+		}
 	}
 
 	if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
+	{
+		// Set a flags-only key to just be 0
+		if( sTracker.nextQueuedKey && !(sTracker.nextQueuedKey & kVKeyMask) )
+			sTracker.nextQueuedKey = 0;
 		return eResult_TaskCompleted;
+	}
 
 	return eResult_Incomplete;
 }
@@ -476,7 +517,7 @@ static void debugPrintInputVector()
 #ifndef NDEBUG
 #ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 #define siPrint(fmt, ...) debugPrint( \
-	(strFormat("Dispatched on update %d (%dms): ", \
+	(strFormat("InputDispatcher: On update %d (%dms): ", \
 	sUpdateCount, gAppRunTime) + fmt).c_str(), __VA_ARGS__)
 
 	for(size_t i = 0; i < sTracker.inputs.size(); ++i)
@@ -593,6 +634,26 @@ void update()
 	}
 
 
+	// Initiate MouseLook mode
+	// -----------------------
+	if( sTracker.mouseLookActive && !sTracker.keysHeldDown.test(VK_RBUTTON) &&
+		!sTracker.nextQueuedKey && !sTracker.backupQueuedKey &&
+		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) )
+	{// Between other tasks, so should start up mouse look mode
+		sTracker.nextQueuedKey = VK_RBUTTON;
+		// Jump curser to safe spot for initial right-click first
+		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+		debugPrint("InputDispatcher: Jumping cursor to begin MouseLook mode\n");
+		#endif
+		Input anInput;
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.dx = 32768;
+		anInput.mi.dy = 32768;
+		anInput.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+		sTracker.inputs.push_back(anInput);
+	}
+
+
 	// Update queue
 	// ------------
 	if( !sTracker.nextQueuedKey )
@@ -610,16 +671,17 @@ void update()
 
 		const Command& aCmd = aCurrTask.cmd;
 		VectorMap<u16, EKeyState>::iterator aKeyWantDownItr;
-		EResult aTaskResult;
+		EResult aTaskResult = eResult_TaskCompleted;
 
 		switch(aCmd.type)
 		{
 		case eCmdType_PressAndHoldKey:
 			// Just set want the key/combo pressed
 			sTracker.keysWantDown.findOrAdd(aCmd.data, eKeyState_Up);
-			aTaskResult = eResult_TaskCompleted;
 			break;
 		case eCmdType_ReleaseKey:
+			// Do nothing if key was never requested down anyway
+			// (or was already force-released by kVKeyForceReleaseFlag)
 			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.data);
 			if( aKeyWantDownItr == sTracker.keysWantDown.end() )
 				break;
@@ -652,19 +714,14 @@ void update()
 					sTracker.nextQueuedKey = aCmd.data | kVKeyReleaseFlag;
 				}
 			}
-			aTaskResult = eResult_TaskCompleted;
 			break;
 		case eCmdType_VKeySequence:
-			if( taskIsPastDue )
-				aTaskResult = eResult_TaskCompleted;
-			else
+			if( !taskIsPastDue )
 				aTaskResult = popNextKey(aCmd.string);
 			break;
 		case eCmdType_SlashCommand:
 		case eCmdType_SayString:
-			if( taskIsPastDue )
-				aTaskResult = eResult_TaskCompleted;
-			else
+			if( !taskIsPastDue )
 				aTaskResult = popNextStringChar(aCmd.string);
 			break;
 		}
@@ -679,8 +736,8 @@ void update()
 	// Process keysWantDown
 	// --------------------
 	BitArray<0xFF> aDesiredKeysDown; aDesiredKeysDown.reset();
-	// Right mouse button should stay down during mouse-look mode
-	if( sTracker.mouseLookActive )
+	// Keep holding right mouse button once mouselook mode started
+	if( sTracker.mouseLookActive && sTracker.keysHeldDown.test(VK_RBUTTON) )
 		aDesiredKeysDown.set(VK_RBUTTON);
 	bool hasNonPressedKeyThatWantsHeldDown = false;
 	u16 aPressedKeysDesiredMods = 0;
@@ -695,6 +752,12 @@ void update()
 		{// Already been pressed initially
 			aDesiredKeysDown.set(aBaseVKey);
 			aPressedKeysDesiredMods |= aVKeyModFlags;
+			if( aVKeyModFlags &&
+				(sTracker.nextQueuedKey & kVKeyReleaseFlag) &&
+				(sTracker.nextQueuedKey & kVKeyMask) == aBaseVKey )
+			{// Going to release base key, can keep mod keys down until then
+				sTracker.nextQueuedKey |= aVKeyModFlags;
+			}
 		}
 		else if( areModKeysHeld(aVKey) &&
 				 (sTracker.nextQueuedKey == 0 ||
@@ -710,6 +773,9 @@ void update()
 			hasNonPressedKeyThatWantsHeldDown = true;
 		}
 	}
+	// If nothing queued or needs to be newly pressed, hold down any
+	// modifier keys that any combo-keys wanted held down.
+	// This likely isn't necessary but target apps may behave better.
 	if( !sTracker.nextQueuedKey && !hasNonPressedKeyThatWantsHeldDown )
 	{
 		aDesiredKeysDown.set(VK_SHIFT,
@@ -726,21 +792,21 @@ void update()
 	bool canSendQueuedKey = false;
 	if( sTracker.nextQueuedKey )
 	{
-		const u8 aBaseVKey = sTracker.nextQueuedKey & kVKeyMask;
-		const bool press = !(sTracker.nextQueuedKey & kVKeyReleaseFlag);
+		const u16 aVKey = sTracker.nextQueuedKey;
+		const u8 aBaseVKey = aVKey & kVKeyMask;
+		const bool press = !(aVKey & kVKeyReleaseFlag);
+		const bool forced = !press && (aVKey & kVKeyHoldFlag);
 		// Make sure desired modifier keys match those of the queued key
-		aDesiredKeysDown.set(VK_SHIFT,
-			!!(sTracker.nextQueuedKey & kVKeyShiftFlag));
-		aDesiredKeysDown.set(VK_CONTROL,
-			!!(sTracker.nextQueuedKey & kVKeyCtrlFlag));
-		aDesiredKeysDown.set(VK_MENU,
-			!!(sTracker.nextQueuedKey & kVKeyAltFlag));
+		aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
+		aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
+		aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
 		// Make sure base key is in opposite of desired pressed state
-		aDesiredKeysDown.set(aBaseVKey, !press);
+		if( !forced )
+			aDesiredKeysDown.set(aBaseVKey, !press);
 		// Only send the key if related keys are already in correct state
 		// Otherwise, need to wait until other keys are ready from above
 		if( areModKeysHeld(sTracker.nextQueuedKey) &&
-			sTracker.keysHeldDown.test(aBaseVKey) == !press )
+			(forced || sTracker.keysHeldDown.test(aBaseVKey) == !press) )
 		{
 			canSendQueuedKey = true;
 		}
@@ -790,17 +856,27 @@ void update()
 	{
 		u16 aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
 		u8 aVKeyBase = u8(aVKey & kVKeyMask);
-		const bool wantHold = !!(sTracker.nextQueuedKey & kVKeyHoldFlag);
 		const bool wantRelease = !!(sTracker.nextQueuedKey & kVKeyReleaseFlag);
 		const EKeyState aNewState =
 			wantRelease ? eKeyState_Up : eKeyState_Down;
 
 		if( setKeyState(aVKeyBase, aNewState) == eResult_Ok )
 		{
-			if( wantHold )
-				sTracker.keysWantDown.setValue(aVKey, aNewState);
-			else if( wantRelease )
-				sTracker.keysWantDown.erase(aVKey);
+			if( wantRelease )
+			{// Stop tracking this key and any combo-keys with same base key
+				for(VectorMap<u16, EKeyState>::iterator itr =
+					sTracker.keysWantDown.begin(), next_itr = itr;
+					itr != sTracker.keysWantDown.end(); itr = next_itr)
+				{
+					++next_itr;
+					if( (itr->first & kVKeyMask) == aVKeyBase )
+						next_itr = sTracker.keysWantDown.erase(itr);
+				}
+			}
+			else if( !!(sTracker.nextQueuedKey & kVKeyHoldFlag) )
+			{// Begin tracking this key and keeping it held down
+				sTracker.keysWantDown.setValue(aVKey, eKeyState_Down);
+			}
 			sTracker.nextQueuedKey = 0;
 		}
 	}
@@ -841,10 +917,8 @@ void sendKeyCommand(const Command& theCommand)
 		sTracker.queue.push_back(theCommand);
 		break;
 	case eCmdType_ReleaseKey:
-		if( (!isMouseButton(aVKey) ||
-			 areModKeysHeld(aVKey)) &&
+		if( (!isMouseButton(aVKey) || areModKeysHeld(aVKey)) &&
 			sTracker.keysHeldDown.test(aBaseVKey) &&
-			sTracker.keysWantDown.contains(aVKey) &&
 			setKeyState(aBaseVKey, eKeyState_Up) == eResult_Ok )
 		{// Safely released key right away, no need to queue release
 			sTracker.keysWantDown.erase(aVKey);
@@ -945,17 +1019,6 @@ void moveMouse(int dx, int dy, bool digital)
 void setMouseLookMode(bool active)
 {
 	sTracker.mouseLookActive = active;
-	if( active && !sTracker.keysHeldDown.test(VK_RBUTTON) )
-	{
-		// Jump to center screen first, then begin holding right-click
-		Input anInput;
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.dx = 32768;
-		anInput.mi.dy = 32768;
-		anInput.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
-		sTracker.inputs.push_back(anInput);
-		setKeyState(VK_RBUTTON, eKeyState_Down);
-	}
 }
 
 

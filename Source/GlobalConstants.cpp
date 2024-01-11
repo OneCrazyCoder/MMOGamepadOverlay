@@ -59,7 +59,7 @@ u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 		NameToVKeyMap map;
 		NameToVKeyMapper()
 		{
-			const size_t kMapSize = 127;
+			const size_t kMapSize = 128;
 			map.reserve(kMapSize);
 			map.setValue("CLICK",			VK_LBUTTON);
 			map.setValue("LCLICK",			VK_LBUTTON);
@@ -68,6 +68,7 @@ u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 			map.setValue("RCLICK",			VK_RBUTTON);
 			map.setValue("RIGHTCLICK",		VK_RBUTTON);
 			map.setValue("RMB",				VK_RBUTTON);
+			map.setValue("RELEASE",			VK_CANCEL); // Force release a key
 			map.setValue("MCLICK",			VK_MBUTTON);
 			map.setValue("MIDDLECLICK",		VK_MBUTTON);
 			map.setValue("MMB",				VK_MBUTTON);
