@@ -195,7 +195,8 @@ static EResult checkForComboKeyName(
 		if( aModKey != 0 &&
 			(aModKey == VK_SHIFT ||
 			 aModKey == VK_CONTROL ||
-			 aModKey == VK_MENU) )
+			 aModKey == VK_MENU ||
+			 aModKey == VK_CANCEL) )
 		{// Found a valid modifier key
 			// Is rest of the name a valid key now?
 			if( u8 aMainKey = keyNameToVirtualKey(theKeyName, allowMouse))
