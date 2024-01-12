@@ -48,6 +48,10 @@ inline Val clamp(Val val, Min min, Max max)
 	return val;
 }
 
+#ifndef M_PI
+#define M_PI (3.1415926535897932384626433832795028841971)
+#endif
+
 /*
 	Base class that clears the memory of its derived class before the derived
 	class constructs. Make sure this is the first class derived from or it

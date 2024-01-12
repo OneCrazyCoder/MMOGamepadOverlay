@@ -40,11 +40,8 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton);
 // Get command for executing given macro slot in given set
 Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID);
 
-// Get certain special-case keys directly
-u8 keyForMoveTurn(ECommandDir);
-u8 keyForMoveStrafe(ECommandDir);
-u8 keyForMouseLookMoveTurn(ECommandDir);
-u8 keyForMouseLookMoveStrafe(ECommandDir);
+// Get certain special-case keybinds directly
+u16 keyForSpecialAction(ESpecialKey theAction);
 
 // Get controls layer name (label) for given ID
 const std::string& layerLabel(u16 theLayerID); 

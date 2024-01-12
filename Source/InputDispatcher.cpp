@@ -4,6 +4,7 @@
 
 #include "InputDispatcher.h"
 
+#include "InputMap.h"
 #include "Lookup.h"
 #include "Profile.h"
 
@@ -25,6 +26,7 @@ enum {
 kMouseMaxSpeed = 256,
 kMouseToPixelDivisor = 8192,
 kMouseMaxDigitalVel = 32768,
+kMinMouseLookTimeForAltMove = 100,
 kVKeyModsMask = 0x3F00,
 kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
 kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
@@ -61,6 +63,7 @@ struct Config
 	double mouseWheelDeadzone;
 	double mouseWheelRange;
 	int mouseWheelSpeed;
+	double moveDeadzone;
 
 	bool useScanCodes;
 
@@ -72,23 +75,24 @@ struct Config
 		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 20);
 		mouseButtonReleaseLockTime = Profile::getInt("System/MinMouseButtonHoldTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
-		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
-		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
-		cursorYSpeed = Profile::getInt("Mouse/CursorYSpeed", cursorYSpeed);
-		cursorDeadzone = clamp(Profile::getInt("Mouse/CursorDeadzone", 25), 0, 100) / 100.0;
-		cursorRange = clamp(Profile::getInt("Mouse/CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
+		cursorXSpeed = cursorYSpeed = Profile::getInt("Gamepad/CursorSpeed", 100);
+		cursorXSpeed = Profile::getInt("Gamepad/MouseCursorXSpeed", cursorXSpeed);
+		cursorYSpeed = Profile::getInt("Gamepad/MouseCursorYSpeed", cursorYSpeed);
+		cursorDeadzone = clamp(Profile::getInt("Gamepad/MouseCursorDeadzone", 25), 0, 100) / 100.0;
+		cursorRange = clamp(Profile::getInt("Gamepad/MouseCursorSaturation", 100), cursorDeadzone, 100) / 100.0;
 		cursorRange = max(0, cursorRange - cursorDeadzone);
-		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse/MouseLookSpeed", 100);
-		mouseLookXSpeed = Profile::getInt("Mouse/MouseLookXSpeed", mouseLookXSpeed);
-		mouseLookYSpeed = Profile::getInt("Mouse/MouseLookYSpeed", mouseLookYSpeed);
-		mouseLookDeadzone = clamp(Profile::getInt("Mouse/MouseLookDeadzone", 25), 0, 100) / 100.0;
-		mouseLookRange = clamp(Profile::getInt("Mouse/MouseLookSaturation", 100), mouseLookDeadzone, 100) / 100.0;
+		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Gamepad/MouseLookSpeed", 100);
+		mouseLookXSpeed = Profile::getInt("Gamepad/MouseLookXSpeed", mouseLookXSpeed);
+		mouseLookYSpeed = Profile::getInt("Gamepad/MouseLookYSpeed", mouseLookYSpeed);
+		mouseLookDeadzone = clamp(Profile::getInt("Gamepad/MouseLookDeadzone", 25), 0, 100) / 100.0;
+		mouseLookRange = clamp(Profile::getInt("Gamepad/MouseLookSaturation", 100), mouseLookDeadzone, 100) / 100.0;
 		mouseLookRange = max(0, mouseLookRange - mouseLookDeadzone);
-		mouseDPadAccel = max(8, Profile::getInt("Mouse/DPadAccel", 50));
-		mouseWheelDeadzone = clamp(Profile::getInt("Mouse/WheelDeadzone", 25), 0, 100) / 100.0;
-		mouseWheelRange = clamp(Profile::getInt("Mouse/WheelSaturation", 100), cursorDeadzone, 100) / 100.0;
+		mouseDPadAccel = max(8, Profile::getInt("Gamepad/MouseDPadAccel", 50));
+		mouseWheelDeadzone = clamp(Profile::getInt("Gamepad/MouseWheelDeadzone", 25), 0, 100) / 100.0;
+		mouseWheelRange = clamp(Profile::getInt("Gamepad/MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
-		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
+		mouseWheelSpeed = Profile::getInt("Gamepad/MouseWheelSpeed", 255);
+		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
 	}
 };
 
@@ -187,23 +191,26 @@ struct DispatchTracker
 	std::vector<Input> inputs;
 	int queuePauseTime;
 	int digitalMouseVel;
+	int mouseLookActiveTime;
 	size_t currTaskProgress;
 	BitArray<0xFF> keysHeldDown;
 	VectorMap<u16, EKeyState> keysWantDown;
 	VectorMap<u8, int> keysLockedDown;
+	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
-	bool mouseLookActive;
+	bool mouseLookWanted;
 	bool typingChatBoxString;
 
 	DispatchTracker() :
 		queuePauseTime(),
 		currTaskProgress(),
 		digitalMouseVel(),
+		mouseLookActiveTime(),
 		keysHeldDown(),
 		nextQueuedKey(),
 		backupQueuedKey(),
-		mouseLookActive(),
+		mouseLookWanted(),
 		typingChatBoxString()
 	{}
 };
@@ -221,9 +228,9 @@ static DispatchTracker sTracker;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static EResult popNextKey(const char* theVKeySequence)
+static EResult popNextKey(const u8* theVKeySequence)
 {
-	DBG_ASSERT(sTracker.nextQueuedKey = 0);
+	DBG_ASSERT(sTracker.nextQueuedKey == 0);
 	while( theVKeySequence[sTracker.currTaskProgress] != '\0' )
 	{
 		const size_t idx = sTracker.currTaskProgress++;
@@ -490,6 +497,13 @@ static EResult setKeyState(u16 theKey, EKeyState theNewState)
 			sTracker.keysLockedDown.setValue(VK_CONTROL, aLockDownTime);
 		if( sTracker.keysHeldDown.test(VK_MENU) )
 			sTracker.keysLockedDown.setValue(VK_MENU, aLockDownTime);
+
+		if( sTracker.mouseLookActiveTime &&
+			theKey == VK_RBUTTON &&
+			theNewState == eKeyState_Up )
+		{
+			sTracker.mouseLookActiveTime = 0;
+		}
 	}
 
 	return eResult_Ok;
@@ -503,10 +517,11 @@ static void releaseAllHeldKeys()
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		setKeyState(u8(aVKey), eKeyState_Up);
+		setKeyState(u16(aVKey), eKeyState_Up);
 	}
 	sTracker.keysHeldDown.reset();
 	sTracker.keysWantDown.clear();
+	sTracker.moveKeysHeld.reset();
 }
 
 
@@ -636,7 +651,7 @@ void update()
 
 	// Initiate MouseLook mode
 	// -----------------------
-	if( sTracker.mouseLookActive && !sTracker.keysHeldDown.test(VK_RBUTTON) &&
+	if( sTracker.mouseLookWanted && !sTracker.keysHeldDown.test(VK_RBUTTON) &&
 		!sTracker.nextQueuedKey && !sTracker.backupQueuedKey &&
 		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) )
 	{// Between other tasks, so should start up mouse look mode
@@ -677,11 +692,15 @@ void update()
 		{
 		case eCmdType_PressAndHoldKey:
 			// Just set want the key/combo pressed
+			DBG_ASSERT(aCmd.data != 0);
+			DBG_ASSERT((aCmd.data & ~(kVKeyMask | kVKeyModsMask)) == 0);
 			sTracker.keysWantDown.findOrAdd(aCmd.data, eKeyState_Up);
 			break;
 		case eCmdType_ReleaseKey:
 			// Do nothing if key was never requested down anyway
 			// (or was already force-released by kVKeyForceReleaseFlag)
+			DBG_ASSERT(aCmd.data != 0);
+			DBG_ASSERT((aCmd.data & ~(kVKeyMask | kVKeyModsMask)) == 0);
 			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.data);
 			if( aKeyWantDownItr == sTracker.keysWantDown.end() )
 				break;
@@ -717,7 +736,7 @@ void update()
 			break;
 		case eCmdType_VKeySequence:
 			if( !taskIsPastDue )
-				aTaskResult = popNextKey(aCmd.string);
+				aTaskResult = popNextKey((const u8*)aCmd.string);
 			break;
 		case eCmdType_SlashCommand:
 		case eCmdType_SayString:
@@ -737,8 +756,11 @@ void update()
 	// --------------------
 	BitArray<0xFF> aDesiredKeysDown; aDesiredKeysDown.reset();
 	// Keep holding right mouse button once mouselook mode started
-	if( sTracker.mouseLookActive && sTracker.keysHeldDown.test(VK_RBUTTON) )
+	if( sTracker.mouseLookWanted && sTracker.keysHeldDown.test(VK_RBUTTON) )
+	{
 		aDesiredKeysDown.set(VK_RBUTTON);
+		sTracker.mouseLookActiveTime += gAppFrameTime;
+	}
 	bool hasNonPressedKeyThatWantsHeldDown = false;
 	u16 aPressedKeysDesiredMods = 0;
 	for(size_t i = 0; i < sTracker.keysWantDown.size(); ++i)
@@ -794,6 +816,7 @@ void update()
 	{
 		const u16 aVKey = sTracker.nextQueuedKey;
 		const u8 aBaseVKey = aVKey & kVKeyMask;
+		DBG_ASSERT(aBaseVKey != 0); // otherwise somehow got flags but no key!
 		const bool press = !(aVKey & kVKeyReleaseFlag);
 		const bool forced = !press && (aVKey & kVKeyHoldFlag);
 		// Make sure desired modifier keys match those of the queued key
@@ -907,6 +930,8 @@ void sendKeyCommand(const Command& theCommand)
 		// Do nothing, but don't assert either
 		break;
 	case eCmdType_PressAndHoldKey:
+		DBG_ASSERT(aBaseVKey != 0);
+		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
 		if( isSafeAsyncKey(aVKey) &&
 			areModKeysHeld(aVKey) &&
 			setKeyState(aBaseVKey, eKeyState_Down) == eResult_Ok )
@@ -917,6 +942,8 @@ void sendKeyCommand(const Command& theCommand)
 		sTracker.queue.push_back(theCommand);
 		break;
 	case eCmdType_ReleaseKey:
+		DBG_ASSERT(aBaseVKey != 0);
+		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
 		if( (!isMouseButton(aVKey) || areModKeysHeld(aVKey)) &&
 			sTracker.keysHeldDown.test(aBaseVKey) &&
 			setKeyState(aBaseVKey, eKeyState_Up) == eResult_Ok )
@@ -937,13 +964,19 @@ void sendKeyCommand(const Command& theCommand)
 }
 
 
+void setMouseLookMode(bool active)
+{
+	sTracker.mouseLookWanted = active;
+}
+
+
 void moveMouse(int dx, int dy, bool digital)
 {
 	const bool kMouseLookSpeed =
-		sTracker.mouseLookActive ||
+		sTracker.mouseLookWanted ||
 		sTracker.keysHeldDown.test(VK_RBUTTON);
 
-	// Get magnitude of desired mouse motion in 0 to 1.0f range
+	// Get magnitude of desired mouse motion in 0 to 1.0 range
 	double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
 
 	// Apply deadzone and saturation to magnitude
@@ -969,6 +1002,10 @@ void moveMouse(int dx, int dy, bool digital)
 	{// Apply exponential easing curve to magnitude
 		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
 	}
+
+	// Assume user manually using mouse look if drag mouse while holding RMB
+	if( !sTracker.mouseLookWanted && sTracker.keysHeldDown.test(VK_RBUTTON) )
+		sTracker.mouseLookActiveTime += gAppFrameTime * aMagnitude;
 
 	// Get angle of desired mouse motion
 	const double anAngle = atan2(double(dy), double(dx));
@@ -1016,15 +1053,9 @@ void moveMouse(int dx, int dy, bool digital)
 }
 
 
-void setMouseLookMode(bool active)
-{
-	sTracker.mouseLookActive = active;
-}
-
-
 void scrollMouseWheel(int dy, bool digital, bool stepped)
 {
-	// Get magnitude of desired mouse motion in 0 to 1.0f range
+	// Get magnitude of desired mouse motion in 0 to 1.0 range
 	double aMagnitude = abs(dy) / 255.0;
 
 	// Apply deadzone and saturation to dy
@@ -1078,6 +1109,143 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	anInput.mi.mouseData = DWORD(-dy);
 	anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
 	sTracker.inputs.push_back(anInput);
+}
+
+
+void moveCharacter(int move, int turn, int strafe)
+{
+	BitArray<eSpecialKey_MoveNum> moveKeysWantDown;
+	moveKeysWantDown.reset();
+
+	// Treat as 2 virtual analog sticks initially,
+	// one for MoveTurn and one for MoveStrafe
+
+	// Get magnitude of MoveTurn motion in 0 to 1.0 range
+	double aMagnitude = std::sqrt(double(turn) * turn + move * move) / 255.0;
+	// Get angle of desired MoveTurn motion (right=0, left=pi, up=+, down=-)
+	const double aTurnAngle = atan2(double(move), double(turn));
+	// Check if MoveTurn should apply
+	const bool applyMoveTurn = aMagnitude > kConfig.moveDeadzone;
+
+	// Get magnitude of MoveStrafe motion in 0 to 1.0 range
+	aMagnitude = std::sqrt(double(strafe) * strafe + move * move) / 255.0;
+	// Get angle of desired MoveStrafe motion (right=0, left=pi, up=+, down=-)
+	const double aStrafeAngle = atan2(double(move), double(strafe));
+	// Check if MoveStrafe should apply
+	const bool applyMoveStrafe = aMagnitude > kConfig.moveDeadzone;
+
+	/*
+		Decide if should use mouselook movement keys...
+		What is the point of having a separate set of move keys for mouselook?
+
+		The primary reason is to make sure movement is processed as much as
+		possible, and movement keys like WASD will be locked out when
+		sending a macro or holding a modifier like Shift because that could
+		change what they do (type in a chat box or be a totally different
+		command like opening a menu). However, in most clients holding
+		right-click and then pressing left-click also acts as move forward,
+		and that won't interfere with any of the above, so might as well
+		take advantage of it for more responsiveness during mouselook.
+		But left-click won't move forward unless in mouselook, which is why
+		need to figure out if it is active or not to know what keys to use.
+	*/
+	const bool useMouseLookMoveKeys =
+		sTracker.mouseLookActiveTime > kMinMouseLookTimeForAltMove;
+
+	// Calculate which movement actions, if any, should now apply
+	moveKeysWantDown.set(
+		useMouseLookMoveKeys
+			? eSpecialKey_MLTurnL - eSpecialKey_FirstMove
+			: eSpecialKey_TurnL - eSpecialKey_FirstMove,
+		applyMoveTurn &&
+		(aTurnAngle < M_PI * -0.625 || aTurnAngle > M_PI * 0.625));
+
+	moveKeysWantDown.set(
+		useMouseLookMoveKeys
+			? eSpecialKey_MLTurnR - eSpecialKey_FirstMove
+			: eSpecialKey_TurnR - eSpecialKey_FirstMove,
+		applyMoveTurn &&
+		aTurnAngle > M_PI * -0.375 && aTurnAngle < M_PI * 0.375);
+
+	moveKeysWantDown.set(
+		useMouseLookMoveKeys
+			? eSpecialKey_MLStrafeL - eSpecialKey_FirstMove
+			: eSpecialKey_StrafeL - eSpecialKey_FirstMove,
+		applyMoveStrafe &&
+		(aStrafeAngle < M_PI * -0.625 || aStrafeAngle > M_PI * 0.625));
+
+	moveKeysWantDown.set(
+		useMouseLookMoveKeys
+			? eSpecialKey_MLStrafeR - eSpecialKey_FirstMove
+			: eSpecialKey_StrafeR - eSpecialKey_FirstMove,
+		applyMoveStrafe &&
+		aStrafeAngle > M_PI * -0.375 && aStrafeAngle < M_PI * 0.375);
+
+	// For move forward/back, use the virtual stick that had the greatest X
+	// motion in order to make sure a proper circular deadzone is used.
+	moveKeysWantDown.set(
+		useMouseLookMoveKeys
+			? eSpecialKey_MLMoveF - eSpecialKey_FirstMove
+			: eSpecialKey_MoveF - eSpecialKey_FirstMove,
+		(applyMoveTurn && abs(turn) >= abs(strafe) &&
+			aTurnAngle > M_PI * 0.125 && aTurnAngle < M_PI * 0.875) ||
+		(applyMoveStrafe && abs(strafe) >= abs(turn) &&
+			aStrafeAngle > M_PI * 0.125 && aStrafeAngle < M_PI * 0.875));
+
+	moveKeysWantDown.set(
+		useMouseLookMoveKeys
+			? eSpecialKey_MLMoveB - eSpecialKey_FirstMove
+			: eSpecialKey_MoveB - eSpecialKey_FirstMove,
+		(applyMoveTurn && abs(turn) >= abs(strafe) &&
+			aTurnAngle < M_PI * -0.125 && aTurnAngle > M_PI * -0.875) ||
+		(applyMoveStrafe && abs(strafe) >= abs(turn) &&
+			aStrafeAngle < M_PI * -0.125 && aStrafeAngle > M_PI * -0.875));
+
+	// Release movement keys that don't need any more
+	Command aCmd; aCmd.type = eCmdType_ReleaseKey;
+	for(int aHeldKey = sTracker.moveKeysHeld.firstSetBit();
+		aHeldKey < sTracker.moveKeysHeld.size();
+		aHeldKey = sTracker.moveKeysHeld.nextSetBit(aHeldKey+1))
+	{
+		if( !moveKeysWantDown.test(aHeldKey) )
+		{
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
+			// Before actually releasing this movement key, make sure it is
+			// not the  same VKey as another key that wants to be pressed.
+			for(int aWantedKey = moveKeysWantDown.firstSetBit();
+				aWantedKey < moveKeysWantDown.size();
+				aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
+			{
+				if( aCmd.data == InputMap::keyForSpecialAction(
+						ESpecialKey(aWantedKey + eSpecialKey_FirstMove)) )
+				{// Don't bother releasing and re-pressing the same key!
+					sTracker.moveKeysHeld.set(aWantedKey);
+					aCmd.data = 0;
+					break;
+				}
+			}
+			if( aCmd.data != 0 )
+				sendKeyCommand(aCmd);
+			sTracker.moveKeysHeld.reset(aHeldKey);
+		}
+	}
+
+	// Press new movement keys
+	aCmd.type = eCmdType_PressAndHoldKey;
+	for(int aWantedKey = moveKeysWantDown.firstSetBit();
+		aWantedKey < moveKeysWantDown.size();
+		aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
+	{
+		if( !sTracker.moveKeysHeld.test(aWantedKey) )
+		{
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
+			if( aCmd.data != 0 )
+				sendKeyCommand(aCmd);
+			sTracker.moveKeysHeld.set(aWantedKey);
+		}
+	}
 }
 
 } // InputDispatcher

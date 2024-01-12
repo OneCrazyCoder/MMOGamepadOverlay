@@ -41,8 +41,8 @@ enum ECommandType
 	eCmdType_RemoveControlsLayer,
 	eCmdType_ChangeMacroSet,
 	eCmdType_UseAbility, // includes spells, skills, & hotbuttons
-	eCmdType_ConfirmMenu,
-	eCmdType_CancelMenu,
+	eCmdType_MenuConfirm,
+	eCmdType_MenuBack,
 
 	// These should have 'data' set to an ECommandDir
 	eCmdType_SelectAbility,
@@ -147,6 +147,29 @@ enum EButton
 	eBtn_FirstDigital = eBtn_DLeft,
 	eBtn_FirstDInputBtn = eBtn_FLeft,
 	eBtn_DInputBtnNum = eBtn_Num - eBtn_FirstDInputBtn,
+};
+
+enum ESpecialKey
+{
+	eSpecialKey_MoveF,
+	eSpecialKey_MoveB,
+	eSpecialKey_TurnL,
+	eSpecialKey_TurnR,
+	eSpecialKey_StrafeL,
+	eSpecialKey_StrafeR,
+	eSpecialKey_MLMoveF,
+	eSpecialKey_MLMoveB,
+	eSpecialKey_MLTurnL,
+	eSpecialKey_MLTurnR,
+	eSpecialKey_MLStrafeL,
+	eSpecialKey_MLStrafeR,
+
+	eSpecialKey_Num,
+
+	eSpecialKey_FirstMove = eSpecialKey_MoveF,
+	eSpecialKey_LastMove = eSpecialKey_MLStrafeR,
+	eSpecialKey_MoveNum =
+		eSpecialKey_LastMove - eSpecialKey_FirstMove + 1,
 };
 
 enum EResult

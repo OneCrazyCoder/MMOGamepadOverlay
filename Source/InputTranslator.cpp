@@ -23,7 +23,6 @@ namespace InputTranslator
 //-----------------------------------------------------------------------------
 
 enum {
-kMinMouseLookTimeForAltMove = 50,
 kMaxLayerChangesPerUpdate = 20,
 };
 
@@ -114,6 +113,9 @@ struct InputResults
 {
 	std::vector<Command> keys;
 	std::vector<Command> strings;
+	s16 charMove;
+	s16 charTurn;
+	s16 charStrafe;
 	s16 mouseMoveX;
 	s16 mouseMoveY;
 	s16 mouseWheelY;
@@ -126,6 +128,9 @@ struct InputResults
 	{
 		keys.clear();
 		strings.clear();
+		charMove = 0;
+		charTurn = 0;
+		charStrafe = 0;
 		mouseMoveX = 0;
 		mouseMoveY = 0;
 		mouseWheelY = 0;
@@ -306,8 +311,8 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		OverlayWindow::redraw();
 		break;
 	case eCmdType_UseAbility:
-	case eCmdType_ConfirmMenu:
-	case eCmdType_CancelMenu:
+	case eCmdType_MenuConfirm:
+	case eCmdType_MenuBack:
 	case eCmdType_SelectAbility:
 	case eCmdType_SelectMenu:
 	case eCmdType_SelectHotspot:
@@ -382,39 +387,6 @@ static void processContinuousInput(
 	{
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
-		// Translate into key held/release commands
-		if( isDigitalDown )
-		{
-			aCmd.type = eCmdType_PressAndHoldKey;
-			const ECommandDir aDir = ECommandDir(aCmd.data);
-			// Use mouse look movement controls (i.e. left-click for forward)
-			// only if were already in mouse look mode before pressed the
-			// button, or have been in mouselook mode a minimum time
-			// (instant switching when start the mode while already holding
-			// the button may not register with target application).
-			if( theBtnState.heldTime < sState.mouseLookTime ||
-				sState.mouseLookTime > kMinMouseLookTimeForAltMove )
-			{
-				if( aCmd.type == eCmdType_MoveStrafe )
-					aCmd.data = InputMap::keyForMouseLookMoveStrafe(aDir);
-				else
-					aCmd.data = InputMap::keyForMouseLookMoveTurn(aDir);
-			}
-			else
-			{
-				if( aCmd.type == eCmdType_MoveStrafe )
-					aCmd.data = InputMap::keyForMoveStrafe(aDir);
-				else
-					aCmd.data = InputMap::keyForMoveTurn(aDir);
-			}
-			if( aCmd.data != theBtnState.vKeyHeld )
-				processCommand(theBtnState, aCmd);
-		}
-		else
-		{
-			releaseKeyHeldByButton(theBtnState);
-		}
-		break;
 	case eCmdType_MoveMouse:
 	case eCmdType_SmoothMouseWheel:
 	case eCmdType_StepMouseWheel:
@@ -432,66 +404,61 @@ static void processContinuousInput(
 	else // if( theAnalogVal == 0 && !isDigitalDown )
 		return;
 
-	if( aCmd.type == eCmdType_MoveMouse )
+	switch(u32(aCmd.type << 16) | aCmd.data)
 	{
-		switch(aCmd.data)
-		{
-		case eCmdDir_Left:
-			sResults.mouseMoveX -= theAnalogVal;
-			sResults.mouseMoveDigital = isDigitalDown;
-			break;
-		case eCmdDir_Right:
-			sResults.mouseMoveX += theAnalogVal;
-			sResults.mouseMoveDigital = isDigitalDown;
-			break;
-		case eCmdDir_Up:
-			sResults.mouseMoveY -= theAnalogVal;
-			sResults.mouseMoveDigital = isDigitalDown;
-			break;
-		case eCmdDir_Down:
-			sResults.mouseMoveY += theAnalogVal;
-			sResults.mouseMoveDigital = isDigitalDown;
-			break;
-		default:
-			DBG_ASSERT(false && "Invalid dir for eCmdType_MoveMouse");
-			break;
-		}
-	}
-	else if( aCmd.type == eCmdType_SmoothMouseWheel )
-	{
-		switch(aCmd.data)
-		{
-		case eCmdDir_Up:
-			sResults.mouseWheelY -= theAnalogVal;
-			sResults.mouseWheelDigital = isDigitalDown;
-			break;
-		case eCmdDir_Down:
-			sResults.mouseWheelY += theAnalogVal;
-			sResults.mouseWheelDigital = isDigitalDown;
-			break;
-		default:
-			DBG_ASSERT(false && "Mouse wheel only supports up and down dir");
-			break;
-		}
-	}
-	else if( aCmd.type == eCmdType_StepMouseWheel )
-	{
-		switch(aCmd.data)
-		{
-		case eCmdDir_Up:
-			sResults.mouseWheelStepped = true;
-			sResults.mouseWheelY -= theAnalogVal;
-			sResults.mouseWheelDigital = isDigitalDown;
-			break;
-		case eCmdDir_Down:
-			sResults.mouseWheelStepped = true;
-			sResults.mouseWheelY += theAnalogVal;
-			sResults.mouseWheelDigital = isDigitalDown;
-			break;
-		default:
-			DBG_ASSERT(false && "Mouse wheel only supports up and down dir");
-			break;
-		}
+	case (eCmdType_MoveTurn << 16) | eCmdDir_Forward:
+	case (eCmdType_MoveStrafe << 16) | eCmdDir_Forward:
+		sResults.charMove += theAnalogVal;
+		break;
+	case (eCmdType_MoveTurn << 16) | eCmdDir_Back:
+	case (eCmdType_MoveStrafe << 16) | eCmdDir_Back:
+		sResults.charMove -= theAnalogVal;
+		break;
+	case (eCmdType_MoveTurn << 16) | eCmdDir_Left:
+		sResults.charTurn -= theAnalogVal;
+		break;
+	case (eCmdType_MoveTurn << 16) | eCmdDir_Right:
+		sResults.charTurn += theAnalogVal;
+		break;
+	case (eCmdType_MoveStrafe << 16) | eCmdDir_Left:
+		sResults.charStrafe -= theAnalogVal;
+		break;
+	case (eCmdType_MoveStrafe << 16) | eCmdDir_Right:
+		sResults.charStrafe += theAnalogVal;
+		break;
+	case (eCmdType_MoveMouse << 16) | eCmdDir_Left:
+		sResults.mouseMoveX -= theAnalogVal;
+		sResults.mouseMoveDigital = isDigitalDown;
+		break;
+	case (eCmdType_MoveMouse << 16) | eCmdDir_Right:
+		sResults.mouseMoveX += theAnalogVal;
+		sResults.mouseMoveDigital = isDigitalDown;
+		break;
+	case (eCmdType_MoveMouse << 16) | eCmdDir_Up:
+		sResults.mouseMoveY -= theAnalogVal;
+		sResults.mouseMoveDigital = isDigitalDown;
+		break;
+	case (eCmdType_MoveMouse << 16) | eCmdDir_Down:
+		sResults.mouseMoveY += theAnalogVal;
+		sResults.mouseMoveDigital = isDigitalDown;
+		break;
+	case (eCmdType_StepMouseWheel << 16) | eCmdDir_Up:
+		sResults.mouseWheelStepped = true;
+		// fall through
+	case (eCmdType_SmoothMouseWheel << 16) | eCmdDir_Up:
+		sResults.mouseWheelY -= theAnalogVal;
+		sResults.mouseWheelDigital = isDigitalDown;
+		break;
+	case (eCmdType_StepMouseWheel << 16) | eCmdDir_Down:
+		sResults.mouseWheelStepped = true;
+		// fall through
+	case (eCmdType_SmoothMouseWheel << 16) | eCmdDir_Down:
+		sResults.mouseWheelY += theAnalogVal;
+		sResults.mouseWheelDigital = isDigitalDown;
+		break;
+	default:
+		DBG_ASSERT(false && "Command and direction combo invalid");
+		break;
 	}
 }
 
@@ -882,6 +849,10 @@ void update()
 		sState.mouseLookTime = 0;
 
 	// Send input that was queued up by any of the above
+	InputDispatcher::moveCharacter(
+		sResults.charMove,
+		sResults.charTurn,
+		sResults.charStrafe);
 	InputDispatcher::moveMouse(
 		sResults.mouseMoveX,
 		sResults.mouseMoveY,
