@@ -63,8 +63,8 @@ const CommandKeyWord kCmdKeyWords[] =
 	{ "REWRITE", eCmdType_RewriteMacro },
 	{ "MACRO",	eCmdType_SelectMacro },
 	{ "HOTSPOT", eCmdType_SelectHotspot },
-	{ "CONFIRM", eCmdType_ConfirmMenu },
-	{ "CANCEL", eCmdType_CancelMenu },
+	{ "CONFIRM", eCmdType_MenuConfirm },
+	{ "BACK", eCmdType_MenuBack },
 	{ "MENU", eCmdType_SelectMenu },
 };
 
@@ -78,24 +78,6 @@ const char* kButtonActionPrefx[] =
 	"Release",	// eBtnAct_Release
 };
 DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
-
-enum ESpecialKeys
-{
-	eSpecialKey_MoveF,
-	eSpecialKey_MoveB,
-	eSpecialKey_TurnL,
-	eSpecialKey_TurnR,
-	eSpecialKey_StrafeL,
-	eSpecialKey_StrafeR,
-	eSpecialKey_MLMoveF,
-	eSpecialKey_MLMoveB,
-	eSpecialKey_MLTurnL,
-	eSpecialKey_MLTurnR,
-	eSpecialKey_MLStrafeL,
-	eSpecialKey_MLStrafeR,
-
-	eSpecialKey_Num
-};
 
 const char* kSpecialKeyNames[] =
 {
@@ -256,7 +238,7 @@ static EResult checkForVKeySeqPause(
 	u32 aTime = 0;
 	for(; aStrPos < theKeyName.size(); ++aStrPos)
 	{
-		const char c = theKeyName[aStrPos];
+		const u8 c = theKeyName[aStrPos];
 		// Check if is a valid integer digit
 		if( c < '0' || c > '9' )
 			return eResult_NotFound;
@@ -281,8 +263,8 @@ static EResult checkForVKeySeqPause(
 	// has highest bit set so can't end up with either being 0 and acting as
 	// a terminator for the string).
 	out.push_back(VK_PAUSE);
-	out.push_back(((aTime >> 7) & 0x7F) | 0x80);
-	out.push_back((aTime & 0x7F) | 0x80);
+	out.push_back(u8(((aTime >> 7) & 0x7F) | 0x80));
+	out.push_back(u8((aTime & 0x7F) | 0x80));
 
 	// Success!
 	return eResult_Ok;
@@ -591,7 +573,11 @@ static Command buildSpecialCommand(
 	std::vector<std::string>& aCmdStrings = theBuilder.parsedString;
 
 	Command result;
-	if( aCmdStrings.empty() || aCmdStrings.front().empty() )
+
+	// All commands require more than one "word", even if only one of the
+	// words is actually a command key word (thus can make sure a keybind is
+	// used instead of a command by specifying the keybind as a single word)
+	if( aCmdStrings.size() <= 1 )
 		return result;
 
 	// Search for key words in order of priority
@@ -643,8 +629,8 @@ static Command buildSpecialCommand(
 		break;
 	case eCmdType_ChangeMacroSet:
 	case eCmdType_UseAbility:
-	case eCmdType_ConfirmMenu:
-	case eCmdType_CancelMenu:
+	case eCmdType_MenuConfirm:
+	case eCmdType_MenuBack:
 		// No data field needed (or 0 IS what it should be set to)
 		break;
 	case eCmdType_SelectAbility:
@@ -735,17 +721,21 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 }
 
 
-static u16 vKeySeqToSingleKey(const std::string& theVKeySeq)
+static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 {
 	u16 result = 0;
-	if( theVKeySeq.size() == 1 )
+	if( theVKeySeq == null )
+		return result;
+	if( theVKeySeq[0] == '\0' )
+		return result;
+	if( theVKeySeq[1] == '\0' )
 	{
 		result = theVKeySeq[0];
 		return result;
 	}
 
 	bool hasNonModKey = false;
-	for(size_t i = 0; i < theVKeySeq.size(); ++i)
+	for(const u8* aVKeyPtr = theVKeySeq; *aVKeyPtr != '\0'; ++aVKeyPtr)
 	{
 		// If encounter anything else after the first non-mod key,
 		// it is must be a sequence of keys rather than of a "single key",
@@ -756,7 +746,7 @@ static u16 vKeySeqToSingleKey(const std::string& theVKeySeq)
 			return result;
 		}
 
-		switch(theVKeySeq[i])
+		switch(*aVKeyPtr)
 		{
 		case VK_SHIFT:
 			result |= kVKeyShiftFlag;
@@ -768,7 +758,7 @@ static u16 vKeySeqToSingleKey(const std::string& theVKeySeq)
 			result |= kVKeyAltFlag;
 			break;
 		default:
-			result |= theVKeySeq[i];
+			result |= *aVKeyPtr;
 			break;
 		}
 	}
@@ -821,22 +811,21 @@ static void addButtonAction(
 		return;
 	}
 
-	// Check for alias to a keybind
-	// Done first in case keybind name happens to contain a command word
-	Command aCmd;
-	if( u16* aKeyStringIdxPtr =
-			theBuilder.keyAliases.find(condense(theCmdStr)) )
-	{
-		aCmd.type = eCmdType_VKeySequence;
-		aCmd.data = *aKeyStringIdxPtr;
-	}
-
 	// Check for special command
+	Command aCmd;
+	theBuilder.parsedString.clear();
+	sanitizeSentence(theCmdStr, theBuilder.parsedString);
+	aCmd = buildSpecialCommand(theBuilder, theLayerIdx);
+
+	// Check for alias to a keybind
 	if( aCmd.type == eCmdType_Empty )
 	{
-		theBuilder.parsedString.clear();
-		sanitizeSentence(theCmdStr, theBuilder.parsedString);
-		aCmd = buildSpecialCommand(theBuilder, theLayerIdx);
+		if( u16* aKeyStringIdxPtr =
+				theBuilder.keyAliases.find(condense(theCmdStr)) )
+		{
+			aCmd.type = eCmdType_VKeySequence;
+			aCmd.data = *aKeyStringIdxPtr;
+		}
 	}
 
 	// Check for direct VKey sequence
@@ -861,7 +850,8 @@ static void addButtonAction(
 		// If more than one normal key was specified, this will be
 		// skipped and _Down will just act like another _Press action
 		// (meaning could have 2 commands execute on button press).
-		if( u16 aVKey = vKeySeqToSingleKey(sKeyStrings[aCmd.data]) )
+		if( u16 aVKey = vKeySeqToSingleKey(
+				(const u8*)sKeyStrings[aCmd.data].c_str()) )
 		{
 			aCmd.type = eCmdType_PressAndHoldKey;
 			aCmd.data = aVKey;
@@ -1031,17 +1021,44 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
 	for(size_t i = 0; i < eSpecialKey_Num; ++i)
 	{
+		DBG_ASSERT(sSpecialKeys[i] == 0);
 		u16* aKeyStringIdxPtr =
 			theBuilder.keyAliases.find(kSpecialKeyNames[i]);
-		if( !aKeyStringIdxPtr )
+		if( !aKeyStringIdxPtr || sKeyStrings[*aKeyStringIdxPtr].empty() )
 			continue;
-		if( sKeyStrings[*aKeyStringIdxPtr].size() != 1 )
+		u16 aKeyValue = vKeySeqToSingleKey(
+			(const u8*)sKeyStrings[*aKeyStringIdxPtr].c_str());
+		if( !aKeyValue )
 		{
-			logError("Can only assign a single key to %s!",
+			logError("Can not assign a full key sequence to %s!",
 				kSpecialKeyNames[i]);
 			continue;
 		}
-		sSpecialKeys[i] = sKeyStrings[*aKeyStringIdxPtr][0];
+		sSpecialKeys[i] = aKeyValue;
+	}
+
+	// Have some special keys borrow the value of others if left unassigned
+	if( sSpecialKeys[eSpecialKey_MLMoveF] == 0 )
+		sSpecialKeys[eSpecialKey_MLMoveF] = sSpecialKeys[eSpecialKey_MoveF];
+	if( sSpecialKeys[eSpecialKey_MLMoveB] == 0 )
+		sSpecialKeys[eSpecialKey_MLMoveB] = sSpecialKeys[eSpecialKey_MoveB];
+	if( sSpecialKeys[eSpecialKey_MLTurnL] == 0 )
+		sSpecialKeys[eSpecialKey_MLTurnL] = sSpecialKeys[eSpecialKey_TurnL];
+	if( sSpecialKeys[eSpecialKey_MLTurnR] == 0 )
+		sSpecialKeys[eSpecialKey_MLTurnR] = sSpecialKeys[eSpecialKey_TurnR];
+	if( sSpecialKeys[eSpecialKey_MLStrafeL] == 0 )
+	{
+		sSpecialKeys[eSpecialKey_MLStrafeL] =
+			sSpecialKeys[eSpecialKey_StrafeL]
+				? sSpecialKeys[eSpecialKey_StrafeL]
+				: sSpecialKeys[eSpecialKey_MLTurnL];
+	}
+	if( sSpecialKeys[eSpecialKey_MLStrafeR] == 0 )
+	{
+		sSpecialKeys[eSpecialKey_MLStrafeR] =
+			sSpecialKeys[eSpecialKey_StrafeR]
+				? sSpecialKeys[eSpecialKey_StrafeR]
+				: sSpecialKeys[eSpecialKey_MLTurnR];
 	}
 }
 
@@ -1183,64 +1200,10 @@ Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID)
 }
 
 
-u8 keyForMoveTurn(ECommandDir theDir)
+u16 keyForSpecialAction(ESpecialKey theAction)
 {
-	switch(theDir)
-	{
-	case eCmdDir_L:	return sSpecialKeys[eSpecialKey_TurnL];
-	case eCmdDir_R:	return sSpecialKeys[eSpecialKey_TurnR];
-	case eCmdDir_U:	return sSpecialKeys[eSpecialKey_MoveF];
-	case eCmdDir_D:	return sSpecialKeys[eSpecialKey_MoveB];
-	}
-
-	return 0;
-}
-
-
-u8 keyForMoveStrafe(ECommandDir theDir)
-{
-	u8 result = 0;
-
-	switch(theDir)
-	{
-	case eCmdDir_L:	result = sSpecialKeys[eSpecialKey_StrafeL]; break;
-	case eCmdDir_R:	result = sSpecialKeys[eSpecialKey_StrafeR]; break;
-	}
-
-	if( !result ) result = keyForMoveTurn(theDir);
-	return result;
-}
-
-
-u8 keyForMouseLookMoveTurn(ECommandDir theDir)
-{
-	u8 result = 0;
-
-	switch(theDir)
-	{
-	case eCmdDir_L:	result = sSpecialKeys[eSpecialKey_MLTurnL]; break;
-	case eCmdDir_R:	result = sSpecialKeys[eSpecialKey_MLTurnR]; break;
-	case eCmdDir_U:	result = sSpecialKeys[eSpecialKey_MLMoveF]; break;
-	case eCmdDir_D:	result = sSpecialKeys[eSpecialKey_MLMoveB]; break;
-	}
-
-	if( !result ) result = keyForMoveTurn(theDir);
-	return result;
-}
-
-
-u8 keyForMouseLookMoveStrafe(ECommandDir theDir)
-{
-	u8 result = 0;
-
-	switch(theDir)
-	{
-	case eCmdDir_L:	result = sSpecialKeys[eSpecialKey_MLStrafeL]; break;
-	case eCmdDir_R:	result = sSpecialKeys[eSpecialKey_MLStrafeR]; break;
-	}
-
-	if( !result ) result = keyForMoveStrafe(theDir);
-	return result;
+	DBG_ASSERT(theAction < eSpecialKey_Num);
+	return sSpecialKeys[theAction];
 }
 
 
