@@ -31,13 +31,24 @@ kVKeyModsMask = 0x3F00,
 kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
 kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
 kVKeyForceReleaseFlag = kVKeyHoldFlag | kVKeyReleaseFlag,
+MOUSEEVENTF_MOVEABSOLUTE =
+	MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
 };
 
-enum EKeyState
-{
-	eKeyState_Up,
-	eKeyState_Down,
-};
+
+//-----------------------------------------------------------------------------
+// Local Structures
+//-----------------------------------------------------------------------------
+
+struct Input : public INPUT
+{ Input() { ZeroMemory(this, sizeof(INPUT)); } };
+
+struct DispatchTask
+{ Command cmd; u32 queuedTime; };
+
+struct KeyWantDownStatus
+{ s8 depth; bool pressed; KeyWantDownStatus() : depth(), pressed() {} };
+typedef VectorMap<u16, KeyWantDownStatus> KeysWantDownMap;
 
 
 //-----------------------------------------------------------------------------
@@ -75,15 +86,15 @@ struct Config
 		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 20);
 		mouseButtonReleaseLockTime = Profile::getInt("System/MinMouseButtonHoldTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
-		cursorXSpeed = cursorYSpeed = Profile::getInt("Gamepad/CursorSpeed", 100);
-		cursorXSpeed = Profile::getInt("Gamepad/MouseCursorXSpeed", cursorXSpeed);
-		cursorYSpeed = Profile::getInt("Gamepad/MouseCursorYSpeed", cursorYSpeed);
+		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
+		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
+		cursorYSpeed = Profile::getInt("Mouse/CursorYSpeed", cursorYSpeed);
 		cursorDeadzone = clamp(Profile::getInt("Gamepad/MouseCursorDeadzone", 25), 0, 100) / 100.0;
 		cursorRange = clamp(Profile::getInt("Gamepad/MouseCursorSaturation", 100), cursorDeadzone, 100) / 100.0;
 		cursorRange = max(0, cursorRange - cursorDeadzone);
-		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Gamepad/MouseLookSpeed", 100);
-		mouseLookXSpeed = Profile::getInt("Gamepad/MouseLookXSpeed", mouseLookXSpeed);
-		mouseLookYSpeed = Profile::getInt("Gamepad/MouseLookYSpeed", mouseLookYSpeed);
+		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse/LookSpeed", 100);
+		mouseLookXSpeed = Profile::getInt("Mouse/LookXSpeed", mouseLookXSpeed);
+		mouseLookYSpeed = Profile::getInt("Mouse/LookYSpeed", mouseLookYSpeed);
 		mouseLookDeadzone = clamp(Profile::getInt("Gamepad/MouseLookDeadzone", 25), 0, 100) / 100.0;
 		mouseLookRange = clamp(Profile::getInt("Gamepad/MouseLookSaturation", 100), mouseLookDeadzone, 100) / 100.0;
 		mouseLookRange = max(0, mouseLookRange - mouseLookDeadzone);
@@ -91,28 +102,9 @@ struct Config
 		mouseWheelDeadzone = clamp(Profile::getInt("Gamepad/MouseWheelDeadzone", 25), 0, 100) / 100.0;
 		mouseWheelRange = clamp(Profile::getInt("Gamepad/MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
-		mouseWheelSpeed = Profile::getInt("Gamepad/MouseWheelSpeed", 255);
+		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
 		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
 	}
-};
-
-
-//-----------------------------------------------------------------------------
-// Input (derived version of WinAPI INPUT that just zero-initializes it)
-//-----------------------------------------------------------------------------
-
-struct Input : public INPUT
-{ Input() { ZeroMemory(this, sizeof(INPUT)); } };
-
-
-//-----------------------------------------------------------------------------
-// DispatchTask
-//-----------------------------------------------------------------------------
-
-struct DispatchTask
-{
-	Command cmd;
-	u32 queuedTime;
 };
 
 
@@ -194,7 +186,7 @@ struct DispatchTracker
 	int mouseLookActiveTime;
 	size_t currTaskProgress;
 	BitArray<0xFF> keysHeldDown;
-	VectorMap<u16, EKeyState> keysWantDown;
+	KeysWantDownMap keysWantDown;
 	VectorMap<u8, int> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	u16 nextQueuedKey;
@@ -392,7 +384,15 @@ static bool isSafeAsyncKey(u8 theVKey)
 
 static bool isMouseButton(u16 theVKey)
 {
-	return (theVKey & kVKeyMask) > 0 && ((theVKey & kVKeyMask) < 0x07);
+	const u8 aBaseVKey = u8(theVKey & kVKeyMask);
+	switch(aBaseVKey)
+	{
+	case VK_LBUTTON:
+	case VK_MBUTTON:
+	case VK_RBUTTON:
+		return true;
+	}
+	return false;
 }
 
 
@@ -417,7 +417,7 @@ static bool areModKeysHeld(u16 theVKey)
 }
 
 
-static EResult setKeyState(u16 theKey, EKeyState theNewState)
+static EResult setKeyDown(u16 theKey, bool down)
 {
 	// No flags should be set on key (break combo keys into individual keys!)
 	DBG_ASSERT(!(theKey & ~kVKeyMask));
@@ -425,13 +425,11 @@ static EResult setKeyState(u16 theKey, EKeyState theNewState)
 	if( theKey == 0 )
 		return eResult_InvalidParameter;
 
-	const EKeyState aCurrState = sTracker.keysHeldDown.test(theKey)
-		? eKeyState_Down : eKeyState_Up;
-
-	if( theNewState == aCurrState )
+	const bool wasDown = sTracker.keysHeldDown.test(theKey);
+	if( down == wasDown )
 		return eResult_Ok;
 
-	if( theNewState == eKeyState_Up )
+	if( !down )
 	{// May not be allowed to release the given key yet
 		VectorMap<u8, int>::iterator itr =
 			sTracker.keysLockedDown.find(theKey);
@@ -445,19 +443,19 @@ static EResult setKeyState(u16 theKey, EKeyState theNewState)
 	{
 	case VK_LBUTTON:
 		anInput.type = INPUT_MOUSE;
-		anInput.mi.dwFlags = theNewState == eKeyState_Down
+		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
 		aLockDownTime = kConfig.mouseButtonReleaseLockTime;
 		break;
 	case VK_RBUTTON:
 		anInput.type = INPUT_MOUSE;
-		anInput.mi.dwFlags = theNewState == eKeyState_Down
+		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
 		aLockDownTime = kConfig.mouseButtonReleaseLockTime;
 		break;
 	case VK_MBUTTON:
 		anInput.type = INPUT_MOUSE;
-		anInput.mi.dwFlags = theNewState == eKeyState_Down
+		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
 		aLockDownTime = kConfig.mouseButtonReleaseLockTime;
 		break;
@@ -470,14 +468,13 @@ static EResult setKeyState(u16 theKey, EKeyState theNewState)
 	default:
 		anInput.type = INPUT_KEYBOARD;
 		anInput.ki.wVk = theKey;
-		anInput.ki.dwFlags = theNewState == eKeyState_Down
-			? 0 : KEYEVENTF_KEYUP;
+		anInput.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
 		break;
 	}
 
 	sTracker.inputs.push_back(anInput);
-	sTracker.keysHeldDown.set(theKey, theNewState == eKeyState_Down);
-	if( theNewState == eKeyState_Down )
+	sTracker.keysHeldDown.set(theKey, down);
+	if( down )
 		sTracker.keysLockedDown.setValue(theKey, aLockDownTime);
 
 	if( anInput.type == INPUT_MOUSE )
@@ -487,7 +484,7 @@ static EResult setKeyState(u16 theKey, EKeyState theNewState)
 		// will be released, which is the true "click" time
 		// (unlike keyboard keys which are "clicked" at the moment
 		// pressed rather than when released in most cases).
-		if( theNewState == eKeyState_Down )
+		if( down )
 			aLockDownTime += kConfig.modKeyReleaseLockTime;
 		else
 			aLockDownTime = kConfig.modKeyReleaseLockTime;
@@ -498,15 +495,72 @@ static EResult setKeyState(u16 theKey, EKeyState theNewState)
 		if( sTracker.keysHeldDown.test(VK_MENU) )
 			sTracker.keysLockedDown.setValue(VK_MENU, aLockDownTime);
 
-		if( sTracker.mouseLookActiveTime &&
-			theKey == VK_RBUTTON &&
-			theNewState == eKeyState_Up )
-		{
+		// Releasing RClick resets mouseLookActiveTime
+		if( sTracker.mouseLookActiveTime && theKey == VK_RBUTTON && !down )
 			sTracker.mouseLookActiveTime = 0;
-		}
 	}
 
 	return eResult_Ok;
+}
+
+
+static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
+{
+	DBG_ASSERT(theKeyItr != sTracker.keysWantDown.end());
+
+	// If multiple gamepad buttons are tied to the same key and more than one
+	// is held down, we "release" the key by just decrementing a counter
+	if( theKeyItr->second.depth > 1 )
+	{
+		--theKeyItr->second.depth;
+		return true;
+	}
+
+	const u16 aVKey = theKeyItr->first & (kVKeyMask | kVKeyModsMask);
+	const u8 aBaseVKey = aVKey & kVKeyMask;
+	DBG_ASSERT(aBaseVKey);
+
+	// Don't release yet if not actually pressed
+	if( !theKeyItr->second.pressed || !sTracker.keysHeldDown.test(aBaseVKey) )
+		return false;
+
+	// In most target apps, releasing a mouse button can itself count as
+	// an action being taken (a "click"), whereas a keyboard key generally
+	// only means to stop doing an action (like stop moving forward). Thus
+	// the target app will check modifier keys on a mouse up event to see
+	// if it is a shift-click vs ctrl-click vs normal click, but for keyboard
+	// keys usually only cares about the modifiers when the key is pressed.
+	// Therefore if the "key" is a mouse button, need to make sure all related
+	// modifier keys like Shift are held before releasing the mouse button!
+	if( isMouseButton(aVKey) && !areModKeysHeld(aVKey) )
+		return false;
+
+	// Make sure no other keysWantDown use this same base key
+	for(KeysWantDownMap::iterator itr = sTracker.keysWantDown.begin();
+		itr != sTracker.keysWantDown.end(); ++itr)
+	{
+		// If find another entry wants this same base key to stay down,
+		// don't actually release the key, but return true and leave this
+		// version of the key at 0 depth as nothing more needs done now.
+		// The actual key will be released when this other entry is done.
+		if( itr != theKeyItr &&
+			(itr->first & kVKeyMask) == aBaseVKey &&
+			itr->second.pressed &&
+			itr->second.depth > 0 )
+		{
+			theKeyItr->second.depth = 0;
+			return true;
+		}
+	}
+
+	// Now attempt to actually release the key (may be locked down though)
+	if( setKeyDown(aBaseVKey, false) == eResult_Ok )
+	{
+		theKeyItr->second.depth = 0;
+		return true;
+	}
+
+	return false;
 }
 
 
@@ -517,7 +571,7 @@ static void releaseAllHeldKeys()
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		setKeyState(u16(aVKey), eKeyState_Up);
+		setKeyDown(u16(aVKey), false);
 	}
 	sTracker.keysHeldDown.reset();
 	sTracker.keysWantDown.clear();
@@ -548,6 +602,11 @@ static void debugPrintInputVector()
 			case MOUSEEVENTF_RIGHTUP: siPrint("RMB released\n"); break;
 			case MOUSEEVENTF_MIDDLEDOWN: siPrint("MMB pressed\n"); break;
 			case MOUSEEVENTF_MIDDLEUP: siPrint("MMB released\n"); break;
+			case MOUSEEVENTF_MOVEABSOLUTE:
+				siPrint("Jumped cursor to %d%%x x %d%%y of desktop\n",
+					anInput.mi.dx * 100 / 0xFFFF,
+					anInput.mi.dy * 100 / 0xFFFF);
+				break;
 			}
 		}
 		else if( anInput.type == INPUT_KEYBOARD )
@@ -651,20 +710,19 @@ void update()
 
 	// Initiate MouseLook mode
 	// -----------------------
+	bool initiatingMouseLookMode = false;
 	if( sTracker.mouseLookWanted && !sTracker.keysHeldDown.test(VK_RBUTTON) &&
 		!sTracker.nextQueuedKey && !sTracker.backupQueuedKey &&
 		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) )
 	{// Between other tasks, so should start up mouse look mode
+		initiatingMouseLookMode = true;
 		sTracker.nextQueuedKey = VK_RBUTTON;
 		// Jump curser to safe spot for initial right-click first
-		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-		debugPrint("InputDispatcher: Jumping cursor to begin MouseLook mode\n");
-		#endif
 		Input anInput;
 		anInput.type = INPUT_MOUSE;
 		anInput.mi.dx = 32768;
 		anInput.mi.dy = 32768;
-		anInput.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 		sTracker.inputs.push_back(anInput);
 	}
 
@@ -685,7 +743,7 @@ void update()
 			(aCurrTask.queuedTime + kConfig.maxTaskQueuedTime) < gAppRunTime;
 
 		const Command& aCmd = aCurrTask.cmd;
-		VectorMap<u16, EKeyState>::iterator aKeyWantDownItr;
+		KeysWantDownMap::iterator aKeyWantDownItr;
 		EResult aTaskResult = eResult_TaskCompleted;
 
 		switch(aCmd.type)
@@ -694,7 +752,7 @@ void update()
 			// Just set want the key/combo pressed
 			DBG_ASSERT(aCmd.data != 0);
 			DBG_ASSERT((aCmd.data & ~(kVKeyMask | kVKeyModsMask)) == 0);
-			sTracker.keysWantDown.findOrAdd(aCmd.data, eKeyState_Up);
+			sTracker.keysWantDown.findOrAdd(aCmd.data).depth += 1;
 			break;
 		case eCmdType_ReleaseKey:
 			// Do nothing if key was never requested down anyway
@@ -704,32 +762,24 @@ void update()
 			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.data);
 			if( aKeyWantDownItr == sTracker.keysWantDown.end() )
 				break;
-			if( !aKeyWantDownItr->second )
-			{// Key hasn't been pressed yet
-				// If its a past due event, just forget it, otherwise
-				// abort the queue loop and wait for it to be pressed
-				if( taskIsPastDue )
-					sTracker.keysWantDown.erase(aKeyWantDownItr);
-				else
+			if( !aKeyWantDownItr->second.pressed )
+			{// Key has yet to be pressed in the first place
+				// Abort queue loop and wait for it to be pressed first,
+				// unless this is a past-due event, in which case just
+				// forget ever wanted the key pressed in the first place
+				if( !taskIsPastDue )
 					sTracker.queuePauseTime = 1; // to abort queue loop
+				else if( --aKeyWantDownItr->second.depth <= 0 )
+					sTracker.keysWantDown.erase(aKeyWantDownItr);
 			}
 			else
-			{// Key has been pressed - always release even if past due!
-				// If it's a keyboard key, or current modifier keys match
-				// those requested for a mouse button, then attempt to
-				// release right now so can continue to next queue item.
-				// Otherwise set the release request as the queued key.
-				const u8 aBaseVKey = aCmd.data & kVKeyMask;
-				if( (!isMouseButton(aCmd.data) ||
-					 areModKeysHeld(aCmd.data)) &&
-					setKeyState(aBaseVKey, eKeyState_Up) == eResult_Ok )
+			{// Key has been pressed, and should release even if past due
+
+				// Attempt to release now and move on to next queue item
+				// If can't, set releasing it as the queued key event
+				if( !tryQuickReleaseHeldKey(aKeyWantDownItr) )
 				{
-					// Was able to immediately release
-					sTracker.keysWantDown.erase(aKeyWantDownItr);
-				}
-				else
-				{
-					// Can't immediately release, use queue key instead
+					--aKeyWantDownItr->second.depth;
 					sTracker.nextQueuedKey = aCmd.data | kVKeyReleaseFlag;
 				}
 			}
@@ -755,23 +805,32 @@ void update()
 	// Process keysWantDown
 	// --------------------
 	BitArray<0xFF> aDesiredKeysDown; aDesiredKeysDown.reset();
-	// Keep holding right mouse button once mouselook mode started
 	if( sTracker.mouseLookWanted && sTracker.keysHeldDown.test(VK_RBUTTON) )
-	{
+	{// Keep holding right mouse button once mouselook mode started
 		aDesiredKeysDown.set(VK_RBUTTON);
 		sTracker.mouseLookActiveTime += gAppFrameTime;
 	}
 	bool hasNonPressedKeyThatWantsHeldDown = false;
 	u16 aPressedKeysDesiredMods = 0;
-	for(size_t i = 0; i < sTracker.keysWantDown.size(); ++i)
+	for(KeysWantDownMap::iterator itr =
+		sTracker.keysWantDown.begin(), next_itr = itr;
+		itr != sTracker.keysWantDown.end(); itr = next_itr)
 	{
-		const u16 aVKey = sTracker.keysWantDown[i].first;
+		++next_itr;
+		const u16 aVKey = itr->first;
 		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
 		const u16 aVKeyModFlags = aVKey & kVKeyModsMask;
-		const EKeyState aState = sTracker.keysWantDown[i].second;
+		const bool pressed = itr->second.pressed;
+		const bool wantPressed = itr->second.depth > 0;
 
-		if( aState == eKeyState_Down )
-		{// Already been pressed initially
+		if( pressed && !wantPressed )
+		{// Been pressed and no longer needs to be
+			next_itr = sTracker.keysWantDown.erase(itr);
+			continue;
+		}
+		
+		if( pressed && sTracker.keysHeldDown.test(aBaseVKey) )
+		{// Already been pressed and base key still held
 			aDesiredKeysDown.set(aBaseVKey);
 			aPressedKeysDesiredMods |= aVKeyModFlags;
 			if( aVKeyModFlags &&
@@ -780,21 +839,34 @@ void update()
 			{// Going to release base key, can keep mod keys down until then
 				sTracker.nextQueuedKey |= aVKeyModFlags;
 			}
+			continue;
 		}
-		else if( areModKeysHeld(aVKey) &&
-				 (sTracker.nextQueuedKey == 0 ||
-				  (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags) )
+		
+		if( areModKeysHeld(aVKey) &&
+			(sTracker.nextQueuedKey == 0 ||
+			 (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags) )
 		{// Doesn't need a change in mod keys, so can press safely
+			aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
+			aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
+			aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
 			aDesiredKeysDown.set(aBaseVKey);
 			hasNonPressedKeyThatWantsHeldDown = true;
+			continue;
 		}
-		else
+		
+		if( sTracker.backupQueuedKey == 0 &&
+			(!sTracker.nextQueuedKey || !pressed) )
 		{// Needs a change in mod keys - take over queued key to do this
 			sTracker.backupQueuedKey = sTracker.nextQueuedKey;
 			sTracker.nextQueuedKey = aVKey | kVKeyHoldFlag;
 			hasNonPressedKeyThatWantsHeldDown = true;
+			continue;
 		}
+		
+		// If reached here, want to press the key but just can't right now!
+		// Will have to wait and try again next frame
 	}
+
 	// If nothing queued or needs to be newly pressed, hold down any
 	// modifier keys that any combo-keys wanted held down.
 	// This likely isn't necessary but target apps may behave better.
@@ -823,15 +895,27 @@ void update()
 		aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
 		aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
 		aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
-		// Make sure base key is in opposite of desired pressed state
-		if( !forced )
-			aDesiredKeysDown.set(aBaseVKey, !press);
 		// Only send the key if related keys are already in correct state
-		// Otherwise, need to wait until other keys are ready from above
-		if( areModKeysHeld(sTracker.nextQueuedKey) &&
-			(forced || sTracker.keysHeldDown.test(aBaseVKey) == !press) )
+		// Otherwise, need to wait until other keys are ready next frame
+		canSendQueuedKey = areModKeysHeld(sTracker.nextQueuedKey);
+		// Make sure base key is in opposite of desired pressed state
+		if( !forced && sTracker.keysHeldDown.test(aBaseVKey) == press )
 		{
-			canSendQueuedKey = true;
+			aDesiredKeysDown.set(aBaseVKey, !press);
+			canSendQueuedKey = false;
+		}
+		// For mouse buttons in key sequences, before *any* are pressed,
+		// *all* other mouse buttons should be released.
+		if( !forced && press && isMouseButton(aVKey) &&
+			!(aVKey & kVKeyHoldFlag) &&
+			(sTracker.keysHeldDown.test(VK_LBUTTON) ||
+			 sTracker.keysHeldDown.test(VK_MBUTTON) ||
+			 sTracker.keysHeldDown.test(VK_RBUTTON)) )
+		{
+			aDesiredKeysDown.reset(VK_LBUTTON);
+			aDesiredKeysDown.reset(VK_MBUTTON);
+			aDesiredKeysDown.reset(VK_RBUTTON);
+			canSendQueuedKey = false;
 		}
 	}
 	/*
@@ -854,7 +938,7 @@ void update()
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
 		if( !aDesiredKeysDown.test(aVKey) )
-			setKeyState(u8(aVKey), eKeyState_Up);
+			setKeyDown(u8(aVKey), false);
 	}
 	const u16 aModKeysHeldAsFlags = modKeysHeldAsFlags();
 	for(int aVKey = aDesiredKeysDown.firstSetBit();
@@ -862,13 +946,13 @@ void update()
 		aVKey = aDesiredKeysDown.nextSetBit(aVKey+1))
 	{
 		if( !sTracker.keysHeldDown.test(aVKey) &&
-			setKeyState(u8(aVKey), eKeyState_Down) == eResult_Ok )
+			setKeyDown(u8(aVKey), true) == eResult_Ok )
 		{
 			const u16 keyJustPressed = u16(aVKey) | aModKeysHeldAsFlags;
-			VectorMap<u16, EKeyState>::iterator itr =
+			KeysWantDownMap::iterator itr =
 				sTracker.keysWantDown.find(keyJustPressed);
 			if( itr != sTracker.keysWantDown.end() )
-				itr->second = eKeyState_Down;
+				itr->second.pressed = true;
 		}
 	}
 
@@ -880,27 +964,37 @@ void update()
 		u16 aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
 		u8 aVKeyBase = u8(aVKey & kVKeyMask);
 		const bool wantRelease = !!(sTracker.nextQueuedKey & kVKeyReleaseFlag);
-		const EKeyState aNewState =
-			wantRelease ? eKeyState_Up : eKeyState_Down;
 
-		if( setKeyState(aVKeyBase, aNewState) == eResult_Ok )
+		if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
 		{
+			const bool wantHold = !!(sTracker.nextQueuedKey & kVKeyHoldFlag);
+			sTracker.nextQueuedKey = 0;
 			if( wantRelease )
-			{// Stop tracking this key and any combo-keys with same base key
-				for(VectorMap<u16, EKeyState>::iterator itr =
-					sTracker.keysWantDown.begin(), next_itr = itr;
-					itr != sTracker.keysWantDown.end(); itr = next_itr)
-				{
-					++next_itr;
-					if( (itr->first & kVKeyMask) == aVKeyBase )
-						next_itr = sTracker.keysWantDown.erase(itr);
+			{
+				if( wantHold ) // wantHold + wantRelease = forced released
+				{// Stop tracking this key and any combo-keys with same base
+					for(KeysWantDownMap::iterator itr =
+						sTracker.keysWantDown.begin(), next_itr = itr;
+						itr != sTracker.keysWantDown.end(); itr = next_itr)
+					{
+						++next_itr;
+						if( (itr->first & kVKeyMask) == aVKeyBase )
+							next_itr = sTracker.keysWantDown.erase(itr);
+					}
 				}
 			}
-			else if( !!(sTracker.nextQueuedKey & kVKeyHoldFlag) )
-			{// Begin tracking this key and keeping it held down
-				sTracker.keysWantDown.setValue(aVKey, eKeyState_Down);
+			else if( wantHold )
+			{// Flag key as having been pressed
+				KeysWantDownMap::iterator itr =
+					sTracker.keysWantDown.find(aVKey);
+				if( itr != sTracker.keysWantDown.end() )
+					itr->second.pressed = true;
 			}
-			sTracker.nextQueuedKey = 0;
+			else if( isMouseButton(aVKeyBase) && !initiatingMouseLookMode )
+			{// Mouse button that wanted to be "clicked" once in a sequence
+				// Should release the mouse button for next queued key action
+				sTracker.nextQueuedKey = aVKeyBase | kVKeyReleaseFlag;
+			}
 		}
 	}
 	sTracker.typingChatBoxString = false;
@@ -932,24 +1026,42 @@ void sendKeyCommand(const Command& theCommand)
 	case eCmdType_PressAndHoldKey:
 		DBG_ASSERT(aBaseVKey != 0);
 		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-		if( isSafeAsyncKey(aVKey) &&
-			areModKeysHeld(aVKey) &&
-			setKeyState(aBaseVKey, eKeyState_Down) == eResult_Ok )
-		{// Don't need to queue this key
-			sTracker.keysWantDown.setValue(aVKey, eKeyState_Down);
-			break;
+		{// Try pressing the key right away instead of queueing it
+			const size_t aPos = sTracker.keysWantDown.findInsertPos(aVKey);
+			if( aPos < sTracker.keysWantDown.size() &&
+				sTracker.keysWantDown[aPos].first == aVKey )
+			{
+				// Already requested hold this key...
+				// Just increment counter of simultaneous hold requests
+				++sTracker.keysWantDown[aPos].second.depth;
+				break;
+			}
+			if( isSafeAsyncKey(aVKey) &&
+				areModKeysHeld(aVKey) &&
+				setKeyDown(aBaseVKey, true) == eResult_Ok )
+			{// Don't need to queue this key, press it now!
+				KeyWantDownStatus aStatus;
+				aStatus.pressed = true;
+				aStatus.depth = 1;
+				sTracker.keysWantDown.insert(
+					sTracker.keysWantDown.begin() + aPos,
+					std::make_pair(aVKey, aStatus));
+				break;
+			}
 		}
 		sTracker.queue.push_back(theCommand);
 		break;
 	case eCmdType_ReleaseKey:
 		DBG_ASSERT(aBaseVKey != 0);
 		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-		if( (!isMouseButton(aVKey) || areModKeysHeld(aVKey)) &&
-			sTracker.keysHeldDown.test(aBaseVKey) &&
-			setKeyState(aBaseVKey, eKeyState_Up) == eResult_Ok )
-		{// Safely released key right away, no need to queue release
-			sTracker.keysWantDown.erase(aVKey);
-			break;
+		{// Try releasing the key right away instead of queueing it
+			KeysWantDownMap::iterator itr =
+				sTracker.keysWantDown.find(aVKey);
+			if( itr != sTracker.keysWantDown.end() &&
+				tryQuickReleaseHeldKey(itr) )
+			{
+				break;
+			}
 		}
 		sTracker.queue.push_back(theCommand);
 		break;
@@ -1201,38 +1313,8 @@ void moveCharacter(int move, int turn, int strafe)
 		(applyMoveStrafe && abs(strafe) >= abs(turn) &&
 			aStrafeAngle < M_PI * -0.125 && aStrafeAngle > M_PI * -0.875));
 
-	// Release movement keys that don't need any more
-	Command aCmd; aCmd.type = eCmdType_ReleaseKey;
-	for(int aHeldKey = sTracker.moveKeysHeld.firstSetBit();
-		aHeldKey < sTracker.moveKeysHeld.size();
-		aHeldKey = sTracker.moveKeysHeld.nextSetBit(aHeldKey+1))
-	{
-		if( !moveKeysWantDown.test(aHeldKey) )
-		{
-			aCmd.data = InputMap::keyForSpecialAction(
-				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
-			// Before actually releasing this movement key, make sure it is
-			// not the  same VKey as another key that wants to be pressed.
-			for(int aWantedKey = moveKeysWantDown.firstSetBit();
-				aWantedKey < moveKeysWantDown.size();
-				aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
-			{
-				if( aCmd.data == InputMap::keyForSpecialAction(
-						ESpecialKey(aWantedKey + eSpecialKey_FirstMove)) )
-				{// Don't bother releasing and re-pressing the same key!
-					sTracker.moveKeysHeld.set(aWantedKey);
-					aCmd.data = 0;
-					break;
-				}
-			}
-			if( aCmd.data != 0 )
-				sendKeyCommand(aCmd);
-			sTracker.moveKeysHeld.reset(aHeldKey);
-		}
-	}
-
 	// Press new movement keys
-	aCmd.type = eCmdType_PressAndHoldKey;
+	Command aCmd; aCmd.type = eCmdType_PressAndHoldKey;
 	for(int aWantedKey = moveKeysWantDown.firstSetBit();
 		aWantedKey < moveKeysWantDown.size();
 		aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
@@ -1244,6 +1326,22 @@ void moveCharacter(int move, int turn, int strafe)
 			if( aCmd.data != 0 )
 				sendKeyCommand(aCmd);
 			sTracker.moveKeysHeld.set(aWantedKey);
+		}
+	}
+
+	// Release movement keys that aren't needed any more
+	aCmd.type = eCmdType_ReleaseKey;
+	for(int aHeldKey = sTracker.moveKeysHeld.firstSetBit();
+		aHeldKey < sTracker.moveKeysHeld.size();
+		aHeldKey = sTracker.moveKeysHeld.nextSetBit(aHeldKey+1))
+	{
+		if( !moveKeysWantDown.test(aHeldKey) )
+		{
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
+			if( aCmd.data != 0 )
+				sendKeyCommand(aCmd);
+			sTracker.moveKeysHeld.reset(aHeldKey);
 		}
 	}
 }
