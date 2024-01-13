@@ -171,7 +171,14 @@ u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 	static NameToVKeyMapper sKeyMapper;
 
 	u8* result = sKeyMapper.map.find(theKeyName);
-	if( !allowMouse && result && *result <= 0x07) result = NULL;
+	if( !allowMouse && result &&
+		(*result == VK_LBUTTON ||
+		 *result == VK_MBUTTON ||
+		 *result == VK_RBUTTON) )
+	{
+		result = null;
+	}
+
 	return result ? *result : 0;
 }
 
