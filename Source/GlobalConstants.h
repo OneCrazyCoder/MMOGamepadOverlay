@@ -31,6 +31,7 @@ enum ECommandType
 	// First group are valid for InputDispatcher::sendKeyCommand()
 	eCmdType_PressAndHoldKey,
 	eCmdType_ReleaseKey,
+	eCmdType_TapKey,
 	eCmdType_VKeySequence,
 	eCmdType_SlashCommand,
 	eCmdType_SayString,

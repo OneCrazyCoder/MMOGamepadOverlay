@@ -15,7 +15,7 @@ namespace Profile
 {
 
 // TEMP until add profile selection interface - index in kResourceProfiles[]
-#define DEFAULT_PROFILE_INDEX 4
+#define DEFAULT_PROFILE_INDEX 6
 
 //-----------------------------------------------------------------------------
 // Const Data

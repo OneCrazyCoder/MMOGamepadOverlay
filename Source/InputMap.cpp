@@ -11,8 +11,8 @@ namespace InputMap
 {
 
 // Whether or not debug messages print depends on which line is commented out
-//#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
-#define mapDebugPrint(...) ((void)0)
+#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
+//#define mapDebugPrint(...) ((void)0)
 
 
 //-----------------------------------------------------------------------------
@@ -143,7 +143,7 @@ struct InputMapBuilder
 	std::string debugSlotName;
 	std::vector<std::string> parsedString;
 	StringToValueMap<u16> nameToIdxMap;
-	StringToValueMap<u16> keyAliases;
+	StringToValueMap<Command> commandAliases;
 };
 
 
@@ -325,6 +325,56 @@ static std::string namesToVKeySequence(
 }
 
 
+static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
+{
+	u16 result = 0;
+	if( theVKeySeq == null )
+		return result;
+	if( theVKeySeq[0] == '\0' )
+		return result;
+	if( theVKeySeq[1] == '\0' )
+	{
+		result = theVKeySeq[0];
+		return result;
+	}
+
+	bool hasNonModKey = false;
+	for(const u8* aVKeyPtr = theVKeySeq; *aVKeyPtr != '\0'; ++aVKeyPtr)
+	{
+		// If encounter anything else after the first non-mod key,
+		// it is must be a sequence of keys rather than of a "single key",
+		// and thus can not be used with _TapKey, _PressAndHoldKey, etc.
+		if( result & kVKeyMask )
+		{
+			result = 0;
+			return result;
+		}
+
+		switch(*aVKeyPtr)
+		{
+		case VK_SHIFT:
+			result |= kVKeyShiftFlag;
+			break;
+		case VK_CONTROL:
+			result |= kVKeyCtrlFlag;
+			break;
+		case VK_MENU:
+			result |= kVKeyAltFlag;
+			break;
+		case VK_CANCEL:
+			// Can't "tap" or "press and hold" a force release key
+			result = 0;
+			return result;			
+		default:
+			result |= *aVKeyPtr;
+			break;
+		}
+	}
+	
+	return result;
+}
+
+
 static MacroSlot stringToMacroSlot(
 	InputMapBuilder& theBuilder,
 	std::string theString)
@@ -386,11 +436,10 @@ static MacroSlot stringToMacroSlot(
 	}
 
 	// Check for alias to a keybind
-	if( u16* aKeyStringIdxPtr =
-			theBuilder.keyAliases.find(condense(theString)) )
+	if( Command* aKeyBindCommand =
+			theBuilder.commandAliases.find(condense(theString)) )
 	{
-		aMacroSlot.cmd.type = eCmdType_VKeySequence;
-		aMacroSlot.cmd.data = *aKeyStringIdxPtr;
+		aMacroSlot.cmd = *aKeyBindCommand;
 		mapDebugPrint("%s: Macro '%s' assigned to KeyBind: '%s'\n",
 			theBuilder.debugSlotName.c_str(),
 			aMacroSlot.label.c_str(), theString.c_str());
@@ -406,12 +455,23 @@ static MacroSlot stringToMacroSlot(
 		theBuilder.parsedString, false);
 	if( !aVKeySeq.empty() )
 	{
-		sKeyStrings.push_back(aVKeySeq);
-		aMacroSlot.cmd.type = eCmdType_VKeySequence;
-		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
+		if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+		{
+			aMacroSlot.cmd.type = eCmdType_TapKey;
+			aMacroSlot.cmd.data = aVKey;
+			mapDebugPrint("%s: Macro '%s' assigned to key/button: %s\n",
+				theBuilder.debugSlotName.c_str(),
+				aMacroSlot.label.c_str(), theString.c_str());
+		}
+		else
+		{
+			sKeyStrings.push_back(aVKeySeq);
+			aMacroSlot.cmd.type = eCmdType_VKeySequence;
+			aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
+			mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
+				theBuilder.debugSlotName.c_str(),
+				aMacroSlot.label.c_str(), theString.c_str());
+		}
 		return aMacroSlot;
 	}
 
@@ -454,7 +514,7 @@ static void buildMacroSets(InputMapBuilder& theBuilder)
 }
 
 
-static void buildKeyAliases(InputMapBuilder& theBuilder)
+static void buildCommandAliases(InputMapBuilder& theBuilder)
 {
 	mapDebugPrint("Assigning KeyBinds...\n");
 
@@ -463,30 +523,40 @@ static void buildKeyAliases(InputMapBuilder& theBuilder)
 	for(size_t i = 0; i < aKeyBindRequests.size(); ++i)
 	{
 		const char* anActionName = aKeyBindRequests[i].first;
-		const char* aKeysDescription = aKeyBindRequests[i].second;
+		const char* aCommandDescription = aKeyBindRequests[i].second;
 
-		if( !aKeysDescription || aKeysDescription[0] == '\0' )
+		if( !aCommandDescription || aCommandDescription[0] == '\0' )
 			continue;
 
 		// Break keys description string into individual words
 		theBuilder.parsedString.clear();
-		sanitizeSentence(aKeysDescription, theBuilder.parsedString);
+		sanitizeSentence(aCommandDescription, theBuilder.parsedString);
 		const std::string& aVKeySeq = namesToVKeySequence(
 			theBuilder.parsedString, true);
 		if( !aVKeySeq.empty() )
 		{
-			sKeyStrings.push_back(aVKeySeq);
-			theBuilder.keyAliases.setValue(
-				anActionName, u16(sKeyStrings.size()-1));
+			Command aCmd;
+			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+			{
+				aCmd.type = eCmdType_TapKey;
+				aCmd.data = aVKey;
+			}
+			else
+			{
+				aCmd.type = eCmdType_VKeySequence;
+				aCmd.data = u16(sKeyStrings.size());
+				sKeyStrings.push_back(aVKeySeq);
+			}
+			theBuilder.commandAliases.setValue(anActionName, aCmd);
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
-				anActionName, aKeysDescription);
+				anActionName, aCommandDescription);
 		}
 		else
 		{
 			logError(
 				"%s%s: Unable to decipher and assign '%s'",
-				kKeybindsPrefix, anActionName, aKeysDescription);
+				kKeybindsPrefix, anActionName, aCommandDescription);
 		}
 	}
 }
@@ -720,52 +790,6 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 	return result;
 }
 
-
-static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
-{
-	u16 result = 0;
-	if( theVKeySeq == null )
-		return result;
-	if( theVKeySeq[0] == '\0' )
-		return result;
-	if( theVKeySeq[1] == '\0' )
-	{
-		result = theVKeySeq[0];
-		return result;
-	}
-
-	bool hasNonModKey = false;
-	for(const u8* aVKeyPtr = theVKeySeq; *aVKeyPtr != '\0'; ++aVKeyPtr)
-	{
-		// If encounter anything else after the first non-mod key,
-		// it is must be a sequence of keys rather than of a "single key",
-		// and thus can not be used with _PressAndHoldKey or _ReleaseKey.
-		if( result & kVKeyMask )
-		{
-			result = 0;
-			return result;
-		}
-
-		switch(*aVKeyPtr)
-		{
-		case VK_SHIFT:
-			result |= kVKeyShiftFlag;
-			break;
-		case VK_CONTROL:
-			result |= kVKeyCtrlFlag;
-			break;
-		case VK_MENU:
-			result |= kVKeyAltFlag;
-			break;
-		default:
-			result |= *aVKeyPtr;
-			break;
-		}
-	}
-	
-	return result;
-}
-
 	
 static void addButtonAction(
 	InputMapBuilder& theBuilder,
@@ -820,11 +844,10 @@ static void addButtonAction(
 	// Check for alias to a keybind
 	if( aCmd.type == eCmdType_Empty )
 	{
-		if( u16* aKeyStringIdxPtr =
-				theBuilder.keyAliases.find(condense(theCmdStr)) )
+		if( Command* aKeyBindCommand =
+				theBuilder.commandAliases.find(condense(theCmdStr)) )
 		{
-			aCmd.type = eCmdType_VKeySequence;
-			aCmd.data = *aKeyStringIdxPtr;
+			aCmd = *aKeyBindCommand;
 		}
 	}
 
@@ -837,26 +860,28 @@ static void addButtonAction(
 
 		if( !aVKeySeq.empty() )
 		{
-			aCmd.type = eCmdType_VKeySequence;
-			aCmd.data = u16(sKeyStrings.size());
-			sKeyStrings.push_back(aVKeySeq);
+			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+			{
+				aCmd.type = eCmdType_TapKey;
+				aCmd.data = aVKey;
+			}
+			else
+			{
+				aCmd.type = eCmdType_VKeySequence;
+				aCmd.data = u16(sKeyStrings.size());
+				sKeyStrings.push_back(aVKeySeq);
+			}
 		}
 	}
 
-	// Convert eCmdType_VKeySequence to eCmdType_PressAndHoldKey? 
-	if( aCmd.type == eCmdType_VKeySequence && aBtnAct == eBtnAct_Down )
-	{
-		// True "while held down" only works with a single key (w/ mods).
-		// If more than one normal key was specified, this will be
-		// skipped and _Down will just act like another _Press action
-		// (meaning could have 2 commands execute on button press).
-		if( u16 aVKey = vKeySeqToSingleKey(
-				(const u8*)sKeyStrings[aCmd.data].c_str()) )
-		{
-			aCmd.type = eCmdType_PressAndHoldKey;
-			aCmd.data = aVKey;
-		}
-	}
+	// Convert eCmdType_TapKey to eCmdType_PressAndHoldKey? 
+	// True "while held down" only works with a single key (w/ mods),
+	// just like _TapKey, and only when assigned to eBtnAct_Down.
+	// If a full sequence was specified, this will be skipped and
+	// _Down will just act the same as _Press (which can be used
+	// intentionally to have 2 actions on button initial press).
+	if( aCmd.type == eCmdType_TapKey && aBtnAct == eBtnAct_Down )
+		aCmd.type = eCmdType_PressAndHoldKey;
 
 	// Check for bad combinations of button+action+command
 	if( aCmd.type == eCmdType_RemoveControlsLayer && theLayerIdx == 0 )
@@ -1022,19 +1047,18 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 	for(size_t i = 0; i < eSpecialKey_Num; ++i)
 	{
 		DBG_ASSERT(sSpecialKeys[i] == 0);
-		u16* aKeyStringIdxPtr =
-			theBuilder.keyAliases.find(kSpecialKeyNames[i]);
-		if( !aKeyStringIdxPtr || sKeyStrings[*aKeyStringIdxPtr].empty() )
+		Command* aKeyBindCommand =
+			theBuilder.commandAliases.find(kSpecialKeyNames[i]);
+		if( !aKeyBindCommand )
 			continue;
-		u16 aKeyValue = vKeySeqToSingleKey(
-			(const u8*)sKeyStrings[*aKeyStringIdxPtr].c_str());
-		if( !aKeyValue )
+		if( aKeyBindCommand->type != eCmdType_TapKey )
 		{
-			logError("Can not assign a full key sequence to %s!",
+			logError("Can not assign a full key sequence to %s! "
+				"Please assign only a single key!",
 				kSpecialKeyNames[i]);
 			continue;
 		}
-		sSpecialKeys[i] = aKeyValue;
+		sSpecialKeys[i] = aKeyBindCommand->data;
 	}
 
 	// Have some special keys borrow the value of others if left unassigned
@@ -1120,7 +1144,7 @@ void loadProfile()
 	// Build control scheme and macros
 	{
 		InputMapBuilder anInputMapBuilder;
-		buildKeyAliases(anInputMapBuilder);
+		buildCommandAliases(anInputMapBuilder);
 		buildControlScheme(anInputMapBuilder);
 		buildMacroSets(anInputMapBuilder);
 		assignSpecialKeys(anInputMapBuilder);
