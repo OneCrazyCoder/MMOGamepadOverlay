@@ -75,7 +75,7 @@ struct Config
 	double mouseWheelRange;
 	int mouseWheelSpeed;
 	double moveDeadzone;
-
+	std::vector<u8> safeAsyncKeys;
 	bool useScanCodes;
 
 	void load()
@@ -104,6 +104,49 @@ struct Config
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
 		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
 		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
+		std::string aString = Profile::getStr("System/safeAsyncKeys");
+		if( !aString.empty() )
+		{
+			std::vector<std::string> aParsedString;
+			sanitizeSentence(aString, aParsedString);
+			for( size_t i = 0; i < aParsedString.size(); ++i)
+			{
+				u8 aVKey = keyNameToVirtualKey(upper(aParsedString[i]), true);
+				if( aVKey == 0 )
+				{
+					logError("Unrecognized key name for safeAsyncKeys: %s",
+						aParsedString[i].c_str());
+				}
+				else if( aVKey == VK_F1 )
+				{// Assume all function keys included
+					for( aVKey = VK_F1; aVKey <= VK_F24; ++aVKey )
+						safeAsyncKeys.push_back(aVKey);
+				}
+				else if( aVKey == VK_NUMPAD0 || aVKey == VK_NUMPAD1 )
+				{// Assume all numpad numbers are included
+					for( aVKey = VK_NUMPAD0; aVKey <= VK_NUMPAD9; ++aVKey )
+						safeAsyncKeys.push_back(aVKey);
+				}
+				else if( aVKey == '0' || aVKey == '1' )
+				{// Assume all number keys are included
+					for( aVKey = '0'; aVKey <= '9'; ++aVKey )
+						safeAsyncKeys.push_back(aVKey);
+				}
+				else
+				{
+					safeAsyncKeys.push_back(aVKey);
+				}
+			}
+			std::sort(safeAsyncKeys.begin(), safeAsyncKeys.end());
+			safeAsyncKeys.erase(
+				std::unique(safeAsyncKeys.begin(), safeAsyncKeys.end()),
+				safeAsyncKeys.end());
+			if( safeAsyncKeys.size() < safeAsyncKeys.capacity() )
+			{// Shrink to fit
+				std::vector<u8> temp(safeAsyncKeys);
+				temp.swap(safeAsyncKeys);
+			}
+		}
 	}
 };
 
@@ -345,40 +388,31 @@ static EResult popNextStringChar(const char* theString)
 }
 
 
-static bool isSafeAsyncKey(u8 theVKey)
+static bool isSafeAsyncKey(u16 theVKey)
 {
 	// These are keys that can be pressed while typing
 	// in a macro into the chat box without interfering
 	// with the macro or being interfered with by it.
-	// This may need to be moved into user configuration if
-	// it differs by target application.
-	if( sTracker.keysHeldDown.test(VK_SHIFT) ||
-		sTracker.keysHeldDown.test(VK_CONTROL) ||
-		sTracker.keysHeldDown.test(VK_MENU) )
+
+	// Only keys that don't need modifier keys are safe
+	if( (theVKey & ~kVKeyMask) != 0 )
 		return false;
 
-	// Move forward during mouse look (won't cause a click on UI to abort chat)
-	if( theVKey == VK_LBUTTON && sTracker.keysHeldDown.test(VK_RBUTTON) )
+	const u8 aBaseVkey = u8(theVKey & kVKeyMask);
+
+	// If MouseLookMoveForward is Left-Click, should be safe during mouselook
+	// because it won't cause a click in the UI
+	if( aBaseVkey == VK_LBUTTON &&
+		InputMap::keyForSpecialAction(eSpecialKey_MLMoveF) == VK_LBUTTON &&
+		sTracker.mouseLookActiveTime > kMinMouseLookTimeForAltMove )
 		return true;
 
-	// Middle click
-	if( theVKey == VK_MBUTTON )
-		return true;
-
-	// Includes arrow keys, but since can't get here while holding shift,
-	// does not include shift+arrow keys used for moving cursor in chat box
-	if( theVKey >= VK_PRIOR && theVKey <= VK_INSERT )
-		return true;
-
-	// Numpad keys don't actually type anything into chat box
-	if( theVKey >= VK_NUMPAD0 && theVKey <= VK_NUMPAD9 )
-		return true;
-
-	// Function keys have no effect on chat box
-	if( theVKey >= VK_F1 && theVKey <= VK_F12 )
-		return true;
-
-	return false;
+	// Remaining safe async keys depend on target, so use Profile data
+	return
+		std::binary_search(
+			kConfig.safeAsyncKeys.begin(),
+			kConfig.safeAsyncKeys.end(),
+			aBaseVkey);
 }
 
 
@@ -517,7 +551,7 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 	}
 
 	const u16 aVKey = theKeyItr->first & (kVKeyMask | kVKeyModsMask);
-	const u8 aBaseVKey = aVKey & kVKeyMask;
+	const u8 aBaseVKey = u8(aVKey & kVKeyMask);
 	DBG_ASSERT(aBaseVKey);
 
 	// Don't release yet if not actually pressed
@@ -784,6 +818,10 @@ void update()
 				}
 			}
 			break;
+		case eCmdType_TapKey:
+			if( !taskIsPastDue )
+				sTracker.nextQueuedKey = aCmd.data;
+			break;
 		case eCmdType_VKeySequence:
 			if( !taskIsPastDue )
 				aTaskResult = popNextKey((const u8*)aCmd.string);
@@ -887,7 +925,7 @@ void update()
 	if( sTracker.nextQueuedKey )
 	{
 		const u16 aVKey = sTracker.nextQueuedKey;
-		const u8 aBaseVKey = aVKey & kVKeyMask;
+		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
 		DBG_ASSERT(aBaseVKey != 0); // otherwise somehow got flags but no key!
 		const bool press = !(aVKey & kVKeyReleaseFlag);
 		const bool forced = !press && (aVKey & kVKeyHoldFlag);
@@ -1016,7 +1054,7 @@ void sendKeyCommand(const Command& theCommand)
 {
 	// These values only valid for certain command types
 	const u16 aVKey = theCommand.data;
-	const u8 aBaseVKey = aVKey & kVKeyMask;
+	const u8 aBaseVKey = u8(aVKey & kVKeyMask);
 
 	switch(theCommand.type)
 	{
@@ -1037,9 +1075,8 @@ void sendKeyCommand(const Command& theCommand)
 				break;
 			}
 			if( isSafeAsyncKey(aVKey) &&
-				areModKeysHeld(aVKey) &&
 				setKeyDown(aBaseVKey, true) == eResult_Ok )
-			{// Don't need to queue this key, press it now!
+			{// Was able to press the key now, don't need to queue it!
 				KeyWantDownStatus aStatus;
 				aStatus.pressed = true;
 				aStatus.depth = 1;
@@ -1065,6 +1102,18 @@ void sendKeyCommand(const Command& theCommand)
 		}
 		sTracker.queue.push_back(theCommand);
 		break;
+	case eCmdType_TapKey:
+		DBG_ASSERT(aBaseVKey != 0);
+		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
+		{// Try tapping the key right away instead of queueing it
+			if( isSafeAsyncKey(aVKey) &&
+				!sTracker.keysHeldDown.test(aBaseVKey) &&
+				setKeyDown(aBaseVKey, true) == eResult_Ok )
+			{// Was able to press the key now, don't need to queue it!
+				break;
+			}
+		}
+		// fall through
 	case eCmdType_VKeySequence:
 	case eCmdType_SlashCommand:
 	case eCmdType_SayString:

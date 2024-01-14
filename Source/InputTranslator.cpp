@@ -286,6 +286,11 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		// Make note that this button is holding this key
 		theBtnState.vKeyHeld = theCmd.data;
 		break;
+	case eCmdType_ReleaseKey:
+		// Handled by releaseKeyHeldByButton() instead
+		DBG_ASSERT(false && "_ReleaseKey should not be directly assigned!");
+		break;
+	case eCmdType_TapKey:
 	case eCmdType_VKeySequence:
 		// Queue to send after press/release commands but before strings
 		sResults.keys.push_back(theCmd);
@@ -325,6 +330,11 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 	case eCmdType_RewriteMacro:
 		// TODO
 		break;
+	case eCmdType_MoveTurn:
+	case eCmdType_MoveStrafe:
+	case eCmdType_MoveMouse:
+	case eCmdType_SmoothMouseWheel:
+	case eCmdType_StepMouseWheel:
 	default:
 		// Invalid command for this function!
 		DBG_ASSERT(false && "Invalid command sent to processCommand()");
