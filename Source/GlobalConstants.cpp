@@ -44,7 +44,7 @@ const char* kProfileButtonName[] =
 DBG_CTASSERT(ARRAYSIZE(kProfileButtonName) == eBtn_Num);
 
 
-u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
+u8 keyNameToVirtualKey(const std::string& theKeyName)
 {
 	if( theKeyName.size() == 1 )
 	{
@@ -172,14 +172,6 @@ u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 	static NameToVKeyMapper sKeyMapper;
 
 	u8* result = sKeyMapper.map.find(theKeyName);
-	if( !allowMouse && result &&
-		(*result == VK_LBUTTON ||
-		 *result == VK_MBUTTON ||
-		 *result == VK_RBUTTON) )
-	{
-		result = null;
-	}
-
 	return result ? *result : 0;
 }
 
@@ -287,7 +279,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 72;
+			const size_t kMapSize = 74;
 			map.reserve(kMapSize);
 			map.setValue("ADD",			eCmdWord_Add);
 			map.setValue("REMOVE",		eCmdWord_Remove);
@@ -299,6 +291,8 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("SMOOTH",		eCmdWord_Smooth);
 			map.setValue("STEP",		eCmdWord_Stepped);
 			map.setValue("STEPPED",		eCmdWord_Stepped);
+			map.setValue("ONCE",		eCmdWord_Once);
+			map.setValue("SINGLE",		eCmdWord_Once);
 			map.setValue("MOVE",		eCmdWord_Move);
 			map.setValue("TURN",		eCmdWord_Turn);
 			map.setValue("MOVETURN",	eCmdWord_Turn);

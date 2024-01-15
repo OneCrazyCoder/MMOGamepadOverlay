@@ -408,8 +408,16 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
 	case eCmdType_MoveMouse:
-	case eCmdType_SmoothMouseWheel:
-	case eCmdType_StepMouseWheel:
+		// Invalid command for this function!
+		DBG_ASSERT(false && "Invalid command sent to processCommand()");
+		break;
+	case eCmdType_MouseWheel:
+		if( theCmd.data2 == eMouseWheelMotion_Once )
+		{
+			InputDispatcher::scrollMouseWheelOnce(ECommandDir(theCmd.data));
+			break;
+		}
+		// fall through
 	default:
 		// Invalid command for this function!
 		DBG_ASSERT(false && "Invalid command sent to processCommand()");
@@ -441,10 +449,13 @@ static void processButtonPress(ButtonState& theBtnState)
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
 	case eCmdType_MoveMouse:
-	case eCmdType_SmoothMouseWheel:
-	case eCmdType_StepMouseWheel:
 		// Handled in processContinuousInput instead
 		return;
+	case eCmdType_MouseWheel:
+		// Handled in processContinuousInput instead unless set to _Once
+		if( aCmd.data2 != eMouseWheelMotion_Once )
+			return;
+		break;
 	}
 
 	// _Press is processed before _Down since it is specifically called out
@@ -475,10 +486,13 @@ static void processContinuousInput(
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
 	case eCmdType_MoveMouse:
-	case eCmdType_SmoothMouseWheel:
-	case eCmdType_StepMouseWheel:
 		// Continue to analog checks below
 		break;
+	case eCmdType_MouseWheel:
+		// Continue to analog checks below unless set to _Once
+		if( aCmd.data2 != eMouseWheelMotion_Once )
+			break;
+		return;
 	default:
 		// Handled elsewhere
 		return;
@@ -529,17 +543,15 @@ static void processContinuousInput(
 		sResults.mouseMoveY += theAnalogVal;
 		sResults.mouseMoveDigital = isDigitalDown;
 		break;
-	case (eCmdType_StepMouseWheel << 16) | eCmdDir_Up:
-		sResults.mouseWheelStepped = true;
-		// fall through
-	case (eCmdType_SmoothMouseWheel << 16) | eCmdDir_Up:
+	case (eCmdType_MouseWheel << 16) | eCmdDir_Up:
+		if( aCmd.data2 == eMouseWheelMotion_Stepped )
+			sResults.mouseWheelStepped = true;
 		sResults.mouseWheelY -= theAnalogVal;
 		sResults.mouseWheelDigital = isDigitalDown;
 		break;
-	case (eCmdType_StepMouseWheel << 16) | eCmdDir_Down:
-		sResults.mouseWheelStepped = true;
-		// fall through
-	case (eCmdType_SmoothMouseWheel << 16) | eCmdDir_Down:
+	case (eCmdType_MouseWheel << 16) | eCmdDir_Down:
+		if( aCmd.data2 == eMouseWheelMotion_Stepped )
+			sResults.mouseWheelStepped = true;
 		sResults.mouseWheelY += theAnalogVal;
 		sResults.mouseWheelDigital = isDigitalDown;
 		break;

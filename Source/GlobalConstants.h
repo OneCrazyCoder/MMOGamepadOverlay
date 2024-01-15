@@ -60,8 +60,7 @@ enum ECommandType
 	eCmdType_MoveTurn,
 	eCmdType_MoveStrafe,
 	eCmdType_MoveMouse,
-	eCmdType_SmoothMouseWheel,
-	eCmdType_StepMouseWheel,
+	eCmdType_MouseWheel,
 
 	eCmdType_Num,
 
@@ -91,6 +90,13 @@ enum ECommandDir
 	eCmdDir_Next = eCmdDir_Down,
 	eCmdDir_Top = eCmdDir_Up,
 	eCmdDir_Bottom = eCmdDir_Down,
+};
+
+enum EMouseWheelMotion
+{
+	eMouseWheelMotion_Smooth,
+	eMouseWheelMotion_Stepped,
+	eMouseWheelMotion_Once,
 };
 
 enum ETargetGroupType
@@ -217,6 +223,7 @@ enum ECommandKeyWord
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
 	eCmdWord_Stepped,
+	eCmdWord_Once,
 	eCmdWord_Move,
 	eCmdWord_Turn,
 	eCmdWord_Strafe,
@@ -284,7 +291,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 // Generic button names used in Profile .ini files
 extern const char* kProfileButtonName[];
 
-extern u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse);
+extern u8 keyNameToVirtualKey(const std::string& theKeyName);
 extern EButton buttonNameToID(const std::string& theString);
 extern ECommandKeyWord commandWordToID(const std::string& theWord);
 extern EHUDElement hudElementNameToID(const std::string& theString);

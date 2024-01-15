@@ -119,11 +119,10 @@ struct ControlsLayer
 
 struct InputMapBuilder
 {
-	size_t currentSet;
-	std::string debugSlotName;
 	std::vector<std::string> parsedString;
-	StringToValueMap<u16> nameToIdxMap;
+	StringToValueMap<u16> layerNameToIdxMap;
 	StringToValueMap<Command> commandAliases;
+	std::string debugSlotName;
 };
 
 
@@ -144,8 +143,7 @@ static u8 sTargetGroupSize = 1;
 
 static EResult checkForComboKeyName(
 	std::string theKeyName,
-	std::string& out,
-	bool allowMouse)
+	std::string& out)
 {
 	std::string aModKeyName;
 	aModKeyName.push_back(theKeyName[0]);
@@ -154,7 +152,7 @@ static EResult checkForComboKeyName(
 	{
 		aModKeyName.push_back(theKeyName[0]);
 		theKeyName = theKeyName.substr(1);
-		const u8 aModKey = keyNameToVirtualKey(aModKeyName, allowMouse);
+		const u8 aModKey = keyNameToVirtualKey(aModKeyName);
 		if( aModKey != 0 &&
 			(aModKey == VK_SHIFT ||
 			 aModKey == VK_CONTROL ||
@@ -162,7 +160,7 @@ static EResult checkForComboKeyName(
 			 aModKey == VK_CANCEL) )
 		{// Found a valid modifier key
 			// Is rest of the name a valid key now?
-			if( u8 aMainKey = keyNameToVirtualKey(theKeyName, allowMouse))
+			if( u8 aMainKey = keyNameToVirtualKey(theKeyName))
 			{// We have a valid key combo!
 				out.push_back(aModKey);
 				out.push_back(aMainKey);
@@ -170,8 +168,7 @@ static EResult checkForComboKeyName(
 			}
 			// Perhaps remainder is another mod+key, like ShiftCtrlA?
 			std::string suffix;
-			if( checkForComboKeyName(
-					theKeyName, suffix, allowMouse) == eResult_Ok )
+			if( checkForComboKeyName(theKeyName, suffix) == eResult_Ok )
 			{
 				out.push_back(aModKey);
 				out.append(suffix);
@@ -253,8 +250,7 @@ static EResult checkForVKeySeqPause(
 
 
 static std::string namesToVKeySequence(
-	const std::vector<std::string>& theNames,
-	bool allowMouse)
+	const std::vector<std::string>& theNames)
 {
 	std::string aVKeySeq;
 
@@ -276,7 +272,7 @@ static std::string namesToVKeySequence(
 			expectingWaitTime = false;
 			continue;
 		}
-		const u8 aVKey = keyNameToVirtualKey(aName, allowMouse);
+		const u8 aVKey = keyNameToVirtualKey(aName);
 		if( aVKey == 0 )
 		{
 			// Check if it's a pause/delay/wait command
@@ -288,7 +284,7 @@ static std::string namesToVKeySequence(
 				continue;
 
 			// Check if it's a modifier+key in one word like Shift2 or Alt1
-			aResult = checkForComboKeyName(aName, aVKeySeq, allowMouse);
+			aResult = checkForComboKeyName(aName, aVKeySeq);
 			if( aResult != eResult_Ok )
 			{
 				// Can't figure this word out at all, abort!
@@ -356,208 +352,6 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 }
 
 
-static MacroSlot stringToMacroSlot(
-	InputMapBuilder& theBuilder,
-	std::string theString)
-{
-	MacroSlot aMacroSlot;
-	if( theString.empty() )
-	{
-		mapDebugPrint("%s: Left <unnamed> and <unassigned>!\n",
-			theBuilder.debugSlotName.c_str());
-		return aMacroSlot;
-	}
-
-	// Get the label (part of the string before first colon)
-	aMacroSlot.label = breakOffItemBeforeChar(theString, ':');
-
-	if( aMacroSlot.label.empty() && !theString.empty() )
-	{// Having no : character means this points to a sub-set
-		aMacroSlot.label = trim(theString);
-		aMacroSlot.cmd.type = eCmdType_ChangeMacroSet;
-		aMacroSlot.cmd.data = u16(sMacroSets.size());
-		sMacroSets.push_back(MacroSet());
-		sMacroSets.back().label =
-			sMacroSets[theBuilder.currentSet].label +
-			"." + aMacroSlot.label;
-		mapDebugPrint("%s: Macro Set: '%s'\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str());
-		return aMacroSlot;
-	}
-
-	if( theString.empty() )
-	{
-		mapDebugPrint("%s: Macro '%s' left <unassigned>!\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str());
-		return aMacroSlot;
-	}
-
-	// Check for a slash command or say string, which outputs the whole string
-	if( theString[0] == '/' )
-	{
-		sKeyStrings.push_back(theString);
-		aMacroSlot.cmd.type = eCmdType_SlashCommand;
-		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
-		return aMacroSlot;
-	}
-	if( theString[0] == '>' )
-	{
-		sKeyStrings.push_back(theString);
-		aMacroSlot.cmd.type = eCmdType_SayString;
-		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), &theString[1]);
-		return aMacroSlot;
-	}
-
-	// Check for alias to a keybind
-	if( Command* aKeyBindCommand =
-			theBuilder.commandAliases.find(condense(theString)) )
-	{
-		aMacroSlot.cmd = *aKeyBindCommand;
-		mapDebugPrint("%s: Macro '%s' assigned to KeyBind: '%s'\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
-		return aMacroSlot;
-	}
-
-	// Break the remaining string (after label) into individual words
-	theBuilder.parsedString.clear();
-	sanitizeSentence(theString, theBuilder.parsedString);
-
-	// Process the words as a sequence of Virtual-Key Code names
-	const std::string& aVKeySeq = namesToVKeySequence(
-		theBuilder.parsedString, false);
-	if( !aVKeySeq.empty() )
-	{
-		if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
-		{
-			aMacroSlot.cmd.type = eCmdType_TapKey;
-			aMacroSlot.cmd.data = aVKey;
-			mapDebugPrint("%s: Macro '%s' assigned to key/button: %s\n",
-				theBuilder.debugSlotName.c_str(),
-				aMacroSlot.label.c_str(), theString.c_str());
-		}
-		else
-		{
-			sKeyStrings.push_back(aVKeySeq);
-			aMacroSlot.cmd.type = eCmdType_VKeySequence;
-			aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-			mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
-				theBuilder.debugSlotName.c_str(),
-				aMacroSlot.label.c_str(), theString.c_str());
-		}
-		return aMacroSlot;
-	}
-
-	// Probably just forgot the > at front of a plain string
-	sKeyStrings.push_back(std::string(">") + theString);
-	aMacroSlot.cmd.type = eCmdType_SayString;
-	aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-	logError("%s: Macro '%s' unsure of meaning of '%s'. "
-			 "Assigning as a chat box say string. "
-			 "Add > to start of it if this was the intent.",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
-	return aMacroSlot;
-}
-
-
-static void buildMacroSets(InputMapBuilder& theBuilder)
-{
-	mapDebugPrint("Building Macro Sets...\n");
-
-	sMacroSets.push_back(MacroSet());
-	sMacroSets.back().label = kMainMacroSetLabel;
-	for(int aSet = 0; aSet < sMacroSets.size(); ++aSet )
-	{
-		theBuilder.currentSet = aSet;
-		const std::string& aPrefix = condense(sMacroSets[aSet].label);
-		for(int aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
-		{
-			theBuilder.debugSlotName = std::string("[") +
-				sMacroSets[aSet].label + "] (" +
-				kMacroSlotLabel[aSlot] + ")";
-
-			sMacroSets[aSet].slot[aSlot] =
-				stringToMacroSlot(
-					theBuilder,
-					Profile::getStr(
-						aPrefix + "/" + kMacroSlotLabel[aSlot]));
-		}
-	}
-}
-
-
-static void buildCommandAliases(InputMapBuilder& theBuilder)
-{
-	mapDebugPrint("Assigning KeyBinds...\n");
-
-	Profile::KeyValuePairs aKeyBindRequests;
-	Profile::getAllKeys(kKeybindsPrefix, aKeyBindRequests);
-	for(size_t i = 0; i < aKeyBindRequests.size(); ++i)
-	{
-		const char* anActionName = aKeyBindRequests[i].first;
-		const char* aCommandDescription = aKeyBindRequests[i].second;
-
-		if( !aCommandDescription || aCommandDescription[0] == '\0' )
-			continue;
-
-		// Break keys description string into individual words
-		theBuilder.parsedString.clear();
-		sanitizeSentence(aCommandDescription, theBuilder.parsedString);
-		const std::string& aVKeySeq = namesToVKeySequence(
-			theBuilder.parsedString, true);
-		if( !aVKeySeq.empty() )
-		{
-			Command aCmd;
-			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
-			{
-				aCmd.type = eCmdType_TapKey;
-				aCmd.data = aVKey;
-			}
-			else
-			{
-				aCmd.type = eCmdType_VKeySequence;
-				aCmd.data = u16(sKeyStrings.size());
-				sKeyStrings.push_back(aVKeySeq);
-			}
-			theBuilder.commandAliases.setValue(anActionName, aCmd);
-
-			mapDebugPrint("Assigned to alias '%s': '%s'\n",
-				anActionName, aCommandDescription);
-		}
-		else
-		{
-			logError(
-				"%s%s: Unable to decipher and assign '%s'",
-				kKeybindsPrefix, anActionName, aCommandDescription);
-		}
-	}
-}
-
-
-static bool layerIncludes(size_t theLayerIdx, size_t theTestIdx)
-{
-	DBG_ASSERT(theLayerIdx < sLayers.size());
-	DBG_ASSERT(theTestIdx < sLayers.size());
-
-	do {
-		if( theLayerIdx == theTestIdx )
-			return true;
-		theLayerIdx = sLayers[theLayerIdx].includeLayer;
-	} while(theLayerIdx != 0);
-
-	return false;
-}
-
-
 static u16 getOrCreateLayerID(
 	InputMapBuilder& theBuilder,
 	const std::string& theLayerName,
@@ -567,7 +361,7 @@ static u16 getOrCreateLayerID(
 
 	// Check if already exists, and if so return the index
 	const std::string& aLayerKeyName = upper(theLayerName);
-	if( u16* idx = theBuilder.nameToIdxMap.find(aLayerKeyName) )
+	if( u16* idx = theBuilder.layerNameToIdxMap.find(aLayerKeyName) )
 		return *idx;
 
 	// Check if has an "include=" layer specified that needs adding first
@@ -608,7 +402,7 @@ static u16 getOrCreateLayerID(
 	}
 
 	// Add new layer to sLayers and the name-to-index map
-	theBuilder.nameToIdxMap.setValue(aLayerKeyName, u16(sLayers.size()));
+	theBuilder.layerNameToIdxMap.setValue(aLayerKeyName, u16(sLayers.size()));
 	sLayers.push_back(ControlsLayer());
 	sLayers.back().label = theLayerName;
 	sLayers.back().includeLayer = anIncludeIdx;
@@ -617,29 +411,29 @@ static u16 getOrCreateLayerID(
 }
 
 
-static Command buildSpecialCommand(
+static Command wordsToSpecialCommand(
 	InputMapBuilder& theBuilder,
-	u16 theLayerIdx)
+	const std::vector<std::string>& theWords,
+	u16 theControlsLayerIndex = 0,
+	bool allowHoldActions = false)
 {
-	std::vector<std::string>& aCmdStrings = theBuilder.parsedString;
-
 	Command result;
 
 	// All commands require more than one "word", even if only one of the
 	// words is actually a command key word (thus can force a keybind to be
 	// used instead of a command by specifying the keybind as a single word)
-	if( aCmdStrings.size() <= 1 )
+	if( theWords.size() <= 1 )
 		return result;
 
 	// Find all key words that are actually included
 	ECommandKeyWord aLastKeyWordID = eCmdWord_Filler;
 	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
-	for(size_t i = 0; i < aCmdStrings.size(); ++i)
+	for(size_t i = 0; i < theWords.size(); ++i)
 	{
 		// Only the actual last word can be an unknown word
 		if( aLastKeyWordID == eCmdWord_Unknown )
 			return result;
-		aLastKeyWordID = commandWordToID(upper(aCmdStrings[i]));
+		aLastKeyWordID = commandWordToID(upper(theWords[i]));
 		keyWordsFound.set(aLastKeyWordID);
 	}
 
@@ -650,7 +444,7 @@ static Command buildSpecialCommand(
 	// Last word is the layer name for layer commands, but only if it
 	// is not itself a key word related to layers (other key words are
 	// allowed as layer names though!).
-	std::string* aLayerName = null;
+	const std::string* aLayerName = null;
 	if( (keyWordsFound.test(eCmdWord_Layer) ||
 		 keyWordsFound.test(eCmdWord_Add) ||
 		 keyWordsFound.test(eCmdWord_Remove) ||
@@ -660,7 +454,7 @@ static Command buildSpecialCommand(
 		aLastKeyWordID != eCmdWord_Remove &&
 		aLastKeyWordID != eCmdWord_Hold )
 	{
-		aLayerName = &aCmdStrings[aCmdStrings.size()-1];
+		aLayerName = &theWords[theWords.size()-1];
 		keyWordsFound.reset(aLastKeyWordID);
 	}
 
@@ -675,7 +469,7 @@ static Command buildSpecialCommand(
 		result.type = eCmdType_AddControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
 		// Need to know the parent layer of new added layer
-		result.data2 = theLayerIdx;
+		result.data2 = theControlsLayerIndex;
 		return result;
 	}
 	allowedKeyWords.reset(eCmdWord_Add);
@@ -688,21 +482,25 @@ static Command buildSpecialCommand(
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		if( u16* aLayerIdx =
-			theBuilder.nameToIdxMap.find(upper(*aLayerName)) )
+			theBuilder.layerNameToIdxMap.find(upper(*aLayerName)) )
 		{
-			result.type = eCmdType_RemoveControlsLayer;
-			result.data = *aLayerIdx;
+			if( *aLayerIdx != 0 )
+			{
+				result.type = eCmdType_RemoveControlsLayer;
+				result.data = *aLayerIdx;
+				return result;
+			}
 		}
-		return result;
 	}
 
 	// "= Remove [Layer]"
 	// allowedKeyWords = Layer & Remove
 	if( keyWordsFound.test(eCmdWord_Remove) &&
+		theControlsLayerIndex > 0 &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_RemoveControlsLayer;
-		result.data = theLayerIdx;
+		result.data = theControlsLayerIndex;
 		return result;
 	}
 	allowedKeyWords.reset(eCmdWord_Remove);
@@ -710,7 +508,8 @@ static Command buildSpecialCommand(
 	// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
 	// allowedKeyWords = Layer
 	allowedKeyWords.set(eCmdWord_Hold);
-	if( (keyWordsFound.test(eCmdWord_Hold) ||
+	if( allowHoldActions &&
+		(keyWordsFound.test(eCmdWord_Hold) ||
 		 keyWordsFound.test(eCmdWord_Layer)) &&
 		aLayerName &&
 		(keyWordsFound & ~allowedKeyWords).none() )
@@ -907,7 +706,8 @@ static Command buildSpecialCommand(
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Move);
 	allowedKeyWords.set(eCmdWord_Turn);
-	if( (keyWordsFound & allowedKeyWords).any() &&
+	if( allowHoldActions &&
+		(keyWordsFound & allowedKeyWords).any() &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_MoveTurn;
@@ -918,7 +718,8 @@ static Command buildSpecialCommand(
 	// "= 'Strafe|MoveStrafe' <aCmdDir>"
 	// allowedKeyWords = Move
 	allowedKeyWords.set(eCmdWord_Strafe);
-	if( keyWordsFound.test(eCmdWord_Strafe) &&
+	if( allowHoldActions &&
+		keyWordsFound.test(eCmdWord_Strafe) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_MoveStrafe;
@@ -929,7 +730,8 @@ static Command buildSpecialCommand(
 	// "= [Move] Mouse <aCmdDir>"
 	// allowedKeyWords = Move
 	allowedKeyWords.set(eCmdWord_Mouse);
-	if( keyWordsFound.test(eCmdWord_Mouse) &&
+	if( allowHoldActions &&
+		keyWordsFound.test(eCmdWord_Mouse) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_MoveMouse;
@@ -940,10 +742,12 @@ static Command buildSpecialCommand(
 	// allowedKeyWords = Move & Mouse
 	allowedKeyWords.set(eCmdWord_MouseWheel);
 	allowedKeyWords.set(eCmdWord_Smooth);
-	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+	if( allowHoldActions &&
+		keyWordsFound.test(eCmdWord_MouseWheel) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
-		result.type = eCmdType_SmoothMouseWheel;
+		result.type = eCmdType_MouseWheel;
+		result.data2 = eMouseWheelMotion_Smooth;
 		return result;
 	}
 	allowedKeyWords.reset(eCmdWord_Smooth);
@@ -951,17 +755,259 @@ static Command buildSpecialCommand(
 	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Step[ped] <aCmdDir>"
 	// allowedKeyWords = Move & Mouse & Wheel
 	allowedKeyWords.set(eCmdWord_Stepped);
-	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+	if( allowHoldActions &&
+		keyWordsFound.test(eCmdWord_MouseWheel) &&
 		keyWordsFound.test(eCmdWord_Stepped) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
-		result.type = eCmdType_StepMouseWheel;
+		result.type = eCmdType_MouseWheel;
+		result.data2 = eMouseWheelMotion_Stepped;
 		return result;
 	}
+	allowedKeyWords.reset(eCmdWord_Stepped);
 	
+	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Once] <aCmdDir>"
+	// 'Once' is only optional when NOT assigning to a hold action
+	// allowedKeyWords = Move & Mouse & Wheel
+	allowedKeyWords.set(eCmdWord_Once);
+	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+		(!allowHoldActions ||
+		 keyWordsFound.test(eCmdWord_Once)) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_MouseWheel;
+		result.data2 = eMouseWheelMotion_Once;
+		return result;
+	}
+
 	DBG_ASSERT(result.type == eCmdType_Empty);
 	result.data = 0;
 	return result;
+}
+
+
+static Command stringToCommand(
+	InputMapBuilder& theBuilder,
+	std::string theString,
+	u16 theControlsLayerIndex = 0,
+	bool allowHoldActions = false)
+{
+	Command result;
+
+	if( theString.empty() )
+		return result;
+
+	// Check for a slash command or say string, which stores the string
+	// as ASCII text and outputs it by typing it into the chat box
+	if( theString[0] == '/' )
+	{
+		sKeyStrings.push_back(theString);
+		result.type = eCmdType_SlashCommand;
+		result.data = u16(sKeyStrings.size()-1);
+		return result;
+	}
+	if( theString[0] == '>' )
+	{
+		sKeyStrings.push_back(theString);
+		result.type = eCmdType_SayString;
+		result.data = u16(sKeyStrings.size()-1);
+		return result;
+	}
+
+	// Check for special command
+	theBuilder.parsedString.clear();
+	sanitizeSentence(theString, theBuilder.parsedString);
+	result = wordsToSpecialCommand(
+		theBuilder,
+		theBuilder.parsedString,
+		theControlsLayerIndex,
+		allowHoldActions);
+
+	// Check for alias to a keybind
+	if( result.type == eCmdType_Empty )
+	{
+		if( Command* aKeyBindCommand =
+				theBuilder.commandAliases.find(condense(theString)) )
+		{
+			result = *aKeyBindCommand;
+		}
+	}
+
+	// Check for Virtual-Key Code sequence or single key tap
+	if( result.type == eCmdType_Empty )
+	{
+		// .parsedString was already generated for commands check above
+		const std::string& aVKeySeq =
+			namesToVKeySequence(theBuilder.parsedString);
+
+		if( !aVKeySeq.empty() )
+		{
+			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+			{
+				result.type = eCmdType_TapKey;
+				result.data = aVKey;
+			}
+			else
+			{
+				result.type = eCmdType_VKeySequence;
+				result.data = u16(sKeyStrings.size());
+				sKeyStrings.push_back(aVKeySeq);
+			}
+		}
+	}
+
+	return result;
+}
+
+
+static MacroSlot stringToMacroSlot(
+	InputMapBuilder& theBuilder,
+	size_t theMacroSet,
+	std::string theString)
+{
+	MacroSlot aMacroSlot;
+	if( theString.empty() )
+	{
+		mapDebugPrint("%s: Left <unnamed> and <unassigned>!\n",
+			theBuilder.debugSlotName.c_str());
+		return aMacroSlot;
+	}
+
+	// Get the label (part of the string before first colon)
+	aMacroSlot.label = breakOffItemBeforeChar(theString, ':');
+
+	if( aMacroSlot.label.empty() && !theString.empty() )
+	{// Having no : character means this points to a sub-set
+		aMacroSlot.label = trim(theString);
+		aMacroSlot.cmd.type = eCmdType_ChangeMacroSet;
+		aMacroSlot.cmd.data = u16(sMacroSets.size());
+		sMacroSets.push_back(MacroSet());
+		sMacroSets.back().label =
+			sMacroSets[theMacroSet].label +
+			"." + aMacroSlot.label;
+		mapDebugPrint("%s: Macro Set: '%s'\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str());
+		return aMacroSlot;
+	}
+
+	if( theString.empty() )
+	{
+		mapDebugPrint("%s: Macro '%s' left <unassigned>!\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str());
+		return aMacroSlot;
+	}
+
+	aMacroSlot.cmd = stringToCommand(theBuilder, theString);
+
+	switch(aMacroSlot.cmd.type)
+	{
+	case eCmdType_SlashCommand:
+	case eCmdType_SayString:
+		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	case eCmdType_TapKey:
+		mapDebugPrint("%s: Macro '%s' assigned to key/button: %s\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	case eCmdType_VKeySequence:
+		mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	case eCmdType_Empty:
+		// Probably just forgot the > at front of a plain string
+		sKeyStrings.push_back(std::string(">") + theString);
+		aMacroSlot.cmd.type = eCmdType_SayString;
+		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
+		logError("%s: Macro '%s' unsure of meaning of '%s'. "
+				 "Assigning as a chat box say string. "
+				 "Add > to start of it if this was the intent!",
+				theBuilder.debugSlotName.c_str(),
+		aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	}
+
+	return aMacroSlot;
+}
+
+
+static void buildMacroSets(InputMapBuilder& theBuilder)
+{
+	mapDebugPrint("Building Macro Sets...\n");
+
+	sMacroSets.push_back(MacroSet());
+	sMacroSets.back().label = kMainMacroSetLabel;
+	for(size_t aSet = 0; aSet < sMacroSets.size(); ++aSet )
+	{
+		const std::string& aPrefix = condense(sMacroSets[aSet].label);
+		for(size_t aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
+		{
+			theBuilder.debugSlotName = std::string("[") +
+				sMacroSets[aSet].label + "] (" +
+				kMacroSlotLabel[aSlot] + ")";
+
+			sMacroSets[aSet].slot[aSlot] =
+				stringToMacroSlot(
+					theBuilder,
+					aSet,
+					Profile::getStr(
+						aPrefix + "/" + kMacroSlotLabel[aSlot]));
+		}
+	}
+}
+
+
+static void buildCommandAliases(InputMapBuilder& theBuilder)
+{
+	mapDebugPrint("Assigning KeyBinds...\n");
+
+	Profile::KeyValuePairs aKeyBindRequests;
+	Profile::getAllKeys(kKeybindsPrefix, aKeyBindRequests);
+	for(size_t i = 0; i < aKeyBindRequests.size(); ++i)
+	{
+		const char* anActionName = aKeyBindRequests[i].first;
+		const char* aCommandDescription = aKeyBindRequests[i].second;
+
+		if( !aCommandDescription || aCommandDescription[0] == '\0' )
+			continue;
+
+		// Break keys description string into individual words
+		theBuilder.parsedString.clear();
+		sanitizeSentence(aCommandDescription, theBuilder.parsedString);
+		const std::string& aVKeySeq = namesToVKeySequence(
+			theBuilder.parsedString);
+		if( !aVKeySeq.empty() )
+		{
+			// Keybinds can only be assigned to Virtual-Key Code sequences/taps
+			Command aCmd;
+			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+			{
+				aCmd.type = eCmdType_TapKey;
+				aCmd.data = aVKey;
+			}
+			else
+			{
+				aCmd.type = eCmdType_VKeySequence;
+				aCmd.data = u16(sKeyStrings.size());
+				sKeyStrings.push_back(aVKeySeq);
+			}
+			theBuilder.commandAliases.setValue(anActionName, aCmd);
+
+			mapDebugPrint("Assigned to alias '%s': '%s'\n",
+				anActionName, aCommandDescription);
+		}
+		else
+		{
+			logError(
+				"%s%s: Unable to decipher and assign '%s'",
+				kKeybindsPrefix, anActionName, aCommandDescription);
+		}
+	}
 }
 
 
@@ -1048,92 +1094,43 @@ static void addButtonAction(
 		return;
 	}
 
-	// Check for special command
-	Command aCmd;
-	theBuilder.parsedString.clear();
-	sanitizeSentence(theCmdStr, theBuilder.parsedString);
-	aCmd = buildSpecialCommand(theBuilder, theLayerIdx);
-
-	// Check for alias to a keybind
-	if( aCmd.type == eCmdType_Empty )
-	{
-		if( Command* aKeyBindCommand =
-				theBuilder.commandAliases.find(condense(theCmdStr)) )
-		{
-			aCmd = *aKeyBindCommand;
-		}
-	}
-
-	// Check for direct VKey sequence
-	if( aCmd.type == eCmdType_Empty )
-	{
-		// .parsedString was already generated for commands check above
-		const std::string& aVKeySeq =
-			namesToVKeySequence(theBuilder.parsedString, true);
-
-		if( !aVKeySeq.empty() )
-		{
-			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
-			{
-				aCmd.type = eCmdType_TapKey;
-				aCmd.data = aVKey;
-			}
-			else
-			{
-				aCmd.type = eCmdType_VKeySequence;
-				aCmd.data = u16(sKeyStrings.size());
-				sKeyStrings.push_back(aVKeySeq);
-			}
-		}
-	}
+	Command aCmd = stringToCommand(
+		theBuilder, theCmdStr, theLayerIdx, aBtnAct == eBtnAct_Down);
 
 	// Convert eCmdType_TapKey to eCmdType_PressAndHoldKey? 
 	// True "while held down" only works with a single key (w/ mods),
 	// just like _TapKey, and only when assigned to eBtnAct_Down.
-	// If a full sequence was specified, this will be skipped and
+	// For anything besides a single key, this will be skipped and
 	// _Down will just act the same as _Press (which can be used
 	// intentionally to have 2 actions on button initial press).
 	if( aCmd.type == eCmdType_TapKey && aBtnAct == eBtnAct_Down )
 		aCmd.type = eCmdType_PressAndHoldKey;
 
-	// Check for bad combinations of button+action+command
-	if( aCmd.type == eCmdType_RemoveControlsLayer && theLayerIdx == 0 )
-	{
-		logError("Can not remove root control layer ([%s] %s%s%s = %s)",
-			theBuilder.debugSlotName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			theCmdStr.c_str());
-		return;
-	}
-	if( aBtnAct != eBtnAct_Down &&
-		(aCmd.type >= eCmdType_FirstContinuous ||
-		 aCmd.type == eCmdType_HoldControlsLayer ||
-		 aCmd.type == eCmdType_PressAndHoldKey) )
-	{
-		logError(
-			"[%s]: Invalid assignment of '%s %s' action to '%s'! "
-			"Must remove the '%s' prefix for this command!",
-			theBuilder.debugSlotName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kProfileButtonName[aBtnID],
-			theCmdStr.c_str(),
-			kButtonActionPrefx[aBtnAct]);
-		return;
-	}
-
-	// Generic error for inability to parse the request
+	// Give error for inability to parse the command
 	// Note that an empty command string still counts as a valid assignment,
 	// possibly to block lower layers' assignments from doing anything
 	if( aCmd.type == eCmdType_Empty && !theCmdStr.empty() )
 	{
-		logError("[%s]: Not sure how to assign '%s%s%s' to '%s'",
-			theBuilder.debugSlotName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			theCmdStr.c_str());
+		if( aBtnAct != eBtnAct_Down )
+		{
+			logError("[%s]: Not sure how to assign '%s%s%s' to '%s'! "
+				"Some commands can not be assigned to Press/Tap/Release!",
+				theBuilder.debugSlotName.c_str(),
+				kButtonActionPrefx[aBtnAct],
+				kButtonActionPrefx[aBtnAct][0] ? " " : "",
+				kProfileButtonName[aBtnID],
+				theCmdStr.c_str());
+		}
+		else
+		{
+			logError("[%s]: Not sure how to assign '%s%s%s' to '%s'! "
+				"If intended as a typed chat box string, add > in front!",
+				theBuilder.debugSlotName.c_str(),
+				kButtonActionPrefx[aBtnAct],
+				kButtonActionPrefx[aBtnAct][0] ? " " : "",
+				kProfileButtonName[aBtnID],
+				theCmdStr.c_str());
+		}
 		return;
 	}
 
