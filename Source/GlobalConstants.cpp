@@ -165,7 +165,8 @@ u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse)
 			}
 			for(int i = 1; i <= 12; ++i)
 				map.setValue((std::string("F") + toString(i)).c_str(), VK_F1 - 1 + i);
-			DBG_ASSERT(map.size() == kMapSize);
+			const size_t actualMapSize = map.size();
+			DBG_ASSERT(actualMapSize == kMapSize);
 		}
 	};
 	static NameToVKeyMapper sKeyMapper;
@@ -267,13 +268,107 @@ EButton buttonNameToID(const std::string& theString)
 			map.setValue("FPADDOWN",		eBtn_FDown);
 			map.setValue("XBA",				eBtn_FDown);
 			map.setValue("PSX",				eBtn_FDown);
-			DBG_ASSERT(map.size() == kMapSize);
+			const size_t actualMapSize = map.size();
+			DBG_ASSERT(actualMapSize == kMapSize);
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
 	EButton* result = sNameToEnumMapper.map.find(theString);
 	return result ? *result : eBtn_Num;
+}
+
+
+ECommandKeyWord commandWordToID(const std::string& theWord)
+{
+	struct WordToEnumMapper
+	{
+		typedef StringToValueMap<ECommandKeyWord, u8> WordToEnumMap;
+		WordToEnumMap map;
+		WordToEnumMapper()
+		{
+			const size_t kMapSize = 72;
+			map.reserve(kMapSize);
+			map.setValue("ADD",			eCmdWord_Add);
+			map.setValue("REMOVE",		eCmdWord_Remove);
+			map.setValue("HOLD",		eCmdWord_Hold);
+			map.setValue("LAYER",		eCmdWord_Layer);
+			map.setValue("MOUSE",		eCmdWord_Mouse);
+			map.setValue("WHEEL",		eCmdWord_MouseWheel);
+			map.setValue("MOUSEWHEEL",	eCmdWord_MouseWheel);
+			map.setValue("SMOOTH",		eCmdWord_Smooth);
+			map.setValue("STEP",		eCmdWord_Stepped);
+			map.setValue("STEPPED",		eCmdWord_Stepped);
+			map.setValue("MOVE",		eCmdWord_Move);
+			map.setValue("TURN",		eCmdWord_Turn);
+			map.setValue("MOVETURN",	eCmdWord_Turn);
+			map.setValue("STRAFE",		eCmdWord_Strafe);
+			map.setValue("MOVESTRAFE",	eCmdWord_Strafe);
+			map.setValue("SELECT",		eCmdWord_Select);
+			map.setValue("HOTSPOT",		eCmdWord_Hotspot);
+			map.setValue("RESET",		eCmdWord_Reset);
+			map.setValue("REWRITE",		eCmdWord_Rewrite);
+			map.setValue("MACRO",		eCmdWord_Macro);
+			map.setValue("MACROS",		eCmdWord_Macro);
+			map.setValue("MENU",		eCmdWord_Menu);
+			map.setValue("CONFIRM",		eCmdWord_Confirm);
+			map.setValue("B",			eCmdWord_Back);
+			map.setValue("BACK",		eCmdWord_Back);
+			map.setValue("CANCEL",		eCmdWord_Back);
+			map.setValue("TARGET",		eCmdWord_Target);
+			map.setValue("GROUP",		eCmdWord_Group);
+			map.setValue("L",			eCmdWord_Left);
+			map.setValue("LEFT",		eCmdWord_Left);
+			map.setValue("R",			eCmdWord_Right);
+			map.setValue("RIGHT",		eCmdWord_Right);
+			map.setValue("U",			eCmdWord_Up);
+			map.setValue("UP",			eCmdWord_Up);
+			map.setValue("F",			eCmdWord_Up);
+			map.setValue("FORWARD",		eCmdWord_Up);
+			map.setValue("PREV",		eCmdWord_Up);
+			map.setValue("TOP",			eCmdWord_Up);		
+			map.setValue("D",			eCmdWord_Down);
+			map.setValue("DOWN",		eCmdWord_Down);
+			map.setValue("NEXT",		eCmdWord_Down);
+			map.setValue("BOTTOM",		eCmdWord_Down);
+			map.setValue("PREVWRAP",	eCmdWord_PrevWrap);
+			map.setValue("UWRAP",		eCmdWord_PrevWrap);
+			map.setValue("UPWRAP",		eCmdWord_PrevWrap);
+			map.setValue("NEXTWRAP",	eCmdWord_NextWrap);
+			map.setValue("DWRAP",		eCmdWord_NextWrap);
+			map.setValue("DOWNWRAP",	eCmdWord_NextWrap);
+			map.setValue("WRAP",		eCmdWord_Wrap);
+			map.setValue("PREVNOWRAP",	eCmdWord_PrevNoWrap);
+			map.setValue("UNOWRAP",		eCmdWord_PrevNoWrap);
+			map.setValue("UPNOWRAP",	eCmdWord_PrevNoWrap);
+			map.setValue("NEXTNOWRAP",	eCmdWord_NextNoWrap);
+			map.setValue("DNOWRAP",		eCmdWord_NextNoWrap);
+			map.setValue("DOWNNOWRAP",	eCmdWord_NextNoWrap);
+			map.setValue("NOWRAP",		eCmdWord_NoWrap);
+			map.setValue("FAVORITE",	eCmdWord_Favorite);
+			map.setValue("DEFAULT",		eCmdWord_Default);
+			map.setValue("LOAD",		eCmdWord_Load);
+			map.setValue("RECALL",		eCmdWord_Load);
+			map.setValue("SAVE",		eCmdWord_Save);
+			map.setValue("STORE",		eCmdWord_Save);
+			map.setValue("LAST",		eCmdWord_Last);
+			map.setValue("PET",			eCmdWord_Pet);
+			map.setValue("A",			eCmdWord_Filler);
+			map.setValue("THE",			eCmdWord_Filler);
+			map.setValue("IN",			eCmdWord_Filler);
+			map.setValue("TO",			eCmdWord_Filler);
+			map.setValue("AT",			eCmdWord_Filler);
+			map.setValue("MEMBER",		eCmdWord_Filler);
+			map.setValue("CHAR",		eCmdWord_Filler);
+			map.setValue("CHARACTER",	eCmdWord_Filler);
+			const size_t actualMapSize = map.size();
+			DBG_ASSERT(actualMapSize == kMapSize);
+		}
+	};
+	static WordToEnumMapper sWordToEnumMapper;
+
+	ECommandKeyWord* result = sWordToEnumMapper.map.find(theWord);
+	return result ? *result : eCmdWord_Unknown;
 }
 
 

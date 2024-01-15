@@ -24,5 +24,11 @@ extern BitArray<eHUDElement_Num> gVisibleHUD;
 // Macro Set currently selected by user (index into array of sets)
 extern u16 gMacroSetID;
 
+// Which group member (self being #0) last targeted with relative targeting
+extern u8 gLastGroupTarget;
+
+//Which group member should be recalled as favorite for quick access
+extern u8 gFavoriteGroupTarget;
+
 // User has requested reload their profile
 extern bool gReloadProfile;

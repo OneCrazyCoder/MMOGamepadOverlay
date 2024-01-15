@@ -43,6 +43,9 @@ Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID);
 // Get certain special-case keybinds directly
 u16 keyForSpecialAction(ESpecialKey theAction);
 
+// How many Target Group #'s are defined (counting 'self' as Group Member #0)
+u8 targetGroupSize();
+
 // Get controls layer name (label) for given ID
 const std::string& layerLabel(u16 theLayerID); 
 

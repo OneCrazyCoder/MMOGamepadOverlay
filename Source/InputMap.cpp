@@ -11,8 +11,8 @@ namespace InputMap
 {
 
 // Whether or not debug messages print depends on which line is commented out
-#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
-//#define mapDebugPrint(...) ((void)0)
+//#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
+#define mapDebugPrint(...) ((void)0)
 
 
 //-----------------------------------------------------------------------------
@@ -37,36 +37,6 @@ const char* kMouseLookKey = "MOUSELOOK";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
-struct CommandKeyWord { char* str; ECommandType cmd; };
-const CommandKeyWord kCmdKeyWords[] =
-{// In order of priority, earlier words supersede later ones
-	{ "ADD", eCmdType_AddControlsLayer },
-	{ "REMOVE", eCmdType_RemoveControlsLayer },
-	{ "HOLD", eCmdType_HoldControlsLayer },
-	{ "LAYER", eCmdType_HoldControlsLayer },
-	{ "SMOOTH", eCmdType_SmoothMouseWheel },
-	{ "STEP", eCmdType_StepMouseWheel },
-	{ "STEPPED", eCmdType_StepMouseWheel },
-	{ "WHEEL", eCmdType_SmoothMouseWheel },
-	{ "MOUSEWHEEL", eCmdType_SmoothMouseWheel },
-	{ "MOUSE", eCmdType_MoveMouse },
-	{ "MOVETURN", eCmdType_MoveTurn },
-	{ "STRAFE", eCmdType_MoveStrafe },
-	{ "MOVESTRAFE", eCmdType_MoveStrafe },
-	{ "MOVE", eCmdType_MoveTurn },
-	{ "CAST", eCmdType_UseAbility },
-	{ "USE", eCmdType_UseAbility },
-	{ "ABILITY", eCmdType_SelectAbility },
-	{ "SPELL", eCmdType_SelectAbility },
-	{ "HOTBAR", eCmdType_SelectAbility },
-	{ "RESET",	eCmdType_ChangeMacroSet },
-	{ "REWRITE", eCmdType_RewriteMacro },
-	{ "MACRO",	eCmdType_SelectMacro },
-	{ "HOTSPOT", eCmdType_SelectHotspot },
-	{ "CONFIRM", eCmdType_MenuConfirm },
-	{ "BACK", eCmdType_MenuBack },
-	{ "MENU", eCmdType_SelectMenu },
-};
 
 const char* kButtonActionPrefx[] =
 {
@@ -93,6 +63,16 @@ const char* kSpecialKeyNames[] =
 	"MOUSELOOKTURNRIGHT",	// eSpecialKey_MLTurnR
 	"MOUSELOOKSTRAFELEFT",	// eSpecialKey_MLStrafeL
 	"MOUSELOOKSTRAFERIGHT",	// eSpecialKey_MLStrafeR
+	"TARGETSELF",			// eSpecialKey_TargetSelf
+	"TARGETGROUP1",			// eSpecialKey_TargetGroup1
+	"TARGETGROUP2",			// eSpecialKey_TargetGroup2
+	"TARGETGROUP3",			// eSpecialKey_TargetGroup3
+	"TARGETGROUP4",			// eSpecialKey_TargetGroup4
+	"TARGETGROUP5",			// eSpecialKey_TargetGroup5
+	"TARGETGROUP6",			// eSpecialKey_TargetGroup6
+	"TARGETGROUP7",			// eSpecialKey_TargetGroup7
+	"TARGETGROUP8",			// eSpecialKey_TargetGroup8
+	"TARGETGROUP9",			// eSpecialKey_TargetGroup9
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialKeyNames) == eSpecialKey_Num);
 
@@ -155,6 +135,7 @@ static std::vector<MacroSet> sMacroSets;
 static std::vector<std::string> sKeyStrings;
 static std::vector<ControlsLayer> sLayers;
 static u16 sSpecialKeys[eSpecialKey_Num];
+static u8 sTargetGroupSize = 1;
 
 
 //-----------------------------------------------------------------------------
@@ -645,109 +626,341 @@ static Command buildSpecialCommand(
 	Command result;
 
 	// All commands require more than one "word", even if only one of the
-	// words is actually a command key word (thus can make sure a keybind is
+	// words is actually a command key word (thus can force a keybind to be
 	// used instead of a command by specifying the keybind as a single word)
 	if( aCmdStrings.size() <= 1 )
 		return result;
 
-	// Search for key words in order of priority
-	size_t aCommandWordIdx = 0;
-	for(size_t i = 0; i < ARRAYSIZE(kCmdKeyWords); ++i)
+	// Find all key words that are actually included
+	ECommandKeyWord aLastKeyWordID = eCmdWord_Filler;
+	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
+	for(size_t i = 0; i < aCmdStrings.size(); ++i)
 	{
-		const char* aCheckWord = kCmdKeyWords[i].str;
-		for(size_t aWordIdx = 0; aWordIdx < aCmdStrings.size(); ++aWordIdx)
-		{
-			const std::string& aTestWord = upper(aCmdStrings[aWordIdx]);
-			if( aTestWord == aCheckWord )
-			{
-				result.type = kCmdKeyWords[i].cmd;
-				aCommandWordIdx = aWordIdx;
-				break;
-			}
-		}
-		if( result.type != eCmdType_Empty )
-			break;
+		// Only the actual last word can be an unknown word
+		if( aLastKeyWordID == eCmdWord_Unknown )
+			return result;
+		aLastKeyWordID = commandWordToID(upper(aCmdStrings[i]));
+		keyWordsFound.set(aLastKeyWordID);
 	}
 
-	if( result.type == eCmdType_Empty )
+	keyWordsFound.reset(eCmdWord_Filler);
+	if( keyWordsFound.none() )
 		return result;
 
-	switch(result.type)
+	// Last word is the layer name for layer commands, but only if it
+	// is not itself a key word related to layers (other key words are
+	// allowed as layer names though!).
+	std::string* aLayerName = null;
+	if( (keyWordsFound.test(eCmdWord_Layer) ||
+		 keyWordsFound.test(eCmdWord_Add) ||
+		 keyWordsFound.test(eCmdWord_Remove) ||
+		 keyWordsFound.test(eCmdWord_Hold)) &&
+		aLastKeyWordID != eCmdWord_Layer &&
+		aLastKeyWordID != eCmdWord_Add &&
+		aLastKeyWordID != eCmdWord_Remove &&
+		aLastKeyWordID != eCmdWord_Hold )
 	{
-	case eCmdType_AddControlsLayer:
-		// Need to know the parent layer of new added layer
-		result.data2 = theLayerIdx;
-		// fall through
-	case eCmdType_HoldControlsLayer:
-		// Assume last word in the command is the layer name
-		if( aCommandWordIdx < aCmdStrings.size() - 1 )
-			result.data = getOrCreateLayerID(theBuilder, aCmdStrings.back());
-		else
-			result.type = eCmdType_Empty;
-		break;
-	case eCmdType_RemoveControlsLayer:
-		// Assume mean own layer if none specified
-		result.data = theLayerIdx;
-		if( aCommandWordIdx < aCmdStrings.size() - 1 )
-		{// If last word matches existing layer, remove it instead
-			if( u16* aLayerIdx =
-				theBuilder.nameToIdxMap.find(aCmdStrings.back()) )
-			{
-				result.data = *aLayerIdx;
-			}
-		}
-		break;
-	case eCmdType_ChangeMacroSet:
-	case eCmdType_UseAbility:
-	case eCmdType_MenuConfirm:
-	case eCmdType_MenuBack:
-		// No data field needed (or 0 IS what it should be set to)
-		break;
-	case eCmdType_SelectAbility:
-	case eCmdType_SelectMenu:
-	case eCmdType_SelectHotspot:
-	case eCmdType_SelectMacro:
-	case eCmdType_RewriteMacro:
-	case eCmdType_MoveTurn:
-	case eCmdType_MoveStrafe:
-	case eCmdType_MoveMouse:
-	case eCmdType_SmoothMouseWheel:
-	case eCmdType_StepMouseWheel:
-		if( aCommandWordIdx >= aCmdStrings.size() - 1 )
-		{
-			result.type = eCmdType_Empty;
-			break;
-		}
-		// Set data to ECommandDir based on direction
-		// Get direction by first character of last word
-		switch(aCmdStrings.back()[0])
-		{
-		case 'U': // Up
-		case 'F': // Forward
-		case 'P': // Previous
-			result.data = eCmdDir_Up;
-			break;
-		case 'D': // Down
-		case 'B': // Back
-		case 'N': // Next
-			result.data = eCmdDir_Down;
-			break;
-		case 'L': // Left
-			result.data = eCmdDir_Left;
-			break;
-		case 'R': // Right
-			result.data = eCmdDir_Right;
-			break;
-		default:
-			// Can't figure out direction
-			result.type = eCmdType_Empty;
-			break;
-		}
-		break;
-	default:
-		DBG_ASSERT(false && "unhandled special command type");
+		aLayerName = &aCmdStrings[aCmdStrings.size()-1];
+		keyWordsFound.reset(aLastKeyWordID);
 	}
 
+	// "= Add [Layer] <aLayerName>"
+	BitArray<eCmdWord_Num> allowedKeyWords = { 0 };
+	allowedKeyWords.set(eCmdWord_Layer);
+	allowedKeyWords.set(eCmdWord_Add);
+	if( keyWordsFound.test(eCmdWord_Add) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_AddControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		// Need to know the parent layer of new added layer
+		result.data2 = theLayerIdx;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Add);
+
+	// "= Remove [Layer] <aLayerName>"
+	// allowedKeyWords = Layer
+	allowedKeyWords.set(eCmdWord_Remove);
+	if( keyWordsFound.test(eCmdWord_Remove) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		if( u16* aLayerIdx =
+			theBuilder.nameToIdxMap.find(upper(*aLayerName)) )
+		{
+			result.type = eCmdType_RemoveControlsLayer;
+			result.data = *aLayerIdx;
+		}
+		return result;
+	}
+
+	// "= Remove [Layer]"
+	// allowedKeyWords = Layer & Remove
+	if( keyWordsFound.test(eCmdWord_Remove) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_RemoveControlsLayer;
+		result.data = theLayerIdx;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Remove);
+
+	// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
+	// allowedKeyWords = Layer
+	allowedKeyWords.set(eCmdWord_Hold);
+	if( (keyWordsFound.test(eCmdWord_Hold) ||
+		 keyWordsFound.test(eCmdWord_Layer)) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_HoldControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		return result;
+	}
+
+	// "= Reset Macros"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Reset);
+	allowedKeyWords.set(eCmdWord_Macro);
+	if( keyWordsFound.test(eCmdWord_Reset) &&
+		keyWordsFound.test(eCmdWord_Macro) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_ChangeMacroSet;
+		result.data = 0;
+	}
+
+	// "= Target Group <eTargetGroupType>"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Target);
+	allowedKeyWords.set(eCmdWord_Group);
+	allowedKeyWords.set(eCmdWord_Wrap);
+	allowedKeyWords.set(eCmdWord_NoWrap);
+	if( keyWordsFound.test(eCmdWord_Target) &&
+		keyWordsFound.test(eCmdWord_Group) )
+	{
+		result.type = eCmdType_TargetGroup;
+		// "= Target Group [Load] [Favorite|Default]"
+		// allowedKeyWords = Target & Group & Wrap & NoWrap
+		allowedKeyWords.set(eCmdWord_Favorite);
+		allowedKeyWords.set(eCmdWord_Load); // or "Recall"
+		allowedKeyWords.set(eCmdWord_Default);
+		if( (keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_LoadFavorite;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Load);
+		// "= Target Group 'Save'|'Left' [Favorite|Default]"
+		// allowedKeyWords = Target & Group & Wrap & NoWrap & Default & Favorite
+		allowedKeyWords.set(eCmdWord_Save);
+		allowedKeyWords.set(eCmdWord_Left);
+		if( (keyWordsFound.test(eCmdWord_Save) ||
+			 keyWordsFound.test(eCmdWord_Left)) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_SaveFavorite;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Save);
+		allowedKeyWords.reset(eCmdWord_Left);
+		allowedKeyWords.reset(eCmdWord_Default);
+		allowedKeyWords.reset(eCmdWord_Favorite);
+		// "= Target Group 'Last'|'Right'|'Pet'"
+		// allowedKeyWords = Target & Group & Wrap & NoWrap
+		allowedKeyWords.set(eCmdWord_Last);
+		allowedKeyWords.set(eCmdWord_Pet);
+		allowedKeyWords.set(eCmdWord_Right);
+		if( (keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_Last;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Last);
+		allowedKeyWords.reset(eCmdWord_Pet);
+		allowedKeyWords.reset(eCmdWord_Right);
+		// "= Target Group 'Prev'|'Up'|'PrevNoWrap' [NoWrap]"
+		// allowedKeyWords = Target & Group & Wrap & NoWrap
+		allowedKeyWords.reset(eCmdWord_Wrap);
+		allowedKeyWords.set(eCmdWord_Prev);
+		allowedKeyWords.set(eCmdWord_PrevNoWrap);
+		if( (keyWordsFound.test(eCmdWord_Prev) ||
+			 keyWordsFound.test(eCmdWord_PrevNoWrap)) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_Prev;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Prev);
+		allowedKeyWords.reset(eCmdWord_PrevNoWrap);
+		// "= Target Group 'Next'|'Down'|'NextNoWrap' [NoWrap]"
+		// allowedKeyWords = Target & Group & NoWrap
+		allowedKeyWords.set(eCmdWord_Next);
+		allowedKeyWords.set(eCmdWord_NextNoWrap);
+		if( (keyWordsFound.test(eCmdWord_Next) ||
+			 keyWordsFound.test(eCmdWord_NextNoWrap)) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_Next;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Next);
+		allowedKeyWords.reset(eCmdWord_NextNoWrap);
+		allowedKeyWords.reset(eCmdWord_NoWrap);
+		// "= Target Group 'Prev Wrap'|'Up Wrap'|'PrevWrap'|'UpWrap'"
+		// allowedKeyWords = Target & Group
+		allowedKeyWords.set(eCmdWord_Wrap);
+		allowedKeyWords.set(eCmdWord_Prev);
+		allowedKeyWords.set(eCmdWord_PrevWrap);
+		if( (keyWordsFound.test(eCmdWord_PrevWrap) ||
+			 (keyWordsFound.test(eCmdWord_Prev) &&
+			  keyWordsFound.test(eCmdWord_Wrap))) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_PrevWrap;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Prev);
+		allowedKeyWords.reset(eCmdWord_PrevWrap);
+		// "= Target Group 'Next Wrap'|'Down Wrap'|'NextWrap'|'DownWrap'"
+		// allowedKeyWords = Target & Group & Wrap
+		allowedKeyWords.set(eCmdWord_Next);
+		allowedKeyWords.set(eCmdWord_NextWrap);
+		if( (keyWordsFound.test(eCmdWord_NextWrap) ||
+			 (keyWordsFound.test(eCmdWord_Next) &&
+			  keyWordsFound.test(eCmdWord_Wrap))) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_NextWrap;
+			return result;
+		}
+		result.type = eCmdType_Empty;
+	}
+
+	// Get ECmdDir from key words for remaining commands
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Up);
+	allowedKeyWords.set(eCmdWord_Down);
+	allowedKeyWords.set(eCmdWord_Left);
+	allowedKeyWords.set(eCmdWord_Right);
+	allowedKeyWords.set(eCmdWord_Back);
+	if( (keyWordsFound & allowedKeyWords).count() != 1 )
+		return result;
+
+	ECommandDir aCmdDir = eCmdDir_None;
+	if( keyWordsFound.test(eCmdWord_Up) ) aCmdDir = eCmdDir_Up;
+	else if( keyWordsFound.test(eCmdWord_Down) ) aCmdDir = eCmdDir_Down;
+	else if( keyWordsFound.test(eCmdWord_Left) ) aCmdDir = eCmdDir_Left;
+	else if( keyWordsFound.test(eCmdWord_Right) ) aCmdDir = eCmdDir_Right;
+	else if( keyWordsFound.test(eCmdWord_Back) ) aCmdDir = eCmdDir_Back;
+	result.data = aCmdDir;
+	// Remove direction-related bits from keyWordsFound
+	keyWordsFound &= ~allowedKeyWords;
+
+	// "= [Select] Menu <aCmdDir>"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Select);
+	allowedKeyWords.set(eCmdWord_Menu);
+	if( keyWordsFound.test(eCmdWord_Menu) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_SelectMenu;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Menu);
+
+	// "= [Select] Hotspot <aCmdDir>"
+	// allowedKeyWords = Select
+	allowedKeyWords.set(eCmdWord_Hotspot);
+	if( keyWordsFound.test(eCmdWord_Hotspot) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_SelectHotspot;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Hotspot);
+
+	// "= [Select] Macro <aCmdDir>"
+	// allowedKeyWords = Select
+	allowedKeyWords.set(eCmdWord_Macro);
+	if( keyWordsFound.test(eCmdWord_Macro) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_SelectMacro;
+		return result;
+	}
+
+	// "= Rewrite [Macro] <aCmdDir>"
+	// allowedKeyWords = Select & Macro
+	allowedKeyWords.reset(eCmdWord_Select);
+	allowedKeyWords.set(eCmdWord_Rewrite);
+	if( keyWordsFound.test(eCmdWord_Rewrite) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_SelectMacro;
+		return result;
+	}
+
+	// "= 'Move'|'Turn'|'MoveTurn' <aCmdDir>"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Move);
+	allowedKeyWords.set(eCmdWord_Turn);
+	if( (keyWordsFound & allowedKeyWords).any() &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_MoveTurn;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Turn);
+
+	// "= 'Strafe|MoveStrafe' <aCmdDir>"
+	// allowedKeyWords = Move
+	allowedKeyWords.set(eCmdWord_Strafe);
+	if( keyWordsFound.test(eCmdWord_Strafe) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_MoveStrafe;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Strafe);
+
+	// "= [Move] Mouse <aCmdDir>"
+	// allowedKeyWords = Move
+	allowedKeyWords.set(eCmdWord_Mouse);
+	if( keyWordsFound.test(eCmdWord_Mouse) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_MoveMouse;
+		return result;
+	}
+
+	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Smooth] <aCmdDir>"
+	// allowedKeyWords = Move & Mouse
+	allowedKeyWords.set(eCmdWord_MouseWheel);
+	allowedKeyWords.set(eCmdWord_Smooth);
+	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_SmoothMouseWheel;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Smooth);
+
+	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Step[ped] <aCmdDir>"
+	// allowedKeyWords = Move & Mouse & Wheel
+	allowedKeyWords.set(eCmdWord_Stepped);
+	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+		keyWordsFound.test(eCmdWord_Stepped) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_StepMouseWheel;
+		return result;
+	}
+	
+	DBG_ASSERT(result.type == eCmdType_Empty);
+	result.data = 0;
 	return result;
 }
 
@@ -1044,6 +1257,7 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 
 static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
+	sTargetGroupSize = 1;
 	for(size_t i = 0; i < eSpecialKey_Num; ++i)
 	{
 		DBG_ASSERT(sSpecialKeys[i] == 0);
@@ -1059,6 +1273,12 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 			continue;
 		}
 		sSpecialKeys[i] = aKeyBindCommand->data;
+		if( i >= eSpecialKey_FirstGroupTarget &&
+			i <= eSpecialKey_LastGroupTarget )
+		{
+			sTargetGroupSize = max(sTargetGroupSize,
+				u8(i + 1 - eSpecialKey_FirstGroupTarget));
+		}
 	}
 
 	// Have some special keys borrow the value of others if left unassigned
@@ -1228,6 +1448,12 @@ u16 keyForSpecialAction(ESpecialKey theAction)
 {
 	DBG_ASSERT(theAction < eSpecialKey_Num);
 	return sSpecialKeys[theAction];
+}
+
+
+u8 targetGroupSize()
+{
+	return sTargetGroupSize;
 }
 
 
