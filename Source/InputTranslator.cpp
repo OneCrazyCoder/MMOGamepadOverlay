@@ -272,6 +272,7 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 
 static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 {
+	Command aCmd;
 	switch(theCmd.type)
 	{
 	case eCmdType_Empty:
@@ -318,6 +319,80 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 	case eCmdType_UseAbility:
 	case eCmdType_MenuConfirm:
 	case eCmdType_MenuBack:
+		// TODO
+		break;
+	case eCmdType_TargetGroup:
+		DBG_ASSERT(theCmd.data < eTargetGroupType_Num);
+		switch(theCmd.data)
+		{
+		case eTargetGroupType_LoadFavorite:
+			gLastGroupTarget = gFavoriteGroupTarget;
+			aCmd.type = eCmdType_TapKey;
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+			sResults.keys.push_back(aCmd);
+			transDebugPrint("Targeting favorite Group Member #%d\n",
+				gLastGroupTarget);
+			break;
+		case eTargetGroupType_SaveFavorite:
+			gFavoriteGroupTarget = gLastGroupTarget;
+			transDebugPrint("Saving Group Member #%d as favorite\n",
+				gLastGroupTarget);
+			break;
+		case eTargetGroupType_Last:
+			aCmd.type = eCmdType_TapKey;
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+			sResults.keys.push_back(aCmd);
+			transDebugPrint("Re-targeting last group member (#%d)\n",
+				gLastGroupTarget);
+			break;
+		case eTargetGroupType_Prev:
+			if( gLastGroupTarget == 0 )
+				break;
+			--gLastGroupTarget;
+			aCmd.type = eCmdType_TapKey;
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+			sResults.keys.push_back(aCmd);
+			transDebugPrint("Targeting group member prev/up no-wrap (#%d)\n",
+				gLastGroupTarget);
+			break;
+		case eTargetGroupType_Next:
+			if( gLastGroupTarget >= InputMap::targetGroupSize() - 1 )
+				break;
+			++gLastGroupTarget;
+			aCmd.type = eCmdType_TapKey;
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+			sResults.keys.push_back(aCmd);
+			transDebugPrint("Targeting group member next/down no-wrap (#%d)\n",
+				gLastGroupTarget);
+			break;
+		case eTargetGroupType_PrevWrap:
+			gLastGroupTarget =
+				gLastGroupTarget == 0
+					? InputMap::targetGroupSize() - 1 : gLastGroupTarget - 1;
+			aCmd.type = eCmdType_TapKey;
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+			sResults.keys.push_back(aCmd);
+			transDebugPrint("Targeting group member prev/up (#%d)\n",
+				gLastGroupTarget);
+			break;
+		case eTargetGroupType_NextWrap:
+			gLastGroupTarget =
+				gLastGroupTarget >= InputMap::targetGroupSize() - 1
+					? 0 : gLastGroupTarget + 1;
+			aCmd.type = eCmdType_TapKey;
+			aCmd.data = InputMap::keyForSpecialAction(
+				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+			sResults.keys.push_back(aCmd);
+			transDebugPrint("Targeting group member next/down (#%d)\n",
+				gLastGroupTarget);
+			break;
+		}
+		break;
 	case eCmdType_SelectAbility:
 	case eCmdType_SelectMenu:
 	case eCmdType_SelectHotspot:
@@ -372,8 +447,10 @@ static void processButtonPress(ButtonState& theBtnState)
 		return;
 	}
 
-	processCommand(theBtnState, aCmd);
+	// _Press is processed before _Down since it is specifically called out
+	// and the name implies it should be first action on button press.
 	processCommand(theBtnState, theBtnState.commands[eBtnAct_Press]);
+	processCommand(theBtnState, aCmd);
 }
 
 

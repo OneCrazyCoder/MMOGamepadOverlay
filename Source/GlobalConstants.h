@@ -45,6 +45,9 @@ enum ECommandType
 	eCmdType_MenuConfirm,
 	eCmdType_MenuBack,
 
+	// This should have 'data' set as an ETargetGroupType
+	eCmdType_TargetGroup,
+
 	// These should have 'data' set to an ECommandDir
 	eCmdType_SelectAbility,
 	eCmdType_SelectMenu,
@@ -90,14 +93,27 @@ enum ECommandDir
 	eCmdDir_Bottom = eCmdDir_Down,
 };
 
+enum ETargetGroupType
+{
+	eTargetGroupType_LoadFavorite,	// Target _SaveFavorite'd target
+	eTargetGroupType_SaveFavorite,	// Just save _Last as favorite
+	eTargetGroupType_Last,			// Re-target last (or toggle to pet)
+	eTargetGroupType_Prev,			// Target _Last - 1 (unless at 0)
+	eTargetGroupType_Next,			// Target _Last - 1 (unless at max)
+	eTargetGroupType_PrevWrap,		// Target _Last - 1 (wrap 0->max)
+	eTargetGroupType_NextWrap,		// Target _Last + 1 (wrap max->0)
+
+	eTargetGroupType_Num
+};
+
 enum EButtonAction
 {
-	eBtnAct_Down,		// Key held as long as button is held
-	eBtnAct_Press,		// First pushed (assigned key is tapped)
-	eBtnAct_ShortHold,	// Held a short time (key tapped once)
-	eBtnAct_LongHold,	// Held a long time (key tapped once)
-	eBtnAct_Tap,		// Released before short hold time
-	eBtnAct_Release,	// Released (any hold time, key tapped once)
+	eBtnAct_Down,		// Action (key) held as long as button is held (if can)
+	eBtnAct_Press,		// First pushed (assigned action is just 'tapped')
+	eBtnAct_ShortHold,	// Held a short time (action tapped once)
+	eBtnAct_LongHold,	// Held a long time (action tapped once)
+	eBtnAct_Tap,		// Released before _ShortHold time (action tapped once)
+	eBtnAct_Release,	// Released (any hold time, action tapped once)
 
 	eBtnAct_Num
 };
@@ -165,12 +181,80 @@ enum ESpecialKey
 	eSpecialKey_MLStrafeL,
 	eSpecialKey_MLStrafeR,
 
+	eSpecialKey_TargetSelf,
+	eSpecialKey_TargetGroup1,
+	eSpecialKey_TargetGroup2,
+	eSpecialKey_TargetGroup3,
+	eSpecialKey_TargetGroup4,
+	eSpecialKey_TargetGroup5,
+	eSpecialKey_TargetGroup6,
+	eSpecialKey_TargetGroup7,
+	eSpecialKey_TargetGroup8,
+	eSpecialKey_TargetGroup9,
+
 	eSpecialKey_Num,
 
 	eSpecialKey_FirstMove = eSpecialKey_MoveF,
 	eSpecialKey_LastMove = eSpecialKey_MLStrafeR,
 	eSpecialKey_MoveNum =
 		eSpecialKey_LastMove - eSpecialKey_FirstMove + 1,
+
+	eSpecialKey_FirstGroupTarget = eSpecialKey_TargetSelf,
+	eSpecialKey_LastGroupTarget = eSpecialKey_TargetGroup9,
+	eSpecialKey_GroupTargetNum =
+		eSpecialKey_LastGroupTarget - eSpecialKey_FirstGroupTarget + 1,
+};
+
+enum ECommandKeyWord
+{
+	eCmdWord_Unknown,
+
+	eCmdWord_Add,
+	eCmdWord_Remove,
+	eCmdWord_Hold,
+	eCmdWord_Layer,
+	eCmdWord_Mouse,
+	eCmdWord_MouseWheel,
+	eCmdWord_Smooth,
+	eCmdWord_Stepped,
+	eCmdWord_Move,
+	eCmdWord_Turn,
+	eCmdWord_Strafe,
+	eCmdWord_Select,
+	eCmdWord_Hotspot,
+	eCmdWord_Reset,
+	eCmdWord_Rewrite,
+	eCmdWord_Macro,
+	eCmdWord_Menu,
+	eCmdWord_Confirm,
+	eCmdWord_Back,
+	eCmdWord_Target,
+	eCmdWord_Group,
+	eCmdWord_Left,
+	eCmdWord_Right,
+	eCmdWord_Up,
+	eCmdWord_Down,
+	eCmdWord_PrevWrap,
+	eCmdWord_NextWrap,
+	eCmdWord_Wrap,
+	eCmdWord_PrevNoWrap,
+	eCmdWord_NextNoWrap,
+	eCmdWord_NoWrap,
+	eCmdWord_Default,
+	eCmdWord_Favorite,
+	eCmdWord_Load,
+	eCmdWord_Save,
+	eCmdWord_Last,
+	eCmdWord_Pet,
+
+	eCmdWord_Filler,
+	eCmdWord_Num,
+
+	eCmdWord_Forward = eCmdWord_Up,
+	eCmdWord_Prev = eCmdWord_Up,
+	eCmdWord_Next = eCmdWord_Down,
+	eCmdWord_Top = eCmdWord_Up,
+	eCmdWord_Bottom = eCmdWord_Down,
 };
 
 enum EResult
@@ -202,4 +286,5 @@ extern const char* kProfileButtonName[];
 
 extern u8 keyNameToVirtualKey(const std::string& theKeyName, bool allowMouse);
 extern EButton buttonNameToID(const std::string& theString);
+extern ECommandKeyWord commandWordToID(const std::string& theWord);
 extern EHUDElement hudElementNameToID(const std::string& theString);
