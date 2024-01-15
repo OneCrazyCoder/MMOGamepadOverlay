@@ -111,7 +111,7 @@ struct Config
 			sanitizeSentence(aString, aParsedString);
 			for( size_t i = 0; i < aParsedString.size(); ++i)
 			{
-				u8 aVKey = keyNameToVirtualKey(upper(aParsedString[i]), true);
+				u8 aVKey = keyNameToVirtualKey(upper(aParsedString[i]));
 				if( aVKey == 0 )
 				{
 					logError("Unrecognized key name for safeAsyncKeys: %s",
@@ -1159,7 +1159,7 @@ void moveMouse(int dx, int dy, bool digital)
 				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
 		aMagnitude *= double(sTracker.digitalMouseVel) / kMouseMaxDigitalVel;
 	}
-	else
+	else if( aMagnitude < 1.0 )
 	{// Apply exponential easing curve to magnitude
 		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
 	}
@@ -1234,7 +1234,7 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
 		aMagnitude *= double(sTracker.digitalMouseVel) / kMouseMaxDigitalVel;
 	}
-	else
+	else if( aMagnitude < 1.0 )
 	{// Apply exponential easing curve to magnitude
 		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
 	}
@@ -1270,6 +1270,27 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	anInput.mi.mouseData = DWORD(-dy);
 	anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
 	sTracker.inputs.push_back(anInput);
+}
+
+
+void scrollMouseWheelOnce(ECommandDir theDir)
+{
+	if( theDir == eCmdDir_Up )
+	{
+		Input anInput;
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.mouseData = WHEEL_DELTA;
+		anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
+		sTracker.inputs.push_back(anInput);
+	}
+	else if( theDir == eCmdDir_Down )
+	{
+		Input anInput;
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.mouseData = -WHEEL_DELTA;
+		anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
+		sTracker.inputs.push_back(anInput);
+	}
 }
 
 

@@ -43,6 +43,9 @@ void moveMouse(int dx, int dy, bool digital);
 // though it means the scroll motion will be much less smooth.
 void scrollMouseWheel(int dy, bool digital, bool stepped = false);
 
+// Sends a single mouse wheel "click" of up/down movement
+void scrollMouseWheelOnce(ECommandDir);
+
 // Move character forward, back, left, right, and turning.
 // Amount specified for each movement type is -255 to 255 range.
 void moveCharacter(int move, int turn, int strafe);
