@@ -21,6 +21,7 @@ namespace InputMap
 
 enum {
 kMacroSlotsPerSet = 4,
+kMouseLookStartHotspotID = 1,
 };
 
 const char* kMainMacroSetLabel = "Macros";
@@ -34,6 +35,7 @@ DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) == kMacroSlotsPerSet);
 const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
 const char* kMouseLookKey = "MOUSELOOK";
+const char* kMouseLookStartHotspotKey = "MOUSELOOKSTART";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
@@ -100,6 +102,24 @@ struct ButtonActions
 };
 typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
 
+struct Hotspot
+{
+	struct Coord
+	{
+		int value : 24;
+		enum EType
+		{
+			eType_MinPlus,
+			eType_MaxMinus,
+			eType_CenterPlus,
+			eType_CenerMinus,
+			eType_Percent,
+		} type : 8;
+		Coord() : value(), type(eType_MinPlus) {}
+	} x, y;
+};
+typedef std::vector<Hotspot> HotspotSet;
+
 struct ControlsLayer
 {
 	std::string label;
@@ -121,6 +141,7 @@ struct InputMapBuilder
 {
 	std::vector<std::string> parsedString;
 	StringToValueMap<u16> layerNameToIdxMap;
+	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<Command> commandAliases;
 	std::string debugSlotName;
 };
@@ -130,8 +151,9 @@ struct InputMapBuilder
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static std::vector<MacroSet> sMacroSets;
+static std::vector<HotspotSet> sHotspotSets;
 static std::vector<std::string> sKeyStrings;
+static std::vector<MacroSet> sMacroSets;
 static std::vector<ControlsLayer> sLayers;
 static u16 sSpecialKeys[eSpecialKey_Num];
 static u8 sTargetGroupSize = 1;
@@ -249,7 +271,49 @@ static EResult checkForVKeySeqPause(
 }
 
 
+static EResult checkForVKeyHotspotPos(
+	InputMapBuilder& theBuilder,
+	const std::string& theKeyName,
+	std::string& out,
+	bool afterClickCommand)
+{
+	u16* aHotspotIdx = theBuilder.hotspotNameToIdxMap.find(theKeyName);
+	if( !aHotspotIdx )
+		return eResult_NotFound;
+
+	if( *aHotspotIdx == 0 )
+		return eResult_Incomplete;
+
+	std::string suffix;
+	if( afterClickCommand )
+	{// Need to inject the jump command to before the click
+		suffix.insert(suffix.begin(), out[out.size()-1]);
+		out.erase(out.size()-1);
+		while(!out.empty() &&
+			(out[out.size()-1] == VK_SHIFT ||
+			 out[out.size()-1] == VK_CONTROL ||
+			 out[out.size()-1] == VK_MENU ||
+			 out[out.size()-1] == VK_CANCEL))
+		{
+			suffix.insert(suffix.begin(), out[out.size()-1]);
+			out.erase(out.size()-1);
+		}
+		out.push_back(VK_SELECT);
+	}
+
+	// Encode the hotspot ID into 14-bit as in checkForVKeySeqPause()
+	out.push_back(u8(((*aHotspotIdx >> 7) & 0x7F) | 0x80));
+	out.push_back(u8((*aHotspotIdx & 0x7F) | 0x80));
+
+	// Add back in the actual click if had to filter it out
+	out += suffix;
+
+	return eResult_Ok;
+}
+
+
 static std::string namesToVKeySequence(
+	InputMapBuilder& theBuilder,
 	const std::vector<std::string>& theNames)
 {
 	std::string aVKeySeq;
@@ -258,6 +322,7 @@ static std::string namesToVKeySequence(
 		return aVKeySeq;
 
 	bool expectingWaitTime = false;
+	bool expectingJumpPos = false;
 	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
 	{
 		const std::string& aName = upper(theNames[aNameIdx]);
@@ -272,11 +337,39 @@ static std::string namesToVKeySequence(
 			expectingWaitTime = false;
 			continue;
 		}
+		else if( expectingJumpPos )
+		{
+			const EResult aResult = checkForVKeyHotspotPos(
+				theBuilder, aName, aVKeySeq, false);
+			if( aResult == eResult_Incomplete )
+				continue;
+			if( aResult == eResult_Ok )
+			{
+				expectingJumpPos = false;
+				continue;
+			}
+			// Didn't get jump pos as expected - abort!
+			aVKeySeq.clear();
+			return aVKeySeq;
+		}
 		const u8 aVKey = keyNameToVirtualKey(aName);
 		if( aVKey == 0 )
 		{
+			// If previous key was a mouse button, check for follow-up hotspot
+			EResult aResult;
+			if( !aVKeySeq.empty() &&
+				(aVKeySeq[aVKeySeq.size()-1] == VK_LBUTTON ||
+				 aVKeySeq[aVKeySeq.size()-1] == VK_MBUTTON ||
+				 aVKeySeq[aVKeySeq.size()-1] == VK_RBUTTON)  )
+			{
+				aResult = checkForVKeyHotspotPos(
+					theBuilder, aName, aVKeySeq, true);
+				if( aResult != eResult_NotFound )
+					continue;
+			}
+
 			// Check if it's a pause/delay/wait command
-			EResult aResult = checkForVKeySeqPause(aName, aVKeySeq);
+			aResult = checkForVKeySeqPause(aName, aVKeySeq);
 			// Incomplete result means it WAS a wait, now need the time
 			if( aResult == eResult_Incomplete )
 				expectingWaitTime = true;
@@ -291,6 +384,12 @@ static std::string namesToVKeySequence(
 				aVKeySeq.clear();
 				return aVKeySeq;
 			}
+		}
+		else if( aVKey == VK_SELECT )
+		{
+			// Get name of hotspot to jump cursor to next
+			expectingJumpPos = true;
+			aVKeySeq.push_back(aVKey);
 		}
 		else
 		{
@@ -319,8 +418,8 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 	for(const u8* aVKeyPtr = theVKeySeq; *aVKeyPtr != '\0'; ++aVKeyPtr)
 	{
 		// If encounter anything else after the first non-mod key,
-		// it is must be a sequence of keys rather than of a "single key",
-		// and thus can not be used with _TapKey, _PressAndHoldKey, etc.
+		// it must be a sequence of keys rather than of a "single key",
+		// and thus can not be used with _TapKey or _PressAndHoldKey.
 		if( result & kVKeyMask )
 		{
 			result = 0;
@@ -338,8 +437,9 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 		case VK_MENU:
 			result |= kVKeyAltFlag;
 			break;
+		case VK_SELECT:
 		case VK_CANCEL:
-			// Can't "tap" or "press and hold" a force release key
+			// Can't use these special-case "keys" with single-key commands
 			result = 0;
 			return result;			
 		default:
@@ -838,7 +938,7 @@ static Command stringToCommand(
 	{
 		// .parsedString was already generated for commands check above
 		const std::string& aVKeySeq =
-			namesToVKeySequence(theBuilder.parsedString);
+			namesToVKeySequence(theBuilder, theBuilder.parsedString);
 
 		if( !aVKeySeq.empty() )
 		{
@@ -860,105 +960,38 @@ static Command stringToCommand(
 }
 
 
-static MacroSlot stringToMacroSlot(
-	InputMapBuilder& theBuilder,
-	size_t theMacroSet,
-	std::string theString)
+static void buildGlobalHotspots(InputMapBuilder& theBuilder)
 {
-	MacroSlot aMacroSlot;
-	if( theString.empty() )
-	{
-		mapDebugPrint("%s: Left <unnamed> and <unassigned>!\n",
-			theBuilder.debugSlotName.c_str());
-		return aMacroSlot;
-	}
+	mapDebugPrint("Assigning global hotspots...\n");
+	sHotspotSets.push_back(HotspotSet(kMouseLookStartHotspotID + 1));
+	// Hotspot set 0 is used for "named" hotspots in [Hotspots] in Profile
+	// that can be referenced within macros and key binds.
+	// sHotspotSets[0][0] is reserved to essentially mean "none"
+	// The hotspotNameToIdxMap maps to 0 for "filler" words between
+	// jump/point/click and the actual hotspot name.
+	theBuilder.hotspotNameToIdxMap.setValue("MOUSE", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("CURSOR", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("TO", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("AT", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("ON", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("HOTSPOT", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("HOT", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("SPOT", 0);
 
-	// Get the label (part of the string before first colon)
-	aMacroSlot.label = breakOffItemBeforeChar(theString, ':');
+	// Create default hotspot for MouseLookStart in case none specified
+	Hotspot aHotspot;
+	aHotspot.x.type = Hotspot::Coord::eType_Percent;
+	aHotspot.x.value = 32768;
+	aHotspot.y.type = Hotspot::Coord::eType_Percent;
+	aHotspot.y.value = 32768;
+	sHotspotSets[0][kMouseLookStartHotspotID] = aHotspot;
+	theBuilder.hotspotNameToIdxMap.setValue(
+		kMouseLookStartHotspotKey, kMouseLookStartHotspotID);
 
-	if( aMacroSlot.label.empty() && !theString.empty() )
-	{// Having no : character means this points to a sub-set
-		aMacroSlot.label = trim(theString);
-		aMacroSlot.cmd.type = eCmdType_ChangeMacroSet;
-		aMacroSlot.cmd.data = u16(sMacroSets.size());
-		sMacroSets.push_back(MacroSet());
-		sMacroSets.back().label =
-			sMacroSets[theMacroSet].label +
-			"." + aMacroSlot.label;
-		mapDebugPrint("%s: Macro Set: '%s'\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str());
-		return aMacroSlot;
-	}
-
-	if( theString.empty() )
-	{
-		mapDebugPrint("%s: Macro '%s' left <unassigned>!\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str());
-		return aMacroSlot;
-	}
-
-	aMacroSlot.cmd = stringToCommand(theBuilder, theString);
-
-	switch(aMacroSlot.cmd.type)
-	{
-	case eCmdType_SlashCommand:
-	case eCmdType_SayString:
-		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
-		break;
-	case eCmdType_TapKey:
-		mapDebugPrint("%s: Macro '%s' assigned to key/button: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
-		break;
-	case eCmdType_VKeySequence:
-		mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
-		break;
-	case eCmdType_Empty:
-		// Probably just forgot the > at front of a plain string
-		sKeyStrings.push_back(std::string(">") + theString);
-		aMacroSlot.cmd.type = eCmdType_SayString;
-		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		logError("%s: Macro '%s' unsure of meaning of '%s'. "
-				 "Assigning as a chat box say string. "
-				 "Add > to start of it if this was the intent!",
-				theBuilder.debugSlotName.c_str(),
-		aMacroSlot.label.c_str(), theString.c_str());
-		break;
-	}
-
-	return aMacroSlot;
-}
-
-
-static void buildMacroSets(InputMapBuilder& theBuilder)
-{
-	mapDebugPrint("Building Macro Sets...\n");
-
-	sMacroSets.push_back(MacroSet());
-	sMacroSets.back().label = kMainMacroSetLabel;
-	for(size_t aSet = 0; aSet < sMacroSets.size(); ++aSet )
-	{
-		const std::string& aPrefix = condense(sMacroSets[aSet].label);
-		for(size_t aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
-		{
-			theBuilder.debugSlotName = std::string("[") +
-				sMacroSets[aSet].label + "] (" +
-				kMacroSlotLabel[aSlot] + ")";
-
-			sMacroSets[aSet].slot[aSlot] =
-				stringToMacroSlot(
-					theBuilder,
-					aSet,
-					Profile::getStr(
-						aPrefix + "/" + kMacroSlotLabel[aSlot]));
-		}
-	}
+	// TODO: Actually parse [Hotspots]
+	sHotspotSets[0].push_back(aHotspot);
+	theBuilder.hotspotNameToIdxMap.setValue(
+		"CENTERSCREEN", u16(sHotspotSets[0].size()-1));
 }
 
 
@@ -980,7 +1013,7 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 		theBuilder.parsedString.clear();
 		sanitizeSentence(aCommandDescription, theBuilder.parsedString);
 		const std::string& aVKeySeq = namesToVKeySequence(
-			theBuilder.parsedString);
+			theBuilder, theBuilder.parsedString);
 		if( !aVKeySeq.empty() )
 		{
 			// Keybinds can only be assigned to Virtual-Key Code sequences/taps
@@ -1111,26 +1144,12 @@ static void addButtonAction(
 	// possibly to block lower layers' assignments from doing anything
 	if( aCmd.type == eCmdType_Empty && !theCmdStr.empty() )
 	{
-		if( aBtnAct != eBtnAct_Down )
-		{
-			logError("[%s]: Not sure how to assign '%s%s%s' to '%s'! "
-				"Some commands can not be assigned to Press/Tap/Release!",
-				theBuilder.debugSlotName.c_str(),
-				kButtonActionPrefx[aBtnAct],
-				kButtonActionPrefx[aBtnAct][0] ? " " : "",
-				kProfileButtonName[aBtnID],
-				theCmdStr.c_str());
-		}
-		else
-		{
-			logError("[%s]: Not sure how to assign '%s%s%s' to '%s'! "
-				"If intended as a typed chat box string, add > in front!",
-				theBuilder.debugSlotName.c_str(),
-				kButtonActionPrefx[aBtnAct],
-				kButtonActionPrefx[aBtnAct][0] ? " " : "",
-				kProfileButtonName[aBtnID],
-				theCmdStr.c_str());
-		}
+		logError("[%s]: Not sure how to assign '%s%s%s' to '%s'!",
+			theBuilder.debugSlotName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
+			theCmdStr.c_str());
 		return;
 	}
 
@@ -1252,6 +1271,108 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 }
 
 
+static MacroSlot stringToMacroSlot(
+	InputMapBuilder& theBuilder,
+	size_t theMacroSet,
+	std::string theString)
+{
+	MacroSlot aMacroSlot;
+	if( theString.empty() )
+	{
+		mapDebugPrint("%s: Left <unnamed> and <unassigned>!\n",
+			theBuilder.debugSlotName.c_str());
+		return aMacroSlot;
+	}
+
+	// Get the label (part of the string before first colon)
+	aMacroSlot.label = breakOffItemBeforeChar(theString, ':');
+
+	if( aMacroSlot.label.empty() && !theString.empty() )
+	{// Having no : character means this points to a sub-set
+		aMacroSlot.label = trim(theString);
+		aMacroSlot.cmd.type = eCmdType_ChangeMacroSet;
+		aMacroSlot.cmd.data = u16(sMacroSets.size());
+		sMacroSets.push_back(MacroSet());
+		sMacroSets.back().label =
+			sMacroSets[theMacroSet].label +
+			"." + aMacroSlot.label;
+		mapDebugPrint("%s: Macro Set: '%s'\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str());
+		return aMacroSlot;
+	}
+
+	if( theString.empty() )
+	{
+		mapDebugPrint("%s: Macro '%s' left <unassigned>!\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str());
+		return aMacroSlot;
+	}
+
+	aMacroSlot.cmd = stringToCommand(theBuilder, theString);
+
+	switch(aMacroSlot.cmd.type)
+	{
+	case eCmdType_SlashCommand:
+	case eCmdType_SayString:
+		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	case eCmdType_TapKey:
+		mapDebugPrint("%s: Macro '%s' assigned to key/button: %s\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	case eCmdType_VKeySequence:
+		mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
+			theBuilder.debugSlotName.c_str(),
+			aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	case eCmdType_Empty:
+		// Probably just forgot the > at front of a plain string
+		sKeyStrings.push_back(std::string(">") + theString);
+		aMacroSlot.cmd.type = eCmdType_SayString;
+		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
+		logError("%s: Macro '%s' unsure of meaning of '%s'. "
+				 "Assigning as a chat box say string. "
+				 "Add > to start of it if this was the intent!",
+				theBuilder.debugSlotName.c_str(),
+		aMacroSlot.label.c_str(), theString.c_str());
+		break;
+	}
+
+	return aMacroSlot;
+}
+
+
+static void buildMacroSets(InputMapBuilder& theBuilder)
+{
+	mapDebugPrint("Building Macro Sets...\n");
+
+	sMacroSets.push_back(MacroSet());
+	sMacroSets.back().label = kMainMacroSetLabel;
+	for(size_t aSet = 0; aSet < sMacroSets.size(); ++aSet )
+	{
+		const std::string& aPrefix = condense(sMacroSets[aSet].label);
+		for(size_t aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
+		{
+			theBuilder.debugSlotName = std::string("[") +
+				sMacroSets[aSet].label + "] (" +
+				kMacroSlotLabel[aSlot] + ")";
+
+			sMacroSets[aSet].slot[aSlot] =
+				stringToMacroSlot(
+					theBuilder,
+					aSet,
+					Profile::getStr(
+						aPrefix + "/" + kMacroSlotLabel[aSlot]));
+		}
+	}
+}
+
+
 static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
 	sTargetGroupSize = 1;
@@ -1354,13 +1475,15 @@ void convertKeyStringIndexesToPointers()
 void loadProfile()
 {
 	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
+	sHotspotSets.clear();
 	sKeyStrings.clear();
 	sLayers.clear();
 	sMacroSets.clear();
 
-	// Build control scheme and macros
+	// Create temp builder object and build everything from the Profile data
 	{
 		InputMapBuilder anInputMapBuilder;
+		buildGlobalHotspots(anInputMapBuilder);
 		buildCommandAliases(anInputMapBuilder);
 		buildControlScheme(anInputMapBuilder);
 		buildMacroSets(anInputMapBuilder);
@@ -1368,12 +1491,14 @@ void loadProfile()
 	}
 
 	// Trim unused memory
-	if( sMacroSets.size() < sMacroSets.capacity() )
-		std::vector<MacroSet>(sMacroSets).swap(sMacroSets);
+	if( sHotspotSets.size() < sHotspotSets.capacity() )
+		std::vector<HotspotSet>(sHotspotSets).swap(sHotspotSets);
 	if( sKeyStrings.size() < sKeyStrings.capacity() )
 		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
 	if( sLayers.size() < sLayers.capacity() )
 		std::vector<ControlsLayer>(sLayers).swap(sLayers);
+	if( sMacroSets.size() < sMacroSets.capacity() )
+		std::vector<MacroSet>(sMacroSets).swap(sMacroSets);
 
 	// Now that are done messing with resizing vectors which can
 	// invalidate pointers, can convert Commands with 'data' field
@@ -1445,6 +1570,30 @@ u16 keyForSpecialAction(ESpecialKey theAction)
 {
 	DBG_ASSERT(theAction < eSpecialKey_Num);
 	return sSpecialKeys[theAction];
+}
+
+
+int hotspotMousePosX(u16 theHotspotSet, u16 theHotspotID)
+{
+	DBG_ASSERT(theHotspotSet < sHotspotSets.size());
+	DBG_ASSERT(theHotspotID < sHotspotSets[theHotspotSet].size());
+	// TODO: Convert to proper coordinates system
+	return sHotspotSets[theHotspotSet][theHotspotID].x.value;
+}
+
+
+int hotspotMousePosY(u16 theHotspotSet, u16 theHotspotID)
+{
+	DBG_ASSERT(theHotspotSet < sHotspotSets.size());
+	DBG_ASSERT(theHotspotID < sHotspotSets[theHotspotSet].size());
+	// TODO: Convert to proper coordinates system
+	return sHotspotSets[theHotspotSet][theHotspotID].y.value;
+}
+
+
+u16 mouseLookStartHotspotID()
+{
+	return kMouseLookStartHotspotID;
 }
 
 

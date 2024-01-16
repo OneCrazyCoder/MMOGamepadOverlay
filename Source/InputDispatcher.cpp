@@ -234,6 +234,7 @@ struct DispatchTracker
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
+	u16 jumpToHotspot;
 	bool mouseLookWanted;
 	bool typingChatBoxString;
 
@@ -245,6 +246,7 @@ struct DispatchTracker
 		keysHeldDown(),
 		nextQueuedKey(),
 		backupQueuedKey(),
+		jumpToHotspot(),
 		mouseLookWanted(),
 		typingChatBoxString()
 	{}
@@ -285,6 +287,18 @@ static EResult popNextKey(const u8* theVKeySequence)
 				return eResult_TaskCompleted;
 			sTracker.queuePauseTime = max(sTracker.queuePauseTime, aDelay);
 			return eResult_Incomplete;
+		}
+
+		if( aVKey == VK_SELECT )
+		{
+			// Special 3-byte sequence to cause mouse cursor jump to hotspot
+			u8 c = theVKeySequence[sTracker.currTaskProgress++];
+			DBG_ASSERT(c != '\0');
+			sTracker.jumpToHotspot = (c & 0x7F) << 7;
+			c = theVKeySequence[sTracker.currTaskProgress++];
+			DBG_ASSERT(c != '\0');
+			sTracker.jumpToHotspot |= (c & 0x7F);
+			continue;
 		}
 
 		if( aVKey == VK_CANCEL )
@@ -744,20 +758,16 @@ void update()
 
 	// Initiate MouseLook mode
 	// -----------------------
-	bool initiatingMouseLookMode = false;
-	if( sTracker.mouseLookWanted && !sTracker.keysHeldDown.test(VK_RBUTTON) &&
-		!sTracker.nextQueuedKey && !sTracker.backupQueuedKey &&
+	if( sTracker.mouseLookWanted &&
+		!sTracker.keysHeldDown.test(VK_RBUTTON) &&
+		!sTracker.nextQueuedKey &&
+		!sTracker.backupQueuedKey &&
+		!sTracker.jumpToHotspot &&
 		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) )
 	{// Between other tasks, so should start up mouse look mode
-		initiatingMouseLookMode = true;
-		sTracker.nextQueuedKey = VK_RBUTTON;
 		// Jump curser to safe spot for initial right-click first
-		Input anInput;
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.dx = 32768;
-		anInput.mi.dy = 32768;
-		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
-		sTracker.inputs.push_back(anInput);
+		sTracker.jumpToHotspot = InputMap::mouseLookStartHotspotID();
+		sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
 	}
 
 
@@ -921,7 +931,7 @@ void update()
 
 	// Prepare for nextQueuedKey
 	// -------------------------
-	bool canSendQueuedKey = false;
+	bool readyForQueuedEvent = true;
 	if( sTracker.nextQueuedKey )
 	{
 		const u16 aVKey = sTracker.nextQueuedKey;
@@ -935,25 +945,28 @@ void update()
 		aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
 		// Only send the key if related keys are already in correct state
 		// Otherwise, need to wait until other keys are ready next frame
-		canSendQueuedKey = areModKeysHeld(sTracker.nextQueuedKey);
+		readyForQueuedEvent = areModKeysHeld(sTracker.nextQueuedKey);
 		// Make sure base key is in opposite of desired pressed state
-		if( !forced && sTracker.keysHeldDown.test(aBaseVKey) == press )
+		if( !forced )
 		{
 			aDesiredKeysDown.set(aBaseVKey, !press);
-			canSendQueuedKey = false;
+			if( sTracker.keysHeldDown.test(aBaseVKey) == press )
+				readyForQueuedEvent = false;
 		}
 		// For mouse buttons in key sequences, before *any* are pressed,
 		// *all* other mouse buttons should be released.
 		if( !forced && press && isMouseButton(aVKey) &&
-			!(aVKey & kVKeyHoldFlag) &&
-			(sTracker.keysHeldDown.test(VK_LBUTTON) ||
-			 sTracker.keysHeldDown.test(VK_MBUTTON) ||
-			 sTracker.keysHeldDown.test(VK_RBUTTON)) )
+			!(aVKey & kVKeyHoldFlag) )
 		{
 			aDesiredKeysDown.reset(VK_LBUTTON);
 			aDesiredKeysDown.reset(VK_MBUTTON);
 			aDesiredKeysDown.reset(VK_RBUTTON);
-			canSendQueuedKey = false;
+			if( sTracker.keysHeldDown.test(VK_LBUTTON) ||
+				sTracker.keysHeldDown.test(VK_MBUTTON) ||
+				sTracker.keysHeldDown.test(VK_RBUTTON) )
+			{
+				readyForQueuedEvent = false;
+			}
 		}
 	}
 	/*
@@ -995,9 +1008,19 @@ void update()
 	}
 
 
-	// Send queued key event for this update
-	// -------------------------------------
-	if( canSendQueuedKey )
+	// Send queued key event OR jump to hotspot event
+	// ----------------------------------------------
+	if( readyForQueuedEvent && sTracker.jumpToHotspot )
+	{
+		Input anInput;
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.dx = InputMap::hotspotMousePosX(0, sTracker.jumpToHotspot);
+		anInput.mi.dy = InputMap::hotspotMousePosY(0, sTracker.jumpToHotspot);
+		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
+		sTracker.inputs.push_back(anInput);		
+		sTracker.jumpToHotspot = 0;
+	}
+	else if( readyForQueuedEvent && sTracker.nextQueuedKey )
 	{
 		u16 aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
 		u8 aVKeyBase = u8(aVKey & kVKeyMask);
@@ -1028,14 +1051,15 @@ void update()
 				if( itr != sTracker.keysWantDown.end() )
 					itr->second.pressed = true;
 			}
-			else if( isMouseButton(aVKeyBase) && !initiatingMouseLookMode )
+			else if( isMouseButton(aVKeyBase) )
 			{// Mouse button that wanted to be "clicked" once in a sequence
 				// Should release the mouse button for next queued key action
-				sTracker.nextQueuedKey = aVKeyBase | kVKeyReleaseFlag;
+				sTracker.nextQueuedKey = aVKey | kVKeyReleaseFlag;
 			}
 		}
 	}
 	sTracker.typingChatBoxString = false;
+
 
 	// Update mouse acceleration from digital buttons
 	// ----------------------------------------------
@@ -1133,6 +1157,10 @@ void setMouseLookMode(bool active)
 
 void moveMouse(int dx, int dy, bool digital)
 {
+	// Ignore mouse movement while trying to jump cursor to a hotspot
+	if( sTracker.jumpToHotspot )
+		return;
+
 	const bool kMouseLookSpeed =
 		sTracker.mouseLookWanted ||
 		sTracker.keysHeldDown.test(VK_RBUTTON);

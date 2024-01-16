@@ -43,6 +43,13 @@ Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID);
 // Get certain special-case keybinds directly
 u16 keyForSpecialAction(ESpecialKey theAction);
 
+// Returns normalized virtual-desktop-relative position from 0-65535
+int hotspotMousePosX(u16 theHotspotSet, u16 theHotspotID);
+int hotspotMousePosY(u16 theHotspotSet, u16 theHotspotID);
+
+// Hotspot ID (in set 0) of pos to safely right-click to begin mouselook mode
+u16 mouseLookStartHotspotID();
+
 // How many Target Group #'s are defined (counting 'self' as Group Member #0)
 u8 targetGroupSize();
 
