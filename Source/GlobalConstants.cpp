@@ -59,7 +59,7 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 		NameToVKeyMap map;
 		NameToVKeyMapper()
 		{
-			const size_t kMapSize = 128;
+			const size_t kMapSize = 131;
 			map.reserve(kMapSize);
 			map.setValue("CLICK",			VK_LBUTTON);
 			map.setValue("LCLICK",			VK_LBUTTON);
@@ -104,6 +104,9 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 			map.setValue("RIGHTARROW",		VK_RIGHT);
 			map.setValue("DOWN",			VK_DOWN);
 			map.setValue("DOWNARROW",		VK_DOWN);
+			map.setValue("JUMP",			VK_SELECT); // jump mouse to pos
+			map.setValue("POINT",			VK_SELECT); // jump mouse to pos
+			map.setValue("CURSOR",			VK_SELECT); // jump mouse to pos
 			map.setValue("INS",				VK_INSERT);
 			map.setValue("INSERT",			VK_INSERT);
 			map.setValue("DEL",				VK_DELETE);
