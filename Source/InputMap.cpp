@@ -21,13 +21,13 @@ namespace InputMap
 
 enum {
 kMacroSlotsPerSet = 4,
-kMouseLookStartHotspotID = 1,
 };
 
 const char* kMainMacroSetLabel = "Macros";
 const char* kMainLayerLabel = "Scheme";
 const char* kLayerPrefix = "Layer.";
 const char* kKeybindsPrefix = "KeyBinds/";
+const char* kGlobalHotspotsPrefix = "Hotspots/";
 const char* kMacroSlotLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
 DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) == kMacroSlotsPerSet);
 
@@ -35,19 +35,25 @@ DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) == kMacroSlotsPerSet);
 const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
 const char* kMouseLookKey = "MOUSELOOK";
-const char* kMouseLookStartHotspotKey = "MOUSELOOKSTART";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
 
+const char* kSpecialHotspotNames[] =
+{
+	"",						// eSpecialHotspot_None
+	"MOUSELOOKSTART"		// eSpecialHotspot_MouseLookStart
+};
+DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
+
 const char* kButtonActionPrefx[] =
 {
-	"",			// eBtnAct_Down
-	"Press",	// eBtnAct_Press
-	"Hold",		// eBtnAct_ShortHold
-	"LongHold",	// eBtnAct_LongHold
-	"Tap",		// eBtnAct_Tap
-	"Release",	// eBtnAct_Release
+	"",						// eBtnAct_Down
+	"Press",				// eBtnAct_Press
+	"Hold",					// eBtnAct_ShortHold
+	"LongHold",				// eBtnAct_LongHold
+	"Tap",					// eBtnAct_Tap
+	"Release",				// eBtnAct_Release
 };
 DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
 
@@ -106,19 +112,11 @@ struct Hotspot
 {
 	struct Coord
 	{
-		int value : 24;
-		enum EType
-		{
-			eType_MinPlus,
-			eType_MaxMinus,
-			eType_CenterPlus,
-			eType_CenerMinus,
-			eType_Percent,
-		} type : 8;
-		Coord() : value(), type(eType_MinPlus) {}
+		u16 origin; // normalized 0-65535 percentage of desktop
+		s16 offset; // direct pixel offset from origin
+		Coord() : origin(), offset() {}
 	} x, y;
 };
-typedef std::vector<Hotspot> HotspotSet;
 
 struct ControlsLayer
 {
@@ -151,7 +149,7 @@ struct InputMapBuilder
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static std::vector<HotspotSet> sHotspotSets;
+static std::vector<Hotspot> sHotspots;
 static std::vector<std::string> sKeyStrings;
 static std::vector<MacroSet> sMacroSets;
 static std::vector<ControlsLayer> sLayers;
@@ -960,14 +958,309 @@ static Command stringToCommand(
 }
 
 
+static EResult stringToHotspotCoord(
+	std::string& theString,
+	Hotspot::Coord& out,
+	bool allowCommasInIntegers)
+{
+	// This function also removes the coordinate from start of string
+	out = Hotspot::Coord();
+	if( theString.empty() )
+		return eResult_Empty;
+
+	enum EMode
+	{
+		eMode_Prefix,		// Checking for C/R/B in CX+10, R-8, B - 5, etc
+		eMode_Numerator,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
+		eMode_Denominator,	// Checking for 5 in 0.5, 5% in 10.5%, etc
+		eMode_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
+		eMode_OffsetSpace,	// Optional space between -/+ and offset number 
+		eMode_OffsetNumber, // Checking for 10 in 50% + 10, CX+10, R-10, etc
+	} aMode = eMode_Prefix;
+
+	u32 aNumerator = 0;
+	u32 aDenominator = 0;
+	u32 anOffset = 0;
+	bool done = false;
+	bool isOffsetNegative  = false;
+	size_t aCharPos = 0;
+	char c = theString[aCharPos];
+
+	while(!done)
+	{
+		switch(c)
+		{
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+				aMode = eMode_Numerator;
+				// fall through
+			case eMode_Numerator:
+			case eMode_Denominator:
+				aDenominator *= 10;
+				aNumerator *= 10;
+				aNumerator += u32(c - '0');
+				if( aNumerator > 0x7FFF )
+					return eResult_Overflow;
+				if( aDenominator > 0x7FFF )
+					return eResult_Overflow;
+				break;
+			case eMode_OffsetSign:
+				// Assume part of next coordinate
+				done = true;
+				break;
+			case eMode_OffsetSpace:
+				aMode = eMode_OffsetNumber;
+				// fall through
+			case eMode_OffsetNumber:
+				anOffset *= 10;
+				anOffset += u32(c - '0');
+				if( anOffset > 0x7FFF )
+					return eResult_Overflow;
+				break;
+			}
+			break;
+		case '-':
+		case '+':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+			case eMode_Denominator:
+			case eMode_OffsetSign:
+				isOffsetNegative = (c == '-');
+				aMode = eMode_OffsetSpace;
+				break;
+			case eMode_Numerator:
+			case eMode_OffsetSpace:
+			case eMode_OffsetNumber:
+				// Invalid if found in this mode
+				return eResult_Malformed;
+			}
+			break;
+		case '.':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+			case eMode_Numerator:
+				aMode = eMode_Denominator;
+				aDenominator = 1;
+				break;
+			case eMode_OffsetSign:
+				// Assume part of next coordinate
+				done = true;
+				break;
+			case eMode_Denominator:
+			case eMode_OffsetSpace:
+			case eMode_OffsetNumber:
+				// Invalid if found in this mode
+				return eResult_Malformed;
+			}
+			break;
+		case '%':
+		case 'p':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+				// Ignored
+				break;
+			case eMode_Numerator:
+			case eMode_Denominator:
+				if( !aDenominator ) aDenominator = 1;
+				aDenominator *= 100; // Convert 50% to 0.5
+				aMode = eMode_OffsetSign;
+				break;
+			case eMode_OffsetSign:
+			case eMode_OffsetSpace:
+			case eMode_OffsetNumber:
+				// Invalid if found in these modes
+				return eResult_Malformed;
+			}
+			break;
+		case 'l': case 'L': // aka "Left"
+		case 't': case 'T': // aka "Top"
+			switch(aMode)
+			{
+			case eMode_Prefix:
+				aNumerator = 0;
+				aDenominator = 1;
+				aMode = eMode_OffsetSign;
+				break;
+			case eMode_Numerator:
+			case eMode_Denominator:
+			case eMode_OffsetSign:
+			case eMode_OffsetSpace:
+			case eMode_OffsetNumber:
+				// Assume part of next coordinate
+				done = true;
+				break;
+			}
+			break;
+		case 'r': case 'R': // aka "Right"
+		case 'b': case 'B': // aka "Bottom"
+			switch(aMode)
+			{
+			case eMode_Prefix:
+				aNumerator = 1;
+				aDenominator = 1;
+				aMode = eMode_OffsetSign;
+				break;
+			case eMode_Numerator:
+			case eMode_Denominator:
+			case eMode_OffsetSign:
+			case eMode_OffsetSpace:
+			case eMode_OffsetNumber:
+				// Assume part of next coordinate
+				done = true;
+				break;
+			}
+			break;
+		case 'c': case 'C':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+				aNumerator = 1;
+				aDenominator = 2;
+				aMode = eMode_OffsetSign;
+				break;
+			case eMode_Numerator:
+			case eMode_Denominator:
+			case eMode_OffsetSign:
+			case eMode_OffsetSpace:
+			case eMode_OffsetNumber:
+				// Assume part of next coordinate
+				done = true;
+				break;
+			}
+			break;
+		case 'x': case 'X':
+		case 'y': case 'Y':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+			case eMode_OffsetSign:
+			case eMode_OffsetSpace:
+				// Ignore (may be part of 'CX' or '# x #')
+				break;
+			case eMode_Numerator:
+			case eMode_Denominator:
+			case eMode_OffsetNumber:
+				// Assume marks end of this coordinate
+				done = true;
+				break;
+			}
+			break;
+		case ' ':
+		case ',':
+		default:
+			switch(aMode)
+			{
+			case eMode_Prefix:
+			case eMode_OffsetSpace:
+			case eMode_OffsetSign:
+				// Leading whitspace, ignore
+				break;
+			case eMode_Numerator:
+			case eMode_OffsetNumber:
+				// Comma may be allowed (and ignored) during whole numbers
+				if( c == ',' && allowCommasInIntegers )
+					break;
+				// fall through
+			case eMode_Denominator:
+				// Assume marks end of this coordinate
+				done = true;
+				break;
+			}
+			break;
+		}
+
+		if( !done )
+		{
+			++aCharPos;
+			if( aCharPos >= theString.size() )
+				done = true;
+			else
+				c = theString[aCharPos];
+		}
+	}
+
+	// Parsing was a success so far - now assemble the final value
+	if( aDenominator == 0 )
+	{
+		// Origin unspecified - assume 0% and numerator is the offset
+		anOffset = aNumerator;
+		aNumerator = 0;
+		aDenominator = 1;
+	}
+
+	if( aNumerator >= aDenominator )
+		out.origin = 0xFFFF;
+	else
+		out.origin = u16((aNumerator * 0x10000) / aDenominator);
+	out.offset = s16(anOffset);
+	if( isOffsetNegative )
+		out.offset = -out.offset;
+
+	/*
+	std::string aConvertedString = theString.substr(0, aCharPos);
+	mapDebugPrint("Converted '%s' to '%d/%d%s%d' (origin: %d offset: %d)\n",
+		aConvertedString.c_str(),
+		aNumerator, aDenominator ? aDenominator : 1,
+		isOffsetNegative ? "-" : "+",
+		anOffset,
+		out.origin, out.offset);
+	*/
+
+	// Remove processed section from start of string
+	theString = theString.substr(aCharPos);
+
+	return eResult_Ok;
+}
+
+
+static EResult stringToHotspot(std::string& theString, Hotspot& out)
+{
+	// This function also removes the hotspot from start of string
+	// in case multiple hotspots are specified by the same string
+	EResult aResult = eResult_Empty;
+	if( theString.empty() )
+		return aResult;
+
+	std::string backupString = theString;
+	bool allowCommasInIntegers = true;
+	aResult = stringToHotspotCoord(theString, out.x, true);
+	if( aResult == eResult_Overflow )
+	{
+		// May have confused numbers separated by ',' and no space, like
+		// 100,100 as a single large number. Try again treating comma
+		// in a number as a breaking character.
+		allowCommasInIntegers = false;
+		aResult = stringToHotspotCoord(
+			theString, out.x, allowCommasInIntegers);
+	}
+	if( aResult != eResult_Ok )
+		return aResult;
+	aResult = stringToHotspotCoord(theString, out.y, allowCommasInIntegers);
+	if( aResult != eResult_Ok && allowCommasInIntegers )
+	{
+		// May need to redo both x and y with comma-breaking to work
+		theString = backupString;
+		out = Hotspot();
+		stringToHotspotCoord(theString, out.x, false);
+		aResult = stringToHotspotCoord(theString, out.y, false);
+	}
+
+	return aResult;
+}
+
+
 static void buildGlobalHotspots(InputMapBuilder& theBuilder)
 {
 	mapDebugPrint("Assigning global hotspots...\n");
-	sHotspotSets.push_back(HotspotSet(kMouseLookStartHotspotID + 1));
-	// Hotspot set 0 is used for "named" hotspots in [Hotspots] in Profile
-	// that can be referenced within macros and key binds.
-	// sHotspotSets[0][0] is reserved to essentially mean "none"
-	// The hotspotNameToIdxMap maps to 0 for "filler" words between
+	sHotspots.resize(eSpecialHotspot_Num);
+	// sHotspots[0] is reserved as eSpecialHotspot_None
+	// The hotspotNameToIdxMap maps to this for "filler" words between
 	// jump/point/click and the actual hotspot name.
 	theBuilder.hotspotNameToIdxMap.setValue("MOUSE", 0);
 	theBuilder.hotspotNameToIdxMap.setValue("CURSOR", 0);
@@ -978,20 +1271,36 @@ static void buildGlobalHotspots(InputMapBuilder& theBuilder)
 	theBuilder.hotspotNameToIdxMap.setValue("HOT", 0);
 	theBuilder.hotspotNameToIdxMap.setValue("SPOT", 0);
 
-	// Create default hotspot for MouseLookStart in case none specified
+	// Special hotspots default to center if not specified
 	Hotspot aHotspot;
-	aHotspot.x.type = Hotspot::Coord::eType_Percent;
-	aHotspot.x.value = 32768;
-	aHotspot.y.type = Hotspot::Coord::eType_Percent;
-	aHotspot.y.value = 32768;
-	sHotspotSets[0][kMouseLookStartHotspotID] = aHotspot;
-	theBuilder.hotspotNameToIdxMap.setValue(
-		kMouseLookStartHotspotKey, kMouseLookStartHotspotID);
+	aHotspot.x.origin = 32768;
+	aHotspot.y.origin = 32768;
+	for(u16 i = 0; i < eSpecialHotspot_Num; ++i)
+	{
+		sHotspots[i] = aHotspot;
+		theBuilder.hotspotNameToIdxMap.setValue(kSpecialHotspotNames[i], i);
+	}
 
-	// TODO: Actually parse [Hotspots]
-	sHotspotSets[0].push_back(aHotspot);
-	theBuilder.hotspotNameToIdxMap.setValue(
-		"CENTERSCREEN", u16(sHotspotSets[0].size()-1));
+	Profile::KeyValuePairs aHotspotRequests;
+	Profile::getAllKeys(kGlobalHotspotsPrefix, aHotspotRequests);
+	for(size_t i = 0; i < aHotspotRequests.size(); ++i)
+	{
+		std::string aHotspotName = condense(aHotspotRequests[i].first);
+		std::string aHotspotDescription(aHotspotRequests[i].second);
+
+		u16& aHotspotIdx = theBuilder.hotspotNameToIdxMap.findOrAdd(
+			condense(aHotspotName), u16(sHotspots.size()));
+		while(aHotspotIdx >= sHotspots.size())
+			sHotspots.push_back(Hotspot());
+		EResult aResult =
+			stringToHotspot(aHotspotDescription, sHotspots[aHotspotIdx]);
+		if( aResult == eResult_Malformed )
+		{
+			logError("Hotspot %s: Could not decipher hotspot position '%s'",
+				aHotspotRequests[i].first, aHotspotRequests[i].second);
+			sHotspots[aHotspotIdx] = aHotspot;
+		}
+	}
 }
 
 
@@ -1475,7 +1784,7 @@ void convertKeyStringIndexesToPointers()
 void loadProfile()
 {
 	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
-	sHotspotSets.clear();
+	sHotspots.clear();
 	sKeyStrings.clear();
 	sLayers.clear();
 	sMacroSets.clear();
@@ -1491,8 +1800,8 @@ void loadProfile()
 	}
 
 	// Trim unused memory
-	if( sHotspotSets.size() < sHotspotSets.capacity() )
-		std::vector<HotspotSet>(sHotspotSets).swap(sHotspotSets);
+	if( sHotspots.size() < sHotspots.capacity() )
+		std::vector<Hotspot>(sHotspots).swap(sHotspots);
 	if( sKeyStrings.size() < sKeyStrings.capacity() )
 		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
 	if( sLayers.size() < sLayers.capacity() )
@@ -1573,27 +1882,19 @@ u16 keyForSpecialAction(ESpecialKey theAction)
 }
 
 
-int hotspotMousePosX(u16 theHotspotSet, u16 theHotspotID)
+u16 hotspotMousePosX(u16 theHotspotID)
 {
-	DBG_ASSERT(theHotspotSet < sHotspotSets.size());
-	DBG_ASSERT(theHotspotID < sHotspotSets[theHotspotSet].size());
+	DBG_ASSERT(theHotspotID < sHotspots.size());
 	// TODO: Convert to proper coordinates system
-	return sHotspotSets[theHotspotSet][theHotspotID].x.value;
+	return sHotspots[theHotspotID].x.origin;
 }
 
 
-int hotspotMousePosY(u16 theHotspotSet, u16 theHotspotID)
+u16 hotspotMousePosY(u16 theHotspotID)
 {
-	DBG_ASSERT(theHotspotSet < sHotspotSets.size());
-	DBG_ASSERT(theHotspotID < sHotspotSets[theHotspotSet].size());
+	DBG_ASSERT(theHotspotID < sHotspots.size());
 	// TODO: Convert to proper coordinates system
-	return sHotspotSets[theHotspotSet][theHotspotID].y.value;
-}
-
-
-u16 mouseLookStartHotspotID()
-{
-	return kMouseLookStartHotspotID;
+	return sHotspots[theHotspotID].y.origin;
 }
 
 

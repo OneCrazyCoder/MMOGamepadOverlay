@@ -766,7 +766,7 @@ void update()
 		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) )
 	{// Between other tasks, so should start up mouse look mode
 		// Jump curser to safe spot for initial right-click first
-		sTracker.jumpToHotspot = InputMap::mouseLookStartHotspotID();
+		sTracker.jumpToHotspot = eSpecialHotspot_MouseLookStart;
 		sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
 	}
 
@@ -1014,8 +1014,8 @@ void update()
 	{
 		Input anInput;
 		anInput.type = INPUT_MOUSE;
-		anInput.mi.dx = InputMap::hotspotMousePosX(0, sTracker.jumpToHotspot);
-		anInput.mi.dy = InputMap::hotspotMousePosY(0, sTracker.jumpToHotspot);
+		anInput.mi.dx = InputMap::hotspotMousePosX(sTracker.jumpToHotspot);
+		anInput.mi.dy = InputMap::hotspotMousePosY(sTracker.jumpToHotspot);
 		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 		sTracker.inputs.push_back(anInput);		
 		sTracker.jumpToHotspot = 0;

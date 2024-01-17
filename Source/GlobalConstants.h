@@ -211,6 +211,14 @@ enum ESpecialKey
 		eSpecialKey_LastGroupTarget - eSpecialKey_FirstGroupTarget + 1,
 };
 
+enum ESpecialHotspot
+{
+	eSpecialHotspot_None,
+	eSpecialHotspot_MouseLookStart,
+
+	eSpecialHotspot_Num
+};
+
 enum ECommandKeyWord
 {
 	eCmdWord_Unknown,
@@ -275,6 +283,7 @@ enum EResult
 	eResult_Incomplete,
 	eResult_NotAllowed,
 	eResult_Malformed,
+	eResult_Overflow,
 	eResult_Empty,
 };
 
