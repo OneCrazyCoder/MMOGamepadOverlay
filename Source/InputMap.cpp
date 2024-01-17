@@ -108,16 +108,6 @@ struct ButtonActions
 };
 typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
 
-struct Hotspot
-{
-	struct Coord
-	{
-		u16 origin; // normalized 0-65535 percentage of desktop
-		s16 offset; // direct pixel offset from origin
-		Coord() : origin(), offset() {}
-	} x, y;
-};
-
 struct ControlsLayer
 {
 	std::string label;
@@ -1866,7 +1856,7 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 }
 
 
-Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID)
+const Command& commandForMacro(u16 theMacroSetID, u8 theMacroSlotID)
 {
 	DBG_ASSERT(theMacroSetID < sMacroSets.size());
 	DBG_ASSERT(theMacroSlotID < kMacroSlotsPerSet);
@@ -1882,19 +1872,10 @@ u16 keyForSpecialAction(ESpecialKey theAction)
 }
 
 
-u16 hotspotMousePosX(u16 theHotspotID)
+const Hotspot& getHotspot(u16 theHotspotID)
 {
 	DBG_ASSERT(theHotspotID < sHotspots.size());
-	// TODO: Convert to proper coordinates system
-	return sHotspots[theHotspotID].x.origin;
-}
-
-
-u16 hotspotMousePosY(u16 theHotspotID)
-{
-	DBG_ASSERT(theHotspotID < sHotspots.size());
-	// TODO: Convert to proper coordinates system
-	return sHotspots[theHotspotID].y.origin;
+	return sHotspots[theHotspotID];
 }
 
 

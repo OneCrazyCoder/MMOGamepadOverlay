@@ -297,6 +297,15 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 	};
 };
 
+struct Hotspot : public ConstructFromZeroInitializedMemory<Command>
+{
+	struct Coord
+	{
+		u16 origin; // normalized 0-65535 percentage of window
+		s16 offset; // direct pixel offset from .origin
+	} x, y;
+};
+
 // Generic button names used in Profile .ini files
 extern const char* kProfileButtonName[];
 

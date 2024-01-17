@@ -60,7 +60,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			InputMap::loadProfile();
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
-			OverlayWindow::loadProfile();
 		}
 
 		// Main loop
