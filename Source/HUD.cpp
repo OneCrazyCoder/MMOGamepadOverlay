@@ -10,6 +10,9 @@
 namespace HUD
 {
 
+// Make the actual position of the overlay window obvious by drawing a frame
+//#define DEBUG_DRAW_WINDOW_FRAME
+
 //-----------------------------------------------------------------------------
 // Config
 //-----------------------------------------------------------------------------
@@ -124,7 +127,7 @@ void update()
 }
 
 
-void render(HWND theWindow)
+void render(HWND theWindow, RECT theClientRect)
 {
 	// Prepare to draw
 	PAINTSTRUCT aPaintStruct;
@@ -135,20 +138,40 @@ void render(HWND theWindow)
 		return;
 	}
 
+	HFONT anOldFont = (HFONT)GetCurrentObject(hdc, OBJ_FONT);
+	HBRUSH hOldBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
+	HPEN hOldPen = (HPEN)GetCurrentObject(hdc, OBJ_PEN);
+
+	#ifdef DEBUG_DRAW_WINDOW_FRAME
+	{
+		HBRUSH hBlackBrush = CreateSolidBrush(RGB(0, 0, 0));
+		HPEN hRedPen = CreatePen(PS_INSIDEFRAME, 3, RGB(255, 0, 0));
+		SelectObject(hdc, hRedPen);
+		SelectObject(hdc, hBlackBrush);
+		Rectangle(hdc,
+			theClientRect.left, theClientRect.top,
+			theClientRect.right, theClientRect.bottom);
+		SelectObject(hdc, hOldPen);
+		SelectObject(hdc, hOldBrush);
+		DeleteObject(hRedPen);
+		DeleteObject(hBlackBrush);
+	}
+	#endif
+
 	if( gVisibleHUD.test(eHUDElement_Macros) )
 	{
-		HFONT anOldFont = (HFONT)SelectObject(hdc, sFont);
+		anOldFont = (HFONT)SelectObject(hdc, sFont);
 		SetBkColor(hdc, kConfig.buttonColor);
 		SetTextColor(hdc, kConfig.labelColor);
 
 		// Draw each button
 		for(int i = 0; i < 4; ++i)
 		{
-			RECT aButtonRect;
-			aButtonRect.left = kConfig.macroButtonPos[i].x;
-			aButtonRect.top = kConfig.macroButtonPos[i].y;
-			aButtonRect.right = kConfig.macroButtonPos[i].x + kConfig.macroButtonW;
-			aButtonRect.bottom = kConfig.macroButtonPos[i].y + kConfig.macroButtonH;
+			RECT aButtonRect = theClientRect;
+			aButtonRect.left += kConfig.macroButtonPos[i].x;
+			aButtonRect.top += kConfig.macroButtonPos[i].y;
+			aButtonRect.right = aButtonRect.left + kConfig.macroButtonW;
+			aButtonRect.bottom = aButtonRect.top + kConfig.macroButtonH;
 			// Border
 			FillRect(hdc, &aButtonRect, sBorderBrush);
 			InflateRect(&aButtonRect, -kConfig.borderThickness, -kConfig.borderThickness);
@@ -170,10 +193,12 @@ void render(HWND theWindow)
 			}
 		}
 
-		// Clean up
-		SelectObject(hdc, anOldFont);
 	}
 
+	// Clean up
+	SelectObject(hdc, anOldFont);
+	SelectObject(hdc, hOldBrush);
+	SelectObject(hdc, hOldPen);
 	EndPaint(theWindow, &aPaintStruct);		
 }
 

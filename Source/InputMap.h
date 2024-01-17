@@ -38,14 +38,13 @@ const BitArray<eHUDElement_Num>& hudElementsToHide(u16 theLayerID);
 const Command* commandsForButton(u16 theLayerID, EButton theButton);
 
 // Get command for executing given macro slot in given set
-Command commandForMacro(u16 theMacroSetID, u8 theMacroSlotID);
+const Command& commandForMacro(u16 theMacroSetID, u8 theMacroSlotID);
 
 // Get certain special-case keybinds directly
 u16 keyForSpecialAction(ESpecialKey theAction);
 
-// Returns normalized virtual-desktop-relative position from 0-65535
-u16 hotspotMousePosX(u16 theHotspotID);
-u16 hotspotMousePosY(u16 theHotspotID);
+// Get Hotspot values by ID
+const Hotspot& getHotspot(u16 theHotspotID);
 
 // How many Target Group #'s are defined (counting 'self' as Group Member #0)
 u8 targetGroupSize();

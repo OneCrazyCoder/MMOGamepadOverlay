@@ -5,7 +5,6 @@
 #include "OverlayWindow.h"
 
 #include "HUD.h"
-#include "InputMap.h"
 #include "Profile.h"
 
 namespace OverlayWindow
@@ -17,8 +16,11 @@ namespace OverlayWindow
 
 struct Config
 {
+	std::wstring windowTitle;
+
 	void load()
 	{
+		windowTitle = widen(Profile::getStr("System/WindowTitle", "MMO Gamepad Overlay"));
 	}
 };
 
@@ -36,6 +38,8 @@ HWND gHandle = NULL;
 
 static Config kConfig;
 static WNDCLASSEXW sWindowClass;
+static RECT sDesktopWindowRect; // relative to virtual desktop
+static RECT sWindowClientRect; // relative to window
 
 
 //-----------------------------------------------------------------------------
@@ -51,7 +55,19 @@ static LRESULT CALLBACK windowProcCallback(
 		break;
 
 	case WM_PAINT:
-		HUD::render(theWindow);
+		HUD::render(theWindow, sWindowClientRect);
+		return 0;
+
+	case WM_MOVE:
+	case WM_SIZE:
+		GetClientRect(theWindow, &sWindowClientRect);
+		sDesktopWindowRect = sWindowClientRect;
+		ClientToScreen(theWindow, (LPPOINT)&sDesktopWindowRect.left);
+		ClientToScreen(theWindow, (LPPOINT)&sDesktopWindowRect.right);
+		sDesktopWindowRect.left -= GetSystemMetrics(SM_XVIRTUALSCREEN);
+		sDesktopWindowRect.right -= GetSystemMetrics(SM_XVIRTUALSCREEN);
+		sDesktopWindowRect.top -= GetSystemMetrics(SM_YVIRTUALSCREEN);
+		sDesktopWindowRect.bottom -= GetSystemMetrics(SM_YVIRTUALSCREEN);
 		break;
 
 	case WM_DESTROY:
@@ -76,6 +92,7 @@ static LRESULT CALLBACK windowProcCallback(
 void create(HINSTANCE theAppInstanceHandle)
 {
 	DBG_ASSERT(gHandle == NULL);
+	kConfig.load();
 
 	// Create/register window class
 	WNDCLASSEXW sWindowClass = WNDCLASSEXW();
@@ -87,13 +104,15 @@ void create(HINSTANCE theAppInstanceHandle)
 	sWindowClass.lpszClassName = L"MMO Gamepad Overlay Class";
 	RegisterClassExW(&sWindowClass);
 
-	// Create transparent overlay window
+	// Create transparent overlay window (at screen size initially)
 	gHandle = CreateWindowExW(
 		WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
 		sWindowClass.lpszClassName,
-		L"MMO Gamepad Overlay",
+		kConfig.windowTitle.c_str(),
 		WS_POPUP,
-		0, 0, 1280, 720,
+		0, 0,
+		GetSystemMetrics(SM_CXSCREEN),
+		GetSystemMetrics(SM_CYSCREEN),
 		NULL, NULL, theAppInstanceHandle, NULL);
 
 	if( !gHandle )
@@ -103,6 +122,7 @@ void create(HINSTANCE theAppInstanceHandle)
 		return;
 	}
 
+	HUD::init();
 	SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(0), LWA_COLORKEY);
 	ShowWindow(gHandle, SW_SHOW);
 	UpdateWindow(gHandle);
@@ -120,13 +140,6 @@ void destroy()
 }
 
 
-void loadProfile()
-{
-	kConfig.load();
-	HUD::init();
-}
-
-
 void update()
 {
 	if( !gHandle )
@@ -140,6 +153,50 @@ void redraw()
 {
 	if( gHandle )
 		InvalidateRect(gHandle, NULL, true);
+}
+
+
+u16 hotspotMousePosX(const Hotspot& theHotspot)
+{
+	u16 result = 32768; // center of desktop
+	if( !gHandle )
+		return result;
+	const int kClientWidth =
+		sWindowClientRect.right - sWindowClientRect.left;
+	const int kDesktopWidth =
+		GetSystemMetrics(SM_CXVIRTUALSCREEN);
+
+	// Start with percentage of client rect as u16 (i.e. 65535 == 100%)
+	int aPos = theHotspot.x.origin;
+	// Convert client-rect-relative  pixel position
+	aPos = aPos * kClientWidth / 0xFFFF;
+	// Add pixel offset
+	aPos += theHotspot.x.offset;
+	// Convert to virtual desktop pixel coordinate
+	aPos = max(0, aPos + sDesktopWindowRect.left);
+	// Convert to % of virtual desktop size (again 65535 == 100%)
+	// Use 64-bit variable temporarily to avoid multiply overflow
+	aPos = min(0xFFFF, s64(aPos) * 0xFFFF / kDesktopWidth);
+	return u16(aPos);
+}
+
+
+u16 hotspotMousePosY(const Hotspot& theHotspot)
+{
+	u16 result = 32768; // center of desktop
+	if( !gHandle )
+		return result;
+	const int kClientHeight =
+		sWindowClientRect.bottom - sWindowClientRect.top;
+	const int kDesktopHeight =
+		GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+	int aPos = theHotspot.y.origin;
+	aPos = aPos * kClientHeight / 0xFFFF;
+	aPos += theHotspot.y.offset;
+	aPos = max(0, aPos + sDesktopWindowRect.top);
+	aPos = min(0xFFFF, s64(aPos) * 0xFFFF / kDesktopHeight);
+	return u16(aPos);
 }
 
 } // OverlayWindow

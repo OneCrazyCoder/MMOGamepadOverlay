@@ -20,6 +20,6 @@ void init();
 void cleanup();
 
 void update();
-void render(HWND hWnd);
+void render(HWND hWnd, RECT theClientRect);
 
 } // HUD
