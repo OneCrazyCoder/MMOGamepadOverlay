@@ -510,6 +510,14 @@
 			RelativePath=".\Source\StringUtils.inc"
 			>
 		</File>
+		<File
+			RelativePath=".\Source\TargetApp.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\TargetApp.h"
+			>
+		</File>
 	</Files>
 	<Globals>
 	</Globals>

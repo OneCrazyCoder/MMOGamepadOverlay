@@ -212,6 +212,58 @@ std::string withExtension(const std::string& thePath, const std::string& theExt)
 }
 
 
+std::string getPathParams(const std::string& thePath)
+{
+	bool inQuotes = false;
+	bool atStart = true;
+	for(size_t aPos = 0; aPos < thePath.size(); ++aPos)
+	{
+		if( thePath[aPos] == '"' )
+			inQuotes = !inQuotes;
+		if( thePath[aPos] == ' ' )
+		{
+			if( !atStart && !inQuotes )
+				return thePath.substr(aPos + 1);
+		}
+		else
+		{
+			atStart = false;
+		}
+	}
+	
+	return std::string();
+}
+
+
+std::string removePathParams(const std::string& thePath)
+{
+	std::string aResult;
+
+	bool inQuotes = false;
+	bool atStart = true;
+	for(size_t aPos = 0; aPos < thePath.size(); ++aPos)
+	{
+		if( thePath[aPos] == '"' )
+		{
+			inQuotes = !inQuotes;
+		}
+		else if( thePath[aPos] == ' ' )
+		{
+			if( !atStart && !inQuotes )
+				break;
+			aResult.push_back(thePath[aPos]);
+		}
+		else
+		{
+			atStart = false;
+			aResult.push_back(thePath[aPos]);
+		}
+	}
+	
+	return aResult;
+}
+
+
 std::string removeTrailingSlash(const std::string& theDirectory)
 {
 	std::string aResult;
@@ -238,6 +290,35 @@ std::string	addTrailingSlash(const std::string& theDirectory, bool backSlash)
 	}
 	
 	return aResult;
+}
+
+
+bool isAbsolutePath(const std::string& thePath)
+{
+	size_t aSearchPos = 0;
+	if( thePath.empty() )
+		return false;
+
+	while(thePath[aSearchPos] == ' ');
+		++aSearchPos;
+	if( thePath[aSearchPos] == '\0' )
+		return false;
+	if( thePath[aSearchPos] == '"' )
+		++aSearchPos;
+	while(thePath[aSearchPos] == ' ')
+		++aSearchPos;
+	if( thePath[aSearchPos] == '\0' )
+		return false;
+	while((thePath[aSearchPos] >= 'A' && thePath[aSearchPos] <= 'Z') ||
+		  (thePath[aSearchPos] >= 'a' && thePath[aSearchPos] <= 'z'))
+		++aSearchPos;
+	if( thePath[aSearchPos] != ':' )
+		return false;
+	++aSearchPos;
+	if( thePath[aSearchPos] != '\\' && thePath[aSearchPos] != '/' )
+		return false;
+
+	return true;
 }
 
 

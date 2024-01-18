@@ -17,6 +17,7 @@
 #include "InputTranslator.h"
 #include "OverlayWindow.h"
 #include "Profile.h"
+#include "TargetApp.h"
 
 #ifdef _DEBUG
 // Scan for memory leaks
@@ -60,7 +61,12 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			InputMap::loadProfile();
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
+			TargetApp::loadProfile();
 		}
+
+		// Launch target app if requested and haven't already
+		if( !gHadFatalError )
+			TargetApp::autoLaunch();
 
 		// Main loop
 		DWORD aLastUpdateTime = timeGetTime();
@@ -96,6 +102,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			InputTranslator::update();
 			InputDispatcher::update();
 			OverlayWindow::update();
+			TargetApp::update();
 
 			// Yield via Sleep() so sent input can be processed by target
 			const DWORD aTimeTakenByUpdate = timeGetTime() - anUpdateStartTime;
@@ -122,6 +129,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 
 	// Final cleanup
 	Gamepad::cleanup();
+	TargetApp::cleanup();
 
 	return gHadFatalError ? EXIT_FAILURE : EXIT_SUCCESS;
 }

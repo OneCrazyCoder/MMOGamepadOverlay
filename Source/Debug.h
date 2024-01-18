@@ -6,7 +6,7 @@
 
 #include <cassert>
 
-extern std::string gLastError;
+extern std::string gErrorString;
 extern bool gHadFatalError;
 
 void debugPrint(const char* fmt ...);

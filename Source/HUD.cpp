@@ -10,8 +10,10 @@
 namespace HUD
 {
 
+#ifdef _DEBUG
 // Make the actual position of the overlay window obvious by drawing a frame
 //#define DEBUG_DRAW_WINDOW_FRAME
+#endif
 
 //-----------------------------------------------------------------------------
 // Config
@@ -134,7 +136,7 @@ void render(HWND theWindow, RECT theClientRect)
 	HDC hdc = BeginPaint(theWindow, &aPaintStruct);
 	if( !sInitialized )
 	{
-		EndPaint(theWindow, &aPaintStruct);		
+		EndPaint(theWindow, &aPaintStruct);
 		return;
 	}
 
@@ -144,6 +146,8 @@ void render(HWND theWindow, RECT theClientRect)
 
 	#ifdef DEBUG_DRAW_WINDOW_FRAME
 	{
+		// Normally I'd prefer not to create and destroy these on-the-fly,
+		// but since this is purely for debugging purposes...
 		HBRUSH hBlackBrush = CreateSolidBrush(RGB(0, 0, 0));
 		HPEN hRedPen = CreatePen(PS_INSIDEFRAME, 3, RGB(255, 0, 0));
 		SelectObject(hdc, hRedPen);
