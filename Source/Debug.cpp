@@ -11,7 +11,7 @@
 #include <string>
 #include <ctime>
 
-std::string gLastError;
+std::string gErrorString;
 bool gHadFatalError = false;
 
 void debugPrint(const char* fmt ...)
@@ -28,13 +28,13 @@ void logError(const char* fmt ...)
 {
 	va_list argList;
 	va_start(argList, fmt);
-	gLastError = vformat(fmt, argList);
+	std::string anErrorStr = vformat(fmt, argList);
 	va_end(argList);
 
 #ifndef NDEBUG
 	{
 		std::string aStr("<< ERROR LOG >>: ");
-		aStr += gLastError + "\n";
+		aStr += anErrorStr + "\n";
 		OutputDebugStringW(widen(aStr).c_str());
 	}
 #endif
@@ -48,7 +48,10 @@ void logError(const char* fmt ...)
 	std::ofstream errorFile("ErrorLog.txt", std::ios_base::app);
 	if(errorFile.is_open())
 	{
-		errorFile << aTimeStamp << gLastError << std::endl;
+		errorFile << aTimeStamp << anErrorStr << std::endl;
 		errorFile.close();
 	}
+
+	if( gErrorString.empty() )
+		gErrorString = anErrorStr;
 }

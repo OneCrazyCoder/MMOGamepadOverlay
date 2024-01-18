@@ -11,32 +11,17 @@ namespace OverlayWindow
 {
 
 //-----------------------------------------------------------------------------
-// Config
-//-----------------------------------------------------------------------------
-
-struct Config
-{
-	std::wstring windowTitle;
-
-	void load()
-	{
-		windowTitle = widen(Profile::getStr("System/WindowTitle", "MMO Gamepad Overlay"));
-	}
-};
-
-
-//-----------------------------------------------------------------------------
 // Global Variables
 //-----------------------------------------------------------------------------
 
 HWND gHandle = NULL;
+bool gHidden = false;
 
 
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static Config kConfig;
 static WNDCLASSEXW sWindowClass;
 static RECT sDesktopWindowRect; // relative to virtual desktop
 static RECT sWindowClientRect; // relative to window
@@ -55,8 +40,12 @@ static LRESULT CALLBACK windowProcCallback(
 		break;
 
 	case WM_PAINT:
-		HUD::render(theWindow, sWindowClientRect);
-		return 0;
+		if( !gHidden )
+		{
+			HUD::render(theWindow, sWindowClientRect);
+			return 0;
+		}
+		break;
 
 	case WM_MOVE:
 	case WM_SIZE:
@@ -92,7 +81,6 @@ static LRESULT CALLBACK windowProcCallback(
 void create(HINSTANCE theAppInstanceHandle)
 {
 	DBG_ASSERT(gHandle == NULL);
-	kConfig.load();
 
 	// Create/register window class
 	WNDCLASSEXW sWindowClass = WNDCLASSEXW();
@@ -108,7 +96,7 @@ void create(HINSTANCE theAppInstanceHandle)
 	gHandle = CreateWindowExW(
 		WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
 		sWindowClass.lpszClassName,
-		kConfig.windowTitle.c_str(),
+		L"MMO Gamepad Overlay",
 		WS_POPUP,
 		0, 0,
 		GetSystemMetrics(SM_CXSCREEN),
@@ -125,7 +113,6 @@ void create(HINSTANCE theAppInstanceHandle)
 	HUD::init();
 	SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(0), LWA_COLORKEY);
 	ShowWindow(gHandle, SW_SHOW);
-	UpdateWindow(gHandle);
 }
 
 
@@ -146,6 +133,44 @@ void update()
 		return;
 
 	HUD::update();
+}
+
+
+void resize(RECT theNewWindowRect)
+{
+	if( !gHandle )
+		return;
+
+	if( gHidden )
+	{
+		gHidden = false;
+		InvalidateRect(gHandle, NULL, true);
+	}
+
+	SetWindowPos(
+		gHandle, NULL,
+		theNewWindowRect.left, theNewWindowRect.top,
+		theNewWindowRect.right - theNewWindowRect.left,
+		theNewWindowRect.bottom - theNewWindowRect.top,
+		SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+}
+
+
+void minimize()
+{
+	if( !gHandle || gHidden )
+		return;
+
+	// Actual minimize instead causes some Z-Order nonsense and
+	// potential endless cycling between minimized and not depending
+	// on what triggers it. Since are fully transparent anyway, just
+	// not drawing anything has the same effect as being minimized,
+	// and resize() above un-hide's which is what it would also do
+	// if the window were actually literally minimized.
+	gHidden = true;
+
+	// Make sure anything previously drawn is erased
+	InvalidateRect(gHandle, NULL, true);
 }
 
 

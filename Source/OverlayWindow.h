@@ -27,6 +27,10 @@ void destroy();
 // Update contents that aren't updated by Windows messages
 void update();
 
+// Move/resize/minimize the window
+void resize(RECT theNewWindowRect); // undo minimize() as well
+void minimize();
+
 // Marks the window as needing to be redrawn
 void redraw();
 
