@@ -6,30 +6,25 @@
 
 #include "Common.h"
 
-#include <iostream>
 #include <fstream>
-#include <string>
 #include <ctime>
 
-std::string gErrorString;
-bool gHadFatalError = false;
 
-void debugPrint(const char* fmt ...)
+//-----------------------------------------------------------------------------
+// Static Variables
+//-----------------------------------------------------------------------------
+
+std::string sErrorString;
+bool sHadFatalError = false;
+
+
+//-----------------------------------------------------------------------------
+// Local Functions
+//-----------------------------------------------------------------------------
+
+void logErrorInternal(const char* fmt, va_list argList)
 {
-	va_list argList;
-	va_start(argList, fmt);
-	std::string result = vformat(fmt, argList);
-	va_end(argList);
-
-	OutputDebugStringW(widen(result).c_str());
-}
-
-void logError(const char* fmt ...)
-{
-	va_list argList;
-	va_start(argList, fmt);
 	std::string anErrorStr = vformat(fmt, argList);
-	va_end(argList);
 
 #ifndef NDEBUG
 	{
@@ -52,6 +47,59 @@ void logError(const char* fmt ...)
 		errorFile.close();
 	}
 
-	if( gErrorString.empty() )
-		gErrorString = anErrorStr;
+	// Store the *first* error logged, as later errors are likely
+	// to have stemmed from the first error anyway.
+	if( sErrorString.empty() )
+		sErrorString = anErrorStr;
+}
+
+
+//-----------------------------------------------------------------------------
+// Global Functions
+//-----------------------------------------------------------------------------
+
+void debugPrint(const char* fmt ...)
+{
+	va_list argList;
+	va_start(argList, fmt);
+	std::string result = vformat(fmt, argList);
+	va_end(argList);
+
+	OutputDebugStringW(widen(result).c_str());
+}
+
+
+void logError(const char* fmt ...)
+{
+	va_list argList;
+	va_start(argList, fmt);
+	logErrorInternal(fmt, argList);
+	va_end(argList);
+}
+
+
+void logFatalError(const char* fmt ...)
+{
+	// For first fatal error encountered, overwrite sErrorString
+	if( !sHadFatalError )
+		sErrorString.clear();
+
+	va_list argList;
+	va_start(argList, fmt);
+	logErrorInternal(fmt, argList);
+	va_end(argList);
+
+	sHadFatalError = true;
+}
+
+
+bool hadFatalError()
+{
+	return sHadFatalError;
+}
+
+
+const std::string& debugErrorString()
+{
+	return sErrorString;
 }

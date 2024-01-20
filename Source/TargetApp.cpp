@@ -4,7 +4,7 @@
 
 #include "TargetApp.h"
 
-#include "InputDispatcher.h"
+#include "InputDispatcher.h" // send Alt+Enter to exit full-screen mode
 #include "OverlayWindow.h"
 #include "Profile.h"
 
@@ -196,7 +196,7 @@ void checkWindowClosed()
 	sTargetWindowHandle = NULL;
 	if( kConfig.autoCloseWithTargetWindow )
 	{
-		PostQuitMessage(0);
+		gShutdown = true;
 		targetDebugPrint("Target window closed! Shutting down!\n");
 	}
 	else
@@ -429,7 +429,7 @@ void checkAppClosed()
 	targetDebugPrint("Auto-launch app closed - shutting down overlay!\n");
 	CloseHandle(sTargetAppProcess);
 	sTargetAppProcess = NULL;
-	PostQuitMessage(0);
+	gShutdown = true;
 }
 
 
@@ -494,9 +494,8 @@ void autoLaunch()
 	}
 	else
 	{
-		logError("Failed to auto-launch target application: %s",
+		logFatalError("Failed to auto-launch target application: %s",
 			narrow(aFinalPath).c_str());
-		gHadFatalError = true;
 	}
 }
 

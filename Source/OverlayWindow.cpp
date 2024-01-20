@@ -62,6 +62,7 @@ static LRESULT CALLBACK windowProcCallback(
 	case WM_DESTROY:
 		HUD::cleanup();
 		PostQuitMessage(0);
+		gHandle = NULL;
 		return 0;
 
 	case WM_DEVICECHANGE:
@@ -106,8 +107,7 @@ void create(HINSTANCE theAppInstanceHandle)
 
 	if( !gHandle )
 	{
-		logError("Could not create overlay window!");
-		gHadFatalError = true;
+		logFatalError("Could not create overlay window!");
 		return;
 	}
 
