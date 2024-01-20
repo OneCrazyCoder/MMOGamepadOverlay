@@ -10,6 +10,7 @@
 */
 
 enum {
+kFullScreenHotkeyID = 0x01,
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,
 kVKeyAltFlag = 0x0400,

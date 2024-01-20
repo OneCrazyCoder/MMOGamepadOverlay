@@ -28,4 +28,7 @@ void cleanup();
 // Call once per frame to check for changes to target app
 void update();
 
+// Call when get WM_HOTKEY with kFullScreenHotkeyID
+void toggleFullScreenMode();
+
 } // TargetApp
