@@ -87,6 +87,10 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 				case WM_DEVICECHANGE:
 					Gamepad::checkDeviceChange();
 					break;
+				case WM_HOTKEY:
+					if( aWindowsMessage.wParam == kFullScreenHotkeyID )
+						TargetApp::toggleFullScreenMode();
+					break;
 				case WM_QUIT:
 					wantShutdown = true;
 					break;

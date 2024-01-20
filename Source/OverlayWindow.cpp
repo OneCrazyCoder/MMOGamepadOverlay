@@ -94,7 +94,8 @@ void create(HINSTANCE theAppInstanceHandle)
 
 	// Create transparent overlay window (at screen size initially)
 	gHandle = CreateWindowExW(
-		WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
+		WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT |
+		WS_EX_LAYERED | WS_EX_APPWINDOW,
 		sWindowClass.lpszClassName,
 		L"MMO Gamepad Overlay",
 		WS_POPUP,
@@ -148,11 +149,11 @@ void resize(RECT theNewWindowRect)
 	}
 
 	SetWindowPos(
-		gHandle, NULL,
+		gHandle, HWND_TOPMOST,
 		theNewWindowRect.left, theNewWindowRect.top,
 		theNewWindowRect.right - theNewWindowRect.left,
 		theNewWindowRect.bottom - theNewWindowRect.top,
-		SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+		SWP_NOACTIVATE);
 }
 
 
@@ -171,6 +172,27 @@ void minimize()
 
 	// Make sure anything previously drawn is erased
 	InvalidateRect(gHandle, NULL, true);
+}
+
+
+void moveToTopZ()
+{
+	if( !gHandle )
+		return;
+
+	if( gHidden )
+	{
+		gHidden = false;
+		InvalidateRect(gHandle, NULL, true);
+	}
+
+	SetWindowPos(gHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+}
+
+
+bool isMinimized()
+{
+	return gHidden;
 }
 
 
