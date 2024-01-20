@@ -6,11 +6,11 @@
 
 #include <cassert>
 
+extern std::wstring gErrorString;
 void debugPrint(const char* fmt ...);
 void logError(const char* fmt ...);
 void logFatalError(const char* fmt ...);
 bool hadFatalError();
-const std::string& debugErrorString();
 
 #ifdef NDEBUG
 

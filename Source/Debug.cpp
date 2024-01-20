@@ -11,10 +11,16 @@
 
 
 //-----------------------------------------------------------------------------
+// Global Variables
+//-----------------------------------------------------------------------------
+
+std::wstring gErrorString;
+
+
+//-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
 
-std::string sErrorString;
 bool sHadFatalError = false;
 
 
@@ -49,8 +55,8 @@ void logErrorInternal(const char* fmt, va_list argList)
 
 	// Store the *first* error logged, as later errors are likely
 	// to have stemmed from the first error anyway.
-	if( sErrorString.empty() )
-		sErrorString = anErrorStr;
+	if( gErrorString.empty() )
+		gErrorString = widen(anErrorStr);
 }
 
 
@@ -82,7 +88,7 @@ void logFatalError(const char* fmt ...)
 {
 	// For first fatal error encountered, overwrite sErrorString
 	if( !sHadFatalError )
-		sErrorString.clear();
+		gErrorString.clear();
 
 	va_list argList;
 	va_start(argList, fmt);
@@ -96,10 +102,4 @@ void logFatalError(const char* fmt ...)
 bool hadFatalError()
 {
 	return sHadFatalError;
-}
-
-
-const std::string& debugErrorString()
-{
-	return sErrorString;
 }

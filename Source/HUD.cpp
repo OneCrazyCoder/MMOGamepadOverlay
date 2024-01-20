@@ -5,6 +5,7 @@
 #include "HUD.h"
 
 #include "InputMap.h" // labels
+#include "OverlayWindow.h" // temp hack to force redraw()
 #include "Profile.h"
 
 namespace HUD
@@ -14,6 +15,15 @@ namespace HUD
 // Make the actual position of the overlay window obvious by drawing a frame
 //#define DEBUG_DRAW_WINDOW_FRAME
 #endif
+
+//-----------------------------------------------------------------------------
+// Const Data
+//-----------------------------------------------------------------------------
+
+enum {
+kErrorStringDisplayTimePerChar = 40,
+};
+
 
 //-----------------------------------------------------------------------------
 // Config
@@ -76,6 +86,7 @@ static Config kConfig;
 static HFONT sFont = NULL;
 static HBRUSH sBorderBrush = NULL;
 static HBRUSH sButtonBrush = NULL;
+static int sErrorMessageTimer = 0;
 static bool sInitialized = false;
 
 
@@ -126,6 +137,26 @@ void cleanup()
 
 void update()
 {
+	if( sErrorMessageTimer > 0 )
+	{
+		sErrorMessageTimer -= gAppFrameTime;
+		if( sErrorMessageTimer <= 0 )
+		{
+			sErrorMessageTimer = 0;
+			gErrorString.clear();
+			OverlayWindow::redraw();
+		}
+	}
+	else if( !gErrorString.empty() && !hadFatalError() )
+	{
+		gErrorString =
+			widen("MMOGO ERROR: ") +
+			gErrorString +
+			widen("\nCheck errorlog.txt for other possible errors!");
+		sErrorMessageTimer =
+			int(kErrorStringDisplayTimePerChar * gErrorString.size());
+		OverlayWindow::redraw();
+	}
 }
 
 
@@ -162,9 +193,10 @@ void render(HWND theWindow, RECT theClientRect)
 	}
 	#endif
 
+	// Draw Macro Sets HUD element
 	if( gVisibleHUD.test(eHUDElement_Macros) )
 	{
-		anOldFont = (HFONT)SelectObject(hdc, sFont);
+		SelectObject(hdc, sFont);
 		SetBkColor(hdc, kConfig.buttonColor);
 		SetTextColor(hdc, kConfig.labelColor);
 
@@ -197,6 +229,17 @@ void render(HWND theWindow, RECT theClientRect)
 			}
 		}
 
+	}
+
+	// Draw error string
+	if( sErrorMessageTimer > 0 )
+	{
+		//SelectObject(hdc, anOldFont);
+		RECT aTextRect = theClientRect;
+		InflateRect(&aTextRect, -8, -8);
+		SetBkColor(hdc, RGB(255, 0, 0));
+		SetTextColor(hdc, RGB(255, 255, 0));
+		DrawText(hdc, gErrorString.c_str(), -1, &aTextRect, DT_WORDBREAK);
 	}
 
 	// Clean up

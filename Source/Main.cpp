@@ -127,7 +127,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		{
 			MessageBox(
 				OverlayWindow::gHandle,
-				widen(debugErrorString()).c_str(),
+				gErrorString.c_str(),
 				L"MMO Gamepad Overlay Error",
 				MB_OK | MB_ICONERROR);
 		}
