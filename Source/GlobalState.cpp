@@ -8,6 +8,7 @@
 // Global Variables
 //-----------------------------------------------------------------------------
 
+bool gShutdown = false;
 u32 gAppRunTime = 0;
 int gAppFrameTime = 0;
 u32 gAppUpdateCount = 0;

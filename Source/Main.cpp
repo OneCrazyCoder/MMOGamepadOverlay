@@ -42,19 +42,18 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	Gamepad::init();
 
 	DWORD aMillisecsPerUpdate = 14; // allows >= 60 fps without taxing CPU
-	bool wantShutdown = false;
-	while(gReloadProfile && !wantShutdown && !gHadFatalError)
+	while(gReloadProfile && !gShutdown && !hadFatalError())
 	{
 		// Load profile
 		Profile::load();
 		gReloadProfile = false;
 	
 		// Create transparent overlay window
-		if( !gHadFatalError )
+		if( !hadFatalError() )
 			OverlayWindow::create(hInstance);
 
 		// Load configuration settings for each module from profile
-		if( !gHadFatalError )
+		if( !hadFatalError() )
 		{
 			aMillisecsPerUpdate = (DWORD)
 				Profile::getInt("System/FrameTime", aMillisecsPerUpdate);
@@ -65,12 +64,12 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		}
 
 		// Launch target app if requested and haven't already
-		if( !gHadFatalError )
+		if( !hadFatalError() )
 			TargetApp::autoLaunch();
 
 		// Main loop
 		DWORD aLastUpdateTime = timeGetTime();
-		while(!wantShutdown && !gReloadProfile && !gHadFatalError)
+		while(!gShutdown && !gReloadProfile && !hadFatalError())
 		{
 			// Update frame timers
 			const DWORD anUpdateStartTime = timeGetTime();
@@ -92,7 +91,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 						TargetApp::toggleFullScreenMode();
 					break;
 				case WM_QUIT:
-					wantShutdown = true;
+					gShutdown = true;
 					break;
 				default:
 					TranslateMessage(&aWindowsMessage);
@@ -118,6 +117,21 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			++gAppUpdateCount;
 		}
 
+		// Attempt to report fatal error above OverlayWindow if possible,
+		// otherwise it can end up behind other windows on the desktop.
+		// Note that MessageBox self-closes immediately if WM_QUIT has been
+		// posted, meaning this will fail to report any fatal errors that
+		// happen after user manually closes OverlayWindow. Will instead
+		// need to check errorlog.txt for those (if it matters by then).
+		if( hadFatalError() )
+		{
+			MessageBox(
+				OverlayWindow::gHandle,
+				widen(debugErrorString()).c_str(),
+				L"MMO Gamepad Overlay Error",
+				MB_OK | MB_ICONERROR);
+		}
+
 		// Cleanup
 		InputTranslator::cleanup();
 		InputDispatcher::cleanup();
@@ -125,7 +139,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	}
 
 	// Report performance
-	if( !gHadFatalError )
+	if( !hadFatalError() )
 	{
 		const double averageFPS = gAppUpdateCount / (gAppRunTime / 1000.0);
 		debugPrint("Average FPS: %.2f\n", averageFPS);
@@ -135,5 +149,5 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	Gamepad::cleanup();
 	TargetApp::cleanup();
 
-	return gHadFatalError ? EXIT_FAILURE : EXIT_SUCCESS;
+	return hadFatalError() ? EXIT_FAILURE : EXIT_SUCCESS;
 }

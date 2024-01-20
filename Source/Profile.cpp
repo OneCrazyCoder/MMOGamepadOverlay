@@ -8,7 +8,6 @@
 #include "StringUtils.h"
 #include "Resources/resource.h"
 
-#include <iostream>
 #include <fstream>
 
 namespace Profile
@@ -114,10 +113,7 @@ static void parseINI(
 	const std::string& aFullPath = iniFolderPath() + theFileName;
 	std::ifstream aFile(widen(aFullPath).c_str(), std::ios::binary);
 	if( !aFile.is_open() )
-	{
-		logError("Could not open file %s", aFullPath);
-		gHadFatalError = true;
-	}
+		logFatalError("Could not open file %s", aFullPath.c_str());
 
 	// Prepare input buffer
 	// +1 on size is to accomodate an extra newline character when
@@ -150,8 +146,7 @@ static void parseINI(
 		}
 		else if( aFile.bad() )
 		{
-			logError("Unknown error reading %s", aFullPath);
-			gHadFatalError = true;
+			logFatalError("Unknown error reading %s", aFullPath.c_str());
 			aFile.close();
 			return;
 		}
@@ -302,9 +297,8 @@ static void generateResourceProfile(size_t theProfileID)
 			}
 			else
 			{
-				logError("Unable to save default settings file to %s\n",
+				logFatalError("Unable to save default settings file to %s\n",
 					(iniFolderPath() + aFileName).c_str());
-				gHadFatalError = true;
 			}
 			FreeResource(hGlobal);
 		}
@@ -468,7 +462,7 @@ void load()
 	// Make sure core .ini file exists
 	if( !profileExists(kResourceProfiles[0].name) )
 		generateResourceProfile(0);
-	if( gHadFatalError )
+	if( hadFatalError() )
 		return;
 	
 	// Get list of profiles and auto-load profile from core
@@ -480,7 +474,7 @@ void load()
 		getProfileListCallback,
 		kResourceProfiles[0].name,
 		eParseMode_Header);
-	if( gHadFatalError )
+	if( hadFatalError() )
 		return;
 
 	// See if need to query user for profile to load

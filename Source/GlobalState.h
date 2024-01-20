@@ -9,6 +9,9 @@
 	such as modes and timers, that are needed by multiple modules.
 */
 
+// App shutdown has been requested
+extern bool gShutdown;
+
 // Milliseconds since app started main loop
 extern u32 gAppRunTime;
 

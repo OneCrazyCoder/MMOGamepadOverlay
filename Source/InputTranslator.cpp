@@ -854,8 +854,8 @@ static void processLayerHoldButtons()
 			loadButtonCommandsForCurrentLayers();
 			if( ++aLoopCount > kMaxLayerChangesPerUpdate )
 			{
-				logError("Infinite loop of Controls Layer changes detected!");
-				gHadFatalError = true;
+				logFatalError(
+					"Infinite loop of Controls Layer changes detected!");
 				break;
 			}
 		}

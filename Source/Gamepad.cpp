@@ -4,15 +4,9 @@
 
 #include "Gamepad.h"
 
-// DirectInput includes/defines
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
-#include <dinputd.h>
-
-// XInput includes
 #include <xinput.h>
-#include <wbemidl.h>
-#include <oleauto.h>
 
 namespace Gamepad
 {
@@ -187,6 +181,8 @@ static void filterInitialInputs(int theGamepadID)
 // "IG_" (ex. "VID_045E&PID_028E&IG_00"). If so, then it's an XInput device!
 // Unfortunately this information can not be found by just using DirectInput.
 //-----------------------------------------------------------------------------
+#include <wbemidl.h>
+#include <oleauto.h>
 #define SAFE_RELEASE(p) { if(p) { (p)->Release(); (p)=NULL; } }
 static BOOL isXInputDevice( const GUID* pGuidProductFromDirectInput )
 {

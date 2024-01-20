@@ -4,7 +4,7 @@
 
 #include "HUD.h"
 
-#include "InputMap.h"
+#include "InputMap.h" // labels
 #include "Profile.h"
 
 namespace HUD
