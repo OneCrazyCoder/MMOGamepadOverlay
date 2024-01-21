@@ -53,9 +53,9 @@ struct ButtonState
 	const Command* commands;
 	const Command* commandsWhenPressed;
 	u16 commandsLayer;
+	u16 layerHeld;
 	u16 heldTime;
 	u16 vKeyHeld;
-	u16 layerHeld;
 	bool heldDown;
 	bool shortHoldDone;
 	bool longHoldDone;
@@ -65,6 +65,17 @@ struct ButtonState
 	{
 		DBG_ASSERT(vKeyHeld == 0);
 		ZeroMemory(this, sizeof(ButtonState));
+	}
+
+	void resetWhenReleased()
+	{
+		const Command* backupCommands = this->commands;
+		const u16 backupParentLayer = this->commandsLayer;
+		const u16 backupChildLayer = this->layerHeld;
+		clear();
+		this->commands = backupCommands;
+		this->commandsLayer = backupParentLayer;
+		this->layerHeld = backupChildLayer;
 	}
 
 	ButtonState() : vKeyHeld() { clear(); }
@@ -611,17 +622,39 @@ static void processButtonTap(ButtonState& theBtnState)
 
 static void processButtonReleased(ButtonState& theBtnState)
 {
-	// If this button was used as a modifier to execute a button combination
-	// command (i.e. is L2 for the combo L2+X), then do not perform any other
-	// actions for this button besides releasing held keys and resetting state.
-	const bool skipReleaseCommands = theBtnState.usedInButtonCombo;
-
-	// Release any key being held by this button
+	// Always release any key being held by this button when button is released
 	releaseKeyHeldByButton(theBtnState);
 
+	// If this button was used as a modifier to execute a button combination
+	// command (i.e. is L2 for the combo L2+X), then do not perform any other
+	// actions for this button besides releasing held key and resetting state.
+	if( theBtnState.usedInButtonCombo )
+	{
+		theBtnState.resetWhenReleased();
+		return;
+	}
+
 	// If released quickly enough, process 'tap' event
-	if( !skipReleaseCommands && theBtnState.heldTime < kConfig.shortHoldTime )
+	if( !theBtnState.shortHoldDone )
+	{// If released before .shortHoldDone, definitely a tap
 		processButtonTap(theBtnState);
+	}
+	else if( !theBtnState.longHoldDone )
+	{// May still be a tap before .longHoldDone
+		// This is only allowed if has a valid _LongHold command type,
+		// and does NOT have a valid _ShortHold command type.
+		const ECommandType shortHoldCommandType =
+			!theBtnState.commandsWhenPressed ? eCmdType_Empty :
+			theBtnState.commandsWhenPressed[eBtnAct_ShortHold].type;
+		const ECommandType longHoldCommandType =
+			!theBtnState.commandsWhenPressed ? eCmdType_Empty :
+			theBtnState.commandsWhenPressed[eBtnAct_LongHold].type;
+		if( shortHoldCommandType == eCmdType_Empty &&
+			longHoldCommandType != eCmdType_Empty )
+		{
+			processButtonTap(theBtnState);
+		}
+	}
 
 	// Use commandsWhenPressed if it has a _Release action.
 	// If not, can use the _Release action for current setup instead,
@@ -631,10 +664,9 @@ static void processButtonReleased(ButtonState& theBtnState)
 	// releasing a held button, but for some reason didn't use the
 	// standard _HoldControlsLayer method that does it automatically.
 	Command aCmd;
-	if( !skipReleaseCommands && theBtnState.commandsWhenPressed )
+	if( theBtnState.commandsWhenPressed )
 		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Release];
-	if( !skipReleaseCommands &&
-		aCmd.type == eCmdType_Empty &&
+	if( aCmd.type == eCmdType_Empty &&
 		theBtnState.commands &&
 		theBtnState.commands != theBtnState.commandsWhenPressed &&
 		theBtnState.commands[eBtnAct_Press].type == eCmdType_Empty )
@@ -648,14 +680,8 @@ static void processButtonReleased(ButtonState& theBtnState)
 	// so check again to make sure
 	releaseKeyHeldByButton(theBtnState);
 
-	// Reset certain button states when button is released
-	theBtnState.heldTime = 0;
-	theBtnState.commandsWhenPressed = NULL;
-	theBtnState.heldDown = false;
-	theBtnState.shortHoldDone = false;
-	theBtnState.longHoldDone = false;
-	theBtnState.usedInButtonCombo = false;
-	DBG_ASSERT(theBtnState.vKeyHeld == 0);
+	// Reset most of the button state when button is released
+	theBtnState.resetWhenReleased();
 }
 
 
