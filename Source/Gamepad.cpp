@@ -126,6 +126,7 @@ struct GamepadData : private ConstructFromZeroInitializedMemory<GamepadData>
 //-----------------------------------------------------------------------------
 
 static GamepadData sGamepadData;
+static bool sNotifyWhenSelectGamepad = false;
 
 
 //-----------------------------------------------------------------------------
@@ -827,7 +828,7 @@ static BOOL CALLBACK enumDevicesCallback(LPCDIDEVICEINSTANCE lpddi, LPVOID)
 // Global Functions
 //-----------------------------------------------------------------------------
 
-void init()
+void init(bool restartAfterDisconnect)
 {
 	DBG_ASSERT(!sGamepadData.initialized);
 
@@ -885,7 +886,19 @@ void init()
 
 	// If only found 1 valid gamepad, select it automatically
 	if( sGamepadData.deviceCountForDInput == 1 )
+	{
 		sGamepadData.selectedGamepadID = 0;
+		if( sNotifyWhenSelectGamepad )
+		{
+			logNotice("Gamepad Enabled: %s", gamepadName().c_str());
+			sNotifyWhenSelectGamepad = false;
+		}
+	}
+	else if( !restartAfterDisconnect && sGamepadData.deviceCountForDInput == 0 )
+	{
+		logNotice("PLEASE NOTE: No Gamepad found!");
+		sNotifyWhenSelectGamepad = true;
+	}
 
 	// Set default deadzones for digital button presses
 	for(int i = 0; i < eBtn_FirstDigital; ++i)
@@ -899,7 +912,7 @@ void checkDeviceChange()
 	// Quick and dirty method of dealing with this is to just re-int
 	gamepadDebugPrint("Reinitializing to detect connected controller\n");
 	cleanup();
-	init();
+	init(true);
 }
 
 
@@ -935,9 +948,11 @@ void update()
 
 	if( sGamepadData.disconnectDetected )
 	{// Controller we were polling got disconnected - restart everything!
+		logNotice("WARNING: Gamepad was disconnected, or its battery died!");
 		gamepadDebugPrint("Restarting DInput after controller disconnect!\n");
+		sNotifyWhenSelectGamepad = true;
 		cleanup();
-		init();
+		init(true);
 		return;
 	}
 
@@ -980,6 +995,11 @@ void update()
 		if( sGamepadData.deviceCountForDInput == 1 )
 		{
 			sGamepadData.selectedGamepadID = 0;
+			if( sNotifyWhenSelectGamepad )
+			{
+				logNotice("Gamepad Enabled: %s", gamepadName().c_str());
+				sNotifyWhenSelectGamepad = false;
+			}
 		}
 		else
 		{
@@ -1044,6 +1064,11 @@ EResult selectGamepad(int theGamepadID)
 	}
 
 	sGamepadData.selectedGamepadID = theGamepadID;
+	if( sNotifyWhenSelectGamepad )
+	{
+		logNotice("Gamepad Enabled: %s", gamepadName().c_str());
+		sNotifyWhenSelectGamepad = false;
+	}
 
 	return eResult_Ok;
 }
@@ -1238,7 +1263,8 @@ int gamepadCount()
 
 bool forceFeedbackSupported(int theGamepadID)
 {
-	DBG_ASSERT(sGamepadData.initialized);
+	if( theGamepadID < 0 )
+		theGamepadID = selectedGamepadID();
 
 	if( theGamepadID < 0 || theGamepadID >= sGamepadData.deviceCountForDInput )
 		return false;
@@ -1254,7 +1280,8 @@ bool forceFeedbackSupported(int theGamepadID)
 
 std::string gamepadName(int theGamepadID)
 {
-	DBG_ASSERT(sGamepadData.initialized);
+	if( theGamepadID < 0 )
+		theGamepadID = selectedGamepadID();
 
 	if( theGamepadID < 0 || theGamepadID >= sGamepadData.deviceCountForDInput )
 		return "None";

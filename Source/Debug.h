@@ -7,7 +7,9 @@
 #include <cassert>
 
 extern std::wstring gErrorString;
+extern std::wstring gNoticeString;
 void debugPrint(const char* fmt ...);
+void logNotice(const char* fmt ...);
 void logError(const char* fmt ...);
 void logFatalError(const char* fmt ...);
 bool hadFatalError();

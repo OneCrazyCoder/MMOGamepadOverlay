@@ -21,7 +21,8 @@ namespace HUD
 //-----------------------------------------------------------------------------
 
 enum {
-kErrorStringDisplayTimePerChar = 40,
+kNoticeStringDisplayTimePerChar = 40,
+kNoticeStringMinTime = 3000,
 };
 
 
@@ -86,7 +87,10 @@ static Config kConfig;
 static HFONT sFont = NULL;
 static HBRUSH sBorderBrush = NULL;
 static HBRUSH sButtonBrush = NULL;
+static std::wstring sErrorMessage;
+static std::wstring sNoticeMessage;
 static int sErrorMessageTimer = 0;
+static int sNoticeMessageTimer = 0;
 static bool sInitialized = false;
 
 
@@ -143,20 +147,41 @@ void update()
 		if( sErrorMessageTimer <= 0 )
 		{
 			sErrorMessageTimer = 0;
-			gErrorString.clear();
+			sErrorMessage.clear();
 			OverlayWindow::redraw();
 		}
 	}
 	else if( !gErrorString.empty() && !hadFatalError() )
 	{
-		gErrorString =
+		sErrorMessage =
 			widen("MMOGO ERROR: ") +
 			gErrorString +
 			widen("\nCheck errorlog.txt for other possible errors!");
-		sErrorMessageTimer =
-			int(kErrorStringDisplayTimePerChar * gErrorString.size());
+		gErrorString.clear();
+		sErrorMessageTimer = max(kNoticeStringMinTime,
+			int(kNoticeStringDisplayTimePerChar * gErrorString.size()));
 		OverlayWindow::redraw();
 	}
+	
+	if( sNoticeMessageTimer > 0 )
+	{
+		sNoticeMessageTimer -= gAppFrameTime;
+		if( sNoticeMessageTimer <= 0 )
+		{
+			sNoticeMessageTimer = 0;
+			sNoticeMessage.clear();
+			OverlayWindow::redraw();
+		}
+	}
+	if( !gNoticeString.empty() )
+	{
+		sNoticeMessageTimer = max(kNoticeStringMinTime,
+			int(kNoticeStringDisplayTimePerChar * gNoticeString.size()));
+		sNoticeMessage = gNoticeString;
+		gNoticeString.clear();
+		OverlayWindow::redraw();
+	}
+
 }
 
 
@@ -234,12 +259,25 @@ void render(HWND theWindow, RECT theClientRect)
 	// Draw error string
 	if( sErrorMessageTimer > 0 )
 	{
-		//SelectObject(hdc, anOldFont);
+		SelectObject(hdc, anOldFont);
 		RECT aTextRect = theClientRect;
 		InflateRect(&aTextRect, -8, -8);
 		SetBkColor(hdc, RGB(255, 0, 0));
 		SetTextColor(hdc, RGB(255, 255, 0));
-		DrawText(hdc, gErrorString.c_str(), -1, &aTextRect, DT_WORDBREAK);
+		DrawText(hdc, sErrorMessage.c_str(), -1, &aTextRect,
+			DT_WORDBREAK);
+	}
+
+	// Draw notice string
+	if( sNoticeMessageTimer > 0 )
+	{
+		SelectObject(hdc, anOldFont);
+		RECT aTextRect = theClientRect;
+		InflateRect(&aTextRect, -8, -8);
+		SetBkColor(hdc, RGB(0, 0, 255));
+		SetTextColor(hdc, RGB(255, 255, 255));
+		DrawText(hdc, sNoticeMessage.c_str(), -1, &aTextRect,
+			DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
 	}
 
 	// Clean up
