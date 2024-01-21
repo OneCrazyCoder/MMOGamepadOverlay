@@ -15,6 +15,7 @@
 //-----------------------------------------------------------------------------
 
 std::wstring gErrorString;
+std::wstring gNoticeString;
 
 
 //-----------------------------------------------------------------------------
@@ -28,35 +29,28 @@ bool sHadFatalError = false;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-void logErrorInternal(const char* fmt, va_list argList)
+void logToConsole(const std::string& thePrefix, const std::string& theMsg)
 {
-	std::string anErrorStr = vformat(fmt, argList);
+	#ifndef NDEBUG
+	const std::string& aStr = thePrefix + theMsg + "\n";
+	OutputDebugStringW(widen(aStr).c_str());
+	#endif
+}
 
-#ifndef NDEBUG
-	{
-		std::string aStr("<< ERROR LOG >>: ");
-		aStr += anErrorStr + "\n";
-		OutputDebugStringW(widen(aStr).c_str());
-	}
-#endif
 
-	// Attempt to write to error log
+void logToErrorFile(const std::string& theErrorString)
+{
     time_t now = time(0);
     struct tm timeinfo;
     localtime_s(&timeinfo, &now);
 	char aTimeStamp[32];
 	strftime(aTimeStamp, sizeof(aTimeStamp), "<%Y-%m-%d %H:%M:%S> ", &timeinfo);
 	std::ofstream errorFile("ErrorLog.txt", std::ios_base::app);
-	if(errorFile.is_open())
+	if( errorFile.is_open() )
 	{
-		errorFile << aTimeStamp << anErrorStr << std::endl;
+		errorFile << aTimeStamp << theErrorString << std::endl;
 		errorFile.close();
 	}
-
-	// Store the *first* error logged, as later errors are likely
-	// to have stemmed from the first error anyway.
-	if( gErrorString.empty() )
-		gErrorString = widen(anErrorStr);
 }
 
 
@@ -75,12 +69,33 @@ void debugPrint(const char* fmt ...)
 }
 
 
+void logNotice(const char* fmt ...)
+{
+	va_list argList;
+	va_start(argList, fmt);
+	const std::string& aNoticeString = vformat(fmt, argList);
+	va_end(argList);
+
+	logToConsole("", aNoticeString);
+	logToErrorFile(aNoticeString);
+	// Store most recent notice, as past ones may no longer matter
+	gNoticeString = widen(aNoticeString);
+}
+
+
 void logError(const char* fmt ...)
 {
 	va_list argList;
 	va_start(argList, fmt);
-	logErrorInternal(fmt, argList);
+	const std::string& anErrorString = vformat(fmt, argList);
 	va_end(argList);
+
+	logToConsole("<< ERROR LOG >>: ", anErrorString);
+	logToErrorFile(anErrorString);
+	// Store the *first* error logged, as later errors are likely
+	// to have stemmed from the first error anyway.
+	if( gErrorString.empty() )
+		gErrorString = widen(anErrorString);
 }
 
 
@@ -92,8 +107,13 @@ void logFatalError(const char* fmt ...)
 
 	va_list argList;
 	va_start(argList, fmt);
-	logErrorInternal(fmt, argList);
+	const std::string& anErrorString = vformat(fmt, argList);
 	va_end(argList);
+
+	logToConsole("!!! FATAL ERROR !!!: ", anErrorString);
+	logToErrorFile(anErrorString);
+	if( gErrorString.empty() )
+		gErrorString = widen(anErrorString);
 
 	sHadFatalError = true;
 }

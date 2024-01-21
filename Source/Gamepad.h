@@ -51,7 +51,7 @@ enum EVendorID
 
 
 // Initializes gamepad system
-void init();
+void init(bool restartAfterDisconnect = false);
 
 // Should be called when get a WM_DEVICECHANGE message to check if user
 // plugged in/turned on a gamepad or disconnected one.
@@ -119,9 +119,9 @@ int gamepadCount();
 // Returns whether or not given gamepad ID will respond to vibration requests
 // -1 is the same as sending selectedGamepadID()
 bool forceFeedbackSupported(int theGamepadID = -1);
-bool impulseTriggersSupported(int theGamepadID = -1);
 
 // Returns the name of a specific controller by ID number, or "None"
+// -1 is the same as sending selectedGamepadID()
 std::string gamepadName(int theGamepadID = -1);
 
 // Returns the ID number of the gamepad that is being used for game input.
