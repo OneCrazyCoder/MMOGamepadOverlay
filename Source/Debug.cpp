@@ -40,12 +40,21 @@ void logToConsole(const std::string& thePrefix, const std::string& theMsg)
 
 void logToErrorFile(const std::string& theErrorString)
 {
-    time_t now = time(0);
-    struct tm timeinfo;
-    localtime_s(&timeinfo, &now);
+	static std::wstring sErrorLogFilePath;
+	if( sErrorLogFilePath.empty() )
+	{
+		WCHAR aPathW[MAX_PATH];
+		GetModuleFileName(NULL, aPathW, MAX_PATH);
+		sErrorLogFilePath =
+			widen(getFileDir(narrow(aPathW), true) + "ErrorLog.txt");
+	}
+
+	time_t now = time(0);
+	struct tm timeinfo;
+	localtime_s(&timeinfo, &now);
 	char aTimeStamp[32];
 	strftime(aTimeStamp, sizeof(aTimeStamp), "<%Y-%m-%d %H:%M:%S> ", &timeinfo);
-	std::ofstream errorFile("ErrorLog.txt", std::ios_base::app);
+	std::ofstream errorFile(sErrorLogFilePath.c_str(), std::ios_base::app);
 	if( errorFile.is_open() )
 	{
 		errorFile << aTimeStamp << theErrorString << std::endl;

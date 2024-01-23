@@ -475,6 +475,14 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Source\Menus.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\Menus.h"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\MMOGamepadOverlay.rc"
 			>
 		</File>

@@ -127,9 +127,17 @@ template<size_t S> struct BitArray
 template<size_t kInitialCapacityInBits = 32> class BitVector
 {
 public:
+	typedef BitVector<kInitialCapacityInBits> This;
 	static const size_t kInitialArraySize = (kInitialCapacityInBits + 31) / 32;
 
 	BitVector(size_t initialSizeInBits = 0);
+	BitVector(const This&);
+	template<size_t C2> BitVector(const BitVector<C2>&);
+	template<size_t S> BitVector(const BitArray<S>&);
+	BitVector& operator=(This);
+	template<size_t C2> BitVector& operator=(BitVector<C2>);
+	template<size_t S> BitVector& operator=(const BitArray<S>&);
+	friend void swap<>(BitVector&, BitVector&);
 	~BitVector();
 
 	void clear() { clearAndResize(0); }
@@ -160,6 +168,20 @@ public:
 	bool none() const; // true only if ALL bits are false
 	bool all() const; // true only if ALL bits are true
 
+	// Operators treat the entire array as a single large scalar
+	// For BitVector's of different size, both are treated as the size of the
+	// larger with the extra bits after the end of the smaller being 0, except
+	// for == and != which will return false/true if sizes do not match.
+	template<size_t C2> bool operator==(const BitVector<C2>& rhs) const;
+	template<size_t C2> bool operator!=(const BitVector<C2>& rhs) const;
+	template<size_t C2> This& operator|=(const BitVector<C2>& rhs);
+	template<size_t C2> This& operator&=(const BitVector<C2>& rhs);
+	template<size_t C2> This& operator^=(const BitVector<C2>& rhs);
+	This operator~() const;
+	template<size_t C2> This operator|(const BitVector<C2>& rhs) const;
+	template<size_t C2> This operator&(const BitVector<C2>& rhs) const;
+	template<size_t C2> This operator^(const BitVector<C2>& rhs) const;
+
 	// These use int instead of size_t or unsigned int because -1 has meaning
 	int firstSetBit() const { return nextSetBit(0); }
 	int nextSetBit(int pos) const; // size() if none, pos if it == true
@@ -173,10 +195,6 @@ public:
 	u32* bits;
 
 private:
-	// Prevent copy and assignment
-	BitVector(const BitVector&);
-	BitVector& operator=(const BitVector&);
-
 	size_t mSizeInBits;
 	size_t mArrayLength;
 	u32 mInitialBits[kInitialArraySize];
@@ -482,7 +500,7 @@ inline int nextSetBit(const u32* bitArray, int size, int pos)
 	if( pos >= size ) return size;
 	pos = max(pos, 0);
 	int fieldID = pos / 32;
-	u32 field = bitArray[fieldID] & ~((u32(1) << (pos % 32)) - u32(1));
+	u32 field = bitArray[fieldID] & ~((u32(1) << u32(pos % 32)) - u32(1));
 	int next = !field ? 32 : trailingZeroBits(field);
 	const int kBitArraySize = (size + 31) / 32;
 	while(next == 32 && ++fieldID < kBitArraySize)
@@ -500,7 +518,7 @@ inline int prevSetBit(const u32* bitArray, int size, int pos)
 	if( pos < 0 ) return -1;
 	pos = min(pos, size-1);
 	int fieldID = pos / 32;
-	u32 field = bitArray[fieldID] & ((u32(2) << (pos % 32)) - u32(1));
+	u32 field = bitArray[fieldID] & ((u32(2) << u32(pos % 32)) - u32(1));
 	int prev = !field ? -1 : bitsRequired(field)-1;
 	while(prev == -1 && --fieldID >= 0)
 	{
@@ -517,7 +535,7 @@ inline int nextClearBit(const u32* bitArray, int size, int pos)
 	if( pos >= size ) return size;
 	pos = max(pos, 0);
 	int fieldID = pos / 32;
-	u32 field = ~(bitArray[fieldID] | ((u32(1) << (pos % 32)) - u32(1)));
+	u32 field = ~(bitArray[fieldID] | ((u32(1) << u32(pos % 32)) - u32(1)));
 	int next = !field ? 32 : trailingZeroBits(field);
 	const int kBitArraySize = (size + 31) / 32;
 	while(next == 32 && ++fieldID < kBitArraySize)
@@ -535,7 +553,7 @@ inline int prevClearBit(const u32* bitArray, int size, int pos)
 	if( pos < 0 ) return -1;
 	pos = min(pos, size-1);
 	int fieldID = pos / 32;
-	u32 field = ~bitArray[fieldID] & ((u32(2) << (pos % 32)) - u32(1));
+	u32 field = ~bitArray[fieldID] & ((u32(2) << u32(pos % 32)) - u32(1));
 	int prev = !field ? -1 : bitsRequired(field)-1;
 	while(prev == -1 && --fieldID >= 0)
 	{
@@ -726,25 +744,25 @@ BitArray<S>::operator^(const This& rhs) const
 	
 template<size_t S> inline int BitArray<S>::nextSetBit(int pos) const
 {
-	return ::nextSetBit(bits, kBitSize, pos);
+	return ::nextSetBit(bits, int(kBitSize), pos);
 }
 
 
 template<size_t S> inline int BitArray<S>::prevSetBit(int pos) const
 {
-	return ::prevSetBit(bits, kBitSize, pos);
+	return ::prevSetBit(bits, int(kBitSize), pos);
 }
 
 
 template<size_t S> inline int BitArray<S>::nextClearBit(int pos) const
 {
-	return ::nextClearBit(bits, kBitSize, pos);
+	return ::nextClearBit(bits, int(kBitSize), pos);
 }
 
 
 template<size_t S> inline int BitArray<S>::prevClearBit(int pos) const
 {
-	return ::prevClearBit(bits, kBitSize, pos);
+	return ::prevClearBit(bits, int(kBitSize), pos);
 }
 
 
@@ -760,6 +778,85 @@ template<size_t C> inline BitVector<C>::BitVector(size_t theSize)
 {
 	DBG_CTASSERT(kInitialArraySize > 0);
 	clearAndResize(theSize);
+}
+
+
+template<size_t C> inline BitVector<C>::BitVector(const This& rhs)
+	:
+	bits(&mInitialBits[0]),
+	mSizeInBits(0),
+	mArrayLength(kInitialArraySize)
+{
+	DBG_CTASSERT(kInitialArraySize > 0);
+	clearAndResize(rhs.size());
+	for(size_t i = 0; i < mArrayLength; ++i)
+		bits[i] = rhs.bits[i];
+}
+
+
+template<size_t C> template<size_t C2> inline
+BitVector<C>::BitVector(const BitVector<C2>& rhs)
+	:
+	bits(&mInitialBits[0]),
+	mSizeInBits(0),
+	mArrayLength(kInitialArraySize)
+{
+	DBG_CTASSERT(kInitialArraySize > 0);
+	clearAndResize(rhs.size());
+	for(size_t i = 0; i < mArrayLength; ++i)
+		bits[i] = rhs.bits[i];
+}
+
+
+template<size_t C> template<size_t S> inline
+BitVector<C>::BitVector(const BitArray<S>& rhs)
+	:
+	bits(&mInitialBits[0]),
+	mSizeInBits(0),
+	mArrayLength(kInitialArraySize)
+{
+	DBG_CTASSERT(kInitialArraySize > 0);
+	clearAndResize(S);
+	for(size_t i = 0; i < mArrayLength; ++i)
+		bits[i] = rhs.bits[i];
+}
+
+
+template<size_t C> inline
+BitVector<C>& BitVector<C>::operator=(This rhs)
+{
+	swap(*this, rhs);
+	return *this;
+}
+
+
+template<size_t C> template<size_t C2> inline
+BitVector<C>& BitVector<C>::operator=(BitVector<C2> rhs)
+{
+	swap(*this, rhs);
+	return *this;
+}
+
+
+template<size_t C> template<size_t S> inline
+BitVector<C>& BitVector<C>::operator=(const BitArray<S>& rhs)
+{
+	BitVector<C> tmp(rhs);
+	swap(*this, tmp);
+	return *this;
+}
+
+
+template<size_t C> inline void
+swap(BitVector<C>& lhs, BitVector<C>& rhs)
+{
+	BitVector<C> tmp(lhs);
+	lhs.clearAndResize(rhs.size());
+	for(size_t i = 0; i < lhs.mArrayLength; ++i)
+		lhs.bits[i] = rhs.bits[i];
+	rhs.clearAndResize(tmp.size());
+	for(size_t i = 0; i < rhs.mArrayLength; ++i)
+		rhs.bits[i] = tmp.bits[i];
 }
 
 
@@ -929,27 +1026,155 @@ template<size_t C> inline bool BitVector<C>::all() const
 }
 
 
+template<size_t C> template<size_t C2> inline bool
+BitVector<C>::operator==(const BitVector<C2>& rhs) const
+{
+	if( this->size() != rhs.size() )
+		return false;
+	for(size_t i = 0; i < mArrayLength - 1; ++i)
+		if( bits[i] != rhs.bits[i] ) return false;
+	const u32 lastBitMask = (mSizeInBits % 32)
+		? (u32(1) << (mSizeInBits % 32)) - 1 : u32(-1);
+	const u32 last = bits[mArrayLength - 1] & lastBitMask;
+	const u32 rhsLast = rhs.bits[mArrayLength - 1] & lastBitMask;
+	return last == rhsLast;
+}
+
+
+template<size_t C> template<size_t C2> inline bool
+BitVector<C>::operator!=(const BitVector<C2>& rhs) const
+{
+	return !(*this == rhs);
+}
+
+
+template<size_t C> template<size_t C2> inline BitVector<C>&
+BitVector<C>::operator|=(const BitVector<C2>& rhs)
+{
+	*this = *this | rhs;
+	return *this;
+}
+
+
+template<size_t C> template<size_t C2> inline BitVector<C>&
+BitVector<C>::operator&=(const BitVector<C2>& rhs)
+{
+	*this = *this & rhs;
+	return *this;
+}
+
+
+template<size_t C> template<size_t C2> inline BitVector<C>&
+BitVector<C>::operator^=(const BitVector<C2>& rhs)
+{
+	*this = *this ^ rhs;
+	return *this;
+}
+
+
+template<size_t C> inline BitVector<C>
+BitVector<C>::operator~() const
+{
+	This r;
+	for(size_t i = 0; i < mArrayLength; ++i)
+		r.bits[i] = ~bits[i];
+	return r;
+}
+
+
+template<size_t C> template<size_t C2> inline BitVector<C>
+BitVector<C>::operator|(const BitVector<C2>& rhs) const
+{
+	This r;
+	r.clearAndResize(max(this->size(), rhs.size()));
+
+	for(size_t i = 0; i < this->mArrayLength - 1; ++i)
+		r.bits[i] = this->bits[i];
+	u32 lastBitMask = (this->mSizeInBits % 32)
+		? (u32(1) << (this->mSizeInBits % 32)) - 1 : u32(-1);
+	u32 last = this->bits[this->mArrayLength - 1] & lastBitMask;
+	r.bits[this->mArrayLength - 1] = last;
+
+	for(size_t i = 0; i < rhs.mArrayLength - 1; ++i)
+		r.bits[i] |= rhs.bits[i];
+	lastBitMask = (rhs.mSizeInBits % 32)
+		? (u32(1) << (rhs.mSizeInBits % 32)) - 1 : u32(-1);
+	last = rhs.bits[rhs.mArrayLength - 1] & lastBitMask;
+	r.bits[rhs.mArrayLength - 1] |= last;
+
+	return r;
+}
+
+
+template<size_t C> template<size_t C2> inline BitVector<C>
+BitVector<C>::operator&(const BitVector<C2>& rhs) const
+{
+	This r;
+	r.clearAndResize(max(this->size(), rhs.size()));
+
+	for(size_t i = 0; i < this->mArrayLength - 1; ++i)
+		r.bits[i] = this->bits[i];
+	u32 lastBitMask = (this->mSizeInBits % 32)
+		? (u32(1) << (this->mSizeInBits % 32)) - 1 : u32(-1);
+	u32 last = this->bits[this->mArrayLength - 1] & lastBitMask;
+	r.bits[this->mArrayLength - 1] = last;
+
+	for(size_t i = 0; i < rhs.mArrayLength - 1; ++i)
+		r.bits[i] &= rhs.bits[i];
+	lastBitMask = (rhs.mSizeInBits % 32)
+		? (u32(1) << (rhs.mSizeInBits % 32)) - 1 : u32(-1);
+	last = rhs.bits[rhs.mArrayLength - 1] & lastBitMask;
+	r.bits[rhs.mArrayLength - 1] &= last;
+
+	return r;
+}
+
+
+template<size_t C> template<size_t C2> inline BitVector<C>
+BitVector<C>::operator^(const BitVector<C2>& rhs) const
+{
+	This r;
+	r.clearAndResize(max(this->size(), rhs.size()));
+
+	for(size_t i = 0; i < this->mArrayLength - 1; ++i)
+		r.bits[i] = this->bits[i];
+	u32 lastBitMask = (this->mSizeInBits % 32)
+		? (u32(1) << (this->mSizeInBits % 32)) - 1 : u32(-1);
+	u32 last = this->bits[this->mArrayLength - 1] & lastBitMask;
+	r.bits[this->mArrayLength - 1] = last;
+
+	for(size_t i = 0; i < rhs.mArrayLength - 1; ++i)
+		r.bits[i] ^= rhs.bits[i];
+	lastBitMask = (rhs.mSizeInBits % 32)
+		? (u32(1) << (rhs.mSizeInBits % 32)) - 1 : u32(-1);
+	last = rhs.bits[rhs.mArrayLength - 1] & lastBitMask;
+	r.bits[rhs.mArrayLength - 1] ^= last;
+
+	return r;
+}
+
+
 template<size_t C> inline int BitVector<C>::nextSetBit(int pos) const
 {
-	return ::nextSetBit(bits, mSizeInBits, pos);
+	return ::nextSetBit(bits, int(mSizeInBits), pos);
 }
 
 
 template<size_t C> inline int BitVector<C>::prevSetBit(int pos) const
 {
-	return ::prevSetBit(bits, mSizeInBits, pos);
+	return ::prevSetBit(bits, int(mSizeInBits), pos);
 }
 
 
 template<size_t C> inline int BitVector<C>::nextClearBit(int pos) const
 {
-	return ::nextClearBit(bits, mSizeInBits, pos);
+	return ::nextClearBit(bits, int(mSizeInBits), pos);
 }
 
 
 template<size_t C> inline int BitVector<C>::prevClearBit(int pos) const
 {
-	return ::prevClearBit(bits, mSizeInBits, pos);
+	return ::prevClearBit(bits, int(mSizeInBits), pos);
 }
 
 
@@ -967,7 +1192,7 @@ template<size_t S> inline void BitArray8<S>::set()
 template<size_t S> inline void BitArray8<S>::set(size_t pos)
 {
 	DBG_ASSERT(pos < kBitSize);
-	bits[pos / 8] |= (u8(1) << u8(pos % 8));
+	bits[pos / 8] |= (u32(1) << u8(pos % 8));
 }
 
 

@@ -6,8 +6,8 @@
 
 /*
 	Renders Heads-Up Display (HUD) elements on the overlay window.
-	Handles the visual representation of status indicators, button prompts,
-	and other user interface components.
+	Handles the visual representation of menus, button prompts,
+	error messages, and other user interface components.
 */
 
 

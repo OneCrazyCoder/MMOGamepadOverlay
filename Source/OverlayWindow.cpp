@@ -60,7 +60,6 @@ static LRESULT CALLBACK windowProcCallback(
 		break;
 
 	case WM_DESTROY:
-		HUD::cleanup();
 		PostQuitMessage(0);
 		gHandle = NULL;
 		return 0;
@@ -111,7 +110,6 @@ void create(HINSTANCE theAppInstanceHandle)
 		return;
 	}
 
-	HUD::init();
 	SetLayeredWindowAttributes(gHandle, RGB(0, 0, 0), BYTE(0), LWA_COLORKEY);
 	ShowWindow(gHandle, SW_SHOW);
 }

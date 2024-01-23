@@ -12,9 +12,11 @@
 #include "Common.h"
 
 #include "Gamepad.h"
+#include "HUD.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
 #include "InputTranslator.h"
+#include "Menus.h"
 #include "OverlayWindow.h"
 #include "Profile.h"
 #include "TargetApp.h"
@@ -61,6 +63,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
 			TargetApp::loadProfile();
+			Menus::init();
+			HUD::init();
 		}
 
 		// Launch target app if requested and haven't already
@@ -133,8 +137,10 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		}
 
 		// Cleanup
-		InputTranslator::cleanup();
+		HUD::cleanup();
+		Menus::cleanup();
 		InputDispatcher::cleanup();
+		InputTranslator::cleanup();
 		OverlayWindow::destroy();
 	}
 

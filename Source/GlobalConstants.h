@@ -17,14 +17,6 @@ kVKeyAltFlag = 0x0400,
 kVKeyMask = 0x00FF,
 };
 
-enum EHUDElement
-{
-	eHUDElement_Macros,
-	eHUDElement_Abilities,
-
-	eHUDElement_Num,
-};
-
 enum ECommandType
 {
 	eCmdType_Empty,
@@ -37,24 +29,27 @@ enum ECommandType
 	eCmdType_SlashCommand,
 	eCmdType_SayString,
 
-	// These trigger an action or state change in InputTranslator
+	// These trigger changes in Controls Layers (button configuration)
 	eCmdType_AddControlsLayer,
 	eCmdType_HoldControlsLayer,
 	eCmdType_RemoveControlsLayer,
-	eCmdType_ChangeMacroSet,
-	eCmdType_UseAbility, // includes spells, skills, & hotbuttons
+
+	// These control Menu selections/state
+	eCmdType_OpenSubMenu,
+	eCmdType_MenuReset,
 	eCmdType_MenuConfirm,
-	eCmdType_MenuBack,
+	eCmdType_MenuConfirmAndClose,
+	eCmdType_MenuBack, // close last sub-menu
+	eCmdType_MenuReassign,
 
 	// This should have 'data' set as an ETargetGroupType
 	eCmdType_TargetGroup,
 
 	// These should have 'data' set to an ECommandDir
-	eCmdType_SelectAbility,
-	eCmdType_SelectMenu,
-	eCmdType_SelectHotspot,
-	eCmdType_SelectMacro,
-	eCmdType_RewriteMacro,
+	eCmdType_MenuSelect,
+	eCmdType_MenuSelectAndClose,
+	eCmdType_MenuReassignDir,
+	eCmdType_HotspotSelect,
 
 	// These should be processed continuously, not just on digital press
 	// (may respond to analog axis data), and also have 'data' as ECommandDir
@@ -66,7 +61,8 @@ enum ECommandType
 	eCmdType_Num,
 
 	eCmdType_LastDirectInput = eCmdType_SayString,
-	eCmdType_FirstDirectional = eCmdType_SelectAbility,
+	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
+	eCmdType_FirstDirectional = eCmdType_MenuSelect,
 	eCmdType_FirstContinuous = eCmdType_MoveTurn,
 };
 
@@ -173,6 +169,19 @@ enum EButton
 	eBtn_DInputBtnNum = eBtn_Num - eBtn_FirstDInputBtn,
 };
 
+enum EMenuStyle
+{
+	eMenuStyle_List,
+	eMenuStyle_4Dir,
+	eMenuStyle_Grid,
+	eMenuStyle_Pillar,
+	eMenuStyle_Bar,
+	eMenuStlye_Ring,
+	eMenuStyle_Radial,
+
+	eMenuStyle_Num
+};
+
 enum ESpecialKey
 {
 	eSpecialKey_MoveF,
@@ -239,11 +248,11 @@ enum ECommandKeyWord
 	eCmdWord_Select,
 	eCmdWord_Hotspot,
 	eCmdWord_Reset,
-	eCmdWord_Rewrite,
-	eCmdWord_Macro,
+	eCmdWord_Reassign,
 	eCmdWord_Menu,
 	eCmdWord_Confirm,
 	eCmdWord_Back,
+	eCmdWord_Close,
 	eCmdWord_Target,
 	eCmdWord_Group,
 	eCmdWord_Left,
@@ -307,10 +316,19 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Command>
 	} x, y;
 };
 
+
+struct MenuState : public ConstructFromZeroInitializedMemory<MenuState>
+{
+	u16 subMenuID;
+	u16 selectedID;
+};
+
 // Generic button names used in Profile .ini files
 extern const char* kProfileButtonName[];
 
+// Conversions between constant values (enums) and strings
 extern u8 keyNameToVirtualKey(const std::string& theKeyName);
-extern EButton buttonNameToID(const std::string& theString);
+extern std::string virtualKeyToName(u8 theVKey);
+extern EButton buttonNameToID(const std::string& theName);
+extern EMenuStyle menuStyleNameToID(const std::string& theName);
 extern ECommandKeyWord commandWordToID(const std::string& theWord);
-extern EHUDElement hudElementNameToID(const std::string& theString);
