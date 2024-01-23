@@ -7,6 +7,7 @@
 #include "Gamepad.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
+#include "Menus.h"
 #include "OverlayWindow.h" // temp hack to force redraw()
 #include "Profile.h"
 
@@ -170,8 +171,8 @@ static void loadLayerData()
 {
 	DBG_ASSERT(sState.layers.empty());
 
-	sState.layers.reserve(InputMap::availableLayerCount());
-	sState.layers.resize(InputMap::availableLayerCount());
+	sState.layers.reserve(InputMap::controlsLayerCount());
+	sState.layers.resize(InputMap::controlsLayerCount());
 	for(u16 i = 0; i < sState.layers.size(); ++i)
 	{
 		sState.layers[i].clear();
@@ -283,7 +284,7 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 
 static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 {
-	Command aCmd;
+	Command aForwardCmd;
 	switch(theCmd.type)
 	{
 	case eCmdType_Empty:
@@ -322,14 +323,36 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		DBG_ASSERT(theCmd.data != 0);
 		removeControlsLayer(theCmd.data);
 		break;
-	case eCmdType_ChangeMacroSet:
-		gMacroSetID = theCmd.data;
+	case eCmdType_OpenSubMenu:
+		Menus::openSubMenu(theCmd.data2, theCmd.data);
 		// TODO: Stop using this temp hack
 		OverlayWindow::redraw();
 		break;
-	case eCmdType_UseAbility:
+	case eCmdType_MenuReset:
+		Menus::reset(theCmd.data);
+		break;
 	case eCmdType_MenuConfirm:
+		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.data);
+		if( aForwardCmd.type != eCmdType_Empty )
+			processCommand(theBtnState, aForwardCmd);
+		break;
+	case eCmdType_MenuConfirmAndClose:
+		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.data);
+		if( aForwardCmd.type != eCmdType_Empty )
+		{
+			processCommand(theBtnState, aForwardCmd);
+			// Close menu as well if this didn't just switch to a sub-menu
+			if( aForwardCmd.type < eCmdType_FirstMenuControl &&
+				theBtnState.commandsLayer > 0 )
+			{// Assume removing this layer "closes" the menu
+				removeControlsLayer(theBtnState.commandsLayer);
+			}
+		}
+		break;
 	case eCmdType_MenuBack:
+		Menus::closeLastSubMenu(theCmd.data);
+		break;
+	case eCmdType_MenuReassign:
 		// TODO
 		break;
 	case eCmdType_TargetGroup:
@@ -338,10 +361,10 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		{
 		case eTargetGroupType_LoadFavorite:
 			gLastGroupTarget = gFavoriteGroupTarget;
-			aCmd.type = eCmdType_TapKey;
-			aCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.type = eCmdType_TapKey;
+			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aCmd);
+			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting favorite Group Member #%d\n",
 				gLastGroupTarget);
 			break;
@@ -351,10 +374,10 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 				gLastGroupTarget);
 			break;
 		case eTargetGroupType_Last:
-			aCmd.type = eCmdType_TapKey;
-			aCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.type = eCmdType_TapKey;
+			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aCmd);
+			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Re-targeting last group member (#%d)\n",
 				gLastGroupTarget);
 			break;
@@ -362,10 +385,10 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 			if( gLastGroupTarget == 0 )
 				break;
 			--gLastGroupTarget;
-			aCmd.type = eCmdType_TapKey;
-			aCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.type = eCmdType_TapKey;
+			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aCmd);
+			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member prev/up no-wrap (#%d)\n",
 				gLastGroupTarget);
 			break;
@@ -373,10 +396,10 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 			if( gLastGroupTarget >= InputMap::targetGroupSize() - 1 )
 				break;
 			++gLastGroupTarget;
-			aCmd.type = eCmdType_TapKey;
-			aCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.type = eCmdType_TapKey;
+			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aCmd);
+			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member next/down no-wrap (#%d)\n",
 				gLastGroupTarget);
 			break;
@@ -384,10 +407,10 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 			gLastGroupTarget =
 				gLastGroupTarget == 0
 					? InputMap::targetGroupSize() - 1 : gLastGroupTarget - 1;
-			aCmd.type = eCmdType_TapKey;
-			aCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.type = eCmdType_TapKey;
+			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aCmd);
+			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member prev/up (#%d)\n",
 				gLastGroupTarget);
 			break;
@@ -395,25 +418,37 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 			gLastGroupTarget =
 				gLastGroupTarget >= InputMap::targetGroupSize() - 1
 					? 0 : gLastGroupTarget + 1;
-			aCmd.type = eCmdType_TapKey;
-			aCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.type = eCmdType_TapKey;
+			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aCmd);
+			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member next/down (#%d)\n",
 				gLastGroupTarget);
 			break;
 		}
 		break;
-	case eCmdType_SelectAbility:
-	case eCmdType_SelectMenu:
-	case eCmdType_SelectHotspot:
-		// TODO
+	case eCmdType_MenuSelect:
+		aForwardCmd =
+			Menus::selectMenuItem(theCmd.data2, ECommandDir(theCmd.data));
+		if( aForwardCmd.type != eCmdType_Empty )
+			processCommand(theBtnState, aForwardCmd);
 		break;
-	case eCmdType_SelectMacro:
-		processCommand(theBtnState, InputMap::commandForMacro(
-			gMacroSetID, theCmd.data));
+	case eCmdType_MenuSelectAndClose:
+		aForwardCmd =
+			Menus::selectMenuItem(theCmd.data2, ECommandDir(theCmd.data));
+		if( aForwardCmd.type != eCmdType_Empty )
+		{
+			processCommand(theBtnState, aForwardCmd);
+			// Close menu as well if this didn't just switch to a sub-menu
+			if( aForwardCmd.type < eCmdType_FirstMenuControl &&
+				theBtnState.commandsLayer > 0 )
+			{// Assume removing this layer "closes" the menu
+				removeControlsLayer(theBtnState.commandsLayer);
+			}
+		}
 		break;
-	case eCmdType_RewriteMacro:
+	case eCmdType_MenuReassignDir:
+	case eCmdType_HotspotSelect:
 		// TODO
 		break;
 	case eCmdType_MoveTurn:
@@ -910,7 +945,7 @@ void cleanup()
 		releaseKeyHeldByButton(sState.layers[i].autoButton);
 	sState.clear();
 	sResults.clear();
-	gMacroSetID = 0;
+	Menus::cleanup();
 }
 
 
@@ -947,7 +982,7 @@ void update()
 	{
 		loadButtonCommandsForCurrentLayers();
 		sState.mouseLookOn = false;
-		BitArray<eHUDElement_Num> wantedHUDElements;
+		BitVector<> wantedHUDElements(InputMap::hudElementCount());
 		wantedHUDElements.reset();
 		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 		{

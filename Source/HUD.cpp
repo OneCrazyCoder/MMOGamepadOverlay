@@ -5,6 +5,7 @@
 #include "HUD.h"
 
 #include "InputMap.h" // labels
+#include "Menus.h"
 #include "OverlayWindow.h" // temp hack to force redraw()
 #include "Profile.h"
 
@@ -218,8 +219,10 @@ void render(HWND theWindow, RECT theClientRect)
 	}
 	#endif
 
-	// Draw Macro Sets HUD element
-	if( gVisibleHUD.test(eHUDElement_Macros) )
+	// Draw each visible menu / HUD element
+	for(int aRootMenuID = gVisibleHUD.firstSetBit();
+		aRootMenuID < int(gVisibleHUD.size());
+		aRootMenuID = gVisibleHUD.nextSetBit(aRootMenuID+1))
 	{
 		SelectObject(hdc, sFont);
 		SetBkColor(hdc, kConfig.buttonColor);
@@ -239,7 +242,8 @@ void render(HWND theWindow, RECT theClientRect)
 			// Interior background
 			FillRect(hdc, &aButtonRect, sButtonBrush);
 
-			const std::string& aLabel = InputMap::macroLabel(gMacroSetID, i);
+			const std::string& aLabel = InputMap::menuItemLabel(
+				Menus::activeSubMenu(u16(aRootMenuID)), u16(i));
 			if( !aLabel.empty() )
 			{// Text - word-wrapped + horizontal & vertical center justification
 				const std::wstring& aLabelW = widen(aLabel);
@@ -253,7 +257,6 @@ void render(HWND theWindow, RECT theClientRect)
 				DrawText(hdc, aLabelW.c_str(), -1, &aTextRect, DT_WORDBREAK | DT_CENTER);
 			}
 		}
-
 	}
 
 	// Draw error string

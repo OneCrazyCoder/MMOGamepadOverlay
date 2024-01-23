@@ -19,17 +19,15 @@ namespace InputMap
 // Const Data
 //-----------------------------------------------------------------------------
 
-enum {
-kMacroSlotsPerSet = 4,
-};
-
-const char* kMainMacroSetLabel = "Macros";
 const char* kMainLayerLabel = "Scheme";
 const char* kLayerPrefix = "Layer.";
+const char* kMenuPrefix = "Menu.";
+const char* kMenuStyleKey = "Style";
 const char* kKeybindsPrefix = "KeyBinds/";
 const char* kGlobalHotspotsPrefix = "Hotspots/";
-const char* kMacroSlotLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
-DBG_CTASSERT(ARRAYSIZE(kMacroSlotLabel) == kMacroSlotsPerSet);
+const char* kMenuItemLabelPrefix = "Item";
+const char* k4DirMenuItemLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
+DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 
 // These need to be in all upper case
 const char* kIncludeKey = "INCLUDE";
@@ -89,16 +87,25 @@ DBG_CTASSERT(ARRAYSIZE(kSpecialKeyNames) == eSpecialKey_Num);
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct MacroSlot
+struct MenuItem
 {
 	std::string label;
 	Command cmd;
 };
 
-struct MacroSet
+struct Menu
 {
 	std::string label;
-	MacroSlot slot[kMacroSlotsPerSet];
+	std::vector<MenuItem> items;
+	u16 rootMenuID;
+
+	Menu() : rootMenuID() {}
+};
+
+struct RootMenu
+{
+	EMenuStyle style;
+	RootMenu() : style() {}
 };
 
 struct ButtonActions
@@ -113,8 +120,8 @@ struct ControlsLayer
 	std::string label;
 	ButtonActionsMap map;
 	u16 includeLayer;
-	BitArray<eHUDElement_Num> showHUD;
-	BitArray<eHUDElement_Num> hideHUD;
+	BitVector<> showHUD;
+	BitVector<> hideHUD;
 	bool mouseLookOn;
 
 	ControlsLayer() :
@@ -125,13 +132,17 @@ struct ControlsLayer
 	{}
 };
 
+// Data used during parsing/building the map but deleted once done
 struct InputMapBuilder
 {
 	std::vector<std::string> parsedString;
-	StringToValueMap<u16> layerNameToIdxMap;
-	StringToValueMap<u16> hotspotNameToIdxMap;
+	VectorMap<ECommandKeyWord, size_t> keyWordMap;
 	StringToValueMap<Command> commandAliases;
-	std::string debugSlotName;
+	StringToValueMap<u16> hotspotNameToIdxMap;
+	StringToValueMap<u16> layerNameToIdxMap;
+	StringToValueMap<u16> rootMenuNameToIdxMap;
+	std::vector<std::string> menuFullPathStrings;
+	std::string debugItemName;
 };
 
 
@@ -141,8 +152,9 @@ struct InputMapBuilder
 
 static std::vector<Hotspot> sHotspots;
 static std::vector<std::string> sKeyStrings;
-static std::vector<MacroSet> sMacroSets;
 static std::vector<ControlsLayer> sLayers;
+static std::vector<RootMenu> sRootMenus;
+static std::vector<Menu> sMenus;
 static u16 sSpecialKeys[eSpecialKey_Num];
 static u8 sTargetGroupSize = 1;
 
@@ -499,12 +511,43 @@ static u16 getOrCreateLayerID(
 }
 
 
+static u16 getOrCreateRootMenuID(
+	InputMapBuilder& theBuilder,
+	const std::string& theMenuName,
+	u16 theControlsLayerIndex = 0)
+{
+	DBG_ASSERT(!theMenuName.empty());
+
+	// Check if already exists, and if so return the index in sMenus
+	const std::string& aMenuKeyName = upper(theMenuName);
+	u16 aMenuID = theBuilder.rootMenuNameToIdxMap.findOrAdd(
+		aMenuKeyName, u16(sMenus.size()));
+	if( aMenuID < sMenus.size() )
+		return aMenuID;
+
+	// Add new menu to sMenus, sRootMenus, and menuFullPathStrings
+	sMenus.push_back(Menu());
+	sMenus.back().label = theMenuName;
+	sMenus.back().rootMenuID = u16(sRootMenus.size());
+	const std::string& aMenuPath = std::string(kMenuPrefix) + theMenuName;
+	theBuilder.menuFullPathStrings.push_back(aMenuPath);
+	sRootMenus.push_back(RootMenu());
+	sRootMenus.back().style = menuStyleNameToID(upper(
+		Profile::getStr(aMenuPath + "/" + kMenuStyleKey)));
+
+	return aMenuID;
+}
+
+
 static Command wordsToSpecialCommand(
 	InputMapBuilder& theBuilder,
 	const std::vector<std::string>& theWords,
 	u16 theControlsLayerIndex = 0,
+	bool allowButtonActions = false,
 	bool allowHoldActions = false)
 {
+	// Can't allow hold actions if don't also allow button actions
+	DBG_ASSERT(!allowHoldActions || allowButtonActions);
 	Command result;
 
 	// All commands require more than one "word", even if only one of the
@@ -513,46 +556,49 @@ static Command wordsToSpecialCommand(
 	if( theWords.size() <= 1 )
 		return result;
 
-	// Find all key words that are actually included
-	ECommandKeyWord aLastKeyWordID = eCmdWord_Filler;
+	// Find all key words that are actually included and their positions
+	theBuilder.keyWordMap.clear();
 	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
 	for(size_t i = 0; i < theWords.size(); ++i)
 	{
-		// Only the actual last word can be an unknown word
-		if( aLastKeyWordID == eCmdWord_Unknown )
+		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[i]));
+		if( aKeyWordID == eCmdWord_Filler )
+			continue;
+		// The same key word (including "unknown") can't be used twice
+		if( keyWordsFound.test(aKeyWordID) )
 			return result;
-		aLastKeyWordID = commandWordToID(upper(theWords[i]));
-		keyWordsFound.set(aLastKeyWordID);
+		keyWordsFound.set(aKeyWordID);
+		theBuilder.keyWordMap.addPair(aKeyWordID, i);
 	}
-
-	keyWordsFound.reset(eCmdWord_Filler);
-	if( keyWordsFound.none() )
+	if( theBuilder.keyWordMap.empty() )
 		return result;
+	theBuilder.keyWordMap.sort();
 
-	// Last word is the layer name for layer commands, but only if it
-	// is not itself a key word related to layers (other key words are
-	// allowed as layer names though!).
+	// For these first Layer-related commands, most need one extra word
+	// that is not a key word related to layers, which will be the name
+	// of the layer (likely, but not always, the eCmdWord_Unknown entry).
+	BitArray<eCmdWord_Num> allowedKeyWords = keyWordsFound;
+	allowedKeyWords.reset(eCmdWord_Layer);
+	allowedKeyWords.reset(eCmdWord_Add);
+	allowedKeyWords.reset(eCmdWord_Remove);
+	allowedKeyWords.reset(eCmdWord_Hold);
 	const std::string* aLayerName = null;
-	if( (keyWordsFound.test(eCmdWord_Layer) ||
-		 keyWordsFound.test(eCmdWord_Add) ||
-		 keyWordsFound.test(eCmdWord_Remove) ||
-		 keyWordsFound.test(eCmdWord_Hold)) &&
-		aLastKeyWordID != eCmdWord_Layer &&
-		aLastKeyWordID != eCmdWord_Add &&
-		aLastKeyWordID != eCmdWord_Remove &&
-		aLastKeyWordID != eCmdWord_Hold )
+	if( allowedKeyWords.count() == 1 )
 	{
-		aLayerName = &theWords[theWords.size()-1];
-		keyWordsFound.reset(aLastKeyWordID);
+		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
+			theBuilder.keyWordMap.find(
+				ECommandKeyWord(allowedKeyWords.firstSetBit()));
+		if( itr != theBuilder.keyWordMap.end() )
+			aLayerName = &theWords[itr->second];
 	}
+	allowedKeyWords.reset();
 
 	// "= Add [Layer] <aLayerName>"
-	BitArray<eCmdWord_Num> allowedKeyWords = { 0 };
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Add);
 	if( keyWordsFound.test(eCmdWord_Add) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+		(keyWordsFound & ~allowedKeyWords).count() == 1 )
 	{
 		result.type = eCmdType_AddControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
@@ -567,10 +613,10 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Remove);
 	if( keyWordsFound.test(eCmdWord_Remove) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+		(keyWordsFound & ~allowedKeyWords).count() == 1 )
 	{
 		if( u16* aLayerIdx =
-			theBuilder.layerNameToIdxMap.find(upper(*aLayerName)) )
+				theBuilder.layerNameToIdxMap.find(upper(*aLayerName)) )
 		{
 			if( *aLayerIdx != 0 )
 			{
@@ -582,7 +628,7 @@ static Command wordsToSpecialCommand(
 	}
 
 	// "= Remove [Layer]"
-	// allowedKeyWords = Layer & Remove
+	// allowedKeyWords = Layer
 	if( keyWordsFound.test(eCmdWord_Remove) &&
 		theControlsLayerIndex > 0 &&
 		(keyWordsFound & ~allowedKeyWords).none() )
@@ -600,39 +646,115 @@ static Command wordsToSpecialCommand(
 		(keyWordsFound.test(eCmdWord_Hold) ||
 		 keyWordsFound.test(eCmdWord_Layer)) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+		(keyWordsFound & ~allowedKeyWords).count() == 1 )
 	{
 		result.type = eCmdType_HoldControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
 		return result;
 	}
 
-	// "= Reset Macros"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Reset);
-	allowedKeyWords.set(eCmdWord_Macro);
-	if( keyWordsFound.test(eCmdWord_Reset) &&
-		keyWordsFound.test(eCmdWord_Macro) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+	// Same deal here for the Menu-related commands needing a name of the
+	// menu in question as the one otherwise-unrelated word.
+	const std::string* aMenuName = null;
+	if( allowButtonActions )
 	{
-		result.type = eCmdType_ChangeMacroSet;
-		result.data = 0;
+		allowedKeyWords = keyWordsFound;
+		allowedKeyWords.reset(eCmdWord_Menu);
+		allowedKeyWords.reset(eCmdWord_Reset);
+		allowedKeyWords.reset(eCmdWord_Select);
+		allowedKeyWords.reset(eCmdWord_Confirm);
+		allowedKeyWords.reset(eCmdWord_Back);
+		allowedKeyWords.reset(eCmdWord_Close);
+		allowedKeyWords.reset(eCmdWord_Reassign);
+		allowedKeyWords.reset(eCmdWord_Left);
+		allowedKeyWords.reset(eCmdWord_Right);
+		allowedKeyWords.reset(eCmdWord_Up);
+		allowedKeyWords.reset(eCmdWord_Down);
+		if( allowedKeyWords.count() == 1 )
+		{
+			VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
+				theBuilder.keyWordMap.find(
+					ECommandKeyWord(allowedKeyWords.firstSetBit()));
+			if( itr != theBuilder.keyWordMap.end() )
+				aMenuName = &theWords[itr->second];
+		}
+
+		// "= Reset <aMenuName> [Menu]"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Reset);
+		allowedKeyWords.set(eCmdWord_Menu);
+		if( keyWordsFound.test(eCmdWord_Reset) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuReset;
+			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+		}
+		allowedKeyWords.reset(eCmdWord_Reset);
+
+		// "= Confirm <aMenuName> [Menu]
+		// allowedKeyWords = Menu
+		allowedKeyWords.set(eCmdWord_Confirm);
+		if( keyWordsFound.test(eCmdWord_Confirm) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuConfirm;
+			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+		}
+
+		// "= Confirm <aMenuName> [Menu] and Close
+		// allowedKeyWords = Menu & Confirm
+		allowedKeyWords.set(eCmdWord_Close);
+		if( keyWordsFound.test(eCmdWord_Confirm) &&
+			keyWordsFound.test(eCmdWord_Close) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuConfirmAndClose;
+			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+		}
+		allowedKeyWords.reset(eCmdWord_Close);
+		allowedKeyWords.reset(eCmdWord_Confirm);
+
+		// "= [Menu] <aMenuName> Back
+		// allowedKeyWords = Menu
+		allowedKeyWords.set(eCmdWord_Back);
+		if( keyWordsFound.test(eCmdWord_Back) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuBack;
+			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+		}
+		allowedKeyWords.reset(eCmdWord_Back);
+
+		// "= Reassign <aMenuName> [Menu]
+		// allowedKeyWords = Menu
+		allowedKeyWords.set(eCmdWord_Reassign);
+		if( keyWordsFound.test(eCmdWord_Reassign) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuBack;
+			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+		}
 	}
 
 	// "= Target Group <eTargetGroupType>"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Target);
-	allowedKeyWords.set(eCmdWord_Group);
-	allowedKeyWords.set(eCmdWord_Wrap);
-	allowedKeyWords.set(eCmdWord_NoWrap);
 	if( keyWordsFound.test(eCmdWord_Target) &&
 		keyWordsFound.test(eCmdWord_Group) )
 	{
 		result.type = eCmdType_TargetGroup;
+
 		// "= Target Group [Load] [Favorite|Default]"
-		// allowedKeyWords = Target & Group & Wrap & NoWrap
-		allowedKeyWords.set(eCmdWord_Favorite);
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Target);
+		allowedKeyWords.set(eCmdWord_Group);
+		allowedKeyWords.set(eCmdWord_Wrap);
+		allowedKeyWords.set(eCmdWord_NoWrap);
 		allowedKeyWords.set(eCmdWord_Load); // or "Recall"
+		allowedKeyWords.set(eCmdWord_Favorite);
 		allowedKeyWords.set(eCmdWord_Default);
 		if( (keyWordsFound & ~allowedKeyWords).none() )
 		{
@@ -641,7 +763,7 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Load);
 		// "= Target Group 'Save'|'Left' [Favorite|Default]"
-		// allowedKeyWords = Target & Group & Wrap & NoWrap & Default & Favorite
+		// allowedKeyWords = Target & Group & No/Wrap & Default & Favorite
 		allowedKeyWords.set(eCmdWord_Save);
 		allowedKeyWords.set(eCmdWord_Left);
 		if( (keyWordsFound.test(eCmdWord_Save) ||
@@ -746,126 +868,154 @@ static Command wordsToSpecialCommand(
 	// Remove direction-related bits from keyWordsFound
 	keyWordsFound &= ~allowedKeyWords;
 
-	// "= [Select] Menu <aCmdDir>"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Select);
-	allowedKeyWords.set(eCmdWord_Menu);
-	if( keyWordsFound.test(eCmdWord_Menu) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+	if( allowButtonActions )
 	{
-		result.type = eCmdType_SelectMenu;
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Menu);
+		// "= 'Select'|'Menu'|'Select Menu' <aMenuName> <aCmdDir>"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Select);
+		allowedKeyWords.set(eCmdWord_Menu);
+		if( (keyWordsFound.test(eCmdWord_Select) ||
+			 keyWordsFound.test(eCmdWord_Menu)) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuSelect;
+			result.data = aCmdDir;
+			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			return result;
+		}
 
-	// "= [Select] Hotspot <aCmdDir>"
-	// allowedKeyWords = Select
-	allowedKeyWords.set(eCmdWord_Hotspot);
-	if( keyWordsFound.test(eCmdWord_Hotspot) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_SelectHotspot;
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Hotspot);
+		// "= 'Select'|'Menu'|'Select Menu' <aMenuName> <aCmdDir> and Close"
+		// allowedKeyWords = Menu & Select
+		allowedKeyWords.set(eCmdWord_Close);
+		if( (keyWordsFound.test(eCmdWord_Select) ||
+			 keyWordsFound.test(eCmdWord_Menu)) &&
+			keyWordsFound.test(eCmdWord_Close) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuSelectAndClose;
+			result.data = aCmdDir;
+			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Select);
+		allowedKeyWords.reset(eCmdWord_Close);
 
-	// "= [Select] Macro <aCmdDir>"
-	// allowedKeyWords = Select
-	allowedKeyWords.set(eCmdWord_Macro);
-	if( keyWordsFound.test(eCmdWord_Macro) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_SelectMacro;
-		return result;
-	}
+		// "= Reassign [Menu] <aMenuName> <aCmdDir>"
+		// allowedKeyWords = Menu
+		allowedKeyWords.set(eCmdWord_Reassign);
+		if( keyWordsFound.test(eCmdWord_Reassign) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuReassignDir;
+			result.data = aCmdDir;
+			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			return result;
+		}
 
-	// "= Rewrite [Macro] <aCmdDir>"
-	// allowedKeyWords = Select & Macro
-	allowedKeyWords.reset(eCmdWord_Select);
-	allowedKeyWords.set(eCmdWord_Rewrite);
-	if( keyWordsFound.test(eCmdWord_Rewrite) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_SelectMacro;
-		return result;
-	}
-
-	// "= 'Move'|'Turn'|'MoveTurn' <aCmdDir>"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Move);
-	allowedKeyWords.set(eCmdWord_Turn);
-	if( allowHoldActions &&
-		(keyWordsFound & allowedKeyWords).any() &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_MoveTurn;
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Turn);
-
-	// "= 'Strafe|MoveStrafe' <aCmdDir>"
-	// allowedKeyWords = Move
-	allowedKeyWords.set(eCmdWord_Strafe);
-	if( allowHoldActions &&
-		keyWordsFound.test(eCmdWord_Strafe) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_MoveStrafe;
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Strafe);
-
-	// "= [Move] Mouse <aCmdDir>"
-	// allowedKeyWords = Move
-	allowedKeyWords.set(eCmdWord_Mouse);
-	if( allowHoldActions &&
-		keyWordsFound.test(eCmdWord_Mouse) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_MoveMouse;
-		return result;
+		// "= [Select] Hotspot <aCmdDir>"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Select);
+		allowedKeyWords.set(eCmdWord_Hotspot);
+		if( keyWordsFound.test(eCmdWord_Hotspot) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_HotspotSelect;
+			return result;
+		}
 	}
 
-	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Smooth] <aCmdDir>"
-	// allowedKeyWords = Move & Mouse
-	allowedKeyWords.set(eCmdWord_MouseWheel);
-	allowedKeyWords.set(eCmdWord_Smooth);
-	if( allowHoldActions &&
-		keyWordsFound.test(eCmdWord_MouseWheel) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+	if( allowHoldActions )
 	{
-		result.type = eCmdType_MouseWheel;
-		result.data2 = eMouseWheelMotion_Smooth;
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Smooth);
+		// "= 'Move'|'Turn'|'MoveTurn' <aCmdDir>"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Move);
+		allowedKeyWords.set(eCmdWord_Turn);
+		if( (keyWordsFound & allowedKeyWords).any() &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MoveTurn;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Turn);
 
-	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Step[ped] <aCmdDir>"
-	// allowedKeyWords = Move & Mouse & Wheel
-	allowedKeyWords.set(eCmdWord_Stepped);
-	if( allowHoldActions &&
-		keyWordsFound.test(eCmdWord_MouseWheel) &&
-		keyWordsFound.test(eCmdWord_Stepped) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_MouseWheel;
-		result.data2 = eMouseWheelMotion_Stepped;
-		return result;
+		// "= 'Strafe|MoveStrafe' <aCmdDir>"
+		// allowedKeyWords = Move
+		allowedKeyWords.set(eCmdWord_Strafe);
+		if( keyWordsFound.test(eCmdWord_Strafe) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MoveStrafe;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Strafe);
+
+		// "= [Move] Mouse <aCmdDir>"
+		// allowedKeyWords = Move
+		allowedKeyWords.set(eCmdWord_Mouse);
+		if( keyWordsFound.test(eCmdWord_Mouse) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MoveMouse;
+			return result;
+		}
+
+		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Smooth] <aCmdDir>"
+		// allowedKeyWords = Move & Mouse
+		allowedKeyWords.set(eCmdWord_MouseWheel);
+		allowedKeyWords.set(eCmdWord_Smooth);
+		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MouseWheel;
+			result.data2 = eMouseWheelMotion_Smooth;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Smooth);
+
+		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Step[ped] <aCmdDir>"
+		// allowedKeyWords = Move & Mouse & Wheel
+		allowedKeyWords.set(eCmdWord_Stepped);
+		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+			keyWordsFound.test(eCmdWord_Stepped) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MouseWheel;
+			result.data2 = eMouseWheelMotion_Stepped;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Stepped);
+
+		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' <aCmdDir> Once"
+		// allowedKeyWords = Move & Mouse & Wheel
+		allowedKeyWords.set(eCmdWord_Once);
+		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+			keyWordsFound.test(eCmdWord_Stepped) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MouseWheel;
+			result.data2 = eMouseWheelMotion_Once;
+			return result;
+		}
 	}
-	allowedKeyWords.reset(eCmdWord_Stepped);
-	
-	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Once] <aCmdDir>"
-	// 'Once' is only optional when NOT assigning to a hold action
-	// allowedKeyWords = Move & Mouse & Wheel
-	allowedKeyWords.set(eCmdWord_Once);
-	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
-		(!allowHoldActions ||
-		 keyWordsFound.test(eCmdWord_Once)) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+	else if( allowButtonActions )
 	{
-		result.type = eCmdType_MouseWheel;
-		result.data2 = eMouseWheelMotion_Once;
-		return result;
+		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Once] <aCmdDir>"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Move);
+		allowedKeyWords.set(eCmdWord_Mouse);
+		allowedKeyWords.set(eCmdWord_MouseWheel);
+		allowedKeyWords.set(eCmdWord_Once);
+		if( allowButtonActions &&
+			keyWordsFound.test(eCmdWord_MouseWheel) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MouseWheel;
+			result.data2 = eMouseWheelMotion_Once;
+			return result;
+		}
 	}
 
 	DBG_ASSERT(result.type == eCmdType_Empty);
@@ -876,8 +1026,9 @@ static Command wordsToSpecialCommand(
 
 static Command stringToCommand(
 	InputMapBuilder& theBuilder,
-	std::string theString,
+	const std::string& theString,
 	u16 theControlsLayerIndex = 0,
+	bool allowButtonActions = false,
 	bool allowHoldActions = false)
 {
 	Command result;
@@ -909,6 +1060,7 @@ static Command stringToCommand(
 		theBuilder,
 		theBuilder.parsedString,
 		theControlsLayerIndex,
+		allowButtonActions,
 		allowHoldActions);
 
 	// Check for alias to a keybind
@@ -1192,16 +1344,6 @@ static EResult stringToHotspotCoord(
 	if( isOffsetNegative )
 		out.offset = -out.offset;
 
-	/*
-	std::string aConvertedString = theString.substr(0, aCharPos);
-	mapDebugPrint("Converted '%s' to '%d/%d%s%d' (origin: %d offset: %d)\n",
-		aConvertedString.c_str(),
-		aNumerator, aDenominator ? aDenominator : 1,
-		isOffsetNegative ? "-" : "+",
-		anOffset,
-		out.origin, out.offset);
-	*/
-
 	// Remove processed section from start of string
 	theString = theString.substr(aCharPos);
 
@@ -1422,12 +1564,12 @@ static void addButtonAction(
 		logError("Unable to identify Gamepad Button '%s%s' requested in [%s]",
 			kButtonActionPrefx[aBtnAct],
 			theBtnName.c_str(),
-			theBuilder.debugSlotName.c_str());
+			theBuilder.debugItemName.c_str());
 		return;
 	}
 
 	Command aCmd = stringToCommand(
-		theBuilder, theCmdStr, theLayerIdx, aBtnAct == eBtnAct_Down);
+		theBuilder, theCmdStr, theLayerIdx, true, aBtnAct == eBtnAct_Down);
 
 	// Convert eCmdType_TapKey to eCmdType_PressAndHoldKey? 
 	// True "while held down" only works with a single key (w/ mods),
@@ -1444,7 +1586,7 @@ static void addButtonAction(
 	if( aCmd.type == eCmdType_Empty && !theCmdStr.empty() )
 	{
 		logError("[%s]: Not sure how to assign '%s%s%s' to '%s'!",
-			theBuilder.debugSlotName.c_str(),
+			theBuilder.debugItemName.c_str(),
 			kButtonActionPrefx[aBtnAct],
 			kButtonActionPrefx[aBtnAct][0] ? " " : "",
 			kProfileButtonName[aBtnID],
@@ -1455,49 +1597,59 @@ static void addButtonAction(
 	// Make the assignment!
 	sLayers[theLayerIdx].map.findOrAdd(aBtnID).cmd[aBtnAct] = aCmd;
 
-	mapDebugPrint("[%s]: Assigned '%s%s%s' to '%s'\n",
-		theBuilder.debugSlotName.c_str(),
-		kButtonActionPrefx[aBtnAct],
-		kButtonActionPrefx[aBtnAct][0] ? " " : "",
-		kProfileButtonName[aBtnID],
-		theCmdStr.empty() ? "<Do Nothing>" : theCmdStr.c_str());
-}
-
-
-static void updateLayerHUDSettings(
-	InputMapBuilder& theBuilder,
-	size_t theLayerIdx,
-	const std::string& theString)
-{
-	// Break the string into individual words
-	theBuilder.parsedString.clear();
-	sanitizeSentence(upper(theString), theBuilder.parsedString);
-	
-	bool show = true;
-	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+	switch(aCmd.type)
 	{
-		const std::string& anElementName = upper(theBuilder.parsedString[i]);
-		const EHUDElement aHUD_ID = hudElementNameToID(anElementName);
-		if( aHUD_ID != eHUDElement_Num )
-		{
-			sLayers[theLayerIdx].showHUD.set(aHUD_ID, show);
-			sLayers[theLayerIdx].hideHUD.set(aHUD_ID, !show);
-		}
-		else if( anElementName == "HIDE" )
-		{
-			show = false;
-		}
-		else if( anElementName == "SHOW" )
-		{
-			show = true;
-		}
-		else
-		{
-			logError("Uknown HUD element(s) specified for [%s]: %s",
-				theBuilder.debugSlotName.c_str(),
-				theString.c_str());
-			return;
-		}
+	case eCmdType_Empty:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to: <Do Nothing>\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID]);
+		break;
+	case eCmdType_SlashCommand:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
+			sKeyStrings[aCmd.data].c_str());
+		break;
+	case eCmdType_SayString:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
+			sKeyStrings[aCmd.data].c_str() + 1);
+	case eCmdType_TapKey:
+	case eCmdType_PressAndHoldKey:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to: %s (%s%s%s%s)\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
+			theCmdStr.c_str(),
+			!!(aCmd.data & kVKeyShiftFlag) ? "Shift+" : "",
+			!!(aCmd.data & kVKeyCtrlFlag) ? "Ctrl+" : "",
+			!!(aCmd.data & kVKeyAltFlag) ? "Alt+" : "",
+			virtualKeyToName(aCmd.data & kVKeyMask).c_str());
+		break;
+	case eCmdType_VKeySequence:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to sequence: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
+			theCmdStr.c_str());
+		break;
+	default:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to command: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[aBtnAct],
+			kButtonActionPrefx[aBtnAct][0] ? " " : "",
+			kProfileButtonName[aBtnID],
+			theCmdStr.c_str());
+		break;
 	}
 }
 
@@ -1518,13 +1670,13 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	}
 
 	const std::string& aLayerName = sLayers[theLayerIdx].label;
-	theBuilder.debugSlotName.clear();
+	theBuilder.debugItemName.clear();
 	if( theLayerIdx != 0 )
 	{
-		theBuilder.debugSlotName = kLayerPrefix;
+		theBuilder.debugItemName = kLayerPrefix;
 		mapDebugPrint("Building controls layer: %s\n", aLayerName.c_str());
 	}
-	theBuilder.debugSlotName += aLayerName;
+	theBuilder.debugItemName += aLayerName;
 
 	std::string aLayerPrefix;
 	if( theLayerIdx == 0 )
@@ -1544,14 +1696,10 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		itr != aSettings.end(); ++itr)
 	{
 		const std::string aKey = itr->first;
-		if( aKey == kIncludeKey || aKey == kMouseLookKey )
+		if( aKey == kIncludeKey ||
+			aKey == kMouseLookKey ||
+			aKey == kHUDSettingsKey )
 			continue;
-
-		if( aKey == kHUDSettingsKey )
-		{
-			updateLayerHUDSettings(theBuilder, theLayerIdx, itr->second);
-			continue;
-		}
 
 		// Parse and add assignment to this layer's commands map
 		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second);
@@ -1570,103 +1718,204 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 }
 
 
-static MacroSlot stringToMacroSlot(
+static MenuItem stringToMenuItem(
 	InputMapBuilder& theBuilder,
-	size_t theMacroSet,
+	u16 theRootMenuID,
+	u16 theMenuID,
 	std::string theString)
 {
-	MacroSlot aMacroSlot;
+	MenuItem aMenuItem;
 	if( theString.empty() )
 	{
 		mapDebugPrint("%s: Left <unnamed> and <unassigned>!\n",
-			theBuilder.debugSlotName.c_str());
-		return aMacroSlot;
+			theBuilder.debugItemName.c_str());
+		return aMenuItem;
 	}
 
 	// Get the label (part of the string before first colon)
-	aMacroSlot.label = breakOffItemBeforeChar(theString, ':');
+	aMenuItem.label = breakOffItemBeforeChar(theString, ':');
 
-	if( aMacroSlot.label.empty() && !theString.empty() )
-	{// Having no : character means this points to a sub-set
-		aMacroSlot.label = trim(theString);
-		aMacroSlot.cmd.type = eCmdType_ChangeMacroSet;
-		aMacroSlot.cmd.data = u16(sMacroSets.size());
-		sMacroSets.push_back(MacroSet());
-		sMacroSets.back().label =
-			sMacroSets[theMacroSet].label +
-			"." + aMacroSlot.label;
-		mapDebugPrint("%s: Macro Set: '%s'\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str());
-		return aMacroSlot;
+	if( aMenuItem.label.empty() && !theString.empty() )
+	{// Having no : character means this points to a sub-menu
+		aMenuItem.label = trim(theString);
+		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
+		aMenuItem.cmd.data = u16(sMenus.size());
+		sMenus.push_back(Menu());
+		sMenus.back().rootMenuID = theRootMenuID;
+		sMenus.back().label = aMenuItem.label;
+		theBuilder.menuFullPathStrings.push_back(
+			theBuilder.menuFullPathStrings[theMenuID] +
+			"." + aMenuItem.label);
+		mapDebugPrint("%s: Sub-Menu: '%s'\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str());
+		return aMenuItem;
 	}
 
 	if( theString.empty() )
 	{
-		mapDebugPrint("%s: Macro '%s' left <unassigned>!\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str());
-		return aMacroSlot;
+		mapDebugPrint("%s: '%s' left <unassigned>!\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str());
+		return aMenuItem;
 	}
 
-	aMacroSlot.cmd = stringToCommand(theBuilder, theString);
+	aMenuItem.cmd = stringToCommand(theBuilder, theString);
 
-	switch(aMacroSlot.cmd.type)
+	switch(aMenuItem.cmd.type)
 	{
 	case eCmdType_SlashCommand:
+		mapDebugPrint("%s: '%s' assigned to macro: %s\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str(), theString.c_str());
+		break;
 	case eCmdType_SayString:
-		mapDebugPrint("%s: Macro '%s' assigned to string: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
+		mapDebugPrint("%s: '%s' assigned to macro: %s\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str(), theString.c_str() + 1);
 		break;
 	case eCmdType_TapKey:
-		mapDebugPrint("%s: Macro '%s' assigned to key/button: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
+		mapDebugPrint("%s: '%s' assigned to: %s (%s%s%s%s)\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str(),
+			theString.c_str(),
+			!!(aMenuItem.cmd.data & kVKeyShiftFlag) ? "Shift+" : "",
+			!!(aMenuItem.cmd.data & kVKeyCtrlFlag) ? "Ctrl+" : "",
+			!!(aMenuItem.cmd.data & kVKeyAltFlag) ? "Alt+" : "",
+			virtualKeyToName(aMenuItem.cmd.data & kVKeyMask).c_str());
 		break;
 	case eCmdType_VKeySequence:
-		mapDebugPrint("%s: Macro '%s' assigned to key sequence: %s\n",
-			theBuilder.debugSlotName.c_str(),
-			aMacroSlot.label.c_str(), theString.c_str());
+		mapDebugPrint("%s: '%s' assigned to sequence: %s\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str(), theString.c_str());
 		break;
 	case eCmdType_Empty:
 		// Probably just forgot the > at front of a plain string
 		sKeyStrings.push_back(std::string(">") + theString);
-		aMacroSlot.cmd.type = eCmdType_SayString;
-		aMacroSlot.cmd.data = u16(sKeyStrings.size()-1);
-		logError("%s: Macro '%s' unsure of meaning of '%s'. "
-				 "Assigning as a chat box say string. "
+		aMenuItem.cmd.type = eCmdType_SayString;
+		aMenuItem.cmd.data = u16(sKeyStrings.size()-1);
+		logError("%s: '%s' unsure of meaning of '%s'. "
+				 "Assigning as a chat box string. "
 				 "Add > to start of it if this was the intent!",
-				theBuilder.debugSlotName.c_str(),
-		aMacroSlot.label.c_str(), theString.c_str());
+				theBuilder.debugItemName.c_str(),
+		aMenuItem.label.c_str(), theString.c_str());
+		break;
+	default:
+		mapDebugPrint("%s: '%s' assigned to command: %s\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str(), theString.c_str());
 		break;
 	}
 
-	return aMacroSlot;
+	return aMenuItem;
 }
 
 
-static void buildMacroSets(InputMapBuilder& theBuilder)
+static void buildMenus(InputMapBuilder& theBuilder)
 {
-	mapDebugPrint("Building Macro Sets...\n");
+	mapDebugPrint("Building Menus...\n");
 
-	sMacroSets.push_back(MacroSet());
-	sMacroSets.back().label = kMainMacroSetLabel;
-	for(size_t aSet = 0; aSet < sMacroSets.size(); ++aSet )
+	for(u16 aMenuID = 0; aMenuID < sMenus.size(); ++aMenuID)
 	{
-		const std::string& aPrefix = condense(sMacroSets[aSet].label);
-		for(size_t aSlot = 0; aSlot < kMacroSlotsPerSet; ++aSlot)
-		{
-			theBuilder.debugSlotName = std::string("[") +
-				sMacroSets[aSet].label + "] (" +
-				kMacroSlotLabel[aSlot] + ")";
+		DBG_ASSERT(aMenuID < theBuilder.menuFullPathStrings.size());
+		const std::string aPrefix =
+			theBuilder.menuFullPathStrings[aMenuID];
+		const u16 aRootMenuID = sMenus[aMenuID].rootMenuID;
+		DBG_ASSERT(aRootMenuID < sRootMenus.size());
+		const EMenuStyle aMenuStyle = sRootMenus[aRootMenuID].style;
+		const std::string aDebugNamePrefix =
+			std::string("[") + aPrefix + "] (";
 
-			sMacroSets[aSet].slot[aSlot] =
-				stringToMacroSlot(
-					theBuilder,
-					aSet,
-					Profile::getStr(
-						aPrefix + "/" + kMacroSlotLabel[aSlot]));
+		u16 itemIdx = 0;
+		const u16 minItems = aMenuStyle == eMenuStyle_4Dir ? 4 : 1;
+		const u16 maxItems = aMenuStyle == eMenuStyle_4Dir ? 4 : 16384;
+		sMenus[aMenuID].items.reserve(minItems);
+		bool lastItemWasFound = false;
+		while(itemIdx < maxItems &&
+			  (itemIdx < minItems || lastItemWasFound))
+		{
+			std::string aMenuItemKeyName =
+				kMenuItemLabelPrefix + toString(itemIdx+1);
+			std::string aMenuItemString = Profile::getStr(
+				aPrefix + "/" + aMenuItemKeyName);
+			if( aMenuItemString.empty() &&
+				aMenuStyle == eMenuStyle_4Dir &&
+				itemIdx < minItems )
+			{
+				aMenuItemKeyName = k4DirMenuItemLabel[itemIdx];
+				aMenuItemString = Profile::getStr(
+					aPrefix + "/" + aMenuItemKeyName);
+			}
+			lastItemWasFound = !aMenuItemString.empty();
+			if( lastItemWasFound || itemIdx < minItems )
+			{
+				theBuilder.debugItemName =
+					aDebugNamePrefix + aMenuItemKeyName + ")";
+				sMenus[aMenuID].items.push_back(
+					stringToMenuItem(
+						theBuilder,
+						aRootMenuID,
+						aMenuID,
+						aMenuItemString));
+			}
+			++itemIdx;
+		}
+	}	
+}
+
+
+static void buildHUDElements(InputMapBuilder& theBuilder)
+{
+	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
+	{
+		sLayers[aLayerID].hideHUD.clearAndResize(hudElementCount());
+		sLayers[aLayerID].showHUD.clearAndResize(hudElementCount());
+		std::string aLayerHUDKey = sLayers[aLayerID].label;
+		if( aLayerID == 0 )
+			aLayerHUDKey += "/";
+		else
+			aLayerHUDKey = std::string(kLayerPrefix)+aLayerHUDKey+"/";
+		aLayerHUDKey += kHUDSettingsKey;
+		const std::string& aLayerHUDDescription =
+			Profile::getStr(aLayerHUDKey);
+
+		if( aLayerHUDDescription.empty() )
+			continue;
+
+		// Break the string into individual words
+		theBuilder.parsedString.clear();
+		sanitizeSentence(upper(aLayerHUDDescription), theBuilder.parsedString);
+		
+		bool show = true;
+		for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+		{
+			const std::string& anElementName = upper(theBuilder.parsedString[i]);
+			if( u16* anElementIdx =
+				theBuilder.rootMenuNameToIdxMap.find(anElementName) )
+			{
+				DBG_ASSERT(*anElementIdx < hudElementCount());
+				sLayers[aLayerID].showHUD.set(*anElementIdx, show);
+				sLayers[aLayerID].hideHUD.set(*anElementIdx, !show);
+			}
+			else if( anElementName == "HIDE" )
+			{
+				show = false;
+			}
+			else if( anElementName == "SHOW" )
+			{
+				show = true;
+			}
+			else
+			{
+				theBuilder.debugItemName.clear();
+				if( aLayerID != 0 )
+					theBuilder.debugItemName = kLayerPrefix;
+				theBuilder.debugItemName += sLayers[aLayerID].label;
+				logError("Uknown HUD element(s) specified for [%s]: %s",
+					theBuilder.debugItemName.c_str(),
+					aLayerHUDDescription.c_str());
+				return;
+			}
 		}
 	}
 }
@@ -1745,13 +1994,57 @@ void setCStringPointerFor(Command* theCommand)
 }
 
 
-void convertKeyStringIndexesToPointers()
+//-----------------------------------------------------------------------------
+// Global Functions
+//-----------------------------------------------------------------------------
+
+void loadProfile()
 {
-	for(std::vector<MacroSet>::iterator itr = sMacroSets.begin();
-		itr != sMacroSets.end(); ++itr)
+	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
+	sHotspots.clear();
+	sKeyStrings.clear();
+	sLayers.clear();
+	sRootMenus.clear();
+	sMenus.clear();
+
+	// Create temp builder object and build everything from the Profile data
 	{
-		for(size_t i = 0; i < kMacroSlotsPerSet; ++i)
-			setCStringPointerFor(&itr->slot[i].cmd);
+		InputMapBuilder anInputMapBuilder;
+		buildGlobalHotspots(anInputMapBuilder);
+		buildCommandAliases(anInputMapBuilder);
+		buildControlScheme(anInputMapBuilder);
+		buildMenus(anInputMapBuilder);
+		buildHUDElements(anInputMapBuilder);
+		assignSpecialKeys(anInputMapBuilder);
+	}
+
+	// Trim unused memory
+	if( sHotspots.size() < sHotspots.capacity() )
+		std::vector<Hotspot>(sHotspots).swap(sHotspots);
+	if( sKeyStrings.size() < sKeyStrings.capacity() )
+		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
+	if( sLayers.size() < sLayers.capacity() )
+		std::vector<ControlsLayer>(sLayers).swap(sLayers);
+	if( sRootMenus.size() < sRootMenus.capacity() )
+		std::vector<RootMenu>(sRootMenus).swap(sRootMenus);
+	if( sMenus.size() < sMenus.capacity() )
+		std::vector<Menu>(sMenus).swap(sMenus);
+
+	// Now that are done messing with resizing vectors which can
+	// invalidate pointers, can convert Commands with 'data' field
+	// being an sKeyStrings index into having direct pointers to
+	// the C-strings for use in other modules.
+	for(std::vector<Menu>::iterator itr = sMenus.begin();
+		itr != sMenus.end(); ++itr)
+	{
+		// Trim unused memory while here anyway
+		if( itr->items.size() < itr->items.capacity() )
+			std::vector<MenuItem>(itr->items).swap(itr->items);
+		for(std::vector<MenuItem>::iterator itr2 = itr->items.begin();
+			itr2 != itr->items.end(); ++itr2)
+		{
+			setCStringPointerFor(&itr2->cmd);
+		}
 	}
 
 	for(std::vector<ControlsLayer>::iterator itr = sLayers.begin();
@@ -1767,70 +2060,10 @@ void convertKeyStringIndexesToPointers()
 }
 
 
-//-----------------------------------------------------------------------------
-// Global Functions
-//-----------------------------------------------------------------------------
-
-void loadProfile()
+u16 keyForSpecialAction(ESpecialKey theAction)
 {
-	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
-	sHotspots.clear();
-	sKeyStrings.clear();
-	sLayers.clear();
-	sMacroSets.clear();
-
-	// Create temp builder object and build everything from the Profile data
-	{
-		InputMapBuilder anInputMapBuilder;
-		buildGlobalHotspots(anInputMapBuilder);
-		buildCommandAliases(anInputMapBuilder);
-		buildControlScheme(anInputMapBuilder);
-		buildMacroSets(anInputMapBuilder);
-		assignSpecialKeys(anInputMapBuilder);
-	}
-
-	// Trim unused memory
-	if( sHotspots.size() < sHotspots.capacity() )
-		std::vector<Hotspot>(sHotspots).swap(sHotspots);
-	if( sKeyStrings.size() < sKeyStrings.capacity() )
-		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
-	if( sLayers.size() < sLayers.capacity() )
-		std::vector<ControlsLayer>(sLayers).swap(sLayers);
-	if( sMacroSets.size() < sMacroSets.capacity() )
-		std::vector<MacroSet>(sMacroSets).swap(sMacroSets);
-
-	// Now that are done messing with resizing vectors which can
-	// invalidate pointers, can convert Commands with 'data' field
-	// being an sKeyStrings index into having direct pointers to
-	// the C-strings for use in other modules.
-	convertKeyStringIndexesToPointers();
-}
-
-
-size_t availableLayerCount()
-{
-	return sLayers.size();
-}
-
-
-bool mouseLookShouldBeOn(u16 theLayerID)
-{
-	DBG_ASSERT(theLayerID < sLayers.size());
-	return sLayers[theLayerID].mouseLookOn;
-}
-
-
-const BitArray<eHUDElement_Num>& hudElementsToShow(u16 theLayerID)
-{
-	DBG_ASSERT(theLayerID < sLayers.size());
-	return sLayers[theLayerID].showHUD;
-}
-
-
-const BitArray<eHUDElement_Num>& hudElementsToHide(u16 theLayerID)
-{
-	DBG_ASSERT(theLayerID < sLayers.size());
-	return sLayers[theLayerID].hideHUD;
+	DBG_ASSERT(theAction < eSpecialKey_Num);
+	return sSpecialKeys[theAction];
 }
 
 
@@ -1856,19 +2089,48 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 }
 
 
-const Command& commandForMacro(u16 theMacroSetID, u8 theMacroSlotID)
+bool mouseLookShouldBeOn(u16 theLayerID)
 {
-	DBG_ASSERT(theMacroSetID < sMacroSets.size());
-	DBG_ASSERT(theMacroSlotID < kMacroSlotsPerSet);
-	
-	return sMacroSets[theMacroSetID].slot[theMacroSlotID].cmd;
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].mouseLookOn;
 }
 
 
-u16 keyForSpecialAction(ESpecialKey theAction)
+const BitVector<>& hudElementsToShow(u16 theLayerID)
 {
-	DBG_ASSERT(theAction < eSpecialKey_Num);
-	return sSpecialKeys[theAction];
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].showHUD;
+}
+
+
+const BitVector<>& hudElementsToHide(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].hideHUD;
+}
+
+
+const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());
+	
+	return sMenus[theMenuID].items[theMenuItemIdx].cmd;
+}
+
+
+EMenuStyle menuStyle(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	DBG_ASSERT(sMenus[theMenuID].rootMenuID < sRootMenus.size());
+	return sRootMenus[sMenus[theMenuID].rootMenuID].style;
+}
+
+
+u16 rootMenuOfMenu(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	return sMenus[theMenuID].rootMenuID;
 }
 
 
@@ -1879,9 +2141,40 @@ const Hotspot& getHotspot(u16 theHotspotID)
 }
 
 
+u16 controlsLayerCount()
+{
+	return u16(sLayers.size());
+}
+
+
+u16 hudElementCount()
+{
+	return u16(sRootMenus.size());
+}
+
+
+u16 menuCount()
+{
+	return u16(sMenus.size());
+}
+
+
+u16 menuItemCount(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	return u16(sMenus[theMenuID].items.size());
+}
+
+
 u8 targetGroupSize()
 {
 	return sTargetGroupSize;
+}
+
+
+u16 hotspotCount()
+{
+	return u16(sHotspots.size());
 }
 
 
@@ -1891,13 +2184,18 @@ const std::string& layerLabel(u16 theLayerID)
 	return sLayers[theLayerID].label;
 }
 
-
-const std::string& macroLabel(u16 theMacroSetID, u8 theMacroSlotID)
+const std::string& menuLabel(u16 theMenuID)
 {
-	DBG_ASSERT(theMacroSetID < sMacroSets.size());
-	DBG_ASSERT(theMacroSlotID < kMacroSlotsPerSet);
+	DBG_ASSERT(theMenuID < sMenus.size());
+	return sMenus[theMenuID].label;
+}
 
-	return sMacroSets[theMacroSetID].slot[theMacroSlotID].label;
+const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());
+	
+	return sMenus[theMenuID].items[theMenuItemIdx].label;
 }
 
 } // InputMap

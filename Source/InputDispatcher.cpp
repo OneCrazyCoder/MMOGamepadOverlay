@@ -660,24 +660,10 @@ static void debugPrintInputVector()
 		}
 		else if( anInput.type == INPUT_KEYBOARD )
 		{
-			LONG aScanCode = MapVirtualKey(anInput.ki.wVk, 0) << 16;
-			switch(anInput.ki.wVk)
-			{
-			case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
-			case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
-			case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
-			case VK_NUMLOCK:
-				aScanCode |= (1 << 24);
-			}
-			aScanCode |= (1 << 25);
-			char aKeyName[256];
-			if( GetKeyNameTextA(aScanCode, aKeyName, 256) )
-			{
-				siPrint("%s %s\n",
-					aKeyName,
-					(anInput.ki.dwFlags & KEYEVENTF_KEYUP)
-						? "released" : "pressed");
-			}
+			siPrint("%s %s\n",
+				virtualKeyToName(anInput.ki.wVk),
+				(anInput.ki.dwFlags & KEYEVENTF_KEYUP)
+					? "released" : "pressed");
 		}
 	}
 #undef siPrint

@@ -76,7 +76,7 @@ static const std::string& iniFolderPath()
 	{
 		// Just use our application folder (for now)
 		TCHAR aPath[_MAX_PATH];
-		GetModuleFileNameW(NULL, aPath, _MAX_PATH);
+		GetModuleFileName(NULL, aPath, _MAX_PATH);
 		sFolderPath = getFileDir(narrow(aPath), true);
 		_wchdir(widen(sFolderPath).c_str());
 

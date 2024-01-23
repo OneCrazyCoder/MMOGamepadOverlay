@@ -179,7 +179,31 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 }
 
 
-EButton buttonNameToID(const std::string& theString)
+std::string virtualKeyToName(u8 theVKey)
+{
+	switch(theVKey)
+	{
+	case VK_LBUTTON: return "Left Mouse Button";
+	case VK_MBUTTON: return "Middle Mouse Button";
+	case VK_RBUTTON: return "Right Mouse Button";
+	}
+	LONG aScanCode = MapVirtualKey(theVKey, 0) << 16;
+	switch(theVKey)
+	{
+	case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
+	case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
+	case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
+	case VK_NUMLOCK:
+		aScanCode |= KF_EXTENDED;
+	}
+	char aKeyName[256];
+	if( GetKeyNameTextA(aScanCode, aKeyName, 256) )
+		return aKeyName;
+	return "UNKNOWN";
+}
+
+
+EButton buttonNameToID(const std::string& theName)
 {	
 	struct NameToEnumMapper
 	{
@@ -269,8 +293,44 @@ EButton buttonNameToID(const std::string& theString)
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
-	EButton* result = sNameToEnumMapper.map.find(theString);
+	EButton* result = sNameToEnumMapper.map.find(theName);
 	return result ? *result : eBtn_Num;
+}
+
+
+EMenuStyle menuStyleNameToID(const std::string& theName)
+{
+	struct NameToEnumMapper
+	{
+		typedef StringToValueMap<EMenuStyle, u8> NameToEnumMap;
+		NameToEnumMap map;
+		NameToEnumMapper()
+		{
+			const size_t kMapSize = 15;
+			map.reserve(kMapSize);
+			map.setValue("4DIR",			eMenuStyle_4Dir);
+			map.setValue("CROSS",			eMenuStyle_4Dir);
+			map.setValue("DPAD",			eMenuStyle_4Dir);
+			map.setValue("GRID",			eMenuStyle_Grid);
+			map.setValue("PILLAR",			eMenuStyle_Pillar);
+			map.setValue("PILLARS",			eMenuStyle_Pillar);
+			map.setValue("COLUMN",			eMenuStyle_Pillar);
+			map.setValue("COLUMNS",			eMenuStyle_Pillar);
+			map.setValue("BAR",				eMenuStyle_Bar);
+			map.setValue("BARS",			eMenuStyle_Bar);
+			map.setValue("ROW",				eMenuStyle_Bar);
+			map.setValue("ROWS",			eMenuStyle_Bar);
+			map.setValue("HOTBAR",			eMenuStyle_Bar);
+			map.setValue("RING",			eMenuStlye_Ring);
+			map.setValue("RADIAL",			eMenuStyle_Radial);
+			const size_t actualMapSize = map.size();
+			DBG_ASSERT(actualMapSize == kMapSize);
+		}
+	};
+	static NameToEnumMapper sNameToEnumMapper;
+
+	EMenuStyle* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eMenuStyle_List;
 }
 
 
@@ -282,7 +342,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 74;
+			const size_t kMapSize = 75;
 			map.reserve(kMapSize);
 			map.setValue("ADD",			eCmdWord_Add);
 			map.setValue("REMOVE",		eCmdWord_Remove);
@@ -304,14 +364,14 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("SELECT",		eCmdWord_Select);
 			map.setValue("HOTSPOT",		eCmdWord_Hotspot);
 			map.setValue("RESET",		eCmdWord_Reset);
-			map.setValue("REWRITE",		eCmdWord_Rewrite);
-			map.setValue("MACRO",		eCmdWord_Macro);
-			map.setValue("MACROS",		eCmdWord_Macro);
+			map.setValue("REASSIGN",	eCmdWord_Reassign);
+			map.setValue("REWRITE",		eCmdWord_Reassign);
 			map.setValue("MENU",		eCmdWord_Menu);
 			map.setValue("CONFIRM",		eCmdWord_Confirm);
 			map.setValue("B",			eCmdWord_Back);
 			map.setValue("BACK",		eCmdWord_Back);
 			map.setValue("CANCEL",		eCmdWord_Back);
+			map.setValue("CLOSE",		eCmdWord_Close);
 			map.setValue("TARGET",		eCmdWord_Target);
 			map.setValue("GROUP",		eCmdWord_Group);
 			map.setValue("L",			eCmdWord_Left);
@@ -351,6 +411,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("LAST",		eCmdWord_Last);
 			map.setValue("PET",			eCmdWord_Pet);
 			map.setValue("A",			eCmdWord_Filler);
+			map.setValue("AND",			eCmdWord_Filler);
 			map.setValue("THE",			eCmdWord_Filler);
 			map.setValue("IN",			eCmdWord_Filler);
 			map.setValue("TO",			eCmdWord_Filler);
@@ -366,30 +427,4 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 
 	ECommandKeyWord* result = sWordToEnumMapper.map.find(theWord);
 	return result ? *result : eCmdWord_Unknown;
-}
-
-
-EHUDElement hudElementNameToID(const std::string& theString)
-{	
-	struct NameToElemMapper
-	{
-		typedef StringToValueMap<EHUDElement, u8> NameToElemMap;
-		NameToElemMap map;
-		NameToElemMapper()
-		{
-			const size_t kMapSize = 6;
-			map.reserve(kMapSize);
-			map.setValue("MACROS",		eHUDElement_Macros);
-			map.setValue("ABILITIES",	eHUDElement_Abilities);
-			map.setValue("ABILITY",		eHUDElement_Abilities);
-			map.setValue("SPELLS",		eHUDElement_Abilities);
-			map.setValue("GRID",		eHUDElement_Abilities);
-			map.setValue("HOTBAR",		eHUDElement_Abilities);
-			DBG_ASSERT(map.size() == kMapSize);
-		}
-	};
-	static NameToElemMapper sNameToElemMapper;
-
-	EHUDElement* result = sNameToElemMapper.map.find(theString);
-	return result ? *result : eHUDElement_Num;
 }

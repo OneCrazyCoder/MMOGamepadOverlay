@@ -6,9 +6,9 @@
 
 /*
 	Loads and manages the configuration settings for mapping gamepad
-	input to keyboard/mouse input, including stored macro sets.
+	input to keyboard/mouse input, including menu configurations and actions.
 	Also tracks some HUD-related information relevant to control schemes
-	such as macro labels and which HUD elements need to be displayed.
+	such as button labels and which HUD elements need to be displayed.
 */
 
 #include "Common.h"
@@ -19,40 +19,46 @@ namespace InputMap
 // Load the input mappings and macro sets from current profile
 void loadProfile();
 
-// Returns how many valid Controls Layers there are
-size_t availableLayerCount();
+// Get certain special-case keybinds directly
+u16 keyForSpecialAction(ESpecialKey theAction);
 
-// Checks if given controls layer should have mouse look turned on
-bool mouseLookShouldBeOn(u16 theLayerID);
 
-// Gets what HUD elements given layer specifically wants to show
-const BitArray<eHUDElement_Num>& hudElementsToShow(u16 theLayerID);
-
-// Gets what HUD elements given layer specifically wants to hide
-// (overrides any lower layers wishing to show these HUD elements)
-const BitArray<eHUDElement_Num>& hudElementsToHide(u16 theLayerID);
+// CONTROLS LAYERS
 
 // Get commands to execute for given button in given layer, in the
 // form of an array of 'Command' of size 'eBtnAct_Num', or NULL
 // if no commands have been assigned to given layer & button at all
 const Command* commandsForButton(u16 theLayerID, EButton theButton);
 
-// Get command for executing given macro slot in given set
-const Command& commandForMacro(u16 theMacroSetID, u8 theMacroSlotID);
+// Checks if given controls layer should have mouse look turned on
+bool mouseLookShouldBeOn(u16 theLayerID);
 
-// Get certain special-case keybinds directly
-u16 keyForSpecialAction(ESpecialKey theAction);
+// Gets what HUD elements given layer specifically wants to show
+const BitVector<>& hudElementsToShow(u16 theLayerID);
 
-// Get Hotspot values by ID
+// Gets what HUD elements given layer specifically wants to hide
+// (overrides any lower layers wishing to show these HUD elements)
+const BitVector<>& hudElementsToHide(u16 theLayerID);
+
+// MENUS
+const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
+EMenuStyle menuStyle(u16 theMenuID);
+u16 rootMenuOfMenu(u16 theMenuID);
+
+// HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);
 
-// How many Target Group #'s are defined (counting 'self' as Group Member #0)
+// SIZES
+u16 controlsLayerCount();
+u16 hudElementCount();
+u16 menuCount();
+u16 menuItemCount(u16 theMenuID);
+u16 hotspotCount(); 
 u8 targetGroupSize();
 
-// Get controls layer name (label) for given ID
+// LABELS
 const std::string& layerLabel(u16 theLayerID); 
-
-// Get macro name (label) for given macro set & slot
-const std::string& macroLabel(u16 theMacroSetID, u8 theMacroSlotID);
+const std::string& menuLabel(u16 theMenuID);
+const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
 
 } // InputMap
