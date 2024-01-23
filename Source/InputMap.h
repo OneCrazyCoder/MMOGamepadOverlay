@@ -47,6 +47,12 @@ u16 rootMenuOfMenu(u16 theMenuID);
 
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);
+EResult profileStringToHotspot(std::string& theString, Hotspot& out);
+
+// HUD ELEMENTS
+EHUDType hudElementType(u16 theHUDElementID);
+// Returns menuCount() if HUD element isn't associated with a menu
+u16 menuForHUDElement(u16 theHUDElementID);
 
 // SIZES
 u16 controlsLayerCount();
@@ -60,5 +66,6 @@ u8 targetGroupSize();
 const std::string& layerLabel(u16 theLayerID); 
 const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
+const std::string& hudElementLabel(u16 theHUDElementID);
 
 } // InputMap

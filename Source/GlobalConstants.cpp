@@ -306,8 +306,12 @@ EMenuStyle menuStyleNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			const size_t kMapSize = 15;
+			const size_t kMapSize = 19;
 			map.reserve(kMapSize);
+			map.setValue("LIST",			eMenuStyle_List);
+			map.setValue("BASIC",			eMenuStyle_List);
+			map.setValue("DEFAULT",			eMenuStyle_List);
+			map.setValue("NORMAL",			eMenuStyle_List);
 			map.setValue("4DIR",			eMenuStyle_4Dir);
 			map.setValue("CROSS",			eMenuStyle_4Dir);
 			map.setValue("DPAD",			eMenuStyle_4Dir);
@@ -330,7 +334,33 @@ EMenuStyle menuStyleNameToID(const std::string& theName)
 	static NameToEnumMapper sNameToEnumMapper;
 
 	EMenuStyle* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eMenuStyle_List;
+	return result ? *result : eMenuStyle_Num;
+}
+
+
+EHUDType hudTypeNameToID(const std::string& theName)
+{
+	u16 aMenuStyle = menuStyleNameToID(theName);
+	if( aMenuStyle < eMenuStyle_Num )
+		return EHUDType(aMenuStyle);
+
+	struct NameToEnumMapper
+	{
+		typedef StringToValueMap<EHUDType, u8> NameToEnumMap;
+		NameToEnumMap map;
+		NameToEnumMapper()
+		{
+			const size_t kMapSize = 1;
+			map.reserve(kMapSize);
+			map.setValue("RETICLE",	eHUDType_Reticle);
+			const size_t actualMapSize = map.size();
+			DBG_ASSERT(actualMapSize == kMapSize);
+		}
+	};
+	static NameToEnumMapper sNameToEnumMapper;
+
+	EHUDType* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eHUDType_Num;
 }
 
 

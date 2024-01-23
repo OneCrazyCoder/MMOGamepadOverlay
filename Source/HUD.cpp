@@ -22,7 +22,7 @@ namespace HUD
 //-----------------------------------------------------------------------------
 
 enum {
-kNoticeStringDisplayTimePerChar = 40,
+kNoticeStringDisplayTimePerChar = 60,
 kNoticeStringMinTime = 3000,
 };
 
@@ -158,9 +158,9 @@ void update()
 			widen("MMOGO ERROR: ") +
 			gErrorString +
 			widen("\nCheck errorlog.txt for other possible errors!");
-		gErrorString.clear();
 		sErrorMessageTimer = max(kNoticeStringMinTime,
-			int(kNoticeStringDisplayTimePerChar * gErrorString.size()));
+			int(kNoticeStringDisplayTimePerChar * sErrorMessage.size()));
+		gErrorString.clear();
 		OverlayWindow::redraw();
 	}
 	
