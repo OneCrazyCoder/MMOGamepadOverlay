@@ -142,6 +142,7 @@ public:
 
 	void clear() { clearAndResize(0); }
 	void clearAndResize(size_t newSize); // sets all bits to 0
+	void resize(size_t newSize); // sets any newly-added bits to 0
 	void push_back(bool newBitValue = false);
 	void pop_back();
 	// Shrinks capacity as needed to fit current size, possibly resuming use
@@ -880,6 +881,19 @@ template<size_t C> inline void BitVector<C>::clearAndResize(size_t newSize)
 	}
 
 	memset(bits, 0, sizeof(u32) * mArrayLength);
+}
+
+
+template<size_t C> inline void BitVector<C>::resize(size_t newSize)
+{
+	if( mSizeInBits == newSize )
+		return;
+	BitVector<C> tmp(newSize);
+	for(size_t i = 0; i < tmp.mArrayLength; ++i)
+		tmp.bits[i] = this->bits[i];
+	this->clearAndResize(newSize);
+	for(size_t i = 0; i < this->mArrayLength; ++i)
+		this->bits[i] = tmp.bits[i];
 }
 
 

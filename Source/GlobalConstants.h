@@ -182,6 +182,14 @@ enum EMenuStyle
 	eMenuStyle_Num
 };
 
+enum EHUDType
+{
+	eHUDType_GroupTarget = eMenuStyle_Num,
+	eHUDType_Reticle,
+
+	eHUDType_Num
+};
+
 enum ESpecialKey
 {
 	eSpecialKey_MoveF,
@@ -327,8 +335,10 @@ struct MenuState : public ConstructFromZeroInitializedMemory<MenuState>
 extern const char* kProfileButtonName[];
 
 // Conversions between constant values (enums) and strings
+// Strings must already be in all upper-case!
 extern u8 keyNameToVirtualKey(const std::string& theKeyName);
 extern std::string virtualKeyToName(u8 theVKey);
 extern EButton buttonNameToID(const std::string& theName);
 extern EMenuStyle menuStyleNameToID(const std::string& theName);
+extern EHUDType hudTypeNameToID(const std::string& theName);
 extern ECommandKeyWord commandWordToID(const std::string& theWord);
