@@ -553,17 +553,6 @@ bool getBool(const std::string& theKey, bool theDefaultValue)
 }
 
 
-void getIntArray(const std::string& theKey, std::vector<int>& out)
-{
-	const std::string& aString = getStr(theKey);
-	StringsVec aParsedString;
-	sanitizeSentence(aString, aParsedString);
-	out.resize(max(out.size(), aParsedString.size()));
-	for(size_t i = 0; i < aParsedString.size(); ++i)
-		out[i] = intFromString(aParsedString[i]);
-}
-
-
 void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 {
 	const size_t aPrefixLength = thePrefix.length();

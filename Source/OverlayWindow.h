@@ -40,6 +40,10 @@ void redraw();
 u16 hotspotMousePosX(const Hotspot& theHotspot);
 u16 hotspotMousePosY(const Hotspot& theHotspot);
 
+// Gets pixel position relative to GetClientRect()
+int hotspotClientX(const Hotspot& theHotspot);
+int hotspotClientY(const Hotspot& theHotspot);
+
 extern HWND gHandle;
 
 } // OverlayWindow
