@@ -203,45 +203,60 @@ void redraw()
 
 u16 hotspotMousePosX(const Hotspot& theHotspot)
 {
-	u16 result = 32768; // center of desktop
-	if( !gHandle )
-		return result;
-	const int kClientWidth =
-		sWindowClientRect.right - sWindowClientRect.left;
-	const int kDesktopWidth =
-		GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	if( !gHandle ) return 32768; // center of desktop
+	// Client Rect left is always 0
+	const int kClientWidth = sWindowClientRect.right;
+	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 
-	// Start with percentage of client rect as u16 (i.e. 65535 == 100%)
+	// Start with percentage of client rect as u16 (i.e. 65536 == 100%)
 	int aPos = theHotspot.x.origin;
 	// Convert client-rect-relative  pixel position
-	aPos = aPos * kClientWidth / 0xFFFF;
+	aPos = aPos * kClientWidth / 0x10000;
 	// Add pixel offset
 	aPos += theHotspot.x.offset;
 	// Convert to virtual desktop pixel coordinate
 	aPos = max(0, aPos + sDesktopWindowRect.left);
-	// Convert to % of virtual desktop size (again 65535 == 100%)
+	// Convert to % of virtual desktop size (again 65536 == 100%)
 	// Use 64-bit variable temporarily to avoid multiply overflow
-	aPos = min(0xFFFF, s64(aPos) * 0xFFFF / kDesktopWidth);
+	aPos = min(0xFFFF, s64(aPos) * 0x10000 / kDesktopWidth);
 	return u16(aPos);
 }
 
 
 u16 hotspotMousePosY(const Hotspot& theHotspot)
 {
-	u16 result = 32768; // center of desktop
-	if( !gHandle )
-		return result;
-	const int kClientHeight =
-		sWindowClientRect.bottom - sWindowClientRect.top;
-	const int kDesktopHeight =
-		GetSystemMetrics(SM_CYVIRTUALSCREEN);
+	if( !gHandle ) return 32768; // center of desktop
+	const int kClientHeight = sWindowClientRect.bottom;
+	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
 	int aPos = theHotspot.y.origin;
-	aPos = aPos * kClientHeight / 0xFFFF;
+	aPos = aPos * kClientHeight / 0x10000;
 	aPos += theHotspot.y.offset;
 	aPos = max(0, aPos + sDesktopWindowRect.top);
-	aPos = min(0xFFFF, s64(aPos) * 0xFFFF / kDesktopHeight);
+	aPos = min(0xFFFF, s64(aPos) * 0x10000 / kDesktopHeight);
 	return u16(aPos);
+}
+
+
+int hotspotClientX(const Hotspot& theHotspot)
+{
+	if( !gHandle ) return 0; // Left edge of window
+	const int kClientWidth = sWindowClientRect.right;
+	int aPos = theHotspot.x.origin;
+	aPos = aPos * kClientWidth / 0x10000;
+	aPos += theHotspot.x.offset;
+	return aPos;
+}
+
+
+int hotspotClientY(const Hotspot& theHotspot)
+{
+	if( !gHandle ) return 0; // Top edge of window
+	const int kClientHeight = sWindowClientRect.bottom;
+	int aPos = theHotspot.y.origin;
+	aPos = aPos * kClientHeight / 0x10000;
+	aPos += theHotspot.y.offset;
+	return aPos;
 }
 
 } // OverlayWindow

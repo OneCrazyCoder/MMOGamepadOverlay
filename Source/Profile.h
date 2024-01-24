@@ -29,8 +29,6 @@ void queryUserForProfile();
 std::string getStr(const std::string& theKey, const std::string& theDefaultValue = "");
 int getInt(const std::string& theKey, int theDefaultValue = 0);
 bool getBool(const std::string& theKey, bool theDefaultValue = false);
-// If 'out' already has more values than settings file includes, the extras are left as-is
-void getIntArray(const std::string& theKey, std::vector<int>& out);
 // Directly returns all key/value pairs whose keys start with given prefix (category).
 // Returned key names will be in all-caps, no spaces, and with given prefix removed.
 // WARNING: Returned pointers may be invalidated with any modifications to profile!
