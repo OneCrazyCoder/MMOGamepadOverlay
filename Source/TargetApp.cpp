@@ -37,6 +37,7 @@ enum EWindowMode
 	eWindowMode_Unknown,
 	eWindowMode_Normal,
 	eWindowMode_FullScreenWindow,
+	eWindowMode_MaybeFullScreen,
 	eWindowMode_TrueFullScreen,
 };
 
@@ -141,7 +142,7 @@ void checkWindowActive()
 
 	// Target window is not the active foreground window
 	// Hide overlay windows until target window is active again
-	targetDebugPrint("Target window inactive - hiding overlay!\n");
+	targetDebugPrint("Target window inactive! Hiding overlays!\n");
 	WindowManager::hideOverlays();
 	// Trigger checkWindowPosition() to show overlays later
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
@@ -157,34 +158,41 @@ void checkWindowActive()
 void checkWindowZOrder()
 {
 	// TODO - Fix this with new WindowManager module
-	/*
 	if( !sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
-		IsIconic(sTargetWindowHandle) ||
-		!WindowManager::overlaysVisible() )
+		IsIconic(sTargetWindowHandle) )
 		return;
 
 	// If Target isn't a TOPMOST, it must be beneath overlays
 	if( !(GetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST) )
 		return;
 
+	size_t anOverlayCount = WindowManager::visibleOverlayCount();
+	if( anOverlayCount == 0 )
+		return;
+
+	// Loop through windows above target and count our overlays
+	size_t aFoundCount = 0;
 	HWND aWindow = GetWindow(sTargetWindowHandle, GW_HWNDPREV);
-	// GetWindow can sometimes cause an infinite loop, so just
-	// assume no more than 10 windows need to be searched
-	for(int i = 0; i < 10; ++i)
+	// GetWindow can sometimes cause an infinite loop, so just assume
+	// no more than 10+anOverlayCount windows need to be searched
+	for(int i = 0; i < 10+anOverlayCount; ++i)
 	{
 		if( aWindow == NULL )
 			break;
-		if( WindowManager::isOwnedByThisApp(aWindow) )
-			return;
+		if( aWindow != WindowManager::mainHandle() &&
+			WindowManager::isOwnedByThisApp(aWindow) )
+		{
+			if( ++aFoundCount >= anOverlayCount )
+				return;
+		}
 		aWindow = GetWindow(aWindow, GW_HWNDPREV);
 	}
 
-	// Did not find any overlay windows above target!
+	// Did not find all overlay windows above target!
 	targetDebugPrint("Moving overlays back over top of target window!\n");
 	WindowManager::refreshZOrder();
 	WindowManager::showOverlays();
-	*/
 }
 
 
@@ -323,15 +331,24 @@ void checkWindowMode()
 	{
 		aCurrMode = eWindowMode_FullScreenWindow;
 	}
-	else
+	else if( sLastKnownTargetMode == eWindowMode_MaybeFullScreen )
 	{
 		aCurrMode = eWindowMode_TrueFullScreen;
 		// Once detect "true" full-screen, assume really want FSW
 		if( sDesiredTargetMode == eWindowMode_Unknown )
 			sDesiredTargetMode = eWindowMode_FullScreenWindow;
 	}
+	else
+	{
+		// Probably full screen mode, but might be a temporary transition
+		// state. Check again in a second.
+		sLastKnownTargetMode = eWindowMode_MaybeFullScreen;
+		sNextCheckDelay = 1000;
+		return;
+	}
 
-	if( aCurrMode == eWindowMode_TrueFullScreen )
+	if( aCurrMode == eWindowMode_TrueFullScreen &&
+		IsWindow(sTargetWindowHandle) )
 	{
 		// Can't easily force a window out of "true" full-screen mode...
 		// Send Alt+Enter and hope the app responds by time loop back here
