@@ -17,9 +17,9 @@
 #include "InputMap.h"
 #include "InputTranslator.h"
 #include "Menus.h"
-#include "OverlayWindow.h"
 #include "Profile.h"
 #include "TargetApp.h"
+#include "WindowManager.h"
 
 #ifdef _DEBUG
 // Scan for memory leaks
@@ -50,9 +50,9 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		Profile::load();
 		gReloadProfile = false;
 	
-		// Create transparent overlay window
+		// Create main application window
 		if( !hadFatalError() )
-			OverlayWindow::create(hInstance);
+			WindowManager::createMain(hInstance);
 
 		// Load configuration settings for each module from profile
 		if( !hadFatalError() )
@@ -65,6 +65,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			TargetApp::loadProfile();
 			Menus::init();
 			HUD::init();
+			WindowManager::createOverlays(hInstance);
 		}
 
 		// Launch target app if requested and haven't already
@@ -90,6 +91,9 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 				case WM_DEVICECHANGE:
 					Gamepad::checkDeviceChange();
 					break;
+				case WM_SYSCOLORCHANGE:
+					gReloadProfile = true;
+					break;
 				case WM_HOTKEY:
 					if( aWindowsMessage.wParam == kFullScreenHotkeyID )
 						TargetApp::toggleFullScreenMode();
@@ -105,11 +109,14 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			}
 
 			// Update modules
-			Gamepad::update();
-			InputTranslator::update();
-			InputDispatcher::update();
-			OverlayWindow::update();
-			TargetApp::update();
+			if( !gReloadProfile )
+			{
+				Gamepad::update();
+				InputTranslator::update();
+				InputDispatcher::update();
+				WindowManager::update();
+				TargetApp::update();
+			}
 
 			// Yield via Sleep() so sent input can be processed by target
 			const DWORD aTimeTakenByUpdate = timeGetTime() - anUpdateStartTime;
@@ -121,16 +128,14 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			++gAppUpdateCount;
 		}
 
-		// Attempt to report fatal error above OverlayWindow if possible,
-		// otherwise it can end up behind other windows on the desktop.
 		// Note that MessageBox self-closes immediately if WM_QUIT has been
 		// posted, meaning this will fail to report any fatal errors that
-		// happen after user manually closes OverlayWindow. Will instead
+		// happen after user manually closes the main window. Will instead
 		// need to check errorlog.txt for those (if it matters by then).
 		if( hadFatalError() )
 		{
 			MessageBox(
-				OverlayWindow::gHandle,
+				WindowManager::mainHandle(),
 				gErrorString.c_str(),
 				L"MMO Gamepad Overlay Error",
 				MB_OK | MB_ICONERROR);
@@ -141,7 +146,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		Menus::cleanup();
 		InputDispatcher::cleanup();
 		InputTranslator::cleanup();
-		OverlayWindow::destroy();
+		WindowManager::destroyAll(hInstance);
 	}
 
 	// Report performance

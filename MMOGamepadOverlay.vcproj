@@ -487,14 +487,6 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Source\OverlayWindow.cpp"
-			>
-		</File>
-		<File
-			RelativePath=".\Source\OverlayWindow.h"
-			>
-		</File>
-		<File
 			RelativePath=".\Source\Profile.cpp"
 			>
 		</File>
@@ -524,6 +516,14 @@
 		</File>
 		<File
 			RelativePath=".\Source\TargetApp.h"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\WindowManager.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\WindowManager.h"
 			>
 		</File>
 	</Files>

@@ -8,7 +8,6 @@
 #include "InputDispatcher.h"
 #include "InputMap.h"
 #include "Menus.h"
-#include "OverlayWindow.h" // temp hack to force redraw()
 #include "Profile.h"
 
 namespace InputTranslator
@@ -325,8 +324,7 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		break;
 	case eCmdType_OpenSubMenu:
 		Menus::openSubMenu(theCmd.data2, theCmd.data);
-		// TODO: Stop using this temp hack
-		OverlayWindow::redraw();
+		// TODO - replace WindowManager::redraw();
 		break;
 	case eCmdType_MenuReset:
 		Menus::reset(theCmd.data);
@@ -996,8 +994,7 @@ void update()
 		if( gVisibleHUD != wantedHUDElements )
 		{
 			gVisibleHUD = wantedHUDElements;
-			// TODO: Stop using this temp hack
-			OverlayWindow::redraw();
+			// TODO - replace WindowManager::redraw();
 		}
 	}
 

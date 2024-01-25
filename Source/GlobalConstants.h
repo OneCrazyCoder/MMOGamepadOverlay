@@ -324,7 +324,6 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Command>
 	} x, y;
 };
 
-
 struct MenuState : public ConstructFromZeroInitializedMemory<MenuState>
 {
 	u16 subMenuID;

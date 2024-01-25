@@ -7,7 +7,7 @@
 #include "InputMap.h"
 #include "Lookup.h"
 #include "Profile.h"
-#include "OverlayWindow.h" // hotspotMousePosX/Y()
+#include "WindowManager.h" // hotspotMousePosX/Y()
 
 namespace InputDispatcher
 {
@@ -1002,8 +1002,8 @@ void update()
 		Input anInput;
 		anInput.type = INPUT_MOUSE;
 		const Hotspot& aHotspot = InputMap::getHotspot(sTracker.jumpToHotspot);
-		anInput.mi.dx = OverlayWindow::hotspotMousePosX(aHotspot);
-		anInput.mi.dy = OverlayWindow::hotspotMousePosY(aHotspot);
+		anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
+		anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
 		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 		sTracker.inputs.push_back(anInput);		
 		sTracker.jumpToHotspot = 0;

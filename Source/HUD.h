@@ -5,9 +5,9 @@
 #pragma once
 
 /*
-	Renders Heads-Up Display (HUD) elements on the overlay window.
-	Handles the visual representation of menus, button prompts,
-	error messages, and other user interface components.
+	Renders Heads-Up Display (HUD) elements to overlay windows.
+	Handles the visual representation of menus, button prompts, etc.
+	according to preferences set in Profile.
 */
 
 
@@ -16,10 +16,29 @@
 namespace HUD
 {
 
+// Load Profile data and create brushes, fonts, etc.
 void init();
+
+// Free resources such as brushes and fonts
 void cleanup();
 
-void update();
-void render(HWND hWnd, const RECT& theClientRect);
+// Draws given HUD element to given Window
+// Assumes the Window is already positioned correct so can draw at 0,0
+void drawElement(
+	HWND theWindow,
+	u16 theHUDElementID,
+	const POINT& theItemSize,
+	const POINT& theClientSize);
+
+// Get size of each menu item based on full target client size
+POINT menuItemSize(
+	u16 theHUDElementID,
+	const POINT& theClientSize);
+
+// Gets the region position/size for drawing HUD element
+RECT elementRectNeeded(
+	u16 theHUDElementID,
+	const POINT& theItemSize,
+	const RECT& theClientRect);
 
 } // HUD
