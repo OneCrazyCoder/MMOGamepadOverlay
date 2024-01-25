@@ -5,8 +5,8 @@
 #include "TargetApp.h"
 
 #include "InputDispatcher.h" // send Alt+Enter to exit full-screen mode
-#include "OverlayWindow.h"
 #include "Profile.h"
+#include "WindowManager.h"
 
 namespace TargetApp
 {
@@ -106,7 +106,7 @@ void checkWindowExists()
 	HWND aForegroundWindow = GetForegroundWindow();
 	if( aForegroundWindow == NULL ||
 		aForegroundWindow == sTargetWindowHandle ||
-		aForegroundWindow == OverlayWindow::gHandle )
+		WindowManager::isOwnedByThisApp(aForegroundWindow) )
 	{
 		// Don't need to worry about this foreground window
 		return;
@@ -136,14 +136,14 @@ void checkWindowActive()
 		!IsIconic(sTargetWindowHandle) )
 		return;
 
-	if( OverlayWindow::isMinimized() )
+	if( WindowManager::areOverlaysHidden() )
 		return;
 
 	// Target window is not the active foreground window
-	// Hide OverlayWindow until target window is active again
+	// Hide overlay windows until target window is active again
 	targetDebugPrint("Target window inactive - hiding overlay!\n");
-	OverlayWindow::minimize();
-	// Trigger checkWindowPosition() to show OverlayWindow later
+	WindowManager::hideOverlays();
+	// Trigger checkWindowPosition() to show overlays later
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	// Don't interfere with Alt+Enter in other applications
 	if( sFullScreenHotkeyRegistered )
@@ -156,13 +156,15 @@ void checkWindowActive()
 
 void checkWindowZOrder()
 {
+	// TODO - Fix this with new WindowManager module
+	/*
 	if( !sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
 		IsIconic(sTargetWindowHandle) ||
-		!OverlayWindow::gHandle )
+		!WindowManager::overlaysVisible() )
 		return;
 
-	// If Target isn't a TOPMOST, it must be beneath Overlay
+	// If Target isn't a TOPMOST, it must be beneath overlays
 	if( !(GetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST) )
 		return;
 
@@ -173,14 +175,16 @@ void checkWindowZOrder()
 	{
 		if( aWindow == NULL )
 			break;
-		if( aWindow == OverlayWindow::gHandle )
+		if( WindowManager::isOwnedByThisApp(aWindow) )
 			return;
 		aWindow = GetWindow(aWindow, GW_HWNDPREV);
 	}
 
-	// Did not find overlay above target!
-	targetDebugPrint("Moving overlay back over top of target window!\n");
-	OverlayWindow::moveToTopZ();
+	// Did not find any overlay windows above target!
+	targetDebugPrint("Moving overlays back over top of target window!\n");
+	WindowManager::refreshZOrder();
+	WindowManager::showOverlays();
+	*/
 }
 
 
@@ -201,8 +205,8 @@ void checkWindowClosed()
 	}
 	else
 	{
-		OverlayWindow::minimize();
-		targetDebugPrint("Target window closed! Hiding overlay!\n");
+		WindowManager::hideOverlays();
+		targetDebugPrint("Target window closed! Hiding overlays!\n");
 	}
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	SetRect(&sTargetWindowRestoreRect, 0, 0, 0, 0);
@@ -235,7 +239,8 @@ void checkWindowPosition()
 			"Repositioning Overlay to Target (%d x %d -> %d x %d)\n",
 			aWRect.left, aWRect.top, aWRect.right, aWRect.bottom);
 		sTargetWindowRect = aWRect;
-		OverlayWindow::resize(aWRect);
+		WindowManager::resize(aWRect);
+		WindowManager::showOverlays();
 		// Check every update for a bit in case dragging window around
 		sRepeatCheckTime = 500;
 		sNextCheck = eCheck_WindowPosition;
@@ -276,13 +281,18 @@ void checkWindowMode()
 	const HMENU aMenu = GetMenu(sTargetWindowHandle);
 
 	// It is very difficult to detect "true" full screen windows, since
-	// they are set up through another system like Directx rather than
-	// normal Windows API. The assumption made here is that most apps
-	// that used classic full screen mode set unnecessary (on modern
-	// Windows) style flags like WS_POPUP or WS_MAXIMIZE. Thus, if the
-	// window fills the full screen, is borderless, and either wasn't
-	// specifically set that way by code here or doesn't match the
-	// (unignored) flags used here, it is likely a "true" full screen mode.
+	// they are set up through another system like DirectX rather than
+	// normal Windows API. If forceFullScreenWindow is requested though,
+	// it is assumed that any full screen mode NOT set by this override
+	// code must be "true" full screen mode. Checking for a borderless
+	// full-screen-sized window is easy enough, but the trick is knowing
+	// the difference between the target app setting it that way vs this
+	// code. The method employed here is assuming the target app version
+	// won't have the exact same style flags. In particular, WS_POPUP or
+	// WS_MAXIMIZE will often be set, but aren't used here (WS_POPUP may
+	// be needed to initially create a borderless window, but has no real
+	// purpose in modern Windows ater Window creation, and WS_MAXIMIZE
+	// isn't needed if manually set the window size).
 	EWindowMode aCurrMode = eWindowMode_Unknown;
 	if( (aWStyle & kNormalOnlyStyleFlags) || aMenu != NULL )
 	{
@@ -372,7 +382,8 @@ void checkWindowMode()
 			aMonRect.left, aMonRect.top,
 			aMonRectWidth, aMonRectHeight,
 			SWP_FRAMECHANGED);
-		OverlayWindow::moveToTopZ();
+		WindowManager::refreshZOrder();
+		WindowManager::showOverlays();
 		sLastKnownTargetMode = eWindowMode_FullScreenWindow;
 		return;
 	}
