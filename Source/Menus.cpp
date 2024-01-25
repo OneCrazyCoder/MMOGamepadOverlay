@@ -93,7 +93,11 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 	}
 	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
 	if( sMenuInfo[theMenuID].subMenuStack.back() != theSubMenuID )
+	{
 		sMenuInfo[theMenuID].subMenuStack.push_back(theSubMenuID);
+		DBG_ASSERT(theMenuID < gRedrawHUD.size());
+		gRedrawHUD.set(theMenuID);
+	}
 }
 
 
@@ -102,7 +106,11 @@ void closeLastSubMenu(u16 theMenuID)
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID < sMenuInfo.size());
 	if( sMenuInfo[theMenuID].subMenuStack.size() > 1 )
+	{
 		sMenuInfo[theMenuID].subMenuStack.pop_back();
+		DBG_ASSERT(theMenuID < gRedrawHUD.size());
+		gRedrawHUD.set(theMenuID);
+	}
 }
 
 
@@ -110,7 +118,12 @@ void reset(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	sMenuInfo[theMenuID].subMenuStack.resize(1);
+	if( sMenuInfo[theMenuID].subMenuStack.size() > 1 )
+	{
+		sMenuInfo[theMenuID].subMenuStack.resize(1);
+		DBG_ASSERT(theMenuID < gRedrawHUD.size());
+		gRedrawHUD.set(theMenuID);
+	}
 }
 
 

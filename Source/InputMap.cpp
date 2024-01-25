@@ -2026,6 +2026,8 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 		sLayers[aLayerID].hideHUD.resize(sHUDElements.size());
 		sLayers[aLayerID].showHUD.resize(sHUDElements.size());
 	}
+	gVisibleHUD.clearAndResize(sHUDElements.size());
+	gRedrawHUD.clearAndResize(sHUDElements.size());
 }
 
 

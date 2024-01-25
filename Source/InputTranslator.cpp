@@ -324,7 +324,6 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		break;
 	case eCmdType_OpenSubMenu:
 		Menus::openSubMenu(theCmd.data2, theCmd.data);
-		// TODO - replace WindowManager::redraw();
 		break;
 	case eCmdType_MenuReset:
 		Menus::reset(theCmd.data);
@@ -980,21 +979,15 @@ void update()
 	{
 		loadButtonCommandsForCurrentLayers();
 		sState.mouseLookOn = false;
-		BitVector<> wantedHUDElements(InputMap::hudElementCount());
-		wantedHUDElements.reset();
+		gVisibleHUD.reset();
 		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 		{
 			sState.mouseLookOn = sState.mouseLookOn ||
 				InputMap::mouseLookShouldBeOn(sState.layerOrder[i]);
-			wantedHUDElements |=
+			gVisibleHUD |=
 				InputMap::hudElementsToShow(sState.layerOrder[i]);
-			wantedHUDElements &=
+			gVisibleHUD &=
 				~InputMap::hudElementsToHide(sState.layerOrder[i]);
-		}
-		if( gVisibleHUD != wantedHUDElements )
-		{
-			gVisibleHUD = wantedHUDElements;
-			// TODO - replace WindowManager::redraw();
 		}
 	}
 

@@ -27,6 +27,9 @@ extern u32 gAppUpdateCount;
 // Which HUD elements should be visible
 extern BitVector<> gVisibleHUD;
 
+// Which HUD elements need to be re-drawn
+extern BitVector<> gRedrawHUD;
+
 // State of each active Menu (sub-menu, selected item, etc)
 extern std::vector<MenuState> gMenuStates;
 

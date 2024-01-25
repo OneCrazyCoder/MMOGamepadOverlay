@@ -415,6 +415,20 @@ void update()
 			sOverlayWindows[sOverlayWindows.size()-1].handle, NULL, true);
 	}
 
+	// Redraw any changed HUD + visible HUD elements
+	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
+	{
+		DBG_ASSERT(sOverlayWindows[i].handle);
+		if( !gRedrawHUD.test(i) )
+			continue;
+		// Redraw later if not going to be visible anyway
+		if( overlayWindowShouldBeShown(i) )
+		{
+			InvalidateRect(sOverlayWindows[i].handle, NULL, false);
+			gRedrawHUD.reset(i);
+		}
+	}
+
 	// Show or hide windows according to gVisibleHUD
 	updateVisibility();
 }
@@ -435,9 +449,12 @@ HWND mainHandle()
 }
 
 
-bool overlaysVisible()
+size_t visibleOverlayCount()
 {
-	return false;
+	size_t result = 0;
+	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
+		result += sOverlayWindows[i].visible ? 1 : 0;
+	return result;
 }
 
 
@@ -499,7 +516,21 @@ void showOverlays()
 
 void refreshZOrder()
 {
-	// TODO
+	if( !sMainWindow || sHidden )
+		return;
+
+	SetWindowPos(sMainWindow, HWND_BOTTOM, 0, 0, 0, 0,
+		SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
+
+	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
+	{
+		DBG_ASSERT(sOverlayWindows[i].handle);
+		SetWindowPos(
+			sOverlayWindows[i].handle, HWND_TOPMOST,
+			0, 0, 0, 0,
+			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
+	}
+
 }
 
 

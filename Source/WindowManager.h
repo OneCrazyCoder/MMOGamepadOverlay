@@ -43,8 +43,8 @@ bool isOwnedByThisApp(HWND theWindow);
 // Gets handle to the main window (or NULL)
 HWND mainHandle();
 
-// Returns if any transparent overlay windows should be visible
-bool overlaysVisible();
+// Returns how many overlay windows should be visible above target
+size_t visibleOverlayCount();
 
 // Move/resize/hide/restore the overlay windows
 void resize(RECT theNewTargetRect);
