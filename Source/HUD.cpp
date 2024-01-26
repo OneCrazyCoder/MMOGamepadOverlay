@@ -12,14 +12,19 @@
 namespace HUD
 {
 
-#ifdef _DEBUG
 // Make the region of each HUD element obvious by drawing a frame
 //#define DEBUG_DRAW_HUD_ELEMENT_FRAME
-#endif
+// Make the overall overlay region obvious by drawing a frame
+//#define DEBUG_DRAW_OVERLAY_FRAME
 
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
+
+enum {
+kNoticeStringDisplayTimePerChar = 50,
+kNoticeStringMinTime = 3000,
+};
 
 const char* kMenuPrefix = "Menu";
 const char* kHUDPrefix = "HUD";
@@ -38,6 +43,13 @@ enum EHUDProperty
 	eHUDProp_BorderSize,
 
 	eHUDProp_Num
+};
+
+enum EAlignment
+{
+	eAlignment_Min,		// L or T
+	eAlignment_Center,	// CX or CY
+	eAlignment_Max,		// R or B
 };
 
 const char* kHUDPropStr[][2] =
@@ -71,8 +83,8 @@ struct HUDElementInfo
 	u16 fontID;
 	u16 itemBrushID;
 	u16 borderPenID;
-	s8 alignmentX;
-	s8 alignmentY;
+	u8 alignmentX;
+	u8 alignmentY;
 };
 
 
@@ -83,14 +95,14 @@ struct HUDElementInfo
 struct HUDDrawData
 {
 	HDC hdc;
-	POINT itemSize;
-	POINT clientSize;
+	SIZE itemSize;
+	SIZE clientSize;
 	u16 hudElementID;
 
 	HUDDrawData(
 		HDC hdc,
-		POINT itemSize,
-		POINT clientSize,
+		SIZE itemSize,
+		SIZE clientSize,
 		u16 hudElementID)
 		:
 		hdc(hdc),
@@ -119,6 +131,10 @@ static std::vector<HFONT> sFonts;
 static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
 static std::vector<HUDElementInfo> sHUDElementInfo;
+static std::wstring sErrorMessage;
+static std::wstring sNoticeMessage;
+static int sErrorMessageTimer = 0;
+static int sNoticeMessageTimer = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -299,9 +315,9 @@ static void draw4DirMenu(HUDDrawData& theDrawData)
 	HDC hdc = theDrawData.hdc;
 	DBG_ASSERT(aHUDInfo.type == eMenuStyle_4Dir);
 
-	SelectObject(hdc, sFonts[aHUDInfo.fontID]);
-	SelectObject(hdc, sPens[aHUDInfo.borderPenID]);
-	SelectObject(hdc, sBrushes[aHUDInfo.itemBrushID]);
+	HFONT hOldFont = (HFONT)SelectObject(hdc, sFonts[aHUDInfo.fontID]);
+	HPEN hOldPen = (HPEN)SelectObject(hdc, sPens[aHUDInfo.borderPenID]);
+	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, sBrushes[aHUDInfo.itemBrushID]);
 	SetBkColor(hdc, aHUDInfo.itemColor);
 	SetTextColor(hdc, aHUDInfo.labelColor);
 
@@ -310,28 +326,62 @@ static void draw4DirMenu(HUDDrawData& theDrawData)
 	// Left
 	RECT anItemRect;
 	anItemRect.left = 0;
-	anItemRect.top = theDrawData.itemSize.y;
-	anItemRect.right = anItemRect.left + theDrawData.itemSize.x;
-	anItemRect.bottom = anItemRect.top + theDrawData.itemSize.y;
+	anItemRect.top = theDrawData.itemSize.cy;
+	anItemRect.right = anItemRect.left + theDrawData.itemSize.cx;
+	anItemRect.bottom = anItemRect.top + theDrawData.itemSize.cy;
 	drawMenuItem(theDrawData, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 0));
 	// Right
-	anItemRect.left += theDrawData.itemSize.x;
-	anItemRect.right += theDrawData.itemSize.x;
+	anItemRect.left += theDrawData.itemSize.cx;
+	anItemRect.right += theDrawData.itemSize.cx;
 	drawMenuItem(theDrawData, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 1));
 	// Up
-	anItemRect.left -= theDrawData.itemSize.x / 2;
+	anItemRect.left -= theDrawData.itemSize.cx / 2;
 	anItemRect.top = 0;
-	anItemRect.right = anItemRect.left + theDrawData.itemSize.x;
-	anItemRect.bottom = anItemRect.top + theDrawData.itemSize.y;
+	anItemRect.right = anItemRect.left + theDrawData.itemSize.cx;
+	anItemRect.bottom = anItemRect.top + theDrawData.itemSize.cy;
 	drawMenuItem(theDrawData, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 2));
 	// Down
-	anItemRect.top += theDrawData.itemSize.y * 2;
-	anItemRect.bottom += theDrawData.itemSize.y * 2;
+	anItemRect.top += theDrawData.itemSize.cy * 2;
+	anItemRect.bottom += theDrawData.itemSize.cy * 2;
 	drawMenuItem(theDrawData, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 3));
+
+	// Cleanup
+	SelectObject(hdc, hOldFont);
+	SelectObject(hdc, hOldPen);
+	SelectObject(hdc, hOldBrush);
+}
+
+
+static void drawSystem(HUDDrawData& theDrawData)
+{
+	const u16 aHUDElementID = theDrawData.hudElementID;
+	const HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
+	HDC hdc = theDrawData.hdc;
+	DBG_ASSERT(aHUDInfo.type == eHUDType_System);
+
+	RECT aTextRect = { 8, 8,
+		theDrawData.clientSize.cx - 8,
+		theDrawData.clientSize.cy - 8 };
+
+	if( !sErrorMessage.empty() )
+	{
+		SetBkColor(hdc, RGB(255, 0, 0));
+		SetTextColor(hdc, RGB(255, 255, 0));
+		DrawText(hdc, sErrorMessage.c_str(), -1, &aTextRect,
+			DT_WORDBREAK);
+	}
+
+	if( !sNoticeMessage.empty() )
+	{
+		SetBkColor(hdc, RGB(0, 0, 255));
+		SetTextColor(hdc, RGB(255, 255, 255));
+		DrawText(hdc, sNoticeMessage.c_str(), -1, &aTextRect,
+			DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
+	}
 }
 
 
@@ -351,6 +401,8 @@ void init()
 	{
 		HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
 		aHUDInfo.type = InputMap::hudElementType(aHUDElementID);
+		if( aHUDInfo.type == eHUDType_System )
+			continue;
 		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
 		// aHUDInfo.position = eHUDProp_Position
 		InputMap::profileStringToHotspot(
@@ -366,11 +418,13 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_Alignment),
 			aTempHotspot);
 		aHUDInfo.alignmentX =
-			aTempHotspot.x.origin < 0x4000 ? -1 :
-			aTempHotspot.x.origin > 0xC000 ? 1 : 0;
+			aTempHotspot.x.origin < 0x4000	? eAlignment_Min :
+			aTempHotspot.x.origin > 0xC000	? eAlignment_Max :
+			/*otherwise*/					  eAlignment_Center;
 		aHUDInfo.alignmentY =
-			aTempHotspot.y.origin < 0x4000 ? -1 :
-			aTempHotspot.y.origin > 0xC000 ? 1 : 0;
+			aTempHotspot.y.origin < 0x4000	? eAlignment_Min :
+			aTempHotspot.y.origin > 0xC000	? eAlignment_Max :
+			/*otherwise*/					  eAlignment_Center;
 		// aHUDInfo.fontID = eHUDProp_FontName & _FontSize & _FontWeight
 		aHUDInfo.fontID = getOrCreateFontID(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_FontName),
@@ -411,66 +465,119 @@ void cleanup()
 
 void update()
 {
+	// Hande display of error messages and other notices
+	// eHUDType_System should always be the last HUD element in the list
+	const u16 aSystemElementID = u16(sHUDElementInfo.size() - 1);
+	DBG_ASSERT(sHUDElementInfo[aSystemElementID].type == eHUDType_System);
+
+	if( sErrorMessageTimer > 0 )
+	{
+		sErrorMessageTimer -= gAppFrameTime;
+		if( sErrorMessageTimer <= 0 )
+		{
+			sErrorMessageTimer = 0;
+			sErrorMessage.clear();
+			gRedrawHUD.set(aSystemElementID);
+		}
+	}
+	else if( !gErrorString.empty() && !hadFatalError() )
+	{
+		sErrorMessage =
+			widen("MMOGO ERROR: ") +
+			gErrorString +
+			widen("\nCheck errorlog.txt for other possible errors!");
+		sErrorMessageTimer = max(
+			kNoticeStringMinTime,
+			int(kNoticeStringDisplayTimePerChar *
+				sErrorMessage.size()));
+		gErrorString.clear();
+		gRedrawHUD.set(aSystemElementID);
+	}
+	
+	if( sNoticeMessageTimer > 0 )
+	{
+		sNoticeMessageTimer -= gAppFrameTime;
+		if( sNoticeMessageTimer <= 0 )
+		{
+			sNoticeMessageTimer = 0;
+			sNoticeMessage.clear();
+			gRedrawHUD.set(aSystemElementID);
+		}
+	}
+	if( !gNoticeString.empty() )
+	{
+		sNoticeMessage = gNoticeString;
+		sNoticeMessageTimer = max(
+			kNoticeStringMinTime,
+			int(kNoticeStringDisplayTimePerChar *
+				sNoticeMessage.size()));
+		gNoticeString.clear();
+		gRedrawHUD.set(aSystemElementID);
+	}
+
+	gVisibleHUD.set(aSystemElementID,
+		!sNoticeMessage.empty() ||
+		!sErrorMessage.empty());
+
+	#ifdef DEBUG_DRAW_OVERLAY_FRAME
+		gVisibleHUD.set(aSystemElementID);
+	#endif
 }
 
 
 void drawElement(
-	HWND theWindow,
+	HDC hdc,
 	u16 theHUDElementID,
-	const POINT& theItemSize,
-	const POINT& theClientSize)
+	const SIZE& theComponentSize,
+	const SIZE& theClientSize)
 {
-	PAINTSTRUCT aPaintStruct;
-	HDC hdc = BeginPaint(theWindow, &aPaintStruct);
-	RECT aClientRect;
-	GetClientRect(theWindow, &aClientRect);
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	const HUDElementInfo& aHUDInfo = sHUDElementInfo[theHUDElementID];
 
-	HFONT anOldFont = (HFONT)GetCurrentObject(hdc, OBJ_FONT);
-	HBRUSH hOldBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
-	HPEN hOldPen = (HPEN)GetCurrentObject(hdc, OBJ_PEN);
-
+	#ifdef _DEBUG
+	COLORREF aFrameColor = RGB(0, 0, 0);
 	#ifdef DEBUG_DRAW_HUD_ELEMENT_FRAME
+	aFrameColor = RGB(0, 0, 200);
+	#endif
+	#ifdef DEBUG_DRAW_OVERLAY_FRAME
+	if( aHUDInfo.type == eHUDType_System )
+		aFrameColor = RGB(255, 0, 0);
+	#endif
+	if( aFrameColor != RGB(0, 0, 0) )
 	{
 		// Normally I'd prefer not to create and destroy these on-the-fly,
 		// but since this is purely for debugging purposes...
 		HBRUSH hBlackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
-		HPEN hBluePen = CreatePen(PS_INSIDEFRAME, 3, RGB(0, 0, 200));
-		SelectObject(hdc, hBluePen);
-		SelectObject(hdc, hBlackBrush);
-		Rectangle(hdc, 0, 0, theClientSize.x, theClientSize.y);
+		HPEN hBluePen = CreatePen(PS_INSIDEFRAME, 3, aFrameColor);
+		HPEN hOldPen = (HPEN)SelectObject(hdc, hBluePen);
+		HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBlackBrush);
+
+		Rectangle(hdc, 0, 0, theClientSize.cx, theClientSize.cy);
+
 		SelectObject(hdc, hOldPen);
 		SelectObject(hdc, hOldBrush);
 		DeleteObject(hBluePen);
+		DeleteObject(hBlackBrush);
 	}
-	#endif
+	#endif // _DEBUG
 
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[theHUDElementID];
-	HUDDrawData aDrawData(hdc, theItemSize, theClientSize, theHUDElementID);
-
+	HUDDrawData aDrawData(hdc, theComponentSize, theClientSize, theHUDElementID);
 	switch(sHUDElementInfo[theHUDElementID].type)
 	{
 	case eMenuStyle_4Dir:	draw4DirMenu(aDrawData); break;
+	case eHUDType_System:	drawSystem(aDrawData); break;
 	}
-
-	// Clean up
-	SelectObject(hdc, anOldFont);
-	SelectObject(hdc, hOldBrush);
-	SelectObject(hdc, hOldPen);
-	EndPaint(theWindow, &aPaintStruct);
 }
 
 
-POINT menuItemSize(u16 theHUDElementID, const POINT& theClientSize)
+SIZE componentSize(u16 theHUDElementID, const SIZE& theClientSize)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	const HUDElementInfo& aHUDInfo = sHUDElementInfo[theHUDElementID];
 
-	POINT result;
-	result.x = hotspotCoordToClient(
-		aHUDInfo.itemSize.x, theClientSize.x);
-	result.y = hotspotCoordToClient(
-		aHUDInfo.itemSize.y, theClientSize.y);
+	SIZE result;
+	result.cx = hotspotCoordToClient(aHUDInfo.itemSize.x, theClientSize.cx);
+	result.cy = hotspotCoordToClient(aHUDInfo.itemSize.y, theClientSize.cy);
 
 	return result;
 }
@@ -478,46 +585,66 @@ POINT menuItemSize(u16 theHUDElementID, const POINT& theClientSize)
 
 RECT elementRectNeeded(
 	u16 theHUDElementID,
-	const POINT& theItemSize,
+	const SIZE& theItemSize,
 	const RECT& theClientRect)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	const HUDElementInfo& aHUDInfo = sHUDElementInfo[theHUDElementID];
 
+	SIZE aClientSize;
+	aClientSize.cx = theClientRect.right - theClientRect.left;
+	aClientSize.cy = theClientRect.bottom - theClientRect.top;
+
 	// Get origin point assuming top-left alignment
 	POINT anOriginPos;
-	anOriginPos.x = hotspotCoordToClient(
-		aHUDInfo.position.x, theClientRect.right - theClientRect.left);
-	anOriginPos.y = hotspotCoordToClient(
-		aHUDInfo.position.y, theClientRect.bottom - theClientRect.top);
+	anOriginPos.x = hotspotCoordToClient(aHUDInfo.position.x, aClientSize.cx);
+	anOriginPos.y = hotspotCoordToClient(aHUDInfo.position.y, aClientSize.cy);
 
 	// Calculate size needed
-	u16 theFullWidth = theItemSize.x;
-	u16 theFullHeight = theItemSize.y;
+	SIZE aFullSize = theItemSize;
 	switch(aHUDInfo.type)
 	{
 	case eMenuStyle_4Dir:
-		theFullWidth *= 2;
-		theFullHeight *= 3;
+		aFullSize.cx *= 2;
+		aFullSize.cy *= 3;
+		break;
+	case eHUDType_System:
+		aFullSize.cx = aClientSize.cx;
+		aFullSize.cy = aClientSize.cy;
 		break;
 	}
 
 	// Adjust origin according to alignment settings
-	// -1 = left/top align, 0 = center, 1 = right/bottom align
-	if( sHUDElementInfo[theHUDElementID].alignmentX == 0 )
-		anOriginPos.x -= theFullWidth / 2;
-	else if( sHUDElementInfo[theHUDElementID].alignmentX > 0 )
-		anOriginPos.x -= theFullWidth;
-	if( sHUDElementInfo[theHUDElementID].alignmentY == 0 )
-		anOriginPos.y -= theFullHeight / 2;
-	else if( sHUDElementInfo[theHUDElementID].alignmentY > 0 )
-		anOriginPos.y -= theFullHeight;
+	switch(sHUDElementInfo[theHUDElementID].alignmentX)
+	{
+	case eAlignment_Min:
+		// Do nothig
+		break;
+	case eAlignment_Center:
+		anOriginPos.x -= aFullSize.cx / 2;
+		break;
+	case eAlignment_Max:
+		anOriginPos.x -= aFullSize.cx;
+		break;
+	}
+	switch(sHUDElementInfo[theHUDElementID].alignmentY)
+	{
+	case eAlignment_Min:
+		// Do nothig
+		break;
+	case eAlignment_Center:
+		anOriginPos.y -= aFullSize.cy / 2;
+		break;
+	case eAlignment_Max:
+		anOriginPos.y -= aFullSize.cy;
+		break;
+	}
 
 	RECT result;
 	result.left = anOriginPos.x + theClientRect.left;
 	result.top = anOriginPos.y + theClientRect.top;
-	result.right = result.left + theFullWidth;
-	result.bottom = result.top + theFullHeight;
+	result.right = result.left + aFullSize.cx;
+	result.bottom = result.top + aFullSize.cy;
 
 	return result;
 }

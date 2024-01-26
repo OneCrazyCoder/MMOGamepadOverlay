@@ -187,6 +187,8 @@ enum EHUDType
 	eHUDType_GroupTarget = eMenuStyle_Num,
 	eHUDType_Reticle,
 
+	eHUDType_System, // Internal use only
+
 	eHUDType_Num
 };
 

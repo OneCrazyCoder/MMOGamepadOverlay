@@ -22,23 +22,26 @@ void init();
 // Free resources such as brushes and fonts
 void cleanup();
 
+// Update visual element timers (animations etc)
+void update();
+
 // Draws given HUD element to given Window
 // Assumes the Window is already positioned correct so can draw at 0,0
 void drawElement(
-	HWND theWindow,
+	HDC hdc,
 	u16 theHUDElementID,
-	const POINT& theItemSize,
-	const POINT& theClientSize);
+	const SIZE& theComponentSize,
+	const SIZE& theClientSize);
 
-// Get size of each menu item based on full target client size
-POINT menuItemSize(
+// Get size of each component (menu item) based on full target client size
+SIZE componentSize(
 	u16 theHUDElementID,
-	const POINT& theClientSize);
+	const SIZE& theClientSize);
 
 // Gets the region position/size for drawing HUD element
 RECT elementRectNeeded(
 	u16 theHUDElementID,
-	const POINT& theItemSize,
+	const SIZE& theItemSize,
 	const RECT& theClientRect);
 
 } // HUD

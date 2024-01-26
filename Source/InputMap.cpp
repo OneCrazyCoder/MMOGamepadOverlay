@@ -2019,6 +2019,10 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 		}
 	}
 
+	// Special-case manually-managed HUD element (top-most overlay)
+	sHUDElements.push_back(HUDElement());
+	sHUDElements.back().hudType = eHUDType_System;
+
 	// Above may have added new HUD elements, now that all are added
 	// make sure every layer's hideHUD and showHUD are correct size
 	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)

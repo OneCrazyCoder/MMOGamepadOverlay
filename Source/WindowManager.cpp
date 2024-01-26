@@ -11,23 +11,12 @@
 namespace WindowManager
 {
 
-#ifdef _DEBUG
-// Make the overall overlay region obvious by drawing a frame
-//#define DEBUG_DRAW_OVERLAY_FRAME
-#endif
-
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
 
-enum {
-kNoticeStringDisplayTimePerChar = 60,
-kNoticeStringMinTime = 3000,
-};
-
 const wchar_t* kMainWindowClassName = L"MMOGO Main";
 const wchar_t* kOverlayWindowClassName = L"MMOGO Overlay";
-const wchar_t* kErrorWindowClassName = L"MMOGO Errors";
 
 
 //-----------------------------------------------------------------------------
@@ -38,19 +27,13 @@ struct OverlayWindow
 	: public ConstructFromZeroInitializedMemory<OverlayWindow>
 {
 	HWND handle;
-	POINT menuItemSize;
-	RECT region;
-	bool visible;
-
-	POINT clientSize()
-	{
-		POINT result;
-		result.x = region.right - region.left;
-		result.y = region.bottom - region.top;
-		return result;
-	}
+	HBITMAP bitmap;
+	POINT position;
+	SIZE size;
+	SIZE bitmapSize;
+	SIZE componentSize;
+	bool updated;
 };
-
 
 
 //-----------------------------------------------------------------------------
@@ -61,11 +44,7 @@ static HWND sMainWindow = NULL;
 static std::vector<OverlayWindow> sOverlayWindows; 
 static RECT sDesktopTargetRect; // relative to virtual desktop
 static RECT sScreenTargetRect; // relative to main screen
-static POINT sTargetSize = { 0 };
-static std::wstring sErrorMessage;
-static std::wstring sNoticeMessage;
-static int sErrorMessageTimer = 0;
-static int sNoticeMessageTimer = 0;
+static SIZE sTargetSize = { 0 };
 static bool sUseChildWindows = false;
 static bool sHidden = false;
 
@@ -85,7 +64,6 @@ static LRESULT CALLBACK mainWindowProc(
 		return 0;
 
 	case WM_DEVICECHANGE:
-	case WM_SYSCOLORCHANGE:
          // Forward this message to app's main message handler
 		PostMessage(NULL, theMessage, wParam, lParam);
 		break;
@@ -102,109 +80,19 @@ static LRESULT CALLBACK overlayWindowProc(
 	switch(theMessage)
 	{
 	case WM_PAINT:
-		HUD::drawElement(
-			theWindow,
-			aHUDElementID,
-			sOverlayWindows[aHUDElementID].menuItemSize,
-			sOverlayWindows[aHUDElementID].clientSize());
-		return 0;
-	}
-
-	return DefWindowProc(theWindow, theMessage, wParam, lParam);
-}
-
-
-static LRESULT CALLBACK errorWindowProc(
-	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
-{
-	switch(theMessage)
-	{
-	case WM_PAINT:
-		{// Draw error strings (and debug frame)
-			PAINTSTRUCT aPaintStruct;
-			HDC hdc = BeginPaint(theWindow, &aPaintStruct);
-
-			#ifdef DEBUG_DRAW_OVERLAY_FRAME
-			{
-				// Normally I'd prefer not to create and destroy these on-the-fly,
-				// but since this is purely for debugging purposes...
-				HBRUSH hBlackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
-				HPEN hRedPen = CreatePen(PS_INSIDEFRAME, 3, RGB(255, 0, 0));
-				HPEN hOldPen = (HPEN)SelectObject(hdc, hRedPen);
-				HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBlackBrush);
-				RECT aClientRect;
-				GetClientRect(theWindow, &aClientRect);
-				Rectangle(hdc, 0, 0, aClientRect.right, aClientRect.bottom);
-				SelectObject(hdc, hOldPen);
-				SelectObject(hdc, hOldBrush);
-				DeleteObject(hRedPen);
-			}
-			#endif
-
-			if( !sErrorMessage.empty() )
-			{
-				RECT aTextRect;
-				GetClientRect(theWindow, &aTextRect);
-				InflateRect(&aTextRect, -8, -8);
-				SetBkColor(hdc, RGB(255, 0, 0));
-				SetTextColor(hdc, RGB(255, 255, 0));
-				DrawText(hdc, sErrorMessage.c_str(), -1, &aTextRect,
-					DT_WORDBREAK);
-			}
-
-			// Draw notice string
-			if( !sNoticeMessage.empty() )
-			{
-				RECT aTextRect;
-				GetClientRect(theWindow, &aTextRect);
-				InflateRect(&aTextRect, -8, -8);
-				SetBkColor(hdc, RGB(0, 0, 255));
-				SetTextColor(hdc, RGB(255, 255, 255));
-				DrawText(hdc, sNoticeMessage.c_str(), -1, &aTextRect,
-					DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
-			}
-
-			EndPaint(theWindow, &aPaintStruct);
-		}
-		return 0;
-	}
-
-	return DefWindowProc(theWindow, theMessage, wParam, lParam);
-}
-
-
-bool overlayWindowShouldBeShown(size_t theOverlayWindowID)
-{
-	if( sHidden )
-		return false;
-
-	if( theOverlayWindowID >= sOverlayWindows.size() )
-		return false;
-
-	if( theOverlayWindowID < gVisibleHUD.size() )
-		return gVisibleHUD.test(theOverlayWindowID);
-
-	// Must be the error message overlay window
-	#ifdef DEBUG_DRAW_OVERLAY_FRAME
-	return true;
-	#endif
-	return !sNoticeMessage.empty() || !sErrorMessage.empty();
-}
-
-
-void updateVisibility()
-{
-	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
-	{
-		DBG_ASSERT(sOverlayWindows[i].handle);
-		const bool wantVisible = overlayWindowShouldBeShown(i);
-		if( sOverlayWindows[i].visible != wantVisible )
+		gRedrawHUD.set(aHUDElementID);
+		break;
+	case WM_SYSCOLORCHANGE:
+		if( sOverlayWindows.size() > aHUDElementID &&
+			sOverlayWindows[aHUDElementID].bitmap )
 		{
-			ShowWindow(sOverlayWindows[i].handle,
-				wantVisible ? SW_SHOWNOACTIVATE : SW_HIDE);
-			sOverlayWindows[i].visible = wantVisible;
+			DeleteObject(sOverlayWindows[aHUDElementID].bitmap);
+			sOverlayWindows[aHUDElementID].bitmap = NULL;
 		}
+		break;
 	}
+
+	return DefWindowProc(theWindow, theMessage, wParam, lParam);
 }
 
 
@@ -263,12 +151,6 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.lpszClassName = kOverlayWindowClassName;
 	RegisterClassExW(&aWindowClass);
 
-	aWindowClass.lpfnWndProc = errorWindowProc;
-	aWindowClass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-	aWindowClass.hCursor = NULL;
-	aWindowClass.lpszClassName = kErrorWindowClassName;
-	RegisterClassExW(&aWindowClass);
-
 	// Create main app window
 	sMainWindow = CreateWindowExW(
 		isMainWindowHidden ? (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_APPWINDOW) : 0,
@@ -299,46 +181,33 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 {
 	DBG_ASSERT(sOverlayWindows.empty());
 
-	// Create one window per HUD Element, plus an extra for error messages
-	sOverlayWindows.reserve(InputMap::hudElementCount() + 1);
-	sOverlayWindows.resize(InputMap::hudElementCount() + 1);
+	// Create one transparent overlay window per HUD Element
+	sOverlayWindows.reserve(InputMap::hudElementCount());
+	sOverlayWindows.resize(InputMap::hudElementCount());
 	for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
 	{
-		sOverlayWindows[i].menuItemSize = HUD::menuItemSize(i, sTargetSize);
-		sOverlayWindows[i].region = HUD::elementRectNeeded(
-			i, sOverlayWindows[i].menuItemSize, sScreenTargetRect);
-		sOverlayWindows[i].handle = CreateWindowExW(
+		OverlayWindow& aWindow = sOverlayWindows[i];
+		aWindow.componentSize = HUD::componentSize(i, sTargetSize);
+		const RECT& aRect = HUD::elementRectNeeded(
+			i, aWindow.componentSize, sScreenTargetRect);
+		aWindow.position.x = aRect.left;
+		aWindow.position.y = aRect.top;
+		aWindow.size.cx = aRect.right - aRect.left;
+		aWindow.size.cy = aRect.bottom - aRect.top;
+		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
 			WS_EX_TRANSPARENT | WS_EX_LAYERED,
 			kOverlayWindowClassName,
-			NULL,
+			widen(InputMap::hudElementLabel(i)).c_str(),
 			WS_POPUP | (sUseChildWindows ? WS_CHILD : 0),
-			sOverlayWindows[i].region.left,
-			sOverlayWindows[i].region.top,
-			sOverlayWindows[i].region.right - sOverlayWindows[i].region.left,
-			sOverlayWindows[i].region.bottom - sOverlayWindows[i].region.top,
+			aWindow.position.x,
+			aWindow.position.y,
+			aWindow.size.cx,
+			aWindow.size.cy,
 			sUseChildWindows ? sMainWindow : NULL,
 			NULL, theAppInstanceHandle, NULL);
-
-		SetWindowLongPtr(sOverlayWindows[i].handle, GWLP_USERDATA, i);
-		SetLayeredWindowAttributes(
-			sOverlayWindows[i].handle, RGB(0, 0, 0), BYTE(0), LWA_COLORKEY);
+		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, i);
 	}
-
-	sOverlayWindows[InputMap::hudElementCount()].handle =
-		CreateWindowExW(
-			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
-			WS_EX_TRANSPARENT | WS_EX_LAYERED,
-			kErrorWindowClassName,
-			NULL,
-			WS_POPUP | (sUseChildWindows ? WS_CHILD : 0),
-			0, 0, sTargetSize.x, sTargetSize.y,
-			sUseChildWindows ? sMainWindow : NULL,
-			NULL, theAppInstanceHandle, NULL);
-
-	SetLayeredWindowAttributes(
-		sOverlayWindows[InputMap::hudElementCount()].handle,
-		RGB(0, 0, 0), BYTE(0), LWA_COLORKEY);
 }
 
 
@@ -351,6 +220,8 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 	}
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
+		if( sOverlayWindows[i].bitmap )
+			DeleteObject(sOverlayWindows[i].bitmap);
 		if( sOverlayWindows[i].handle )
 			DestroyWindow(sOverlayWindows[i].handle);
 	}
@@ -362,75 +233,88 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void update()
 {
-	// Hande display of error messages and notices on a top-most overlay
-	bool needErrorWindowRefresh = false;
-	if( sErrorMessageTimer > 0 )
+	// Update each overlay window as needed
+	HDC aScreenDC = GetDC(NULL);
+	POINT anOriginPoint = { 0, 0 };
+	bool needZOrderRefresh = false;
+	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
-		sErrorMessageTimer -= gAppFrameTime;
-		if( sErrorMessageTimer <= 0 )
+		OverlayWindow& aWindow = sOverlayWindows[i];
+		
+		// Check visibility status first so can ignore hidden ones
+		if( sHidden || !gVisibleHUD.test(i) ||
+			aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
 		{
-			sErrorMessageTimer = 0;
-			sErrorMessage.clear();
-			needErrorWindowRefresh = true;
-		}
-	}
-	else if( !gErrorString.empty() && !hadFatalError() )
-	{
-		sErrorMessage =
-			widen("MMOGO ERROR: ") +
-			gErrorString +
-			widen("\nCheck errorlog.txt for other possible errors!");
-		sErrorMessageTimer = max(
-			kNoticeStringMinTime,
-			int(kNoticeStringDisplayTimePerChar *
-				sErrorMessage.size()));
-		gErrorString.clear();
-		needErrorWindowRefresh = true;
-	}
-	
-	if( sNoticeMessageTimer > 0 )
-	{
-		sNoticeMessageTimer -= gAppFrameTime;
-		if( sNoticeMessageTimer <= 0 )
-		{
-			sNoticeMessageTimer = 0;
-			sNoticeMessage.clear();
-			needErrorWindowRefresh = true;
-		}
-	}
-	if( !gNoticeString.empty() )
-	{
-		sNoticeMessage = gNoticeString;
-		sNoticeMessageTimer = max(
-			kNoticeStringMinTime,
-			int(kNoticeStringDisplayTimePerChar *
-				sNoticeMessage.size()));
-		gNoticeString.clear();
-		needErrorWindowRefresh = true;
-	}
-
-	if( needErrorWindowRefresh )
-	{
-		InvalidateRect(
-			sOverlayWindows[sOverlayWindows.size()-1].handle, NULL, true);
-	}
-
-	// Redraw any changed HUD + visible HUD elements
-	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
-	{
-		DBG_ASSERT(sOverlayWindows[i].handle);
-		if( !gRedrawHUD.test(i) )
+			if( IsWindowVisible(aWindow.handle) )
+				ShowWindow(aWindow.handle, SW_HIDE);
 			continue;
-		// Redraw later if not going to be visible anyway
-		if( overlayWindowShouldBeShown(i) )
+		}
+
+		// Delete bitmap if bitmap size doesn't match window size
+		if( aWindow.bitmap &&
+			(aWindow.bitmapSize.cx != aWindow.size.cx ||
+			 aWindow.bitmapSize.cy != aWindow.size.cy) )
 		{
-			InvalidateRect(sOverlayWindows[i].handle, NULL, false);
+			DeleteObject(aWindow.bitmap);
+			aWindow.bitmap = NULL;
+		}
+
+		// Create bitmap if doesn't exist
+		if( !aWindow.bitmap )
+		{
+			aWindow.bitmapSize = aWindow.size;
+			aWindow.bitmap = CreateCompatibleBitmap(
+				aScreenDC, aWindow.size.cx, aWindow.size.cy);
+			if( !aWindow.bitmap )
+			{
+				logFatalError("Could not create bitmap for overlay!");
+				continue;
+			}
+			gRedrawHUD.set(i);
+		}
+
+		// Redraw bitmap contents if needed
+		HDC aWindowDC = CreateCompatibleDC(aScreenDC);
+		if( !aWindowDC )
+		{
+			logFatalError("Could not create device context for overlay!");
+			continue;
+		}
+		HBITMAP hOldBitmap = (HBITMAP)SelectObject(aWindowDC, aWindow.bitmap);
+		if( gRedrawHUD.test(i) )
+		{
+			HUD::drawElement(
+				aWindowDC, u16(i), aWindow.componentSize, aWindow.size);
+			aWindow.updated = false;
 			gRedrawHUD.reset(i);
 		}
-	}
 
-	// Show or hide windows according to gVisibleHUD
-	updateVisibility();
+		// Update window
+		if( !aWindow.updated )
+		{
+			// TODO: Change '255' to the alpha value desired for this window
+			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, 255, 0};
+			UpdateLayeredWindow(aWindow.handle, aScreenDC,
+				&aWindow.position, &aWindow.size, aWindowDC, &anOriginPoint,
+				RGB(0, 0, 0), &aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
+			aWindow.updated = true;
+		}
+
+		// Show window if it isn't visible yet
+		if( !IsWindowVisible(aWindow.handle) )
+		{
+			ShowWindow(aWindow.handle, SW_SHOWNOACTIVATE);
+			needZOrderRefresh = true;
+		}
+
+		// Cleanup
+		SelectObject(aWindowDC, hOldBitmap);
+		DeleteDC(aWindowDC);
+	}
+	ReleaseDC(NULL, aScreenDC);
+	
+	//if( needZOrderRefresh )
+	//	refreshZOrder();
 }
 
 
@@ -453,7 +337,7 @@ size_t visibleOverlayCount()
 {
 	size_t result = 0;
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
-		result += sOverlayWindows[i].visible ? 1 : 0;
+		result += IsWindowVisible(sOverlayWindows[i].handle) ? 1 : 0;
 	return result;
 }
 
@@ -463,8 +347,8 @@ void resize(RECT theNewWindowRect)
 	if( !sMainWindow )
 		return;
 
-	sTargetSize.x = theNewWindowRect.right - theNewWindowRect.left;
-	sTargetSize.y = theNewWindowRect.bottom - theNewWindowRect.top;
+	sTargetSize.cx = theNewWindowRect.right - theNewWindowRect.left;
+	sTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
 	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
 	sDesktopTargetRect.left -= GetSystemMetrics(SM_XVIRTUALSCREEN);
 	sDesktopTargetRect.right -= GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -473,44 +357,43 @@ void resize(RECT theNewWindowRect)
 
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
 	{
-		DBG_ASSERT(sOverlayWindows[i].handle);
+		OverlayWindow& aWindow = sOverlayWindows[i];
+		DBG_ASSERT(aWindow.handle);
 		if( i < InputMap::hudElementCount() )
 		{
-			sOverlayWindows[i].menuItemSize = HUD::menuItemSize(i, sTargetSize);
-			sOverlayWindows[i].region = HUD::elementRectNeeded(
-				i, sOverlayWindows[i].menuItemSize, sScreenTargetRect);
+			aWindow.componentSize = HUD::componentSize(i, sTargetSize);
+			const RECT& aRect = HUD::elementRectNeeded(
+				i, aWindow.componentSize, sScreenTargetRect);
+			aWindow.position.x = aRect.left;
+			aWindow.position.y = aRect.top;
+			aWindow.size.cx = aRect.right - aRect.left;
+			aWindow.size.cy = aRect.bottom - aRect.top;
 		}
 		else
 		{
-			sOverlayWindows[i].region = sScreenTargetRect;
+			aWindow.position.x = sScreenTargetRect.left;
+			aWindow.position.y = sScreenTargetRect.top;
+			aWindow.size = sTargetSize;
 		}
-		SetWindowPos(
-			sOverlayWindows[i].handle, NULL,
-			sOverlayWindows[i].region.left, sOverlayWindows[i].region.top,
-			sOverlayWindows[i].region.right - sOverlayWindows[i].region.left,
-			sOverlayWindows[i].region.bottom - sOverlayWindows[i].region.top,
-			SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+		aWindow.updated = false;
+		//SetWindowPos(
+		//	sOverlayWindows[i].handle, NULL,
+		//	sOverlayWindows[i].position.x, sOverlayWindows[i].position.y,
+		//	sOverlayWindows[i].size.cx, sOverlayWindows[i].size.cy,
+		//	SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
 	}
 }
 
 
 void hideOverlays()
 {
-	if( !sMainWindow || sHidden )
-		return;
-
 	sHidden = true;
-	updateVisibility();
 }
 
 
 void showOverlays()
 {
-	if( !sMainWindow || !sHidden )
-		return;
-
 	sHidden = false;
-	updateVisibility();
 }
 
 
@@ -519,14 +402,16 @@ void refreshZOrder()
 	if( !sMainWindow || sHidden )
 		return;
 
+	// TODO: Improve this function to not flicker as much every time
 	SetWindowPos(sMainWindow, HWND_BOTTOM, 0, 0, 0, 0,
 		SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
 
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
-		DBG_ASSERT(sOverlayWindows[i].handle);
+		OverlayWindow& aWindow = sOverlayWindows[i];
+		DBG_ASSERT(aWindow.handle);
 		SetWindowPos(
-			sOverlayWindows[i].handle, HWND_TOPMOST,
+			aWindow.handle, HWND_TOPMOST,
 			0, 0, 0, 0,
 			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
 	}
@@ -549,7 +434,7 @@ u16 hotspotMousePosX(const Hotspot& theHotspot)
 	// Start with percentage of client rect as u16 (i.e. 65536 == 100%)
 	int aPos = theHotspot.x.origin;
 	// Convert client-rect-relative  pixel position
-	aPos = aPos * sTargetSize.x / 0x10000;
+	aPos = aPos * sTargetSize.cx / 0x10000;
 	// Add pixel offset
 	aPos += theHotspot.x.offset;
 	// Convert to virtual desktop pixel coordinate
@@ -567,7 +452,7 @@ u16 hotspotMousePosY(const Hotspot& theHotspot)
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
 	int aPos = theHotspot.y.origin;
-	aPos = aPos * sTargetSize.y / 0x10000;
+	aPos = aPos * sTargetSize.cy / 0x10000;
 	aPos += theHotspot.y.offset;
 	aPos = max(0, aPos + sDesktopTargetRect.top);
 	aPos = min(0xFFFF, s64(aPos) * 0x10000 / kDesktopHeight);
@@ -579,7 +464,7 @@ int hotspotClientX(const Hotspot& theHotspot)
 {
 	if( !sMainWindow ) return 0; // Left edge of window
 	int aPos = theHotspot.x.origin;
-	aPos = aPos * sTargetSize.x / 0x10000;
+	aPos = aPos * sTargetSize.cx / 0x10000;
 	aPos += theHotspot.x.offset;
 	return aPos;
 }
@@ -589,7 +474,7 @@ int hotspotClientY(const Hotspot& theHotspot)
 {
 	if( !sMainWindow ) return 0; // Top edge of window
 	int aPos = theHotspot.y.origin;
-	aPos = aPos * sTargetSize.y / 0x10000;
+	aPos = aPos * sTargetSize.cy / 0x10000;
 	aPos += theHotspot.y.offset;
 	return aPos;
 }
