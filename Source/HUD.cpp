@@ -356,7 +356,28 @@ static void draw4DirMenu(HUDDrawData& theDrawData)
 }
 
 
-static void drawSystem(HUDDrawData& theDrawData)
+static void drawRectHUD(HUDDrawData& theDrawData)
+{
+	const u16 aHUDElementID = theDrawData.hudElementID;
+	const HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
+	HDC hdc = theDrawData.hdc;
+	DBG_ASSERT(aHUDInfo.type == eHUDType_Rectangle);
+
+	HPEN hOldPen = (HPEN)SelectObject(hdc, sPens[aHUDInfo.borderPenID]);
+	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, sBrushes[aHUDInfo.itemBrushID]);
+
+	SetBkColor(hdc, aHUDInfo.itemColor);
+	SetTextColor(hdc, aHUDInfo.labelColor);
+
+	Rectangle(hdc, 0, 0, theDrawData.clientSize.cx, theDrawData.clientSize.cy);
+
+	// Cleanup
+	SelectObject(hdc, hOldPen);
+	SelectObject(hdc, hOldBrush);
+}
+
+
+static void drawSystemHUD(HUDDrawData& theDrawData)
 {
 	const u16 aHUDElementID = theDrawData.hudElementID;
 	const HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
@@ -564,8 +585,9 @@ void drawElement(
 	HUDDrawData aDrawData(hdc, theComponentSize, theClientSize, theHUDElementID);
 	switch(sHUDElementInfo[theHUDElementID].type)
 	{
-	case eMenuStyle_4Dir:	draw4DirMenu(aDrawData); break;
-	case eHUDType_System:	drawSystem(aDrawData); break;
+	case eMenuStyle_4Dir:		draw4DirMenu(aDrawData);	break;
+	case eHUDType_Rectangle:	drawRectHUD(aDrawData);		break;
+	case eHUDType_System:		drawSystemHUD(aDrawData);	break;
 	}
 }
 
