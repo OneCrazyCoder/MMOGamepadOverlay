@@ -186,6 +186,7 @@ enum EHUDType
 {
 	eHUDType_GroupTarget = eMenuStyle_Num,
 	eHUDType_Reticle,
+	eHUDType_Rectangle,
 
 	eHUDType_System, // Internal use only
 
@@ -340,6 +341,5 @@ extern const char* kProfileButtonName[];
 extern u8 keyNameToVirtualKey(const std::string& theKeyName);
 extern std::string virtualKeyToName(u8 theVKey);
 extern EButton buttonNameToID(const std::string& theName);
-extern EMenuStyle menuStyleNameToID(const std::string& theName);
 extern EHUDType hudTypeNameToID(const std::string& theName);
 extern ECommandKeyWord commandWordToID(const std::string& theWord);

@@ -19,6 +19,7 @@ namespace InputMap
 // Const Data
 //-----------------------------------------------------------------------------
 
+const u16 kInvalidID = 0xFFFF;
 const char* kMainLayerLabel = "Scheme";
 const char* kLayerPrefix = "Layer.";
 const char* kMenuPrefix = "Menu.";
@@ -101,7 +102,7 @@ struct Menu
 	u16 rootMenuID;
 	u16 hudElementID;
 
-	Menu() : rootMenuID(), hudElementID() {}
+	Menu() : rootMenuID(kInvalidID), hudElementID(kInvalidID) {}
 };
 
 struct HUDElement
@@ -116,7 +117,7 @@ struct HUDElement
 	};
 	// Visual details will be parsed by HUD module
 
-	HUDElement() : menuID() { type = 0; }
+	HUDElement() : menuID(kInvalidID) { type = 0; }
 };
 
 struct ButtonActions
@@ -522,71 +523,119 @@ static u16 getOrCreateLayerID(
 }
 
 
-static u16 getOrCreateRootMenuID(
+static u16 getOrCreateHUDElementID(
 	InputMapBuilder& theBuilder,
-	const std::string& theMenuName)
+	const std::string& theName,
+	u16 theControlsLayerIndex = 0,
+	bool hasInputAssigned = false)
 {
-	DBG_ASSERT(!theMenuName.empty());
+	DBG_ASSERT(!theName.empty());
 
-	// Check if already exists, and if so return the index in sMenus
-	// Root menus are inherently HUD elements, so will look it up that way
-	const std::string& aMenuKeyName = upper(theMenuName);
+	// Check if already exists, and if so return the ID
+	const std::string& aKeyName = upper(theName);
 	u16 aHUDElementID = theBuilder.hudNameToIdxMap.findOrAdd(
-		aMenuKeyName, u16(sHUDElements.size()));
+		aKeyName, u16(sHUDElements.size()));
 	if( aHUDElementID < sHUDElements.size() )
-	{
-		DBG_ASSERT(sHUDElements[aHUDElementID].menuStyle < eMenuStyle_Num);
-		return sHUDElements[aHUDElementID].menuID;
-	}
+		return aHUDElementID;
 
-	// Add new menu to sMenus, sHUDElements, and menuFullPathStrings
-	u16 aMenuID = u16(sMenus.size());
+	// Add new HUD element
 	sHUDElements.push_back(HUDElement());
-	sHUDElements.back().label = theMenuName;
-	sHUDElements.back().menuID = aMenuID;
+	HUDElement& aHUDElement = sHUDElements.back();
+	aHUDElement.label = theName;
 
-	sMenus.push_back(Menu());
-	sMenus.back().label = theMenuName;
-	sMenus.back().rootMenuID = aMenuID;
-	sMenus.back().hudElementID = aHUDElementID;
+	const std::string& aMenuPath = std::string(kMenuPrefix) + theName;
+	const std::string& aHUDPath = std::string(kHUDPrefix) + theName;
 
-	const std::string& aMenuPath = std::string(kMenuPrefix) + theMenuName;
-	const std::string& aHUDPath = std::string(kHUDPrefix) + theMenuName;
-	theBuilder.menuFullPathStrings.push_back(aMenuPath);
-
-	// Try to figure out what type of menu/HUD element this is
-	std::string aMenuStyleName;
-	for(int i = 0; aMenuStyleName.empty() && i < ARRAYSIZE(kTypeKeys); ++i)
-		aMenuStyleName = Profile::getStr(aMenuPath + "/" + kTypeKeys[i]);
-	for(int i = 0; aMenuStyleName.empty() && i < ARRAYSIZE(kTypeKeys); ++i)
-		aMenuStyleName = Profile::getStr(aHUDPath + "/" + kTypeKeys[i]);
-	if( aMenuStyleName.empty() )
+	// Try to figure out what type of HUD element / Menu this is
+	std::string aHUDTypeName;
+	for(int i = 0; aHUDTypeName.empty() && i < ARRAYSIZE(kTypeKeys); ++i)
+		aHUDTypeName = Profile::getStr(aMenuPath + "/" + kTypeKeys[i]);
+	for(int i = 0; aHUDTypeName.empty() && i < ARRAYSIZE(kTypeKeys); ++i)
+		aHUDTypeName = Profile::getStr(aHUDPath + "/" + kTypeKeys[i]);
+	if( aHUDTypeName.empty() )
 	{
 		logError(
-			"No Menu/HUD Type specified for '%s'! "
-			"Defaulting to List-type menu...",
-			theMenuName.c_str());
-		sHUDElements.back().menuStyle = eMenuStyle_List;
+			"Can't find '[%s%s]/%s =' entry "
+			"for item referenced by Layer '%s'! "
+			"Defaulting to type '%s'...",
+			hasInputAssigned ? kMenuPrefix : kHUDPrefix,
+			theName.c_str(),
+			kTypeKeys[hasInputAssigned ? 1 : 0],
+			sLayers[theControlsLayerIndex].label.c_str(),
+			hasInputAssigned ? "List" : "Rectangle");
+		aHUDElement.type =
+			hasInputAssigned ? eMenuStyle_List : eHUDType_Rectangle;
 	}
 	else
 	{
-		EMenuStyle aMenuStyle = menuStyleNameToID(upper(aMenuStyleName));
-		if( aMenuStyle == eMenuStyle_Num )
+		aHUDElement.type = hudTypeNameToID(upper(aHUDTypeName));
+		if( aHUDElement.type >= eHUDType_Num )
 		{
 			logError(
-				"Unknown Menu/HUD Type '%s' specified for '%s'! "
-				"Defaulting to List-type menu...",
-				aMenuStyleName.c_str(),
-				theMenuName.c_str());
-			sHUDElements.back().menuStyle = eMenuStyle_List;
+				"Unrecognized '%s' specified for '[%s%s]/%s ='entry "
+				"for item referenced by Layer '%s'! "
+				"Defaulting to type '%s'...",
+				aHUDTypeName.c_str(),
+				hasInputAssigned ? kMenuPrefix : kHUDPrefix,
+				theName.c_str(),
+				kTypeKeys[hasInputAssigned ? 1 : 0],
+				sLayers[theControlsLayerIndex].label.c_str(),
+				hasInputAssigned ? "List" : "Rectangle");
+			aHUDElement.type =
+				hasInputAssigned ? eMenuStyle_List : eHUDType_Rectangle;
 		}
-		else
+		else if( aHUDElement.type >= eMenuStyle_Num && hasInputAssigned )
 		{
-			sHUDElements.back().menuStyle = aMenuStyle;
+			logError(
+				"Attempting to assign a Menu navigation command to "
+				"HUD Element '%s' of type '%s' which is not a menu! "
+				"Changing it to a Menu of type List instead...",
+				theName.c_str(), aHUDTypeName.c_str());
+			aHUDElement.type = eMenuStyle_List;
+		}
+		else if( aHUDElement.type < eMenuStyle_Num && !hasInputAssigned )
+		{
+			logError(
+				"HUD Element %s assigned to a Menu Style but has no "
+				"buttons assigned to navigate the menu!",
+				theName.c_str());
 		}
 	}
 
-	return aMenuID;
+	if( aHUDElement.type < eMenuStyle_Num )
+	{
+		// Add new Root Menu to sMenus and link the Menu and HUDElement
+		u16 aMenuID = u16(sMenus.size());
+		sMenus.push_back(Menu());
+		Menu& aMenu = sMenus.back();
+		aMenu.label = theName;
+		aMenu.rootMenuID = aMenuID;
+		aMenu.hudElementID = aHUDElementID;
+		aHUDElement.menuID = aMenuID;
+
+		// Add the menu path to menuFullPathStrings for later lookup
+		theBuilder.menuFullPathStrings.push_back(aMenuPath);
+	}
+
+	return aHUDElementID;
+}
+
+
+static u16 getOrCreateRootMenuID(
+	InputMapBuilder& theBuilder,
+	const std::string& theMenuName,
+	u16 theControlsLayerIndex = 0)
+{
+	DBG_ASSERT(!theMenuName.empty());
+
+	// Root menus are inherently HUD elements, so start with that
+	u16 aHUDElementID = getOrCreateHUDElementID(
+		theBuilder, theMenuName, theControlsLayerIndex, true);
+	HUDElement& aHUDElement = sHUDElements[aHUDElementID];
+
+	DBG_ASSERT(aHUDElement.menuStyle < eMenuStyle_Num);
+	DBG_ASSERT(aHUDElement.menuID < sMenus.size());
+	return aHUDElement.menuID;
 }
 
 
@@ -739,7 +788,8 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() == 1 )
 		{
 			result.type = eCmdType_MenuReset;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
 
@@ -751,7 +801,8 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() == 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 		}
 
 		// "= Confirm <aMenuName> [Menu] and Close
@@ -763,7 +814,8 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() == 1 )
 		{
 			result.type = eCmdType_MenuConfirmAndClose;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 		}
 		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Confirm);
@@ -776,7 +828,8 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() == 1 )
 		{
 			result.type = eCmdType_MenuBack;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 		}
 		allowedKeyWords.reset(eCmdWord_Back);
 
@@ -788,7 +841,8 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() == 1 )
 		{
 			result.type = eCmdType_MenuBack;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 		}
 	}
 
@@ -1766,6 +1820,64 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 	getOrCreateLayerID(theBuilder, kMainLayerLabel);
 	for(u16 idx = 0; idx < sLayers.size(); ++idx)
 		buildControlsLayer(theBuilder, idx);
+
+	// Process the "HUD=" key for each layer
+	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
+	{
+		sLayers[aLayerID].hideHUD.clearAndResize(sHUDElements.size());
+		sLayers[aLayerID].showHUD.clearAndResize(sHUDElements.size());
+		std::string aLayerHUDKey = sLayers[aLayerID].label;
+		if( aLayerID == 0 )
+			aLayerHUDKey += "/";
+		else
+			aLayerHUDKey = std::string(kLayerPrefix)+aLayerHUDKey+"/";
+		aLayerHUDKey += kHUDSettingsKey;
+		const std::string& aLayerHUDDescription =
+			Profile::getStr(aLayerHUDKey);
+
+		if( aLayerHUDDescription.empty() )
+			continue;
+
+		// Break the string into individual words
+		theBuilder.parsedString.clear();
+		sanitizeSentence(aLayerHUDDescription, theBuilder.parsedString);
+		
+		bool show = true;
+		for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+		{
+			const std::string& anElementName = theBuilder.parsedString[i];
+			if( upper(anElementName) == "HIDE" )
+			{
+				show = false;
+				continue;
+			}
+			if( upper(anElementName) == "SHOW" )
+			{
+				show = true;
+				continue;
+			}
+			u16 anElementIdx = getOrCreateHUDElementID(
+				theBuilder, anElementName, aLayerID, false);
+			sLayers[aLayerID].showHUD.resize(sHUDElements.size());
+			sLayers[aLayerID].showHUD.set(anElementIdx, show);
+			sLayers[aLayerID].hideHUD.resize(sHUDElements.size());
+			sLayers[aLayerID].hideHUD.set(anElementIdx, !show);
+		}
+	}
+
+	// Special-case manually-managed HUD element (top-most overlay)
+	sHUDElements.push_back(HUDElement());
+	sHUDElements.back().hudType = eHUDType_System;
+
+	// Above may have added new HUD elements, now that all are added
+	// make sure every layer's hideHUD and showHUD are correct size
+	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
+	{
+		sLayers[aLayerID].hideHUD.resize(sHUDElements.size());
+		sLayers[aLayerID].showHUD.resize(sHUDElements.size());
+	}
+	gVisibleHUD.clearAndResize(sHUDElements.size());
+	gRedrawHUD.clearAndResize(sHUDElements.size());
 }
 
 
@@ -1920,121 +2032,6 @@ static void buildMenus(InputMapBuilder& theBuilder)
 }
 
 
-static u16 getOrCreateHUDElementID(
-	InputMapBuilder& theBuilder,
-	const std::string& theHUDElementName,
-	u16 theControlsLayerIndex = 0)
-{
-	DBG_ASSERT(!theHUDElementName.empty());
-
-	// Check if already exists, and if so return the ID
-	const std::string& aHUDElementKeyName = upper(theHUDElementName);
-	u16 aHUDElementID = theBuilder.hudNameToIdxMap.findOrAdd(
-		aHUDElementKeyName, u16(sHUDElements.size()));
-	if( aHUDElementID < sHUDElements.size() )
-		return aHUDElementID;
-
-	// Add new HUD element
-	sHUDElements.push_back(HUDElement());
-	sHUDElements.back().label = theHUDElementName;
-	sHUDElements.back().menuID = menuCount();
-
-	// Try to figure out what type of HUD element this is
-	std::string aHUDTypeName;
-	const std::string& aHUDPath = std::string(kHUDPrefix) + theHUDElementName;
-	for(int i = 0; aHUDTypeName.empty() && i < ARRAYSIZE(kTypeKeys); ++i)
-		aHUDTypeName = Profile::getStr(aHUDPath + "/" + kTypeKeys[i]);
-	if( aHUDTypeName.empty() )
-	{
-		logError(
-			"Can't find '[%s%s]/Type =' entry "
-			"for HUD element referenced by Layer '%s'! ",
-			kHUDPrefix,
-			theHUDElementName.c_str(),
-			sLayers[theControlsLayerIndex].label.c_str());
-		sHUDElements.back().hudType = eHUDType_Num;
-	}
-	else
-	{
-		EHUDType aHUDType = hudTypeNameToID(upper(aHUDTypeName));
-		if( aHUDType == eHUDType_Num )
-		{
-			logError(
-				"Unknown HUD Type '%s' specified for '[%s%s]/Type ='entry "
-				"for HUD element referenced by Layer '%s'! ",
-				aHUDTypeName.c_str(),
-				kHUDPrefix,
-				theHUDElementName.c_str(),
-				sLayers[theControlsLayerIndex].label.c_str());
-		}
-		sHUDElements.back().hudType = aHUDType;
-	}
-
-	return aHUDElementID;
-}
-
-
-static void buildHUDElements(InputMapBuilder& theBuilder)
-{
-	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
-	{
-		sLayers[aLayerID].hideHUD.clearAndResize(sHUDElements.size());
-		sLayers[aLayerID].showHUD.clearAndResize(sHUDElements.size());
-		std::string aLayerHUDKey = sLayers[aLayerID].label;
-		if( aLayerID == 0 )
-			aLayerHUDKey += "/";
-		else
-			aLayerHUDKey = std::string(kLayerPrefix)+aLayerHUDKey+"/";
-		aLayerHUDKey += kHUDSettingsKey;
-		const std::string& aLayerHUDDescription =
-			Profile::getStr(aLayerHUDKey);
-
-		if( aLayerHUDDescription.empty() )
-			continue;
-
-		// Break the string into individual words
-		theBuilder.parsedString.clear();
-		sanitizeSentence(aLayerHUDDescription, theBuilder.parsedString);
-		
-		bool show = true;
-		for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
-		{
-			const std::string& anElementName = theBuilder.parsedString[i];
-			if( upper(anElementName) == "HIDE" )
-			{
-				show = false;
-				continue;
-			}
-			if( upper(anElementName) == "SHOW" )
-			{
-				show = true;
-				continue;
-			}
-			u16 anElementIdx = getOrCreateHUDElementID(
-				theBuilder, anElementName, aLayerID);
-			sLayers[aLayerID].showHUD.resize(sHUDElements.size());
-			sLayers[aLayerID].showHUD.set(anElementIdx, show);
-			sLayers[aLayerID].hideHUD.resize(sHUDElements.size());
-			sLayers[aLayerID].hideHUD.set(anElementIdx, !show);
-		}
-	}
-
-	// Special-case manually-managed HUD element (top-most overlay)
-	sHUDElements.push_back(HUDElement());
-	sHUDElements.back().hudType = eHUDType_System;
-
-	// Above may have added new HUD elements, now that all are added
-	// make sure every layer's hideHUD and showHUD are correct size
-	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
-	{
-		sLayers[aLayerID].hideHUD.resize(sHUDElements.size());
-		sLayers[aLayerID].showHUD.resize(sHUDElements.size());
-	}
-	gVisibleHUD.clearAndResize(sHUDElements.size());
-	gRedrawHUD.clearAndResize(sHUDElements.size());
-}
-
-
 static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
 	sTargetGroupSize = 1;
@@ -2128,7 +2125,6 @@ void loadProfile()
 		buildCommandAliases(anInputMapBuilder);
 		buildControlScheme(anInputMapBuilder);
 		buildMenus(anInputMapBuilder);
-		buildHUDElements(anInputMapBuilder);
 		assignSpecialKeys(anInputMapBuilder);
 	}
 

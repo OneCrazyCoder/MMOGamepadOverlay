@@ -236,7 +236,6 @@ void update()
 	// Update each overlay window as needed
 	HDC aScreenDC = GetDC(NULL);
 	POINT anOriginPoint = { 0, 0 };
-	bool needZOrderRefresh = false;
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
 		OverlayWindow& aWindow = sOverlayWindows[i];
@@ -302,19 +301,13 @@ void update()
 
 		// Show window if it isn't visible yet
 		if( !IsWindowVisible(aWindow.handle) )
-		{
 			ShowWindow(aWindow.handle, SW_SHOWNOACTIVATE);
-			needZOrderRefresh = true;
-		}
 
 		// Cleanup
 		SelectObject(aWindowDC, hOldBitmap);
 		DeleteDC(aWindowDC);
 	}
 	ReleaseDC(NULL, aScreenDC);
-	
-	//if( needZOrderRefresh )
-	//	refreshZOrder();
 }
 
 
@@ -330,15 +323,6 @@ bool isOwnedByThisApp(HWND theWindow)
 HWND mainHandle()
 {
 	return sMainWindow;
-}
-
-
-size_t visibleOverlayCount()
-{
-	size_t result = 0;
-	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
-		result += IsWindowVisible(sOverlayWindows[i].handle) ? 1 : 0;
-	return result;
 }
 
 
@@ -376,11 +360,6 @@ void resize(RECT theNewWindowRect)
 			aWindow.size = sTargetSize;
 		}
 		aWindow.updated = false;
-		//SetWindowPos(
-		//	sOverlayWindows[i].handle, NULL,
-		//	sOverlayWindows[i].position.x, sOverlayWindows[i].position.y,
-		//	sOverlayWindows[i].size.cx, sOverlayWindows[i].size.cy,
-		//	SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
 	}
 }
 
@@ -397,15 +376,8 @@ void showOverlays()
 }
 
 
-void refreshZOrder()
+void setOverlaysToTopZ()
 {
-	if( !sMainWindow || sHidden )
-		return;
-
-	// TODO: Improve this function to not flicker as much every time
-	SetWindowPos(sMainWindow, HWND_BOTTOM, 0, 0, 0, 0,
-		SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
-
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
 		OverlayWindow& aWindow = sOverlayWindows[i];
@@ -415,7 +387,6 @@ void refreshZOrder()
 			0, 0, 0, 0,
 			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
 	}
-
 }
 
 

@@ -43,14 +43,11 @@ bool isOwnedByThisApp(HWND theWindow);
 // Gets handle to the main window (or NULL)
 HWND mainHandle();
 
-// Returns how many overlay windows should be visible above target
-size_t visibleOverlayCount();
-
 // Move/resize/hide/restore the overlay windows
 void resize(RECT theNewTargetRect);
 void hideOverlays();
 void showOverlays();
-void refreshZOrder();
+void setOverlaysToTopZ();
 bool areOverlaysHidden();
 
 // Gets virtual-desktop-relative mouse coordinates normalized to 0-65535 range

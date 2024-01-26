@@ -157,42 +157,36 @@ void checkWindowActive()
 
 void checkWindowZOrder()
 {
-	// TODO - Fix this with new WindowManager module
 	if( !sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
-		IsIconic(sTargetWindowHandle) )
+		IsIconic(sTargetWindowHandle) ||
+		WindowManager::areOverlaysHidden() )
 		return;
 
 	// If Target isn't a TOPMOST, it must be beneath overlays
 	if( !(GetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST) )
 		return;
 
-	size_t anOverlayCount = WindowManager::visibleOverlayCount();
-	if( anOverlayCount == 0 )
-		return;
-
-	// Loop through windows above target and count our overlays
-	size_t aFoundCount = 0;
+	// Loop through windows above target and check for any overlay
+	// The overlays are all lumped together so if any are above, all should be
 	HWND aWindow = GetWindow(sTargetWindowHandle, GW_HWNDPREV);
 	// GetWindow can sometimes cause an infinite loop, so just assume
-	// no more than 10+anOverlayCount windows need to be searched
-	for(int i = 0; i < 10+anOverlayCount; ++i)
+	// no more than 10 windows need to be searched
+	for(int i = 0; i < 10; ++i)
 	{
 		if( aWindow == NULL )
 			break;
 		if( aWindow != WindowManager::mainHandle() &&
 			WindowManager::isOwnedByThisApp(aWindow) )
-		{
-			if( ++aFoundCount >= anOverlayCount )
-				return;
+		{// Overlay window found!
+			return;
 		}
 		aWindow = GetWindow(aWindow, GW_HWNDPREV);
 	}
 
-	// Did not find all overlay windows above target!
+	// Did not find any overlay windows above target!
 	targetDebugPrint("Moving overlays back over top of target window!\n");
-	WindowManager::refreshZOrder();
-	WindowManager::showOverlays();
+	WindowManager::setOverlaysToTopZ();
 }
 
 
@@ -399,7 +393,7 @@ void checkWindowMode()
 			aMonRect.left, aMonRect.top,
 			aMonRectWidth, aMonRectHeight,
 			SWP_FRAMECHANGED);
-		WindowManager::refreshZOrder();
+		WindowManager::setOverlaysToTopZ();
 		WindowManager::showOverlays();
 		sLastKnownTargetMode = eWindowMode_FullScreenWindow;
 		return;

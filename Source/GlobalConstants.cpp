@@ -298,15 +298,15 @@ EButton buttonNameToID(const std::string& theName)
 }
 
 
-EMenuStyle menuStyleNameToID(const std::string& theName)
+EHUDType hudTypeNameToID(const std::string& theName)
 {
 	struct NameToEnumMapper
 	{
-		typedef StringToValueMap<EMenuStyle, u8> NameToEnumMap;
+		typedef StringToValueMap<u32, u8> NameToEnumMap;
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			const size_t kMapSize = 19;
+			const size_t kMapSize = 23;
 			map.reserve(kMapSize);
 			map.setValue("LIST",			eMenuStyle_List);
 			map.setValue("BASIC",			eMenuStyle_List);
@@ -327,40 +327,18 @@ EMenuStyle menuStyleNameToID(const std::string& theName)
 			map.setValue("HOTBAR",			eMenuStyle_Bar);
 			map.setValue("RING",			eMenuStlye_Ring);
 			map.setValue("RADIAL",			eMenuStyle_Radial);
+			map.setValue("RETICLE",			eHUDType_Reticle);
+			map.setValue("RECTANGLE",		eHUDType_Rectangle);
+			map.setValue("BLOCK",			eHUDType_Rectangle);
+			map.setValue("SQUARE",			eHUDType_Rectangle);
 			const size_t actualMapSize = map.size();
 			DBG_ASSERT(actualMapSize == kMapSize);
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
-	EMenuStyle* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eMenuStyle_Num;
-}
-
-
-EHUDType hudTypeNameToID(const std::string& theName)
-{
-	u16 aMenuStyle = menuStyleNameToID(theName);
-	if( aMenuStyle < eMenuStyle_Num )
-		return EHUDType(aMenuStyle);
-
-	struct NameToEnumMapper
-	{
-		typedef StringToValueMap<EHUDType, u8> NameToEnumMap;
-		NameToEnumMap map;
-		NameToEnumMapper()
-		{
-			const size_t kMapSize = 1;
-			map.reserve(kMapSize);
-			map.setValue("RETICLE",	eHUDType_Reticle);
-			const size_t actualMapSize = map.size();
-			DBG_ASSERT(actualMapSize == kMapSize);
-		}
-	};
-	static NameToEnumMapper sNameToEnumMapper;
-
-	EHUDType* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eHUDType_Num;
+	u32* result = sNameToEnumMapper.map.find(theName);
+	return result ? EHUDType(*result) : eHUDType_Num;
 }
 
 
