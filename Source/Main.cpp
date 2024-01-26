@@ -114,8 +114,9 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 				Gamepad::update();
 				InputTranslator::update();
 				InputDispatcher::update();
-				WindowManager::update();
 				TargetApp::update();
+				HUD::update();
+				WindowManager::update();
 			}
 
 			// Yield via Sleep() so sent input can be processed by target
