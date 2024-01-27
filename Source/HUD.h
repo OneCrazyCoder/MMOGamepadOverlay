@@ -25,23 +25,23 @@ void cleanup();
 // Update visual element timers (animations etc)
 void update();
 
-// Draws given HUD element to given Window
-// Assumes the Window is already positioned correct so can draw at 0,0
+// Draws given HUD element to given Device Context (bitmap), starting at 0,0
 void drawElement(
 	HDC hdc,
 	u16 theHUDElementID,
 	const SIZE& theComponentSize,
-	const SIZE& theClientSize);
+	const SIZE& theDestSize,
+	bool needsInitialErase);
 
-// Get size of each component (menu item) based on full target client size
-SIZE componentSize(
+// Updates layout properties needed for each HUD element's overlay Window
+void updateWindowLayout(
 	u16 theHUDElementID,
-	const SIZE& theClientSize);
+	const SIZE& theTargetSize,
+	SIZE& theComponentSize,
+	POINT& theWindowPos,
+	SIZE& theWindowSize);
 
-// Gets the region position/size for drawing HUD element
-RECT elementRectNeeded(
-	u16 theHUDElementID,
-	const SIZE& theItemSize,
-	const RECT& theClientRect);
+// Returns background color to become fully transparent
+COLORREF transColor(u16 theHUDElementID);
 
 } // HUD

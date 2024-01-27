@@ -41,6 +41,7 @@ enum EHUDProperty
 	eHUDProp_ItemColor,
 	eHUDProp_BorderColor,
 	eHUDProp_BorderSize,
+	eHUDProp_TransColor,
 
 	eHUDProp_Num
 };
@@ -64,6 +65,7 @@ const char* kHUDPropStr[][2] =
 	{	"ItemRGB",		"150, 150, 150"	},	// eHUDProp_ItemColor
 	{	"BorderRGB",	"100, 100, 100"	},	// eHUDProp_BorderColor
 	{	"BorderSize",	"1"				},	// eHUDProp_BorderSize
+	{	"TransRGB",		"255, 0, 255"	},	// eHUDProp_TransColor
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -78,11 +80,13 @@ struct HUDElementInfo
 	EHUDType type;
 	COLORREF labelColor;
 	COLORREF itemColor;
+	COLORREF transColor;
 	Hotspot position;
 	Hotspot itemSize;
 	u16 fontID;
 	u16 itemBrushID;
 	u16 borderPenID;
+	u16 eraseBrushID;
 	u8 alignmentX;
 	u8 alignmentY;
 };
@@ -96,20 +100,25 @@ struct HUDDrawData
 {
 	HDC hdc;
 	SIZE itemSize;
-	SIZE clientSize;
+	SIZE targetSize;
+	RECT targetRect;
 	u16 hudElementID;
+	bool firstDraw;
 
 	HUDDrawData(
 		HDC hdc,
 		SIZE itemSize,
-		SIZE clientSize,
-		u16 hudElementID)
+		SIZE targetSize,
+		u16 hudElementID,
+		bool firstDraw)
 		:
 		hdc(hdc),
 		itemSize(itemSize),
-		clientSize(clientSize),
-		hudElementID(hudElementID)
+		targetSize(targetSize),
+		hudElementID(hudElementID),
+		firstDraw(firstDraw)
 	{
+		SetRect(&targetRect, 0, 0, targetSize.cx, targetSize.cy);
 	}
 };
 
@@ -146,21 +155,26 @@ static std::string getHUDPropStr(
 	EHUDProperty theProperty)
 {
 	std::string result;
-	// Try [Menu.Name] first since most HUD elements are likely Menus
-	std::string aKey = kMenuPrefix;
-	aKey += "."; aKey += theName + "/";
-	aKey += kHUDPropStr[theProperty][0];
-	result = Profile::getStr(aKey);
-	if( !result.empty() )
-		return result;
+	std::string aKey;
 
-	// Try [HUD.Name] next
-	aKey = kHUDPrefix;
-	aKey += "."; aKey += theName + "/";
-	aKey += kHUDPropStr[theProperty][0];
-	result = Profile::getStr(aKey);
-	if( !result.empty() )
-		return result;
+	if( !theName.empty() )
+	{
+		// Try [Menu.Name] first since most HUD elements are likely Menus
+		aKey = kMenuPrefix;
+		aKey += "."; aKey += theName + "/";
+		aKey += kHUDPropStr[theProperty][0];
+		result = Profile::getStr(aKey);
+		if( !result.empty() )
+			return result;
+
+		// Try [HUD.Name] next
+		aKey = kHUDPrefix;
+		aKey += "."; aKey += theName + "/";
+		aKey += kHUDPropStr[theProperty][0];
+		result = Profile::getStr(aKey);
+		if( !result.empty() )
+			return result;
+	}
 
 	// Try just [HUD] for a default value
 	aKey = kHUDPrefix;
@@ -268,25 +282,25 @@ static u16 getOrCreateFontID(
 }
 
 
-static LONG hotspotCoordToClient(
+LONG scaleHotspot(
 	const Hotspot::Coord& theCoord,
-	u16 theClientSize)
+	u16 theTargetSize)
 {
 	return
 		LONG(theCoord.origin) *
-		theClientSize / 0x10000 +
+		theTargetSize / 0x10000 +
 		theCoord.offset;
 }
 
-
+	
 static void drawMenuItem(
-	const HUDDrawData& theDrawData,
+	const HUDDrawData& dd,
 	RECT theItemRect,
 	const std::string& theLabel)
 {
-	const u16 aHUDElementID = theDrawData.hudElementID;
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
-	HDC hdc = theDrawData.hdc;
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+	HDC hdc = dd.hdc;
 
 	// Bordered rectangle
 	Rectangle(hdc,
@@ -308,85 +322,81 @@ static void drawMenuItem(
 }
 
 
-static void draw4DirMenu(HUDDrawData& theDrawData)
+static void draw4DirMenu(HUDDrawData& dd)
 {
-	const u16 aHUDElementID = theDrawData.hudElementID;
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
-	HDC hdc = theDrawData.hdc;
-	DBG_ASSERT(aHUDInfo.type == eMenuStyle_4Dir);
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+	HDC hdc = dd.hdc;
+	DBG_ASSERT(hi.type == eMenuStyle_4Dir);
 
-	HFONT hOldFont = (HFONT)SelectObject(hdc, sFonts[aHUDInfo.fontID]);
-	HPEN hOldPen = (HPEN)SelectObject(hdc, sPens[aHUDInfo.borderPenID]);
-	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, sBrushes[aHUDInfo.itemBrushID]);
-	SetBkColor(hdc, aHUDInfo.itemColor);
-	SetTextColor(hdc, aHUDInfo.labelColor);
+	// Always just draws all 4 items on top of previous,
+	// so no need to erase anything first
+
+	SelectObject(hdc, sFonts[hi.fontID]);
+	SelectObject(hdc, sPens[hi.borderPenID]);
+	SelectObject(hdc, sBrushes[hi.itemBrushID]);
+	SetBkColor(hdc, hi.itemColor);
+	SetTextColor(hdc, hi.labelColor);
 
 	// Always 4 menu items, in order of L->R->U->D
 	const u16 activeSubMenu = Menus::activeSubMenu(aHUDElementID);
 	// Left
 	RECT anItemRect;
 	anItemRect.left = 0;
-	anItemRect.top = theDrawData.itemSize.cy;
-	anItemRect.right = anItemRect.left + theDrawData.itemSize.cx;
-	anItemRect.bottom = anItemRect.top + theDrawData.itemSize.cy;
-	drawMenuItem(theDrawData, anItemRect,
+	anItemRect.top = dd.itemSize.cy;
+	anItemRect.right = anItemRect.left + dd.itemSize.cx;
+	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
+	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 0));
 	// Right
-	anItemRect.left += theDrawData.itemSize.cx;
-	anItemRect.right += theDrawData.itemSize.cx;
-	drawMenuItem(theDrawData, anItemRect,
+	anItemRect.left += dd.itemSize.cx;
+	anItemRect.right += dd.itemSize.cx;
+	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 1));
 	// Up
-	anItemRect.left -= theDrawData.itemSize.cx / 2;
+	anItemRect.left -= dd.itemSize.cx / 2;
 	anItemRect.top = 0;
-	anItemRect.right = anItemRect.left + theDrawData.itemSize.cx;
-	anItemRect.bottom = anItemRect.top + theDrawData.itemSize.cy;
-	drawMenuItem(theDrawData, anItemRect,
+	anItemRect.right = anItemRect.left + dd.itemSize.cx;
+	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
+	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 2));
 	// Down
-	anItemRect.top += theDrawData.itemSize.cy * 2;
-	anItemRect.bottom += theDrawData.itemSize.cy * 2;
-	drawMenuItem(theDrawData, anItemRect,
+	anItemRect.top += dd.itemSize.cy * 2;
+	anItemRect.bottom += dd.itemSize.cy * 2;
+	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 3));
-
-	// Cleanup
-	SelectObject(hdc, hOldFont);
-	SelectObject(hdc, hOldPen);
-	SelectObject(hdc, hOldBrush);
 }
 
 
-static void drawRectHUD(HUDDrawData& theDrawData)
+static void drawRectHUD(HUDDrawData& dd)
 {
-	const u16 aHUDElementID = theDrawData.hudElementID;
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
-	HDC hdc = theDrawData.hdc;
-	DBG_ASSERT(aHUDInfo.type == eHUDType_Rectangle);
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+	HDC hdc = dd.hdc;
+	DBG_ASSERT(hi.type == eHUDType_Rectangle);
 
-	HPEN hOldPen = (HPEN)SelectObject(hdc, sPens[aHUDInfo.borderPenID]);
-	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, sBrushes[aHUDInfo.itemBrushID]);
+	SelectObject(hdc, sPens[hi.borderPenID]);
+	SelectObject(hdc, sBrushes[hi.itemBrushID]);
 
-	SetBkColor(hdc, aHUDInfo.itemColor);
-	SetTextColor(hdc, aHUDInfo.labelColor);
+	SetBkColor(hdc, hi.itemColor);
+	SetTextColor(hdc, hi.labelColor);
 
-	Rectangle(hdc, 0, 0, theDrawData.clientSize.cx, theDrawData.clientSize.cy);
-
-	// Cleanup
-	SelectObject(hdc, hOldPen);
-	SelectObject(hdc, hOldBrush);
+	Rectangle(hdc, 0, 0, dd.targetSize.cx, dd.targetSize.cy);
 }
 
 
-static void drawSystemHUD(HUDDrawData& theDrawData)
+static void drawSystemHUD(HUDDrawData& dd)
 {
-	const u16 aHUDElementID = theDrawData.hudElementID;
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
-	HDC hdc = theDrawData.hdc;
-	DBG_ASSERT(aHUDInfo.type == eHUDType_System);
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+	HDC hdc = dd.hdc;
+	DBG_ASSERT(hi.type == eHUDType_System);
 
-	RECT aTextRect = { 8, 8,
-		theDrawData.clientSize.cx - 8,
-		theDrawData.clientSize.cy - 8 };
+	if( !dd.firstDraw )
+		FillRect(hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
+
+	RECT aTextRect = dd.targetRect;
+	InflateRect(&aTextRect, -8, -8);
 
 	if( !sErrorMessage.empty() )
 	{
@@ -416,55 +426,69 @@ void init()
 	
 	HUDBuilder aHUDBuilder;
 	sHUDElementInfo.resize(InputMap::hudElementCount());
+
+	// Get default erase (transparent) color value
+	const COLORREF aDefaultTransColor = strToRGB(aHUDBuilder,
+					getHUDPropStr("", eHUDProp_TransColor));
+	const u16 aDefaultEraseBrush =
+		getOrCreateBrushID(aHUDBuilder, aDefaultTransColor);
+
 	for(u16 aHUDElementID = 0;
 		aHUDElementID < sHUDElementInfo.size();
 		++aHUDElementID)
 	{
-		HUDElementInfo& aHUDInfo = sHUDElementInfo[aHUDElementID];
-		aHUDInfo.type = InputMap::hudElementType(aHUDElementID);
-		if( aHUDInfo.type == eHUDType_System )
+		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+		hi.type = InputMap::hudElementType(aHUDElementID);
+		hi.transColor = aDefaultTransColor;
+		hi.eraseBrushID = aDefaultEraseBrush;
+		if( hi.type == eHUDType_System )
 			continue;
 		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
-		// aHUDInfo.position = eHUDProp_Position
+		// hi.position = eHUDProp_Position
 		InputMap::profileStringToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Position),
-			aHUDInfo.position);
-		// aHUDInfo.itemSize = eHUDProp_ItemSize
+			hi.position);
+		// hi.itemSize = eHUDProp_ItemSize
 		InputMap::profileStringToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_ItemSize),
-			aHUDInfo.itemSize);
-		// aHUDInfo.alignmentX/Y = eHUDProp_Alignment
+			hi.itemSize);
+		// hi.alignmentX/Y = eHUDProp_Alignment
 		Hotspot aTempHotspot;
 		InputMap::profileStringToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Alignment),
 			aTempHotspot);
-		aHUDInfo.alignmentX =
+		hi.alignmentX =
 			aTempHotspot.x.origin < 0x4000	? eAlignment_Min :
 			aTempHotspot.x.origin > 0xC000	? eAlignment_Max :
 			/*otherwise*/					  eAlignment_Center;
-		aHUDInfo.alignmentY =
+		hi.alignmentY =
 			aTempHotspot.y.origin < 0x4000	? eAlignment_Min :
 			aTempHotspot.y.origin > 0xC000	? eAlignment_Max :
 			/*otherwise*/					  eAlignment_Center;
-		// aHUDInfo.fontID = eHUDProp_FontName & _FontSize & _FontWeight
-		aHUDInfo.fontID = getOrCreateFontID(aHUDBuilder,
+		// hi.fontID = eHUDProp_FontName & _FontSize & _FontWeight
+		hi.fontID = getOrCreateFontID(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_FontName),
 			getHUDPropStr(aHUDName, eHUDProp_FontSize),
 			getHUDPropStr(aHUDName, eHUDProp_FontWeight));
-		// aHUDInfo.labelColor = eHUDProp_FontColor
-		aHUDInfo.labelColor = strToRGB(aHUDBuilder,
+		// hi.labelColor = eHUDProp_FontColor
+		hi.labelColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_FontColor));
-		// aHUDInfo.itemColor & .itemBrushID = eHUDProp_ItemColor
-		aHUDInfo.itemColor = strToRGB(aHUDBuilder,
+		// hi.itemColor & .itemBrushID = eHUDProp_ItemColor
+		hi.itemColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_ItemColor));
-		aHUDInfo.itemBrushID = getOrCreateBrushID(
-			aHUDBuilder, aHUDInfo.itemColor);
-		// aHUDInfo.borderPenID = eHUDProp_BorderColor & _BorderSize
-		aHUDInfo.borderPenID = getOrCreatePenID(aHUDBuilder,
+		hi.itemBrushID = getOrCreateBrushID(
+			aHUDBuilder, hi.itemColor);
+		// hi.borderPenID = eHUDProp_BorderColor & _BorderSize
+		hi.borderPenID = getOrCreatePenID(aHUDBuilder,
 			strToRGB(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_BorderColor)),
 			PS_INSIDEFRAME, intFromString(
 				getHUDPropStr(aHUDName, eHUDProp_BorderSize)));
+		// hi.transColor & .eraseBrushID = eHUDProp_TransColor
+		hi.transColor = strToRGB(aHUDBuilder,
+			getHUDPropStr(aHUDName, eHUDProp_TransColor));
+		hi.eraseBrushID = getOrCreateBrushID(
+			aHUDBuilder, hi.transColor);
 	}
 }
 
@@ -550,10 +574,20 @@ void drawElement(
 	HDC hdc,
 	u16 theHUDElementID,
 	const SIZE& theComponentSize,
-	const SIZE& theClientSize)
+	const SIZE& theDestSize,
+	bool needsInitialErase)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[theHUDElementID];
+	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
+
+	HUDDrawData aDrawData(
+		hdc,
+		theComponentSize, theDestSize,
+		theHUDElementID,
+		needsInitialErase);
+
+	// Select the eraseBrush (transparent color) by default first
+	SelectObject(hdc, sBrushes[hi.eraseBrushID]);
 
 	#ifdef _DEBUG
 	COLORREF aFrameColor = RGB(0, 0, 0);
@@ -561,28 +595,31 @@ void drawElement(
 	aFrameColor = RGB(0, 0, 200);
 	#endif
 	#ifdef DEBUG_DRAW_OVERLAY_FRAME
-	if( aHUDInfo.type == eHUDType_System )
+	if( hi.type == eHUDType_System )
 		aFrameColor = RGB(255, 0, 0);
 	#endif
 	if( aFrameColor != RGB(0, 0, 0) )
 	{
-		// Normally I'd prefer not to create and destroy these on-the-fly,
-		// but since this is purely for debugging purposes...
-		HBRUSH hBlackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
-		HPEN hBluePen = CreatePen(PS_INSIDEFRAME, 3, aFrameColor);
-		HPEN hOldPen = (HPEN)SelectObject(hdc, hBluePen);
-		HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBlackBrush);
+		HPEN hFramePen = CreatePen(PS_INSIDEFRAME, 3, aFrameColor);
 
-		Rectangle(hdc, 0, 0, theClientSize.cx, theClientSize.cy);
-
+		HPEN hOldPen = (HPEN)SelectObject(hdc, hFramePen);
+		Rectangle(hdc, 0, 0, theDestSize.cx, theDestSize.cy);
 		SelectObject(hdc, hOldPen);
-		SelectObject(hdc, hOldBrush);
-		DeleteObject(hBluePen);
-		DeleteObject(hBlackBrush);
+
+		DeleteObject(hFramePen);
+
+		// This effectively also erased the dest region
+		needsInitialErase = false;
 	}
 	#endif // _DEBUG
 
-	HUDDrawData aDrawData(hdc, theComponentSize, theClientSize, theHUDElementID);
+	if( needsInitialErase )
+	{
+		RECT aTargetRect;
+		SetRect(&aTargetRect, 0, 0, theDestSize.cx, theDestSize.cy);
+		FillRect(hdc, &aTargetRect, sBrushes[hi.eraseBrushID]);
+	}
+
 	switch(sHUDElementInfo[theHUDElementID].type)
 	{
 	case eMenuStyle_4Dir:		draw4DirMenu(aDrawData);	break;
@@ -592,83 +629,70 @@ void drawElement(
 }
 
 
-SIZE componentSize(u16 theHUDElementID, const SIZE& theClientSize)
-{
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[theHUDElementID];
-
-	SIZE result;
-	result.cx = hotspotCoordToClient(aHUDInfo.itemSize.x, theClientSize.cx);
-	result.cy = hotspotCoordToClient(aHUDInfo.itemSize.y, theClientSize.cy);
-
-	return result;
-}
-
-
-RECT elementRectNeeded(
+void updateWindowLayout(
 	u16 theHUDElementID,
-	const SIZE& theItemSize,
-	const RECT& theClientRect)
+	const SIZE& theTargetSize,
+	SIZE& theComponentSize,
+	POINT& theWindowPos,
+	SIZE& theWindowSize)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
-	const HUDElementInfo& aHUDInfo = sHUDElementInfo[theHUDElementID];
+	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
-	SIZE aClientSize;
-	aClientSize.cx = theClientRect.right - theClientRect.left;
-	aClientSize.cy = theClientRect.bottom - theClientRect.top;
+	// Calculate component size first since it affects other properties
+	theComponentSize.cx = scaleHotspot(hi.itemSize.x, theTargetSize.cx);
+	theComponentSize.cy = scaleHotspot(hi.itemSize.y, theTargetSize.cy);
 
-	// Get origin point assuming top-left alignment
-	POINT anOriginPos;
-	anOriginPos.x = hotspotCoordToClient(aHUDInfo.position.x, aClientSize.cx);
-	anOriginPos.y = hotspotCoordToClient(aHUDInfo.position.y, aClientSize.cy);
+	// Get window position (top-left corner) assuming top-left alignment
+	theWindowPos.x = scaleHotspot(hi.position.x, theTargetSize.cx);
+	theWindowPos.y = scaleHotspot(hi.position.y, theTargetSize.cy);
 
-	// Calculate size needed
-	SIZE aFullSize = theItemSize;
-	switch(aHUDInfo.type)
+	// Calculate total window size needed based on type and component size
+	theWindowSize = theComponentSize;
+	switch(hi.type)
 	{
 	case eMenuStyle_4Dir:
-		aFullSize.cx *= 2;
-		aFullSize.cy *= 3;
+		theWindowSize.cx *= 2;
+		theWindowSize.cy *= 3;
 		break;
 	case eHUDType_System:
-		aFullSize.cx = aClientSize.cx;
-		aFullSize.cy = aClientSize.cy;
+		theWindowSize.cx = theTargetSize.cx;
+		theWindowSize.cy = theTargetSize.cy;
 		break;
 	}
 
-	// Adjust origin according to alignment settings
+	// Adjust position according to size and alignment settings
 	switch(sHUDElementInfo[theHUDElementID].alignmentX)
 	{
 	case eAlignment_Min:
-		// Do nothig
+		// Do nothing
 		break;
 	case eAlignment_Center:
-		anOriginPos.x -= aFullSize.cx / 2;
+		theWindowPos.x -= theWindowSize.cx / 2;
 		break;
 	case eAlignment_Max:
-		anOriginPos.x -= aFullSize.cx;
+		theWindowPos.x -= theWindowSize.cx;
 		break;
 	}
 	switch(sHUDElementInfo[theHUDElementID].alignmentY)
 	{
 	case eAlignment_Min:
-		// Do nothig
+		// Do nothing
 		break;
 	case eAlignment_Center:
-		anOriginPos.y -= aFullSize.cy / 2;
+		theWindowPos.y -= theWindowSize.cy / 2;
 		break;
 	case eAlignment_Max:
-		anOriginPos.y -= aFullSize.cy;
+		theWindowPos.y -= theWindowSize.cy;
 		break;
 	}
+}
 
-	RECT result;
-	result.left = anOriginPos.x + theClientRect.left;
-	result.top = anOriginPos.y + theClientRect.top;
-	result.right = result.left + aFullSize.cx;
-	result.bottom = result.top + aFullSize.cy;
 
-	return result;
+COLORREF transColor(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].transColor;
 }
 
 } // HUD
