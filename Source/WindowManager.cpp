@@ -146,7 +146,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	RegisterClassExW(&aWindowClass);
 
 	aWindowClass.lpfnWndProc = overlayWindowProc;
-	aWindowClass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+	aWindowClass.hbrBackground = NULL;
 	aWindowClass.hCursor = NULL;
 	aWindowClass.lpszClassName = kOverlayWindowClassName;
 	RegisterClassExW(&aWindowClass);
@@ -187,13 +187,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 	for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
 	{
 		OverlayWindow& aWindow = sOverlayWindows[i];
-		aWindow.componentSize = HUD::componentSize(i, sTargetSize);
-		const RECT& aRect = HUD::elementRectNeeded(
-			i, aWindow.componentSize, sScreenTargetRect);
-		aWindow.position.x = aRect.left;
-		aWindow.position.y = aRect.top;
-		aWindow.size.cx = aRect.right - aRect.left;
-		aWindow.size.cy = aRect.bottom - aRect.top;
+		HUD::updateWindowLayout(i, sTargetSize,
+			aWindow.componentSize, aWindow.position, aWindow.size);
 		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
 			WS_EX_TRANSPARENT | WS_EX_LAYERED,
@@ -249,6 +244,13 @@ void update()
 			continue;
 		}
 
+		// Check for possible update to window layout
+		if( !aWindow.updated || gRedrawHUD.test(i) )
+		{
+			HUD::updateWindowLayout(u16(i), sTargetSize,
+				aWindow.componentSize, aWindow.position, aWindow.size);
+		}
+	
 		// Delete bitmap if bitmap size doesn't match window size
 		if( aWindow.bitmap &&
 			(aWindow.bitmapSize.cx != aWindow.size.cx ||
@@ -259,6 +261,7 @@ void update()
 		}
 
 		// Create bitmap if doesn't exist
+		const bool needToEraseBitmap = !aWindow.bitmap;
 		if( !aWindow.bitmap )
 		{
 			aWindow.bitmapSize = aWindow.size;
@@ -274,16 +277,19 @@ void update()
 
 		// Redraw bitmap contents if needed
 		HDC aWindowDC = CreateCompatibleDC(aScreenDC);
+		const int aWindowDCInitialState = SaveDC(aWindowDC);
 		if( !aWindowDC )
 		{
 			logFatalError("Could not create device context for overlay!");
 			continue;
 		}
-		HBITMAP hOldBitmap = (HBITMAP)SelectObject(aWindowDC, aWindow.bitmap);
+		SelectObject(aWindowDC, aWindow.bitmap);
 		if( gRedrawHUD.test(i) )
 		{
 			HUD::drawElement(
-				aWindowDC, u16(i), aWindow.componentSize, aWindow.size);
+				aWindowDC, u16(i),
+				aWindow.componentSize, aWindow.size,
+				needToEraseBitmap);
 			aWindow.updated = false;
 			gRedrawHUD.reset(i);
 		}
@@ -294,8 +300,10 @@ void update()
 			// TODO: Change '255' to the alpha value desired for this window
 			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, 255, 0};
 			UpdateLayeredWindow(aWindow.handle, aScreenDC,
-				&aWindow.position, &aWindow.size, aWindowDC, &anOriginPoint,
-				RGB(0, 0, 0), &aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
+				&aWindow.position, &aWindow.size,
+				aWindowDC, &anOriginPoint,
+				HUD::transColor(u16(i)), &aBlendFunction,
+				ULW_ALPHA /*| ULW_COLORKEY*/);
 			aWindow.updated = true;
 		}
 
@@ -304,7 +312,7 @@ void update()
 			ShowWindow(aWindow.handle, SW_SHOWNOACTIVATE);
 
 		// Cleanup
-		SelectObject(aWindowDC, hOldBitmap);
+		RestoreDC(aWindowDC, aWindowDCInitialState);
 		DeleteDC(aWindowDC);
 	}
 	ReleaseDC(NULL, aScreenDC);
@@ -340,27 +348,7 @@ void resize(RECT theNewWindowRect)
 	sDesktopTargetRect.bottom -= GetSystemMetrics(SM_YVIRTUALSCREEN);
 
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
-	{
-		OverlayWindow& aWindow = sOverlayWindows[i];
-		DBG_ASSERT(aWindow.handle);
-		if( i < InputMap::hudElementCount() )
-		{
-			aWindow.componentSize = HUD::componentSize(i, sTargetSize);
-			const RECT& aRect = HUD::elementRectNeeded(
-				i, aWindow.componentSize, sScreenTargetRect);
-			aWindow.position.x = aRect.left;
-			aWindow.position.y = aRect.top;
-			aWindow.size.cx = aRect.right - aRect.left;
-			aWindow.size.cy = aRect.bottom - aRect.top;
-		}
-		else
-		{
-			aWindow.position.x = sScreenTargetRect.left;
-			aWindow.position.y = sScreenTargetRect.top;
-			aWindow.size = sTargetSize;
-		}
-		aWindow.updated = false;
-	}
+		sOverlayWindows[i].updated = false;
 }
 
 
