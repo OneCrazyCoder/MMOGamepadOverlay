@@ -303,7 +303,7 @@ void update()
 				&aWindow.position, &aWindow.size,
 				aWindowDC, &anOriginPoint,
 				HUD::transColor(u16(i)), &aBlendFunction,
-				ULW_ALPHA /*| ULW_COLORKEY*/);
+				ULW_ALPHA | ULW_COLORKEY);
 			aWindow.updated = true;
 		}
 
