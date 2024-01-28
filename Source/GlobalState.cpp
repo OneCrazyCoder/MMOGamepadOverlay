@@ -15,6 +15,7 @@ int gAppFrameTime = 0;
 u32 gAppUpdateCount = 0;
 BitVector<> gVisibleHUD;
 BitVector<> gRedrawHUD;
+BitVector<> gActiveHUD;
 std::vector<MenuState> gMenuStates;
 u8 gLastGroupTarget;
 u8 gFavoriteGroupTarget;

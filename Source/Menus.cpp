@@ -57,6 +57,7 @@ void cleanup()
 const Command& selectedMenuItemCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	gActiveHUD.set(theMenuID);
 	switch(sMenuInfo[theMenuID].style)
 	{
 	case eMenuStyle_4Dir:
@@ -69,6 +70,7 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
 {
 	const u16 aSubMenuID = activeSubMenu(theMenuID);
+	gActiveHUD.set(theMenuID);
 	switch(sMenuInfo[theMenuID].style)
 	{
 	case eMenuStyle_4Dir:
@@ -97,6 +99,7 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 		sMenuInfo[theMenuID].subMenuStack.push_back(theSubMenuID);
 		DBG_ASSERT(theMenuID < gRedrawHUD.size());
 		gRedrawHUD.set(theMenuID);
+		gActiveHUD.set(theMenuID);
 	}
 }
 
@@ -110,6 +113,7 @@ void closeLastSubMenu(u16 theMenuID)
 		sMenuInfo[theMenuID].subMenuStack.pop_back();
 		DBG_ASSERT(theMenuID < gRedrawHUD.size());
 		gRedrawHUD.set(theMenuID);
+		gActiveHUD.set(theMenuID);
 	}
 }
 

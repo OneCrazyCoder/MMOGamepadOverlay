@@ -30,6 +30,9 @@ extern BitVector<> gVisibleHUD;
 // Which HUD elements need to be re-drawn
 extern BitVector<> gRedrawHUD;
 
+// Which HUD elements have recently been interacted with (for inactive fade)
+extern BitVector<> gActiveHUD;
+
 // State of each active Menu (sub-menu, selected item, etc)
 extern std::vector<MenuState> gMenuStates;
 

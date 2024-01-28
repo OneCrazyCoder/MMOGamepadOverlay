@@ -42,6 +42,13 @@ enum EHUDProperty
 	eHUDProp_BorderColor,
 	eHUDProp_BorderSize,
 	eHUDProp_TransColor,
+	eHUDProp_MaxAlpha,
+	eHUDProp_FadeInDelay,
+	eHUDProp_FadeInTime,
+	eHUDProp_FadeOutDelay,
+	eHUDProp_FadeOutTime,
+	eHUDProp_InactiveDelay,
+	eHUDProp_InactiveAlpha,
 
 	eHUDProp_Num
 };
@@ -54,18 +61,25 @@ enum EAlignment
 };
 
 const char* kHUDPropStr[][2] =
-{//		Key				Default value
-	{	"Position",		"0, 0"			},	// eHUDProp_Position
-	{	"ItemSize",		"55, 55"		},	// eHUDProp_ItemSize
-	{	"Alignment",	"L, T"			},	// eHUDProp_Alignment
-	{	"Font",			"Verdana"		},	// eHUDProp_FontName
-	{	"FontSize",		"13"			},	// eHUDProp_FontSize
-	{	"FontWeight",	"400"			},	// eHUDProp_FontWeight
-	{	"LabelRGB",		"10, 10, 10"	},	// eHUDProp_FontColor
-	{	"ItemRGB",		"150, 150, 150"	},	// eHUDProp_ItemColor
-	{	"BorderRGB",	"100, 100, 100"	},	// eHUDProp_BorderColor
-	{	"BorderSize",	"1"				},	// eHUDProp_BorderSize
-	{	"TransRGB",		"255, 0, 255"	},	// eHUDProp_TransColor
+{//		Key					Default value
+	{	"Position",			"0, 0"			},	// eHUDProp_Position
+	{	"ItemSize",			"55, 55"		},	// eHUDProp_ItemSize
+	{	"Alignment",		"L, T"			},	// eHUDProp_Alignment
+	{	"Font",				"Verdana"		},	// eHUDProp_FontName
+	{	"FontSize",			"13"			},	// eHUDProp_FontSize
+	{	"FontWeight",		"400"			},	// eHUDProp_FontWeight
+	{	"LabelRGB",			"10, 10, 10"	},	// eHUDProp_FontColor
+	{	"ItemRGB",			"150, 150, 150"	},	// eHUDProp_ItemColor
+	{	"BorderRGB",		"100, 100, 100"	},	// eHUDProp_BorderColor
+	{	"BorderSize",		"1"				},	// eHUDProp_BorderSize
+	{	"TransRGB",			"255, 0, 255"	},	// eHUDProp_TransColor
+	{	"MaxAlpha",			"255"			},	// eHUDProp_MaxAlpha
+	{	"FadeInDelay",		"0"				},	// eHUDProp_FadeInDelay
+	{	"FadeInTime",		"125"			},	// eHUDProp_FadeInTime
+	{	"FadeOutDelay",		"0"				},	// eHUDProp_FadeOutDelay
+	{	"FadeOutTime",		"650"			},	// eHUDProp_FadeOutTime
+	{	"InactiveDelay",	"0"				},	// eHUDProp_InactiveDelay
+	{	"InactiveAlpha",	"150"			},	// eHUDProp_InactiveAlpha
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -83,12 +97,26 @@ struct HUDElementInfo
 	COLORREF transColor;
 	Hotspot position;
 	Hotspot itemSize;
+	float fadeInRate;
+	float fadeOutRate;
+	int fadeInDelay;
+	int fadeOutDelay;
+	int delayUntilInactive;
 	u16 fontID;
 	u16 itemBrushID;
 	u16 borderPenID;
 	u16 eraseBrushID;
 	u8 alignmentX;
 	u8 alignmentY;
+	u8 maxAlpha;
+	u8 inactiveAlpha;
+
+	HUDElementInfo() :
+		fadeInRate(255),
+		fadeOutRate(255),
+		maxAlpha(255),
+		inactiveAlpha(255)
+	{}
 };
 
 
@@ -489,6 +517,29 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_TransColor));
 		hi.eraseBrushID = getOrCreateBrushID(
 			aHUDBuilder, hi.transColor);
+		// hi.maxAlpha = eHUDProp_MaxAlpha
+		hi.maxAlpha = u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_MaxAlpha)) & 0xFF;
+		// hi.fadeInDelay = eHUDProp_FadeInDelay
+		hi.fadeInDelay = max(0, intFromString(
+			getHUDPropStr(aHUDName, eHUDProp_FadeInDelay)));
+		// hi.fadeInRate = eHUDProp_FadeInTime
+		u32 aVal = max(1, u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_FadeInTime)));
+		hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
+		// hi.fadeOutDelay = eHUDProp_FadeOutDelay
+		hi.fadeOutDelay = max(0, intFromString(
+			getHUDPropStr(aHUDName, eHUDProp_FadeOutDelay)));
+		// hi.fadeOutRate = eHUDProp_FadeOutTime
+		aVal = max(1, u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_FadeOutTime)));
+		hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
+		// hi.delayUntilInactive = eHUDProp_InactiveDelay
+		hi.delayUntilInactive = intFromString(
+			getHUDPropStr(aHUDName, eHUDProp_InactiveDelay));
+		// hi.inactiveAlpha = eHUDProp_InactiveAlpha
+		hi.inactiveAlpha = u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF;		
 	}
 }
 
@@ -567,6 +618,9 @@ void update()
 	#ifdef DEBUG_DRAW_OVERLAY_FRAME
 		gVisibleHUD.set(aSystemElementID);
 	#endif
+
+	if( gVisibleHUD.test(aSystemElementID) )
+		gActiveHUD.set(aSystemElementID);
 }
 
 
@@ -686,6 +740,55 @@ void updateWindowLayout(
 		theWindowPos.y -= theWindowSize.cy;
 		break;
 	}
+}
+
+
+u8 maxAlpha(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].maxAlpha;
+}
+
+
+u8 inactiveAlpha(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].inactiveAlpha;
+}
+
+
+int alphaFadeInDelay(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].fadeInDelay;
+}
+
+
+float alphaFadeInRate(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].fadeInRate;
+}
+
+
+int alphaFadeOutDelay(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].fadeOutDelay;
+}
+
+
+float alphaFadeOutRate(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].fadeOutRate;
+}
+
+
+int inactiveFadeOutDelay(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].delayUntilInactive;
 }
 
 
