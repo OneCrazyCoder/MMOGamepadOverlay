@@ -18,6 +18,18 @@ namespace WindowManager
 const wchar_t* kMainWindowClassName = L"MMOGO Main";
 const wchar_t* kOverlayWindowClassName = L"MMOGO Overlay";
 
+enum EFadeState
+{
+	eFadeState_Hidden,
+	eFadeState_FadeInDelay,
+	eFadeState_FadingIn,
+	eFadeState_MaxAlpha,
+	eFadeState_InactiveFadeOut,
+	eFadeState_Inactive,
+	eFadeState_FadeOutDelay,
+	eFadeState_FadingOut,
+};
+
 
 //-----------------------------------------------------------------------------
 // Local Structures
@@ -32,6 +44,9 @@ struct OverlayWindow
 	SIZE size;
 	SIZE bitmapSize;
 	SIZE componentSize;
+	float fadeValue;
+	EFadeState fadeState;
+	u8 alpha;
 	bool updated;
 };
 
@@ -93,6 +108,164 @@ static LRESULT CALLBACK overlayWindowProc(
 	}
 
 	return DefWindowProc(theWindow, theMessage, wParam, lParam);
+}
+
+
+static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
+{
+	EFadeState oldState;
+	u8 aNewAlpha = theWindow.alpha;
+	do
+	{
+		oldState = theWindow.fadeState;
+		switch(theWindow.fadeState)
+		{
+		case eFadeState_Hidden:
+			aNewAlpha = 0;
+			if( gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadeInDelay;
+				theWindow.fadeValue = 0;
+			}
+			break;
+		case eFadeState_FadeInDelay:
+			if( !gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_Hidden;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			if( gActiveHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_MaxAlpha;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			theWindow.fadeValue += gAppFrameTime;
+			if( theWindow.fadeValue >= HUD::alphaFadeInDelay(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingIn;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			break;
+		case eFadeState_FadingIn:
+			theWindow.fadeValue += HUD::alphaFadeInRate(id) * gAppFrameTime;
+			aNewAlpha = u8(min(
+				theWindow.fadeValue, (float)HUD::maxAlpha(id)));
+			if( gActiveHUD.test(id) || aNewAlpha >= HUD::maxAlpha(id) )
+			{
+				theWindow.fadeState = eFadeState_MaxAlpha;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			if( !gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingOut;
+				break;
+			}
+			break;
+		case eFadeState_MaxAlpha:
+			aNewAlpha = HUD::maxAlpha(id);
+			if( !gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadeOutDelay;
+				theWindow.fadeValue = aNewAlpha;
+				break;
+			}
+			if( gActiveHUD.test(id) )
+			{
+				theWindow.fadeValue = 0;
+			}
+			else if( HUD::inactiveFadeOutDelay(id) > 0 &&
+					 HUD::inactiveAlpha(id) < HUD::maxAlpha(id) )
+			{
+				theWindow.fadeValue += gAppFrameTime;
+				if( theWindow.fadeValue >= HUD::inactiveFadeOutDelay(id) )
+				{
+					theWindow.fadeState = eFadeState_InactiveFadeOut;
+					theWindow.fadeValue = aNewAlpha;
+				}
+			}
+			break;
+		case eFadeState_InactiveFadeOut:
+			if( !gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingOut;
+				break;
+			}
+			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
+			aNewAlpha = u8(max(theWindow.fadeValue, HUD::inactiveAlpha(id)));
+			if( gActiveHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_MaxAlpha;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			if( aNewAlpha <= HUD::inactiveAlpha(id) )
+			{
+				theWindow.fadeState = eFadeState_Inactive;
+				break;
+			}
+			break;
+		case eFadeState_Inactive:
+			aNewAlpha = HUD::inactiveAlpha(id);
+			if( !gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadeOutDelay;
+				theWindow.fadeValue = aNewAlpha;
+				break;
+			}
+			if( gActiveHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_MaxAlpha;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			break;
+		case eFadeState_FadeOutDelay:
+			if( gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingIn;
+				theWindow.fadeValue = aNewAlpha;
+				break;
+			}
+			theWindow.fadeValue += gAppFrameTime;
+			if( theWindow.fadeValue >= HUD::alphaFadeOutDelay(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingOut;
+				theWindow.fadeValue = aNewAlpha;
+				break;
+			}
+			break;
+		case eFadeState_FadingOut:
+			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
+			aNewAlpha = u8(max(theWindow.fadeValue, 0.0f));
+			if( aNewAlpha == 0 )
+			{
+				theWindow.fadeState = eFadeState_Hidden;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			if( gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingIn;
+				break;
+			}
+			break;
+		default:
+			DBG_ASSERT(false && "Invalid WindowManager::EFadeState value");
+			theWindow.fadeState = eFadeState_Hidden;
+			break;
+		}
+	} while(oldState != theWindow.fadeState);
+
+	gActiveHUD.reset(id);
+	if( aNewAlpha != theWindow.alpha )
+	{
+		theWindow.alpha = aNewAlpha;
+		theWindow.updated = false;
+	}
 }
 
 
@@ -234,9 +407,12 @@ void update()
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
 		OverlayWindow& aWindow = sOverlayWindows[i];
+
+		// Update alpha fade effects based on gVisibleHUD & gActiveHUD
+		updateAlphaFades(aWindow, u16(i));
 		
-		// Check visibility status first so can ignore hidden ones
-		if( sHidden || !gVisibleHUD.test(i) ||
+		// Check visibility status so can mostly ignore hidden windows
+		if( sHidden || !aWindow.alpha ||
 			aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
 		{
 			if( IsWindowVisible(aWindow.handle) )
@@ -297,8 +473,7 @@ void update()
 		// Update window
 		if( !aWindow.updated )
 		{
-			// TODO: Change '255' to the alpha value desired for this window
-			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, 255, 0};
+			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
 			UpdateLayeredWindow(aWindow.handle, aScreenDC,
 				&aWindow.position, &aWindow.size,
 				aWindowDC, &anOriginPoint,

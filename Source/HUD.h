@@ -41,6 +41,15 @@ void updateWindowLayout(
 	POINT& theWindowPos,
 	SIZE& theWindowSize);
 
+// Get alpha fade in/out information
+u8 maxAlpha(u16 theHUDElementID);
+u8 inactiveAlpha(u16 theHUDElementID);
+int alphaFadeInDelay(u16 theHUDElementID);
+float alphaFadeInRate(u16 theHUDElementID);
+int alphaFadeOutDelay(u16 theHUDElementID);
+float alphaFadeOutRate(u16 theHUDElementID);
+int inactiveFadeOutDelay(u16 theHUDElementID);
+
 // Returns background color to become fully transparent
 COLORREF transColor(u16 theHUDElementID);
 

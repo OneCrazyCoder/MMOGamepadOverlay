@@ -1878,6 +1878,7 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 	}
 	gVisibleHUD.clearAndResize(sHUDElements.size());
 	gRedrawHUD.clearAndResize(sHUDElements.size());
+	gActiveHUD.clearAndResize(sHUDElements.size());
 }
 
 
