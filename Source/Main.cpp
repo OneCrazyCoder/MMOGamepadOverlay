@@ -40,7 +40,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	_CrtSetDbgFlag (_CRTDBG_ALLOC_MEM_DF|_CRTDBG_LEAK_CHECK_DF);
 	#endif
 
-	// Initialize gamepad module so can use it in profile selection
+	// Initialize gamepad module so can use it during profile selection
 	Gamepad::init();
 
 	DWORD aMillisecsPerUpdate = 14; // allows >= 60 fps without taxing CPU
@@ -51,11 +51,11 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		gReloadProfile = false;
 	
 		// Create main application window
-		if( !hadFatalError() )
+		if( !gShutdown && !hadFatalError() )
 			WindowManager::createMain(hInstance);
 
 		// Load configuration settings for each module from profile
-		if( !hadFatalError() )
+		if( !gShutdown && !hadFatalError() )
 		{
 			aMillisecsPerUpdate = (DWORD)
 				Profile::getInt("System/FrameTime", aMillisecsPerUpdate);
@@ -69,7 +69,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		}
 
 		// Launch target app if requested and haven't already
-		if( !hadFatalError() )
+		if( !gShutdown && !hadFatalError() )
 			TargetApp::autoLaunch();
 
 		// Main loop

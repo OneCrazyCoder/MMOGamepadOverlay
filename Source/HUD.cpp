@@ -33,6 +33,7 @@ enum EHUDProperty
 {
 	eHUDProp_Position,
 	eHUDProp_ItemSize,
+	eHUDProp_Size,
 	eHUDProp_Alignment,
 	eHUDProp_FontName,
 	eHUDProp_FontSize,
@@ -48,7 +49,9 @@ enum EHUDProperty
 	eHUDProp_FadeOutDelay,
 	eHUDProp_FadeOutTime,
 	eHUDProp_InactiveDelay,
-	eHUDProp_InactiveAlpha,
+	eHUDProp_InactiveAlpha,	
+	eHUDProp_GapSize,
+	eHUDProp_Radius,
 
 	eHUDProp_Num
 };
@@ -64,6 +67,7 @@ const char* kHUDPropStr[][2] =
 {//		Key					Default value
 	{	"Position",			"0, 0"			},	// eHUDProp_Position
 	{	"ItemSize",			"55, 55"		},	// eHUDProp_ItemSize
+	{	"Size",				""				},	// eHUDProp_Size
 	{	"Alignment",		"L, T"			},	// eHUDProp_Alignment
 	{	"Font",				"Verdana"		},	// eHUDProp_FontName
 	{	"FontSize",			"13"			},	// eHUDProp_FontSize
@@ -75,11 +79,13 @@ const char* kHUDPropStr[][2] =
 	{	"TransRGB",			"255, 0, 255"	},	// eHUDProp_TransColor
 	{	"MaxAlpha",			"255"			},	// eHUDProp_MaxAlpha
 	{	"FadeInDelay",		"0"				},	// eHUDProp_FadeInDelay
-	{	"FadeInTime",		"125"			},	// eHUDProp_FadeInTime
+	{	"FadeInTime",		"0"				},	// eHUDProp_FadeInTime
 	{	"FadeOutDelay",		"0"				},	// eHUDProp_FadeOutDelay
-	{	"FadeOutTime",		"650"			},	// eHUDProp_FadeOutTime
+	{	"FadeOutTime",		"0"				},	// eHUDProp_FadeOutTime
 	{	"InactiveDelay",	"0"				},	// eHUDProp_InactiveDelay
 	{	"InactiveAlpha",	"150"			},	// eHUDProp_InactiveAlpha
+	{	"GapSize",			"4"				},	// eHUDProp_GapSize
+	{	"Radius",			"4"				},	// eHUDProp_Radius
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -110,6 +116,13 @@ struct HUDElementInfo
 	u8 alignmentY;
 	u8 maxAlpha;
 	u8 inactiveAlpha;
+
+	union
+	{
+		int extraData;
+		int gapSize;
+		int radius;
+	};
 
 	HUDElementInfo() :
 		fadeInRate(255),
@@ -180,7 +193,8 @@ static int sNoticeMessageTimer = 0;
 
 static std::string getHUDPropStr(
 	const std::string& theName,
-	EHUDProperty theProperty)
+	EHUDProperty theProperty,
+	bool namedOnly = false)
 {
 	std::string result;
 	std::string aKey;
@@ -203,6 +217,9 @@ static std::string getHUDPropStr(
 		if( !result.empty() )
 			return result;
 	}
+
+	if( namedOnly )
+		return result;
 
 	// Try just [HUD] for a default value
 	aKey = kHUDPrefix;
@@ -406,10 +423,64 @@ static void drawRectHUD(HUDDrawData& dd)
 	SelectObject(hdc, sPens[hi.borderPenID]);
 	SelectObject(hdc, sBrushes[hi.itemBrushID]);
 
-	SetBkColor(hdc, hi.itemColor);
-	SetTextColor(hdc, hi.labelColor);
-
 	Rectangle(hdc, 0, 0, dd.targetSize.cx, dd.targetSize.cy);
+}
+
+
+static void drawRoundRectHUD(HUDDrawData& dd)
+{
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+	HDC hdc = dd.hdc;
+	DBG_ASSERT(hi.type == eHUDType_RoundRect);
+
+	SelectObject(hdc, sPens[hi.borderPenID]);
+	SelectObject(hdc, sBrushes[hi.itemBrushID]);
+
+	RoundRect(hdc, 0, 0, dd.targetSize.cx, dd.targetSize.cy, hi.radius, hi.radius);
+}
+
+
+static void drawCircleHUD(HUDDrawData& dd)
+{
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+	HDC hdc = dd.hdc;
+	DBG_ASSERT(hi.type == eHUDType_Circle);
+
+	SelectObject(hdc, sPens[hi.borderPenID]);
+	SelectObject(hdc, sBrushes[hi.itemBrushID]);
+
+	Ellipse(hdc, 0, 0, dd.targetSize.cx, dd.targetSize.cy);
+}
+
+
+static void drawCrossHUD(HUDDrawData& dd)
+{
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+	HDC hdc = dd.hdc;
+	DBG_ASSERT(hi.type == eHUDType_Crosshair);
+
+	SelectObject(hdc, sPens[hi.borderPenID]);
+	SelectObject(hdc, sBrushes[hi.itemBrushID]);
+
+	const LONG aHalfGapSize = hi.gapSize / 2;
+	const LONG aLength = dd.itemSize.cx;
+	const LONG aThickness = dd.itemSize.cy;
+	const LONG anOffset1 = aLength + aHalfGapSize;
+	const LONG anOffset2 = anOffset1 + aThickness + aHalfGapSize;
+
+	// Left hair
+	Rectangle(hdc, 0, anOffset1, aLength + 1, anOffset1 + aThickness + 1);
+	// Right hair
+	Rectangle(hdc, anOffset2, anOffset1,
+		anOffset2 + aLength + 1, anOffset1 + aThickness + 1);
+	// Top hair
+	Rectangle(hdc, anOffset1, 0, anOffset1 + aThickness + 1, aLength + 1);
+	// Bottom hair
+	Rectangle(hdc, anOffset1, anOffset2,
+		anOffset1 + aThickness + 1, anOffset2 + aLength + 1);
 }
 
 
@@ -420,6 +491,7 @@ static void drawSystemHUD(HUDDrawData& dd)
 	HDC hdc = dd.hdc;
 	DBG_ASSERT(hi.type == eHUDType_System);
 
+	// Erase any previous strings
 	if( !dd.firstDraw )
 		FillRect(hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
 
@@ -476,10 +548,17 @@ void init()
 		InputMap::profileStringToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Position),
 			hi.position);
-		// hi.itemSize = eHUDProp_ItemSize
-		InputMap::profileStringToHotspot(
-			getHUDPropStr(aHUDName, eHUDProp_ItemSize),
-			hi.itemSize);
+		// hi.itemSize = eHUDProp_ItemSize (Menus) or eHUDProp_Size (HUD)
+		std::string aStr;
+		if( hi.type < eMenuStyle_Num )
+			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize, true);
+		else
+			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
+		if( aStr.empty() && hi.type < eMenuStyle_Num )
+			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
+		if( aStr.empty() )
+			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
+		InputMap::profileStringToHotspot(aStr, hi.itemSize);
 		// hi.alignmentX/Y = eHUDProp_Alignment
 		Hotspot aTempHotspot;
 		InputMap::profileStringToHotspot(
@@ -507,11 +586,11 @@ void init()
 		hi.itemBrushID = getOrCreateBrushID(
 			aHUDBuilder, hi.itemColor);
 		// hi.borderPenID = eHUDProp_BorderColor & _BorderSize
+		u32 aVal = u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize));
 		hi.borderPenID = getOrCreatePenID(aHUDBuilder,
 			strToRGB(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_BorderColor)),
-			PS_INSIDEFRAME, intFromString(
-				getHUDPropStr(aHUDName, eHUDProp_BorderSize)));
+			aVal ? PS_INSIDEFRAME : PS_NULL, int(aVal));
 		// hi.transColor & .eraseBrushID = eHUDProp_TransColor
 		hi.transColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_TransColor));
@@ -524,7 +603,7 @@ void init()
 		hi.fadeInDelay = max(0, intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInDelay)));
 		// hi.fadeInRate = eHUDProp_FadeInTime
-		u32 aVal = max(1, u32FromString(
+		aVal = max(1, u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInTime)));
 		hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
 		// hi.fadeOutDelay = eHUDProp_FadeOutDelay
@@ -539,7 +618,20 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_InactiveDelay));
 		// hi.inactiveAlpha = eHUDProp_InactiveAlpha
 		hi.inactiveAlpha = u32FromString(
-			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF;		
+			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF;
+
+		// Extra data values for specific types
+		switch(hi.type)
+		{
+		case eHUDType_Crosshair:
+			hi.gapSize = u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_GapSize));
+			break;
+		case eHUDType_RoundRect:
+			hi.radius = u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_Radius));
+			break;
+		}
 	}
 }
 
@@ -676,9 +768,12 @@ void drawElement(
 
 	switch(sHUDElementInfo[theHUDElementID].type)
 	{
-	case eMenuStyle_4Dir:		draw4DirMenu(aDrawData);	break;
-	case eHUDType_Rectangle:	drawRectHUD(aDrawData);		break;
-	case eHUDType_System:		drawSystemHUD(aDrawData);	break;
+	case eMenuStyle_4Dir:		draw4DirMenu(aDrawData);		break;
+	case eHUDType_Rectangle:	drawRectHUD(aDrawData);			break;
+	case eHUDType_RoundRect:	drawRoundRectHUD(aDrawData);	break;
+	case eHUDType_Circle:		drawCircleHUD(aDrawData);		break;
+	case eHUDType_Crosshair:	drawCrossHUD(aDrawData);		break;
+	case eHUDType_System:		drawSystemHUD(aDrawData);		break;
 	}
 }
 
@@ -708,6 +803,12 @@ void updateWindowLayout(
 	case eMenuStyle_4Dir:
 		theWindowSize.cx *= 2;
 		theWindowSize.cy *= 3;
+		break;
+	case eHUDType_Crosshair:
+		// Treat X as length and Y as thickness of each "hair"
+		theWindowSize.cx = theWindowSize.cy = 1 +
+			theComponentSize.cx * 2 + theComponentSize.cy +
+			(hi.gapSize / 2) * 2; // even number only gap size
 		break;
 	case eHUDType_System:
 		theWindowSize.cx = theTargetSize.cx;

@@ -185,8 +185,10 @@ enum EMenuStyle
 enum EHUDType
 {
 	eHUDType_GroupTarget = eMenuStyle_Num,
-	eHUDType_Reticle,
 	eHUDType_Rectangle,
+	eHUDType_RoundRect,
+	eHUDType_Circle,
+	eHUDType_Crosshair,
 
 	eHUDType_System, // Internal use only
 
