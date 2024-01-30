@@ -407,6 +407,14 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Source\Dialogs.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\Dialogs.h"
+			>
+		</File>
+		<File
 			RelativePath=".\Source\Gamepad.cpp"
 			>
 		</File>

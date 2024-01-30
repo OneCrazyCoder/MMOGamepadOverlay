@@ -139,6 +139,25 @@ std::string condense(const std::string& theString)
 }
 
 
+std::string replaceChar(const std::string& theString, char oldChar, char newChar)
+{
+	// Only safe with ANSI chars so don't mess up UTF-8 strings
+	DBG_ASSERT(u8(oldChar) <= 0x7F);
+	DBG_ASSERT(u8(newChar) <= 0x7F);
+
+	std::string aResult;
+	aResult.reserve(theString.size());
+	for(size_t i = 0; i < theString.length(); ++i)
+	{
+		if( theString[i] == oldChar )
+			aResult.push_back(newChar);
+		else
+			aResult.push_back(theString[i]);
+	}
+
+	return aResult;
+}
+
 std::string getFileName(const std::string& thePath)
 {
 	std::string aResult;
