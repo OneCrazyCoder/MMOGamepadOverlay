@@ -87,12 +87,15 @@ std::string vformat(const char* fmt, va_list argPtr)
 std::string trim(const std::string& theString)
 {
 	int aStartPos = 0;
-	while ( aStartPos < theString.length() && isspace(theString[aStartPos]) )
+	while(aStartPos < theString.length() && isspace(theString[aStartPos]))
 		++aStartPos;
 
 	int anEndPos = int(theString.length()) - 1;
-	while ( anEndPos >= 0 && isspace(theString[anEndPos]) )
-		--anEndPos;
+	if( aStartPos < theString.length() )
+	{
+		while(anEndPos >= 0 && isspace(theString[anEndPos]))
+			--anEndPos;
+	}
 
 	return theString.substr(aStartPos, anEndPos - aStartPos + 1);
 }
@@ -187,6 +190,40 @@ std::string getFileDir(const std::string& thePath, bool withSlash)
 	else
 		aResult = thePath.substr(0, aLastSlash);
 	return aResult;
+}
+
+
+std::string getRootDir(const std::string& thePath)
+{
+	std::string result;
+	size_t aSearchPos = 0;
+	if( thePath.empty() )
+		return result;
+
+	while(thePath[aSearchPos] == ' ')
+		++aSearchPos;
+	if( thePath[aSearchPos] == '\0' )
+		return result;
+	if( thePath[aSearchPos] == '"' )
+		++aSearchPos;
+	while(thePath[aSearchPos] == ' ')
+		++aSearchPos;
+	if( thePath[aSearchPos] == '\0' )
+		return result;
+	size_t aStartPos = aSearchPos;
+	while((thePath[aSearchPos] >= 'A' && thePath[aSearchPos] <= 'Z') ||
+		  (thePath[aSearchPos] >= 'a' && thePath[aSearchPos] <= 'z'))
+		++aSearchPos;
+	if( aStartPos == aSearchPos )
+		return result;
+	if( thePath[aSearchPos++] != ':' )
+		return result;
+	if( thePath[aSearchPos] != '\\' && thePath[aSearchPos] != '/' )
+		return result;
+	result = thePath.substr(aStartPos, aSearchPos-aStartPos);
+	result.push_back('\\');
+
+	return result;
 }
 
 
@@ -314,30 +351,7 @@ std::string	addTrailingSlash(const std::string& theDirectory, bool backSlash)
 
 bool isAbsolutePath(const std::string& thePath)
 {
-	size_t aSearchPos = 0;
-	if( thePath.empty() )
-		return false;
-
-	while(thePath[aSearchPos] == ' ');
-		++aSearchPos;
-	if( thePath[aSearchPos] == '\0' )
-		return false;
-	if( thePath[aSearchPos] == '"' )
-		++aSearchPos;
-	while(thePath[aSearchPos] == ' ')
-		++aSearchPos;
-	if( thePath[aSearchPos] == '\0' )
-		return false;
-	while((thePath[aSearchPos] >= 'A' && thePath[aSearchPos] <= 'Z') ||
-		  (thePath[aSearchPos] >= 'a' && thePath[aSearchPos] <= 'z'))
-		++aSearchPos;
-	if( thePath[aSearchPos] != ':' )
-		return false;
-	++aSearchPos;
-	if( thePath[aSearchPos] != '\\' && thePath[aSearchPos] != '/' )
-		return false;
-
-	return true;
+	return !getRootDir(thePath).empty();
 }
 
 

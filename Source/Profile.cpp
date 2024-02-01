@@ -23,7 +23,7 @@ namespace Profile
 //-----------------------------------------------------------------------------
 
 enum {
-kINIReadBufferSize = 256, // How many characters to read at a time from .ini
+kINIFileBufferSize = 256, // How many characters to process at a time from .ini
 };
 
 struct ResourceProfile
@@ -42,6 +42,7 @@ struct ProfileEntry
 const char* kProfilePrefix = "MMOGO_";
 const char* kProfileSuffix = ".ini";
 const char* kCoreProfileName = "MMOGO_Core.ini";
+const std::string kEndOfLine = "\r\n";
 
 const ResourceProfile kResTemplateCore =
 	{	"Core",			IDR_TEXT_INI_CORE		};
@@ -219,13 +220,16 @@ static void parseINI(
 {
 	std::ifstream aFile(widen(theFilePath).c_str(), std::ios::binary);
 	if( !aFile.is_open() )
+	{
 		logFatalError("Could not open file %s", theFilePath.c_str());
+		return;
+	}
 
 	// Prepare input buffer
-	// +1 on size is to accomodate an extra newline character when
+	// +1 on size is to accommodate an extra newline character when
 	// reach end of file
-	char aBuffer[kINIReadBufferSize+1];
-	int aBufferSize = kINIReadBufferSize;
+	char aBuffer[kINIFileBufferSize+1];
+	std::streamsize aBufferSize = kINIFileBufferSize;
 	std::string aNewCategory;
 	std::string aCategory;
 	std::string aKey;
@@ -310,7 +314,7 @@ static void parseINI(
 					break;
 				default:
 					// Categories are all upper-case and no spaces/etc
-					if( c > ' ' && c != '-' && c != '_' )
+					if( c > ' ' && c != '-' && c != '_' && c != '/' )
 						aNewCategory.push_back(toupper(c));
 				}
 				break;
@@ -327,7 +331,7 @@ static void parseINI(
 				{// Abort - invalid key
 					aState = ePIState_Whitespace;
 				}
-				else if( c > ' ' && c != '-' && c != '_' )
+				else if( c > ' ' && c != '-' && c != '_' && c != '/' )
 				{// Keys are all upper-case and no spaces/etc
 					aKey.push_back(toupper(c));
 				}
@@ -358,6 +362,291 @@ static void parseINI(
 	}
 
 	aFile.close();
+}
+
+
+static bool areOnSameVolume(
+	const std::string& thePath1,
+	const std::string& thePath2)
+{
+	DWORD aPath1VolumeSerialNumber;
+	if(!GetVolumeInformation(widen(getRootDir(thePath1)).c_str(), 0, 0,
+							  &aPath1VolumeSerialNumber, 0, 0, 0, 0))
+	{
+		return false;
+	}
+	DWORD aPath2VolumeSerialNumber;
+	if(!GetVolumeInformation(widen(getRootDir(thePath2)).c_str(), 0, 0,
+							  &aPath2VolumeSerialNumber, 0, 0, 0, 0))
+	{
+		return false;
+	}
+
+	return aPath1VolumeSerialNumber == aPath2VolumeSerialNumber;
+}
+
+
+static void setKeyValueInINI(
+	const std::string& theFilePath,
+	const std::string& theCategory,
+	const std::string& theKey,
+	const std::string& theValue)
+{
+	// Open source file
+	std::ifstream aFile(widen(theFilePath).c_str(), std::ios::binary);
+	if( !aFile.is_open() )
+	{
+		logError("Could not open file %s", theFilePath.c_str());
+		return;
+	}
+
+	// Create temp output file
+	std::string aTmpPath;
+	{// Prefer to use temp folder if can, to reduce risk of leaving a mess
+		WCHAR aPathBuffer[MAX_PATH];
+		DWORD aLen = GetTempPath(MAX_PATH, aPathBuffer);
+		if( aLen > 0 && aLen <= MAX_PATH )
+			aTmpPath = narrow(aPathBuffer);
+	}
+	// ReplaceFile() requires both files be on the same drive...
+	if( aTmpPath.empty() || !areOnSameVolume(aTmpPath, theFilePath) )
+		aTmpPath = getFileDir(theFilePath, true);
+	aTmpPath += "~"; aTmpPath += getFileName(theFilePath);
+	std::ofstream aTmpFile(
+		widen(aTmpPath).c_str(),
+		std::ios::binary | std::ios::trunc);
+	if( !aTmpFile.is_open() )
+	{
+		logError("Could not create temp file %s", aTmpPath.c_str());
+		aFile.close();
+		return;
+	}
+
+	// Prepare buffer
+	// +1 on size is to accommodate an extra newline character when
+	// reach end of file
+	char aBuffer[kINIFileBufferSize+1];
+	std::streamsize aBufferSize = kINIFileBufferSize;
+	std::string aCheckStr;
+	const std::string& aCmpCategory = condense(theCategory);
+	const std::string& aCmpKey = condense(theKey);
+
+	enum
+	{
+		eSKVState_FindCategory,
+		eSKVState_CheckCategory,
+		eSKVState_SkipCategoryLine,
+		eSKVState_FindKey,
+		eSKVState_CheckKey,
+		eSKVState_SkipKeyLine,
+		eSKVState_ValueLine,
+		eSKVState_Finished,
+	} aState = eSKVState_FindCategory;
+	if( theCategory.empty() )
+		aState = eSKVState_FindKey;
+
+	// Parse the INI file to find start and end of segment to replace
+	const std::fstream::pos_type kInvalidFilePos = -1;
+	std::fstream::pos_type aReplaceStartPos = kInvalidFilePos;
+	std::fstream::pos_type aReplaceEndPos = kInvalidFilePos;
+	std::fstream::pos_type anEndOfValidCategory = kInvalidFilePos;
+	std::fstream::pos_type aCurrFilePos = aFile.tellg();
+	std::fstream::pos_type aLastNonWhitespace = aCurrFilePos;
+
+	while(aFile.good() && aState != eSKVState_Finished)
+	{
+		// Read next chunk from file
+		aFile.read(aBuffer, aBufferSize);
+		if( aFile.eof() || aFile.gcount() < aBufferSize )
+		{// Put eol at end of file in case there wasn't one already
+			aBufferSize = aFile.gcount() + 1;
+			aBuffer[aBufferSize-1] = '\n';
+			DBG_ASSERT(aBufferSize <= ARRAYSIZE(aBuffer));
+		}
+		else if( aFile.bad() )
+		{
+			logError("Unknown error reading %s", theFilePath.c_str());
+			aFile.close();
+			return;
+		}
+
+		for(int i = 0; i < aBufferSize && aState != eSKVState_Finished; ++i)
+		{// Step through buffer character-by-character
+			const char c = aBuffer[i];
+			if( !isspace(c) )
+				aLastNonWhitespace = aCurrFilePos;
+			switch(aState)
+			{
+			case eSKVState_FindCategory:
+				// Look for a category
+				if( c == '[' )
+				{
+					aState = eSKVState_CheckCategory;
+					aCheckStr.clear();
+				}
+				else if( isalnum(c) )
+				{
+					aState = eSKVState_SkipCategoryLine;
+				}
+				break;
+
+			case eSKVState_CheckCategory:
+				// Look for ']' to end category
+				switch(c)
+				{
+				case ']':
+					aCheckStr = trim(aCheckStr);
+					if( aCheckStr == aCmpCategory )
+						aState = eSKVState_FindKey;
+					else if( aCmpCategory.empty() )
+						aState = eSKVState_Finished;
+					else
+						aState = eSKVState_FindCategory;
+					break;
+				case '\r': case '\n': case '\0':
+					aState = eSKVState_FindCategory;
+					break;
+				default:
+					// Categories are all upper-case and no spaces/etc
+					if( c > ' ' && c != '-' && c != '_' && c != '/' )
+						aCheckStr.push_back(toupper(c));
+					break;
+				}
+				break;
+
+			case eSKVState_SkipCategoryLine:
+				// Look for end of line than resume category search
+				if( c == '\r' || c == '\n' || c == '\0' )
+					aState = eSKVState_FindCategory;
+				break;
+
+			case eSKVState_FindKey:
+				// Look for start of a key
+				if( c == '[' )
+				{
+					aState = eSKVState_CheckCategory;
+					aCheckStr.clear();
+				}
+				else if( c == '#' || c == ';' )
+				{
+					aState = eSKVState_SkipKeyLine;
+				}
+				else if( isalnum(c) )
+				{
+					aState = eSKVState_CheckKey;
+					aCheckStr.clear();
+					aCheckStr.push_back(toupper(c));
+				}
+				break;
+
+			case eSKVState_CheckKey:
+				// Look for '=' to end key				
+				if( c == '=' )
+				{// End of the key - check if this is the one being looked for
+					if( trim(aCheckStr) == aCmpKey )
+					{// Found starting position to replace with new characters!
+						aReplaceStartPos = aCurrFilePos;
+						aReplaceStartPos += std::fstream::off_type(1);
+						aState = eSKVState_ValueLine;
+					}
+					else
+					{// Not the right key, skip rest of this line
+						aState = eSKVState_SkipKeyLine;
+					}
+				}
+				else if( c == '\r' || c == '\n' || c == '\0' )
+				{// Abort - invalid key
+					aState = eSKVState_FindKey;
+				}
+				else if( c > ' ' && c != '-' && c != '_' && c != '/' )
+				{// Keys are all upper-case and no spaces/etc
+					aCheckStr.push_back(toupper(c));
+				}
+				break;
+
+			case eSKVState_SkipKeyLine:
+				// Look for end of line than resume key search
+				if( c == '\r' || c == '\n' || c == '\0' )
+				{
+					aState = eSKVState_FindKey;
+					anEndOfValidCategory = aCurrFilePos;
+				}
+				break;
+
+			case eSKVState_ValueLine:
+				// Look for eol to end section to replace
+				if( c == '\r' || c == '\n' || c == '\0' )
+				{
+					aReplaceEndPos = aCurrFilePos;
+					aState = eSKVState_Finished;
+				}
+				break;
+			}
+			aCurrFilePos += std::fstream::off_type(1);
+		}
+	}
+
+	// Clear eof flag
+	aFile.clear();
+
+	// Decide what to write and where exactly from info gathered above
+	std::string aWriteString;
+	if( aReplaceStartPos != kInvalidFilePos )
+	{
+		// Found the existing key, just write new value
+		DBG_ASSERT(aReplaceEndPos != kInvalidFilePos);
+		aWriteString = std::string(" ") + trim(theValue);
+	}
+	else if( anEndOfValidCategory != kInvalidFilePos )
+	{
+		// Found category, write key and value
+		aReplaceStartPos = aReplaceEndPos = anEndOfValidCategory;
+		aWriteString = kEndOfLine + trim(theKey) + " = " + trim(theValue);
+	}
+	else
+	{
+		// Found nothing, write category, key, and value
+		aReplaceStartPos = aLastNonWhitespace;
+		aReplaceStartPos += std::fstream::off_type(1);
+		aFile.seekg(0, std::ios::end);
+		aReplaceEndPos = aFile.tellg();
+		aWriteString = kEndOfLine + kEndOfLine + "[";
+		aWriteString += trim(theCategory) + "]" + kEndOfLine;
+		aWriteString += trim(theKey) + " = " + trim(theValue);
+		aWriteString += kEndOfLine;
+	}
+
+	// Write aFile 0->aReplaceStartPos to temp file
+	aFile.seekg(0, std::ios::beg);
+	aCurrFilePos = aFile.tellg();
+	while(aCurrFilePos < aReplaceStartPos && aFile.good())
+	{
+		const std::streamsize aBytesToRead =
+			min(kINIFileBufferSize, aReplaceStartPos - aCurrFilePos);
+		aFile.read(aBuffer, aBytesToRead);
+		aTmpFile.write(aBuffer, aFile.gcount());
+		aCurrFilePos += aFile.gcount();
+	}
+
+	// Write new data
+	aTmpFile << aWriteString;
+
+	// Write aReplaceEndPos->eof to temp file
+	aFile.seekg(aReplaceEndPos, std::ios::beg);
+	while(aFile.read(aBuffer, kINIFileBufferSize))
+		aTmpFile.write(aBuffer, aFile.gcount());
+	aTmpFile.write(aBuffer, aFile.gcount());
+
+	// Close both files
+	aFile.close();
+	aTmpFile.close();
+	
+	// Replace original file with new temp file (and delete temp file)
+	if( !ReplaceFile(widen(theFilePath).c_str(), widen(aTmpPath).c_str(),
+			NULL, REPLACEFILE_IGNORE_MERGE_ERRORS, NULL, NULL) )
+	{
+		logError("Failed to modify file %s!", theFilePath.c_str());
+	}
 }
 
 
@@ -620,7 +909,24 @@ static void loadProfile(int theProfilesCanLoadIdx)
 
 void setAutoLoadProfile(int theProfilesCanLoadIdx)
 {
-	// TODO: Write the value to Core.ini AutoLoadProfile key
+	if( theProfilesCanLoadIdx == sAutoProfileIdx )
+		return;
+
+	DBG_ASSERT(!sKnownProfiles.empty());
+
+	if( theProfilesCanLoadIdx > 0 )
+	{
+		setKeyValueInINI(
+			sKnownProfiles[0].path,
+			"", "AutoLoadProfile",
+			toString(theProfilesCanLoadIdx));
+	}
+	else
+	{
+		setKeyValueInINI(
+			sKnownProfiles[0].path,
+			"", "AutoLoadProfile", "");
+	}
 }
 
 
@@ -800,9 +1106,9 @@ void queryUserForProfile()
 		DBG_ASSERT(aDialogResult.selectedIndex < aLoadableProfileNames.size());
 		const int aProfileCanLoadIdx =
 			aLoadableProfileIndices[aDialogResult.selectedIndex];
-		loadProfile(aProfileCanLoadIdx);
 		setAutoLoadProfile(
 			aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
+		loadProfile(aProfileCanLoadIdx);
 		return;
 	}
 
@@ -930,13 +1236,16 @@ void queryUserForProfile()
 		return;
 	}
 
-	// TODO: Write new profile name to Core.ini Profile# key
+	setKeyValueInINI(
+		sKnownProfiles[0].path, "",
+		std::string("Profile") + toString(aProfileCanLoadIdx),
+		aNewEntry.name);
 	sProfilesCanLoad[aProfileCanLoadIdx].push_back(
 		getOrAddProfileIdx(aNewEntry));
 	generateProfileLoadPriorityList(aProfileCanLoadIdx);
-	loadProfile(aProfileCanLoadIdx);
 	setAutoLoadProfile(
 		aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
+	loadProfile(aProfileCanLoadIdx);
 }
 
 
@@ -1011,10 +1320,15 @@ void setStr(const std::string& theKey, const std::string& theString)
 		return;
 	aString = theString;
 
-	std::string aSectionName = getFileDir(theKey, false);
-	std::string aKeyOnly = getFileName(theKey);
+	const std::string& aSectionName = getFileDir(theKey, false);
+	const std::string& aKeyOnly = getFileName(theKey);
 
-	// TODO: Write the change out to sActiveProfileName.ini file
+	if( !sLoadedProfileName.empty() )
+	{
+		setKeyValueInINI(
+			profileNameToFilePath(sLoadedProfileName),
+			aSectionName, aKeyOnly, theString);
+	}
 }
 
 
@@ -1026,7 +1340,8 @@ void setInt(const std::string& theKey, int theValue)
 
 void setBool(const std::string& theKey, bool theValue)
 {
-	setStr(theKey, theValue ? "Yes" : "No");
+	if( getBool(theKey) != theValue )
+		setStr(theKey, theValue ? "Yes" : "No");
 }
 
 } // Profile
