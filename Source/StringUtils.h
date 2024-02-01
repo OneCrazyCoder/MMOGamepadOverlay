@@ -29,6 +29,7 @@ std::string replaceChar(const std::string& theString, char oldChar, char newChar
 // File/path utilities (works fine with UTF8-encoding strings)
 std::string getFileName(const std::string& thePath);
 std::string getFileDir(const std::string& thePath, bool withSlash = false);
+std::string getRootDir(const std::string& thePath);
 std::string getExtension(const std::string& thePath);
 std::string removeExtension(const std::string& thePath);
 std::string withExtension(const std::string& thePath, const std::string& theExt);
