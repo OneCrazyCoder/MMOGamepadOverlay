@@ -14,10 +14,6 @@
 namespace Profile
 {
 
-#ifdef _DEBUG
-#define USE_DEFAULT_PROFILE_INDEX 0 // MnM Default
-#endif
-
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
@@ -166,7 +162,9 @@ static DWORD uniqueFileIdentifier(const std::string& theFilePath)
 		if( GetFileInformationByHandle(hFile, &aFileInfo) )
 		{
 			result = aFileInfo.dwVolumeSerialNumber ^ 
-				((aFileInfo.nFileIndexHigh << 16) | aFileInfo.nFileIndexLow);
+				((aFileInfo.nFileIndexHigh << 16) | aFileInfo.nFileIndexLow) ^
+				aFileInfo.ftCreationTime.dwHighDateTime ^
+				aFileInfo.ftCreationTime.dwLowDateTime;
 		}
 		CloseHandle(hFile);
 	}
@@ -936,19 +934,6 @@ void setAutoLoadProfile(int theProfilesCanLoadIdx)
 
 void load()
 {
-	#ifdef _DEBUG
-	// In debug builds, always re-generate built-in resource .ini files,
-	// to always reflect changes made to them while working on the code
-	generateResourceProfile(kResTemplateCore);
-	for(size_t i = 0; i < ARRAYSIZE(kResTemplateBase); ++i)
-		generateResourceProfile(kResTemplateBase[i]);
-	for(size_t i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
-		generateResourceProfile(kResTemplateDefault[i]);
-	#ifdef USE_DEFAULT_PROFILE_INDEX
-	sLoadedProfileName = kResTemplateDefault[USE_DEFAULT_PROFILE_INDEX].name;
-	#endif
-	#endif
-
 	parseProfilesCanLoad();
 	if( hadFatalError() )
 		return;
@@ -997,6 +982,43 @@ void load()
 	for(int i = 0; i < sProfilesCanLoad.size(); ++i)
 		generateProfileLoadPriorityList(i);
 
+	#ifdef _DEBUG
+	if( sLoadedProfileName.empty() )
+	{
+		// In Debug builds, update any generated built-in resource .ini
+		// files to reflect any changes made to the resource versions.
+		generateResourceProfile(kResTemplateCore);
+		for(size_t i = 1; i < sKnownProfiles.size(); ++i)
+		{
+			for(size_t ii = 0; ii < ARRAYSIZE(kResTemplateBase); ++ii)
+			{
+				if( sKnownProfiles[i].name == kResTemplateBase[ii].name )
+					generateResourceProfile(kResTemplateBase[ii]);
+			}
+			for(size_t ii = 0; ii < ARRAYSIZE(kResTemplateDefault); ++ii)
+			{
+				if( sKnownProfiles[i].name == kResTemplateDefault[ii].name )
+					generateResourceProfile(kResTemplateDefault[ii]);
+			}
+		}
+		// Restore profile load settings to regenerated Core
+		int autoProfileIdxTmp = 0;
+		swap(autoProfileIdxTmp, sAutoProfileIdx);
+		setAutoLoadProfile(autoProfileIdxTmp);
+		swap(autoProfileIdxTmp, sAutoProfileIdx);
+		for(size_t i = 1; i < sProfilesCanLoad.size(); ++i)
+		{
+			if( !sProfilesCanLoad[i].empty() )
+			{
+				setKeyValueInINI(
+					sKnownProfiles[0].path, "",
+					std::string("Profile") + toString(int(i)),
+					sKnownProfiles[sProfilesCanLoad[i][0]].name);
+			}
+		}
+	}
+	#endif
+
 	// See if need to query user for profile to load
 	if( sProfilesCanLoad[sAutoProfileIdx].empty() )
 		queryUserForProfile();
@@ -1029,8 +1051,9 @@ void queryUserForProfile()
 	std::vector<std::string> aTemplateProfileNames;
 	std::vector<int> aTemplateProfileIndex;
 	std::vector<EType> aTemplateProfileType;
-	const std::string kCopyPrefix = "Copy of \"";
-	const std::string kParentPrefix = "Based on \"";
+	const std::string kCopyFilePrefix = "Copy \"";
+	const std::string kCopyResPrefix = "Copy generated \"";
+	const std::string kParentPrefix = "Empty w/ parent \"";
 
 	for(int i = 0; i < sProfilesCanLoad.size(); ++i)
 	{
@@ -1041,17 +1064,23 @@ void queryUserForProfile()
 			aLoadableProfileNames.push_back(aName);
 			aLoadableProfileIndices.push_back(i);
 			aTemplateProfileNames.push_back(
-				kCopyPrefix + aName + '"');
+				kCopyFilePrefix + aName + '"');
 			aTemplateProfileIndex.push_back(
 				sProfilesCanLoad[i][0]);
 			aTemplateProfileType.push_back(eType_CopyFile);
 		}
 	}
 
+	const bool needFirstProfile = aLoadableProfileNames.empty();
 	for(int i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
 	{
+		if( needFirstProfile )
+		{
+			aLoadableProfileNames.push_back(kResTemplateDefault[i].name);
+			aLoadableProfileIndices.push_back(i);
+		}
 		aTemplateProfileNames.push_back(
-			kCopyPrefix + kResTemplateDefault[i].name + '"');
+			kCopyResPrefix + kResTemplateDefault[i].name + '"');
 		aTemplateProfileIndex.push_back(i);
 		aTemplateProfileType.push_back(eType_CopyResDefault);
 	}
@@ -1090,7 +1119,7 @@ void queryUserForProfile()
 	}
 
 	// Use Dialog to ask the user what they want to do
-	const Dialogs::ProfileSelectResult& aDialogResult =
+	Dialogs::ProfileSelectResult aDialogResult =
 		Dialogs::profileSelect(aLoadableProfileNames, aTemplateProfileNames);
 
 	if( aDialogResult.cancelled )
@@ -1100,6 +1129,15 @@ void queryUserForProfile()
 			gShutdown = true;
 		return;
 	}
+
+	// For first profile, if no name given then use built-in name
+	// NOTE: This only works out because set the first entries of
+	// aTemplateProfile's to match aLoadableProfile's which both
+	// match the entries in kResTemplateDefault. So need to change
+	// this if rearrange the order of any of these above!
+	if( needFirstProfile && aDialogResult.newName.empty() )
+		aDialogResult.newName = 
+			kResTemplateDefault[aDialogResult.selectedIndex].name;
 
 	if( aDialogResult.newName.empty() )
 	{// User must have requested to load an existing profile

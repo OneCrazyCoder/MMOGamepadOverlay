@@ -176,6 +176,63 @@ std::string getFileName(const std::string& thePath)
 }
 
 
+std::string safeFileName(const std::string& theFileName)
+{
+	std::string result;
+
+	// Remove illegal characters: <>:"/\|?* and control characters
+	for(size_t i = 0; i < theFileName.size(); ++i)
+	{
+		switch(theFileName[i])
+		{
+		case '\x7f': case '<': case '>': case ':': case '"':
+		case '/': case '\\': case '|': case '?': case '*':
+			break;
+		default:
+			if( theFileName[i] >= ' ' )
+				result.push_back(theFileName[i]);
+			break;
+		}
+	}
+	if( result.empty() )
+		return result;
+
+	// Remove all leading whitespace
+	size_t aStartPos = 0;
+	while(aStartPos < result.length() && result[aStartPos] == ' ')
+		++aStartPos;
+	result = result.substr(aStartPos);
+	if( result.empty() )
+		return result;
+
+	// Remove all trailing spaces and make sure can't end in '.'
+	while(!result.empty() &&
+			(result[result.length()-1] == ' ' ||
+			 result[result.length()-1] == '.') )
+	{
+		result.resize(result.length()-1);
+	}
+
+	// Check if final name is equal to a reserved file name
+	static const char* kReservedNames[] =
+	{
+		"CON", "PRN", "AUX", "NUL","COM1", "COM2", "COM3", "COM4",
+		"COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
+		"LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+	};
+	for(size_t i = 0; i < ARRAYSIZE(kReservedNames); ++i)
+	{
+		if( result == kReservedNames[i] )
+		{
+			result.clear();
+			break;
+		}
+	}
+
+	return result;
+}
+
+
 std::string getFileDir(const std::string& thePath, bool withSlash)
 {
 	std::string aResult;
@@ -358,11 +415,11 @@ bool isAbsolutePath(const std::string& thePath)
 std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 {
 	std::string result;
-    size_t aCharPos = theString.find(theChar);
+	size_t aCharPos = theString.find(theChar);
 
-    if( aCharPos != std::string::npos )
+	if( aCharPos != std::string::npos )
 	{
-        result = trim(theString.substr(0, aCharPos));
+		result = trim(theString.substr(0, aCharPos));
 
 		// Find first non-whitespace part of theString after aCharPos
 		for(++aCharPos; aCharPos < theString.length(); ++aCharPos)
@@ -370,7 +427,7 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 			if( theString[aCharPos] > ' ' )
 				break;
 		}
-        theString.erase(0, aCharPos);
+		theString.erase(0, aCharPos);
 	}
 
 

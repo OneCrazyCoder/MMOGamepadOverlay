@@ -17,10 +17,14 @@ namespace Dialogs
 
 struct ProfileSelectResult
 {
-	int selectedIndex;
 	std::string newName;
+	int selectedIndex;
 	bool autoLoadRequested;
 	bool cancelled;
+
+	ProfileSelectResult() :
+		selectedIndex(), autoLoadRequested(), cancelled()
+	{}
 };
 
 ProfileSelectResult profileSelect(
