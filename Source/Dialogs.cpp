@@ -4,8 +4,184 @@
 
 #include "Dialogs.h"
 
+#include "Resources/resource.h"
+#include "WindowManager.h"
+
+// Enable support for Edit_SetCueBannerText
+#pragma comment(linker,"\"/manifestdependency:type='win32' \
+name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
+processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+#include <CommCtrl.h>
+
 namespace Dialogs
 {
+
+//-----------------------------------------------------------------------------
+// Const Data
+//-----------------------------------------------------------------------------
+
+struct ProfileSelectDialogData
+{
+	const std::vector<std::string>& loadableProfiles;
+	const std::vector<std::string>& templateProfiles;
+	ProfileSelectResult& result;
+
+	ProfileSelectDialogData(
+		const std::vector<std::string>& loadable,
+		const std::vector<std::string>& templates,
+		ProfileSelectResult& res)
+		:
+		loadableProfiles(loadable),
+		templateProfiles(templates),
+		result(res)
+		{}
+};
+
+
+//-----------------------------------------------------------------------------
+// Local Functions
+//-----------------------------------------------------------------------------
+
+static void updateProfileList(
+	HWND theDialog, const ProfileSelectDialogData* theData)
+{
+	DBG_ASSERT(theDialog);
+	DBG_ASSERT(theData);
+
+	// Get handle to the list box
+	HWND hListBox = GetDlgItem(theDialog, IDC_LIST_PROFILES);
+	DBG_ASSERT(hListBox);
+
+	// Get current selection to restore later
+	int aSelectedIndex = SendMessage(hListBox, LB_GETCURSEL, 0, 0);
+
+	// Clear the existing content of the list box
+	SendMessage(hListBox, LB_RESETCONTENT, 0, 0);
+
+	// Determine which string vector to use for new list
+	const std::vector<std::string>* aStrVec =
+		theData->result.newName.empty()
+			? &theData->loadableProfiles
+			: &theData->templateProfiles;
+
+	// Add new items to the list box
+	for(size_t i = 0; i < aStrVec->size(); ++i)
+	{
+		const std::wstring aWStr = widen((*aStrVec)[i]);
+		SendMessage(hListBox, LB_ADDSTRING, 0, (LPARAM)(aWStr.c_str()));
+	}
+
+	// Restore initially selected item (or closest possible)
+	if( aSelectedIndex >= int(aStrVec->size()) )
+		aSelectedIndex = int(aStrVec->size()) - 1;
+	if( aSelectedIndex < 0 && !aStrVec->empty() )
+		aSelectedIndex = 0;
+	SendMessage(hListBox, LB_SETCURSEL, aSelectedIndex, 0);
+}
+
+
+static INT_PTR CALLBACK profileSelectProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	ProfileSelectDialogData* theData = NULL;
+
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		// Initialize contents
+		theData = (ProfileSelectDialogData*)(UINT_PTR)lParam;
+		// Allow other messages to access theData later
+		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theData);
+		DBG_ASSERT(theData);
+		// Add default Profile name if one was included
+		if( !theData->result.newName.empty() )
+		{
+			SetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
+				widen(theData->result.newName).c_str());
+		}
+		// Add available profiles to the list box
+		updateProfileList(theDialog, theData);
+		{// Add prompt to edit box
+			HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
+			Edit_SetCueBannerText(hEditBox,
+				L"OR enter new Profile name here...");
+		}
+		return (INT_PTR)TRUE;
+
+	case WM_COMMAND:
+		// Process control commands
+		theData = (ProfileSelectDialogData*)(UINT_PTR)
+		GetWindowLongPtr(theDialog, GWLP_USERDATA);
+		DBG_ASSERT(theData);
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Okay button clicked
+				theData->result.cancelled = false;
+				// Add selected item from the list box to result
+				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_PROFILES);
+				DBG_ASSERT(hListBox);
+				theData->result.selectedIndex = max(0,
+					SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+				// Add auto-load checkbox status to result
+				theData->result.autoLoadRequested =
+					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
+						== BST_CHECKED);
+				// Signal to application (NULL) that are ready to close
+				PostMessage(NULL, WM_DESTROY, 0, 0);
+				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDCANCEL:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Cancel button clicked
+				theData->result.cancelled = true;
+				// Signal to application (NULL) that are ready to close
+				PostMessage(NULL, WM_DESTROY, 0, 0);
+				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDC_EDIT_PROFILE_NAME:
+			if( HIWORD(wParam) == EN_CHANGE )
+			{// Edit box contents changed - may affect other controls!
+				// Update result.newName to sanitized edit box string
+				WCHAR aWStrBuffer[255];
+				GetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
+					aWStrBuffer, ARRAYSIZE(aWStrBuffer));
+				const bool hadNewName = !theData->result.newName.empty();
+				theData->result.newName = safeFileName(narrow(aWStrBuffer));
+				const bool hasNewName = !theData->result.newName.empty();
+				if( hasNewName != hadNewName )
+				{// Changed "modes" (Load Profile vs Create New Profile)
+					updateProfileList(theDialog, theData);
+					SetDlgItemText(theDialog, IDC_STATIC_PROMPT, hasNewName
+							? L"Select format of new Profile:"
+							: L"Select Profile to load:");
+				}
+				return (INT_PTR)TRUE;
+			}
+			break;
+		}
+		break;
+
+	case WM_CLOSE:
+		theData = (ProfileSelectDialogData*)(UINT_PTR)
+			GetWindowLongPtr(theDialog, GWLP_USERDATA);
+		if( theData )
+		{// Treat the same as Cancel being clicked
+			theData->result.cancelled = true;
+			PostMessage(NULL, WM_DESTROY, 0, 0);
+			return (INT_PTR)TRUE;
+		}
+		break;
+	}
+
+	return (INT_PTR)FALSE;
+}
+
 
 //-----------------------------------------------------------------------------
 // Global Functions
@@ -15,15 +191,55 @@ ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles)
 {
-	ProfileSelectResult result = { 0 };
-	result.selectedIndex = 0;
-	result.autoLoadRequested = false;
-	result.cancelled = false;
+	DBG_ASSERT(!theLoadableProfiles.empty());
+	DBG_ASSERT(!theTemplateProfiles.empty());
 
-	// TEMP - create a profile called "Profile" using default template #0
-	result.newName = "Profile";
+	// Initialize data structures
+	ProfileSelectResult result;
+	ProfileSelectDialogData aDataStruct(
+		theLoadableProfiles,
+		theTemplateProfiles,
+		result);
 
-	// TODO: The actual dialog...
+	// Hide main window until dialog is done
+	if( WindowManager::mainHandle() )
+		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
+
+	// Create and show dialog window
+	HWND hWnd = CreateDialogParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_PROFILE_SELECT),
+		NULL,
+		profileSelectProc,
+		reinterpret_cast<LPARAM>(&aDataStruct));
+	ShowWindow(hWnd, SW_SHOW);
+
+	// Message handling loop
+	MSG msg;
+	while(GetMessage(&msg, NULL, 0, 0))
+	{
+		// Standard dialog message handling
+		if( !IsDialogMessage(hWnd, &msg) )
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+
+		// Dialog has signaled it is ready to be destroyed
+		if( msg.message == WM_DESTROY )
+			break;
+	}
+
+	// Cleanup
+	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
+	while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+	if( WindowManager::mainHandle() )
+		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
+	DestroyWindow(hWnd);
 
 	return result;
 }

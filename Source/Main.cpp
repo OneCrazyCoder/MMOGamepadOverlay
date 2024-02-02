@@ -151,7 +151,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	}
 
 	// Report performance
-	if( !hadFatalError() )
+	if( !hadFatalError() && gAppRunTime > 0 )
 	{
 		const double averageFPS = gAppUpdateCount / (gAppRunTime / 1000.0);
 		debugPrint("Average FPS: %.2f\n", averageFPS);
