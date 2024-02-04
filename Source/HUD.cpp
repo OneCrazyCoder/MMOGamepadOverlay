@@ -32,6 +32,7 @@ const char* kHUDPrefix = "HUD";
 enum EHUDProperty
 {
 	eHUDProp_Position,
+	eHUDProp_ItemType,
 	eHUDProp_ItemSize,
 	eHUDProp_Size,
 	eHUDProp_Alignment,
@@ -49,8 +50,8 @@ enum EHUDProperty
 	eHUDProp_FadeOutDelay,
 	eHUDProp_FadeOutTime,
 	eHUDProp_InactiveDelay,
-	eHUDProp_InactiveAlpha,	
-	eHUDProp_GapSize,
+	eHUDProp_InactiveAlpha,
+	eHUDProp_ImagePath,
 	eHUDProp_Radius,
 
 	eHUDProp_Num
@@ -66,6 +67,7 @@ enum EAlignment
 const char* kHUDPropStr[][2] =
 {//		Key					Default value
 	{	"Position",			"0, 0"			},	// eHUDProp_Position
+	{	"ItemType",			""				},	// eHUDProp_ItemType
 	{	"ItemSize",			"55, 55"		},	// eHUDProp_ItemSize
 	{	"Size",				""				},	// eHUDProp_Size
 	{	"Alignment",		"L, T"			},	// eHUDProp_Alignment
@@ -84,8 +86,8 @@ const char* kHUDPropStr[][2] =
 	{	"FadeOutTime",		"0"				},	// eHUDProp_FadeOutTime
 	{	"InactiveDelay",	"0"				},	// eHUDProp_InactiveDelay
 	{	"InactiveAlpha",	"150"			},	// eHUDProp_InactiveAlpha
-	{	"GapSize",			"4"				},	// eHUDProp_GapSize
-	{	"Radius",			"4"				},	// eHUDProp_Radius
+	{	"ImagePath",		""				},	// eHUDProp_ImagePath
+	{	"Radius",			"20"			},	// eHUDProp_Radius
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -98,6 +100,7 @@ struct HUDElementInfo
 	: public ConstructFromZeroInitializedMemory<HUDElementInfo>
 {
 	EHUDType type;
+	EHUDType itemType;
 	COLORREF labelColor;
 	COLORREF itemColor;
 	COLORREF transColor;
@@ -112,6 +115,8 @@ struct HUDElementInfo
 	u16 itemBrushID;
 	u16 borderPenID;
 	u16 eraseBrushID;
+	u16 imageID;
+	u16 borderSize;
 	u8 alignmentX;
 	u8 alignmentY;
 	u8 maxAlpha;
@@ -120,11 +125,11 @@ struct HUDElementInfo
 	union
 	{
 		int extraData;
-		int gapSize;
 		int radius;
 	};
 
 	HUDElementInfo() :
+		itemType(eHUDItemType_Rect),
 		fadeInRate(255),
 		fadeOutRate(255),
 		maxAlpha(255),
@@ -170,6 +175,7 @@ struct HUDBuilder
 	VectorMap<COLORREF, u16> colorToBrushMap;
 	typedef std::pair< COLORREF, std::pair<int, int> > PenDef;
 	VectorMap<PenDef, u16> penDefToPenMap;
+	VectorMap<DWORD, u16> fileToImageMap;
 };
 
 
@@ -180,6 +186,7 @@ struct HUDBuilder
 static std::vector<HFONT> sFonts;
 static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
+static std::vector<HBITMAP> sImages;
 static std::vector<HUDElementInfo> sHUDElementInfo;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
@@ -327,6 +334,67 @@ static u16 getOrCreateFontID(
 }
 
 
+static u16 getOrCreateImageID(
+	HUDBuilder& theBuilder,
+	const std::string& theImagePath)
+{
+	u16 result = 0;
+	if( theImagePath.empty() )
+		return result;
+
+	const std::wstring& aFilePathW =
+		getExtension(theImagePath).empty()
+			? widen(removeExtension(theImagePath) + ".bmp")
+			: widen(theImagePath);
+	const DWORD aFileAttributes = GetFileAttributes(aFilePathW.c_str());
+	if( aFileAttributes == INVALID_FILE_ATTRIBUTES ||
+		(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
+	{
+		logError("Could not find requested image file %s!",
+			theImagePath.c_str());
+		return result;
+	}
+
+	DWORD aFileID = 0;
+	HANDLE hFile = CreateFile(aFilePathW.c_str(),
+		GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	if( hFile != INVALID_HANDLE_VALUE )
+	{
+		BY_HANDLE_FILE_INFORMATION aFileInfo;
+		if( GetFileInformationByHandle(hFile, &aFileInfo) )
+		{
+			aFileID = aFileInfo.dwVolumeSerialNumber ^ 
+				((aFileInfo.nFileIndexHigh << 16) | aFileInfo.nFileIndexLow) ^
+				aFileInfo.ftCreationTime.dwHighDateTime ^
+				aFileInfo.ftCreationTime.dwLowDateTime;
+		}
+		CloseHandle(hFile);
+	}
+
+	if( !aFileID )
+	{
+		logError("Could not identify requested image file %s!",
+			theImagePath.c_str());
+		return result;
+	}
+
+	result = theBuilder.fileToImageMap.findOrAdd(
+		aFileID, u16(sImages.size()));
+	if( result < sImages.size() )
+		return result;
+
+	sImages.push_back((HBITMAP)
+		LoadImage(NULL, aFilePathW.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE));
+	if( sImages.back() == NULL )
+	{
+		logError("Could not load bitmap %s. Wrong image format?",
+			theImagePath.c_str());
+	}
+
+	return result;
+}	
+
+
 LONG scaleHotspot(
 	const Hotspot::Coord& theCoord,
 	u16 theTargetSize)
@@ -338,53 +406,209 @@ LONG scaleHotspot(
 }
 
 	
-static void drawMenuItem(
-	const HUDDrawData& dd,
-	RECT theItemRect,
-	const std::string& theLabel)
+static void drawHUDRect(HUDDrawData& dd, const RECT& theRect)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+
+	Rectangle(dd.hdc,
+		theRect.left, theRect.top,
+		theRect.right, theRect.bottom);
+}
+
+
+static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 {
 	const u16 aHUDElementID = dd.hudElementID;
 	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-	HDC hdc = dd.hdc;
 
-	// Bordered rectangle
-	Rectangle(hdc,
-		theItemRect.left, theItemRect.top,
-		theItemRect.right, theItemRect.bottom);
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
 
-	if( !theLabel.empty() )
-	{// Text - word-wrapped + horizontal & vertical center justification
-		const std::wstring& aLabelW = widen(theLabel);
-		RECT aTextRect = theItemRect;
-		aTextRect.bottom = aTextRect.top;
-		const int aTextHeight = DrawText(hdc, aLabelW.c_str(),
-			-1, &aTextRect, DT_WORDBREAK | DT_CENTER | DT_CALCRECT);
-		aTextRect.top += (theItemRect.bottom - theItemRect.top - aTextHeight) / 2;
-		aTextRect.right = theItemRect.right;
-		aTextRect.bottom = theItemRect.bottom;
-		DrawText(hdc, aLabelW.c_str(), -1, &aTextRect, DT_WORDBREAK | DT_CENTER);
+	RoundRect(dd.hdc,
+		theRect.left, theRect.top,
+		theRect.right, theRect.bottom,
+		hi.radius, hi.radius);
+}
+
+
+static void drawHUDBitmap(HUDDrawData& dd, const RECT& theRect)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	HBITMAP aBitmap = sImages[hi.imageID];
+	if( !aBitmap )
+	{
+		drawHUDRect(dd, theRect);
+		return;
 	}
+
+	BITMAP bm;
+	GetObject(aBitmap, sizeof(bm), &bm);
+	HDC hdcMem = CreateCompatibleDC(dd.hdc);
+	HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, aBitmap);
+
+	StretchBlt(dd.hdc, 
+			   theRect.left, theRect.top, 
+			   theRect.right - theRect.left, theRect.bottom - theRect.top,
+			   hdcMem, 
+			   0, 0, 
+			   bm.bmWidth, bm.bmHeight,
+			   SRCCOPY);
+
+	SelectObject(hdcMem, hOldBitmap);
+	DeleteDC(hdcMem);
+}
+
+
+static void drawHUDCircle(HUDDrawData& dd, const RECT& theRect)
+{
+	const u16 aHUDElementID = dd.hudElementID;
+	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+
+	Ellipse(dd.hdc,
+		theRect.left, theRect.top,
+		theRect.right, theRect.bottom);
+}
+
+
+static void drawHUDArrowL(HUDDrawData& dd, const RECT& theRect)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+
+	POINT points[3];
+	points[0].x = theRect.right;
+	points[0].y = theRect.top;
+	points[1].x = theRect.right;
+	points[1].y = theRect.bottom;
+	points[2].x = theRect.left;
+	points[2].y = (theRect.top + theRect.bottom) / 2;
+	Polygon(dd.hdc, points, 3);
+}
+
+
+static void drawHUDArrowR(HUDDrawData& dd, const RECT& theRect)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+
+	POINT points[3];
+	points[0].x = theRect.left;
+	points[0].y = theRect.top;
+	points[1].x = theRect.left;
+	points[1].y = theRect.bottom;
+	points[2].x = theRect.right;
+	points[2].y = (theRect.top + theRect.bottom) / 2;
+	Polygon(dd.hdc, points, 3);
+}
+
+
+static void drawHUDArrowU(HUDDrawData& dd, const RECT& theRect)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+
+	POINT points[3];
+	points[0].x = theRect.left;
+	points[0].y = theRect.bottom;
+	points[1].x = theRect.right;
+	points[1].y = theRect.bottom;
+	points[2].x = (theRect.left + theRect.right) / 2;
+	points[2].y = theRect.top;
+	Polygon(dd.hdc, points, 3);
+}
+
+
+static void drawHUDArrowD(HUDDrawData& dd, const RECT& theRect)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+
+	POINT points[3];
+	points[0].x = theRect.left;
+	points[0].y = theRect.top;
+	points[1].x = theRect.right;
+	points[1].y = theRect.top;
+	points[2].x = (theRect.left + theRect.right) / 2;
+	points[2].y = theRect.bottom;
+	Polygon(dd.hdc, points, 3);
+}
+
+
+static void drawHUDItem(HUDDrawData& dd, const RECT& theRect)
+{
+	switch(sHUDElementInfo[dd.hudElementID].itemType)
+	{
+	case eHUDItemType_Rect:		drawHUDRect(dd, theRect);		break;
+	case eHUDItemType_RndRect:	drawHUDRndRect(dd, theRect);	break;
+	case eHUDItemType_Bitmap:	drawHUDBitmap(dd, theRect);		break;
+	case eHUDItemType_Circle:	drawHUDCircle(dd, theRect);		break;
+	case eHUDItemType_ArrowL:	drawHUDArrowL(dd, theRect);		break;
+	case eHUDItemType_ArrowR:	drawHUDArrowR(dd, theRect);		break;
+	case eHUDItemType_ArrowU:	drawHUDArrowU(dd, theRect);		break;
+	case eHUDItemType_ArrowD:	drawHUDArrowD(dd, theRect);		break;
+	default: DBG_ASSERT(false && "Invalid HUD ItemType!");
+	}
+}
+
+
+static void drawMenuItem(
+	HUDDrawData& dd,
+	const RECT& theRect,
+	const std::string& theLabel)
+{
+	// Backdrop (usually bordered rectangle)
+	drawHUDItem(dd, theRect);
+
+	if( theLabel.empty() )
+		return;
+
+	// Text - word-wrapped + horizontal & vertical center justification
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const std::wstring& aLabelW = widen(theLabel);
+	RECT aClipRect = theRect;
+	InflateRect(&aClipRect, -hi.borderSize, -hi.borderSize);
+	RECT aTextRect = aClipRect;
+	aTextRect.bottom = aTextRect.top;
+	const int aTextHeight = DrawText(dd.hdc, aLabelW.c_str(),
+		-1, &aTextRect, DT_WORDBREAK | DT_CENTER | DT_CALCRECT);
+	aTextRect.top += (aClipRect.bottom - aClipRect.top - aTextHeight) / 2;
+	aTextRect.right = aClipRect.right;
+	aTextRect.bottom = aClipRect.bottom;
+	DrawText(dd.hdc, aLabelW.c_str(), -1,
+		&aTextRect, DT_WORDBREAK | DT_CENTER);
 }
 
 
 static void draw4DirMenu(HUDDrawData& dd)
 {
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-	HDC hdc = dd.hdc;
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	DBG_ASSERT(hi.type == eMenuStyle_4Dir);
 
-	// Always just draws all 4 items on top of previous,
-	// so no need to erase anything first
+	if( !dd.firstDraw )
+		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
 
-	SelectObject(hdc, sFonts[hi.fontID]);
-	SelectObject(hdc, sPens[hi.borderPenID]);
-	SelectObject(hdc, sBrushes[hi.itemBrushID]);
-	SetBkColor(hdc, hi.itemColor);
-	SetTextColor(hdc, hi.labelColor);
+	SelectObject(dd.hdc, sFonts[hi.fontID]);
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	SetBkColor(dd.hdc, hi.itemColor);
+	SetTextColor(dd.hdc, hi.labelColor);
 
 	// Always 4 menu items, in order of L->R->U->D
-	const u16 activeSubMenu = Menus::activeSubMenu(aHUDElementID);
+	const u16 activeSubMenu = Menus::activeSubMenu(dd.hudElementID);
 	// Left
 	RECT anItemRect;
 	anItemRect.left = 0;
@@ -413,104 +637,31 @@ static void draw4DirMenu(HUDDrawData& dd)
 }
 
 
-static void drawRectHUD(HUDDrawData& dd)
-{
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-	HDC hdc = dd.hdc;
-	DBG_ASSERT(hi.type == eHUDType_Rectangle);
-
-	SelectObject(hdc, sPens[hi.borderPenID]);
-	SelectObject(hdc, sBrushes[hi.itemBrushID]);
-
-	Rectangle(hdc, 0, 0, dd.targetSize.cx, dd.targetSize.cy);
-}
-
-
-static void drawRoundRectHUD(HUDDrawData& dd)
-{
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-	HDC hdc = dd.hdc;
-	DBG_ASSERT(hi.type == eHUDType_RoundRect);
-
-	SelectObject(hdc, sPens[hi.borderPenID]);
-	SelectObject(hdc, sBrushes[hi.itemBrushID]);
-
-	RoundRect(hdc, 0, 0, dd.targetSize.cx, dd.targetSize.cy, hi.radius, hi.radius);
-}
-
-
-static void drawCircleHUD(HUDDrawData& dd)
-{
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-	HDC hdc = dd.hdc;
-	DBG_ASSERT(hi.type == eHUDType_Circle);
-
-	SelectObject(hdc, sPens[hi.borderPenID]);
-	SelectObject(hdc, sBrushes[hi.itemBrushID]);
-
-	Ellipse(hdc, 0, 0, dd.targetSize.cx, dd.targetSize.cy);
-}
-
-
-static void drawCrossHUD(HUDDrawData& dd)
-{
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-	HDC hdc = dd.hdc;
-	DBG_ASSERT(hi.type == eHUDType_Crosshair);
-
-	SelectObject(hdc, sPens[hi.borderPenID]);
-	SelectObject(hdc, sBrushes[hi.itemBrushID]);
-
-	const LONG aHalfGapSize = hi.gapSize / 2;
-	const LONG aLength = dd.itemSize.cx;
-	const LONG aThickness = dd.itemSize.cy;
-	const LONG anOffset1 = aLength + aHalfGapSize;
-	const LONG anOffset2 = anOffset1 + aThickness + aHalfGapSize;
-
-	// Left hair
-	Rectangle(hdc, 0, anOffset1, aLength + 1, anOffset1 + aThickness + 1);
-	// Right hair
-	Rectangle(hdc, anOffset2, anOffset1,
-		anOffset2 + aLength + 1, anOffset1 + aThickness + 1);
-	// Top hair
-	Rectangle(hdc, anOffset1, 0, anOffset1 + aThickness + 1, aLength + 1);
-	// Bottom hair
-	Rectangle(hdc, anOffset1, anOffset2,
-		anOffset1 + aThickness + 1, anOffset2 + aLength + 1);
-}
-
-
 static void drawSystemHUD(HUDDrawData& dd)
 {
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-	HDC hdc = dd.hdc;
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	DBG_ASSERT(hi.type == eHUDType_System);
 
 	// Erase any previous strings
 	if( !dd.firstDraw )
-		FillRect(hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
+		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
 
 	RECT aTextRect = dd.targetRect;
 	InflateRect(&aTextRect, -8, -8);
 
 	if( !sErrorMessage.empty() )
 	{
-		SetBkColor(hdc, RGB(255, 0, 0));
-		SetTextColor(hdc, RGB(255, 255, 0));
-		DrawText(hdc, sErrorMessage.c_str(), -1, &aTextRect,
+		SetBkColor(dd.hdc, RGB(255, 0, 0));
+		SetTextColor(dd.hdc, RGB(255, 255, 0));
+		DrawText(dd.hdc, sErrorMessage.c_str(), -1, &aTextRect,
 			DT_WORDBREAK);
 	}
 
 	if( !sNoticeMessage.empty() )
 	{
-		SetBkColor(hdc, RGB(0, 0, 255));
-		SetTextColor(hdc, RGB(255, 255, 255));
-		DrawText(hdc, sNoticeMessage.c_str(), -1, &aTextRect,
+		SetBkColor(dd.hdc, RGB(0, 0, 255));
+		SetTextColor(dd.hdc, RGB(255, 255, 255));
+		DrawText(dd.hdc, sNoticeMessage.c_str(), -1, &aTextRect,
 			DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
 	}
 }
@@ -527,6 +678,9 @@ void init()
 	HUDBuilder aHUDBuilder;
 	sHUDElementInfo.resize(InputMap::hudElementCount());
 
+	sImages.push_back(NULL);
+	aHUDBuilder.fileToImageMap.addPair(0, NULL);
+
 	// Get default erase (transparent) color value
 	const COLORREF aDefaultTransColor = strToRGB(aHUDBuilder,
 					getHUDPropStr("", eHUDProp_TransColor));
@@ -539,22 +693,35 @@ void init()
 	{
 		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
 		hi.type = InputMap::hudElementType(aHUDElementID);
+		if( hi.type >= eHUDItemType_Begin && hi.type < eHUDItemType_End )
+			hi.itemType = hi.type;
 		hi.transColor = aDefaultTransColor;
 		hi.eraseBrushID = aDefaultEraseBrush;
 		if( hi.type == eHUDType_System )
 			continue;
 		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
+		// hi.itemType = eHUDProp_ItemType
+		std::string aStr = getHUDPropStr(aHUDName, eHUDProp_ItemType);
+		if( !aStr.empty() )
+			hi.itemType = hudTypeNameToID(upper(aStr));
+		if( hi.itemType < eHUDItemType_Begin ||
+			hi.itemType >= eHUDItemType_End )
+		{
+			logError("Invalid ItemType (%s) for HUD Element %s! "
+				"Defaulting to 'Rectangle'!",
+				aStr.c_str(), aHUDName.c_str());
+			hi.itemType = eHUDItemType_Rect;
+		}
 		// hi.position = eHUDProp_Position
 		InputMap::profileStringToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Position),
 			hi.position);
 		// hi.itemSize = eHUDProp_ItemSize (Menus) or eHUDProp_Size (HUD)
-		std::string aStr;
-		if( hi.type < eMenuStyle_Num )
+		if( hi.type < eMenuStyle_End )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize, true);
 		else
 			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
-		if( aStr.empty() && hi.type < eMenuStyle_Num )
+		if( aStr.empty() && hi.type < eMenuStyle_End )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
 		if( aStr.empty() )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
@@ -585,12 +752,13 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_ItemColor));
 		hi.itemBrushID = getOrCreateBrushID(
 			aHUDBuilder, hi.itemColor);
-		// hi.borderPenID = eHUDProp_BorderColor & _BorderSize
-		u32 aVal = u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize));
+		// hi.borderPenID & .borderSize = eHUDProp_BorderColor & _BorderSize
+		hi.borderSize =
+			u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize));
 		hi.borderPenID = getOrCreatePenID(aHUDBuilder,
 			strToRGB(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_BorderColor)),
-			aVal ? PS_INSIDEFRAME : PS_NULL, int(aVal));
+			hi.borderSize ? PS_INSIDEFRAME : PS_NULL, int(hi.borderSize));
 		// hi.transColor & .eraseBrushID = eHUDProp_TransColor
 		hi.transColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_TransColor));
@@ -603,7 +771,7 @@ void init()
 		hi.fadeInDelay = max(0, intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInDelay)));
 		// hi.fadeInRate = eHUDProp_FadeInTime
-		aVal = max(1, u32FromString(
+		u32 aVal = max(1, u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInTime)));
 		hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
 		// hi.fadeOutDelay = eHUDProp_FadeOutDelay
@@ -621,16 +789,17 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF;
 
 		// Extra data values for specific types
-		switch(hi.type)
+		if( hi.type == eHUDItemType_RndRect ||
+				 hi.itemType == eHUDItemType_RndRect )
 		{
-		case eHUDType_Crosshair:
-			hi.gapSize = u32FromString(
-				getHUDPropStr(aHUDName, eHUDProp_GapSize));
-			break;
-		case eHUDType_RoundRect:
 			hi.radius = u32FromString(
 				getHUDPropStr(aHUDName, eHUDProp_Radius));
-			break;
+		}
+		if( hi.type == eHUDItemType_Bitmap ||
+			hi.itemType == eHUDItemType_Bitmap )
+		{
+			hi.imageID = getOrCreateImageID(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_ImagePath));
 		}
 	}
 }
@@ -644,9 +813,12 @@ void cleanup()
 		DeleteObject(sBrushes[i]);
 	for(size_t i = 0; i < sPens.size(); ++i)
 		DeleteObject(sPens[i]);
+	for(size_t i = 0; i < sImages.size(); ++i)
+		DeleteObject(sImages[i]);
 	sFonts.clear();
 	sBrushes.clear();
 	sPens.clear();
+	sImages.clear();
 	sHUDElementInfo.clear();
 }
 
@@ -766,14 +938,29 @@ void drawElement(
 		FillRect(hdc, &aTargetRect, sBrushes[hi.eraseBrushID]);
 	}
 
-	switch(sHUDElementInfo[theHUDElementID].type)
+	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
+	switch(aHUDType)
 	{
-	case eMenuStyle_4Dir:		draw4DirMenu(aDrawData);		break;
-	case eHUDType_Rectangle:	drawRectHUD(aDrawData);			break;
-	case eHUDType_RoundRect:	drawRoundRectHUD(aDrawData);	break;
-	case eHUDType_Circle:		drawCircleHUD(aDrawData);		break;
-	case eHUDType_Crosshair:	drawCrossHUD(aDrawData);		break;
-	case eHUDType_System:		drawSystemHUD(aDrawData);		break;
+	case eMenuStyle_List:		/* TODO */					break;
+	case eMenuStyle_4Dir:		draw4DirMenu(aDrawData);	break;
+	case eMenuStyle_Grid:		/* TODO */					break;
+	case eMenuStyle_Pillar:		/* TODO */					break;
+	case eMenuStyle_Bar:		/* TODO */					break;
+	case eMenuStlye_Ring:		/* TODO */					break;
+	case eMenuStyle_Radial:		/* TODO */					break;
+	case eHUDType_GroupTarget:	/* TODO */					break;
+	case eHUDType_SavedTarget:	/* TODO */					break;
+	case eHUDType_System:		drawSystemHUD(aDrawData);	break;
+	default:
+		if( aHUDType >= eHUDItemType_Begin && aHUDType < eHUDItemType_End )
+		{
+			RECT r; SetRect(&r, 0, 0, theDestSize.cx, theDestSize.cy);
+			drawHUDItem(aDrawData, r);
+		}
+		else
+		{
+			DBG_ASSERT(false && "Invaild HUD/Menu Type/Style!");
+		}
 	}
 }
 
@@ -803,12 +990,6 @@ void updateWindowLayout(
 	case eMenuStyle_4Dir:
 		theWindowSize.cx *= 2;
 		theWindowSize.cy *= 3;
-		break;
-	case eHUDType_Crosshair:
-		// Treat X as length and Y as thickness of each "hair"
-		theWindowSize.cx = theWindowSize.cy = 1 +
-			theComponentSize.cx * 2 + theComponentSize.cy +
-			(hi.gapSize / 2) * 2; // even number only gap size
 		break;
 	case eHUDType_System:
 		theWindowSize.cx = theTargetSize.cx;

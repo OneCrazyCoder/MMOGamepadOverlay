@@ -42,7 +42,7 @@ const BitVector<>& hudElementsToHide(u16 theLayerID);
 
 // MENUS
 const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
-EMenuStyle menuStyle(u16 theMenuID);
+EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
 
 // HOTSPOTS

@@ -108,16 +108,11 @@ struct Menu
 struct HUDElement
 {
 	std::string label;
+	EHUDType type : 16;
 	u16 menuID;
-	union
-	{
-		u16 type;
-		EMenuStyle menuStyle : 16;
-		EHUDType hudType : 16;
-	};
 	// Visual details will be parsed by HUD module
 
-	HUDElement() : menuID(kInvalidID) { type = 0; }
+	HUDElement() : menuID(kInvalidID) { type = eHUDItemType_Rect; }
 };
 
 struct ButtonActions
@@ -564,7 +559,7 @@ static u16 getOrCreateHUDElementID(
 			sLayers[theControlsLayerIndex].label.c_str(),
 			hasInputAssigned ? "List" : "Rectangle");
 		aHUDElement.type =
-			hasInputAssigned ? eMenuStyle_List : eHUDType_Rectangle;
+			hasInputAssigned ? eMenuStyle_List : eHUDItemType_Rect;
 	}
 	else
 	{
@@ -582,9 +577,11 @@ static u16 getOrCreateHUDElementID(
 				sLayers[theControlsLayerIndex].label.c_str(),
 				hasInputAssigned ? "List" : "Rectangle");
 			aHUDElement.type =
-				hasInputAssigned ? eMenuStyle_List : eHUDType_Rectangle;
+				hasInputAssigned ? eMenuStyle_List : eHUDItemType_Rect;
 		}
-		else if( aHUDElement.type >= eMenuStyle_Num && hasInputAssigned )
+		else if( hasInputAssigned &&
+				 (aHUDElement.type < eMenuStyle_Begin ||
+				  aHUDElement.type >= eMenuStyle_End) )
 		{
 			logError(
 				"Attempting to assign a Menu navigation command to "
@@ -593,7 +590,9 @@ static u16 getOrCreateHUDElementID(
 				theName.c_str(), aHUDTypeName.c_str());
 			aHUDElement.type = eMenuStyle_List;
 		}
-		else if( aHUDElement.type < eMenuStyle_Num && !hasInputAssigned )
+		else if( !hasInputAssigned &&
+				 aHUDElement.type >= eMenuStyle_Begin &&
+				 aHUDElement.type < eMenuStyle_End )
 		{
 			logError(
 				"HUD Element %s assigned to a Menu Style but has no "
@@ -602,7 +601,8 @@ static u16 getOrCreateHUDElementID(
 		}
 	}
 
-	if( aHUDElement.type < eMenuStyle_Num )
+	if( aHUDElement.type >= eMenuStyle_Begin &&
+		aHUDElement.type < eMenuStyle_End )
 	{
 		// Add new Root Menu to sMenus and link the Menu and HUDElement
 		u16 aMenuID = u16(sMenus.size());
@@ -633,7 +633,8 @@ static u16 getOrCreateRootMenuID(
 		theBuilder, theMenuName, theControlsLayerIndex, true);
 	HUDElement& aHUDElement = sHUDElements[aHUDElementID];
 
-	DBG_ASSERT(aHUDElement.menuStyle < eMenuStyle_Num);
+	DBG_ASSERT(aHUDElement.type >= eMenuStyle_Begin);
+	DBG_ASSERT(aHUDElement.type < eMenuStyle_End);
 	DBG_ASSERT(aHUDElement.menuID < sMenus.size());
 	return aHUDElement.menuID;
 }
@@ -1867,7 +1868,7 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 
 	// Special-case manually-managed HUD element (top-most overlay)
 	sHUDElements.push_back(HUDElement());
-	sHUDElements.back().hudType = eHUDType_System;
+	sHUDElements.back().type = eHUDType_System;
 
 	// Above may have added new HUD elements, now that all are added
 	// make sure every layer's hideHUD and showHUD are correct size
@@ -1990,7 +1991,9 @@ static void buildMenus(InputMapBuilder& theBuilder)
 		DBG_ASSERT(aRootMenuID < sMenus.size());
 		const u16 aHUDElementID = sMenus[aMenuID].hudElementID;
 		DBG_ASSERT(aHUDElementID < sHUDElements.size());
-		const EMenuStyle aMenuStyle = sHUDElements[aHUDElementID].menuStyle;
+		const EHUDType aMenuStyle = sHUDElements[aHUDElementID].type;
+		DBG_ASSERT(aMenuStyle >= eMenuStyle_Begin);
+		DBG_ASSERT(aMenuStyle < eMenuStyle_End);
 		const std::string aDebugNamePrefix =
 			std::string("[") + aPrefix + "] (";
 
@@ -2229,11 +2232,11 @@ const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 }
 
 
-EMenuStyle menuStyle(u16 theMenuID)
+EHUDType menuStyle(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	DBG_ASSERT(sMenus[theMenuID].hudElementID < sHUDElements.size());
-	return sHUDElements[sMenus[theMenuID].hudElementID].menuStyle;
+	return sHUDElements[sMenus[theMenuID].hudElementID].type;
 }
 
 
@@ -2260,7 +2263,7 @@ EResult profileStringToHotspot(std::string& theString, Hotspot& out)
 EHUDType hudElementType(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
-	return sHUDElements[theHUDElementID].hudType;	
+	return sHUDElements[theHUDElementID].type;	
 }
 
 

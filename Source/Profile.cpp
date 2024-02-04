@@ -154,7 +154,7 @@ static DWORD uniqueFileIdentifier(const std::string& theFilePath)
 		(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
 		return result;
 
-	HANDLE hFile = CreateFile(widen(theFilePath).c_str(),
+	HANDLE hFile = CreateFile(aFilePathW.c_str(),
 		GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if( hFile != INVALID_HANDLE_VALUE )
 	{

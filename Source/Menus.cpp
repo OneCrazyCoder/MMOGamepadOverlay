@@ -16,7 +16,7 @@ namespace Menus
 struct MenuInfo
 {
 	u16 selected;
-	EMenuStyle style;
+	EHUDType style;
 	std::vector<u16> subMenuStack;
 
 	MenuInfo() : selected() {}

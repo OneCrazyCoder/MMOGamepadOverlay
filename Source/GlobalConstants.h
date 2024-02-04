@@ -169,7 +169,7 @@ enum EButton
 	eBtn_DInputBtnNum = eBtn_Num - eBtn_FirstDInputBtn,
 };
 
-enum EMenuStyle
+enum EHUDType
 {
 	eMenuStyle_List,
 	eMenuStyle_4Dir,
@@ -179,20 +179,27 @@ enum EMenuStyle
 	eMenuStlye_Ring,
 	eMenuStyle_Radial,
 
-	eMenuStyle_Num
-};
+	eHUDItemType_Rect,
+	eHUDItemType_RndRect,
+	eHUDItemType_Bitmap,
+	eHUDItemType_Circle,
+	eHUDItemType_ArrowL,
+	eHUDItemType_ArrowR,
+	eHUDItemType_ArrowU,
+	eHUDItemType_ArrowD,
 
-enum EHUDType
-{
-	eHUDType_GroupTarget = eMenuStyle_Num,
-	eHUDType_Rectangle,
-	eHUDType_RoundRect,
-	eHUDType_Circle,
-	eHUDType_Crosshair,
-
+	eHUDType_GroupTarget,
+	eHUDType_SavedTarget,
 	eHUDType_System, // Internal use only
 
-	eHUDType_Num
+	eHUDType_Num,
+
+	eMenuStyle_Begin = 0,
+	eMenuStyle_End = eHUDItemType_Rect,
+	eHUDItemType_Begin = eHUDItemType_Rect,
+	eHUDItemType_End = eHUDType_GroupTarget,
+	eHUDType_Begin = eHUDType_GroupTarget,
+	eHUDType_End = eHUDType_Num,
 };
 
 enum ESpecialKey
