@@ -47,6 +47,7 @@ struct OverlayWindow
 	float fadeValue;
 	EFadeState fadeState;
 	u8 alpha;
+	bool hideUntilActivated;
 	bool updated;
 };
 
@@ -260,7 +261,6 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		}
 	} while(oldState != theWindow.fadeState);
 
-	gActiveHUD.reset(id);
 	if( aNewAlpha != theWindow.alpha )
 	{
 		theWindow.alpha = aNewAlpha;
@@ -375,6 +375,7 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 			sUseChildWindows ? sMainWindow : NULL,
 			NULL, theAppInstanceHandle, NULL);
 		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, i);
+		aWindow.hideUntilActivated = HUD::shouldStartHidden(u16(i));
 	}
 }
 
@@ -412,19 +413,28 @@ void update()
 		updateAlphaFades(aWindow, u16(i));
 		
 		// Check visibility status so can mostly ignore hidden windows
-		if( sHidden || !aWindow.alpha ||
-			aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
+		if( sHidden || aWindow.alpha == 0 ||
+			(aWindow.hideUntilActivated && !gActiveHUD.test(i)) )
 		{
 			if( IsWindowVisible(aWindow.handle) )
 				ShowWindow(aWindow.handle, SW_HIDE);
+			aWindow.hideUntilActivated = HUD::shouldStartHidden(u16(i));
+			gActiveHUD.reset(i);
 			continue;
 		}
+		aWindow.hideUntilActivated = false;
 
 		// Check for possible update to window layout
-		if( !aWindow.updated || gRedrawHUD.test(i) )
+		if( !aWindow.updated || gRedrawHUD.test(i) || gActiveHUD.test(i) )
 		{
 			HUD::updateWindowLayout(u16(i), sTargetSize,
 				aWindow.componentSize, aWindow.position, aWindow.size);
+			aWindow.updated = false;
+			if( aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
+			{
+				gActiveHUD.reset(i);
+				continue;
+			}
 		}
 	
 		// Delete bitmap if bitmap size doesn't match window size
@@ -481,6 +491,7 @@ void update()
 				ULW_ALPHA | ULW_COLORKEY);
 			aWindow.updated = true;
 		}
+		gActiveHUD.reset(i);
 
 		// Show window if it isn't visible yet
 		if( !IsWindowVisible(aWindow.handle) )

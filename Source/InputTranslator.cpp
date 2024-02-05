@@ -17,7 +17,6 @@ namespace InputTranslator
 //#define transDebugPrint(...) debugPrint("InputTranslator: " __VA_ARGS__)
 #define transDebugPrint(...) ((void)0)
 
-
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
@@ -356,32 +355,43 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		DBG_ASSERT(theCmd.data < eTargetGroupType_Num);
 		switch(theCmd.data)
 		{
-		case eTargetGroupType_LoadFavorite:
-			gLastGroupTarget = gFavoriteGroupTarget;
+		case eTargetGroupType_Reset:
+			gGroupTargetOrigin = gDefaultGroupTarget;
+			transDebugPrint("Resetting origin Group Member to default #%d\n",
+				gDefaultGroupTarget);
+			break;
+		case eTargetGroupType_SetDefault:
+			gDefaultGroupTarget = gLastGroupTarget;
+			gDefaultGroupTargetUpdated = true;
+			transDebugPrint("Setting Group Member #%d as default\n",
+				gLastGroupTarget);
+			break;
+		case eTargetGroupType_Default:
+			gLastGroupTarget = gGroupTargetOrigin = gDefaultGroupTarget;
+			gLastGroupTargetUpdated = true;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Targeting favorite Group Member #%d\n",
-				gLastGroupTarget);
-			break;
-		case eTargetGroupType_SaveFavorite:
-			gFavoriteGroupTarget = gLastGroupTarget;
-			transDebugPrint("Saving Group Member #%d as favorite\n",
+			transDebugPrint("Targeting default Group Member #%d\n",
 				gLastGroupTarget);
 			break;
 		case eTargetGroupType_Last:
+			gLastGroupTargetUpdated = true;
+			gGroupTargetOrigin = gLastGroupTarget;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Re-targeting last group member (#%d)\n",
+			transDebugPrint("Re-targeting last group member/pet (#%d) \n",
 				gLastGroupTarget);
 			break;
 		case eTargetGroupType_Prev:
-			if( gLastGroupTarget == 0 )
-				break;
-			--gLastGroupTarget;
+			gLastGroupTargetUpdated = true;
+			gGroupTargetOrigin =
+				gGroupTargetOrigin == 0
+					? 0 : gGroupTargetOrigin - 1;
+			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
@@ -390,9 +400,11 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 				gLastGroupTarget);
 			break;
 		case eTargetGroupType_Next:
-			if( gLastGroupTarget >= InputMap::targetGroupSize() - 1 )
-				break;
-			++gLastGroupTarget;
+			gLastGroupTargetUpdated = true;
+			gGroupTargetOrigin =
+				gGroupTargetOrigin >= InputMap::targetGroupSize() - 1
+					? InputMap::targetGroupSize() - 1 : gGroupTargetOrigin + 1;
+			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
@@ -401,9 +413,11 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 				gLastGroupTarget);
 			break;
 		case eTargetGroupType_PrevWrap:
-			gLastGroupTarget =
-				gLastGroupTarget == 0
-					? InputMap::targetGroupSize() - 1 : gLastGroupTarget - 1;
+			gLastGroupTargetUpdated = true;
+			gGroupTargetOrigin =
+				gGroupTargetOrigin == 0
+					? InputMap::targetGroupSize() - 1 : gGroupTargetOrigin - 1;
+			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
@@ -412,9 +426,11 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 				gLastGroupTarget);
 			break;
 		case eTargetGroupType_NextWrap:
-			gLastGroupTarget =
-				gLastGroupTarget >= InputMap::targetGroupSize() - 1
-					? 0 : gLastGroupTarget + 1;
+			gLastGroupTargetUpdated = true;
+			gGroupTargetOrigin =
+				gGroupTargetOrigin >= InputMap::targetGroupSize() - 1
+					? 0 : gGroupTargetOrigin + 1;
+			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
@@ -972,6 +988,20 @@ void update()
 			Gamepad::buttonDown(EButton(i)),
 			Gamepad::buttonHit(EButton(i)),
 			Gamepad::buttonAnalogVal(EButton(i)));
+	}
+
+	// Process any virtual "auto" buttons for layers just added by above
+	for(size_t i = 0; i < sState.layers.size(); ++i)
+	{
+		LayerState& aLayer = sState.layers[i];
+		if( aLayer.newlyActive )
+		{
+			processButtonState(
+				aLayer.autoButton,
+				aLayer.active,
+				aLayer.newlyActive);
+			aLayer.newlyActive = false;
+		}
 	}
 
 	// Update button commands, mouselook mode, HUD, etc for new layer order

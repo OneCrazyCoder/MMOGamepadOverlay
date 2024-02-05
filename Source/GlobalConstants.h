@@ -98,13 +98,17 @@ enum EMouseWheelMotion
 
 enum ETargetGroupType
 {
-	eTargetGroupType_LoadFavorite,	// Target _SaveFavorite'd target
-	eTargetGroupType_SaveFavorite,	// Just save _Last as favorite
-	eTargetGroupType_Last,			// Re-target last (or toggle to pet)
-	eTargetGroupType_Prev,			// Target _Last - 1 (unless at 0)
-	eTargetGroupType_Next,			// Target _Last - 1 (unless at max)
-	eTargetGroupType_PrevWrap,		// Target _Last - 1 (wrap 0->max)
-	eTargetGroupType_NextWrap,		// Target _Last + 1 (wrap max->0)
+	// These first 2 do NOT actually send input to game to target anyone
+	eTargetGroupType_Reset,			// gGroupTargetOrigin = gDefaultGroupTarget
+	eTargetGroupType_SetDefault,	// gDefaultGroupTarget = gLastGroupTarget
+
+	// All of the below set gLastGroupTarget & gGroupTargetOrigin to target #
+	eTargetGroupType_Default,		// Target gDefaultGroupTarget
+	eTargetGroupType_Last,			// Target gLastGroupTarget (or their pet)
+	eTargetGroupType_Prev,			// Target max(0, gGroupTargetOrigin - 1)
+	eTargetGroupType_Next,			// Target min(max, gGroupTargetOrigin + 1)
+	eTargetGroupType_PrevWrap,		// Target wrap(gGroupTargetOrigin - 1)
+	eTargetGroupType_NextWrap,		// Target wrap(gGroupTargetOrigin + 1)
 
 	eTargetGroupType_Num
 };
@@ -189,7 +193,7 @@ enum EHUDType
 	eHUDItemType_ArrowD,
 
 	eHUDType_GroupTarget,
-	eHUDType_SavedTarget,
+	eHUDType_DefaultTarget,
 	eHUDType_System, // Internal use only
 
 	eHUDType_Num,
@@ -245,6 +249,16 @@ enum ESpecialHotspot
 {
 	eSpecialHotspot_None,
 	eSpecialHotspot_MouseLookStart,
+	eSpecialHotspot_TargetSelf,
+	eSpecialHotspot_TargetGroup1,
+	eSpecialHotspot_TargetGroup2,
+	eSpecialHotspot_TargetGroup3,
+	eSpecialHotspot_TargetGroup4,
+	eSpecialHotspot_TargetGroup5,
+	eSpecialHotspot_TargetGroup6,
+	eSpecialHotspot_TargetGroup7,
+	eSpecialHotspot_TargetGroup8,
+	eSpecialHotspot_TargetGroup9,
 
 	eSpecialHotspot_Num
 };
@@ -286,9 +300,8 @@ enum ECommandKeyWord
 	eCmdWord_NextNoWrap,
 	eCmdWord_NoWrap,
 	eCmdWord_Default,
-	eCmdWord_Favorite,
 	eCmdWord_Load,
-	eCmdWord_Save,
+	eCmdWord_Set,
 	eCmdWord_Last,
 	eCmdWord_Pet,
 

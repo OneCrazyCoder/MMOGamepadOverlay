@@ -53,4 +53,7 @@ int inactiveFadeOutDelay(u16 theHUDElementID);
 // Returns background color to become fully transparent
 COLORREF transColor(u16 theHUDElementID);
 
+// Returns if should start hidden until certain user input
+bool shouldStartHidden(u16 theHUDElementID);
+
 } // HUD

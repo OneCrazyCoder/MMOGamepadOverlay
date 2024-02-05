@@ -111,22 +111,18 @@ struct HUDElementInfo
 	int fadeInDelay;
 	int fadeOutDelay;
 	int delayUntilInactive;
+	int selection;
 	u16 fontID;
 	u16 itemBrushID;
 	u16 borderPenID;
 	u16 eraseBrushID;
 	u16 imageID;
 	u16 borderSize;
+	u16 radius;
 	u8 alignmentX;
 	u8 alignmentY;
 	u8 maxAlpha;
 	u8 inactiveAlpha;
-
-	union
-	{
-		int extraData;
-		int radius;
-	};
 
 	HUDElementInfo() :
 		itemType(eHUDItemType_Rect),
@@ -637,6 +633,17 @@ static void draw4DirMenu(HUDDrawData& dd)
 }
 
 
+static void drawBasicHUD(HUDDrawData& dd)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	if( !dd.firstDraw )
+		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
+
+	drawHUDItem(dd, dd.targetRect);
+}
+
+
 static void drawSystemHUD(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -885,6 +892,31 @@ void update()
 
 	if( gVisibleHUD.test(aSystemElementID) )
 		gActiveHUD.set(aSystemElementID);
+
+	// Check for updates to other HUD elements
+	for(size_t i = 0; i < sHUDElementInfo.size(); ++i)
+	{
+		HUDElementInfo& hi = sHUDElementInfo[i];
+		switch(hi.type)
+		{
+		case eHUDType_GroupTarget:
+			if( gLastGroupTargetUpdated )
+			{
+				gActiveHUD.set(i);
+				hi.selection = gLastGroupTarget;
+			}
+			break;
+		case eHUDType_DefaultTarget:
+			if( gDefaultGroupTargetUpdated )
+			{
+				gActiveHUD.set(i);
+				hi.selection = gDefaultGroupTarget;
+			}
+			break;
+		}
+	}
+	gLastGroupTargetUpdated = false;
+	gDefaultGroupTargetUpdated = false;
 }
 
 
@@ -941,16 +973,16 @@ void drawElement(
 	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
 	switch(aHUDType)
 	{
-	case eMenuStyle_List:		/* TODO */					break;
-	case eMenuStyle_4Dir:		draw4DirMenu(aDrawData);	break;
-	case eMenuStyle_Grid:		/* TODO */					break;
-	case eMenuStyle_Pillar:		/* TODO */					break;
-	case eMenuStyle_Bar:		/* TODO */					break;
-	case eMenuStlye_Ring:		/* TODO */					break;
-	case eMenuStyle_Radial:		/* TODO */					break;
-	case eHUDType_GroupTarget:	/* TODO */					break;
-	case eHUDType_SavedTarget:	/* TODO */					break;
-	case eHUDType_System:		drawSystemHUD(aDrawData);	break;
+	case eMenuStyle_List:			/* TODO */					break;
+	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
+	case eMenuStyle_Grid:			/* TODO */					break;
+	case eMenuStyle_Pillar:			/* TODO */					break;
+	case eMenuStyle_Bar:			/* TODO */					break;
+	case eMenuStlye_Ring:			/* TODO */					break;
+	case eMenuStyle_Radial:			/* TODO */					break;
+	case eHUDType_GroupTarget:		drawBasicHUD(aDrawData);	break;
+	case eHUDType_DefaultTarget:	drawBasicHUD(aDrawData);	break;
+	case eHUDType_System:			drawSystemHUD(aDrawData);	break;
 	default:
 		if( aHUDType >= eHUDItemType_Begin && aHUDType < eHUDItemType_End )
 		{
@@ -982,6 +1014,27 @@ void updateWindowLayout(
 	// Get window position (top-left corner) assuming top-left alignment
 	theWindowPos.x = scaleHotspot(hi.position.x, theTargetSize.cx);
 	theWindowPos.y = scaleHotspot(hi.position.y, theTargetSize.cy);
+
+	// Apply special-case position offsets
+	switch(hi.type)
+	{
+	case eHUDType_GroupTarget:
+		theWindowPos.x += scaleHotspot(InputMap::getHotspot(
+			eSpecialHotspot_TargetSelf + hi.selection).x,
+			theTargetSize.cx);
+		theWindowPos.y += scaleHotspot(InputMap::getHotspot(
+			eSpecialHotspot_TargetSelf + hi.selection).y,
+			theTargetSize.cy);
+		break;
+	case eHUDType_DefaultTarget:
+		theWindowPos.x += scaleHotspot(InputMap::getHotspot(
+			eSpecialHotspot_TargetSelf + hi.selection).x,
+			theTargetSize.cx);
+		theWindowPos.y += scaleHotspot(InputMap::getHotspot(
+			eSpecialHotspot_TargetSelf + hi.selection).y,
+			theTargetSize.cy);
+		break;
+	}
 
 	// Calculate total window size needed based on type and component size
 	theWindowSize = theComponentSize;
@@ -1078,6 +1131,19 @@ COLORREF transColor(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].transColor;
+}
+
+
+bool shouldStartHidden(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	switch(sHUDElementInfo[theHUDElementID].type)
+	{
+	case eHUDType_GroupTarget:
+		return true;
+	}
+
+	return false;
 }
 
 } // HUD
