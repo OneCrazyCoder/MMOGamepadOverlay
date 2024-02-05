@@ -17,5 +17,9 @@ BitVector<> gVisibleHUD;
 BitVector<> gRedrawHUD;
 BitVector<> gActiveHUD;
 std::vector<MenuState> gMenuStates;
-u8 gLastGroupTarget;
-u8 gFavoriteGroupTarget;
+u8 gLastGroupTarget = 0;
+u8 gGroupTargetOrigin = 0;
+u8 gDefaultGroupTarget = 0;
+bool gLastGroupTargetUpdated = false;
+bool gDefaultGroupTargetUpdated = false;
+

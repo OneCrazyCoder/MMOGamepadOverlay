@@ -14,10 +14,8 @@ namespace InputDispatcher
 
 // Uncomment this to print out SendInput events to debug window
 //#define INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-
 // Uncomment this to stop sending actual input (can still print via above)
 //#define INPUT_DISPATCHER_SIMULATION_ONLY
-
 
 //-----------------------------------------------------------------------------
 // Const Data

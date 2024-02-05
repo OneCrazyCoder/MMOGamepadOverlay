@@ -14,7 +14,6 @@ namespace InputMap
 //#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
 #define mapDebugPrint(...) ((void)0)
 
-
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
@@ -42,7 +41,17 @@ const std::string k4DirButtons[] =
 const char* kSpecialHotspotNames[] =
 {
 	"",						// eSpecialHotspot_None
-	"MOUSELOOKSTART"		// eSpecialHotspot_MouseLookStart
+	"MOUSELOOKSTART",		// eSpecialHotspot_MouseLookStart
+	"TARGETSELF",			// eSpecialHotspot_TargetSelf
+	"TARGETGROUP1",			// eSpecialHotspot_TargetGroup1
+	"TARGETGROUP2",			// eSpecialHotspot_TargetGroup2
+	"TARGETGROUP3",			// eSpecialHotspot_TargetGroup3
+	"TARGETGROUP4",			// eSpecialHotspot_TargetGroup4
+	"TARGETGROUP5",			// eSpecialHotspot_TargetGroup5
+	"TARGETGROUP6",			// eSpecialHotspot_TargetGroup6
+	"TARGETGROUP7",			// eSpecialHotspot_TargetGroup7
+	"TARGETGROUP8",			// eSpecialHotspot_TargetGroup8
+	"TARGETGROUP9",			// eSpecialHotspot_TargetGroup9
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
@@ -853,37 +862,47 @@ static Command wordsToSpecialCommand(
 	{
 		result.type = eCmdType_TargetGroup;
 
-		// "= Target Group [Load] [Favorite|Default]"
+		// "= Target Group Reset [Last]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Target);
 		allowedKeyWords.set(eCmdWord_Group);
-		allowedKeyWords.set(eCmdWord_Wrap);
-		allowedKeyWords.set(eCmdWord_NoWrap);
-		allowedKeyWords.set(eCmdWord_Load); // or "Recall"
-		allowedKeyWords.set(eCmdWord_Favorite);
+		allowedKeyWords.set(eCmdWord_Reset);
+		allowedKeyWords.set(eCmdWord_Last);
+		if( keyWordsFound.test(eCmdWord_Reset) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.data = eTargetGroupType_Reset;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Reset);
+		allowedKeyWords.reset(eCmdWord_Last);
+		// "= Target Group [Load] [Default]"
+		// allowedKeyWords = Target & Group
+		allowedKeyWords.set(eCmdWord_Load);
 		allowedKeyWords.set(eCmdWord_Default);
 		if( (keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_LoadFavorite;
+			result.data = eTargetGroupType_Default;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Load);
-		// "= Target Group 'Save'|'Left' [Favorite|Default]"
-		// allowedKeyWords = Target & Group & No/Wrap & Default & Favorite
-		allowedKeyWords.set(eCmdWord_Save);
+		// "= Target Group 'Set [Default]'|'Left'"
+		// allowedKeyWords = Target & Group & Default
+		allowedKeyWords.set(eCmdWord_Set);
 		allowedKeyWords.set(eCmdWord_Left);
-		if( (keyWordsFound.test(eCmdWord_Save) ||
+		allowedKeyWords.set(eCmdWord_Wrap);
+		allowedKeyWords.set(eCmdWord_NoWrap);
+		if( (keyWordsFound.test(eCmdWord_Set) ||
 			 keyWordsFound.test(eCmdWord_Left)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_SaveFavorite;
+			result.data = eTargetGroupType_SetDefault;
 			return result;
 		}
-		allowedKeyWords.reset(eCmdWord_Save);
+		allowedKeyWords.reset(eCmdWord_Set);
 		allowedKeyWords.reset(eCmdWord_Left);
 		allowedKeyWords.reset(eCmdWord_Default);
-		allowedKeyWords.reset(eCmdWord_Favorite);
-		// "= Target Group 'Last'|'Right'|'Pet'"
+		// "= Target Group 'Last'|'Pet'|'Right'"
 		// allowedKeyWords = Target & Group & Wrap & NoWrap
 		allowedKeyWords.set(eCmdWord_Last);
 		allowedKeyWords.set(eCmdWord_Pet);
@@ -1275,6 +1294,9 @@ static EResult stringToHotspotCoord(
 			switch(aMode)
 			{
 			case eMode_Prefix:
+				// Skipping directly to offset
+				aDenominator = 1;
+				// fall through
 			case eMode_Denominator:
 			case eMode_OffsetSign:
 				isOffsetNegative = (c == '-');

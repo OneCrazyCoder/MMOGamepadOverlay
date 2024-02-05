@@ -306,7 +306,7 @@ EHUDType hudTypeNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			const size_t kMapSize = 49;
+			const size_t kMapSize = 57;
 			map.reserve(kMapSize);
 			map.setValue("LIST",				eMenuStyle_List);
 			map.setValue("BASIC",				eMenuStyle_List);
@@ -357,6 +357,15 @@ EHUDType hudTypeNameToID(const std::string& theName)
 			map.setValue("DARROW",				eHUDItemType_ArrowD);
 			map.setValue("ARROWDOWN",			eHUDItemType_ArrowD);
 			map.setValue("DOWNARROW",			eHUDItemType_ArrowD);
+			map.setValue("GROUPTARGET",			eHUDType_GroupTarget);
+			map.setValue("TARGETGROUP",			eHUDType_GroupTarget);
+			map.setValue("SAVEDTARGET",			eHUDType_DefaultTarget);
+			map.setValue("DEFAULTTARGET",		eHUDType_DefaultTarget);
+			map.setValue("FAVORITETARGET",		eHUDType_DefaultTarget);
+			map.setValue("TARGETSAVED",			eHUDType_DefaultTarget);
+			map.setValue("TARGETDEFAULT",		eHUDType_DefaultTarget);
+			map.setValue("TARGETFAVORITE",		eHUDType_DefaultTarget);
+
 			const size_t actualMapSize = map.size();
 			DBG_ASSERT(actualMapSize == kMapSize);
 		}
@@ -376,7 +385,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 75;
+			const size_t kMapSize = 77;
 			map.reserve(kMapSize);
 			map.setValue("ADD",			eCmdWord_Add);
 			map.setValue("REMOVE",		eCmdWord_Remove);
@@ -436,12 +445,14 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("DNOWRAP",		eCmdWord_NextNoWrap);
 			map.setValue("DOWNNOWRAP",	eCmdWord_NextNoWrap);
 			map.setValue("NOWRAP",		eCmdWord_NoWrap);
-			map.setValue("FAVORITE",	eCmdWord_Favorite);
+			map.setValue("FAVORITE",	eCmdWord_Default);
+			map.setValue("SAVED",		eCmdWord_Default);
 			map.setValue("DEFAULT",		eCmdWord_Default);
 			map.setValue("LOAD",		eCmdWord_Load);
 			map.setValue("RECALL",		eCmdWord_Load);
-			map.setValue("SAVE",		eCmdWord_Save);
-			map.setValue("STORE",		eCmdWord_Save);
+			map.setValue("SAVE",		eCmdWord_Set);
+			map.setValue("STORE",		eCmdWord_Set);
+			map.setValue("SET",			eCmdWord_Set);
 			map.setValue("LAST",		eCmdWord_Last);
 			map.setValue("PET",			eCmdWord_Pet);
 			map.setValue("A",			eCmdWord_Filler);
