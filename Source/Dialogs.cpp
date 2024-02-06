@@ -13,6 +13,10 @@ name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #include <CommCtrl.h>
 
+// Support for GetOpenFileName()
+#include <CommDlg.h>
+
+
 namespace Dialogs
 {
 
@@ -36,6 +40,13 @@ struct ProfileSelectDialogData
 		result(res)
 		{}
 };
+
+
+//-----------------------------------------------------------------------------
+// Static Variables
+//-----------------------------------------------------------------------------
+
+static std::string* sDialogEditText;
 
 
 //-----------------------------------------------------------------------------
@@ -183,6 +194,40 @@ static INT_PTR CALLBACK profileSelectProc(
 }
 
 
+static UINT_PTR CALLBACK targetAppPathProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		if( sDialogEditText && !sDialogEditText->empty() )
+		{
+			SetDlgItemText(theDialog, IDC_EDIT_TARGET_PARAMS,
+				widen(*sDialogEditText).c_str());
+			return (UINT_PTR)TRUE;
+		}
+		break;
+
+	case WM_NOTIFY:
+		if( sDialogEditText )
+		{
+			OFNOTIFY* aNotify = (OFNOTIFY*)lParam;
+			if( aNotify->hdr.code == CDN_FILEOK )
+			{
+				WCHAR aWStrBuffer[255];
+				GetDlgItemText(theDialog, IDC_EDIT_TARGET_PARAMS,
+					aWStrBuffer, ARRAYSIZE(aWStrBuffer));
+				*sDialogEditText = narrow(aWStrBuffer);
+				return (UINT_PTR)TRUE;
+			}
+		}
+		break;
+	}
+
+	return (UINT_PTR)FALSE;
+}
+
+
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
@@ -243,5 +288,42 @@ ProfileSelectResult profileSelect(
 
 	return result;
 }
+
+
+std::string targetAppPath(std::string& theCommandLineParams)
+{
+	std::string result;
+	sDialogEditText = &theCommandLineParams;
+
+	OPENFILENAME ofn;
+	WCHAR aPath[MAX_PATH];
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = NULL;
+	ofn.lpstrTitle = L"Select Auto-Launch App";
+	ofn.lpstrFile = aPath;
+	ofn.lpstrFile[0] = '\0';
+	ofn.nMaxFile = sizeof(aPath);
+	ofn.lpstrFilter =
+		L"Executable Files (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
+	ofn.nFilterIndex = 1;
+	ofn.lpstrFileTitle = NULL;
+	ofn.nMaxFileTitle = 0;
+	ofn.lpstrInitialDir = NULL;
+	ofn.hInstance = gAppInstance;
+	ofn.Flags =
+		OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY |
+		OFN_EXPLORER | OFN_ENABLEHOOK | OFN_ENABLETEMPLATE;
+	ofn.lpTemplateName = MAKEINTRESOURCE(IDD_DIALOG_TARGET_APP);
+	ofn.lpfnHook = targetAppPathProc;
+	if( GetOpenFileName(&ofn) )
+		result = narrow(aPath);
+
+	// Cleanup
+	sDialogEditText = NULL;
+
+	return result;
+}
+
 
 } // Dialogs

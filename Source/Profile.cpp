@@ -38,6 +38,8 @@ struct ProfileEntry
 const char* kProfilePrefix = "MMOGO_";
 const char* kProfileSuffix = ".ini";
 const char* kCoreProfileName = "MMOGO_Core.ini";
+const char* kAutoLaunchAppKey = "SYSTEM/AUTOLAUNCHAPP";
+const char* kAutoLaunchAppParamsKey = "SYSTEM/AUTOLAUNCHAPPPARAMS";
 const std::string kEndOfLine = "\r\n";
 
 const ResourceProfile kResTemplateCore =
@@ -80,6 +82,7 @@ static std::vector<ProfileEntry> sKnownProfiles;
 static std::vector< std::vector<int> > sProfilesCanLoad;
 static std::string sLoadedProfileName;
 static int sAutoProfileIdx = 0;
+static int sNewBaseProfileIdx = -1;
 
 
 //-----------------------------------------------------------------------------
@@ -769,6 +772,7 @@ static void addParentCallback(
 				{
 					generateResourceProfile(kResTemplateBase[i]);
 					aProfileEntry = profileNameToEntry(aProfileName);
+					sNewBaseProfileIdx = getOrAddProfileIdx(aProfileEntry);
 					break;
 				}
 			}
@@ -861,6 +865,43 @@ static void parseProfilesCanLoad()
 }
 
 
+static void tryAddAutoLaunchApp(
+	int theKnownProfileIdx,
+	std::string& theDefaultParams)
+{
+	if( MessageBox(
+			NULL,
+			L"Would you like to automatically launch target game "
+			L"when loading this profile at startup?",
+			L"Auto-Launch Target App",
+			MB_YESNO) == IDYES )
+	{
+		std::string aPath = Dialogs::targetAppPath(theDefaultParams);
+		if( !aPath.empty() )
+		{
+			setKeyValueInINI(
+				sKnownProfiles[theKnownProfileIdx].path,
+				"System", "AutoLaunchApp",
+				aPath);
+			sSettingsMap.setValue(kAutoLaunchAppKey, aPath);
+			setKeyValueInINI(
+				sKnownProfiles[theKnownProfileIdx].path,
+				"System", "AutoLaunchAppParams",
+				theDefaultParams);
+		}
+		else
+		{
+			MessageBox(NULL,
+				L"No target app path selected.\n"
+				L"You can manually edit the .ini file [System]AutoLaunchApp= "
+				L"entry to add one later.",
+				L"Auto-Launch Target App",
+				MB_OK | MB_ICONWARNING);
+		}
+	}
+}
+
+
 static void readProfileCallback(
    const std::string& theKey,
    const std::string& theValue,
@@ -896,12 +937,22 @@ static void loadProfile(int theProfilesCanLoadIdx)
 			eParseMode_Categories);
 	}
 
+	if( sNewBaseProfileIdx >= 0 )
+	{// Generated a new kResTemplateBase profile
+		// Prompt if want to have it set to Auto-launch target app
+		std::string& aDefaultParams =
+			sSettingsMap.findOrAdd(kAutoLaunchAppParamsKey);
+		tryAddAutoLaunchApp(sNewBaseProfileIdx, aDefaultParams);
+		sNewBaseProfileIdx = -1;
+	}
+
 	// Now that have loaded a profile, only need to remember the main
 	// profile's name and can forget gathered data about other profiles
 	sLoadedProfileName = sKnownProfiles[aList[0]].name;
 	sKnownProfiles.clear();
 	sProfilesCanLoad.clear();
 	sAutoProfileIdx = 0;
+	sNewBaseProfileIdx = -1;
 }
 
 
@@ -1220,13 +1271,14 @@ void queryUserForProfile()
 			const size_t aResBaseIdx = aTemplateProfileIndex[aSrcIdx];
 			DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateBase));
 			generateResourceProfile(kResTemplateBase[aResBaseIdx]);
-			const int aKnownProfileIdx = getOrAddProfileIdx(
+			sNewBaseProfileIdx = -1;
+			sNewBaseProfileIdx = getOrAddProfileIdx(
 				profileNameToEntry(kResTemplateBase[aResBaseIdx].name));
-			if( aKnownProfileIdx < 0 )
+			if( sNewBaseProfileIdx < 0 )
 				break;
 			// Treat as _ParentFile type now that resource exists as a file
 			aTemplateProfileNames.push_back("");
-			aTemplateProfileIndex.push_back(aKnownProfileIdx);
+			aTemplateProfileIndex.push_back(sNewBaseProfileIdx);
 			aTemplateProfileType.push_back(eType_ParentFile);
 			aSrcIdx = aTemplateProfileType.size() - 1;
 		}
@@ -1280,6 +1332,7 @@ void queryUserForProfile()
 		aNewEntry.name);
 	sProfilesCanLoad[aProfileCanLoadIdx].push_back(
 		getOrAddProfileIdx(aNewEntry));
+	size_t aKnownProfilesCount = sKnownProfiles.size();
 	generateProfileLoadPriorityList(aProfileCanLoadIdx);
 	setAutoLoadProfile(
 		aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
