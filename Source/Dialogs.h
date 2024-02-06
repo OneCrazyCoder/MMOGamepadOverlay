@@ -6,8 +6,8 @@
 
 /*
 	Displays dialog box windows to prompt information from the user, with
-	support for controlling said dialog boxes via Gamepad input (aside from
-	typing into text boxes which will still require a keyboard).
+	support for controlling said dialog boxes via Gamepad input in some cases
+	(aside from typing into text boxes which will still require a keyboard).
 */
 
 #include "Common.h"
@@ -30,5 +30,7 @@ struct ProfileSelectResult
 ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles);
+
+std::string targetAppPath(std::string& theCommandLineParams);
 
 } // Dialogs

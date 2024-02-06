@@ -55,7 +55,8 @@ const LONG kIgnoredStyleExFlags =
 
 struct Config
 {
-	std::string targetAppLaunchString;
+	std::string targetAppPath;
+	std::string targetAppParams;
 	std::wstring targetWindowName;
 	bool autoCloseWithTargetApp;
 	bool autoCloseWithTargetWindow;
@@ -64,7 +65,8 @@ struct Config
 
 	void load()
 	{
-		targetAppLaunchString = Profile::getStr("System/AutoLaunchApp");
+		targetAppPath = Profile::getStr("System/AutoLaunchApp");
+		targetAppParams = Profile::getStr("System/AutoLaunchAppParams");
 		targetWindowName = widen(Profile::getStr("System/TargetWindowName"));
 		autoCloseWithTargetApp = Profile::getBool("System/QuitWhenAutoLaunchAppDoes");
 		autoCloseWithTargetWindow = Profile::getBool("System/QuitWhenTargetWindowCloses");
@@ -471,32 +473,32 @@ void loadProfile()
 
 void autoLaunch()
 {
-	// Only ever want to try this once
+	// Only ever want to try this once, even if load alternate profile
 	if( sHaveTriedAutoLaunch )
 		return;
 	sHaveTriedAutoLaunch = true;
 
-	if( kConfig.targetAppLaunchString.empty() )
+	if( kConfig.targetAppPath.empty() )
 		return;
 
 	// Convert given path into a non-const wide string for CreateProcess
 	WCHAR aFinalPath[MAX_PATH];
-	std::string aPath = kConfig.targetAppLaunchString;
-	if( !isAbsolutePath(kConfig.targetAppLaunchString) )
+	std::string aPath = kConfig.targetAppPath;
+	std::string aParams = getPathParams(aPath);
+	if( !kConfig.targetAppParams.empty() )
+	{
+		if( !aParams.empty() )
+			aParams.push_back(' ');
+		aParams += kConfig.targetAppParams;
+	}
+	aPath = removePathParams(aPath);
+	if( !isAbsolutePath(kConfig.targetAppPath) )
 	{
 		GetModuleFileName(NULL, aFinalPath, MAX_PATH);
-		const std::string aParams = getPathParams(aPath);
-		aPath =
-			std::string("\"") +
-			getFileDir(narrow(aFinalPath), true) +
-			removePathParams(aPath) +
-			"\"";
-		if( !aParams.empty() )
-		{
-			aPath += " " ;
-			aPath += aParams;
-		}
+		aPath = getFileDir(narrow(aFinalPath), true) + aPath;
 	}
+	if( !aParams.empty() )
+		aPath = "\"" + aPath + "\" " + aParams;
 	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH); 
 
 	STARTUPINFO si;

@@ -40,6 +40,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	_CrtSetDbgFlag (_CRTDBG_ALLOC_MEM_DF|_CRTDBG_LEAK_CHECK_DF);
 	#endif
 
+	gAppInstance = hInstance;
+
 	// Initialize gamepad module so can use it during profile selection
 	Gamepad::init();
 
