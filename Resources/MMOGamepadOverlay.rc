@@ -93,9 +93,10 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMEN
 CAPTION "LICENSE AND DISCLAIMER"
 FONT 12, "Microsoft Sans Serif", 400, 0, 0x0
 BEGIN
-    EDITTEXT        IDC_EDIT_LICENSE_TEXT,7,7,286,114,ES_MULTILINE | ES_READONLY | WS_VSCROLL | NOT WS_TABSTOP
-    PUSHBUTTON      "Accept",IDOK,211,128,60,15
-    PUSHBUTTON      "Decline",IDCANCEL,27,128,60,15
+    EDITTEXT        IDC_EDIT_LICENSE_TEXT,7,7,286,93,ES_MULTILINE | ES_READONLY | WS_VSCROLL | NOT WS_TABSTOP
+    PUSHBUTTON      "Accept",IDOK,233,128,60,15
+    PUSHBUTTON      "Decline",IDCANCEL,166,128,60,15
+    LTEXT           "By clicking ""Accept"", you acknowledge that you have read, understood, and agree to the terms and conditions outlined in this license. If you do not agree with these terms, click ""Decline"" to exit the application.",IDC_STATIC_PROMPT,7,101,286,27,WS_BORDER
 END
 
 
@@ -178,6 +179,26 @@ BEGIN
     BLOCK "VarFileInfo"
     BEGIN
         VALUE "Translation", 0x409, 1200
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_MENU_MAIN MENU 
+BEGIN
+    POPUP "File"
+    BEGIN
+        MENUITEM "Profile",                     ID_FILE_PROFILE
+        MENUITEM SEPARATOR
+        MENUITEM "Exit",                        ID_FILE_EXIT
+    END
+    POPUP "Help"
+    BEGIN
+        MENUITEM "License",                     ID_HELP_LICENSE
     END
 END
 

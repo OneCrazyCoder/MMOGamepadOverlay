@@ -14,19 +14,23 @@
 #define IDD_DIALOG_TARGET_APP           110
 #define IDI_ICON_MAIN                   111
 #define IDD_DIALOG_LICENSE              112
+#define IDR_MENU_MAIN                   113
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_LIST_PROFILES               1002
 #define IDC_STATIC_PROMPT               1003
 #define IDC_EDIT_PROFILE_NAME           1004
 #define IDC_EDIT_TARGET_PARAMS          1005
 #define IDC_EDIT_LICENSE_TEXT           1006
+#define ID_FILE_PROFILE                 40001
+#define ID_FILE_EXIT                    40002
+#define ID_HELP_LICENSE                 40003
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        113
-#define _APS_NEXT_COMMAND_VALUE         40001
+#define _APS_NEXT_RESOURCE_VALUE        114
+#define _APS_NEXT_COMMAND_VALUE         40004
 #define _APS_NEXT_CONTROL_VALUE         1007
 #define _APS_NEXT_SYMED_VALUE           101
 #endif

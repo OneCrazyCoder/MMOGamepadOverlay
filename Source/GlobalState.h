@@ -9,9 +9,6 @@
 	such as menu states and timers, that are needed by multiple modules.
 */
 
-// App's HINSTANCE for rare time its needed in utility modules like Dialogs
-extern HINSTANCE gAppInstance;
-
 // App shutdown has been requested
 extern bool gShutdown;
 

@@ -33,6 +33,6 @@ ProfileSelectResult profileSelect(
 
 std::string targetAppPath(std::string& theCommandLineParams);
 
-EResult showLicenseAgreement();
+EResult showLicenseAgreement(HWND theParentWindow = NULL);
 
 } // Dialogs

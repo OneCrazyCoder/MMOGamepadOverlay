@@ -4,6 +4,7 @@
 
 #include "WindowManager.h"
 
+#include "Dialogs.h"
 #include "HUD.h"
 #include "InputMap.h"
 #include "Profile.h"
@@ -75,6 +76,21 @@ static LRESULT CALLBACK mainWindowProc(
 {
 	switch(theMessage)
 	{
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case ID_FILE_EXIT:
+			PostQuitMessage(0);
+			return 0;
+		case ID_FILE_PROFILE:
+			// TODO
+			return 0;
+		case ID_HELP_LICENSE:
+			Dialogs::showLicenseAgreement(theWindow);
+			return 0;
+		}
+		break;
+
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		sMainWindow = NULL;
@@ -280,8 +296,8 @@ void createMain(HINSTANCE theAppInstanceHandle)
 
 	const std::wstring& aMainWindowName = widen(
 		Profile::getStr("System/WindowName", "MMO Gamepad Overlay"));
-	u16 aMainWindowWidth = Profile::getInt("System/WindowWidth", 150);
-	u16 aMainWindowHeight = Profile::getInt("System/WindowHeight", 50);
+	u16 aMainWindowWidth = Profile::getInt("System/WindowWidth", 160);
+	u16 aMainWindowHeight = Profile::getInt("System/WindowHeight", 80);
 	const bool isMainWindowHidden = 
 		(aMainWindowWidth == 0 || aMainWindowHeight == 0);
 
@@ -319,6 +335,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		MAKEINTRESOURCE(IDI_ICON_MAIN));
 	aWindowClass.hInstance = theAppInstanceHandle;
 	aWindowClass.lpszClassName = kMainWindowClassName;
+	aWindowClass.lpszMenuName = MAKEINTRESOURCE(IDR_MENU_MAIN);
 	RegisterClassExW(&aWindowClass);
 
 	aWindowClass.lpfnWndProc = overlayWindowProc;

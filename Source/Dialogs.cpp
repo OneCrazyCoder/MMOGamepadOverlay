@@ -234,19 +234,24 @@ INT_PTR CALLBACK licenseDialogProc(
 	switch(theMessage)
 	{
 	case WM_INITDIALOG:
-		{// Load text from custom resource and set it to the Edit control
-			if( HRSRC hTextRes = FindResource(NULL,
-					MAKEINTRESOURCE(IDR_TEXT_LICENSE), TEXT("TEXT")) )
+		if( GetParent(theDialog) )
+		{// Change prompt to accept or decline to just "OK" if have parent
+			ShowWindow(GetDlgItem(theDialog, IDCANCEL), SW_HIDE);
+			ShowWindow(GetDlgItem(theDialog, IDC_STATIC_PROMPT), SW_HIDE);
+			SetDlgItemText(theDialog, IDOK, L"OK");
+		}
+		// Load text from custom resource and set it to the Edit control
+		if( HRSRC hTextRes = FindResource(NULL,
+				MAKEINTRESOURCE(IDR_TEXT_LICENSE), L"TEXT") )
+		{
+			if( HGLOBAL hGlobal = LoadResource(NULL, hTextRes) )
 			{
-				if( HGLOBAL hGlobal = LoadResource(NULL, hTextRes) )
+				if( LPVOID pTextResource = LockResource(hGlobal) )
 				{
-					if( LPVOID pTextResource = LockResource(hGlobal) )
-					{
-						SetDlgItemText(
-							theDialog,
-							IDC_EDIT_LICENSE_TEXT,
-							widen((char*)pTextResource).c_str());
-					}
+					SetDlgItemText(
+						theDialog,
+						IDC_EDIT_LICENSE_TEXT,
+						widen((char*)pTextResource).c_str());
 				}
 			}
 		}
@@ -356,7 +361,7 @@ std::string targetAppPath(std::string& theCommandLineParams)
 	ofn.lpstrFileTitle = NULL;
 	ofn.nMaxFileTitle = 0;
 	ofn.lpstrInitialDir = NULL;
-	ofn.hInstance = gAppInstance;
+	ofn.hInstance = GetModuleHandle(NULL);
 	ofn.Flags =
 		OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY |
 		OFN_EXPLORER | OFN_ENABLEHOOK | OFN_ENABLETEMPLATE;
@@ -372,12 +377,12 @@ std::string targetAppPath(std::string& theCommandLineParams)
 }
 
 
-EResult showLicenseAgreement()
+EResult showLicenseAgreement(HWND theParentWindow)
 {
 	if( DialogBoxParam(
 		GetModuleHandle(NULL),
 		MAKEINTRESOURCE(IDD_DIALOG_LICENSE),
-		NULL,
+		theParentWindow,
 		licenseDialogProc,
 		0) == IDOK )
 	{
