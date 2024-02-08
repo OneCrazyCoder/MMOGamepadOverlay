@@ -52,6 +52,7 @@ END
 // TEXT
 //
 
+IDR_TEXT_LICENSE        TEXT                    "License.txt"
 IDR_TEXT_INI_CORE       TEXT                    "Core.ini"
 IDR_TEXT_INI_BASE_MNM   TEXT                    "Base-MnM.ini"
 IDR_TEXT_INI_BASE_P99   TEXT                    "Base-P99.ini"
@@ -87,6 +88,16 @@ BEGIN
     RTEXT           "Command-line Parameters:",IDC_STATIC_PROMPT,0,0,114,12
 END
 
+IDD_DIALOG_LICENSE DIALOGEX 0, 0, 300, 150
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "LICENSE AND DISCLAIMER"
+FONT 12, "Microsoft Sans Serif", 400, 0, 0x0
+BEGIN
+    EDITTEXT        IDC_EDIT_LICENSE_TEXT,7,7,286,114,ES_MULTILINE | ES_READONLY | WS_VSCROLL | NOT WS_TABSTOP
+    PUSHBUTTON      "Accept",IDOK,211,128,60,15
+    PUSHBUTTON      "Decline",IDCANCEL,27,128,60,15
+END
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -110,6 +121,14 @@ BEGIN
         RIGHTMARGIN, 293
         TOPMARGIN, 7
         BOTTOMMARGIN, 13
+    END
+
+    IDD_DIALOG_LICENSE, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 293
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 143
     END
 END
 #endif    // APSTUDIO_INVOKED

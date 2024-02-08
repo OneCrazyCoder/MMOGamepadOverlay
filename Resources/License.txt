@@ -1,0 +1,11 @@
+This software is provided by Taron Millet on an "as-is" basis, without any express or implied warranty. In no event shall the author be held liable for any damages arising from the use of this software.
+
+By using this software, you agree to the following terms and conditions:
+
+1. This software may not be sold for profit. It is provided freely and may only be distributed without charge. However, this restriction does not prohibit reasonable charges for distribution costs.
+
+2. Redistributions of the Software must retain this license and disclaimer text.
+
+3. Users of the Software are permitted to modify, adapt, and otherwise alter it for their own purposes, provided that they do not claim sole authorship of the original software or any substantial portions thereof.
+
+By clicking "Accept", you acknowledge that you have read, understood, and agree to the terms and conditions outlined in this license. If you do not agree with these terms, click "Decline" to exit the application.

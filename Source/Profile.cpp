@@ -837,17 +837,24 @@ static void parseProfilesCanLoad()
 	// via parsing core (and other profiles for checking for parents)
 	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
 	if( aCoreProfile.id == 0 )
-	{
-		// Core .ini not found - generate it!
-		generateResourceProfile(kResTemplateCore);
-		aCoreProfile.id = uniqueFileIdentifier(aCoreProfile.path);
-		if( aCoreProfile.id == 0 )
-		{
-			logFatalError("Unable to find/write %s (%s)",
-				kCoreProfileName, aCoreProfile.path.c_str());		
+	{// Core .ini file not found! Must be first run of app
+		// Assume this means first run, which means show license agreement
+		if( Dialogs::showLicenseAgreement() == eResult_Declined )
+		{// Declined license agreement - just exit
+			gShutdown = true;
+		}
+		else
+		{// Generate Core.ini which will prevent future license agreement		
+			generateResourceProfile(kResTemplateCore);
+			aCoreProfile.id = uniqueFileIdentifier(aCoreProfile.path);
+			if( aCoreProfile.id == 0 )
+			{
+				logFatalError("Unable to find/write %s (%s)",
+					kCoreProfileName, aCoreProfile.path.c_str());		
+			}
 		}
 	}
-	if( hadFatalError() )
+	if( hadFatalError() || gShutdown )
 		return;
 
 	{// Add Core as first known profile (profile 0)
@@ -986,7 +993,7 @@ void setAutoLoadProfile(int theProfilesCanLoadIdx)
 void load()
 {
 	parseProfilesCanLoad();
-	if( hadFatalError() )
+	if( hadFatalError() || gShutdown )
 		return;
 
 	// Make sure sAutoProfileIdx is a valid (even if empty) index

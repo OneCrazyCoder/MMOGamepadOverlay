@@ -228,6 +228,52 @@ static UINT_PTR CALLBACK targetAppPathProc(
 }
 
 
+INT_PTR CALLBACK licenseDialogProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		{// Load text from custom resource and set it to the Edit control
+			if( HRSRC hTextRes = FindResource(NULL,
+					MAKEINTRESOURCE(IDR_TEXT_LICENSE), TEXT("TEXT")) )
+			{
+				if( HGLOBAL hGlobal = LoadResource(NULL, hTextRes) )
+				{
+					if( LPVOID pTextResource = LockResource(hGlobal) )
+					{
+						SetDlgItemText(
+							theDialog,
+							IDC_EDIT_LICENSE_TEXT,
+							widen((char*)pTextResource).c_str());
+					}
+				}
+			}
+		}
+		return TRUE;
+
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDOK: // Accept button
+			EndDialog(theDialog, IDOK);
+			return TRUE;
+		case IDCANCEL: // Decline button
+			EndDialog(theDialog, IDCANCEL);
+			return TRUE;
+		}
+		break;
+
+	case WM_CLOSE:
+		// Treat the same as clicking Decline (cancel)
+		EndDialog(theDialog, IDCANCEL);
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
@@ -323,6 +369,22 @@ std::string targetAppPath(std::string& theCommandLineParams)
 	sDialogEditText = NULL;
 
 	return result;
+}
+
+
+EResult showLicenseAgreement()
+{
+	if( DialogBoxParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_LICENSE),
+		NULL,
+		licenseDialogProc,
+		0) == IDOK )
+	{
+		return eResult_Accepted;
+	}
+
+	return eResult_Declined;
 }
 
 } // Dialogs

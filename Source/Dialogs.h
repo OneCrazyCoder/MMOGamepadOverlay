@@ -33,4 +33,6 @@ ProfileSelectResult profileSelect(
 
 std::string targetAppPath(std::string& theCommandLineParams);
 
+EResult showLicenseAgreement();
+
 } // Dialogs

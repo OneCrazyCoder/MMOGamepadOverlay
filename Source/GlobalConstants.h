@@ -319,6 +319,7 @@ enum EResult
 {
 	eResult_Ok,
 	eResult_TaskCompleted = eResult_Ok,
+	eResult_Accepted = eResult_Ok,
 
 	eResult_Fail,
 	eResult_NotFound,
@@ -328,6 +329,7 @@ enum EResult
 	eResult_Malformed,
 	eResult_Overflow,
 	eResult_Empty,
+	eResult_Declined,
 };
 
 struct Command : public ConstructFromZeroInitializedMemory<Command>
