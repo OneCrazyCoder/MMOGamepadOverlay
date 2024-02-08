@@ -7,6 +7,7 @@
 #include "HUD.h"
 #include "InputMap.h"
 #include "Profile.h"
+#include "Resources/resource.h"
 
 namespace WindowManager
 {
@@ -314,6 +315,8 @@ void createMain(HINSTANCE theAppInstanceHandle)
 			? (HBRUSH)GetStockObject(NULL_BRUSH)
 			: (HBRUSH)GetStockObject(WHITE_BRUSH);
 	aWindowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
+	aWindowClass.hIcon = LoadIcon(theAppInstanceHandle,
+		MAKEINTRESOURCE(IDI_ICON_MAIN));
 	aWindowClass.hInstance = theAppInstanceHandle;
 	aWindowClass.lpszClassName = kMainWindowClassName;
 	RegisterClassExW(&aWindowClass);

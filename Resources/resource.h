@@ -11,6 +11,7 @@
 #define IDR_TEXT_INI_DEF_PQ             107
 #define IDD_DIALOG_PROFILE_SELECT       108
 #define IDD_DIALOG_TARGET_APP           109
+#define IDI_ICON_MAIN                   110
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_LIST_PROFILES               1002
 #define IDC_STATIC_PROMPT               1003
@@ -21,7 +22,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        110
+#define _APS_NEXT_RESOURCE_VALUE        111
 #define _APS_NEXT_COMMAND_VALUE         40001
 #define _APS_NEXT_CONTROL_VALUE         1006
 #define _APS_NEXT_SYMED_VALUE           101
