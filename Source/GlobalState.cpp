@@ -8,7 +8,6 @@
 // Global Variables
 //-----------------------------------------------------------------------------
 
-HINSTANCE gAppInstance = NULL;
 bool gShutdown = false;
 bool gReloadProfile = true;
 u32 gAppRunTime = 0;
