@@ -325,5 +325,4 @@ std::string targetAppPath(std::string& theCommandLineParams)
 	return result;
 }
 
-
 } // Dialogs
