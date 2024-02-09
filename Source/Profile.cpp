@@ -829,8 +829,8 @@ static void generateProfileLoadPriorityList(int theProfileListIdx)
 
 static void parseProfilesCanLoad()
 {
-	DBG_ASSERT(sKnownProfiles.empty());
-	DBG_ASSERT(sProfilesCanLoad.empty());
+	sKnownProfiles.clear();
+	sProfilesCanLoad.clear();
 	sAutoProfileIdx = 0;
 
 	// Initially core .ini is only profile known, with others added
@@ -1085,7 +1085,7 @@ void load()
 }
 
 
-void queryUserForProfile()
+bool queryUserForProfile()
 {
 	if( sKnownProfiles.empty() )
 	{
@@ -1094,7 +1094,7 @@ void queryUserForProfile()
 			generateProfileLoadPriorityList(i);
 	}
 	if( hadFatalError() )
-		return;
+		return false;
 
 	// Create lists needed for dialog
 	enum EType
@@ -1177,15 +1177,29 @@ void queryUserForProfile()
 	}
 
 	// Use Dialog to ask the user what they want to do
-	Dialogs::ProfileSelectResult aDialogResult =
-		Dialogs::profileSelect(aLoadableProfileNames, aTemplateProfileNames);
+	int aDefaultSelectedIdx = -1;
+	if( !sLoadedProfileName.empty() )
+	{
+		for(int i = 0; i < aLoadableProfileNames.size(); ++i)
+		{
+			if( aLoadableProfileNames[i] == sLoadedProfileName )
+				aDefaultSelectedIdx = i;
+		}
+	}
+	Dialogs::ProfileSelectResult aDialogResult = Dialogs::profileSelect(
+		aLoadableProfileNames,
+		aTemplateProfileNames,
+		aDefaultSelectedIdx,
+		sAutoProfileIdx >= 0 &&
+		sAutoProfileIdx < sProfilesCanLoad.size() &&
+		!sProfilesCanLoad[sAutoProfileIdx].empty());
 
 	if( aDialogResult.cancelled )
 	{// User declined to select anything
 		// If have no profile loaded already, quit app entirely
 		if( sLoadedProfileName.empty() )
 			gShutdown = true;
-		return;
+		return false;
 	}
 
 	// For first profile, if no name given then use built-in name
@@ -1205,7 +1219,7 @@ void queryUserForProfile()
 		setAutoLoadProfile(
 			aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
 		loadProfile(aProfileCanLoadIdx);
-		return;
+		return true;
 	}
 
 	// User must have requested creating a new profile
@@ -1217,7 +1231,7 @@ void queryUserForProfile()
 	if( aNewEntry.id == sKnownProfiles[0].id )
 	{
 		logFatalError("Can not create custom Profile with the name 'Core'!");
-		return;
+		return false;
 	}
 
 	// If profile already exists, make sure it's not in sProfilesCanLoad
@@ -1322,7 +1336,7 @@ void queryUserForProfile()
 	}
 
 	if( hadFatalError() )
-		return;
+		return false;
 
 	if( aNewEntry.id == 0 )
 		aNewEntry.id = uniqueFileIdentifier(aNewEntry.path);
@@ -1330,7 +1344,7 @@ void queryUserForProfile()
 	{
 		logFatalError("Failure creating new Profile %s (%s)!",
 			aNewEntry.name.c_str(), aNewEntry.path.c_str());
-		return;
+		return false;
 	}
 
 	setKeyValueInINI(
@@ -1344,6 +1358,8 @@ void queryUserForProfile()
 	setAutoLoadProfile(
 		aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
 	loadProfile(aProfileCanLoadIdx);
+
+	return true;
 }
 
 

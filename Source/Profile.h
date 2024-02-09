@@ -23,7 +23,8 @@ namespace Profile
 void load();
 
 // Allow user to manually select which profile to load
-void queryUserForProfile();
+// Returns true if user loaded a profile, false if they cancelled
+bool queryUserForProfile();
 
 // Access the profile settings
 std::string getStr(const std::string& theKey, const std::string& theDefaultValue = "");

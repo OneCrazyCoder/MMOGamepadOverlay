@@ -83,7 +83,8 @@ static LRESULT CALLBACK mainWindowProc(
 			PostQuitMessage(0);
 			return 0;
 		case ID_FILE_PROFILE:
-			// TODO
+			if( Profile::queryUserForProfile() )
+				gReloadProfile = true;
 			return 0;
 		case ID_HELP_LICENSE:
 			Dialogs::showLicenseAgreement(theWindow);
@@ -91,8 +92,11 @@ static LRESULT CALLBACK mainWindowProc(
 		}
 		break;
 
-	case WM_DESTROY:
+	case WM_CLOSE:
 		PostQuitMessage(0);
+		return 0;
+
+	case WM_DESTROY:
 		sMainWindow = NULL;
 		return 0;
 

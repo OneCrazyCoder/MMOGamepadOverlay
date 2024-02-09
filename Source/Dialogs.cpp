@@ -54,7 +54,9 @@ static std::string* sDialogEditText;
 //-----------------------------------------------------------------------------
 
 static void updateProfileList(
-	HWND theDialog, const ProfileSelectDialogData* theData)
+	HWND theDialog,
+	const ProfileSelectDialogData* theData,
+	int theDefaultSelectedIdx = -1)
 {
 	DBG_ASSERT(theDialog);
 	DBG_ASSERT(theData);
@@ -64,7 +66,8 @@ static void updateProfileList(
 	DBG_ASSERT(hListBox);
 
 	// Get current selection to restore later
-	int aSelectedIndex = SendMessage(hListBox, LB_GETCURSEL, 0, 0);
+	if( theDefaultSelectedIdx < 0 )
+		theDefaultSelectedIdx = SendMessage(hListBox, LB_GETCURSEL, 0, 0);
 
 	// Clear the existing content of the list box
 	SendMessage(hListBox, LB_RESETCONTENT, 0, 0);
@@ -83,11 +86,11 @@ static void updateProfileList(
 	}
 
 	// Restore initially selected item (or closest possible)
-	if( aSelectedIndex >= int(aStrVec->size()) )
-		aSelectedIndex = int(aStrVec->size()) - 1;
-	if( aSelectedIndex < 0 && !aStrVec->empty() )
-		aSelectedIndex = 0;
-	SendMessage(hListBox, LB_SETCURSEL, aSelectedIndex, 0);
+	if( theDefaultSelectedIdx >= int(aStrVec->size()) )
+		theDefaultSelectedIdx = int(aStrVec->size()) - 1;
+	if( theDefaultSelectedIdx < 0 && !aStrVec->empty() )
+		theDefaultSelectedIdx = 0;
+	SendMessage(hListBox, LB_SETCURSEL, theDefaultSelectedIdx, 0);
 }
 
 
@@ -104,14 +107,11 @@ static INT_PTR CALLBACK profileSelectProc(
 		// Allow other messages to access theData later
 		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theData);
 		DBG_ASSERT(theData);
-		// Add default Profile name if one was included
-		if( !theData->result.newName.empty() )
-		{
-			SetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
-				widen(theData->result.newName).c_str());
-		}
 		// Add available profiles to the list box
-		updateProfileList(theDialog, theData);
+		updateProfileList(theDialog, theData, theData->result.selectedIndex);
+		// Set initial value of auto-load checkbox
+		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
+			theData->result.autoLoadRequested);
 		{// Add prompt to edit box
 			HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
 			Edit_SetCueBannerText(hEditBox,
@@ -285,13 +285,17 @@ INT_PTR CALLBACK licenseDialogProc(
 
 ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
-	const std::vector<std::string>& theTemplateProfiles)
+	const std::vector<std::string>& theTemplateProfiles,
+	int theDefaultSelection, bool wantsAutoLoad)
 {
 	DBG_ASSERT(!theLoadableProfiles.empty());
 	DBG_ASSERT(!theTemplateProfiles.empty());
 
 	// Initialize data structures
 	ProfileSelectResult result;
+	result.selectedIndex = theDefaultSelection;
+	result.autoLoadRequested = wantsAutoLoad;
+	result.cancelled = false;
 	ProfileSelectDialogData aDataStruct(
 		theLoadableProfiles,
 		theTemplateProfiles,
