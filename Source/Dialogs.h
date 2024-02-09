@@ -21,15 +21,12 @@ struct ProfileSelectResult
 	int selectedIndex;
 	bool autoLoadRequested;
 	bool cancelled;
-
-	ProfileSelectResult() :
-		selectedIndex(), autoLoadRequested(), cancelled()
-	{}
 };
 
 ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
-	const std::vector<std::string>& theTemplateProfiles);
+	const std::vector<std::string>& theTemplateProfiles,
+	int theDefaultSelection, bool wantsAutoLoad);
 
 std::string targetAppPath(std::string& theCommandLineParams);
 
