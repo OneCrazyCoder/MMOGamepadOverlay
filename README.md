@@ -1,8 +1,9 @@
 # MMO Gamepad Overlay
 
 Download links for latest built version:
-[Windows 32-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-x86.zip)
-[Windows 64-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-a64.zip)
+
+* [Windows 32-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-x86.zip)
+* [Windows 64-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-a64.zip)
 
 This application translates game controller input (via DirectInput and/or XInput) into keyboard and mouse input (via the SendInput() Win32 API function), possibly with HUD elements (drawn on a transparent overlay window over top of a game's window) to help visualize what various buttons may do (particularly with the use of customizable on-screen menus).
 
@@ -354,10 +355,12 @@ These include Move, which is the same as MoveTurn, and MoveStrafe, which can be 
 These commands allow "relative" group targeting. Most MMO's have a specific key assigned to target each group member (and yourself), but with limited buttons, it can be helpful to have buttons for "cycling" through group members rather than having a dedicated button for each group member. To facilitate this, the application remembers the group members "Last", "Origin", and "Default" (i*n all cases, your own character is considered "Group Member #0" and the default setting*) and are used and updated by the following commands:
 
 *NOTE: These first 2 do NOT actually target anyone in the game*
+
 * **Target Group Reset** - Sets just "Origin" to "Default"
 * **Target Group Set Default** - Sets "Default" to "Last"
 
 *NOTE: The rest of these all set "Last" and "Origin" to match whomever was targeted*
+
 * **Target Group Default** - Targets "Default"
 * **Target Group Last** - Targets "Last" (which may target their pet if they were already targeted)
 * **Target Group Next** - Targets "Origin" + 1 group member
