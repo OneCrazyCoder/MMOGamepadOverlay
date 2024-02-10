@@ -342,7 +342,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 	};
 };
 
-struct Hotspot : public ConstructFromZeroInitializedMemory<Command>
+struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 {
 	struct Coord
 	{
