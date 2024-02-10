@@ -51,7 +51,7 @@ enum EHUDProperty
 	eHUDProp_FadeOutTime,
 	eHUDProp_InactiveDelay,
 	eHUDProp_InactiveAlpha,
-	eHUDProp_ImagePath,
+	eHUDProp_BitmapPath,
 	eHUDProp_Radius,
 
 	eHUDProp_Num
@@ -86,7 +86,7 @@ const char* kHUDPropStr[][2] =
 	{	"FadeOutTime",		"0"				},	// eHUDProp_FadeOutTime
 	{	"InactiveDelay",	"0"				},	// eHUDProp_InactiveDelay
 	{	"InactiveAlpha",	"150"			},	// eHUDProp_InactiveAlpha
-	{	"ImagePath",		""				},	// eHUDProp_ImagePath
+	{	"BitmapPath",		""				},	// eHUDProp_BitmapPath
 	{	"Radius",			"20"			},	// eHUDProp_Radius
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
@@ -116,7 +116,7 @@ struct HUDElementInfo
 	u16 itemBrushID;
 	u16 borderPenID;
 	u16 eraseBrushID;
-	u16 imageID;
+	u16 bitmapID;
 	u16 borderSize;
 	u16 radius;
 	u8 alignmentX;
@@ -171,7 +171,7 @@ struct HUDBuilder
 	VectorMap<COLORREF, u16> colorToBrushMap;
 	typedef std::pair< COLORREF, std::pair<int, int> > PenDef;
 	VectorMap<PenDef, u16> penDefToPenMap;
-	VectorMap<DWORD, u16> fileToImageMap;
+	VectorMap<DWORD, u16> fileToBitmapMap;
 };
 
 
@@ -182,7 +182,7 @@ struct HUDBuilder
 static std::vector<HFONT> sFonts;
 static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
-static std::vector<HBITMAP> sImages;
+static std::vector<HBITMAP> sBitmaps;
 static std::vector<HUDElementInfo> sHUDElementInfo;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
@@ -330,24 +330,24 @@ static u16 getOrCreateFontID(
 }
 
 
-static u16 getOrCreateImageID(
+static u16 getOrCreateBitmapID(
 	HUDBuilder& theBuilder,
-	const std::string& theImagePath)
+	const std::string& theBitmapPath)
 {
 	u16 result = 0;
-	if( theImagePath.empty() )
+	if( theBitmapPath.empty() )
 		return result;
 
 	const std::wstring& aFilePathW =
-		getExtension(theImagePath).empty()
-			? widen(removeExtension(theImagePath) + ".bmp")
-			: widen(theImagePath);
+		getExtension(theBitmapPath).empty()
+			? widen(removeExtension(theBitmapPath) + ".bmp")
+			: widen(theBitmapPath);
 	const DWORD aFileAttributes = GetFileAttributes(aFilePathW.c_str());
 	if( aFileAttributes == INVALID_FILE_ATTRIBUTES ||
 		(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
 	{
-		logError("Could not find requested image file %s!",
-			theImagePath.c_str());
+		logError("Could not find requested bitmap file %s!",
+			theBitmapPath.c_str());
 		return result;
 	}
 
@@ -369,22 +369,22 @@ static u16 getOrCreateImageID(
 
 	if( !aFileID )
 	{
-		logError("Could not identify requested image file %s!",
-			theImagePath.c_str());
+		logError("Could not identify requested bitmap file %s!",
+			theBitmapPath.c_str());
 		return result;
 	}
 
-	result = theBuilder.fileToImageMap.findOrAdd(
-		aFileID, u16(sImages.size()));
-	if( result < sImages.size() )
+	result = theBuilder.fileToBitmapMap.findOrAdd(
+		aFileID, u16(sBitmaps.size()));
+	if( result < sBitmaps.size() )
 		return result;
 
-	sImages.push_back((HBITMAP)
+	sBitmaps.push_back((HBITMAP)
 		LoadImage(NULL, aFilePathW.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE));
-	if( sImages.back() == NULL )
+	if( sBitmaps.back() == NULL )
 	{
-		logError("Could not load bitmap %s. Wrong image format?",
-			theImagePath.c_str());
+		logError("Could not load bitmap %s. Wrong bitmap format?",
+			theBitmapPath.c_str());
 	}
 
 	return result;
@@ -433,7 +433,7 @@ static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 static void drawHUDBitmap(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	HBITMAP aBitmap = sImages[hi.imageID];
+	HBITMAP aBitmap = sBitmaps[hi.bitmapID];
 	if( !aBitmap )
 	{
 		drawHUDRect(dd, theRect);
@@ -685,8 +685,8 @@ void init()
 	HUDBuilder aHUDBuilder;
 	sHUDElementInfo.resize(InputMap::hudElementCount());
 
-	sImages.push_back(NULL);
-	aHUDBuilder.fileToImageMap.addPair(0, NULL);
+	sBitmaps.push_back(NULL);
+	aHUDBuilder.fileToBitmapMap.addPair(0, NULL);
 
 	// Get default erase (transparent) color value
 	const COLORREF aDefaultTransColor = strToRGB(aHUDBuilder,
@@ -805,8 +805,8 @@ void init()
 		if( hi.type == eHUDItemType_Bitmap ||
 			hi.itemType == eHUDItemType_Bitmap )
 		{
-			hi.imageID = getOrCreateImageID(aHUDBuilder,
-				getHUDPropStr(aHUDName, eHUDProp_ImagePath));
+			hi.bitmapID = getOrCreateBitmapID(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_BitmapPath));
 		}
 	}
 }
@@ -820,12 +820,12 @@ void cleanup()
 		DeleteObject(sBrushes[i]);
 	for(size_t i = 0; i < sPens.size(); ++i)
 		DeleteObject(sPens[i]);
-	for(size_t i = 0; i < sImages.size(); ++i)
-		DeleteObject(sImages[i]);
+	for(size_t i = 0; i < sBitmaps.size(); ++i)
+		DeleteObject(sBitmaps[i]);
 	sFonts.clear();
 	sBrushes.clear();
 	sPens.clear();
-	sImages.clear();
+	sBitmaps.clear();
 	sHUDElementInfo.clear();
 }
 
