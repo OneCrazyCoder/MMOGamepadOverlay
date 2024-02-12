@@ -22,12 +22,14 @@ namespace HUD
 //-----------------------------------------------------------------------------
 
 enum {
+kMinFontPixelHeight = 6,
 kNoticeStringDisplayTimePerChar = 50,
 kNoticeStringMinTime = 3000,
 };
 
 const char* kMenuPrefix = "Menu";
 const char* kHUDPrefix = "HUD";
+const char* kAppVersionString = "Version: " __DATE__;
 
 enum EHUDProperty
 {
@@ -309,8 +311,13 @@ static u16 getOrCreateFontID(
 		return result;
 
 	// Create new font
+	const int aFontPointSize = intFromString(theFontSize);
+	HDC hdc = GetDC(NULL);
+	const int aFontHeight =
+		-MulDiv(aFontPointSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+	ReleaseDC(NULL, hdc);
 	HFONT aFont = CreateFont(
-		intFromString(theFontSize), // Height of the font
+		aFontHeight, // Height of the font
 		0, // Width of the font
 		0, // Angle of escapement
 		0, // Orientation angle
@@ -401,7 +408,7 @@ LONG scaleHotspot(
 		theCoord.offset;
 }
 
-	
+
 static void drawHUDRect(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -561,6 +568,102 @@ static void drawHUDItem(HUDDrawData& dd, const RECT& theRect)
 }
 
 
+static HFONT shrinkFontToFit(
+	HDC hdc,
+	const std::wstring& theStr,
+	const RECT& theClipRect,
+	RECT& theTextRect,
+	UINT theFormat)
+{
+	TEXTMETRIC tm;
+	GetTextMetrics(hdc, &tm);
+	LOGFONT kBaseFont;
+	GetObject(GetCurrentObject(hdc, OBJ_FONT), sizeof(LOGFONT), &kBaseFont);
+
+	// Use binary search to find largest font that will still fit
+	int low = kMinFontPixelHeight;
+	int high = tm.tmHeight;
+	int bestFitSize = high;
+	while(low <= high)
+	{
+		int mid = low + (high - low) / 2;
+
+		// Create font and measure text using test font size (mid)
+		LOGFONT aFont = kBaseFont;
+		aFont.lfWidth = 0;
+		aFont.lfHeight = mid;
+		HFONT hOldFont = (HFONT)SelectObject(hdc, CreateFontIndirect(&aFont));
+		RECT aRect = theClipRect;
+		aRect.bottom = aRect.top;
+		DrawText(hdc, theStr.c_str(), -1, &aRect, theFormat | DT_CALCRECT);
+		DeleteObject(SelectObject(hdc, hOldFont));
+
+		// Update bestFitSize and search range
+		if( mid == kMinFontPixelHeight ||
+			(aRect.left >= theClipRect.left &&
+			 aRect.right <= theClipRect.right &&
+			 aRect.top >= theClipRect.top &&
+			 aRect.bottom <= theClipRect.bottom) )
+		{
+			bestFitSize = mid;
+			theTextRect = aRect;
+			low = mid + 1;
+		}
+		else
+		{
+			high = mid - 1;
+		}
+	}
+
+	// Set font to bestFitSize height
+	LOGFONT aFont = kBaseFont;
+	aFont.lfHeight = bestFitSize;
+	return (HFONT)SelectObject(hdc, CreateFontIndirect(&aFont));
+}
+
+
+static void drawHUDStringVCenter(
+	HDC hdc,
+	const std::wstring& theStr,
+	const RECT& theClipRect,
+	UINT theFormat)
+{
+	assert(!theStr.empty());
+
+	// Calculate aTextRect needed for given text to draw into theClipRect,
+	// so can vertically center the text even if DT_SINGLELINE isn't used
+	RECT aTextRect = theClipRect;
+	aTextRect.bottom = aTextRect.top;
+	DrawText(hdc, theStr.c_str(), -1, &aTextRect, theFormat | DT_CALCRECT);
+
+	// If aTextRect won't fit into theClipRect, shrink font to fit it
+	HFONT hOrigFont = NULL;
+	if( aTextRect.left < theClipRect.left ||
+		aTextRect.right > theClipRect.right ||
+		aTextRect.top < theClipRect.top ||
+		aTextRect.bottom > theClipRect.bottom )
+	{
+		hOrigFont =
+			shrinkFontToFit(hdc, theStr, theClipRect, aTextRect, theFormat);
+	}
+
+	// Center the text vertically using aTextRect results
+	aTextRect.top = theClipRect.top +
+		((theClipRect.bottom - theClipRect.top) -
+		 (aTextRect.bottom - aTextRect.top)) / 2;
+	aTextRect.left = theClipRect.left;
+	aTextRect.right = theClipRect.right;
+	aTextRect.bottom = theClipRect.bottom;
+
+	// Draw the text
+	DrawText(hdc, theStr.c_str(), -1, &aTextRect, theFormat);
+
+	// If had to shrink the font, delete temp font and restore original
+	if( hOrigFont )
+		DeleteObject(SelectObject(hdc, hOrigFont));
+}
+
+
 static void drawMenuItem(
 	HUDDrawData& dd,
 	const RECT& theRect,
@@ -575,17 +678,10 @@ static void drawMenuItem(
 	// Text - word-wrapped + horizontal & vertical center justification
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const std::wstring& aLabelW = widen(theLabel);
-	RECT aClipRect = theRect;
-	InflateRect(&aClipRect, -hi.borderSize, -hi.borderSize);
-	RECT aTextRect = aClipRect;
-	aTextRect.bottom = aTextRect.top;
-	const int aTextHeight = DrawText(dd.hdc, aLabelW.c_str(),
-		-1, &aTextRect, DT_WORDBREAK | DT_CENTER | DT_CALCRECT);
-	aTextRect.top += (aClipRect.bottom - aClipRect.top - aTextHeight) / 2;
-	aTextRect.right = aClipRect.right;
-	aTextRect.bottom = aClipRect.bottom;
-	DrawText(dd.hdc, aLabelW.c_str(), -1,
-		&aTextRect, DT_WORDBREAK | DT_CENTER);
+	RECT aTextRect = theRect;
+	InflateRect(&aTextRect, -hi.borderSize - 1, -hi.borderSize - 1);
+	drawHUDStringVCenter(dd.hdc, widen(theLabel), aTextRect,
+		DT_WORDBREAK | DT_CENTER);
 }
 
 
@@ -1075,6 +1171,32 @@ void updateWindowLayout(
 		theWindowPos.y -= theWindowSize.cy;
 		break;
 	}
+}
+
+
+void drawMainWindowContents(HWND theWindow)
+{
+	PAINTSTRUCT ps;
+	HDC hdc = BeginPaint(theWindow, &ps);
+
+	RECT aRect;
+	GetClientRect(theWindow, &aRect);
+
+	// Swap to a recommended system font instead of default depracated version
+	NONCLIENTMETRICS ncm;
+	ncm.cbSize = sizeof(NONCLIENTMETRICS);
+	SystemParametersInfo(SPI_GETNONCLIENTMETRICS,
+		sizeof(NONCLIENTMETRICS), &ncm, 0);
+	HFONT hOldFont = (HFONT)SelectObject(hdc,
+		CreateFontIndirect(&ncm.lfMessageFont));
+
+	drawHUDStringVCenter(hdc, widen(kAppVersionString), aRect,
+		DT_SINGLELINE | DT_CENTER);
+
+	// Swap back to default font and delete temp font
+	DeleteObject(SelectObject(hdc, hOldFont));
+
+	EndPaint(theWindow, &ps);
 }
 
 
