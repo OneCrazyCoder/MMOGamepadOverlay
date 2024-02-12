@@ -41,6 +41,9 @@ void updateWindowLayout(
 	POINT& theWindowPos,
 	SIZE& theWindowSize);
 
+// Draws contents of main window (version string)
+void drawMainWindowContents(HWND theWindow);
+
 // Get alpha fade in/out information
 u8 maxAlpha(u16 theHUDElementID);
 u8 inactiveAlpha(u16 theHUDElementID);

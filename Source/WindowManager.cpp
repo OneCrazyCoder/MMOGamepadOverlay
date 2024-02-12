@@ -92,6 +92,10 @@ static LRESULT CALLBACK mainWindowProc(
 		}
 		break;
 
+	case WM_PAINT:
+		HUD::drawMainWindowContents(theWindow);
+		break;
+
 	case WM_CLOSE:
 		PostQuitMessage(0);
 		return 0;
