@@ -33,7 +33,7 @@ const char* kProfileButtonName[] =
 	"L1",		// eBtn_L1
 	"R1",		// eBtn_R1
 	"L2",		// eBtn_L2
-	"R2",		// eBtn_R2	
+	"R2",		// eBtn_R2
 	"Select",	// eBtn_Select
 	"Start",	// eBtn_Start
 	"L3",		// eBtn_L3
@@ -204,7 +204,7 @@ std::string virtualKeyToName(u8 theVKey)
 
 
 EButton buttonNameToID(const std::string& theName)
-{	
+{
 	struct NameToEnumMapper
 	{
 		typedef StringToValueMap<EButton, u8> NameToEnumMap;
@@ -426,7 +426,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("F",			eCmdWord_Up);
 			map.setValue("FORWARD",		eCmdWord_Up);
 			map.setValue("PREV",		eCmdWord_Up);
-			map.setValue("TOP",			eCmdWord_Up);		
+			map.setValue("TOP",			eCmdWord_Up);
 			map.setValue("D",			eCmdWord_Down);
 			map.setValue("DOWN",		eCmdWord_Down);
 			map.setValue("NEXT",		eCmdWord_Down);

@@ -73,7 +73,7 @@ void update();
 EResult selectGamepad(int theGamepadID);
 
 // Sets force feedback on compatible controller, if the controller has been
-// used for input at least once before this point. 
+// used for input at least once before this point.
 void setVibration(u16 theLowMotor, u16 theHighMotor);
 void setImpulseTriggersEnabled(bool);
 

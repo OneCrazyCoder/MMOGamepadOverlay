@@ -54,7 +54,7 @@ std::wstring widen(const char *s)
 }
 
 
-std::string vformat(const char* fmt, va_list argPtr) 
+std::string vformat(const char* fmt, va_list argPtr)
 {
 	const int kInitialBufferSize = 260;
 	// Allow doubling buffer size at most 12 times (~1MB string)
@@ -320,7 +320,7 @@ std::string withExtension(const std::string& thePath, const std::string& theExt)
 {
 	if( getExtension(thePath) == theExt )
 		return thePath;
-	
+
 	return removeExtension(thePath) + theExt;
 }
 
@@ -343,7 +343,7 @@ std::string getPathParams(const std::string& thePath)
 			atStart = false;
 		}
 	}
-	
+
 	return std::string();
 }
 
@@ -372,7 +372,7 @@ std::string removePathParams(const std::string& thePath)
 			aResult.push_back(thePath[aPos]);
 		}
 	}
-	
+
 	return aResult;
 }
 
@@ -381,7 +381,7 @@ std::string removeTrailingSlash(const std::string& theDirectory)
 {
 	std::string aResult;
 	const size_t aLen = theDirectory.length();
-	
+
 	if( aLen > 0 && (theDirectory[aLen-1] == '\\' || theDirectory[aLen-1] == '/') )
 		aResult = theDirectory.substr(0, aLen - 1);
 	else
@@ -401,7 +401,7 @@ std::string	addTrailingSlash(const std::string& theDirectory, bool backSlash)
 		else
 			aResult = theDirectory;
 	}
-	
+
 	return aResult;
 }
 

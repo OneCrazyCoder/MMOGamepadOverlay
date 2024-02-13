@@ -59,7 +59,7 @@ struct OverlayWindow
 //-----------------------------------------------------------------------------
 
 static HWND sMainWindow = NULL;
-static std::vector<OverlayWindow> sOverlayWindows; 
+static std::vector<OverlayWindow> sOverlayWindows;
 static RECT sDesktopTargetRect; // relative to virtual desktop
 static RECT sScreenTargetRect; // relative to main screen
 static SIZE sTargetSize = { 0 };
@@ -306,7 +306,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		Profile::getStr("System/WindowName", "MMO Gamepad Overlay"));
 	u16 aMainWindowWidth = Profile::getInt("System/WindowWidth", 160);
 	u16 aMainWindowHeight = Profile::getInt("System/WindowHeight", 80);
-	const bool isMainWindowHidden = 
+	const bool isMainWindowHidden =
 		(aMainWindowWidth == 0 || aMainWindowHeight == 0);
 
 	RECT aScreenRect;
@@ -439,7 +439,7 @@ void update()
 
 		// Update alpha fade effects based on gVisibleHUD & gActiveHUD
 		updateAlphaFades(aWindow, u16(i));
-		
+
 		// Check visibility status so can mostly ignore hidden windows
 		if( sHidden || aWindow.alpha == 0 ||
 			(aWindow.hideUntilActivated && !gActiveHUD.test(i)) )
@@ -464,7 +464,7 @@ void update()
 				continue;
 			}
 		}
-	
+
 		// Delete bitmap if bitmap size doesn't match window size
 		if( aWindow.bitmap &&
 			(aWindow.bitmapSize.cx != aWindow.size.cx ||
@@ -553,8 +553,16 @@ void resize(RECT theNewWindowRect)
 	if( !sMainWindow )
 		return;
 
-	sTargetSize.cx = theNewWindowRect.right - theNewWindowRect.left;
-	sTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
+	SIZE aNewTargetSize;
+	aNewTargetSize.cx = theNewWindowRect.right - theNewWindowRect.left;
+	aNewTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
+	if( aNewTargetSize.cx != sTargetSize.cx ||
+		aNewTargetSize.cy != sTargetSize.cy )
+	{
+		sTargetSize = aNewTargetSize;
+		HUD::clearCache();
+	}
+
 	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
 	sDesktopTargetRect.left -= GetSystemMetrics(SM_XVIRTUALSCREEN);
 	sDesktopTargetRect.right -= GetSystemMetrics(SM_XVIRTUALSCREEN);

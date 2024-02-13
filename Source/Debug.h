@@ -46,7 +46,7 @@ struct AssertCast
 			bool skip = false;
 			assert(newObject != null);
 		}
-		
+
 		return newObject;
 	}
 

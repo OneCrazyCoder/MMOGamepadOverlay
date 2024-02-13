@@ -109,7 +109,7 @@ public:
 	(though this can heavily depend on implementation, compiler, and platform).
 	Is particularly well-suited to sets of key strings where many have common
 	sub-strings or prefixes (such as file paths).
-	
+
 	Can also take up much less memory than a hash table (or any other trie
 	variant I've come across) and in a more consistent way, with each unique
 	key having a fixed size (4-6 bytes) of overhead per key/value pair with no
@@ -189,7 +189,7 @@ public:
 	// find(), contains(), and findOrAdd() (will all assert) until next time
 	// clear() is used, and of course makes getKeyVector() become empty().
 	void freeKeys();
-	
+
 	// ACCESSORS
 	// Returns pointer to value for given key (null if not found/removed)
 	// Non-const version allows changing the value directly using the pointer
