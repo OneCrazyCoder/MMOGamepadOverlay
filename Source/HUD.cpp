@@ -154,9 +154,9 @@ struct HUDDrawCacheEntry
 {
 	LONG yOff;
 	u16 fontID;
+	bool initialized;
+	HUDDrawCacheEntry() : initialized(false) {}
 };
-
-typedef u32 HUDDrawCacheKey;
 
 struct HUDBuilder
 {
@@ -178,7 +178,7 @@ static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
 static std::vector<HBITMAP> sBitmaps;
 static std::vector<HUDElementInfo> sHUDElementInfo;
-static VectorMap<HUDDrawCacheKey, HUDDrawCacheEntry> sDrawCache;
+static std::vector< std::vector<HUDDrawCacheEntry> > sDrawCache;
 static VectorMap<std::pair<u16, LONG>, u16> sResizedFontsMap;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
@@ -633,54 +633,11 @@ static LONG getFontHeightToFit(
 }
 
 
-static HUDDrawCacheEntry labelDrawEntry(
-	HDC hdc,
-	const std::wstring& theStr,
-	const RECT& theClipRect,
-	UINT theFormat,
-	u16 theBaseFontID)
-{
-	assert(!theStr.empty());
-	HUDDrawCacheEntry result;
-	result.yOff = 0;
-	result.fontID = theBaseFontID;
-
-	// This will not only check if an alternate font size is needed, but
-	// also calculate what drawn rect will be with it (aTextRect) which
-	// can be used to calculate an offset for vertical center justification
-	// when using word-wrapped text format.
-	RECT aTextRect = theClipRect;
-	SelectObject(hdc, sFonts[theBaseFontID]);
-	if( LONG aFontHeight = getFontHeightToFit(
-			hdc, theStr, theClipRect, &aTextRect, theFormat) )
-	{
-		result.fontID = sResizedFontsMap.findOrAdd(
-			std::make_pair(theBaseFontID, aFontHeight),
-			u16(sFonts.size()));
-		if( result.fontID == sFonts.size() )
-		{
-			LOGFONT aFont;
-			GetObject(sFonts[theBaseFontID], sizeof(LOGFONT), &aFont);
-			aFont.lfWidth = 0;
-			aFont.lfHeight = aFontHeight;
-			sFonts.push_back(CreateFontIndirect(&aFont));
-		}
-	}
-
-	// Center the text vertically using modified aTextRect
-	result.yOff =
-		((theClipRect.bottom - theClipRect.top) -
-		 (aTextRect.bottom - aTextRect.top)) / 2;
-
-	return result;
-}
-
-
 static void drawMenuItem(
 	HUDDrawData& dd,
 	const RECT& theRect,
 	const std::string& theLabel,
-	HUDDrawCacheKey theCacheKey)
+	HUDDrawCacheEntry& theCacheEntry)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 
@@ -697,30 +654,48 @@ static void drawMenuItem(
 	RECT aTextRect = theRect;
 	InflateRect(&aTextRect, -hi.borderSize - 1, -hi.borderSize - 1);
 
-	// Get draw details from cache, or create cache entry now
+	// Get draw details from cache entry, or initialize it now
 	const UINT aFormat = DT_WORDBREAK | DT_CENTER;
-	const size_t aCacheIdx = sDrawCache.findInsertPos(theCacheKey);
-	if( aCacheIdx >= sDrawCache.size() ||
-		sDrawCache[aCacheIdx].first != theCacheKey )
+	if( !theCacheEntry.initialized )
 	{
-		sDrawCache.insert(sDrawCache.begin() + aCacheIdx,
-			std::make_pair(theCacheKey, labelDrawEntry(
-				dd.hdc, aLabelW, aTextRect, aFormat, hi.fontID)));
-	}
-	const HUDDrawCacheEntry& aCacheEntry = sDrawCache[aCacheIdx].second;
+		theCacheEntry.fontID = hi.fontID;
 
-	// Draw label based on cache entry
-	aTextRect.top += aCacheEntry.yOff;
-	SelectObject(dd.hdc, sFonts[aCacheEntry.fontID]);
+		// This will not only check if an alternate font size is needed, but
+		// also calculate what drawn rect will be with it (aNeededRect) which
+		// can be used to calculate an offset for vertical center justify
+		// when using DT_WORDBREAK (which means DT_VCENTER doesn't work).
+		SelectObject(dd.hdc, sFonts[hi.fontID]);
+		RECT aNeededRect = aTextRect;
+		if( LONG aFontHeight = getFontHeightToFit(
+				dd.hdc, aLabelW, aTextRect, &aNeededRect, aFormat) )
+		{
+			theCacheEntry.fontID = sResizedFontsMap.findOrAdd(
+				std::make_pair(hi.fontID, aFontHeight),
+				u16(sFonts.size()));
+			if( theCacheEntry.fontID == sFonts.size() )
+			{
+				LOGFONT aFont;
+				GetObject(sFonts[hi.fontID], sizeof(LOGFONT), &aFont);
+				aFont.lfWidth = 0;
+				aFont.lfHeight = aFontHeight;
+				sFonts.push_back(CreateFontIndirect(&aFont));
+			}
+		}
+
+		// Center the text vertically using modified aNeededRect
+		theCacheEntry.yOff =
+			((aTextRect.bottom - aTextRect.top) -
+			 (aNeededRect.bottom - aNeededRect.top)) / 2;
+		theCacheEntry.initialized = true;
+	}
+
+	// Draw label based on cache entry's fields
+	DBG_ASSERT(theCacheEntry.initialized);
+	aTextRect.top += theCacheEntry.yOff;
+	SelectObject(dd.hdc, sFonts[theCacheEntry.fontID]);
 	SetTextColor(dd.hdc, hi.labelColor);
 	SetBkColor(dd.hdc, hi.itemColor);
 	DrawText(dd.hdc, aLabelW.c_str(), -1, &aTextRect, aFormat);
-}
-
-
-static inline HUDDrawCacheKey toDrawCacheKey(u32 theMenuID, u32 theItemID)
-{
-	return ((theMenuID & 0xFFFF) << 16) | (theItemID & 0xFFFF);
 }
 
 
@@ -728,12 +703,16 @@ static void draw4DirMenu(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	DBG_ASSERT(hi.type == eMenuStyle_4Dir);
+	const u16 activeSubMenu = Menus::activeSubMenu(dd.hudElementID);
+	DBG_ASSERT(activeSubMenu < sDrawCache.size());
 
-	if( !dd.firstDraw )
+	if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
 		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
 
 	// Always 4 menu items, in order of L->R->U->D
-	const u16 activeSubMenu = Menus::activeSubMenu(dd.hudElementID);
+	if( sDrawCache[activeSubMenu].size() < 4 )
+		sDrawCache[activeSubMenu].resize(4);
+
 	// Left
 	RECT anItemRect;
 	anItemRect.left = 0;
@@ -742,13 +721,13 @@ static void draw4DirMenu(HUDDrawData& dd)
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 0),
-		toDrawCacheKey(activeSubMenu, 0));
+		sDrawCache[activeSubMenu][0]);
 	// Right
 	anItemRect.left += dd.itemSize.cx;
 	anItemRect.right += dd.itemSize.cx;
 	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 1),
-		toDrawCacheKey(activeSubMenu, 1));
+		sDrawCache[activeSubMenu][1]);
 	// Up
 	anItemRect.left -= dd.itemSize.cx / 2;
 	anItemRect.top = 0;
@@ -756,13 +735,13 @@ static void draw4DirMenu(HUDDrawData& dd)
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 2),
-		toDrawCacheKey(activeSubMenu, 2));
+		sDrawCache[activeSubMenu][2]);
 	// Down
 	anItemRect.top += dd.itemSize.cy * 2;
 	anItemRect.bottom += dd.itemSize.cy * 2;
 	drawMenuItem(dd, anItemRect,
 		InputMap::menuItemLabel(activeSubMenu, 3),
-		toDrawCacheKey(activeSubMenu, 3));
+		sDrawCache[activeSubMenu][3]);
 }
 
 
@@ -817,6 +796,7 @@ void init()
 
 	HUDBuilder aHUDBuilder;
 	sHUDElementInfo.resize(InputMap::hudElementCount());
+	sDrawCache.resize(InputMap::menuCount());
 
 	sBitmaps.push_back(NULL);
 	aHUDBuilder.fileToBitmapMap.addPair(0, NULL);
@@ -1057,7 +1037,11 @@ void update()
 
 void clearCache()
 {
-	sDrawCache.clear();
+	for(size_t i = 0; i < sDrawCache.size(); ++i)
+	{
+		for(size_t j = 0; j < sDrawCache[i].size(); ++j)
+			sDrawCache[i][j].initialized = false;
+	}
 }
 
 

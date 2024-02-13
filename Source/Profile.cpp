@@ -1048,15 +1048,15 @@ void load()
 		generateResourceProfile(kResTemplateCore);
 		for(size_t i = 1; i < sKnownProfiles.size(); ++i)
 		{
-			for(size_t ii = 0; ii < ARRAYSIZE(kResTemplateBase); ++ii)
+			for(size_t j = 0; j < ARRAYSIZE(kResTemplateBase); ++j)
 			{
-				if( sKnownProfiles[i].name == kResTemplateBase[ii].name )
-					generateResourceProfile(kResTemplateBase[ii]);
+				if( sKnownProfiles[i].name == kResTemplateBase[j].name )
+					generateResourceProfile(kResTemplateBase[j]);
 			}
-			for(size_t ii = 0; ii < ARRAYSIZE(kResTemplateDefault); ++ii)
+			for(size_t j = 0; j < ARRAYSIZE(kResTemplateDefault); ++j)
 			{
-				if( sKnownProfiles[i].name == kResTemplateDefault[ii].name )
-					generateResourceProfile(kResTemplateDefault[ii]);
+				if( sKnownProfiles[i].name == kResTemplateDefault[j].name )
+					generateResourceProfile(kResTemplateDefault[j]);
 			}
 		}
 		// Restore profile load settings to regenerated Core
@@ -1159,9 +1159,9 @@ bool queryUserForProfile()
 			profileNameToEntry(kResTemplateBase[i].name);
 		if( aTestEntry.id != 0 )
 		{
-			for(int ii = 0; ii < sKnownProfiles.size(); ++ii)
+			for(int j = 0; j < sKnownProfiles.size(); ++j)
 			{
-				if( sKnownProfiles[ii].id == aTestEntry.id )
+				if( sKnownProfiles[j].id == aTestEntry.id )
 				{
 					alreadyExists = true;
 					break;
