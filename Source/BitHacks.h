@@ -742,7 +742,7 @@ BitArray<S>::operator^(const This& rhs) const
 	return r;
 }
 
-	
+
 template<size_t S> inline int BitArray<S>::nextSetBit(int pos) const
 {
 	return ::nextSetBit(bits, int(kBitSize), pos);

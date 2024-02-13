@@ -25,6 +25,9 @@ void cleanup();
 // Update visual element timers (animations etc)
 void update();
 
+// Clears cached draw data (font sizes/etc)
+void clearCache();
+
 // Draws given HUD element to given Device Context (bitmap), starting at 0,0
 void drawElement(
 	HDC hdc,

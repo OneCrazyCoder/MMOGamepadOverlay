@@ -128,7 +128,7 @@ size_t VectorMap<K, V, C>::findInsertPos(const K& theKey) const
 		else
 			right = mid;
 	}
-	
+
 	return left;
 }
 
@@ -214,7 +214,7 @@ V* StringToValueMap<V, I>::find(const Key& theKey)
 {
 	if( mTrie.empty() )
 		return null;
-	
+
 	const I idx = bestNodeIndexForFind(theKey);
 	DBG_ASSERT(mKeys.size() == mValues.size());
 	DBG_ASSERT(mValues.size() == mTrie.size());
@@ -230,7 +230,7 @@ const V* StringToValueMap<V, I>::find(const Key& theKey) const
 {
 	if( mTrie.empty() )
 		return null;
-	
+
 	const I idx = bestNodeIndexForFind(theKey);
 	DBG_ASSERT(mKeys.size() == mValues.size());
 	DBG_ASSERT(mValues.size() == mTrie.size());
@@ -373,7 +373,7 @@ V& StringToValueMap<V, I>::insertNewPair(
 {
 	// Create new node
 	I aNewNodeIdx = addNewNode(theKey, theValue);
-	
+
 	// Set new node's bitPos to first diff between its key and the found key
 	mTrie[aNewNodeIdx].bitPos = getFirstBitDiff(theKey, mKeys[theFoundIndex]);
 
@@ -517,7 +517,7 @@ u8 StringToValueMap<V, I>::getChar(const Key& theKey, u16 theIndex) const
 	return theIndex >= theKey.size() ? 0 : (u8)theKey[theIndex];
 }
 
-	
+
 template<class V, class I> inline
 u8 StringToValueMap<V, I>::getBitAtPos(const Key& theKey, u16 theBitPos) const
 {

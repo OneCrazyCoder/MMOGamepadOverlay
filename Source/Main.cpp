@@ -36,7 +36,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 {
 	#ifdef _DEBUG
 	// Change to the number in {} of memory leaks detected to break on alloc
-	_crtBreakAlloc = -1; // -1 when not hunting down memory leaks 
+	_crtBreakAlloc = -1; // -1 when not hunting down memory leaks
 	_CrtSetDbgFlag (_CRTDBG_ALLOC_MEM_DF|_CRTDBG_LEAK_CHECK_DF);
 	#endif
 
@@ -49,7 +49,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		// Load profile
 		Profile::load();
 		gReloadProfile = false;
-	
+
 		// Create main application window
 		if( !gShutdown && !hadFatalError() )
 			WindowManager::createMain(hInstance);

@@ -59,11 +59,11 @@ u16 controlsLayerCount();
 u16 hudElementCount();
 u16 menuCount();
 u16 menuItemCount(u16 theMenuID);
-u16 hotspotCount(); 
+u16 hotspotCount();
 u8 targetGroupSize();
 
 // LABELS
-const std::string& layerLabel(u16 theLayerID); 
+const std::string& layerLabel(u16 theLayerID);
 const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& hudElementLabel(u16 theHUDElementID);

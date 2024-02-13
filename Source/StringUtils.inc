@@ -2,7 +2,7 @@
 //	Originally written by Taron Millet, except where otherwise noted
 //-----------------------------------------------------------------------------
 
-inline std::string strFormat(const char* fmt ...) 
+inline std::string strFormat(const char* fmt ...)
 {
 	va_list argList;
 	va_start(argList, fmt);
@@ -180,7 +180,7 @@ inline std::string UTF32ToUTF8(const std::vector<u32>& theVector)
 
 inline std::string substrUTF8(const std::string& theString, size_t theFirstCodePointPos, size_t theCodePointLength)
 {
-	return substrUTF8(theString.c_str(), theFirstCodePointPos, theCodePointLength);	
+	return substrUTF8(theString.c_str(), theFirstCodePointPos, theCodePointLength);
 }
 
 
@@ -208,7 +208,7 @@ inline EUTF8DecodeResult decodeUTF8(u32* theState, u32* theCodePoint, unsigned c
 		12, 0,12,12,12,12,12, 0,12, 0,12,12, 12,24,12,12,12,12,12,24,12,24,12,12,
 		12,12,12,12,12,12,12,24,12,12,12,12, 12,24,12,12,12,12,12,12,12,24,12,12,
 		12,12,12,12,12,12,12,36,12,36,12,12, 12,36,12,12,12,12,12,36,12,36,12,12,
-		12,36,12,12,12,12,12,12,12,12,12,12, 
+		12,36,12,12,12,12,12,12,12,12,12,12,
 	};
 
 	const u32 aByteType = utf8d[theByte];

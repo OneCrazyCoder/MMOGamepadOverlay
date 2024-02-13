@@ -148,23 +148,15 @@ struct HUDDrawData
 	RECT targetRect;
 	u16 hudElementID;
 	bool firstDraw;
-
-	HUDDrawData(
-		HDC hdc,
-		SIZE itemSize,
-		SIZE targetSize,
-		u16 hudElementID,
-		bool firstDraw)
-		:
-		hdc(hdc),
-		itemSize(itemSize),
-		targetSize(targetSize),
-		hudElementID(hudElementID),
-		firstDraw(firstDraw)
-	{
-		SetRect(&targetRect, 0, 0, targetSize.cx, targetSize.cy);
-	}
 };
+
+struct HUDDrawCacheEntry
+{
+	LONG yOff;
+	u16 fontID;
+};
+
+typedef u32 HUDDrawCacheKey;
 
 struct HUDBuilder
 {
@@ -186,6 +178,8 @@ static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
 static std::vector<HBITMAP> sBitmaps;
 static std::vector<HUDElementInfo> sHUDElementInfo;
+static VectorMap<HUDDrawCacheKey, HUDDrawCacheEntry> sDrawCache;
+static VectorMap<std::pair<u16, LONG>, u16> sResizedFontsMap;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
 static int sErrorMessageTimer = 0;
@@ -366,7 +360,7 @@ static u16 getOrCreateBitmapID(
 		BY_HANDLE_FILE_INFORMATION aFileInfo;
 		if( GetFileInformationByHandle(hFile, &aFileInfo) )
 		{
-			aFileID = aFileInfo.dwVolumeSerialNumber ^ 
+			aFileID = aFileInfo.dwVolumeSerialNumber ^
 				((aFileInfo.nFileIndexHigh << 16) | aFileInfo.nFileIndexLow) ^
 				aFileInfo.ftCreationTime.dwHighDateTime ^
 				aFileInfo.ftCreationTime.dwLowDateTime;
@@ -395,7 +389,7 @@ static u16 getOrCreateBitmapID(
 	}
 
 	return result;
-}	
+}
 
 
 LONG scaleHotspot(
@@ -452,11 +446,11 @@ static void drawHUDBitmap(HUDDrawData& dd, const RECT& theRect)
 	HDC hdcMem = CreateCompatibleDC(dd.hdc);
 	HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, aBitmap);
 
-	StretchBlt(dd.hdc, 
-			   theRect.left, theRect.top, 
+	StretchBlt(dd.hdc,
+			   theRect.left, theRect.top,
 			   theRect.right - theRect.left, theRect.bottom - theRect.top,
-			   hdcMem, 
-			   0, 0, 
+			   hdcMem,
+			   0, 0,
 			   bm.bmWidth, bm.bmHeight,
 			   SRCCOPY);
 
@@ -568,46 +562,66 @@ static void drawHUDItem(HUDDrawData& dd, const RECT& theRect)
 }
 
 
-static HFONT shrinkFontToFit(
+static LONG getFontHeightToFit(
 	HDC hdc,
 	const std::wstring& theStr,
 	const RECT& theClipRect,
-	RECT& theTextRect,
+	RECT* theTextRect,
 	UINT theFormat)
 {
+	LONG result = 0; // 0 indicates base font is small enough
+
+	// First check if base font will fit fine on its own
+	RECT aCalcRect = theClipRect;
+	aCalcRect.bottom = aCalcRect.top;
+	DrawText(hdc, theStr.c_str(), -1, &aCalcRect, theFormat | DT_CALCRECT);
+	if(	aCalcRect.left >= theClipRect.left &&
+		aCalcRect.right <= theClipRect.right &&
+		aCalcRect.top >= theClipRect.top &&
+		aCalcRect.bottom <= theClipRect.bottom )
+	{// No need for further testing
+		if( theTextRect )
+			*theTextRect = aCalcRect;
+		return result;
+	}
+
+	// Base font is too big, need a smaller font size!
+	LOGFONT aBaseFont;
+	GetObject(GetCurrentObject(hdc, OBJ_FONT), sizeof(LOGFONT), &aBaseFont);
+	// Use this method instead of checking aBaseFont.lfHeight because
+	// TEXTMETRIC.tmHeight is always a positive value in pixels but
+	// aBaseFont.lfHeight can be a negative value of "logical units"
 	TEXTMETRIC tm;
 	GetTextMetrics(hdc, &tm);
-	LOGFONT kBaseFont;
-	GetObject(GetCurrentObject(hdc, OBJ_FONT), sizeof(LOGFONT), &kBaseFont);
 
 	// Use binary search to find largest font that will still fit
 	int low = kMinFontPixelHeight;
 	int high = tm.tmHeight;
-	int bestFitSize = high;
 	while(low <= high)
 	{
 		int mid = low + (high - low) / 2;
 
 		// Create font and measure text using test font size (mid)
-		LOGFONT aFont = kBaseFont;
+		LOGFONT aFont = aBaseFont;
 		aFont.lfWidth = 0;
 		aFont.lfHeight = mid;
 		HFONT hOldFont = (HFONT)SelectObject(hdc, CreateFontIndirect(&aFont));
-		RECT aRect = theClipRect;
-		aRect.bottom = aRect.top;
-		DrawText(hdc, theStr.c_str(), -1, &aRect, theFormat | DT_CALCRECT);
+		aCalcRect = theClipRect;
+		aCalcRect.bottom = aCalcRect.top;
+		DrawText(hdc, theStr.c_str(), -1, &aCalcRect, theFormat | DT_CALCRECT);
 		DeleteObject(SelectObject(hdc, hOldFont));
 
-		// Update bestFitSize and search range
+		// Update result (aka best fit size so far) and search range
 		if( mid == kMinFontPixelHeight ||
-			(aRect.left >= theClipRect.left &&
-			 aRect.right <= theClipRect.right &&
-			 aRect.top >= theClipRect.top &&
-			 aRect.bottom <= theClipRect.bottom) )
+			(aCalcRect.left >= theClipRect.left &&
+			 aCalcRect.right <= theClipRect.right &&
+			 aCalcRect.top >= theClipRect.top &&
+			 aCalcRect.bottom <= theClipRect.bottom) )
 		{
-			bestFitSize = mid;
-			theTextRect = aRect;
+			result = mid;
 			low = mid + 1;
+			if( theTextRect )
+				*theTextRect = aCalcRect;
 		}
 		else
 		{
@@ -615,73 +629,98 @@ static HFONT shrinkFontToFit(
 		}
 	}
 
-	// Set font to bestFitSize height
-	LOGFONT aFont = kBaseFont;
-	aFont.lfHeight = bestFitSize;
-	return (HFONT)SelectObject(hdc, CreateFontIndirect(&aFont));
+	return result;
 }
 
 
-static void drawHUDStringVCenter(
+static HUDDrawCacheEntry labelDrawEntry(
 	HDC hdc,
 	const std::wstring& theStr,
 	const RECT& theClipRect,
-	UINT theFormat)
+	UINT theFormat,
+	u16 theBaseFontID)
 {
 	assert(!theStr.empty());
+	HUDDrawCacheEntry result;
+	result.yOff = 0;
+	result.fontID = theBaseFontID;
 
-	// Calculate aTextRect needed for given text to draw into theClipRect,
-	// so can vertically center the text even if DT_SINGLELINE isn't used
+	// This will not only check if an alternate font size is needed, but
+	// also calculate what drawn rect will be with it (aTextRect) which
+	// can be used to calculate an offset for vertical center justification
+	// when using word-wrapped text format.
 	RECT aTextRect = theClipRect;
-	aTextRect.bottom = aTextRect.top;
-	DrawText(hdc, theStr.c_str(), -1, &aTextRect, theFormat | DT_CALCRECT);
-
-	// If aTextRect won't fit into theClipRect, shrink font to fit it
-	HFONT hOrigFont = NULL;
-	if( aTextRect.left < theClipRect.left ||
-		aTextRect.right > theClipRect.right ||
-		aTextRect.top < theClipRect.top ||
-		aTextRect.bottom > theClipRect.bottom )
+	SelectObject(hdc, sFonts[theBaseFontID]);
+	if( LONG aFontHeight = getFontHeightToFit(
+			hdc, theStr, theClipRect, &aTextRect, theFormat) )
 	{
-		hOrigFont =
-			shrinkFontToFit(hdc, theStr, theClipRect, aTextRect, theFormat);
+		result.fontID = sResizedFontsMap.findOrAdd(
+			std::make_pair(theBaseFontID, aFontHeight),
+			u16(sFonts.size()));
+		if( result.fontID == sFonts.size() )
+		{
+			LOGFONT aFont;
+			GetObject(sFonts[theBaseFontID], sizeof(LOGFONT), &aFont);
+			aFont.lfWidth = 0;
+			aFont.lfHeight = aFontHeight;
+			sFonts.push_back(CreateFontIndirect(&aFont));
+		}
 	}
 
-	// Center the text vertically using aTextRect results
-	aTextRect.top = theClipRect.top +
+	// Center the text vertically using modified aTextRect
+	result.yOff =
 		((theClipRect.bottom - theClipRect.top) -
 		 (aTextRect.bottom - aTextRect.top)) / 2;
-	aTextRect.left = theClipRect.left;
-	aTextRect.right = theClipRect.right;
-	aTextRect.bottom = theClipRect.bottom;
 
-	// Draw the text
-	DrawText(hdc, theStr.c_str(), -1, &aTextRect, theFormat);
-
-	// If had to shrink the font, delete temp font and restore original
-	if( hOrigFont )
-		DeleteObject(SelectObject(hdc, hOrigFont));
+	return result;
 }
 
 
 static void drawMenuItem(
 	HUDDrawData& dd,
 	const RECT& theRect,
-	const std::string& theLabel)
+	const std::string& theLabel,
+	HUDDrawCacheKey theCacheKey)
 {
-	// Backdrop (usually bordered rectangle)
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	// Backdrop (usually bordered rectangle or rounded rectangle)
+	SelectObject(dd.hdc, sPens[hi.borderPenID]);
+	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
 	drawHUDItem(dd, theRect);
 
 	if( theLabel.empty() )
 		return;
 
-	// Text - word-wrapped + horizontal & vertical center justification
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	// Label (usually word-wrapped and centered text)
 	const std::wstring& aLabelW = widen(theLabel);
 	RECT aTextRect = theRect;
 	InflateRect(&aTextRect, -hi.borderSize - 1, -hi.borderSize - 1);
-	drawHUDStringVCenter(dd.hdc, widen(theLabel), aTextRect,
-		DT_WORDBREAK | DT_CENTER);
+
+	// Get draw details from cache, or create cache entry now
+	const UINT aFormat = DT_WORDBREAK | DT_CENTER;
+	const size_t aCacheIdx = sDrawCache.findInsertPos(theCacheKey);
+	if( aCacheIdx >= sDrawCache.size() ||
+		sDrawCache[aCacheIdx].first != theCacheKey )
+	{
+		sDrawCache.insert(sDrawCache.begin() + aCacheIdx,
+			std::make_pair(theCacheKey, labelDrawEntry(
+				dd.hdc, aLabelW, aTextRect, aFormat, hi.fontID)));
+	}
+	const HUDDrawCacheEntry& aCacheEntry = sDrawCache[aCacheIdx].second;
+
+	// Draw label based on cache entry
+	aTextRect.top += aCacheEntry.yOff;
+	SelectObject(dd.hdc, sFonts[aCacheEntry.fontID]);
+	SetTextColor(dd.hdc, hi.labelColor);
+	SetBkColor(dd.hdc, hi.itemColor);
+	DrawText(dd.hdc, aLabelW.c_str(), -1, &aTextRect, aFormat);
+}
+
+
+static inline HUDDrawCacheKey toDrawCacheKey(u32 theMenuID, u32 theItemID)
+{
+	return ((theMenuID & 0xFFFF) << 16) | (theItemID & 0xFFFF);
 }
 
 
@@ -693,12 +732,6 @@ static void draw4DirMenu(HUDDrawData& dd)
 	if( !dd.firstDraw )
 		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
 
-	SelectObject(dd.hdc, sFonts[hi.fontID]);
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
-	SetBkColor(dd.hdc, hi.itemColor);
-	SetTextColor(dd.hdc, hi.labelColor);
-
 	// Always 4 menu items, in order of L->R->U->D
 	const u16 activeSubMenu = Menus::activeSubMenu(dd.hudElementID);
 	// Left
@@ -708,24 +741,28 @@ static void draw4DirMenu(HUDDrawData& dd)
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 0));
+		InputMap::menuItemLabel(activeSubMenu, 0),
+		toDrawCacheKey(activeSubMenu, 0));
 	// Right
 	anItemRect.left += dd.itemSize.cx;
 	anItemRect.right += dd.itemSize.cx;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 1));
+		InputMap::menuItemLabel(activeSubMenu, 1),
+		toDrawCacheKey(activeSubMenu, 1));
 	// Up
 	anItemRect.left -= dd.itemSize.cx / 2;
 	anItemRect.top = 0;
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 2));
+		InputMap::menuItemLabel(activeSubMenu, 2),
+		toDrawCacheKey(activeSubMenu, 2));
 	// Down
 	anItemRect.top += dd.itemSize.cy * 2;
 	anItemRect.bottom += dd.itemSize.cy * 2;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 3));
+		InputMap::menuItemLabel(activeSubMenu, 3),
+		toDrawCacheKey(activeSubMenu, 3));
 }
 
 
@@ -777,7 +814,7 @@ static void drawSystemHUD(HUDDrawData& dd)
 void init()
 {
 	cleanup();
-	
+
 	HUDBuilder aHUDBuilder;
 	sHUDElementInfo.resize(InputMap::hudElementCount());
 
@@ -918,6 +955,8 @@ void cleanup()
 		DeleteObject(sPens[i]);
 	for(size_t i = 0; i < sBitmaps.size(); ++i)
 		DeleteObject(sBitmaps[i]);
+	sDrawCache.clear();
+	sResizedFontsMap.clear();
 	sFonts.clear();
 	sBrushes.clear();
 	sPens.clear();
@@ -956,7 +995,7 @@ void update()
 		gErrorString.clear();
 		gRedrawHUD.set(aSystemElementID);
 	}
-	
+
 	if( sNoticeMessageTimer > 0 )
 	{
 		sNoticeMessageTimer -= gAppFrameTime;
@@ -1016,6 +1055,12 @@ void update()
 }
 
 
+void clearCache()
+{
+	sDrawCache.clear();
+}
+
+
 void drawElement(
 	HDC hdc,
 	u16 theHUDElementID,
@@ -1026,11 +1071,13 @@ void drawElement(
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
-	HUDDrawData aDrawData(
-		hdc,
-		theComponentSize, theDestSize,
-		theHUDElementID,
-		needsInitialErase);
+	HUDDrawData aDrawData = { 0 };
+	aDrawData.hdc = hdc;
+	aDrawData.itemSize = theComponentSize;
+	aDrawData.targetSize = theDestSize;
+	SetRect(&aDrawData.targetRect, 0, 0, theDestSize.cx, theDestSize.cy);
+	aDrawData.hudElementID = theHUDElementID;
+	aDrawData.firstDraw = needsInitialErase;
 
 	// Select the eraseBrush (transparent color) by default first
 	SelectObject(hdc, sBrushes[hi.eraseBrushID]);
@@ -1190,8 +1237,21 @@ void drawMainWindowContents(HWND theWindow)
 	HFONT hOldFont = (HFONT)SelectObject(hdc,
 		CreateFontIndirect(&ncm.lfMessageFont));
 
-	drawHUDStringVCenter(hdc, widen(kAppVersionString), aRect,
-		DT_SINGLELINE | DT_CENTER);
+	const std::wstring& aWStr = widen(kAppVersionString);
+
+	// Make sure string will actually fit with default system font
+	if( LONG aFontHeight = getFontHeightToFit(
+			hdc, aWStr, aRect, NULL, DT_SINGLELINE) )
+	{// Need alternate font to actually fit string properly
+		ncm.lfMessageFont.lfWidth = 0;
+		ncm.lfMessageFont.lfHeight = aFontHeight;
+		DeleteObject(SelectObject(hdc,
+			CreateFontIndirect(&ncm.lfMessageFont)));
+	}
+
+	// Draw version string centered
+	DrawText(hdc, aWStr.c_str(), -1, &aRect,
+		DT_SINGLELINE | DT_CENTER | DT_VCENTER);
 
 	// Swap back to default font and delete temp font
 	DeleteObject(SelectObject(hdc, hOldFont));

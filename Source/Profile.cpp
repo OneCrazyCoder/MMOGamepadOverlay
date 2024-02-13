@@ -164,7 +164,7 @@ static DWORD uniqueFileIdentifier(const std::string& theFilePath)
 		BY_HANDLE_FILE_INFORMATION aFileInfo;
 		if( GetFileInformationByHandle(hFile, &aFileInfo) )
 		{
-			result = aFileInfo.dwVolumeSerialNumber ^ 
+			result = aFileInfo.dwVolumeSerialNumber ^
 				((aFileInfo.nFileIndexHigh << 16) | aFileInfo.nFileIndexLow) ^
 				aFileInfo.ftCreationTime.dwHighDateTime ^
 				aFileInfo.ftCreationTime.dwLowDateTime;
@@ -321,7 +321,7 @@ static void parseINI(
 				break;
 
 			case ePIState_Key:
-				// Look for '=' to end key				
+				// Look for '=' to end key
 				if( c == '=' )
 				{// Switch from parsing key to value
 					aKey = trim(aKey);
@@ -541,7 +541,7 @@ static void setKeyValueInINI(
 				break;
 
 			case eSKVState_CheckKey:
-				// Look for '=' to end key				
+				// Look for '=' to end key
 				if( c == '=' )
 				{// End of the key - check if this is the one being looked for
 					if( trim(aCheckStr) == aCmpKey )
@@ -641,7 +641,7 @@ static void setKeyValueInINI(
 	// Close both files
 	aFile.close();
 	aTmpFile.close();
-	
+
 	// Replace original file with new temp file (and delete temp file)
 	if( !ReplaceFile(widen(theFilePath).c_str(), widen(aTmpPath).c_str(),
 			NULL, REPLACEFILE_IGNORE_MERGE_ERRORS, NULL, NULL) )
@@ -844,13 +844,13 @@ static void parseProfilesCanLoad()
 			gShutdown = true;
 		}
 		else
-		{// Generate Core.ini which will prevent future license agreement		
+		{// Generate Core.ini which will prevent future license agreement
 			generateResourceProfile(kResTemplateCore);
 			aCoreProfile.id = uniqueFileIdentifier(aCoreProfile.path);
 			if( aCoreProfile.id == 0 )
 			{
 				logFatalError("Unable to find/write %s (%s)",
-					kCoreProfileName, aCoreProfile.path.c_str());		
+					kCoreProfileName, aCoreProfile.path.c_str());
 			}
 		}
 	}
@@ -1208,7 +1208,7 @@ bool queryUserForProfile()
 	// match the entries in kResTemplateDefault. So need to change
 	// this if rearrange the order of any of these above!
 	if( needFirstProfile && aDialogResult.newName.empty() )
-		aDialogResult.newName = 
+		aDialogResult.newName =
 			kResTemplateDefault[aDialogResult.selectedIndex].name;
 
 	if( aDialogResult.newName.empty() )

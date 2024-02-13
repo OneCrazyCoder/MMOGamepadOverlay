@@ -226,7 +226,7 @@ static void removeControlsLayer(u16 theLayerID)
 			// Recursion will mess up our iterator beyond reasonable recovery,
 			// so just start at the beginning (end) again
 			next_itr = sState.layerOrder.rbegin();
-		}	
+		}
 		else if( *itr == theLayerID )
 		{
 			transDebugPrint("Removing Controls Layer: %s\n",
@@ -832,7 +832,7 @@ static bool tryAddLayerFromButton(
 	const u16 aLayerID = aDownCmd.data;
 	if( sState.layers[aLayerID].active )
 		return false;
-	
+
 	// If newly hit, replace any past layer with new layer
 	if( wasHit )
 	{

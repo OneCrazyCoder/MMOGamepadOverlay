@@ -386,7 +386,7 @@ void checkWindowMode()
 	if( sDesiredTargetMode == eWindowMode_FullScreenWindow )
 	{
 		targetDebugPrint("Switching target window to Full Screen Window!\n");
-		SetWindowLong(sTargetWindowHandle, GWL_STYLE, 
+		SetWindowLong(sTargetWindowHandle, GWL_STYLE,
 			(aWStyle & kIgnoredStyleFlags) | kFullScreenWindowStyle);
 		SetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE,
 			(aWStyleEx & kIgnoredStyleExFlags) | kFullScreenWindowStyleEx);
@@ -425,7 +425,7 @@ void checkWindowMode()
 	// Want a normal window but somehow don't have valid restore information
 	// to get back to it. Have to wing it with some typical default values.
 	targetDebugPrint("Forcing target window to a default window style!\n");
-	SetWindowLong(sTargetWindowHandle, GWL_STYLE, 
+	SetWindowLong(sTargetWindowHandle, GWL_STYLE,
 		(aWStyle & kIgnoredStyleFlags) | kNormalWindowStyle);
 	SetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE,
 		(aWStyleEx & kIgnoredStyleExFlags));
@@ -499,7 +499,7 @@ void autoLaunch()
 	}
 	if( !aParams.empty() )
 		aPath = "\"" + aPath + "\" " + aParams;
-	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH); 
+	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH);
 
 	STARTUPINFO si;
 	PROCESS_INFORMATION pi;

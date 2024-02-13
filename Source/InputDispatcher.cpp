@@ -185,11 +185,11 @@ public:
 		mTail = (mTail + 1) & (mBuffer.size() - 1);
 	}
 
-	
+
 	void pop_front()
 	{
 		DBG_ASSERT(!empty());
-	
+
 		mHead = (mHead + 1) & (mBuffer.size() - 1);
 	}
 
@@ -197,7 +197,7 @@ public:
 	DispatchTask front()
 	{
 		DBG_ASSERT(!empty());
-		
+
 		return mBuffer[mHead];
 	}
 
@@ -682,7 +682,7 @@ static void flushInputVector()
 			{
 				if( sTracker.inputs[i].type == INPUT_KEYBOARD )
 				{
-					sTracker.inputs[i].ki.wScan = 
+					sTracker.inputs[i].ki.wScan =
 						MapVirtualKey(sTracker.inputs[i].ki.wVk, 0);
 					switch(sTracker.inputs[i].ki.wVk)
 					{
@@ -861,7 +861,7 @@ void update()
 			next_itr = sTracker.keysWantDown.erase(itr);
 			continue;
 		}
-		
+
 		if( pressed && sTracker.keysHeldDown.test(aBaseVKey) )
 		{// Already been pressed and base key still held
 			aDesiredKeysDown.set(aBaseVKey);
@@ -874,7 +874,7 @@ void update()
 			}
 			continue;
 		}
-		
+
 		if( areModKeysHeld(aVKey) &&
 			(sTracker.nextQueuedKey == 0 ||
 			 (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags) )
@@ -886,7 +886,7 @@ void update()
 			hasNonPressedKeyThatWantsHeldDown = true;
 			continue;
 		}
-		
+
 		if( sTracker.backupQueuedKey == 0 &&
 			(!sTracker.nextQueuedKey || !pressed) )
 		{// Needs a change in mod keys - take over queued key to do this
@@ -895,7 +895,7 @@ void update()
 			hasNonPressedKeyThatWantsHeldDown = true;
 			continue;
 		}
-		
+
 		// If reached here, want to press the key but just can't right now!
 		// Will have to wait and try again next frame
 	}
@@ -1003,7 +1003,7 @@ void update()
 		anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
 		anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
 		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
-		sTracker.inputs.push_back(anInput);		
+		sTracker.inputs.push_back(anInput);
 		sTracker.jumpToHotspot = 0;
 	}
 	else if( readyForQueuedEvent && sTracker.nextQueuedKey )

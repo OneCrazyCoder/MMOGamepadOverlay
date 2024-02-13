@@ -457,13 +457,13 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 		case VK_CANCEL:
 			// Can't use these special-case "keys" with single-key commands
 			result = 0;
-			return result;			
+			return result;
 		default:
 			result |= *aVKeyPtr;
 			break;
 		}
 	}
-	
+
 	return result;
 }
 
@@ -1241,7 +1241,7 @@ static EResult stringToHotspotCoord(
 		eMode_Numerator,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
 		eMode_Denominator,	// Checking for 5 in 0.5, 5% in 10.5%, etc
 		eMode_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
-		eMode_OffsetSpace,	// Optional space between -/+ and offset number 
+		eMode_OffsetSpace,	// Optional space between -/+ and offset number
 		eMode_OffsetNumber, // Checking for 10 in 50% + 10, CX+10, R-10, etc
 	} aMode = eMode_Prefix;
 
@@ -1651,7 +1651,7 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 	return result;
 }
 
-	
+
 static void addButtonAction(
 	InputMapBuilder& theBuilder,
 	u16 theLayerIdx,
@@ -1699,7 +1699,7 @@ static void addButtonAction(
 	Command aCmd = stringToCommand(
 		theBuilder, theCmdStr, theLayerIdx, true, aBtnAct == eBtnAct_Down);
 
-	// Convert eCmdType_TapKey to eCmdType_PressAndHoldKey? 
+	// Convert eCmdType_TapKey to eCmdType_PressAndHoldKey?
 	// True "while held down" only works with a single key (w/ mods),
 	// just like _TapKey, and only when assigned to eBtnAct_Down.
 	// For anything besides a single key, this will be skipped and
@@ -1864,7 +1864,7 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 		// Break the string into individual words
 		theBuilder.parsedString.clear();
 		sanitizeSentence(aLayerHUDDescription, theBuilder.parsedString);
-		
+
 		bool show = true;
 		for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
 		{
@@ -2054,7 +2054,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			}
 			++itemIdx;
 		}
-	}	
+	}
 }
 
 
@@ -2285,7 +2285,7 @@ EResult profileStringToHotspot(std::string& theString, Hotspot& out)
 EHUDType hudElementType(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
-	return sHUDElements[theHUDElementID].type;	
+	return sHUDElements[theHUDElementID].type;
 }
 
 
@@ -2343,7 +2343,7 @@ const std::string& menuLabel(u16 theMenuID)
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
-	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());	
+	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());
 	return sMenus[theMenuID].items[theMenuItemIdx].label;
 }
 
@@ -2351,7 +2351,7 @@ const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx)
 const std::string& hudElementLabel(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
-	return sHUDElements[theHUDElementID].label;	
+	return sHUDElements[theHUDElementID].label;
 }
 
 } // InputMap

@@ -82,7 +82,7 @@ static const EAxis kDIToEAxis[eVendorID_Num][6] =
 	  eAxis_RSLeft,	eAxis_RSUp,	eAxis_None },
 	// eVendor_Microsoft
 	{ eAxis_LSLeft, eAxis_LSUp, eAxis_RTrigger,
-	  eAxis_RSLeft,	eAxis_RSUp,	eAxis_LTrigger },		
+	  eAxis_RSLeft,	eAxis_RSUp,	eAxis_LTrigger },
 };
 
 
@@ -213,22 +213,22 @@ static BOOL isXInputDevice( const GUID* pGuidProductFromDirectInput )
 
 	if( FAILED(hr) || pIWbemLocator == NULL ) goto LCleanup;
 	bstrNamespace = SysAllocString( L"\\\\.\\root\\cimv2" );
-	if( bstrNamespace == NULL ) goto LCleanup;		
+	if( bstrNamespace == NULL ) goto LCleanup;
 	bstrClassName = SysAllocString( L"Win32_PNPEntity" );
-	if( bstrClassName == NULL ) goto LCleanup;		
+	if( bstrClassName == NULL ) goto LCleanup;
 	bstrDeviceID  = SysAllocString( L"DeviceID" );
-	if( bstrDeviceID == NULL )  goto LCleanup;		
-	
-	// Connect to WMI 
-	hr = pIWbemLocator->ConnectServer( bstrNamespace, NULL, NULL, 0L, 
+	if( bstrDeviceID == NULL )  goto LCleanup;
+
+	// Connect to WMI
+	hr = pIWbemLocator->ConnectServer( bstrNamespace, NULL, NULL, 0L,
 									   0L, NULL, NULL, &pIWbemServices );
 	if( FAILED(hr) || pIWbemServices == NULL )
 		goto LCleanup;
 
-	// Switch security level to IMPERSONATE. 
+	// Switch security level to IMPERSONATE.
 	CoSetProxyBlanket(
 		pIWbemServices,
-		RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, 
+		RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL,
 		RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
 		NULL, EOAC_NONE );
 
@@ -304,19 +304,19 @@ static void pollXInputGamepad(int theGamepadID)
 	DBG_ASSERT(theGamepadID >= 0 && theGamepadID < kMaxGamepadsEnumerated);
 	DBG_ASSERT(sGamepadData.gamepad[theGamepadID].xInputID > 0);
 	DBG_ASSERT(sGamepadData.gamepad[theGamepadID].xInputID <= XUSER_MAX_COUNT);
-	
+
 	const DWORD xInputID = sGamepadData.gamepad[theGamepadID].xInputID - 1;
 
 	GamepadData::Gamepad& aGamepad = sGamepadData.gamepad[theGamepadID];
 	aGamepad.buttonsHit.reset();
 
-	DWORD dwResult;	
+	DWORD dwResult;
 	XINPUT_STATE state;
 	ZeroMemory( &state, sizeof(XINPUT_STATE) );
 	dwResult = XInputGetState( xInputID, &state );
-	
+
 	if( dwResult == ERROR_SUCCESS )
-	{ 
+	{
 		// Controller is connected
 		aGamepad.wasConnected = true;
 		if( state.dwPacketNumber != aGamepad.xInputPacketNum )
@@ -492,7 +492,7 @@ static void addGamepad(LPCDIDEVICEINSTANCE lpddi)
 		if( aGamepad.vendorID == eVendorID_Unknown )
 			aGamepad.vendorID = eVendorID_Microsoft;
 	}
-	
+
 	++sGamepadData.deviceCountForDInput;
 }
 
@@ -544,17 +544,17 @@ static void pollGamepad(int theGamepadID)
 		if( activateGamepad(theGamepadID) != eResult_Ok )
 			return;
 	}
-	
+
 	aGamepad.buttonsHit.reset();
 	aGamepad.device->Poll();
 
-	DIDEVICEOBJECTDATA rgdod[kDIGamepadDataBufferSize]; 
-	DWORD dwItems = kDIGamepadDataBufferSize; 
+	DIDEVICEOBJECTDATA rgdod[kDIGamepadDataBufferSize];
+	DWORD dwItems = kDIGamepadDataBufferSize;
 	HRESULT hr =
 		aGamepad.device->GetDeviceData(
-			sizeof(DIDEVICEOBJECTDATA), 
-			rgdod, 
-			&dwItems, 
+			sizeof(DIDEVICEOBJECTDATA),
+			rgdod,
+			&dwItems,
 			0);
 
 	// dwItems = Number of elements read (could be zero).
@@ -682,15 +682,15 @@ static void pollGamepad(int theGamepadID)
 		}
 		if( readEvents )
 		{// Get rest of events if got buffer overflow
-			dwItems = kDIGamepadDataBufferSize; 
+			dwItems = kDIGamepadDataBufferSize;
 			hr = aGamepad.device->GetDeviceData(
-					sizeof(DIDEVICEOBJECTDATA), 
-					rgdod, 
-					&dwItems, 
+					sizeof(DIDEVICEOBJECTDATA),
+					rgdod,
+					&dwItems,
 					0);
 		}
 	}
-		
+
 	if( SUCCEEDED(hr) && dwItems > 0 )
 	{
 		filterInitialInputs(theGamepadID);
@@ -764,7 +764,7 @@ static EResult activateGamepad(int theGamepadID)
 			aGamepad.name.c_str());
 		return eResult_Fail;
 	}
-	
+
 	// Setup cooperative level
 	if( FAILED(aGamepad.device->SetCooperativeLevel(
 				NULL, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND)) )
@@ -778,8 +778,8 @@ static EResult activateGamepad(int theGamepadID)
 
 	// Set buffer size
 	DIPROPDWORD dipdw;
-	dipdw.diph.dwSize		= sizeof( dipdw ); 
-	dipdw.diph.dwHeaderSize	= sizeof( dipdw.diph ); 
+	dipdw.diph.dwSize		= sizeof( dipdw );
+	dipdw.diph.dwHeaderSize	= sizeof( dipdw.diph );
 	dipdw.diph.dwObj		= 0;
 	dipdw.diph.dwHow		= DIPH_DEVICE;
    	dipdw.dwData			= kDIGamepadDataBufferSize;
@@ -792,7 +792,7 @@ static EResult activateGamepad(int theGamepadID)
 			aGamepad.name.c_str());
 		return eResult_Fail;
 	}
- 
+
 	// Aqcuire gamepad (don't worry about failing here - will try again later)
 	if( SUCCEEDED(aGamepad.device->Acquire()) )
 	{
@@ -801,7 +801,7 @@ static EResult activateGamepad(int theGamepadID)
 			"Successfully acquired gamepad %s\n",
 			aGamepad.name.c_str());
 	}
-	
+
 	// Get initial gamepad values
 	pollGamepad(theGamepadID);
 	aGamepad.lastUpdateTime = gAppRunTime;
@@ -814,7 +814,7 @@ static BOOL CALLBACK enumDevicesCallback(LPCDIDEVICEINSTANCE lpddi, LPVOID)
 {
 	if( sGamepadData.hDirectInput8 == NULL )
 		return DIENUM_STOP;
-	
+
 	addGamepad(lpddi);
 
 	return
@@ -837,13 +837,13 @@ void init(bool restartAfterDisconnect)
 
 	// Initialise DirectInput and enumerate gamepads
 	HRESULT hr = DirectInput8Create(
-		GetModuleHandle(NULL), DIRECTINPUT_VERSION, 
+		GetModuleHandle(NULL), DIRECTINPUT_VERSION,
 			IID_IDirectInput8,
 			(void**)&sGamepadData.hDirectInput8,
-			NULL); 
+			NULL);
 
 	if( FAILED(hr) || sGamepadData.hDirectInput8 == NULL )
-	{ 
+	{
 		// DirectInput not available
 		sGamepadData.hDirectInput8 = NULL;
 		gamepadDebugPrint("Failed to initialize DirectInput 8!\n");
@@ -852,7 +852,7 @@ void init(bool restartAfterDisconnect)
 	{
 		gamepadDebugPrint("DirectInput 8 initialized!\n");
 
-		// Enumerate gamepads	
+		// Enumerate gamepads
 		hr = sGamepadData.hDirectInput8->EnumDevices(
 			DI8DEVCLASS_GAMECTRL,
 			enumDevicesCallback,
@@ -1108,7 +1108,7 @@ void setDigitalDeadzone(EButton theButton, u8 theDeadzone)
 bool buttonHit(EButton theButton)
 {
 	DBG_ASSERT(sGamepadData.initialized);
-	
+
 	if( (unsigned)theButton >= eBtn_Num )
 		return false;
 
@@ -1428,7 +1428,7 @@ const char* buttonName(EButton theButton)
 		}
 		break;
 	}
-	
+
 	return "Unknown";
 }
 
