@@ -74,7 +74,7 @@ const char* kHUDPropStr[][2] =
 	{	"Size",				""				},	// eHUDProp_Size
 	{	"Alignment",		"L, T"			},	// eHUDProp_Alignment
 	{	"Font",				"Verdana"		},	// eHUDProp_FontName
-	{	"FontSize",			"13"			},	// eHUDProp_FontSize
+	{	"FontSize",			"10"			},	// eHUDProp_FontSize
 	{	"FontWeight",		"400"			},	// eHUDProp_FontWeight
 	{	"LabelRGB",			"10, 10, 10"	},	// eHUDProp_FontColor
 	{	"ItemRGB",			"150, 150, 150"	},	// eHUDProp_ItemColor
