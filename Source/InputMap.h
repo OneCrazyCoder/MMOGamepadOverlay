@@ -57,6 +57,7 @@ u16 menuForHUDElement(u16 theHUDElementID);
 // SIZES
 u16 controlsLayerCount();
 u16 hudElementCount();
+u16 rootMenuCount();
 u16 menuCount();
 u16 menuItemCount(u16 theMenuID);
 u16 hotspotCount();

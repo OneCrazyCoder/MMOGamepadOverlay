@@ -39,10 +39,16 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID);
 // whichever sub-menu (or the root menu) was active before then.
 void closeLastSubMenu(u16 theMenuID);
 
-// Returns menu to its default state (closes all sub-menus & resets selection)
+// Resets menu to its default state (closes all sub-menus & resets selection)
 void reset(u16 theMenuID);
 
 // Returns current active sub-menu of given root menu
 u16 activeSubMenu(u16 theMenuID);
+
+// Returns selected item of currently-active sub-menu of given root menu
+u16 selectedItem(u16 theMenuID);
+
+// Returns item count for currently-active sub-menu of given root menu
+u16 itemCount(u16 theMenuID);
 
 } // Menus

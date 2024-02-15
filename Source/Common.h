@@ -47,6 +47,24 @@ inline Val clamp(Val val, Min min, Max max)
 	return val;
 }
 
+template<class Val, class Max>
+inline Val incWrap(Val val, Max max)
+{
+	if(int(val) + 1 >= int(max))
+		return Val(0);
+	else
+		return Val(int(val) + 1);
+}
+
+template<class Val, class Max>
+inline Val decWrap(Val val, Max max)
+{
+	if(int(val) - 1 < 0)
+		return Val(int(max) - 1);
+	else
+		return Val(int(val) - 1);
+}
+
 #ifndef M_PI
 #define M_PI (3.1415926535897932384626433832795028841971)
 #endif

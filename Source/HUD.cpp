@@ -45,6 +45,9 @@ enum EHUDProperty
 	eHUDProp_ItemColor,
 	eHUDProp_BorderColor,
 	eHUDProp_BorderSize,
+	eHUDProp_SFontColor,
+	eHUDProp_SItemColor,
+	eHUDProp_SBorderColor,
 	eHUDProp_TransColor,
 	eHUDProp_MaxAlpha,
 	eHUDProp_FadeInDelay,
@@ -54,6 +57,7 @@ enum EHUDProperty
 	eHUDProp_InactiveDelay,
 	eHUDProp_InactiveAlpha,
 	eHUDProp_BitmapPath,
+	eHUDProp_SBitmapPath,
 	eHUDProp_Radius,
 
 	eHUDProp_Num
@@ -66,30 +70,34 @@ enum EAlignment
 	eAlignment_Max,		// R or B
 };
 
-const char* kHUDPropStr[][2] =
-{//		Key					Default value
-	{	"Position",			"0, 0"			},	// eHUDProp_Position
-	{	"ItemType",			""				},	// eHUDProp_ItemType
-	{	"ItemSize",			"55, 55"		},	// eHUDProp_ItemSize
-	{	"Size",				""				},	// eHUDProp_Size
-	{	"Alignment",		"L, T"			},	// eHUDProp_Alignment
-	{	"Font",				"Verdana"		},	// eHUDProp_FontName
-	{	"FontSize",			"10"			},	// eHUDProp_FontSize
-	{	"FontWeight",		"400"			},	// eHUDProp_FontWeight
-	{	"LabelRGB",			"10, 10, 10"	},	// eHUDProp_FontColor
-	{	"ItemRGB",			"150, 150, 150"	},	// eHUDProp_ItemColor
-	{	"BorderRGB",		"100, 100, 100"	},	// eHUDProp_BorderColor
-	{	"BorderSize",		"1"				},	// eHUDProp_BorderSize
-	{	"TransRGB",			"255, 0, 255"	},	// eHUDProp_TransColor
-	{	"MaxAlpha",			"255"			},	// eHUDProp_MaxAlpha
-	{	"FadeInDelay",		"0"				},	// eHUDProp_FadeInDelay
-	{	"FadeInTime",		"0"				},	// eHUDProp_FadeInTime
-	{	"FadeOutDelay",		"0"				},	// eHUDProp_FadeOutDelay
-	{	"FadeOutTime",		"0"				},	// eHUDProp_FadeOutTime
-	{	"InactiveDelay",	"0"				},	// eHUDProp_InactiveDelay
-	{	"InactiveAlpha",	"150"			},	// eHUDProp_InactiveAlpha
-	{	"BitmapPath",		""				},	// eHUDProp_BitmapPath
-	{	"Radius",			"20"			},	// eHUDProp_Radius
+const char* kHUDPropStr[] =
+{
+	"Position",				// eHUDProp_Position
+	"ItemType",				// eHUDProp_ItemType
+	"ItemSize",				// eHUDProp_ItemSize
+	"Size",					// eHUDProp_Size
+	"Alignment",			// eHUDProp_Alignment
+	"Font",					// eHUDProp_FontName
+	"FontSize",				// eHUDProp_FontSize
+	"FontWeight",			// eHUDProp_FontWeight
+	"LabelRGB",				// eHUDProp_FontColor
+	"ItemRGB",				// eHUDProp_ItemColor
+	"BorderRGB",			// eHUDProp_BorderColor
+	"BorderSize",			// eHUDProp_BorderSize
+	"SelectedLabelRGB",		// eHUDProp_SFontColor
+	"SelectedItemRGB",		// eHUDProp_SItemColor
+	"SelectedBorderRGB",	// eHUDProp_SBorderColor
+	"TransRGB",				// eHUDProp_TransColor
+	"MaxAlpha",				// eHUDProp_MaxAlpha
+	"FadeInDelay",			// eHUDProp_FadeInDelay
+	"FadeInTime",			// eHUDProp_FadeInTime
+	"FadeOutDelay",			// eHUDProp_FadeOutDelay
+	"FadeOutTime",			// eHUDProp_FadeOutTime
+	"InactiveDelay",		// eHUDProp_InactiveDelay
+	"InactiveAlpha",		// eHUDProp_InactiveAlpha
+	"BitmapPath",			// eHUDProp_BitmapPath
+	"SelectedBitmapPath",	// eHUDProp_SBitmapPath
+	"Radius",				// eHUDProp_Radius
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -104,7 +112,9 @@ struct HUDElementInfo
 	EHUDType type;
 	EHUDType itemType;
 	COLORREF labelColor;
-	COLORREF itemColor;
+	COLORREF labelBGColor;
+	COLORREF selLabelColor;
+	COLORREF selLabelBGColor;
 	COLORREF transColor;
 	Hotspot position;
 	Hotspot itemSize;
@@ -114,12 +124,16 @@ struct HUDElementInfo
 	int fadeOutDelay;
 	int delayUntilInactive;
 	int selection;
+	u16 subMenuID;
 	u16 fontID;
 	u16 itemBrushID;
 	u16 borderPenID;
+	u16 borderSize;
+	u16 selItemBrushID;
+	u16 selBorderPenID;
 	u16 eraseBrushID;
 	u16 bitmapID;
-	u16 borderSize;
+	u16 selBitmapID;
 	u16 radius;
 	u8 alignmentX;
 	u8 alignmentY;
@@ -203,7 +217,7 @@ static std::string getHUDPropStr(
 		// Try [Menu.Name] first since most HUD elements are likely Menus
 		aKey = kMenuPrefix;
 		aKey += "."; aKey += theName + "/";
-		aKey += kHUDPropStr[theProperty][0];
+		aKey += kHUDPropStr[theProperty];
 		result = Profile::getStr(aKey);
 		if( !result.empty() )
 			return result;
@@ -211,7 +225,7 @@ static std::string getHUDPropStr(
 		// Try [HUD.Name] next
 		aKey = kHUDPrefix;
 		aKey += "."; aKey += theName + "/";
-		aKey += kHUDPropStr[theProperty][0];
+		aKey += kHUDPropStr[theProperty];
 		result = Profile::getStr(aKey);
 		if( !result.empty() )
 			return result;
@@ -223,7 +237,7 @@ static std::string getHUDPropStr(
 	// Try just [HUD] for a default value
 	aKey = kHUDPrefix;
 	aKey += "/";
-	aKey += kHUDPropStr[theProperty][0];
+	aKey += kHUDPropStr[theProperty];
 	result = Profile::getStr(aKey);
 	if( !result.empty() )
 		return result;
@@ -231,13 +245,11 @@ static std::string getHUDPropStr(
 	// Maybe just [Menu] for default value?
 	aKey = kMenuPrefix;
 	aKey += "/";
-	aKey += kHUDPropStr[theProperty][0];
+	aKey += kHUDPropStr[theProperty];
 	result = Profile::getStr(aKey);
 	if( !result.empty() )
 		return result;
 
-	// Return hard-coded default value
-	result = kHUDPropStr[theProperty][1];
 	return result;
 }
 
@@ -637,14 +649,23 @@ static void drawMenuItem(
 	HUDDrawData& dd,
 	const RECT& theRect,
 	const std::string& theLabel,
-	HUDDrawCacheEntry& theCacheEntry)
+	HUDDrawCacheEntry& theCacheEntry,
+	bool selected = false)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-
-	// Backdrop (usually bordered rectangle or rounded rectangle)
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	if( selected )
+	{
+		swap(hi.itemBrushID, hi.selItemBrushID);
+		swap(hi.borderPenID, hi.selBorderPenID);
+		swap(hi.bitmapID, hi.selBitmapID);
+	}
 	drawHUDItem(dd, theRect);
+	if( selected )
+	{
+		swap(hi.itemBrushID, hi.selItemBrushID);
+		swap(hi.borderPenID, hi.selBorderPenID);
+		swap(hi.bitmapID, hi.selBitmapID);
+	}
 
 	if( theLabel.empty() )
 		return;
@@ -693,9 +714,56 @@ static void drawMenuItem(
 	DBG_ASSERT(theCacheEntry.initialized);
 	aTextRect.top += theCacheEntry.yOff;
 	SelectObject(dd.hdc, sFonts[theCacheEntry.fontID]);
-	SetTextColor(dd.hdc, hi.labelColor);
-	SetBkColor(dd.hdc, hi.itemColor);
+	SetTextColor(dd.hdc, selected ? hi.selLabelColor : hi.labelColor);
+	SetBkColor(dd.hdc, selected ? hi.selLabelBGColor : hi.labelBGColor);
 	DrawText(dd.hdc, aLabelW.c_str(), -1, &aTextRect, aFormat);
+}
+
+
+static void drawListMenu(HUDDrawData& dd)
+{
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	DBG_ASSERT(hi.type == eMenuStyle_List);
+	const u16 aPrevSubMenuID = hi.subMenuID;
+	const u16 aSubMenuID = Menus::activeSubMenu(dd.hudElementID);
+	DBG_ASSERT(aSubMenuID < sDrawCache.size());
+	const u16 aPrevSelection = hi.selection;
+	const u16 aSelection = Menus::selectedItem(dd.hudElementID);
+	const u16 anItemCount = Menus::itemCount(dd.hudElementID);
+	DBG_ASSERT(aSelection < anItemCount);
+	if( sDrawCache[aSubMenuID].size() < anItemCount )
+		sDrawCache[aSubMenuID].resize(anItemCount);
+
+	RECT anItemRect = { 0 };
+	anItemRect.right = dd.itemSize.cx;
+	anItemRect.bottom = dd.itemSize.cy;
+	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
+	{
+		// Don't need to re-draw menu items that haven't changed their
+		// "selected" status or label (sub-menu) after firstDraw done
+		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID ||
+			itemIdx == aPrevSelection || itemIdx == aSelection )
+		{
+			if( !dd.firstDraw &&
+				aSubMenuID != aPrevSubMenuID &&
+				hi.itemType != eHUDItemType_Rect )
+			{
+				// Non-_Rect menu items need to erase the full rect when
+				// the label (sub-menu) changes (except for firstDraw),
+				// in case old label poked out of the background shape.
+				FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
+			}
+			drawMenuItem(dd, anItemRect,
+				InputMap::menuItemLabel(aSubMenuID, itemIdx),
+				sDrawCache[aSubMenuID][itemIdx],
+				itemIdx == aSelection);
+		}
+		anItemRect.top = anItemRect.bottom;
+		anItemRect.bottom += dd.itemSize.cy;
+	}
+
+	hi.subMenuID = aSubMenuID;
+	hi.selection = aSelection;
 }
 
 
@@ -703,15 +771,15 @@ static void draw4DirMenu(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	DBG_ASSERT(hi.type == eMenuStyle_4Dir);
-	const u16 activeSubMenu = Menus::activeSubMenu(dd.hudElementID);
-	DBG_ASSERT(activeSubMenu < sDrawCache.size());
+	const u16 aSubMenuID = Menus::activeSubMenu(dd.hudElementID);
+	DBG_ASSERT(aSubMenuID < sDrawCache.size());
 
 	if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
 		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
 
 	// Always 4 menu items, in order of L->R->U->D
-	if( sDrawCache[activeSubMenu].size() < 4 )
-		sDrawCache[activeSubMenu].resize(4);
+	if( sDrawCache[aSubMenuID].size() < 4 )
+		sDrawCache[aSubMenuID].resize(4);
 
 	// Left
 	RECT anItemRect;
@@ -720,28 +788,28 @@ static void draw4DirMenu(HUDDrawData& dd)
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 0),
-		sDrawCache[activeSubMenu][0]);
+		InputMap::menuItemLabel(aSubMenuID, 0),
+		sDrawCache[aSubMenuID][0]);
 	// Right
 	anItemRect.left += dd.itemSize.cx;
 	anItemRect.right += dd.itemSize.cx;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 1),
-		sDrawCache[activeSubMenu][1]);
+		InputMap::menuItemLabel(aSubMenuID, 1),
+		sDrawCache[aSubMenuID][1]);
 	// Up
 	anItemRect.left -= dd.itemSize.cx / 2;
 	anItemRect.top = 0;
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 2),
-		sDrawCache[activeSubMenu][2]);
+		InputMap::menuItemLabel(aSubMenuID, 2),
+		sDrawCache[aSubMenuID][2]);
 	// Down
 	anItemRect.top += dd.itemSize.cy * 2;
 	anItemRect.bottom += dd.itemSize.cy * 2;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(activeSubMenu, 3),
-		sDrawCache[activeSubMenu][3]);
+		InputMap::menuItemLabel(aSubMenuID, 3),
+		sDrawCache[aSubMenuID][3]);
 }
 
 
@@ -867,11 +935,11 @@ void init()
 		// hi.labelColor = eHUDProp_FontColor
 		hi.labelColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_FontColor));
-		// hi.itemColor & .itemBrushID = eHUDProp_ItemColor
-		hi.itemColor = strToRGB(aHUDBuilder,
+		// hi.itemBrushID & .labelBGColor = eHUDProp_ItemColor
+		hi.labelBGColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_ItemColor));
 		hi.itemBrushID = getOrCreateBrushID(
-			aHUDBuilder, hi.itemColor);
+			aHUDBuilder, hi.labelBGColor);
 		// hi.borderPenID & .borderSize = eHUDProp_BorderColor & _BorderSize
 		hi.borderSize =
 			u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize));
@@ -879,6 +947,19 @@ void init()
 			strToRGB(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_BorderColor)),
 			hi.borderSize ? PS_INSIDEFRAME : PS_NULL, int(hi.borderSize));
+		// hi.selLabelColor = eHUDProp_SFontColor
+		hi.selLabelColor = strToRGB(aHUDBuilder,
+			getHUDPropStr(aHUDName, eHUDProp_SFontColor));
+		// hi.selItemBrushID & .setLabelBGColor = eHUDProp_SItemColor
+		hi.selLabelBGColor = strToRGB(aHUDBuilder,
+			getHUDPropStr(aHUDName, eHUDProp_SItemColor));
+		hi.selItemBrushID = getOrCreateBrushID(
+			aHUDBuilder, hi.selLabelBGColor);
+		// hi.selBorderPenID = eHUDProp_SBorderColor (and +1 to size)
+		hi.selBorderPenID = getOrCreatePenID(aHUDBuilder,
+			strToRGB(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_SBorderColor)),
+			PS_INSIDEFRAME, int(hi.borderSize + 1));
 		// hi.transColor & .eraseBrushID = eHUDProp_TransColor
 		hi.transColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_TransColor));
@@ -910,7 +991,7 @@ void init()
 
 		// Extra data values for specific types
 		if( hi.type == eHUDItemType_RndRect ||
-				 hi.itemType == eHUDItemType_RndRect )
+			hi.itemType == eHUDItemType_RndRect )
 		{
 			hi.radius = u32FromString(
 				getHUDPropStr(aHUDName, eHUDProp_Radius));
@@ -920,6 +1001,11 @@ void init()
 		{
 			hi.bitmapID = getOrCreateBitmapID(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_BitmapPath));
+			aStr = getHUDPropStr(aHUDName, eHUDProp_SBitmapPath);
+			if( aStr.empty() )
+				hi.selBitmapID = hi.bitmapID;
+			else
+				hi.selBitmapID = getOrCreateBitmapID(aHUDBuilder, aStr);
 		}
 	}
 }
@@ -1100,7 +1186,7 @@ void drawElement(
 	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
 	switch(aHUDType)
 	{
-	case eMenuStyle_List:			/* TODO */					break;
+	case eMenuStyle_List:			drawListMenu(aDrawData);	break;
 	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
 	case eMenuStyle_Grid:			/* TODO */					break;
 	case eMenuStyle_Pillar:			/* TODO */					break;
@@ -1167,6 +1253,9 @@ void updateWindowLayout(
 	theWindowSize = theComponentSize;
 	switch(hi.type)
 	{
+	case eMenuStyle_List:
+		theWindowSize.cy *= Menus::itemCount(theHUDElementID);
+		break;
 	case eMenuStyle_4Dir:
 		theWindowSize.cx *= 2;
 		theWindowSize.cy *= 3;
