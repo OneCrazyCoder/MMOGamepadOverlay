@@ -107,8 +107,8 @@ enum ETargetGroupType
 	eTargetGroupType_Last,			// Target gLastGroupTarget (or their pet)
 	eTargetGroupType_Prev,			// Target max(0, gGroupTargetOrigin - 1)
 	eTargetGroupType_Next,			// Target min(max, gGroupTargetOrigin + 1)
-	eTargetGroupType_PrevWrap,		// Target wrap(gGroupTargetOrigin - 1)
-	eTargetGroupType_NextWrap,		// Target wrap(gGroupTargetOrigin + 1)
+	eTargetGroupType_PrevWrap,		// Target decWrap(gGroupTargetOrigin, max)
+	eTargetGroupType_NextWrap,		// Target incWrap(gGroupTargetOrigin, max)
 
 	eTargetGroupType_Num
 };

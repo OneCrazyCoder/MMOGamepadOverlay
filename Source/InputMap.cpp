@@ -170,6 +170,7 @@ static std::vector<Hotspot> sHotspots;
 static std::vector<std::string> sKeyStrings;
 static std::vector<ControlsLayer> sLayers;
 static std::vector<Menu> sMenus;
+static u16 sRootMenuCount = 0;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
 static u8 sTargetGroupSize = 1;
@@ -800,6 +801,7 @@ static Command wordsToSpecialCommand(
 			result.type = eCmdType_MenuReset;
 			result.data = getOrCreateRootMenuID(
 				theBuilder, *aMenuName, theControlsLayerIndex);
+			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
 
@@ -813,6 +815,7 @@ static Command wordsToSpecialCommand(
 			result.type = eCmdType_MenuConfirm;
 			result.data = getOrCreateRootMenuID(
 				theBuilder, *aMenuName, theControlsLayerIndex);
+			return result;
 		}
 
 		// "= Confirm <aMenuName> [Menu] and Close
@@ -826,6 +829,7 @@ static Command wordsToSpecialCommand(
 			result.type = eCmdType_MenuConfirmAndClose;
 			result.data = getOrCreateRootMenuID(
 				theBuilder, *aMenuName, theControlsLayerIndex);
+			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Confirm);
@@ -840,6 +844,7 @@ static Command wordsToSpecialCommand(
 			result.type = eCmdType_MenuBack;
 			result.data = getOrCreateRootMenuID(
 				theBuilder, *aMenuName, theControlsLayerIndex);
+			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Back);
 
@@ -853,6 +858,7 @@ static Command wordsToSpecialCommand(
 			result.type = eCmdType_MenuBack;
 			result.data = getOrCreateRootMenuID(
 				theBuilder, *aMenuName, theControlsLayerIndex);
+			return result;
 		}
 	}
 
@@ -2002,7 +2008,9 @@ static MenuItem stringToMenuItem(
 
 static void buildMenus(InputMapBuilder& theBuilder)
 {
-	mapDebugPrint("Building Menus...\n");
+	sRootMenuCount = u16(sMenus.size());
+	if( sRootMenuCount )
+		mapDebugPrint("Building Menus...\n");
 
 	for(u16 aMenuID = 0; aMenuID < sMenus.size(); ++aMenuID)
 	{
@@ -2298,6 +2306,12 @@ u16 controlsLayerCount()
 u16 hudElementCount()
 {
 	return u16(sHUDElements.size());
+}
+
+
+u16 rootMenuCount()
+{
+	return sRootMenuCount;
 }
 
 

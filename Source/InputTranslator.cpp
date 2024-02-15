@@ -338,7 +338,8 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		{
 			processCommand(theBtnState, aForwardCmd);
 			// Close menu as well if this didn't just switch to a sub-menu
-			if( aForwardCmd.type < eCmdType_FirstMenuControl &&
+			if( aForwardCmd.type != eCmdType_Empty &&
+				aForwardCmd.type < eCmdType_FirstMenuControl &&
 				theBtnState.commandsLayer > 0 )
 			{// Assume removing this layer "closes" the menu
 				removeControlsLayer(theBtnState.commandsLayer);
@@ -415,8 +416,7 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		case eTargetGroupType_PrevWrap:
 			gLastGroupTargetUpdated = true;
 			gGroupTargetOrigin =
-				gGroupTargetOrigin == 0
-					? InputMap::targetGroupSize() - 1 : gGroupTargetOrigin - 1;
+				decWrap(gGroupTargetOrigin, InputMap::targetGroupSize());
 			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
@@ -428,8 +428,7 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		case eTargetGroupType_NextWrap:
 			gLastGroupTargetUpdated = true;
 			gGroupTargetOrigin =
-				gGroupTargetOrigin >= InputMap::targetGroupSize() - 1
-					? 0 : gGroupTargetOrigin + 1;
+				incWrap(gGroupTargetOrigin, InputMap::targetGroupSize());
 			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
 			aForwardCmd.data = InputMap::keyForSpecialAction(
@@ -453,7 +452,8 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		{
 			processCommand(theBtnState, aForwardCmd);
 			// Close menu as well if this didn't just switch to a sub-menu
-			if( aForwardCmd.type < eCmdType_FirstMenuControl &&
+			if( aForwardCmd.type != eCmdType_Empty &&
+				aForwardCmd.type < eCmdType_FirstMenuControl &&
 				theBtnState.commandsLayer > 0 )
 			{// Assume removing this layer "closes" the menu
 				removeControlsLayer(theBtnState.commandsLayer);

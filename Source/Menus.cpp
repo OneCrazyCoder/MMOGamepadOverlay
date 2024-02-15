@@ -13,13 +13,17 @@ namespace Menus
 // MenuInfo
 //-----------------------------------------------------------------------------
 
+struct SubMenuInfo
+{
+	u16 id;
+	u16 selected;
+	SubMenuInfo(u16 id = 0, u16 sel = 0) : id(id), selected(sel) {}
+};
+
 struct MenuInfo
 {
-	u16 selected;
 	EHUDType style;
-	std::vector<u16> subMenuStack;
-
-	MenuInfo() : selected() {}
+	std::vector<SubMenuInfo> subMenuStack;
 };
 
 
@@ -37,13 +41,13 @@ static Command sEmptyMenuCommand = Command();
 
 void init()
 {
-	const u16 kMenuCount = InputMap::menuCount();
-	sMenuInfo.reserve(kMenuCount);
-	sMenuInfo.resize(kMenuCount);
-	for(u16 i = 0; i < kMenuCount; ++i)
+	const u16 kRootMenuCount = InputMap::rootMenuCount();
+	sMenuInfo.reserve(kRootMenuCount);
+	sMenuInfo.resize(kRootMenuCount);
+	for(u16 i = 0; i < kRootMenuCount; ++i)
 	{
 		sMenuInfo[i].style = InputMap::menuStyle(i);
-		sMenuInfo[i].subMenuStack.push_back(i);
+		sMenuInfo[i].subMenuStack.push_back(SubMenuInfo(i));
 	}
 }
 
@@ -56,26 +60,54 @@ void cleanup()
 
 const Command& selectedMenuItemCommand(u16 theMenuID)
 {
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	const u16 aSubMenuID = activeSubMenu(theMenuID);
+	const u16 aSelection = sMenuInfo[theMenuID].subMenuStack.back().selected;
 	gActiveHUD.set(theMenuID);
-	switch(sMenuInfo[theMenuID].style)
-	{
-	case eMenuStyle_4Dir:
+	if( sMenuInfo[theMenuID].style == eMenuStyle_4Dir )
 		return sEmptyMenuCommand;
-	}
-	return sEmptyMenuCommand;
+	return InputMap::commandForMenuItem(aSubMenuID, aSelection);
 }
 
 
 const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
 {
-	const u16 aSubMenuID = activeSubMenu(theMenuID);
+	SubMenuInfo& aSubMenu = sMenuInfo[theMenuID].subMenuStack.back();
+	const u16 aSubMenuID = aSubMenu.id;
+	u16& aSelection = aSubMenu.selected;
+	const u16 aPrevSel = aSelection;
+	const u16 anItemCount = InputMap::menuItemCount(aSubMenuID);
 	gActiveHUD.set(theMenuID);
 	switch(sMenuInfo[theMenuID].style)
 	{
+	case eMenuStyle_List:
+		switch(theDir)
+		{
+		case eCmdDir_L:
+			aSelection = 0;
+			break;
+		case eCmdDir_R:
+			aSelection = anItemCount - 1;
+			break;
+		case eCmdDir_U:
+			if( anItemCount > 2 )
+				aSelection = decWrap(aSelection, anItemCount);
+			else // wrapping can be confusing when only have 2 menu items...
+				aSelection = 0;
+			break;
+		case eCmdDir_D:
+			if( anItemCount > 2 )
+				aSelection = incWrap(aSelection, anItemCount);
+			else
+				aSelection = anItemCount - 1;
+			break;
+		}
+		break;
 	case eMenuStyle_4Dir:
 		return InputMap::commandForMenuItem(aSubMenuID, theDir);
 	}
+
+	if( aSelection != aPrevSel )
+		gRedrawHUD.set(theMenuID);
 	return sEmptyMenuCommand;
 }
 
@@ -94,9 +126,9 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 		return;
 	}
 	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
-	if( sMenuInfo[theMenuID].subMenuStack.back() != theSubMenuID )
+	if( sMenuInfo[theMenuID].subMenuStack.back().id != theSubMenuID )
 	{
-		sMenuInfo[theMenuID].subMenuStack.push_back(theSubMenuID);
+		sMenuInfo[theMenuID].subMenuStack.push_back(SubMenuInfo(theSubMenuID));
 		DBG_ASSERT(theMenuID < gRedrawHUD.size());
 		gRedrawHUD.set(theMenuID);
 		gActiveHUD.set(theMenuID);
@@ -128,6 +160,12 @@ void reset(u16 theMenuID)
 		DBG_ASSERT(theMenuID < gRedrawHUD.size());
 		gRedrawHUD.set(theMenuID);
 	}
+	if( sMenuInfo[theMenuID].subMenuStack[0].selected != 0 )
+	{
+		sMenuInfo[theMenuID].subMenuStack[0].selected = 0;
+		DBG_ASSERT(theMenuID < gRedrawHUD.size());
+		gRedrawHUD.set(theMenuID);
+	}
 }
 
 
@@ -136,7 +174,26 @@ u16 activeSubMenu(u16 theMenuID)
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID < sMenuInfo.size());
 	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
-	return sMenuInfo[theMenuID].subMenuStack.back();
+	return sMenuInfo[theMenuID].subMenuStack.back().id;
+}
+
+
+u16 selectedItem(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
+	return sMenuInfo[theMenuID].subMenuStack.back().selected;
+}
+
+
+u16 itemCount(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
+	return InputMap::menuItemCount(
+		sMenuInfo[theMenuID].subMenuStack.back().id);
 }
 
 } // Menus
