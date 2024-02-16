@@ -36,6 +36,7 @@ enum ECommandType
 
 	// These control Menu selections/state
 	eCmdType_OpenSubMenu,
+	eCmdType_ReplaceMenu,
 	eCmdType_MenuReset,
 	eCmdType_MenuConfirm,
 	eCmdType_MenuConfirmAndClose,
@@ -176,10 +177,12 @@ enum EButton
 enum EHUDType
 {
 	eMenuStyle_List,
-	eMenuStyle_4Dir,
-	eMenuStyle_Grid,
-	eMenuStyle_Pillar,
+	eMenuStyle_ListWrap,
+	eMenuStyle_Slots,
 	eMenuStyle_Bar,
+	eMenuStyle_4Dir,
+	eMenuStyle_GridX,
+	eMenuStyle_GridY,
 	eMenuStlye_Ring,
 	eMenuStyle_Radial,
 

@@ -40,16 +40,17 @@ std::string removeTrailingSlash(const std::string& theDirectory);
 std::string addTrailingSlash(const std::string& theDirectory, bool backSlash = false);
 bool isAbsolutePath(const std::string& thePath);
 
-// Returns string before first theChar, and removes it from theString
+// Returns string before first theChar, and removes it+theChar from theString
 // Also trims whitespace around returned string and start of theString
 // If theChar is not found, returns empty string and leaves theString as-is
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
+// Same as above but for last item after last instance of theChar
+std::string breakOffLastItemAferChar(std::string& theString, char theChar = ',');
 // Breaks the string into individual sub-strings of ASCII alhanumeric characters,
 // and appends them to the passed-in vector of strings. All other characters are
 // stripped and act as separators for each "word" except for hyphenated or under-
 // scored words which are conjoined (Left-Click or Left_Click becomes LeftClick).
 void sanitizeSentence(const std::string& theString, std::vector<std::string>& out);
-
 
 // Conversion between numbers and (pure ASCII) strings
 std::string commaSeparate(u32 theValue);

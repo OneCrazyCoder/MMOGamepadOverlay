@@ -26,7 +26,6 @@ const char* kHUDPrefix = "HUD.";
 const char* kTypeKeys[] = { "Type", "Style" };
 const char* kKeybindsPrefix = "KeyBinds/";
 const char* kGlobalHotspotsPrefix = "Hotspots/";
-const char* kMenuItemLabelPrefix = "Item";
 const char* k4DirMenuItemLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
 DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 
@@ -108,6 +107,7 @@ struct Menu
 {
 	std::string label;
 	std::vector<MenuItem> items;
+	MenuItem dirItems[eCmdDir_Num];
 	u16 rootMenuID;
 	u16 hudElementID;
 
@@ -157,6 +157,7 @@ struct InputMapBuilder
 	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<u16> layerNameToIdxMap;
 	StringToValueMap<u16> hudNameToIdxMap;
+	StringToValueMap<u16> menuPathToIdxMap;
 	std::vector<std::string> menuFullPathStrings;
 	std::string debugItemName;
 };
@@ -537,9 +538,8 @@ static u16 getOrCreateHUDElementID(
 	DBG_ASSERT(!theName.empty());
 
 	// Check if already exists, and if so return the ID
-	const std::string& aKeyName = upper(theName);
 	u16 aHUDElementID = theBuilder.hudNameToIdxMap.findOrAdd(
-		aKeyName, u16(sHUDElements.size()));
+		upper(theName), u16(sHUDElements.size()));
 	if( aHUDElementID < sHUDElements.size() )
 		return aHUDElementID;
 
@@ -615,16 +615,20 @@ static u16 getOrCreateHUDElementID(
 		aHUDElement.type < eMenuStyle_End )
 	{
 		// Add new Root Menu to sMenus and link the Menu and HUDElement
-		u16 aMenuID = u16(sMenus.size());
-		sMenus.push_back(Menu());
-		Menu& aMenu = sMenus.back();
-		aMenu.label = theName;
-		aMenu.rootMenuID = aMenuID;
-		aMenu.hudElementID = aHUDElementID;
-		aHUDElement.menuID = aMenuID;
+		u16 aMenuID = theBuilder.menuPathToIdxMap.findOrAdd(
+			upper(aMenuPath), u16(sMenus.size()));
+		if( aMenuID == sMenus.size() )
+		{
+			sMenus.push_back(Menu());
+			Menu& aMenu = sMenus.back();
+			aMenu.label = theName;
+			aMenu.rootMenuID = aMenuID;
+			aMenu.hudElementID = aHUDElementID;
 
-		// Add the menu path to menuFullPathStrings for later lookup
-		theBuilder.menuFullPathStrings.push_back(aMenuPath);
+			// Add the menu path to menuFullPathStrings for later lookup
+			theBuilder.menuFullPathStrings.push_back(aMenuPath);
+		}
+		aHUDElement.menuID = aMenuID;
 	}
 
 	return aHUDElementID;
@@ -647,6 +651,48 @@ static u16 getOrCreateRootMenuID(
 	DBG_ASSERT(aHUDElement.type < eMenuStyle_End);
 	DBG_ASSERT(aHUDElement.menuID < sMenus.size());
 	return aHUDElement.menuID;
+}
+
+
+static u16 getOrCreateMenuID(
+	InputMapBuilder& theBuilder,
+	const std::string& theMenuName,
+	u16 theParentMenuID)
+{
+	DBG_ASSERT(!theMenuName.empty());
+	DBG_ASSERT(theParentMenuID < sMenus.size());
+	DBG_ASSERT(theBuilder.menuFullPathStrings.size() == sMenus.size());
+
+	std::string aFullPath = theBuilder.menuFullPathStrings[theParentMenuID];
+	if( theMenuName[0] == '.' )
+	{// Treat a name starting with . as being the same "level" as parent
+		breakOffLastItemAferChar(aFullPath, '.');
+		// Can't be on same level as the root menu though...
+		const std::string aRootMenuPath =
+			theBuilder.menuFullPathStrings[sMenus[theParentMenuID].rootMenuID];
+		if( aFullPath.size() < aRootMenuPath.size() )
+			aFullPath = aRootMenuPath;
+		// ".." means to treat the menu name AS the parent menu's name
+		if( theMenuName != ".." )
+			aFullPath += theMenuName;
+	}
+	else
+	{
+		aFullPath += "." + theMenuName;
+	}
+
+	u16 aMenuID = theBuilder.menuPathToIdxMap.findOrAdd(
+		upper(aFullPath), u16(sMenus.size()));
+	if( aMenuID < sMenus.size() )
+		return aMenuID;
+
+	sMenus.push_back(Menu());
+	Menu& aMenu = sMenus.back();
+	aMenu.label = theMenuName;
+	aMenu.rootMenuID = sMenus[theParentMenuID].rootMenuID;
+	aMenu.hudElementID = sMenus[theParentMenuID].hudElementID;
+	theBuilder.menuFullPathStrings.push_back(aFullPath);
+	return aMenuID;
 }
 
 
@@ -1913,8 +1959,6 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 
 static MenuItem stringToMenuItem(
 	InputMapBuilder& theBuilder,
-	u16 theRootMenuID,
-	u16 theHUDElementID,
 	u16 theMenuID,
 	std::string theString)
 {
@@ -1931,19 +1975,23 @@ static MenuItem stringToMenuItem(
 
 	if( aMenuItem.label.empty() && !theString.empty() )
 	{// Having no : character means this points to a sub-menu
-		aMenuItem.label = trim(theString);
+		const size_t anOldMenuCount = sMenus.size();
 		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
-		aMenuItem.cmd.data = u16(sMenus.size());
-		sMenus.push_back(Menu());
-		sMenus.back().rootMenuID = theRootMenuID;
-		sMenus.back().hudElementID = theHUDElementID;
-		sMenus.back().label = aMenuItem.label;
-		theBuilder.menuFullPathStrings.push_back(
-			theBuilder.menuFullPathStrings[theMenuID] +
-			"." + aMenuItem.label);
-		mapDebugPrint("%s: Sub-Menu: '%s'\n",
-			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str());
+		aMenuItem.cmd.data = getOrCreateMenuID(
+			theBuilder, trim(theString), theMenuID);
+		aMenuItem.label = sMenus[aMenuItem.cmd.data].label;
+		if( sMenus.size() > anOldMenuCount )
+		{
+			mapDebugPrint("%s: Sub-Menu: '%s'\n",
+				theBuilder.debugItemName.c_str(),
+				aMenuItem.label.c_str());
+		}
+		else
+		{
+			mapDebugPrint("%s: Swap to '%s'\n",
+				theBuilder.debugItemName.c_str(),
+				theBuilder.menuFullPathStrings[aMenuItem.cmd.data].c_str());
+		}
 		return aMenuItem;
 	}
 
@@ -2017,8 +2065,6 @@ static void buildMenus(InputMapBuilder& theBuilder)
 		DBG_ASSERT(aMenuID < theBuilder.menuFullPathStrings.size());
 		const std::string aPrefix =
 			theBuilder.menuFullPathStrings[aMenuID];
-		const u16 aRootMenuID = sMenus[aMenuID].rootMenuID;
-		DBG_ASSERT(aRootMenuID < sMenus.size());
 		const u16 aHUDElementID = sMenus[aMenuID].hudElementID;
 		DBG_ASSERT(aHUDElementID < sHUDElements.size());
 		const EHUDType aMenuStyle = sHUDElements[aHUDElementID].type;
@@ -2028,39 +2074,50 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			std::string("[") + aPrefix + "] (";
 
 		u16 itemIdx = 0;
-		const u16 minItems = aMenuStyle == eMenuStyle_4Dir ? 4 : 1;
-		const u16 maxItems = aMenuStyle == eMenuStyle_4Dir ? 4 : 16384;
-		sMenus[aMenuID].items.reserve(minItems);
-		bool lastItemWasFound = false;
-		while(itemIdx < maxItems &&
-			  (itemIdx < minItems || lastItemWasFound))
+		bool checkForNextMenuItem = aMenuStyle != eMenuStyle_4Dir;
+		while(checkForNextMenuItem)
 		{
-			std::string aMenuItemKeyName =
-				kMenuItemLabelPrefix + toString(itemIdx+1);
-			std::string aMenuItemString = Profile::getStr(
+			checkForNextMenuItem = false;
+			const std::string& aMenuItemKeyName = toString(itemIdx+1);
+			const std::string& aMenuItemString = Profile::getStr(
 				aPrefix + "/" + aMenuItemKeyName);
-			if( aMenuItemString.empty() &&
-				aMenuStyle == eMenuStyle_4Dir &&
-				itemIdx < minItems )
-			{
-				aMenuItemKeyName = k4DirMenuItemLabel[itemIdx];
-				aMenuItemString = Profile::getStr(
-					aPrefix + "/" + aMenuItemKeyName);
-			}
-			lastItemWasFound = !aMenuItemString.empty();
-			if( lastItemWasFound || itemIdx < minItems )
+			checkForNextMenuItem = !aMenuItemString.empty();
+			if( checkForNextMenuItem || itemIdx == 0 )
 			{
 				theBuilder.debugItemName =
 					aDebugNamePrefix + aMenuItemKeyName + ")";
 				sMenus[aMenuID].items.push_back(
 					stringToMenuItem(
 						theBuilder,
-						aRootMenuID,
-						aHUDElementID,
 						aMenuID,
 						aMenuItemString));
 			}
 			++itemIdx;
+		}
+		for(itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
+		{
+			const std::string aMenuItemKeyName = k4DirMenuItemLabel[itemIdx];
+			const std::string& aMenuItemString = Profile::getStr(
+				aPrefix + "/" + aMenuItemKeyName);
+			if( !aMenuItemString.empty() || aMenuStyle == eMenuStyle_4Dir )
+			{
+				theBuilder.debugItemName =
+					aDebugNamePrefix + aMenuItemKeyName + ")";
+				sMenus[aMenuID].dirItems[itemIdx] =
+					stringToMenuItem(
+						theBuilder,
+						aMenuID,
+						aMenuItemString);
+				MenuItem& aMenuItem = sMenus[aMenuID].dirItems[itemIdx];
+				if( aMenuItem.cmd.type == eCmdType_OpenSubMenu &&
+					aMenuStyle != eMenuStyle_4Dir )
+				{
+					// Requests to open sub-menus with directionals in
+					// most menu styles sholud use replace menu instead,
+					// so they behave like "side" instead of "sub" menus
+					aMenuItem.cmd.type = eCmdType_ReplaceMenu;
+				}
+			}
 		}
 	}
 }
@@ -2262,6 +2319,14 @@ const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 }
 
 
+const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	DBG_ASSERT(theDir < eCmdDir_Num);
+	return sMenus[theMenuID].dirItems[theDir].cmd;
+}
+
+
 EHUDType menuStyle(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
@@ -2294,6 +2359,20 @@ EHUDType hudElementType(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
 	return sHUDElements[theHUDElementID].type;
+}
+
+
+u16 menuForHUDElement(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElements.size());
+	return sHUDElements[theHUDElementID].menuID;
+}
+
+
+u16 hudElementForMenu(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	return sMenus[theMenuID].hudElementID;
 }
 
 
@@ -2359,6 +2438,14 @@ const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx)
 	DBG_ASSERT(theMenuID < sMenus.size());
 	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());
 	return sMenus[theMenuID].items[theMenuItemIdx].label;
+}
+
+
+const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	DBG_ASSERT(theDir < eCmdDir_Num);
+	return sMenus[theMenuID].dirItems[theDir].label;
 }
 
 

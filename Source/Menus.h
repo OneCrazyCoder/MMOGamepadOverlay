@@ -35,11 +35,16 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir);
 // to the sub-menu's data instead untli it is closed.
 void openSubMenu(u16 theMenuID, u16 theSubMenuID);
 
-// Removes the most recently-added sub-menu from openSubMenu, returning to
+// Similar result to openSubMenu but replaces current menu entirely instead
+// of adding it to menu stack, changing how closeLastSubMenu() below behaves
+void replaceMenu(u16 theMenuID, u16 theReplacementMenuID);
+
+// Removes the most recently-added sub-menu (via openSubMenu), returning to
 // whichever sub-menu (or the root menu) was active before then.
 void closeLastSubMenu(u16 theMenuID);
 
-// Resets menu to its default state (closes all sub-menus & resets selection)
+// Resets menu to its default state (closes all sub-menus & resets selection),
+// but does NOT trigger this as "activating" the menu in terms of alpha fade
 void reset(u16 theMenuID);
 
 // Returns current active sub-menu of given root menu

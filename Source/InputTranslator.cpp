@@ -324,6 +324,9 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 	case eCmdType_OpenSubMenu:
 		Menus::openSubMenu(theCmd.data2, theCmd.data);
 		break;
+	case eCmdType_ReplaceMenu:
+		Menus::replaceMenu(theCmd.data2, theCmd.data);
+		break;
 	case eCmdType_MenuReset:
 		Menus::reset(theCmd.data);
 		break;

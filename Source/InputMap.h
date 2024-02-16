@@ -42,6 +42,7 @@ const BitVector<>& hudElementsToHide(u16 theLayerID);
 
 // MENUS
 const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
+const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
 
@@ -53,6 +54,7 @@ EResult profileStringToHotspot(std::string& theString, Hotspot& out);
 EHUDType hudElementType(u16 theHUDElementID);
 // Returns menuCount() if HUD element isn't associated with a menu
 u16 menuForHUDElement(u16 theHUDElementID);
+u16 hudElementForMenu(u16 theMenuID);
 
 // SIZES
 u16 controlsLayerCount();
@@ -67,6 +69,7 @@ u8 targetGroupSize();
 const std::string& layerLabel(u16 theLayerID);
 const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
+const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir);
 const std::string& hudElementLabel(u16 theHUDElementID);
 
 } // InputMap
