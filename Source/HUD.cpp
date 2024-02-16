@@ -767,6 +767,64 @@ static void drawListMenu(HUDDrawData& dd)
 }
 
 
+static void drawSlotsMenu(HUDDrawData& dd)
+{
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const u16 aPrevSubMenuID = hi.subMenuID;
+	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
+	const u16 aPrevSelection = hi.selection;
+	const u16 aSelection = Menus::selectedItem(dd.hudElementID);
+	const u16 anItemCount = Menus::itemCount(dd.hudElementID);
+	DBG_ASSERT(aSelection < anItemCount);
+	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
+		sMenuDrawCache[aSubMenuID].resize(anItemCount);
+
+	RECT anItemRect = { 0 };
+	anItemRect.right = dd.itemSize.cx;
+	anItemRect.bottom = dd.itemSize.cy;
+	// Draw selected item on top
+	for(u16 itemIdx = aSelection; itemIdx < anItemCount; ++itemIdx)
+	{
+		if( !dd.firstDraw &&
+			aSubMenuID != aPrevSubMenuID &&
+			hi.itemType != eHUDItemType_Rect )
+		{
+			// Non-_Rect menu items need to erase the full rect when
+			// the label (sub-menu) changes (except for firstDraw),
+			// in case old label poked out of the background shape.
+			FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
+		}
+		drawMenuItem(dd, anItemRect,
+			InputMap::menuItemLabel(aSubMenuID, itemIdx),
+			sMenuDrawCache[aSubMenuID][itemIdx],
+			itemIdx == aSelection);
+		anItemRect.top = anItemRect.bottom;
+		anItemRect.bottom += dd.itemSize.cy;
+	}
+	// Draw rest of the items below
+	for(u16 itemIdx = 0; itemIdx < aSelection; ++itemIdx)
+	{
+		if( !dd.firstDraw &&
+			aSubMenuID != aPrevSubMenuID &&
+			hi.itemType != eHUDItemType_Rect )
+		{
+			FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
+		}
+		drawMenuItem(dd, anItemRect,
+			InputMap::menuItemLabel(aSubMenuID, itemIdx),
+			sMenuDrawCache[aSubMenuID][itemIdx],
+			itemIdx == aSelection);
+		anItemRect.top = anItemRect.bottom;
+		anItemRect.bottom += dd.itemSize.cy;
+	}
+
+	hi.subMenuID = aSubMenuID;
+	hi.selection = aSelection;
+}
+
+
 static void draw4DirMenu(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -1186,7 +1244,7 @@ void drawElement(
 	{
 	case eMenuStyle_List:
 	case eMenuStyle_ListWrap:		drawListMenu(aDrawData);	break;
-	case eMenuStyle_Slots:			/* TODO */					break;
+	case eMenuStyle_Slots:			drawSlotsMenu(aDrawData);	break;
 	case eMenuStyle_Bar:			/* TODO */					break;
 	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
 	case eMenuStyle_GridX:			/* TODO */					break;
