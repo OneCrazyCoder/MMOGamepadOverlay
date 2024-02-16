@@ -327,6 +327,11 @@ EHUDType hudTypeNameToID(const std::string& theName)
 			map.setValue("ROW",					eMenuStyle_Bar);
 			map.setValue("ROWS",				eMenuStyle_Bar);
 			map.setValue("HOTBAR",				eMenuStyle_Bar);
+			map.setValue("BARWRAP",				eMenuStyle_BarWrap);
+			map.setValue("BARSWRAP",			eMenuStyle_BarWrap);
+			map.setValue("ROWWRAP",				eMenuStyle_BarWrap);
+			map.setValue("ROWSWRAP",			eMenuStyle_BarWrap);
+			map.setValue("HOTBARWRAP",			eMenuStyle_BarWrap);
 			map.setValue("4DIR",				eMenuStyle_4Dir);
 			map.setValue("COMPASS",				eMenuStyle_4Dir);
 			map.setValue("CROSS",				eMenuStyle_4Dir);
@@ -334,13 +339,8 @@ EHUDType hudTypeNameToID(const std::string& theName)
 			map.setValue("DIR",					eMenuStyle_4Dir);
 			map.setValue("DIRECTIONS",			eMenuStyle_4Dir);
 			map.setValue("DIRECTIONAL",			eMenuStyle_4Dir);
-			map.setValue("GRID",				eMenuStyle_GridX);
-			map.setValue("GRIDX",				eMenuStyle_GridX);
-			map.setValue("GRIDW",				eMenuStyle_GridX);
-			map.setValue("GRIDWIDTH",			eMenuStyle_GridX);
-			map.setValue("GRIDY",				eMenuStyle_GridY);
-			map.setValue("GRIDH",				eMenuStyle_GridY);
-			map.setValue("GRIDHEIGHT",			eMenuStyle_GridY);
+			map.setValue("GRID",				eMenuStyle_Grid);
+			map.setValue("GRIDWRAP",			eMenuStyle_GridWrap);
 			map.setValue("RING",				eMenuStlye_Ring);
 			map.setValue("RADIAL",				eMenuStyle_Radial);
 			map.setValue("RECTANGLE",			eHUDItemType_Rect);

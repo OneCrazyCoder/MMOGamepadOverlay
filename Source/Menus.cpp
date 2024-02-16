@@ -129,6 +129,36 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
 			break;
 		}
 		break;
+	case eMenuStyle_Bar:
+	case eMenuStyle_BarWrap:
+		switch(theDir)
+		{
+		case eCmdDir_L:
+			aSelection =
+				(aMenuStyle == eMenuStyle_Bar || anItemCount <= 2) 
+					? max(0, (signed)aSelection - 1)
+					: decWrap(aSelection, anItemCount);
+			break;
+		case eCmdDir_R:
+			aSelection =
+				(aMenuStyle == eMenuStyle_Bar || anItemCount <= 2) 
+					? min(anItemCount - 1, aSelection + 1)
+					: incWrap(aSelection, anItemCount);
+			break;
+		case eCmdDir_U:
+			if( aDirCmd.type == eCmdType_Empty )
+				aSelection = 0;
+			else
+				return aDirCmd;
+			break;
+		case eCmdDir_D:
+			if( aDirCmd.type == eCmdType_Empty )
+				aSelection = anItemCount - 1;
+			else
+				return aDirCmd;
+			break;
+		}
+		break;
 	case eMenuStyle_4Dir:
 		return aDirCmd;
 	}

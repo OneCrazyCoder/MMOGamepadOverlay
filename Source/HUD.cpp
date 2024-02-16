@@ -825,6 +825,48 @@ static void drawSlotsMenu(HUDDrawData& dd)
 }
 
 
+static void drawBarMenu(HUDDrawData& dd)
+{
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const u16 aPrevSubMenuID = hi.subMenuID;
+	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
+	const u16 aPrevSelection = hi.selection;
+	const u16 aSelection = Menus::selectedItem(dd.hudElementID);
+	const u16 anItemCount = Menus::itemCount(dd.hudElementID);
+	DBG_ASSERT(aSelection < anItemCount);
+	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
+		sMenuDrawCache[aSubMenuID].resize(anItemCount);
+
+	RECT anItemRect = { 0 };
+	anItemRect.right = dd.itemSize.cx;
+	anItemRect.bottom = dd.itemSize.cy;
+	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
+	{
+		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID ||
+			itemIdx == aPrevSelection || itemIdx == aSelection )
+		{
+			if( !dd.firstDraw &&
+				aSubMenuID != aPrevSubMenuID &&
+				hi.itemType != eHUDItemType_Rect )
+			{
+				FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
+			}
+			drawMenuItem(dd, anItemRect,
+				InputMap::menuItemLabel(aSubMenuID, itemIdx),
+				sMenuDrawCache[aSubMenuID][itemIdx],
+				itemIdx == aSelection);
+		}
+		anItemRect.left = anItemRect.right;
+		anItemRect.right += dd.itemSize.cx;
+	}
+
+	hi.subMenuID = aSubMenuID;
+	hi.selection = aSelection;
+}
+
+
 static void draw4DirMenu(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -1245,10 +1287,11 @@ void drawElement(
 	case eMenuStyle_List:
 	case eMenuStyle_ListWrap:		drawListMenu(aDrawData);	break;
 	case eMenuStyle_Slots:			drawSlotsMenu(aDrawData);	break;
-	case eMenuStyle_Bar:			/* TODO */					break;
+	case eMenuStyle_Bar:
+	case eMenuStyle_BarWrap:		drawBarMenu(aDrawData);		break;
 	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
-	case eMenuStyle_GridX:			/* TODO */					break;
-	case eMenuStyle_GridY:			/* TODO */					break;
+	case eMenuStyle_Grid:
+	case eMenuStyle_GridWrap:		/* TODO */					break;
 	case eMenuStlye_Ring:			/* TODO */					break;
 	case eMenuStyle_Radial:			/* TODO */					break;
 	case eHUDType_GroupTarget:		drawBasicHUD(aDrawData);	break;
@@ -1315,6 +1358,10 @@ void updateWindowLayout(
 	case eMenuStyle_ListWrap:
 	case eMenuStyle_Slots:
 		theWindowSize.cy *= Menus::itemCount(theHUDElementID);
+		break;
+	case eMenuStyle_Bar:
+	case eMenuStyle_BarWrap:
+		theWindowSize.cx *= Menus::itemCount(theHUDElementID);
 		break;
 	case eMenuStyle_4Dir:
 		theWindowSize.cx *= 2;

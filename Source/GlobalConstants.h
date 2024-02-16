@@ -180,9 +180,10 @@ enum EHUDType
 	eMenuStyle_ListWrap,
 	eMenuStyle_Slots,
 	eMenuStyle_Bar,
+	eMenuStyle_BarWrap,
 	eMenuStyle_4Dir,
-	eMenuStyle_GridX,
-	eMenuStyle_GridY,
+	eMenuStyle_Grid,
+	eMenuStyle_GridWrap,
 	eMenuStlye_Ring,
 	eMenuStyle_Radial,
 
