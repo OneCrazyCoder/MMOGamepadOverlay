@@ -430,6 +430,22 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 		theString.erase(0, aCharPos);
 	}
 
+	return result;
+}
+
+
+std::string breakOffLastItemAferChar(std::string& theString, char theChar)
+{
+	std::string result;
+	size_t aCharPos = theString.rfind(theChar);
+	
+	if( aCharPos != std::string::npos )
+	{
+		result = trim(theString.substr(aCharPos+1));
+		theString = theString.substr(0, aCharPos);
+		while(!theString.empty() && theString[theString.size()-1] <= ' ')
+			theString.resize(theString.size()-1);
+	}
 
 	return result;
 }

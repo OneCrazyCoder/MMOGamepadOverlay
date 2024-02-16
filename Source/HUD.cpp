@@ -4,7 +4,7 @@
 
 #include "HUD.h"
 
-#include "InputMap.h" // labels, profileStringToHotspot()
+#include "InputMap.h" // labels, profileStringToHotspot(), menuForHUDElement()
 #include "Lookup.h"
 #include "Menus.h" // activeSubMenu()
 #include "Profile.h"
@@ -192,7 +192,7 @@ static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
 static std::vector<HBITMAP> sBitmaps;
 static std::vector<HUDElementInfo> sHUDElementInfo;
-static std::vector< std::vector<HUDDrawCacheEntry> > sDrawCache;
+static std::vector< std::vector<HUDDrawCacheEntry> > sMenuDrawCache;
 static VectorMap<std::pair<u16, LONG>, u16> sResizedFontsMap;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
@@ -723,16 +723,16 @@ static void drawMenuItem(
 static void drawListMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	DBG_ASSERT(hi.type == eMenuStyle_List);
 	const u16 aPrevSubMenuID = hi.subMenuID;
-	const u16 aSubMenuID = Menus::activeSubMenu(dd.hudElementID);
-	DBG_ASSERT(aSubMenuID < sDrawCache.size());
+	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
 	const u16 aSelection = Menus::selectedItem(dd.hudElementID);
 	const u16 anItemCount = Menus::itemCount(dd.hudElementID);
 	DBG_ASSERT(aSelection < anItemCount);
-	if( sDrawCache[aSubMenuID].size() < anItemCount )
-		sDrawCache[aSubMenuID].resize(anItemCount);
+	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
+		sMenuDrawCache[aSubMenuID].resize(anItemCount);
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
@@ -755,7 +755,7 @@ static void drawListMenu(HUDDrawData& dd)
 			}
 			drawMenuItem(dd, anItemRect,
 				InputMap::menuItemLabel(aSubMenuID, itemIdx),
-				sDrawCache[aSubMenuID][itemIdx],
+				sMenuDrawCache[aSubMenuID][itemIdx],
 				itemIdx == aSelection);
 		}
 		anItemRect.top = anItemRect.bottom;
@@ -770,16 +770,14 @@ static void drawListMenu(HUDDrawData& dd)
 static void draw4DirMenu(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	DBG_ASSERT(hi.type == eMenuStyle_4Dir);
-	const u16 aSubMenuID = Menus::activeSubMenu(dd.hudElementID);
-	DBG_ASSERT(aSubMenuID < sDrawCache.size());
+	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 
 	if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
 		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
-
-	// Always 4 menu items, in order of L->R->U->D
-	if( sDrawCache[aSubMenuID].size() < 4 )
-		sDrawCache[aSubMenuID].resize(4);
+	if( sMenuDrawCache[aSubMenuID].size() < 4 )
+		sMenuDrawCache[aSubMenuID].resize(4);
 
 	// Left
 	RECT anItemRect;
@@ -788,28 +786,28 @@ static void draw4DirMenu(HUDDrawData& dd)
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(aSubMenuID, 0),
-		sDrawCache[aSubMenuID][0]);
+		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Left),
+		sMenuDrawCache[aSubMenuID][eCmdDir_Left]);
 	// Right
 	anItemRect.left += dd.itemSize.cx;
 	anItemRect.right += dd.itemSize.cx;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(aSubMenuID, 1),
-		sDrawCache[aSubMenuID][1]);
+		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Right),
+		sMenuDrawCache[aSubMenuID][eCmdDir_Right]);
 	// Up
 	anItemRect.left -= dd.itemSize.cx / 2;
 	anItemRect.top = 0;
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(aSubMenuID, 2),
-		sDrawCache[aSubMenuID][2]);
+		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Up),
+		sMenuDrawCache[aSubMenuID][eCmdDir_Up]);
 	// Down
 	anItemRect.top += dd.itemSize.cy * 2;
 	anItemRect.bottom += dd.itemSize.cy * 2;
 	drawMenuItem(dd, anItemRect,
-		InputMap::menuItemLabel(aSubMenuID, 3),
-		sDrawCache[aSubMenuID][3]);
+		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Down),
+		sMenuDrawCache[aSubMenuID][eCmdDir_Down]);
 }
 
 
@@ -864,7 +862,7 @@ void init()
 
 	HUDBuilder aHUDBuilder;
 	sHUDElementInfo.resize(InputMap::hudElementCount());
-	sDrawCache.resize(InputMap::menuCount());
+	sMenuDrawCache.resize(InputMap::menuCount());
 
 	sBitmaps.push_back(NULL);
 	aHUDBuilder.fileToBitmapMap.addPair(0, NULL);
@@ -1021,7 +1019,7 @@ void cleanup()
 		DeleteObject(sPens[i]);
 	for(size_t i = 0; i < sBitmaps.size(); ++i)
 		DeleteObject(sBitmaps[i]);
-	sDrawCache.clear();
+	sMenuDrawCache.clear();
 	sResizedFontsMap.clear();
 	sFonts.clear();
 	sBrushes.clear();
@@ -1123,10 +1121,10 @@ void update()
 
 void clearCache()
 {
-	for(size_t i = 0; i < sDrawCache.size(); ++i)
+	for(size_t i = 0; i < sMenuDrawCache.size(); ++i)
 	{
-		for(size_t j = 0; j < sDrawCache[i].size(); ++j)
-			sDrawCache[i][j].initialized = false;
+		for(size_t j = 0; j < sMenuDrawCache[i].size(); ++j)
+			sMenuDrawCache[i][j].initialized = false;
 	}
 }
 
@@ -1186,11 +1184,13 @@ void drawElement(
 	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
 	switch(aHUDType)
 	{
-	case eMenuStyle_List:			drawListMenu(aDrawData);	break;
-	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
-	case eMenuStyle_Grid:			/* TODO */					break;
-	case eMenuStyle_Pillar:			/* TODO */					break;
+	case eMenuStyle_List:
+	case eMenuStyle_ListWrap:		drawListMenu(aDrawData);	break;
+	case eMenuStyle_Slots:			/* TODO */					break;
 	case eMenuStyle_Bar:			/* TODO */					break;
+	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
+	case eMenuStyle_GridX:			/* TODO */					break;
+	case eMenuStyle_GridY:			/* TODO */					break;
 	case eMenuStlye_Ring:			/* TODO */					break;
 	case eMenuStyle_Radial:			/* TODO */					break;
 	case eHUDType_GroupTarget:		drawBasicHUD(aDrawData);	break;
@@ -1254,6 +1254,8 @@ void updateWindowLayout(
 	switch(hi.type)
 	{
 	case eMenuStyle_List:
+	case eMenuStyle_ListWrap:
+	case eMenuStyle_Slots:
 		theWindowSize.cy *= Menus::itemCount(theHUDElementID);
 		break;
 	case eMenuStyle_4Dir:
