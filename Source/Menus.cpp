@@ -5,6 +5,7 @@
 #include "Menus.h"
 
 #include "InputMap.h"
+#include "Profile.h"
 
 namespace Menus
 {
@@ -22,9 +23,10 @@ struct SubMenuInfo
 
 struct MenuInfo
 {
+	std::vector<SubMenuInfo> subMenuStack;
 	EHUDType style;
 	u16 hudElementID;
-	std::vector<SubMenuInfo> subMenuStack;
+	u8 gridWidth;
 };
 
 
@@ -47,9 +49,24 @@ void init()
 	sMenuInfo.resize(kRootMenuCount);
 	for(u16 i = 0; i < kRootMenuCount; ++i)
 	{
+		sMenuInfo[i].subMenuStack.push_back(SubMenuInfo(i));
 		sMenuInfo[i].style = InputMap::menuStyle(i);
 		sMenuInfo[i].hudElementID = InputMap::hudElementForMenu(i);
-		sMenuInfo[i].subMenuStack.push_back(SubMenuInfo(i));
+		sMenuInfo[i].gridWidth = 1;
+		if( sMenuInfo[i].style == eMenuStyle_Grid ||
+			sMenuInfo[i].style == eMenuStyle_GridWrap )
+		{
+			std::string aKey = "Menu.";
+			aKey += InputMap::menuLabel(i);
+			aKey += "/GridWidth";
+			sMenuInfo[i].gridWidth =
+				u8(max(0, intFromString(Profile::getStr(aKey))) & 0xFF);
+			if( sMenuInfo[i].gridWidth == 0 )
+			{// Auto-calculate grid width based on item count
+				sMenuInfo[i].gridWidth =
+					u8(u32(ceil(sqrt(double(itemCount(i))))) & 0xFF);
+			}
+		}
 	}
 }
 
@@ -94,6 +111,7 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
 	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
 
 	const EHUDType aMenuStyle = sMenuInfo[theMenuID].style;
+	const u16 aGridWidth = gridWidth(theMenuID);
 	switch(aMenuStyle)
 	{
 	case eMenuStyle_List:
@@ -161,6 +179,41 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
 		break;
 	case eMenuStyle_4Dir:
 		return aDirCmd;
+	case eMenuStyle_Grid:
+	case eMenuStyle_GridWrap:
+		switch(theDir)
+		{
+		case eCmdDir_L:
+			if( aSelection % aGridWidth != 0 )
+				--aSelection;
+			else if( aMenuStyle == eMenuStyle_GridWrap )
+				aSelection = min(anItemCount - 1, aSelection + aGridWidth - 1);
+			break;
+		case eCmdDir_R:
+			if( aSelection % aGridWidth != aGridWidth - 1 &&
+				aSelection < anItemCount - 1 )
+				++aSelection;
+			else if( aMenuStyle == eMenuStyle_GridWrap )
+				aSelection = (aSelection / aGridWidth) * aGridWidth;
+			break;
+		case eCmdDir_U:
+			if( aSelection >= aGridWidth )
+				aSelection -= aGridWidth;
+			else if( aMenuStyle == eMenuStyle_GridWrap )
+				aSelection += ((anItemCount-1) / aGridWidth) * aGridWidth;
+			if( aSelection >= anItemCount )
+				aSelection -= aGridWidth;
+			break;
+		case eCmdDir_D:
+			if( aSelection + aGridWidth < anItemCount )
+				aSelection = min(anItemCount - 1, aSelection + aGridWidth);
+			else if( aMenuStyle == eMenuStyle_GridWrap )
+				aSelection = aSelection % aGridWidth;
+			else if( aSelection < ((anItemCount-1) / aGridWidth) * aGridWidth )
+				aSelection = anItemCount - 1;
+			break;
+		}
+		break;
 	}
 
 	if( aSelection != aPrevSel )
@@ -341,6 +394,20 @@ u16 itemCount(u16 theMenuID)
 	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
 	return InputMap::menuItemCount(
 		sMenuInfo[theMenuID].subMenuStack.back().id);
+}
+
+
+u8 gridWidth(u16 theMenuID)
+{
+	return sMenuInfo[InputMap::rootMenuOfMenu(theMenuID)].gridWidth;
+}
+
+
+u8 gridHeight(u16 theMenuID)
+{
+	const u16 anItemCount = InputMap::menuItemCount(theMenuID);
+	const u16 aGridWidth = gridWidth(theMenuID);
+	return (anItemCount + aGridWidth - 1) / aGridWidth;
 }
 
 } // Menus
