@@ -6,7 +6,7 @@
 
 #include "InputMap.h" // labels, profileStringToHotspot(), menuForHUDElement()
 #include "Lookup.h"
-#include "Menus.h" // activeSubMenu()
+#include "Menus.h" // activeSubMenu(), itemCount()
 #include "Profile.h"
 
 namespace HUD
@@ -728,8 +728,8 @@ static void drawListMenu(HUDDrawData& dd)
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
 	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
-	const u16 aSelection = Menus::selectedItem(dd.hudElementID);
-	const u16 anItemCount = Menus::itemCount(dd.hudElementID);
+	const u16 aSelection = Menus::selectedItem(aMenuID);
+	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
 	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
 		sMenuDrawCache[aSubMenuID].resize(anItemCount);
@@ -775,8 +775,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
 	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
-	const u16 aSelection = Menus::selectedItem(dd.hudElementID);
-	const u16 anItemCount = Menus::itemCount(dd.hudElementID);
+	const u16 aSelection = Menus::selectedItem(aMenuID);
+	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
 	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
 		sMenuDrawCache[aSubMenuID].resize(anItemCount);
@@ -833,8 +833,8 @@ static void drawBarMenu(HUDDrawData& dd)
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
 	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
-	const u16 aSelection = Menus::selectedItem(dd.hudElementID);
-	const u16 anItemCount = Menus::itemCount(dd.hudElementID);
+	const u16 aSelection = Menus::selectedItem(aMenuID);
+	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
 	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
 		sMenuDrawCache[aSubMenuID].resize(anItemCount);
@@ -908,6 +908,59 @@ static void draw4DirMenu(HUDDrawData& dd)
 	drawMenuItem(dd, anItemRect,
 		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Down),
 		sMenuDrawCache[aSubMenuID][eCmdDir_Down]);
+}
+
+
+static void drawGridMenu(HUDDrawData& dd)
+{
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const u16 aPrevSubMenuID = hi.subMenuID;
+	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
+	const u16 aPrevSelection = hi.selection;
+	const u16 aSelection = Menus::selectedItem(aMenuID);
+	const u16 anItemCount = Menus::itemCount(aMenuID);
+	const u16 aGridWidth = Menus::gridWidth(aMenuID);
+	DBG_ASSERT(aSelection < anItemCount);
+	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
+		sMenuDrawCache[aSubMenuID].resize(anItemCount);
+
+	RECT anItemRect = { 0 };
+	anItemRect.right = dd.itemSize.cx;
+	anItemRect.bottom = dd.itemSize.cy;
+	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
+	{
+		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID ||
+			itemIdx == aPrevSelection || itemIdx == aSelection )
+		{
+			if( !dd.firstDraw &&
+				aSubMenuID != aPrevSubMenuID &&
+				hi.itemType != eHUDItemType_Rect )
+			{
+				FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
+			}
+			drawMenuItem(dd, anItemRect,
+				InputMap::menuItemLabel(aSubMenuID, itemIdx),
+				sMenuDrawCache[aSubMenuID][itemIdx],
+				itemIdx == aSelection);
+		}
+		if( itemIdx % aGridWidth == aGridWidth - 1 )
+		{// Next menu item is left edge and one down
+			anItemRect.left = 0;
+			anItemRect.right = dd.itemSize.cx;
+			anItemRect.top = anItemRect.bottom;
+			anItemRect.bottom += dd.itemSize.cy;
+		}
+		else
+		{// Next menu item is to the right
+			anItemRect.left = anItemRect.right;
+			anItemRect.right += dd.itemSize.cx;
+		}
+	}
+
+	hi.subMenuID = aSubMenuID;
+	hi.selection = aSelection;
 }
 
 
@@ -1291,7 +1344,7 @@ void drawElement(
 	case eMenuStyle_BarWrap:		drawBarMenu(aDrawData);		break;
 	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
 	case eMenuStyle_Grid:
-	case eMenuStyle_GridWrap:		/* TODO */					break;
+	case eMenuStyle_GridWrap:		drawGridMenu(aDrawData);	break;
 	case eMenuStlye_Ring:			/* TODO */					break;
 	case eMenuStyle_Radial:			/* TODO */					break;
 	case eHUDType_GroupTarget:		drawBasicHUD(aDrawData);	break;
@@ -1352,20 +1405,26 @@ void updateWindowLayout(
 
 	// Calculate total window size needed based on type and component size
 	theWindowSize = theComponentSize;
+	const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
 	switch(hi.type)
 	{
 	case eMenuStyle_List:
 	case eMenuStyle_ListWrap:
 	case eMenuStyle_Slots:
-		theWindowSize.cy *= Menus::itemCount(theHUDElementID);
+		theWindowSize.cy *= Menus::itemCount(aMenuID);
 		break;
 	case eMenuStyle_Bar:
 	case eMenuStyle_BarWrap:
-		theWindowSize.cx *= Menus::itemCount(theHUDElementID);
+		theWindowSize.cx *= Menus::itemCount(aMenuID);
 		break;
 	case eMenuStyle_4Dir:
 		theWindowSize.cx *= 2;
 		theWindowSize.cy *= 3;
+		break;
+	case eMenuStyle_Grid:
+	case eMenuStyle_GridWrap:
+		theWindowSize.cx *= Menus::gridWidth(aMenuID);
+		theWindowSize.cy *= Menus::gridHeight(aMenuID);
 		break;
 	case eHUDType_System:
 		theWindowSize.cx = theTargetSize.cx;

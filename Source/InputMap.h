@@ -52,7 +52,7 @@ EResult profileStringToHotspot(std::string& theString, Hotspot& out);
 
 // HUD ELEMENTS
 EHUDType hudElementType(u16 theHUDElementID);
-// Returns menuCount() if HUD element isn't associated with a menu
+// Not all HUD elements are menus, so may return invalid menu ID
 u16 menuForHUDElement(u16 theHUDElementID);
 u16 hudElementForMenu(u16 theMenuID);
 

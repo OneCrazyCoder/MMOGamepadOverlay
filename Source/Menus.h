@@ -56,4 +56,8 @@ u16 selectedItem(u16 theMenuID);
 // Returns item count for currently-active sub-menu of given root menu
 u16 itemCount(u16 theMenuID);
 
+// Returns grid width and height for grid-style menus
+u8 gridWidth(u16 theMenuID);
+u8 gridHeight(u16 theMenuID);
+
 } // Menus
