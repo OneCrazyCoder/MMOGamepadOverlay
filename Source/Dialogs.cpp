@@ -122,8 +122,9 @@ static INT_PTR CALLBACK profileSelectProc(
 	case WM_COMMAND:
 		// Process control commands
 		theData = (ProfileSelectDialogData*)(UINT_PTR)
-		GetWindowLongPtr(theDialog, GWLP_USERDATA);
-		DBG_ASSERT(theData);
+			GetWindowLongPtr(theDialog, GWLP_USERDATA);
+		if( !theData )
+			break;
 		switch(LOWORD(wParam))
 		{
 		case IDOK:
@@ -159,11 +160,12 @@ static INT_PTR CALLBACK profileSelectProc(
 			if( HIWORD(wParam) == EN_CHANGE )
 			{// Edit box contents changed - may affect other controls!
 				// Update result.newName to sanitized edit box string
-				WCHAR aWStrBuffer[255];
+				HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
+				std::vector<WCHAR> aWStrBuffer(GetWindowTextLength(hEditBox)+1);
 				GetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
-					aWStrBuffer, ARRAYSIZE(aWStrBuffer));
+					&aWStrBuffer[0], int(aWStrBuffer.size()));
 				const bool hadNewName = !theData->result.newName.empty();
-				theData->result.newName = safeFileName(narrow(aWStrBuffer));
+				theData->result.newName = safeFileName(narrow(&aWStrBuffer[0]));
 				const bool hasNewName = !theData->result.newName.empty();
 				if( hasNewName != hadNewName )
 				{// Changed "modes" (Load Profile vs Create New Profile)
@@ -214,10 +216,11 @@ static UINT_PTR CALLBACK targetAppPathProc(
 			OFNOTIFY* aNotify = (OFNOTIFY*)lParam;
 			if( aNotify->hdr.code == CDN_FILEOK )
 			{
-				WCHAR aWStrBuffer[255];
+				HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_TARGET_PARAMS);
+				std::vector<WCHAR> aWStrBuffer(GetWindowTextLength(hEditBox)+1);
 				GetDlgItemText(theDialog, IDC_EDIT_TARGET_PARAMS,
-					aWStrBuffer, ARRAYSIZE(aWStrBuffer));
-				*sDialogEditText = narrow(aWStrBuffer);
+					&aWStrBuffer[0], int(aWStrBuffer.size()));
+				*sDialogEditText = narrow(&aWStrBuffer[0]);
 				return (UINT_PTR)TRUE;
 			}
 		}
@@ -279,6 +282,51 @@ INT_PTR CALLBACK licenseDialogProc(
 }
 
 
+static INT_PTR CALLBACK editMenuCommandProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	std::string* theString = NULL;
+
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		// Initialize contents
+		theString = (std::string*)(UINT_PTR)lParam;
+		// Allow other messages to access theString later
+		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theString);
+		DBG_ASSERT(theString);
+		{// Set initial string in Edit box, and select it
+			HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_COMMAND);
+			SetDlgItemText(theDialog, IDC_EDIT_COMMAND,
+				widen(*theString).c_str());
+			SendMessage(hEditBox, EM_SETSEL, 0, -1);
+		}
+		return (INT_PTR)TRUE;
+
+	case WM_COMMAND:
+		// Process control commands
+		theString = (std::string*)(UINT_PTR)
+			GetWindowLongPtr(theDialog, GWLP_USERDATA);
+		if( !theString )
+			break;
+		if( LOWORD(wParam) == IDOK && HIWORD(wParam) == BN_CLICKED )
+		{// Okay button clicked - update string to edit box contents
+			HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_COMMAND);
+			std::vector<WCHAR> aWStrBuffer(GetWindowTextLength(hEditBox)+1);
+			GetDlgItemText(theDialog, IDC_EDIT_COMMAND,
+				&aWStrBuffer[0], int(aWStrBuffer.size()));
+			*theString = trim(narrow(&aWStrBuffer[0]));
+			// Signal to application (NULL) that are ready to close
+			PostMessage(NULL, WM_DESTROY, 0, 0);
+			return (INT_PTR)TRUE;
+		}
+		break;
+	}
+
+	return (INT_PTR)FALSE;
+}
+
+
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
@@ -301,9 +349,13 @@ ProfileSelectResult profileSelect(
 		theTemplateProfiles,
 		result);
 
-	// Hide main window until dialog is done
+	// Hide main window and overlays until dialog is done
 	if( WindowManager::mainHandle() )
+	{
 		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
+		WindowManager::hideOverlays();
+		WindowManager::update();
+	}
 
 	// Create and show dialog window
 	HWND hWnd = CreateDialogParam(
@@ -337,9 +389,11 @@ ProfileSelectResult profileSelect(
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
+	DestroyWindow(hWnd);
 	if( WindowManager::mainHandle() )
 		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
-	DestroyWindow(hWnd);
+	if( result.cancelled )
+		WindowManager::showOverlays();
 
 	return result;
 }
@@ -394,6 +448,67 @@ EResult showLicenseAgreement(HWND theParentWindow)
 	}
 
 	return eResult_Declined;
+}
+
+
+EResult editMenuCommand(std::string& theString, bool directional)
+{
+	const std::string anOriginalString = theString;
+
+	// Hide main window and overlays until dialog is done
+	if( WindowManager::mainHandle() )
+	{
+		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
+		WindowManager::hideOverlays();
+		WindowManager::update();
+	}
+
+	// Create and show dialog window
+	HWND hWnd = CreateDialogParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(
+			directional
+				? IDD_DIALOG_EDIT_DIR_CMD
+				: IDD_DIALOG_EDIT_COMMAND),
+		NULL,
+		editMenuCommandProc,
+		reinterpret_cast<LPARAM>(&theString));
+	
+	ShowWindow(hWnd, SW_SHOW);
+	SetFocus(GetDlgItem(hWnd, IDC_EDIT_COMMAND));
+
+	// Message handling loop
+	MSG msg;
+	while(GetMessage(&msg, NULL, 0, 0))
+	{
+		// Standard dialog message handling
+		if( !IsDialogMessage(hWnd, &msg) )
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+
+		// Dialog has signaled it is ready to be destroyed
+		if( msg.message == WM_DESTROY )
+			break;
+	}
+
+	// Cleanup
+	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
+	while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+	DestroyWindow(hWnd);
+	if( WindowManager::mainHandle() )
+		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
+
+	if( theString != anOriginalString )
+		return eResult_Ok;
+
+	WindowManager::showOverlays();
+	return eResult_Cancel;
 }
 
 } // Dialogs

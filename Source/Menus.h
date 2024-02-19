@@ -47,6 +47,12 @@ void closeLastSubMenu(u16 theMenuID);
 // but does NOT trigger this as "activating" the menu in terms of alpha fade
 void reset(u16 theMenuID);
 
+// Prompts user for new label & command for currently selected menu item
+void editMenuItem(u16 theMenuID);
+
+// Prompts user for new label & command for directional menu item in theDir
+void editMenuItemDir(u16 theMenuID, ECommandDir theDir);
+
 // Returns current active sub-menu of given root menu
 u16 activeSubMenu(u16 theMenuID);
 

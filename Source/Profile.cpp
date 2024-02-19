@@ -1423,9 +1423,6 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 
 void setStr(const std::string& theKey, const std::string& theString)
 {
-	if( theString.empty() )
-		return;
-
 	std::string& aString =
 		sSettingsMap.findOrAdd(upper(theKey), std::string(""));
 

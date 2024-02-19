@@ -45,6 +45,9 @@ const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
 const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
+// Full Profile key for specified menu item's command
+std::string menuItemKey(u16 theMenuID, u16 theMenuItemIdx);
+std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir);
 
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);

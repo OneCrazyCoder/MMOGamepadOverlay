@@ -4,6 +4,7 @@
 
 #include "Menus.h"
 
+#include "Dialogs.h" // editMenuCommand()
 #include "InputMap.h"
 #include "Profile.h"
 
@@ -11,8 +12,10 @@ namespace Menus
 {
 
 //-----------------------------------------------------------------------------
-// MenuInfo
+// Const Data
 //-----------------------------------------------------------------------------
+
+const Command kEmptyMenuCommand = Command();
 
 struct SubMenuInfo
 {
@@ -35,7 +38,6 @@ struct MenuInfo
 //-----------------------------------------------------------------------------
 
 static std::vector<MenuInfo> sMenuInfo;
-static Command sEmptyMenuCommand = Command();
 
 
 //-----------------------------------------------------------------------------
@@ -89,7 +91,7 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 	const u16 aSubMenuID = activeSubMenu(theMenuID);
 	const u16 aSelection = sMenuInfo[theMenuID].subMenuStack.back().selected;
 	if( sMenuInfo[theMenuID].style == eMenuStyle_4Dir )
-		return sEmptyMenuCommand;
+		return kEmptyMenuCommand;
 	return InputMap::commandForMenuItem(aSubMenuID, aSelection);
 }
 
@@ -222,7 +224,7 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
 		gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
 	}
 
-	return sEmptyMenuCommand;
+	return kEmptyMenuCommand;
 }
 
 
@@ -369,6 +371,93 @@ void reset(u16 theMenuID)
 }
 
 
+void editMenuItem(u16 theMenuID)
+{
+	const u16 aSubMenuID = activeSubMenu(theMenuID);
+	const u16 anItemIdx = selectedItem(theMenuID);
+	const std::string& aMenuItemKey =
+		InputMap::menuItemKey(aSubMenuID, anItemIdx);
+	std::string aMenuItemCmd = Profile::getStr(aMenuItemKey);
+	if( Dialogs::editMenuCommand(aMenuItemCmd) == eResult_Ok )
+	{
+		gReloadProfile = true;
+		if( aMenuItemCmd[0] == '+' )
+		{// Insert as new menu item after current
+			aMenuItemCmd = trim(&aMenuItemCmd[1]);
+			if( aMenuItemCmd.empty() ) aMenuItemCmd = ":";
+			const u16 aMenuItemCount = itemCount(theMenuID);
+			for(u16 i = aMenuItemCount; i > anItemIdx+1; --i)
+			{
+				Profile::setStr(
+					InputMap::menuItemKey(aSubMenuID, i),
+					Profile::getStr(
+						InputMap::menuItemKey(aSubMenuID, i-1)));
+			}
+			Profile::setStr(
+				InputMap::menuItemKey(aSubMenuID, anItemIdx+1),
+				aMenuItemCmd);
+		}
+		else if( aMenuItemCmd[0] == '-' )
+		{// Insert as new menu item before current
+			aMenuItemCmd = trim(&aMenuItemCmd[1]);
+			if( aMenuItemCmd.empty() ) aMenuItemCmd = ":";
+			const u16 aMenuItemCount = itemCount(theMenuID);
+			for(u16 i = aMenuItemCount; i > anItemIdx; --i)
+			{
+				Profile::setStr(
+					InputMap::menuItemKey(aSubMenuID, i),
+					Profile::getStr(
+						InputMap::menuItemKey(aSubMenuID, i-1)));
+			}
+			Profile::setStr(
+				InputMap::menuItemKey(aSubMenuID, anItemIdx),
+				aMenuItemCmd);
+		}
+		else if( aMenuItemCmd.empty() )
+		{// Remove menu item
+			const u16 aMenuItemCount = itemCount(theMenuID);
+			for(u16 i = anItemIdx+1; i < aMenuItemCount; ++i)
+			{
+				Profile::setStr(
+					InputMap::menuItemKey(aSubMenuID, i-1),
+					Profile::getStr(
+						InputMap::menuItemKey(aSubMenuID, i)));
+			}
+			Profile::setStr(
+				InputMap::menuItemKey(aSubMenuID, aMenuItemCount-1),
+				"");
+		}
+		else
+		{// Modify menu item
+			Profile::setStr(aMenuItemKey, aMenuItemCmd);
+		}
+	}
+	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
+	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+}
+
+
+void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
+{
+	const u16 aSubMenuID = activeSubMenu(theMenuID);
+	const std::string& aMenuItemKey =
+		InputMap::menuItemDirKey(aSubMenuID, theDir);
+	std::string aMenuItemCmd = Profile::getStr(aMenuItemKey);
+	if( Dialogs::editMenuCommand(aMenuItemCmd, true) == eResult_Ok )
+	{
+		if( !aMenuItemCmd.empty() &&
+			(aMenuItemCmd[0] == '+' || aMenuItemCmd[0] == '-') )
+		{
+			aMenuItemCmd = trim(&aMenuItemCmd[1]);
+		}
+		gReloadProfile = true;
+		Profile::setStr(aMenuItemKey, aMenuItemCmd);
+	}
+	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
+	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+}
+
+
 u16 activeSubMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
@@ -399,7 +488,11 @@ u16 itemCount(u16 theMenuID)
 
 u8 gridWidth(u16 theMenuID)
 {
-	return sMenuInfo[InputMap::rootMenuOfMenu(theMenuID)].gridWidth;
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
+	return min(itemCount(theMenuID),
+		sMenuInfo[theMenuID].gridWidth);
 }
 
 

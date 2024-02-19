@@ -38,7 +38,7 @@ struct Config
 	void load()
 	{
 		shortHoldTime = Profile::getInt("System/ButtonShortHoldTime", 400);
-		longHoldTime = Profile::getInt("System/ButtonLongHoldTime", 1200);
+		longHoldTime = Profile::getInt("System/ButtonLongHoldTime", 800);
 	}
 };
 
@@ -352,8 +352,8 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 	case eCmdType_MenuBack:
 		Menus::closeLastSubMenu(theCmd.data);
 		break;
-	case eCmdType_MenuReassign:
-		// TODO
+	case eCmdType_MenuEdit:
+		Menus::editMenuItem(theCmd.data);
 		break;
 	case eCmdType_TargetGroup:
 		DBG_ASSERT(theCmd.data < eTargetGroupType_Num);
@@ -463,7 +463,9 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 			}
 		}
 		break;
-	case eCmdType_MenuReassignDir:
+	case eCmdType_MenuEditDir:
+		Menus::editMenuItemDir(theCmd.data2, ECommandDir(theCmd.data));
+		break;
 	case eCmdType_HotspotSelect:
 		// TODO
 		break;

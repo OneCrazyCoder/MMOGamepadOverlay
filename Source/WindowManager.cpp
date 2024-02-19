@@ -302,6 +302,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 {
 	DBG_ASSERT(sMainWindow == NULL);
 
+	sHidden = false;
 	const std::wstring& aMainWindowName = widen(
 		Profile::getStr("System/WindowName", "MMO Gamepad Overlay"));
 	u16 aMainWindowWidth = Profile::getInt("System/WindowWidth", 160);

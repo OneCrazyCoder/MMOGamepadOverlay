@@ -41,7 +41,7 @@ enum ECommandType
 	eCmdType_MenuConfirm,
 	eCmdType_MenuConfirmAndClose,
 	eCmdType_MenuBack, // close last sub-menu
-	eCmdType_MenuReassign,
+	eCmdType_MenuEdit,
 
 	// This should have 'data' set as an ETargetGroupType
 	eCmdType_TargetGroup,
@@ -49,7 +49,7 @@ enum ECommandType
 	// These should have 'data' set to an ECommandDir
 	eCmdType_MenuSelect,
 	eCmdType_MenuSelectAndClose,
-	eCmdType_MenuReassignDir,
+	eCmdType_MenuEditDir,
 	eCmdType_HotspotSelect,
 
 	// These should be processed continuously, not just on digital press
@@ -286,7 +286,7 @@ enum ECommandKeyWord
 	eCmdWord_Select,
 	eCmdWord_Hotspot,
 	eCmdWord_Reset,
-	eCmdWord_Reassign,
+	eCmdWord_Edit,
 	eCmdWord_Menu,
 	eCmdWord_Confirm,
 	eCmdWord_Back,
@@ -326,6 +326,7 @@ enum EResult
 	eResult_Accepted = eResult_Ok,
 
 	eResult_Fail,
+	eResult_Cancel,
 	eResult_NotFound,
 	eResult_InvalidParameter,
 	eResult_Incomplete,

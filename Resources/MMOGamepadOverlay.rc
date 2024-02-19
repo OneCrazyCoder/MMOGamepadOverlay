@@ -99,6 +99,26 @@ BEGIN
     LTEXT           "By clicking ""Accept"", you acknowledge that you have read, understood, and agree to the terms and conditions outlined in this license. If you do not agree with these terms, click ""Decline"" to exit the application.",IDC_STATIC_PROMPT,7,101,286,27,WS_BORDER
 END
 
+IDD_DIALOG_EDIT_COMMAND DIALOGEX 0, 0, 295, 62
+STYLE DS_SYSMODAL | DS_SETFONT | DS_SETFOREGROUND | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_BORDER
+EXSTYLE WS_EX_TOPMOST
+FONT 10, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,238,43,50,12
+    EDITTEXT        IDC_EDIT_COMMAND,7,43,229,12,ES_AUTOHSCROLL
+    LTEXT           "Input format ""Label: Command"" (without quotes, include colon) for normal item\nInput just a name without colon (:) to make a sub-menu\nLeave blank to delete this menu item\nAdd + or - as first character to insert as new item before (-) or after (+) current",IDC_STATIC_PROMPT,7,7,281,36
+END
+
+IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 44
+STYLE DS_SYSMODAL | DS_SETFONT | DS_SETFOREGROUND | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_BORDER
+EXSTYLE WS_EX_TOPMOST
+FONT 10, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,238,25,50,12
+    EDITTEXT        IDC_EDIT_COMMAND,7,25,229,12,ES_AUTOHSCROLL
+    LTEXT           "Input format ""Label: Command"" (without quotes, include colon) for normal item\nInput just a name without colon (:) to make a sub-menu",IDC_STATIC_PROMPT,7,7,281,19
+END
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -130,6 +150,22 @@ BEGIN
         RIGHTMARGIN, 293
         TOPMARGIN, 7
         BOTTOMMARGIN, 143
+    END
+
+    IDD_DIALOG_EDIT_COMMAND, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 288
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 55
+    END
+
+    IDD_DIALOG_EDIT_DIR_CMD, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 288
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 37
     END
 END
 #endif    // APSTUDIO_INVOKED

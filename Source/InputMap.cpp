@@ -108,6 +108,7 @@ struct Menu
 	std::string label;
 	std::vector<MenuItem> items;
 	MenuItem dirItems[eCmdDir_Num];
+	u16 parentMenuID;
 	u16 rootMenuID;
 	u16 hudElementID;
 
@@ -158,7 +159,6 @@ struct InputMapBuilder
 	StringToValueMap<u16> layerNameToIdxMap;
 	StringToValueMap<u16> hudNameToIdxMap;
 	StringToValueMap<u16> menuPathToIdxMap;
-	std::vector<std::string> menuFullPathStrings;
 	std::string debugItemName;
 };
 
@@ -622,11 +622,9 @@ static u16 getOrCreateHUDElementID(
 			sMenus.push_back(Menu());
 			Menu& aMenu = sMenus.back();
 			aMenu.label = theName;
+			aMenu.parentMenuID = aMenuID;
 			aMenu.rootMenuID = aMenuID;
 			aMenu.hudElementID = aHUDElementID;
-
-			// Add the menu path to menuFullPathStrings for later lookup
-			theBuilder.menuFullPathStrings.push_back(aMenuPath);
 		}
 		aHUDElement.menuID = aMenuID;
 	}
@@ -654,6 +652,20 @@ static u16 getOrCreateRootMenuID(
 }
 
 
+static std::string menuPathOf(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	std::string result = sMenus[theMenuID].label;
+	while(sMenus[theMenuID].parentMenuID != theMenuID)
+	{
+		theMenuID = sMenus[theMenuID].parentMenuID;
+		result = sMenus[theMenuID].label + "." + result;
+	}
+	result = kMenuPrefix + result;
+	return result;
+}
+
+
 static u16 getOrCreateMenuID(
 	InputMapBuilder& theBuilder,
 	const std::string& theMenuName,
@@ -661,24 +673,27 @@ static u16 getOrCreateMenuID(
 {
 	DBG_ASSERT(!theMenuName.empty());
 	DBG_ASSERT(theParentMenuID < sMenus.size());
-	DBG_ASSERT(theBuilder.menuFullPathStrings.size() == sMenus.size());
 
-	std::string aFullPath = theBuilder.menuFullPathStrings[theParentMenuID];
-	if( theMenuName[0] == '.' )
+	std::string aParentPath = menuPathOf(theParentMenuID);
+	std::string aFullPath;
+	if( theMenuName == ".." )
+	{// This means want to return parent menu instead
+		aFullPath = aParentPath;
+	}
+	else if( theMenuName[0] == '.' )
 	{// Treat a name starting with . as being the same "level" as parent
-		breakOffLastItemAferChar(aFullPath, '.');
+		breakOffLastItemAferChar(aParentPath, '.');
 		// Can't be on same level as the root menu though...
-		const std::string aRootMenuPath =
-			theBuilder.menuFullPathStrings[sMenus[theParentMenuID].rootMenuID];
-		if( aFullPath.size() < aRootMenuPath.size() )
-			aFullPath = aRootMenuPath;
-		// ".." means to treat the menu name AS the parent menu's name
-		if( theMenuName != ".." )
-			aFullPath += theMenuName;
+		const std::string& aRootMenuPath =
+			menuPathOf(sMenus[theParentMenuID].rootMenuID);
+		if( aParentPath.size() < aRootMenuPath.size() )
+			aParentPath = aRootMenuPath;
+		// '.' is already included at beginning of theMenuName
+		aFullPath = aParentPath + theMenuName;
 	}
 	else
 	{
-		aFullPath += "." + theMenuName;
+		aFullPath = aParentPath + "." + theMenuName;
 	}
 
 	u16 aMenuID = theBuilder.menuPathToIdxMap.findOrAdd(
@@ -689,9 +704,9 @@ static u16 getOrCreateMenuID(
 	sMenus.push_back(Menu());
 	Menu& aMenu = sMenus.back();
 	aMenu.label = theMenuName;
+	aMenu.parentMenuID = theParentMenuID;
 	aMenu.rootMenuID = sMenus[theParentMenuID].rootMenuID;
 	aMenu.hudElementID = sMenus[theParentMenuID].hudElementID;
-	theBuilder.menuFullPathStrings.push_back(aFullPath);
 	return aMenuID;
 }
 
@@ -822,7 +837,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Confirm);
 		allowedKeyWords.reset(eCmdWord_Back);
 		allowedKeyWords.reset(eCmdWord_Close);
-		allowedKeyWords.reset(eCmdWord_Reassign);
+		allowedKeyWords.reset(eCmdWord_Edit);
 		allowedKeyWords.reset(eCmdWord_Left);
 		allowedKeyWords.reset(eCmdWord_Right);
 		allowedKeyWords.reset(eCmdWord_Up);
@@ -894,14 +909,14 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Back);
 
-		// "= Reassign <aMenuName> [Menu]
+		// "= Edit <aMenuName> [Menu]
 		// allowedKeyWords = Menu
-		allowedKeyWords.set(eCmdWord_Reassign);
-		if( keyWordsFound.test(eCmdWord_Reassign) &&
+		allowedKeyWords.set(eCmdWord_Edit);
+		if( keyWordsFound.test(eCmdWord_Edit) &&
 			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() == 1 )
 		{
-			result.type = eCmdType_MenuBack;
+			result.type = eCmdType_MenuEdit;
 			result.data = getOrCreateRootMenuID(
 				theBuilder, *aMenuName, theControlsLayerIndex);
 			return result;
@@ -1079,14 +1094,14 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Select);
 		allowedKeyWords.reset(eCmdWord_Close);
 
-		// "= Reassign [Menu] <aMenuName> <aCmdDir>"
+		// "= Edit [Menu] <aMenuName> <aCmdDir>"
 		// allowedKeyWords = Menu
-		allowedKeyWords.set(eCmdWord_Reassign);
-		if( keyWordsFound.test(eCmdWord_Reassign) &&
+		allowedKeyWords.set(eCmdWord_Edit);
+		if( keyWordsFound.test(eCmdWord_Edit) &&
 			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() == 1 )
 		{
-			result.type = eCmdType_MenuReassignDir;
+			result.type = eCmdType_MenuEditDir;
 			result.data = aCmdDir;
 			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
@@ -1990,7 +2005,7 @@ static MenuItem stringToMenuItem(
 		{
 			mapDebugPrint("%s: Swap to '%s'\n",
 				theBuilder.debugItemName.c_str(),
-				theBuilder.menuFullPathStrings[aMenuItem.cmd.data].c_str());
+				menuPathOf(aMenuItem.cmd.data).c_str());
 		}
 		return aMenuItem;
 	}
@@ -2062,9 +2077,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 
 	for(u16 aMenuID = 0; aMenuID < sMenus.size(); ++aMenuID)
 	{
-		DBG_ASSERT(aMenuID < theBuilder.menuFullPathStrings.size());
-		const std::string aPrefix =
-			theBuilder.menuFullPathStrings[aMenuID];
+		const std::string aPrefix = menuPathOf(aMenuID);
 		const u16 aHUDElementID = sMenus[aMenuID].hudElementID;
 		DBG_ASSERT(aHUDElementID < sHUDElements.size());
 		const EHUDType aMenuStyle = sHUDElements[aHUDElementID].type;
@@ -2339,6 +2352,21 @@ u16 rootMenuOfMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	return sMenus[theMenuID].rootMenuID;
+}
+
+
+std::string menuItemKey(u16 theMenuID, u16 theMenuItemIdx)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	return menuPathOf(theMenuID) + "/" + toString(theMenuItemIdx+1);
+}
+
+
+std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	DBG_ASSERT(theDir < eCmdDir_Num);
+	return menuPathOf(theMenuID) + "/" + k4DirMenuItemLabel[theDir];
 }
 
 
