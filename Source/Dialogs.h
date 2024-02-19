@@ -32,4 +32,6 @@ std::string targetAppPath(std::string& theCommandLineParams);
 
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
 
+EResult editMenuCommand(std::string& theString, bool directional = false);
+
 } // Dialogs
