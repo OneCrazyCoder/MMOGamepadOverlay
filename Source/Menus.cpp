@@ -96,7 +96,7 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 }
 
 
-const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
+const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID < sMenuInfo.size());
@@ -180,6 +180,9 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir)
 		}
 		break;
 	case eMenuStyle_4Dir:
+		// Ignore auto-repeat with this menu style
+		if( repeat )
+			return kEmptyMenuCommand;
 		return aDirCmd;
 	case eMenuStyle_Grid:
 	case eMenuStyle_GridWrap:

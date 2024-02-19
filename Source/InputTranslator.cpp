@@ -34,11 +34,15 @@ struct Config
 {
 	u16 shortHoldTime;
 	u16 longHoldTime;
+	u16 autoRepeatDelay;
+	u16 autoRepeatRate;
 
 	void load()
 	{
 		shortHoldTime = Profile::getInt("System/ButtonShortHoldTime", 400);
 		longHoldTime = Profile::getInt("System/ButtonLongHoldTime", 800);
+		autoRepeatDelay = Profile::getInt("System/AutoRepeatDelay", 400);
+		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
 	}
 };
 
@@ -54,6 +58,7 @@ struct ButtonState
 	u16 commandsLayer;
 	u16 layerHeld;
 	u16 heldTime;
+	s16 repeatDelay;
 	u16 vKeyHeld;
 	bool heldDown;
 	bool shortHoldDone;
@@ -280,7 +285,10 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 }
 
 
-static void processCommand(ButtonState& theBtnState, const Command& theCmd)
+static void processCommand(
+	ButtonState& theBtnState,
+	const Command& theCmd,
+	bool isAutoRepeated = false)
 {
 	Command aForwardCmd;
 	switch(theCmd.type)
@@ -443,14 +451,14 @@ static void processCommand(ButtonState& theBtnState, const Command& theCmd)
 		}
 		break;
 	case eCmdType_MenuSelect:
-		aForwardCmd =
-			Menus::selectMenuItem(theCmd.data2, ECommandDir(theCmd.data));
+		aForwardCmd = Menus::selectMenuItem(
+			theCmd.data2, ECommandDir(theCmd.data), isAutoRepeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 			processCommand(theBtnState, aForwardCmd);
 		break;
 	case eCmdType_MenuSelectAndClose:
-		aForwardCmd =
-			Menus::selectMenuItem(theCmd.data2, ECommandDir(theCmd.data));
+		aForwardCmd = Menus::selectMenuItem(
+			theCmd.data2, ECommandDir(theCmd.data), isAutoRepeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			processCommand(theBtnState, aForwardCmd);
@@ -626,6 +634,62 @@ static void processContinuousInput(
 }
 
 
+static void processAutoRepeat(ButtonState& theBtnState)
+{
+	if( kConfig.autoRepeatRate == 0 )
+		return;
+
+	// Auto-repeat only commandsWhenPressed assigned to _Down
+	Command aCmd;
+	if( theBtnState.commandsWhenPressed )
+		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Down];
+
+	// Filter out which commands can use auto-repeat safely
+	switch(aCmd.type)
+	{
+	case eCmdType_MenuSelect:
+	case eCmdType_MenuSelectAndClose:
+	case eCmdType_HotspotSelect:
+		// Continue to further checks below
+		break;
+	case eCmdType_TargetGroup:
+		switch(aCmd.data)
+		{
+		case eTargetGroupType_Prev:
+		case eTargetGroupType_Next:
+		case eTargetGroupType_PrevWrap:
+		case eTargetGroupType_NextWrap:
+			// Continue to further checks below
+			break;
+		default:
+			return;
+		}
+		break;
+	default:
+		// Incompatible with this feature
+		return;
+	}
+	
+	// Don't auto-repeat when button has other conflicting actions assigned
+	if( theBtnState.commandsWhenPressed[eBtnAct_Tap].type ||
+		theBtnState.commandsWhenPressed[eBtnAct_ShortHold].type ||
+		theBtnState.commandsWhenPressed[eBtnAct_LongHold].type )
+		return;
+
+	// Needs to be held for initial held time first before start repeating
+	if( theBtnState.heldTime < kConfig.autoRepeatDelay )
+		return;
+
+	// Now can start using repeatDelayr to re-send command at autoRepeatRate
+	if( theBtnState.repeatDelay <= 0 )
+	{
+		processCommand(theBtnState, aCmd, true);
+		theBtnState.repeatDelay += kConfig.autoRepeatRate;
+	}
+	theBtnState.repeatDelay -= gAppFrameTime;
+}
+
+
 static void processButtonShortHold(ButtonState& theBtnState)
 {
 	theBtnState.shortHoldDone = true;
@@ -790,6 +854,9 @@ static void processButtonState(
 		{
 			processButtonLongHold(theBtnState);
 		}
+
+		// Process auto-repeat feature for certain commands
+		processAutoRepeat(theBtnState);
 	}
 }
 
