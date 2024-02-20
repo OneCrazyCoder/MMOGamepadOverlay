@@ -6,8 +6,9 @@
 
 #include "Dialogs.h"
 #include "Lookup.h"
-#include "StringUtils.h"
 #include "Resources/resource.h"
+#include "StringUtils.h"
+#include "TargetApp.h" // targetWindowIsTopMost()
 
 #include <fstream>
 
@@ -876,12 +877,14 @@ static void tryAddAutoLaunchApp(
 	int theKnownProfileIdx,
 	std::string& theDefaultParams)
 {
+	const UINT anExtraFlag =
+		TargetApp::targetWindowIsTopMost() ? MB_SYSTEMMODAL : 0;
 	if( MessageBox(
 			NULL,
 			L"Would you like to automatically launch target game "
 			L"when loading this profile at startup?",
 			L"Auto-Launch Target App",
-			MB_YESNO) == IDYES )
+			MB_YESNO | anExtraFlag) == IDYES )
 	{
 		std::string aPath = Dialogs::targetAppPath(theDefaultParams);
 		if( !aPath.empty() )
@@ -903,7 +906,7 @@ static void tryAddAutoLaunchApp(
 				L"You can manually edit the .ini file [System]AutoLaunchApp= "
 				L"entry to add one later.",
 				L"Auto-Launch Target App",
-				MB_OK | MB_ICONWARNING);
+				MB_OK | MB_ICONWARNING | anExtraFlag);
 		}
 	}
 }

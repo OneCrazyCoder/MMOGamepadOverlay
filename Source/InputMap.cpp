@@ -746,10 +746,36 @@ static Command wordsToSpecialCommand(
 		return result;
 	theBuilder.keyWordMap.sort();
 
-	// For these first Layer-related commands, most need one extra word
+	// Find a command by checking for specific key words + allowed related
+	// words and none more than that
+	BitArray<eCmdWord_Num> allowedKeyWords;
+
+	// "= [Change] Profile"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Change);
+	allowedKeyWords.set(eCmdWord_Profile);
+	if( keyWordsFound.test(eCmdWord_Profile) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_ChangeProfile;
+		return result;
+	}
+
+	// "= Quit [App]"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Quit);
+	allowedKeyWords.set(eCmdWord_App);
+	if( keyWordsFound.test(eCmdWord_Quit) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_QuitApp;
+		return result;
+	}
+
+	// For the following Layer-related commands, most need one extra word
 	// that is not a key word related to layers, which will be the name
 	// of the layer (likely, but not always, the eCmdWord_Unknown entry).
-	BitArray<eCmdWord_Num> allowedKeyWords = keyWordsFound;
+	allowedKeyWords = keyWordsFound;
 	allowedKeyWords.reset(eCmdWord_Layer);
 	allowedKeyWords.reset(eCmdWord_Add);
 	allowedKeyWords.reset(eCmdWord_Remove);

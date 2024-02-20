@@ -5,6 +5,7 @@
 #include "Dialogs.h"
 
 #include "Resources/resource.h"
+#include "TargetApp.h"
 #include "WindowManager.h"
 
 // Enable support for Edit_SetCueBannerText
@@ -365,6 +366,8 @@ ProfileSelectResult profileSelect(
 		profileSelectProc,
 		reinterpret_cast<LPARAM>(&aDataStruct));
 	ShowWindow(hWnd, SW_SHOW);
+	if( TargetApp::targetWindowIsTopMost() )
+		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
 	// Message handling loop
 	MSG msg;
@@ -404,11 +407,19 @@ std::string targetAppPath(std::string& theCommandLineParams)
 	std::string result;
 	sDialogEditText = &theCommandLineParams;
 
+	HWND hTempParentWindow = NULL;
+	if( TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+		
 	OPENFILENAME ofn;
 	WCHAR aPath[MAX_PATH];
 	ZeroMemory(&ofn, sizeof(ofn));
 	ofn.lStructSize = sizeof(ofn);
-	ofn.hwndOwner = NULL;
+	ofn.hwndOwner = hTempParentWindow;
 	ofn.lpstrTitle = L"Select Auto-Launch App";
 	ofn.lpstrFile = aPath;
 	ofn.lpstrFile[0] = '\0';
@@ -430,6 +441,8 @@ std::string targetAppPath(std::string& theCommandLineParams)
 
 	// Cleanup
 	sDialogEditText = NULL;
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
 
 	return result;
 }
@@ -473,8 +486,9 @@ EResult editMenuCommand(std::string& theString, bool directional)
 		NULL,
 		editMenuCommandProc,
 		reinterpret_cast<LPARAM>(&theString));
-	
 	ShowWindow(hWnd, SW_SHOW);
+	if( TargetApp::targetWindowIsTopMost() )
+		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetFocus(GetDlgItem(hWnd, IDC_EDIT_COMMAND));
 
 	// Message handling loop

@@ -319,6 +319,12 @@ static void processCommand(
 		// Queue to send last, since can block other input the longest
 		sResults.strings.push_back(theCmd);
 		break;
+	case eCmdType_ChangeProfile:
+		gChangeProfile = true;
+		break;
+	case eCmdType_QuitApp:
+		gShutdown = true;
+		break;
 	case eCmdType_AddControlsLayer:
 		addControlsLayer(theCmd.data, theCmd.data2);
 		break;
