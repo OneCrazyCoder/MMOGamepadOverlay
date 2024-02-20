@@ -135,9 +135,18 @@ void checkWindowActive()
 	if( !sTargetWindowHandle )
 		return;
 
-	if( sTargetWindowHandle == GetForegroundWindow() &&
+	HWND aForegroundWindow = GetForegroundWindow();
+
+	if( sTargetWindowHandle == aForegroundWindow &&
 		!IsIconic(sTargetWindowHandle) )
 		return;
+
+	if( aForegroundWindow == WindowManager::mainHandle() &&
+		targetWindowIsTopMost() )
+	{// Switch focus from own main window to target if target is topmost
+		targetDebugPrint("Switching focus to target window!\n");
+		SetForegroundWindow(sTargetWindowHandle);
+	}
 
 	if( WindowManager::areOverlaysHidden() )
 		return;
@@ -590,6 +599,18 @@ void toggleFullScreenMode()
 	}
 	sNextCheck = eCheck_WindowMode;
 	sRepeatCheckTime = 0;
+}
+
+
+bool targetWindowIsTopMost()
+{
+	if( !sTargetWindowHandle )
+		return false;
+
+	if( GetWindowLong(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST )
+		return true;
+	
+	return false;
 }
 
 } // TargetApp

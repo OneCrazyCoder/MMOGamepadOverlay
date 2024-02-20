@@ -67,7 +67,7 @@ IDR_TEXT_INI_DEF_PQ     TEXT                    "Default-PQ.ini"
 //
 
 IDD_DIALOG_PROFILE_SELECT DIALOGEX 0, 0, 202, 93
-STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Select Profile"
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
@@ -81,7 +81,7 @@ BEGIN
 END
 
 IDD_DIALOG_TARGET_APP DIALOGEX 0, 0, 300, 20
-STYLE DS_SETFONT | DS_3DLOOK | DS_FIXEDSYS | DS_CONTROL | WS_CHILD | WS_CLIPSIBLINGS
+STYLE DS_SETFONT | DS_3DLOOK | DS_CONTROL | WS_CHILD | WS_CLIPSIBLINGS
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     EDITTEXT        IDC_EDIT_TARGET_PARAMS,130,0,164,12,ES_AUTOHSCROLL
@@ -99,23 +99,21 @@ BEGIN
     LTEXT           "By clicking ""Accept"", you acknowledge that you have read, understood, and agree to the terms and conditions outlined in this license. If you do not agree with these terms, click ""Decline"" to exit the application.",IDC_STATIC_PROMPT,7,101,286,27,WS_BORDER
 END
 
-IDD_DIALOG_EDIT_COMMAND DIALOGEX 0, 0, 295, 62
-STYLE DS_SYSMODAL | DS_SETFONT | DS_SETFOREGROUND | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_BORDER
-EXSTYLE WS_EX_TOPMOST
+IDD_DIALOG_EDIT_COMMAND DIALOGEX 0, 0, 295, 65
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
-    DEFPUSHBUTTON   "OK",IDOK,238,43,50,12
-    EDITTEXT        IDC_EDIT_COMMAND,7,43,229,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,238,46,50,12
+    EDITTEXT        IDC_EDIT_COMMAND,7,46,229,12,ES_AUTOHSCROLL
     LTEXT           "Input format ""Label: Command"" (without quotes, include colon) for normal item\nInput just a name without colon (:) to make a sub-menu\nLeave blank to delete this menu item\nAdd + or - as first character to insert as new item before (-) or after (+) current",IDC_STATIC_PROMPT,7,7,281,36
 END
 
-IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 44
-STYLE DS_SYSMODAL | DS_SETFONT | DS_SETFOREGROUND | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_BORDER
-EXSTYLE WS_EX_TOPMOST
+IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 50
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
-    DEFPUSHBUTTON   "OK",IDOK,238,25,50,12
-    EDITTEXT        IDC_EDIT_COMMAND,7,25,229,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,238,31,50,12
+    EDITTEXT        IDC_EDIT_COMMAND,7,31,229,12,ES_AUTOHSCROLL
     LTEXT           "Input format ""Label: Command"" (without quotes, include colon) for normal item\nInput just a name without colon (:) to make a sub-menu",IDC_STATIC_PROMPT,7,7,281,19
 END
 
@@ -157,7 +155,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 288
         TOPMARGIN, 7
-        BOTTOMMARGIN, 55
+        BOTTOMMARGIN, 60
     END
 
     IDD_DIALOG_EDIT_DIR_CMD, DIALOG
@@ -165,7 +163,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 288
         TOPMARGIN, 7
-        BOTTOMMARGIN, 37
+        BOTTOMMARGIN, 42
     END
 END
 #endif    // APSTUDIO_INVOKED

@@ -10,6 +10,7 @@
 
 bool gShutdown = false;
 bool gReloadProfile = true;
+bool gChangeProfile = false;
 u32 gAppRunTime = 0;
 int gAppFrameTime = 0;
 u32 gAppUpdateCount = 0;

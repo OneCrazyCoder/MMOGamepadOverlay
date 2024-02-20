@@ -401,7 +401,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 78;
+			const size_t kMapSize = 88;
 			map.reserve(kMapSize);
 			map.setValue("ADD",			eCmdWord_Add);
 			map.setValue("REMOVE",		eCmdWord_Remove);
@@ -472,6 +472,16 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("SET",			eCmdWord_Set);
 			map.setValue("LAST",		eCmdWord_Last);
 			map.setValue("PET",			eCmdWord_Pet);
+			map.setValue("CHANGE",		eCmdWord_Change);
+			map.setValue("SWAP",		eCmdWord_Change);
+			map.setValue("SWITCH",		eCmdWord_Change);
+			map.setValue("PROFILE",		eCmdWord_Profile);
+			map.setValue("QUIT",		eCmdWord_Quit);
+			map.setValue("EXIT",		eCmdWord_Quit);
+			map.setValue("APP",			eCmdWord_App);
+			map.setValue("APPLICATION",	eCmdWord_App);
+			map.setValue("PROGRAM",		eCmdWord_App);
+			map.setValue("OVERLAY",		eCmdWord_App);
 			map.setValue("A",			eCmdWord_Filler);
 			map.setValue("AND",			eCmdWord_Filler);
 			map.setValue("THE",			eCmdWord_Filler);

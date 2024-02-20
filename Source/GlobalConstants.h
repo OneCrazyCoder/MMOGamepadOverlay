@@ -29,6 +29,10 @@ enum ECommandType
 	eCmdType_SlashCommand,
 	eCmdType_SayString,
 
+	// These give controller access to basic app features
+	eCmdType_ChangeProfile,
+	eCmdType_QuitApp,
+
 	// These trigger changes in Controls Layers (button configuration)
 	eCmdType_AddControlsLayer,
 	eCmdType_HoldControlsLayer,
@@ -308,6 +312,10 @@ enum ECommandKeyWord
 	eCmdWord_Set,
 	eCmdWord_Last,
 	eCmdWord_Pet,
+	eCmdWord_Change,
+	eCmdWord_Profile,
+	eCmdWord_Quit,
+	eCmdWord_App,
 
 	eCmdWord_Filler,
 	eCmdWord_Num,

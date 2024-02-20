@@ -119,6 +119,13 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 				WindowManager::update();
 			}
 
+			if( gChangeProfile )
+			{
+				Profile::queryUserForProfile();
+				gReloadProfile = true;
+				gChangeProfile = false;
+			}
+
 			// Yield via Sleep() so sent input can be processed by target
 			const DWORD aTimeTakenByUpdate = timeGetTime() - anUpdateStartTime;
 			if( aTimeTakenByUpdate < aMillisecsPerUpdate )
