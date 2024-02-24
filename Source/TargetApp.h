@@ -31,6 +31,9 @@ void update();
 // Call when get WM_HOTKEY with kFullScreenHotkeyID
 void toggleFullScreenMode();
 
+// Check if have a target app running already
+bool targetAppActive();
+
 // Check if have a target window that is in TOPMOST style
 bool targetWindowIsTopMost();
 

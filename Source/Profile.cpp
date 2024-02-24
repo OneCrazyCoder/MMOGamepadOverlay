@@ -8,7 +8,6 @@
 #include "Lookup.h"
 #include "Resources/resource.h"
 #include "StringUtils.h"
-#include "TargetApp.h" // targetWindowIsTopMost()
 
 #include <fstream>
 
@@ -838,25 +837,11 @@ static void parseProfilesCanLoad()
 	// via parsing core (and other profiles for checking for parents)
 	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
 	if( aCoreProfile.id == 0 )
-	{// Core .ini file not found! Must be first run of app
-		// Assume this means first run, which means show license agreement
-		if( Dialogs::showLicenseAgreement() == eResult_Declined )
-		{// Declined license agreement - just exit
-			gShutdown = true;
-		}
-		else
-		{// Generate Core.ini which will prevent future license agreement
-			generateResourceProfile(kResTemplateCore);
-			aCoreProfile.id = uniqueFileIdentifier(aCoreProfile.path);
-			if( aCoreProfile.id == 0 )
-			{
-				logFatalError("Unable to find/write %s (%s)",
-					kCoreProfileName, aCoreProfile.path.c_str());
-			}
-		}
-	}
-	if( hadFatalError() || gShutdown )
+	{
+		logFatalError("Could not find %s (%s)",
+			kCoreProfileName, aCoreProfile.path.c_str());
 		return;
+	}
 
 	{// Add Core as first known profile (profile 0)
 		int aCoreID = getOrAddProfileIdx(aCoreProfile);
@@ -877,37 +862,18 @@ static void tryAddAutoLaunchApp(
 	int theKnownProfileIdx,
 	std::string& theDefaultParams)
 {
-	const UINT anExtraFlag =
-		TargetApp::targetWindowIsTopMost() ? MB_SYSTEMMODAL : 0;
-	if( MessageBox(
-			NULL,
-			L"Would you like to automatically launch target game "
-			L"when loading this profile at startup?",
-			L"Auto-Launch Target App",
-			MB_YESNO | anExtraFlag) == IDYES )
+	std::string aPath = Dialogs::targetAppPath(theDefaultParams);
+	if( !aPath.empty() )
 	{
-		std::string aPath = Dialogs::targetAppPath(theDefaultParams);
-		if( !aPath.empty() )
-		{
-			setKeyValueInINI(
-				sKnownProfiles[theKnownProfileIdx].path,
-				"System", "AutoLaunchApp",
-				aPath);
-			sSettingsMap.setValue(kAutoLaunchAppKey, aPath);
-			setKeyValueInINI(
-				sKnownProfiles[theKnownProfileIdx].path,
-				"System", "AutoLaunchAppParams",
-				theDefaultParams);
-		}
-		else
-		{
-			MessageBox(NULL,
-				L"No target app path selected.\n"
-				L"You can manually edit the .ini file [System]AutoLaunchApp= "
-				L"entry to add one later.",
-				L"Auto-Launch Target App",
-				MB_OK | MB_ICONWARNING | anExtraFlag);
-		}
+		setKeyValueInINI(
+			sKnownProfiles[theKnownProfileIdx].path,
+			"System", "AutoLaunchApp",
+			aPath);
+		sSettingsMap.setValue(kAutoLaunchAppKey, aPath);
+		setKeyValueInINI(
+			sKnownProfiles[theKnownProfileIdx].path,
+			"System", "AutoLaunchAppParams",
+			theDefaultParams);
 	}
 }
 
@@ -992,6 +958,41 @@ void setAutoLoadProfile(int theProfilesCanLoadIdx)
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
+
+void loadCore()
+{
+	// Should only be run once at app startup, otherwise core will be
+	// loaded alongside normal ::load()
+	DBG_ASSERT(sSettingsMap.empty());
+
+	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
+	if( aCoreProfile.id == 0 )
+	{// Core .ini file not found!
+		// Assume this means first run, which means show license agreement
+		if( Dialogs::showLicenseAgreement() == eResult_Declined )
+		{// Declined license agreement - just exit
+			gShutdown = true;
+		}
+		else
+		{// Generate Core.ini which will prevent future license agreement
+			generateResourceProfile(kResTemplateCore);
+			aCoreProfile.id = uniqueFileIdentifier(aCoreProfile.path);
+			if( aCoreProfile.id == 0 )
+			{
+				logFatalError("Unable to find/write %s (%s)",
+					kCoreProfileName, aCoreProfile.path.c_str());
+			}
+		}
+	}
+	if( hadFatalError() || gShutdown )
+		return;
+	
+	parseINI(
+		readProfileCallback,
+		aCoreProfile.path,
+		eParseMode_Categories);
+}
+
 
 void load()
 {

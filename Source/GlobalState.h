@@ -15,17 +15,11 @@ extern bool gShutdown;
 // Reload of current profile has been requested
 extern bool gReloadProfile;
 
-// Show dialog to change profile has been requested
-extern bool gChangeProfile;
-
 // Milliseconds since app started main loop
 extern u32 gAppRunTime;
 
 // Milliseconds that have passed since last update of main loop
 extern int gAppFrameTime;
-
-// How many updates the main loop has gone through since starting
-extern u32 gAppUpdateCount;
 
 // Which HUD elements should be visible
 extern BitVector<> gVisibleHUD;
@@ -35,9 +29,6 @@ extern BitVector<> gRedrawHUD;
 
 // Which HUD elements have recently been interacted with (for inactive fade)
 extern BitVector<> gActiveHUD;
-
-// State of each active Menu (sub-menu, selected item, etc)
-extern std::vector<MenuState> gMenuStates;
 
 // Which group member (self being #0) last targeted with relative targeting
 extern u8 gLastGroupTarget;

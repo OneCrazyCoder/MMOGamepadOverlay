@@ -2285,6 +2285,8 @@ void loadProfile()
 		{
 			setCStringPointerFor(&itr2->cmd);
 		}
+		for(size_t i = 0; i < ARRAYSIZE(itr->dirItems); ++i)
+			setCStringPointerFor(&itr->dirItems[i].cmd);
 	}
 
 	for(std::vector<ControlsLayer>::iterator itr = sLayers.begin();

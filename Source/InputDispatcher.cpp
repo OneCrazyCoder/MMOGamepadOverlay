@@ -611,21 +611,6 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 }
 
 
-static void releaseAllHeldKeys()
-{
-	sTracker.keysLockedDown.clear();
-	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
-		aVKey < sTracker.keysHeldDown.size();
-		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
-	{
-		setKeyDown(u16(aVKey), false);
-	}
-	sTracker.keysHeldDown.reset();
-	sTracker.keysWantDown.clear();
-	sTracker.moveKeysHeld.reset();
-}
-
-
 static void debugPrintInputVector()
 {
 	static u32 sUpdateCount = 0;
@@ -719,8 +704,30 @@ void loadProfile()
 
 void cleanup()
 {
-	setMouseLookMode(false);
-	releaseAllHeldKeys();
+	sTracker.mouseLookWanted = false;
+	sTracker.keysLockedDown.clear();
+	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
+		aVKey < sTracker.keysHeldDown.size();
+		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
+	{
+		setKeyDown(u16(aVKey), false);
+	}
+	sTracker.keysHeldDown.reset();
+	sTracker.keysWantDown.clear();
+	sTracker.moveKeysHeld.reset();
+	flushInputVector();
+}
+
+
+void prepareForDialog()
+{
+	sTracker.keysLockedDown.clear();
+	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
+		aVKey < sTracker.keysHeldDown.size();
+		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
+	{
+		setKeyDown(u16(aVKey), false);
+	}
 	flushInputVector();
 }
 

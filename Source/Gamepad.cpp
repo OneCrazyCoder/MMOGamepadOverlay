@@ -1105,6 +1105,21 @@ void setDigitalDeadzone(EButton theButton, u8 theDeadzone)
 }
 
 
+void ignoreUntilPressedAgain(EButton theButton)
+{
+	DBG_ASSERT(theButton > eBtn_None && theButton < eBtn_Num);
+	for( int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
+	{
+		if( sGamepadData.gamepad[i].buttonsDown.test(theButton) )
+		{
+			sGamepadData.gamepad[i].buttonsHit.reset(theButton);
+			sGamepadData.gamepad[i].buttonsDown.reset(theButton);
+			sGamepadData.gamepad[i].initialState.set(theButton);
+		}
+	}
+}
+
+
 bool buttonHit(EButton theButton)
 {
 	DBG_ASSERT(sGamepadData.initialized);

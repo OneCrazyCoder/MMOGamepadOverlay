@@ -4,8 +4,10 @@
 
 #include "Dialogs.h"
 
+#include "Gamepad.h"
+#include "InputDispatcher.h" // prepareForDialog()
 #include "Resources/resource.h"
-#include "TargetApp.h"
+#include "TargetApp.h" // targetAppActive(), targetWindowIsTopMost()
 #include "WindowManager.h"
 
 // Enable support for Edit_SetCueBannerText
@@ -17,6 +19,10 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 // Support for GetOpenFileName()
 #include <CommDlg.h>
 
+// Forward declares of functions defined in Main.cpp for main loop update
+void mainLoopUpdate(HWND theDialog);
+void mainLoopSleep();
+void mainLoopTimeSkip();
 
 namespace Dialogs
 {
@@ -48,6 +54,8 @@ struct ProfileSelectDialogData
 //-----------------------------------------------------------------------------
 
 static std::string* sDialogEditText;
+static bool sDialogDone = false;
+static bool sDialogFocusShown = false;
 
 
 //-----------------------------------------------------------------------------
@@ -141,8 +149,8 @@ static INT_PTR CALLBACK profileSelectProc(
 				theData->result.autoLoadRequested =
 					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
 						== BST_CHECKED);
-				// Signal to application (NULL) that are ready to close
-				PostMessage(NULL, WM_DESTROY, 0, 0);
+				// Signal to main loop that are ready to close
+				sDialogDone = true;
 				return (INT_PTR)TRUE;
 			}
 			break;
@@ -151,8 +159,8 @@ static INT_PTR CALLBACK profileSelectProc(
 			if( HIWORD(wParam) == BN_CLICKED )
 			{// Cancel button clicked
 				theData->result.cancelled = true;
-				// Signal to application (NULL) that are ready to close
-				PostMessage(NULL, WM_DESTROY, 0, 0);
+				// Signal to main loop that are ready to close
+				sDialogDone = true;
 				return (INT_PTR)TRUE;
 			}
 			break;
@@ -187,13 +195,198 @@ static INT_PTR CALLBACK profileSelectProc(
 		if( theData )
 		{// Treat the same as Cancel being clicked
 			theData->result.cancelled = true;
-			PostMessage(NULL, WM_DESTROY, 0, 0);
+			sDialogDone = true;
 			return (INT_PTR)TRUE;
 		}
+		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
 		break;
 	}
 
 	return (INT_PTR)FALSE;
+}
+
+
+static void profileSelectCheckGamepad(HWND theDialog)
+{
+	Gamepad::update();
+
+	if( GetForegroundWindow() != theDialog )
+		return;
+
+	HWND aFocusControl = GetFocus();
+	UINT aFocusID =
+		(aFocusControl  && IsChild(theDialog, aFocusControl))
+			? GetDlgCtrlID(aFocusControl) : 0;
+
+	// Check for confirm (A on XB) or back (B on XB)
+	if( Gamepad::buttonHit(eBtn_FRight) )
+	{
+		SendDlgItemMessage(theDialog, IDCANCEL, BM_CLICK, 0, 0);
+		Gamepad::ignoreUntilPressedAgain(eBtn_FRight);
+		return;
+	}
+
+	if( Gamepad::buttonHit(eBtn_FDown) )
+	{
+		switch(aFocusID)
+		{
+		case IDOK:
+		case IDCANCEL:
+		case IDC_CHECK_AUTOLOAD:
+			SendMessage(GetFocus(), BM_CLICK, 0, 0);
+			break;
+		case IDC_EDIT_PROFILE_NAME:
+			SetFocus(GetDlgItem(theDialog, IDC_LIST_PROFILES));
+			break;
+		default:
+			SendDlgItemMessage(theDialog, IDOK, BM_CLICK, 0, 0);
+			break;
+		}
+		Gamepad::ignoreUntilPressedAgain(eBtn_FDown);
+		return;
+	}
+	
+	// Check for focus change or scrolling through list with directional input
+	static int sAutoRepeatTimer = 0;
+	enum EDialogDir
+	{
+		eDialogDir_None,
+		eDialogDir_Left,
+		eDialogDir_Right,
+		eDialogDir_Up,
+		eDialogDir_Down,
+	};
+	EDialogDir aNewDir = eDialogDir_None;
+	EDialogDir aHeldDir = eDialogDir_None;
+
+	if( Gamepad::buttonHit(eBtn_DLeft) ||
+		Gamepad::buttonHit(eBtn_LSLeft) )
+	{
+		aNewDir = eDialogDir_Left;
+		sAutoRepeatTimer = 0;
+	}
+	else if( Gamepad::buttonHit(eBtn_DRight) ||
+			 Gamepad::buttonHit(eBtn_LSRight) )
+	{
+		aNewDir = eDialogDir_Right;
+		sAutoRepeatTimer = 0;
+	}
+	else if( Gamepad::buttonHit(eBtn_DUp) ||
+			 Gamepad::buttonHit(eBtn_LSUp) )
+	{
+		aNewDir = eDialogDir_Up;
+		sAutoRepeatTimer = 0;
+	}
+	else if( Gamepad::buttonHit(eBtn_DDown) ||
+			 Gamepad::buttonHit(eBtn_LSDown) )
+	{
+		aNewDir = eDialogDir_Down;
+		sAutoRepeatTimer = 0;
+	}
+	else if( Gamepad::buttonDown(eBtn_DUp) ||
+			 Gamepad::buttonDown(eBtn_LSUp) )
+	{
+		aHeldDir = eDialogDir_Up;
+	}
+	else if( Gamepad::buttonDown(eBtn_DDown) ||
+			 Gamepad::buttonDown(eBtn_LSDown) )
+	{
+		aHeldDir = eDialogDir_Down;
+	}
+	else
+	{
+		sAutoRepeatTimer = 0;
+	}
+
+	if( aHeldDir != eDialogDir_None )
+	{
+		const int oldTimer = sAutoRepeatTimer;
+		sAutoRepeatTimer += gAppFrameTime;
+		if( oldTimer < 400 && sAutoRepeatTimer >= 400 )
+		{
+			aNewDir = aHeldDir;
+			sAutoRepeatTimer -= 100;
+		}
+	}
+
+	if( aNewDir == eDialogDir_None )
+		return;
+
+	const bool hasKBFocus =
+		!(SendMessage(theDialog, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS);
+	if( !hasKBFocus )
+	{
+		if( aNewDir == eDialogDir_Down || aNewDir == eDialogDir_Up)
+		{// First time press up or down, focus on profile list
+			aFocusControl = GetDlgItem(theDialog, IDC_LIST_PROFILES);
+			SetFocus(aFocusControl);
+			aFocusID = IDC_LIST_PROFILES;
+		}
+		// Show keyboard focus indicators from now on
+		SendMessage(theDialog,
+			WM_CHANGEUISTATE,
+			MAKELONG(UIS_CLEAR, UISF_HIDEACCEL | UISF_HIDEFOCUS),
+			0);
+	}
+
+	INPUT input[2] = { 0 };
+	input[0].type = INPUT_KEYBOARD;
+	input[1].type = INPUT_KEYBOARD;
+	input[1].ki.dwFlags = KEYEVENTF_KEYUP;
+
+	switch(aNewDir)
+	{
+	case eDialogDir_Left:
+		switch(aFocusID)
+		{
+		case IDC_LIST_PROFILES:
+		case IDC_EDIT_PROFILE_NAME:
+			break;
+		default:
+			SetFocus(GetDlgItem(theDialog, IDC_LIST_PROFILES));
+		}
+		break;
+	case eDialogDir_Right:
+		switch(aFocusID)
+		{
+		case IDC_LIST_PROFILES:
+		case IDC_EDIT_PROFILE_NAME:
+			SetFocus(GetDlgItem(theDialog, IDC_CHECK_AUTOLOAD));
+			break;
+		}
+		break;
+	case eDialogDir_Up:
+		switch(aFocusID)
+		{
+		case IDOK:
+			break;
+		case IDC_EDIT_PROFILE_NAME:
+			SetFocus(GetDlgItem(theDialog, IDC_LIST_PROFILES));
+			break;
+		default:
+			input[0].ki.wVk = VK_UP;
+			input[1].ki.wVk = VK_UP;
+			SendInput(2, input, sizeof(INPUT));
+			break;
+		}
+		break;
+	case eDialogDir_Down:
+		switch(aFocusID)
+		{
+		case IDC_CHECK_AUTOLOAD:
+			SetFocus(GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME));
+			break;
+		default:
+			input[0].ki.wVk = VK_DOWN;
+			input[1].ki.wVk = VK_DOWN;
+			SendInput(2, input, sizeof(INPUT));
+			break;
+		}
+		break;
+	}
 }
 
 
@@ -317,10 +510,14 @@ static INT_PTR CALLBACK editMenuCommandProc(
 			GetDlgItemText(theDialog, IDC_EDIT_COMMAND,
 				&aWStrBuffer[0], int(aWStrBuffer.size()));
 			*theString = trim(narrow(&aWStrBuffer[0]));
-			// Signal to application (NULL) that are ready to close
-			PostMessage(NULL, WM_DESTROY, 0, 0);
+			// Signal to application that are ready to close
+			sDialogDone = true;
 			return (INT_PTR)TRUE;
 		}
+		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
 		break;
 	}
 
@@ -344,7 +541,7 @@ ProfileSelectResult profileSelect(
 	ProfileSelectResult result;
 	result.selectedIndex = theDefaultSelection;
 	result.autoLoadRequested = wantsAutoLoad;
-	result.cancelled = false;
+	result.cancelled = true;
 	ProfileSelectDialogData aDataStruct(
 		theLoadableProfiles,
 		theTemplateProfiles,
@@ -358,6 +555,9 @@ ProfileSelectResult profileSelect(
 		WindowManager::update();
 	}
 
+	// Release any keys held by InputDispatcher first
+	InputDispatcher::prepareForDialog();
+
 	// Create and show dialog window
 	HWND hWnd = CreateDialogParam(
 		GetModuleHandle(NULL),
@@ -369,29 +569,22 @@ ProfileSelectResult profileSelect(
 	if( TargetApp::targetWindowIsTopMost() )
 		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
-	// Message handling loop
-	MSG msg;
-	while(GetMessage(&msg, NULL, 0, 0))
+	// Loop until dialog signals it is done
+	sDialogDone = false;
+	sDialogFocusShown = false;
+	while(!gShutdown && !hadFatalError())
 	{
-		// Standard dialog message handling
-		if( !IsDialogMessage(hWnd, &msg) )
-		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
+		mainLoopUpdate(hWnd);
+		profileSelectCheckGamepad(hWnd);
 
-		// Dialog has signaled it is ready to be destroyed
-		if( msg.message == WM_DESTROY )
+		if( sDialogDone )
 			break;
+
+		mainLoopSleep();
 	}
 
 	// Cleanup
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
-	while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-	{
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
-	}
 	DestroyWindow(hWnd);
 	if( WindowManager::mainHandle() )
 		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
@@ -405,7 +598,14 @@ ProfileSelectResult profileSelect(
 std::string targetAppPath(std::string& theCommandLineParams)
 {
 	std::string result;
+
+	// Don't ask about auto-launching an app when already have one active
+	if( TargetApp::targetAppActive() )
+		return result;
+
 	sDialogEditText = &theCommandLineParams;
+
+	InputDispatcher::prepareForDialog();
 
 	HWND hTempParentWindow = NULL;
 	if( TargetApp::targetWindowIsTopMost() )
@@ -413,8 +613,20 @@ std::string targetAppPath(std::string& theCommandLineParams)
 		hTempParentWindow = CreateWindowEx(
 			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
 			NULL, NULL, GetModuleHandle(NULL), NULL);
+
 	}
-		
+
+	if( MessageBox(
+			hTempParentWindow,
+			L"Would you like to automatically launch target game "
+			L"when loading this profile at startup?",
+			L"Auto-Launch Target App",
+			MB_YESNO) != IDYES )
+	{
+		mainLoopTimeSkip();
+		return result;
+	}
+
 	OPENFILENAME ofn;
 	WCHAR aPath[MAX_PATH];
 	ZeroMemory(&ofn, sizeof(ofn));
@@ -437,19 +649,33 @@ std::string targetAppPath(std::string& theCommandLineParams)
 	ofn.lpTemplateName = MAKEINTRESOURCE(IDD_DIALOG_TARGET_APP);
 	ofn.lpfnHook = targetAppPathProc;
 	if( GetOpenFileName(&ofn) )
+	{
 		result = narrow(aPath);
+	}
+	else
+	{
+		MessageBox(hTempParentWindow,
+			L"No target app path selected.\n"
+			L"You can manually edit the .ini file [System]AutoLaunchApp= "
+			L"entry to add one later.",
+			L"Auto-Launch Target App",
+			MB_OK | MB_ICONWARNING);
+	}
 
 	// Cleanup
 	sDialogEditText = NULL;
 	if( hTempParentWindow )
 		DestroyWindow(hTempParentWindow);
 
+	mainLoopTimeSkip();
 	return result;
 }
 
 
 EResult showLicenseAgreement(HWND theParentWindow)
 {
+	InputDispatcher::prepareForDialog();
+
 	if( DialogBoxParam(
 		GetModuleHandle(NULL),
 		MAKEINTRESOURCE(IDD_DIALOG_LICENSE),
@@ -457,9 +683,11 @@ EResult showLicenseAgreement(HWND theParentWindow)
 		licenseDialogProc,
 		0) == IDOK )
 	{
+		mainLoopTimeSkip();
 		return eResult_Accepted;
 	}
 
+	mainLoopTimeSkip();
 	return eResult_Declined;
 }
 
@@ -476,6 +704,9 @@ EResult editMenuCommand(std::string& theString, bool directional)
 		WindowManager::update();
 	}
 
+	// Release any keys held by InputDispatcher first
+	InputDispatcher::prepareForDialog();
+
 	// Create and show dialog window
 	HWND hWnd = CreateDialogParam(
 		GetModuleHandle(NULL),
@@ -487,33 +718,35 @@ EResult editMenuCommand(std::string& theString, bool directional)
 		editMenuCommandProc,
 		reinterpret_cast<LPARAM>(&theString));
 	ShowWindow(hWnd, SW_SHOW);
-	if( TargetApp::targetWindowIsTopMost() )
-		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	SetForegroundWindow(hWnd);
 	SetFocus(GetDlgItem(hWnd, IDC_EDIT_COMMAND));
 
-	// Message handling loop
-	MSG msg;
-	while(GetMessage(&msg, NULL, 0, 0))
+	// Loop until dialog signals it is done
+	sDialogDone = false;
+	sDialogFocusShown = false;
+	while(!gShutdown && !hadFatalError())
 	{
-		// Standard dialog message handling
-		if( !IsDialogMessage(hWnd, &msg) )
-		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
+		mainLoopUpdate(hWnd);
+
+		Gamepad::update();
+		if( GetForegroundWindow() == hWnd &&
+			(Gamepad::buttonHit(eBtn_FRight) ||
+			 Gamepad::buttonHit(eBtn_FDown)) )
+		{// Treat the same as clicking Okay on the dialog
+			SendDlgItemMessage(hWnd, IDOK, BM_CLICK, 0, 0);
+			Gamepad::ignoreUntilPressedAgain(eBtn_FRight);
+			Gamepad::ignoreUntilPressedAgain(eBtn_FDown);
 		}
 
-		// Dialog has signaled it is ready to be destroyed
-		if( msg.message == WM_DESTROY )
+		if( sDialogDone )
 			break;
+
+		mainLoopSleep();
 	}
 
 	// Cleanup
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
-	while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-	{
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
-	}
 	DestroyWindow(hWnd);
 	if( WindowManager::mainHandle() )
 		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
