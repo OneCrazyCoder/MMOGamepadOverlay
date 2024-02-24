@@ -19,7 +19,10 @@
 namespace Profile
 {
 
-// Load (and/or generate) .ini files
+// Load (and/or generate) .ini files for core profile data only
+void loadCore();
+
+// Load (and/or generate) .ini files for current profile
 void load();
 
 // Allow user to manually select which profile to load

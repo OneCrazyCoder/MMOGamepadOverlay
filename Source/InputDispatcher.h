@@ -21,6 +21,9 @@ void loadProfile();
 // Clean up and prepares for app shutdown
 void cleanup();
 
+// Make sure not still holding keys that may interfere with a dialog
+void prepareForDialog();
+
 // Call once per frame to process the queue and dispatch input
 void update();
 

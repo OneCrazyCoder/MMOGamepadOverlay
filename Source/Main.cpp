@@ -29,6 +29,87 @@
 
 
 //-----------------------------------------------------------------------------
+// Static Variables
+//-----------------------------------------------------------------------------
+
+static DWORD sMillisecsPerUpdate = 14; // allows >= 60 fps without taxing CPU
+static DWORD sLastUpdateTime = 0;
+static DWORD sUpdateStartTime = 0;
+static u32 sUpdateLoopCount = 0;
+static bool sUpdateLoopStarted = false;
+
+
+//-----------------------------------------------------------------------------
+// Global Main Loop Functions (also used in Dialogs.cpp)
+//-----------------------------------------------------------------------------
+
+void mainLoopUpdate(HWND theDialog)
+{
+	// Don't process this again until mainLoopSleep() is called
+	if( sUpdateLoopStarted )
+		return;
+	sUpdateLoopStarted = true;
+
+	sUpdateStartTime = timeGetTime();
+	gAppFrameTime = sUpdateStartTime - sLastUpdateTime;
+	gAppRunTime += gAppFrameTime;
+	sLastUpdateTime = sUpdateStartTime;
+
+	MSG aWindowsMessage = MSG();
+	while(PeekMessage(&aWindowsMessage, NULL, 0, 0, PM_REMOVE))
+	{
+		switch(aWindowsMessage.message)
+		{
+		case WM_DEVICECHANGE:
+			Gamepad::checkDeviceChange();
+			break;
+		case WM_SYSCOLORCHANGE:
+			gReloadProfile = true;
+			break;
+		case WM_HOTKEY:
+			if( aWindowsMessage.wParam == kFullScreenHotkeyID )
+				TargetApp::toggleFullScreenMode();
+			break;
+		case WM_QUIT:
+			gShutdown = true;
+			break;
+		default:
+			if( !theDialog ||
+				!IsDialogMessage(theDialog, &aWindowsMessage) )
+			{
+				TranslateMessage(&aWindowsMessage);
+				DispatchMessage(&aWindowsMessage);
+			}
+			break;
+		}
+	}
+}
+
+
+void mainLoopSleep()
+{
+	// Don't process this again until mainLoopUpdate() is called
+	if( !sUpdateLoopStarted )
+		return;
+	sUpdateLoopStarted = false;
+
+	const DWORD aTimeTakenByUpdate = timeGetTime() - sUpdateStartTime;
+	if( aTimeTakenByUpdate < sMillisecsPerUpdate )
+		Sleep(sMillisecsPerUpdate - aTimeTakenByUpdate);
+	else
+		Sleep(1);
+
+	++sUpdateLoopCount;
+}
+
+
+void mainLoopTimeSkip()
+{
+	sLastUpdateTime = sUpdateStartTime = timeGetTime();
+}
+
+
+//-----------------------------------------------------------------------------
 // Application entry point - WinMain
 //-----------------------------------------------------------------------------
 
@@ -40,13 +121,18 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	_CrtSetDbgFlag (_CRTDBG_ALLOC_MEM_DF|_CRTDBG_LEAK_CHECK_DF);
 	#endif
 
-	// Initialize gamepad module so can use it during profile selection
+	// Initialize gamepad module so can use it in initial dialogs
 	Gamepad::init();
 
-	DWORD aMillisecsPerUpdate = 14; // allows >= 60 fps without taxing CPU
+	// Load core profile to get system settings
+	Profile::loadCore();
+	sMillisecsPerUpdate = (DWORD)
+		Profile::getInt("System/FrameTime", sMillisecsPerUpdate);
+
+	sLastUpdateTime = timeGetTime();
 	while(gReloadProfile && !gShutdown && !hadFatalError())
 	{
-		// Load profile
+		// Load current profile
 		Profile::load();
 		gReloadProfile = false;
 
@@ -57,8 +143,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		// Load configuration settings for each module from profile
 		if( !gShutdown && !hadFatalError() )
 		{
-			aMillisecsPerUpdate = (DWORD)
-				Profile::getInt("System/FrameTime", aMillisecsPerUpdate);
+			sMillisecsPerUpdate = (DWORD)
+				Profile::getInt("System/FrameTime", sMillisecsPerUpdate);
 			InputMap::loadProfile();
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
@@ -73,40 +159,10 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			TargetApp::autoLaunch();
 
 		// Main loop
-		DWORD aLastUpdateTime = timeGetTime();
 		while(!gShutdown && !gReloadProfile && !hadFatalError())
 		{
-			// Update frame timers
-			const DWORD anUpdateStartTime = timeGetTime();
-			gAppFrameTime = anUpdateStartTime - aLastUpdateTime;
-			gAppRunTime += gAppFrameTime;
-			aLastUpdateTime = anUpdateStartTime;
-
-			// Handle Windows messages
-			MSG aWindowsMessage = MSG();
-			while(PeekMessage(&aWindowsMessage, NULL, 0, 0, PM_REMOVE))
-			{
-				switch(aWindowsMessage.message)
-				{
-				case WM_DEVICECHANGE:
-					Gamepad::checkDeviceChange();
-					break;
-				case WM_SYSCOLORCHANGE:
-					gReloadProfile = true;
-					break;
-				case WM_HOTKEY:
-					if( aWindowsMessage.wParam == kFullScreenHotkeyID )
-						TargetApp::toggleFullScreenMode();
-					break;
-				case WM_QUIT:
-					gShutdown = true;
-					break;
-				default:
-					TranslateMessage(&aWindowsMessage);
-					DispatchMessage(&aWindowsMessage);
-					break;
-				}
-			}
+			// Update frame timers and process windows messages
+			mainLoopUpdate(NULL);
 
 			// Update modules
 			if( !gReloadProfile )
@@ -119,21 +175,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 				WindowManager::update();
 			}
 
-			if( gChangeProfile )
-			{
-				Profile::queryUserForProfile();
-				gReloadProfile = true;
-				gChangeProfile = false;
-			}
-
 			// Yield via Sleep() so sent input can be processed by target
-			const DWORD aTimeTakenByUpdate = timeGetTime() - anUpdateStartTime;
-			if( aTimeTakenByUpdate < aMillisecsPerUpdate )
-				Sleep(aMillisecsPerUpdate - aTimeTakenByUpdate);
-			else
-				Sleep(1);
-
-			++gAppUpdateCount;
+			mainLoopSleep();
 		}
 
 		// Note that MessageBox self-closes immediately if WM_QUIT has been
@@ -160,7 +203,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	// Report performance
 	if( !hadFatalError() && gAppRunTime > 0 )
 	{
-		const double averageFPS = gAppUpdateCount / (gAppRunTime / 1000.0);
+		const double averageFPS = sUpdateLoopCount / (gAppRunTime / 1000.0);
 		debugPrint("Average FPS: %.2f\n", averageFPS);
 	}
 

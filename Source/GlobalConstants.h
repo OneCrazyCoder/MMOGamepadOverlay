@@ -364,12 +364,6 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 	} x, y;
 };
 
-struct MenuState : public ConstructFromZeroInitializedMemory<MenuState>
-{
-	u16 subMenuID;
-	u16 selectedID;
-};
-
 // Generic button names used in Profile .ini files
 extern const char* kProfileButtonName[];
 

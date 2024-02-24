@@ -320,7 +320,8 @@ static void processCommand(
 		sResults.strings.push_back(theCmd);
 		break;
 	case eCmdType_ChangeProfile:
-		gChangeProfile = true;
+		Profile::queryUserForProfile();
+		gReloadProfile = true;
 		break;
 	case eCmdType_QuitApp:
 		gShutdown = true;

@@ -452,17 +452,21 @@ void checkWindowMode()
 
 void checkAppClosed()
 {
-	if( !kConfig.autoCloseWithTargetApp || !sTargetAppProcess )
+	if( !sTargetAppProcess )
 		return;
 
 	if( WaitForSingleObject(sTargetAppProcess, 0) )
 		return;
 
 	// Application was auto-launched but has since closed
-	targetDebugPrint("Auto-launch app closed - shutting down overlay!\n");
+	if( kConfig.autoCloseWithTargetApp )
+	{
+		targetDebugPrint(
+			"Auto-launch app closed - shutting down overlay!\n");
+		gShutdown = true;
+	}
 	CloseHandle(sTargetAppProcess);
 	sTargetAppProcess = NULL;
-	gShutdown = true;
 }
 
 
@@ -599,6 +603,12 @@ void toggleFullScreenMode()
 	}
 	sNextCheck = eCheck_WindowMode;
 	sRepeatCheckTime = 0;
+}
+
+
+bool targetAppActive()
+{
+	return sTargetWindowHandle || sTargetAppProcess;
 }
 
 

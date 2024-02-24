@@ -83,6 +83,10 @@ void setImpulseTriggersEnabled(bool);
 // Does NOT affect axisVal() or buttonAnalogVal()!
 void setDigitalDeadzone(EButton theButton, u8 theDeadzone = 100);
 
+// Forces button to be considered released until next time it is pushed,
+// even if it is currently actually down. Doesn't affect axisVal() though.
+void ignoreUntilPressedAgain(EButton theButton);
+
 // Returns true if given button was newly pressed on any active gamepad
 // Only checks selected gamepad if one is selected (auto or otherwise)
 bool buttonHit(EButton theButton);
