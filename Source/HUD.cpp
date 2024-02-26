@@ -48,6 +48,7 @@ enum EHUDProperty
 	eHUDProp_SFontColor,
 	eHUDProp_SItemColor,
 	eHUDProp_SBorderColor,
+	eHUDProp_TitleColor,
 	eHUDProp_TransColor,
 	eHUDProp_MaxAlpha,
 	eHUDProp_FadeInDelay,
@@ -59,6 +60,7 @@ enum EHUDProperty
 	eHUDProp_BitmapPath,
 	eHUDProp_SBitmapPath,
 	eHUDProp_Radius,
+	eHUDProp_TitleHeight,
 
 	eHUDProp_Num
 };
@@ -87,6 +89,7 @@ const char* kHUDPropStr[] =
 	"SelectedLabelRGB",		// eHUDProp_SFontColor
 	"SelectedItemRGB",		// eHUDProp_SItemColor
 	"SelectedBorderRGB",	// eHUDProp_SBorderColor
+	"TitleRGB",				// eHUDProp_TitleColor
 	"TransRGB",				// eHUDProp_TransColor
 	"MaxAlpha",				// eHUDProp_MaxAlpha
 	"FadeInDelay",			// eHUDProp_FadeInDelay
@@ -98,6 +101,7 @@ const char* kHUDPropStr[] =
 	"BitmapPath",			// eHUDProp_BitmapPath
 	"SelectedBitmapPath",	// eHUDProp_SBitmapPath
 	"Radius",				// eHUDProp_Radius
+	"TitleHeight",			// eHUDProp_TitleHeight
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -113,6 +117,8 @@ struct HUDElementInfo
 	EHUDType itemType;
 	COLORREF labelColor;
 	COLORREF labelBGColor;
+	COLORREF titleColor;
+	COLORREF titleBGColor;
 	COLORREF selLabelColor;
 	COLORREF selLabelBGColor;
 	COLORREF transColor;
@@ -135,6 +141,8 @@ struct HUDElementInfo
 	u16 bitmapID;
 	u16 selBitmapID;
 	u16 radius;
+	u16 titleHeight;
+	u16 titleBrushID;
 	u8 alignmentX;
 	u8 alignmentY;
 	u8 maxAlpha;
@@ -166,8 +174,7 @@ struct HUDDrawData
 
 struct HUDDrawCacheEntry
 {
-	LONG yOff;
-	u16 fontID;
+	u16 width, height, fontID;
 	bool initialized;
 	HUDDrawCacheEntry() : initialized(false) {}
 };
@@ -585,6 +592,8 @@ static LONG getFontHeightToFit(
 
 	// First check if base font will fit fine on its own
 	RECT aCalcRect = theClipRect;
+	// DT_SINGLELINE prevents DT_CALCRECT from calculating height
+	theFormat &= ~DT_SINGLELINE;
 	aCalcRect.bottom = aCalcRect.top;
 	DrawText(hdc, theStr.c_str(), -1, &aCalcRect, theFormat | DT_CALCRECT);
 	if(	aCalcRect.left >= theClipRect.left &&
@@ -645,6 +654,120 @@ static LONG getFontHeightToFit(
 }
 
 
+static void initCacheEntry(
+	HUDDrawData& dd,
+	const RECT& theRect,
+	const std::wstring& theStr,
+	UINT theFormat,
+	HUDDrawCacheEntry& theCacheEntry)
+{
+	// This will not only check if an alternate font size is needed, but
+	// also calculate drawn width and height for given string, which
+	// can be used to calculate an offsets for things like vertical justify
+	// when not using DT_SINGLELINE (meaning DT_VCENTER/_BOTTOM don't work).
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	theCacheEntry.fontID = hi.fontID;
+
+	SelectObject(dd.hdc, sFonts[hi.fontID]);
+	RECT aNeededRect = theRect;
+	if( LONG aFontHeight = getFontHeightToFit(
+			dd.hdc, theStr, theRect, &aNeededRect, theFormat) )
+	{
+		theCacheEntry.fontID = sResizedFontsMap.findOrAdd(
+			std::make_pair(hi.fontID, aFontHeight),
+			u16(sFonts.size()));
+		if( theCacheEntry.fontID == sFonts.size() )
+		{
+			LOGFONT aFont;
+			GetObject(sFonts[hi.fontID], sizeof(LOGFONT), &aFont);
+			aFont.lfWidth = 0;
+			aFont.lfHeight = aFontHeight;
+			sFonts.push_back(CreateFontIndirect(&aFont));
+		}
+	}
+
+	theCacheEntry.width = aNeededRect.right - aNeededRect.left;
+	theCacheEntry.height = aNeededRect.bottom - aNeededRect.top;
+	theCacheEntry.initialized = true;
+}
+
+
+static void drawLabelString(
+	HUDDrawData& dd,
+	RECT theRect,
+	const std::wstring& theStr,
+	UINT theFormat,
+	HUDDrawCacheEntry& theCacheEntry)
+{
+	if( theStr.empty() )
+		return;
+
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	// Initialize cache entry to get font & height
+	if( !theCacheEntry.initialized )
+		initCacheEntry(dd, theRect, theStr, theFormat, theCacheEntry);
+
+	// Adjust vertial draw position manually when not using DT_SINGLELINE,
+	// which is the only time DT_VCENTER and DT_BOTTOM work normally
+	if( !(theFormat & DT_SINGLELINE) )
+	{
+		if( theFormat & DT_VCENTER )
+		{
+			theRect.top +=
+				((theRect.bottom - theRect.top) -
+				 theCacheEntry.height) / 2;
+		}
+		else if( theFormat & DT_BOTTOM )
+		{
+			theRect.top +=
+				(theRect.bottom - theRect.top) - theCacheEntry.height;
+		}
+	}
+
+	// Draw label based on cache entry's fields
+	DBG_ASSERT(theCacheEntry.initialized);
+	SelectObject(dd.hdc, sFonts[theCacheEntry.fontID]);
+	DrawText(dd.hdc, theStr.c_str(), -1, &theRect, theFormat);
+}
+
+
+static void drawMenuTitle(
+	HUDDrawData& dd,
+	u16 theSubMenuID,
+	HUDDrawCacheEntry& theCacheEntry,
+	bool centered = false)
+{
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	RECT aTitleRect = { 0, 0, dd.targetSize.cx, hi.titleHeight };
+
+	if( !dd.firstDraw )
+		FillRect(dd.hdc, &aTitleRect, sBrushes[hi.eraseBrushID]);
+	InflateRect(&aTitleRect, -hi.borderSize - 1, -hi.borderSize - 1);
+	const std::wstring& aStr = widen(InputMap::menuLabel(theSubMenuID));
+	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
+	if( centered) aFormat |= DT_CENTER;
+	if( !theCacheEntry.initialized )
+		initCacheEntry(dd, aTitleRect, aStr, aFormat, theCacheEntry);
+
+	// Fill in borderSize+1 margin around text with titleBG (border) color
+	RECT aBGRect;
+	LONG aSize = theCacheEntry.width;
+	aSize += hi.borderSize + hi.borderSize + 2;
+	aBGRect.left = centered ? ((dd.targetSize.cx - aSize) / 2) : 0;
+	aBGRect.right = aBGRect.left + aSize;
+	aSize = theCacheEntry.height;
+	aSize += hi.borderSize + hi.borderSize + 2;
+	aBGRect.bottom = hi.titleHeight;
+	aBGRect.top = aBGRect.bottom - aSize;
+	FillRect(dd.hdc, &aBGRect, sBrushes[hi.titleBrushID]);
+
+	SetTextColor(dd.hdc, hi.titleColor);
+	SetBkColor(dd.hdc, hi.titleBGColor);
+	drawLabelString(dd, aTitleRect, aStr, aFormat, theCacheEntry);	
+}
+
+
 static void drawMenuItem(
 	HUDDrawData& dd,
 	const RECT& theRect,
@@ -653,6 +776,8 @@ static void drawMenuItem(
 	bool selected = false)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+
+	// Background (usually a bordered rectangle)
 	if( selected )
 	{
 		swap(hi.itemBrushID, hi.selItemBrushID);
@@ -667,56 +792,14 @@ static void drawMenuItem(
 		swap(hi.bitmapID, hi.selBitmapID);
 	}
 
-	if( theLabel.empty() )
-		return;
-
 	// Label (usually word-wrapped and centered text)
-	const std::wstring& aLabelW = widen(theLabel);
-	RECT aTextRect = theRect;
-	InflateRect(&aTextRect, -hi.borderSize - 1, -hi.borderSize - 1);
-
-	// Get draw details from cache entry, or initialize it now
-	const UINT aFormat = DT_WORDBREAK | DT_CENTER;
-	if( !theCacheEntry.initialized )
-	{
-		theCacheEntry.fontID = hi.fontID;
-
-		// This will not only check if an alternate font size is needed, but
-		// also calculate what drawn rect will be with it (aNeededRect) which
-		// can be used to calculate an offset for vertical center justify
-		// when using DT_WORDBREAK (which means DT_VCENTER doesn't work).
-		SelectObject(dd.hdc, sFonts[hi.fontID]);
-		RECT aNeededRect = aTextRect;
-		if( LONG aFontHeight = getFontHeightToFit(
-				dd.hdc, aLabelW, aTextRect, &aNeededRect, aFormat) )
-		{
-			theCacheEntry.fontID = sResizedFontsMap.findOrAdd(
-				std::make_pair(hi.fontID, aFontHeight),
-				u16(sFonts.size()));
-			if( theCacheEntry.fontID == sFonts.size() )
-			{
-				LOGFONT aFont;
-				GetObject(sFonts[hi.fontID], sizeof(LOGFONT), &aFont);
-				aFont.lfWidth = 0;
-				aFont.lfHeight = aFontHeight;
-				sFonts.push_back(CreateFontIndirect(&aFont));
-			}
-		}
-
-		// Center the text vertically using modified aNeededRect
-		theCacheEntry.yOff =
-			((aTextRect.bottom - aTextRect.top) -
-			 (aNeededRect.bottom - aNeededRect.top)) / 2;
-		theCacheEntry.initialized = true;
-	}
-
-	// Draw label based on cache entry's fields
-	DBG_ASSERT(theCacheEntry.initialized);
-	aTextRect.top += theCacheEntry.yOff;
-	SelectObject(dd.hdc, sFonts[theCacheEntry.fontID]);
+	RECT aLabelRect = theRect;
+	InflateRect(&aLabelRect, -hi.borderSize - 1, -hi.borderSize - 1);
 	SetTextColor(dd.hdc, selected ? hi.selLabelColor : hi.labelColor);
 	SetBkColor(dd.hdc, selected ? hi.selLabelBGColor : hi.labelBGColor);
-	DrawText(dd.hdc, aLabelW.c_str(), -1, &aTextRect, aFormat);
+	drawLabelString(dd, aLabelRect, widen(theLabel),
+		DT_WORDBREAK | DT_CENTER | DT_VCENTER,
+		theCacheEntry);
 }
 
 
@@ -731,12 +814,19 @@ static void drawListMenu(HUDDrawData& dd)
 	const u16 aSelection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
-	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
-		sMenuDrawCache[aSubMenuID].resize(anItemCount);
+	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
+	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+
+	if( hasTitle &&
+		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
+	{
+		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
+	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.bottom = dd.itemSize.cy;
+	anItemRect.top = hi.titleHeight;
+	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		// Don't need to re-draw menu items that haven't changed their
@@ -755,7 +845,7 @@ static void drawListMenu(HUDDrawData& dd)
 			}
 			drawMenuItem(dd, anItemRect,
 				InputMap::menuItemLabel(aSubMenuID, itemIdx),
-				sMenuDrawCache[aSubMenuID][itemIdx],
+				sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
 				itemIdx == aSelection);
 		}
 		anItemRect.top = anItemRect.bottom;
@@ -778,12 +868,20 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	const u16 aSelection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
-	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
-		sMenuDrawCache[aSubMenuID].resize(anItemCount);
+	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
+	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+
+	if( hasTitle &&
+		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
+	{
+		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
+	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.bottom = dd.itemSize.cy;
+	anItemRect.top = hi.titleHeight;
+	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
+
 	// Draw selected item on top
 	for(u16 itemIdx = aSelection; itemIdx < anItemCount; ++itemIdx)
 	{
@@ -814,7 +912,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		}
 		drawMenuItem(dd, anItemRect,
 			InputMap::menuItemLabel(aSubMenuID, itemIdx),
-			sMenuDrawCache[aSubMenuID][itemIdx],
+			sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
 			itemIdx == aSelection);
 		anItemRect.top = anItemRect.bottom;
 		anItemRect.bottom += dd.itemSize.cy;
@@ -836,12 +934,19 @@ static void drawBarMenu(HUDDrawData& dd)
 	const u16 aSelection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
-	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
-		sMenuDrawCache[aSubMenuID].resize(anItemCount);
+	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
+	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+
+	if( hasTitle &&
+		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
+	{
+		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
+	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.bottom = dd.itemSize.cy;
+	anItemRect.top = hi.titleHeight;
+	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID ||
@@ -855,7 +960,7 @@ static void drawBarMenu(HUDDrawData& dd)
 			}
 			drawMenuItem(dd, anItemRect,
 				InputMap::menuItemLabel(aSubMenuID, itemIdx),
-				sMenuDrawCache[aSubMenuID][itemIdx],
+				sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
 				itemIdx == aSelection);
 		}
 		anItemRect.left = anItemRect.right;
@@ -873,16 +978,26 @@ static void draw4DirMenu(HUDDrawData& dd)
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
 	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
+	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
+	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
 
 	if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
+	{
 		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
-	if( sMenuDrawCache[aSubMenuID].size() < 4 )
-		sMenuDrawCache[aSubMenuID].resize(4);
+		// Since erased entire thing now, treat as firstDraw from now on
+		dd.firstDraw = true;
+	}
+
+	if( hasTitle )
+	{
+		drawMenuTitle(dd, aSubMenuID,
+			sMenuDrawCache[aSubMenuID][eCmdDir_Num], true);
+	}
 
 	// Left
 	RECT anItemRect;
 	anItemRect.left = 0;
-	anItemRect.top = dd.itemSize.cy;
+	anItemRect.top = hi.titleHeight + dd.itemSize.cy;
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
@@ -896,7 +1011,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 		sMenuDrawCache[aSubMenuID][eCmdDir_Right]);
 	// Up
 	anItemRect.left -= dd.itemSize.cx / 2;
-	anItemRect.top = 0;
+	anItemRect.top = hi.titleHeight;
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	drawMenuItem(dd, anItemRect,
@@ -923,12 +1038,19 @@ static void drawGridMenu(HUDDrawData& dd)
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	const u16 aGridWidth = Menus::gridWidth(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
-	if( sMenuDrawCache[aSubMenuID].size() < anItemCount )
-		sMenuDrawCache[aSubMenuID].resize(anItemCount);
+	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
+	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+
+	if( hasTitle &&
+		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
+	{
+		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
+	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.bottom = dd.itemSize.cy;
+	anItemRect.top = hi.titleHeight;
+	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID ||
@@ -942,7 +1064,7 @@ static void drawGridMenu(HUDDrawData& dd)
 			}
 			drawMenuItem(dd, anItemRect,
 				InputMap::menuItemLabel(aSubMenuID, itemIdx),
-				sMenuDrawCache[aSubMenuID][itemIdx],
+				sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
 				itemIdx == aSelection);
 		}
 		if( itemIdx % aGridWidth == aGridWidth - 1 )
@@ -1091,12 +1213,15 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_ItemColor));
 		hi.itemBrushID = getOrCreateBrushID(
 			aHUDBuilder, hi.labelBGColor);
-		// hi.borderPenID & .borderSize = eHUDProp_BorderColor & _BorderSize
+		// hi.borderSize = eHUDProp_BorderSize
 		hi.borderSize =
-			u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize));
+			u16(u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize)));
+		// hi.borderPenID & .titleBGColor/BrushID = eHUDProp_BorderColor
+		hi.titleBGColor = strToRGB(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_BorderColor));
+		hi.titleBrushID = getOrCreateBrushID(aHUDBuilder, hi.titleBGColor);
 		hi.borderPenID = getOrCreatePenID(aHUDBuilder,
-			strToRGB(aHUDBuilder,
-				getHUDPropStr(aHUDName, eHUDProp_BorderColor)),
+			hi.titleBGColor,
 			hi.borderSize ? PS_INSIDEFRAME : PS_NULL, int(hi.borderSize));
 		// hi.selLabelColor = eHUDProp_SFontColor
 		hi.selLabelColor = strToRGB(aHUDBuilder,
@@ -1111,14 +1236,17 @@ void init()
 			strToRGB(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_SBorderColor)),
 			PS_INSIDEFRAME, int(hi.borderSize + 1));
+		// hi.titleColor = eHUDProp_TitleColor
+		hi.titleColor = strToRGB(aHUDBuilder,
+			getHUDPropStr(aHUDName, eHUDProp_TitleColor));
 		// hi.transColor & .eraseBrushID = eHUDProp_TransColor
 		hi.transColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_TransColor));
 		hi.eraseBrushID = getOrCreateBrushID(
 			aHUDBuilder, hi.transColor);
 		// hi.maxAlpha = eHUDProp_MaxAlpha
-		hi.maxAlpha = u32FromString(
-			getHUDPropStr(aHUDName, eHUDProp_MaxAlpha)) & 0xFF;
+		hi.maxAlpha = u8(u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_MaxAlpha)) & 0xFF);
 		// hi.fadeInDelay = eHUDProp_FadeInDelay
 		hi.fadeInDelay = max(0, intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInDelay)));
@@ -1137,8 +1265,11 @@ void init()
 		hi.delayUntilInactive = intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_InactiveDelay));
 		// hi.inactiveAlpha = eHUDProp_InactiveAlpha
-		hi.inactiveAlpha = u32FromString(
-			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF;
+		hi.inactiveAlpha = u8(u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF);
+		// hi.titleHeight = eHUDProp_TitleHeight
+		hi.titleHeight = u16(u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFFFF);
 
 		// Extra data values for specific types
 		if( hi.type == eHUDItemType_RndRect ||
@@ -1431,6 +1562,7 @@ void updateWindowLayout(
 		theWindowSize.cy = theTargetSize.cy;
 		break;
 	}
+	theWindowSize.cy += hi.titleHeight;
 
 	// Adjust position according to size and alignment settings
 	switch(sHUDElementInfo[theHUDElementID].alignmentX)
