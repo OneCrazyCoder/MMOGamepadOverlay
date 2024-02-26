@@ -668,7 +668,7 @@ static std::string menuPathOf(u16 theMenuID)
 
 static u16 getOrCreateMenuID(
 	InputMapBuilder& theBuilder,
-	const std::string& theMenuName,
+	std::string theMenuName,
 	u16 theParentMenuID)
 {
 	DBG_ASSERT(!theMenuName.empty());
@@ -676,25 +676,17 @@ static u16 getOrCreateMenuID(
 
 	std::string aParentPath = menuPathOf(theParentMenuID);
 	std::string aFullPath;
-	if( theMenuName == ".." )
-	{// This means want to return parent menu instead
-		aFullPath = aParentPath;
+	if( theMenuName[0] == '.' )
+	{// Starting with '.' signals want to treat "grandparent" as the parent
+		theParentMenuID = sMenus[theParentMenuID].parentMenuID;
+		aParentPath = menuPathOf(theParentMenuID);
+		// Name being ".." means treat this as direct alias to grandparent menu
+		if( theMenuName == ".." )
+			return theParentMenuID;
+		// Remove leading '.'
+		theMenuName = theMenuName.substr(1);
 	}
-	else if( theMenuName[0] == '.' )
-	{// Treat a name starting with . as being the same "level" as parent
-		breakOffLastItemAferChar(aParentPath, '.');
-		// Can't be on same level as the root menu though...
-		const std::string& aRootMenuPath =
-			menuPathOf(sMenus[theParentMenuID].rootMenuID);
-		if( aParentPath.size() < aRootMenuPath.size() )
-			aParentPath = aRootMenuPath;
-		// '.' is already included at beginning of theMenuName
-		aFullPath = aParentPath + theMenuName;
-	}
-	else
-	{
-		aFullPath = aParentPath + "." + theMenuName;
-	}
+	aFullPath = aParentPath + "." + theMenuName;
 
 	u16 aMenuID = theBuilder.menuPathToIdxMap.findOrAdd(
 		upper(aFullPath), u16(sMenus.size()));
