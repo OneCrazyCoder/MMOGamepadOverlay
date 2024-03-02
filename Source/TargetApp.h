@@ -28,8 +28,8 @@ void cleanup();
 // Call once per frame to check for changes to target app
 void update();
 
-// Call when get WM_HOTKEY with kFullScreenHotkeyID
-void toggleFullScreenMode();
+// Call when get WM_HOTKEY with kSwapWindowModeHotkeyID
+void swapWindowMode();
 
 // Check if have a target app running already
 bool targetAppActive();

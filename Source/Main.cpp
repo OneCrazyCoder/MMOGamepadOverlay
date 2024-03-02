@@ -67,8 +67,8 @@ void mainLoopUpdate(HWND theDialog)
 			gReloadProfile = true;
 			break;
 		case WM_HOTKEY:
-			if( aWindowsMessage.wParam == kFullScreenHotkeyID )
-				TargetApp::toggleFullScreenMode();
+			if( aWindowsMessage.wParam == kSwapWindowModeHotkeyID )
+				TargetApp::swapWindowMode();
 			break;
 		case WM_QUIT:
 			gShutdown = true;
