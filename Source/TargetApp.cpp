@@ -4,7 +4,8 @@
 
 #include "TargetApp.h"
 
-#include "InputDispatcher.h" // send Alt+Enter to exit full-screen mode
+#include "InputDispatcher.h" // send hotkey to exit full-screen mode
+#include "InputMap.h" // get eSpecialKey_SwapWindowMode
 #include "Profile.h"
 #include "WindowManager.h"
 
@@ -49,6 +50,7 @@ const LONG kIgnoredStyleFlags = WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
 const LONG kIgnoredStyleExFlags =
 	WS_EX_RIGHT | WS_EX_LEFTSCROLLBAR | WS_EX_RTLREADING;
 
+
 //-----------------------------------------------------------------------------
 // Config
 //-----------------------------------------------------------------------------
@@ -67,7 +69,9 @@ struct Config
 	{
 		targetAppPath = Profile::getStr("System/AutoLaunchApp");
 		targetAppParams = Profile::getStr("System/AutoLaunchAppParams");
-		targetWindowName = widen(Profile::getStr("System/TargetWindowName"));
+		targetWindowName = widen(Profile::getStr("System/TargetWindow"));
+		if( targetWindowName.empty() )
+			targetWindowName = widen(Profile::getStr("System/TargetWindowName"));
 		autoCloseWithTargetApp = Profile::getBool("System/QuitWhenAutoLaunchAppDoes");
 		autoCloseWithTargetWindow = Profile::getBool("System/QuitWhenTargetWindowCloses");
 		forceFullScreenWindow = Profile::getBool("System/ForceFullScreenWindow");
@@ -94,7 +98,7 @@ static int sNextCheckDelay = 0;
 static bool sHaveTriedAutoLaunch = false;
 static EWindowMode sDesiredTargetMode = eWindowMode_Unknown;
 static EWindowMode sLastKnownTargetMode = eWindowMode_Unknown;
-static bool sFullScreenHotkeyRegistered = false;
+static bool sSwapWindowModeHotkeyRegistered = false;
 
 
 //-----------------------------------------------------------------------------
@@ -157,11 +161,11 @@ void checkWindowActive()
 	WindowManager::hideOverlays();
 	// Trigger checkWindowPosition() to show overlays later
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
-	// Don't interfere with Alt+Enter in other applications
-	if( sFullScreenHotkeyRegistered )
+	// Don't interfere with other applications by keeping hotkey registered
+	if( sSwapWindowModeHotkeyRegistered )
 	{
-		UnregisterHotKey(NULL, kFullScreenHotkeyID);
-		sFullScreenHotkeyRegistered = false;
+		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
+		sSwapWindowModeHotkeyRegistered = false;
 	}
 }
 
@@ -227,10 +231,10 @@ void checkWindowClosed()
 	sTargetWindowRestoreExStyle = 0;
 	sTargetWindowRestoreMenu = NULL;
 	sLastKnownTargetMode = eWindowMode_Unknown;
-	if( sFullScreenHotkeyRegistered )
+	if( sSwapWindowModeHotkeyRegistered )
 	{
-		UnregisterHotKey(NULL, kFullScreenHotkeyID);
-		sFullScreenHotkeyRegistered = false;
+		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
+		sSwapWindowModeHotkeyRegistered = false;
 	}
 }
 
@@ -356,19 +360,20 @@ void checkWindowMode()
 		IsWindow(sTargetWindowHandle) )
 	{
 		// Can't easily force a window out of "true" full-screen mode...
-		// Send Alt+Enter and hope the app responds by time loop back here
+		// Send a hotkey to request swapping to window mode,
+		// and hope the app responds by time loop back here
 		targetDebugPrint(
 			"Attempting to break target out of true Full Screen mode!\n");
-		// Make sure don't intercept the Alt+Enter ourselves!
-		if( sFullScreenHotkeyRegistered )
+		// Make sure don't intercept the hotkey ourselves!
+		if( sSwapWindowModeHotkeyRegistered )
 		{
-			UnregisterHotKey(NULL, kFullScreenHotkeyID);
-			sFullScreenHotkeyRegistered = false;
+			UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
+			sSwapWindowModeHotkeyRegistered = false;
 		}
-		// Use InputDispatcher to send Alt+Enter to the target app
+		// Use InputDispatcher to send hotkey to the target app
 		Command aCmd;
 		aCmd.type = eCmdType_TapKey;
-		aCmd.data = VK_RETURN | kVKeyAltFlag;
+		aCmd.data = InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
 		InputDispatcher::sendKeyCommand(aCmd);
 		// Give some time for the target app to respond to the request
 		sNextCheckDelay = 1000;
@@ -376,14 +381,21 @@ void checkWindowMode()
 		return;
 	}
 
-	// Intercept Alt+Enter to swap between FSW and normal window mode,
+	// Intercept the hotkey to swap between FSW and normal window mode,
 	// avoiding it causing a switch to "true" Full Screen mode. This
-	// should work even if Alt+Enter is assigned to the InputMap for
-	// the user to switch screen modes via the controller.
-	if( !sFullScreenHotkeyRegistered )
+	// should work even if this keybind is assigned for the user to
+	// switch screen modes via the controller.
+	if( !sSwapWindowModeHotkeyRegistered )
 	{
-		RegisterHotKey(NULL, kFullScreenHotkeyID, MOD_ALT, VK_RETURN);
-		sFullScreenHotkeyRegistered = true;
+		const u16 aFullVKey =
+			InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
+		UINT aVKey = aFullVKey & kVKeyMask;
+		UINT aModKey = 0;
+		if( aFullVKey & kVKeyShiftFlag ) aModKey |= MOD_SHIFT;
+		if( aFullVKey & kVKeyCtrlFlag ) aModKey |= MOD_CONTROL;
+		if( aFullVKey & kVKeyAltFlag ) aModKey |= MOD_ALT;
+		RegisterHotKey(NULL, kSwapWindowModeHotkeyID, aModKey, aVKey);
+		sSwapWindowModeHotkeyRegistered = true;
 	}
 
 	// Mode matches desired mode already (or one of them is unknown)
@@ -549,10 +561,10 @@ void cleanup()
 	sTargetWindowRestoreExStyle = 0;
 	sTargetWindowRestoreMenu = NULL;
 	sLastKnownTargetMode = eWindowMode_Unknown;
-	if( sFullScreenHotkeyRegistered )
+	if( sSwapWindowModeHotkeyRegistered )
 	{
-		UnregisterHotKey(NULL, kFullScreenHotkeyID);
-		sFullScreenHotkeyRegistered = false;
+		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
+		sSwapWindowModeHotkeyRegistered = false;
 	}
 }
 
@@ -587,18 +599,20 @@ void update()
 }
 
 
-void toggleFullScreenMode()
+void swapWindowMode()
 {
 	DBG_ASSERT(kConfig.forceFullScreenWindow);
 
 	if( sDesiredTargetMode == eWindowMode_FullScreenWindow )
 	{
-		targetDebugPrint("Alt+Enter detected: Requesting normal window\n");
+		targetDebugPrint(
+			"Screen mode swap hotkey detected: Requesting normal window\n");
 		sDesiredTargetMode = eWindowMode_Normal;
 	}
 	else
 	{
-		targetDebugPrint("Alt+Enter detected: Requesting full screen mode\n");
+		targetDebugPrint(
+			"Screen mode swap hotkey detected: Requesting full screen mode\n");
 		sDesiredTargetMode = eWindowMode_FullScreenWindow;
 	}
 	sNextCheck = eCheck_WindowMode;

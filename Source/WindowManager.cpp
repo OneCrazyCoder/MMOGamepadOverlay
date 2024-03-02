@@ -513,8 +513,11 @@ void update()
 		if( !aWindow.updated )
 		{
 			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
+			POINT aWindowScreenPos;
+			aWindowScreenPos.x = sScreenTargetRect.left + aWindow.position.x;
+			aWindowScreenPos.y = sScreenTargetRect.top + aWindow.position.y;
 			UpdateLayeredWindow(aWindow.handle, aScreenDC,
-				&aWindow.position, &aWindow.size,
+				&aWindowScreenPos, &aWindow.size,
 				aWindowDC, &anOriginPoint,
 				HUD::transColor(u16(i)), &aBlendFunction,
 				ULW_ALPHA | ULW_COLORKEY);

@@ -10,7 +10,7 @@
 */
 
 enum {
-kFullScreenHotkeyID = 0x01,
+kSwapWindowModeHotkeyID = 0x01,
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,
 kVKeyAltFlag = 0x0400,
@@ -216,6 +216,7 @@ enum EHUDType
 
 enum ESpecialKey
 {
+	eSpecialKey_SwapWindowMode,
 	eSpecialKey_MoveF,
 	eSpecialKey_MoveB,
 	eSpecialKey_TurnL,
