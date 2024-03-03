@@ -1152,24 +1152,31 @@ void init()
 	{
 		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
 		hi.type = InputMap::hudElementType(aHUDElementID);
-		if( hi.type >= eHUDItemType_Begin && hi.type < eHUDItemType_End )
-			hi.itemType = hi.type;
 		hi.transColor = aDefaultTransColor;
 		hi.eraseBrushID = aDefaultEraseBrush;
 		if( hi.type == eHUDType_System )
 			continue;
 		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
+		std::string aStr;
+		u32 aVal;
 		// hi.itemType = eHUDProp_ItemType
-		std::string aStr = getHUDPropStr(aHUDName, eHUDProp_ItemType);
-		if( !aStr.empty() )
-			hi.itemType = hudTypeNameToID(upper(aStr));
-		if( hi.itemType < eHUDItemType_Begin ||
-			hi.itemType >= eHUDItemType_End )
+		if( hi.type >= eHUDItemType_Begin && hi.type < eHUDItemType_End )
 		{
-			logError("Invalid ItemType (%s) for HUD Element %s! "
-				"Defaulting to 'Rectangle'!",
-				aStr.c_str(), aHUDName.c_str());
-			hi.itemType = eHUDItemType_Rect;
+			hi.itemType = hi.type;
+		}
+		else
+		{
+			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemType);
+			if( !aStr.empty() )
+				hi.itemType = hudTypeNameToID(upper(aStr));
+			if( hi.itemType < eHUDItemType_Begin ||
+				hi.itemType >= eHUDItemType_End )
+			{
+				logError("Invalid ItemType (%s) for HUD Element %s! "
+					"Defaulting to 'Rectangle'!",
+					aStr.c_str(), aHUDName.c_str());
+				hi.itemType = eHUDItemType_Rect;
+			}
 		}
 		// hi.position = eHUDProp_Position
 		InputMap::profileStringToHotspot(
@@ -1249,7 +1256,7 @@ void init()
 		hi.fadeInDelay = max(0, intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInDelay)));
 		// hi.fadeInRate = eHUDProp_FadeInTime
-		u32 aVal = max(1, u32FromString(
+		aVal = max(1, u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInTime)));
 		hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
 		// hi.fadeOutDelay = eHUDProp_FadeOutDelay
@@ -1266,10 +1273,13 @@ void init()
 		hi.inactiveAlpha = u8(u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF);
 		// hi.titleHeight = eHUDProp_TitleHeight
-		hi.titleHeight = u8(u32FromString(
-			getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
-		if( hi.titleHeight )
-			hi.titleHeight = max(hi.titleHeight, 8);
+		if( hi.type < eMenuStyle_End )
+		{
+			hi.titleHeight = u8(u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
+			if( hi.titleHeight )
+				hi.titleHeight = max(hi.titleHeight, 8);
+		}
 
 		// Extra data values for specific types
 		if( hi.type == eHUDItemType_RndRect ||

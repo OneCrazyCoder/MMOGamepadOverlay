@@ -401,7 +401,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 91;
+			const size_t kMapSize = 94;
 			map.reserve(kMapSize);
 			map.setValue("ADD",			eCmdWord_Add);
 			map.setValue("REMOVE",		eCmdWord_Remove);
@@ -494,6 +494,9 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("MEMBER",		eCmdWord_Filler);
 			map.setValue("CHAR",		eCmdWord_Filler);
 			map.setValue("CHARACTER",	eCmdWord_Filler);
+			map.setValue("SELECTION",	eCmdWord_Filler);
+			map.setValue("ITEM",		eCmdWord_Filler);
+			map.setValue("OPTION",		eCmdWord_Filler);
 			const size_t actualMapSize = map.size();
 			DBG_ASSERT(actualMapSize == kMapSize);
 		}
