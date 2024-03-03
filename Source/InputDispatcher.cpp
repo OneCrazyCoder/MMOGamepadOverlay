@@ -644,7 +644,7 @@ static void debugPrintInputVector()
 		else if( anInput.type == INPUT_KEYBOARD )
 		{
 			siPrint("%s %s\n",
-				virtualKeyToName(anInput.ki.wVk),
+				virtualKeyToName(anInput.ki.wVk).c_str(),
 				(anInput.ki.dwFlags & KEYEVENTF_KEYUP)
 					? "released" : "pressed");
 		}

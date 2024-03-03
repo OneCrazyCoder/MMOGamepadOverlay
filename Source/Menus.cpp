@@ -245,17 +245,9 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 
 void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 {
-	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	if( theMenuID != InputMap::rootMenuOfMenu(theSubMenuID) )
-	{
-		logError(
-			"Attempted to open sub-menu '%s' from menu '%s', "
-			"but it is not a sub-menu of this root menu!",
-			InputMap::menuLabel(theSubMenuID).c_str(),
-			InputMap::menuLabel(theMenuID).c_str());
-		return;
-	}
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theSubMenuID));
 
 	// Even if no actual change made, mark menu as having been interacted with
 	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());

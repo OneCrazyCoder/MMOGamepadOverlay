@@ -601,15 +601,6 @@ static u16 getOrCreateHUDElementID(
 				theName.c_str(), aHUDTypeName.c_str());
 			aHUDElement.type = eMenuStyle_List;
 		}
-		else if( !hasInputAssigned &&
-				 aHUDElement.type >= eMenuStyle_Begin &&
-				 aHUDElement.type < eMenuStyle_End )
-		{
-			logError(
-				"HUD Element %s assigned to a Menu Style but has no "
-				"buttons assigned to navigate the menu!",
-				theName.c_str());
-		}
 	}
 
 	if( aHUDElement.type >= eMenuStyle_Begin &&
@@ -2034,6 +2025,7 @@ static MenuItem stringToMenuItem(
 		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
 		aMenuItem.cmd.data = getOrCreateMenuID(
 			theBuilder, trim(theString), theMenuID);
+		aMenuItem.cmd.data2 = sMenus[aMenuItem.cmd.data].rootMenuID;
 		aMenuItem.label = sMenus[aMenuItem.cmd.data].label;
 		if( sMenus.size() > anOldMenuCount )
 		{
