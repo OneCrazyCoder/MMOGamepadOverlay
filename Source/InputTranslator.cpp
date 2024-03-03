@@ -329,12 +329,22 @@ static void processCommand(
 	case eCmdType_AddControlsLayer:
 		addControlsLayer(theCmd.data, theCmd.data2);
 		break;
-	case eCmdType_HoldControlsLayer:
-		// Special-case, handled elsewhere
-		break;
 	case eCmdType_RemoveControlsLayer:
 		DBG_ASSERT(theCmd.data != 0);
 		removeControlsLayer(theCmd.data);
+		break;
+	case eCmdType_HoldControlsLayer:
+		// Special-case, handled elsewhere
+		break;
+	case eCmdType_ReplaceControlsLayer:
+		DBG_ASSERT(theCmd.data2 != 0);
+		DBG_ASSERT(theCmd.data2 < sState.layers.size());
+		{
+			const u16 aParentLayerID = 
+				sState.layers[theCmd.data2].parentLayerID;
+			removeControlsLayer(theCmd.data2);
+			addControlsLayer(theCmd.data, aParentLayerID);
+		}
 		break;
 	case eCmdType_OpenSubMenu:
 		Menus::openSubMenu(theCmd.data2, theCmd.data);

@@ -533,7 +533,7 @@ static u16 getOrCreateLayerID(
 static u16 getOrCreateHUDElementID(
 	InputMapBuilder& theBuilder,
 	const std::string& theName,
-	u16 theControlsLayerIndex = 0,
+	u16 theControlsLayerIndex,
 	bool hasInputAssigned = false)
 {
 	DBG_ASSERT(!theName.empty());
@@ -637,7 +637,7 @@ static u16 getOrCreateHUDElementID(
 static u16 getOrCreateRootMenuID(
 	InputMapBuilder& theBuilder,
 	const std::string& theMenuName,
-	u16 theControlsLayerIndex = 0)
+	u16 theControlsLayerIndex)
 {
 	DBG_ASSERT(!theMenuName.empty());
 
@@ -746,6 +746,7 @@ static Command wordsToSpecialCommand(
 	// "= [Change] Profile"
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Change);
+	allowedKeyWords.set(eCmdWord_Replace);
 	allowedKeyWords.set(eCmdWord_Profile);
 	if( keyWordsFound.test(eCmdWord_Profile) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
@@ -773,6 +774,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Add);
 	allowedKeyWords.reset(eCmdWord_Remove);
 	allowedKeyWords.reset(eCmdWord_Hold);
+	allowedKeyWords.reset(eCmdWord_Replace);
 	const std::string* aLayerName = null;
 	if( allowedKeyWords.count() == 1 )
 	{
@@ -843,6 +845,21 @@ static Command wordsToSpecialCommand(
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
 		return result;
 	}
+	allowedKeyWords.reset(eCmdWord_Hold);
+
+	// "= Replace [with] [Layer] <aLayerName>"
+	// allowedKeyWords = Layer
+	allowedKeyWords.set(eCmdWord_Replace);
+	if( keyWordsFound.test(eCmdWord_Replace) &&
+		theControlsLayerIndex > 0 && aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+	{
+		result.type = eCmdType_ReplaceControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		result.data2 = theControlsLayerIndex;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Replace);
 
 	// Same deal here for the Menu-related commands needing a name of the
 	// menu in question as the one otherwise-unrelated word.
@@ -861,6 +878,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Right);
 		allowedKeyWords.reset(eCmdWord_Up);
 		allowedKeyWords.reset(eCmdWord_Down);
+		allowedKeyWords.reset(eCmdWord_Hotspot);
 		if( allowedKeyWords.count() == 1 )
 		{
 			VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
@@ -1092,7 +1110,8 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuSelect;
 			result.data = aCmdDir;
-			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data2 = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 			return result;
 		}
 
@@ -1107,7 +1126,8 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuSelectAndClose;
 			result.data = aCmdDir;
-			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data2 = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Select);
@@ -1122,7 +1142,8 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuEditDir;
 			result.data = aCmdDir;
-			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.data2 = getOrCreateRootMenuID(
+				theBuilder, *aMenuName, theControlsLayerIndex);
 			return result;
 		}
 
