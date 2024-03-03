@@ -37,6 +37,7 @@ enum ECommandType
 	eCmdType_AddControlsLayer,
 	eCmdType_HoldControlsLayer,
 	eCmdType_RemoveControlsLayer,
+	eCmdType_ReplaceControlsLayer,
 
 	// These control Menu selections/state
 	eCmdType_OpenSubMenu,
@@ -279,6 +280,7 @@ enum ECommandKeyWord
 	eCmdWord_Add,
 	eCmdWord_Remove,
 	eCmdWord_Hold,
+	eCmdWord_Replace,
 	eCmdWord_Layer,
 	eCmdWord_Mouse,
 	eCmdWord_MouseWheel,

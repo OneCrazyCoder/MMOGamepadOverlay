@@ -141,8 +141,8 @@ struct HUDElementInfo
 	u16 bitmapID;
 	u16 selBitmapID;
 	u16 radius;
-	u16 titleHeight;
 	u16 titleBrushID;
+	u8 titleHeight;
 	u8 alignmentX;
 	u8 alignmentY;
 	u8 maxAlpha;
@@ -743,21 +743,19 @@ static void drawMenuTitle(
 
 	if( !dd.firstDraw )
 		FillRect(dd.hdc, &aTitleRect, sBrushes[hi.eraseBrushID]);
-	InflateRect(&aTitleRect, -hi.borderSize - 1, -hi.borderSize - 1);
+	InflateRect(&aTitleRect, -2, -2);
 	const std::wstring& aStr = widen(InputMap::menuLabel(theSubMenuID));
 	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
 	if( centered) aFormat |= DT_CENTER;
 	if( !theCacheEntry.initialized )
 		initCacheEntry(dd, aTitleRect, aStr, aFormat, theCacheEntry);
 
-	// Fill in borderSize+1 margin around text with titleBG (border) color
+	// Fill in 2px margin around text with titleBG (border) color
 	RECT aBGRect;
-	LONG aSize = theCacheEntry.width;
-	aSize += hi.borderSize + hi.borderSize + 2;
+	LONG aSize = theCacheEntry.width + 4;
 	aBGRect.left = centered ? ((dd.targetSize.cx - aSize) / 2) : 0;
 	aBGRect.right = aBGRect.left + aSize;
-	aSize = theCacheEntry.height;
-	aSize += hi.borderSize + hi.borderSize + 2;
+	aSize = theCacheEntry.height + 4;
 	aBGRect.bottom = hi.titleHeight;
 	aBGRect.top = aBGRect.bottom - aSize;
 	FillRect(dd.hdc, &aBGRect, sBrushes[hi.titleBrushID]);
@@ -1268,8 +1266,10 @@ void init()
 		hi.inactiveAlpha = u8(u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF);
 		// hi.titleHeight = eHUDProp_TitleHeight
-		hi.titleHeight = u16(u32FromString(
-			getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFFFF);
+		hi.titleHeight = u8(u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
+		if( hi.titleHeight )
+			hi.titleHeight = max(hi.titleHeight, 8);
 
 		// Extra data values for specific types
 		if( hi.type == eHUDItemType_RndRect ||
