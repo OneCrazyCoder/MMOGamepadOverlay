@@ -56,6 +56,7 @@ struct ButtonState
 	const Command* commands;
 	const Command* commandsWhenPressed;
 	u16 commandsLayer;
+	u16 layerWhenPressed;
 	u16 layerHeld;
 	u16 heldTime;
 	s16 repeatDelay;
@@ -288,6 +289,7 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 static void processCommand(
 	ButtonState& theBtnState,
 	const Command& theCmd,
+	u16 theLayerIdx,
 	bool isAutoRepeated = false)
 {
 	Command aForwardCmd;
@@ -327,22 +329,31 @@ static void processCommand(
 		gShutdown = true;
 		break;
 	case eCmdType_AddControlsLayer:
-		addControlsLayer(theCmd.data, theCmd.data2);
+		addControlsLayer(theCmd.data, theLayerIdx);
 		break;
 	case eCmdType_RemoveControlsLayer:
-		DBG_ASSERT(theCmd.data != 0);
-		removeControlsLayer(theCmd.data);
+		if( theCmd.data == 0 )
+		{// 0 means to remove layer that lead to this command
+			DBG_ASSERT(theLayerIdx != 0);
+			removeControlsLayer(theLayerIdx);
+		}
+		else
+		{// Otherwise remove a specific layer stored in .data
+			removeControlsLayer(theCmd.data);
+		}
 		break;
 	case eCmdType_HoldControlsLayer:
 		// Special-case, handled elsewhere
 		break;
 	case eCmdType_ReplaceControlsLayer:
-		DBG_ASSERT(theCmd.data2 != 0);
-		DBG_ASSERT(theCmd.data2 < sState.layers.size());
+		// Replace can't name the layer to be replaced, only the one
+		// to replace it with, so it is assumed to be theLayerIdx
+		// in the same manner as RemoveControlsLayer with .data == 0
+		DBG_ASSERT(theLayerIdx != 0);
 		{
 			const u16 aParentLayerID = 
-				sState.layers[theCmd.data2].parentLayerID;
-			removeControlsLayer(theCmd.data2);
+				sState.layers[theLayerIdx].parentLayerID;
+			removeControlsLayer(theLayerIdx);
 			addControlsLayer(theCmd.data, aParentLayerID);
 		}
 		break;
@@ -358,19 +369,19 @@ static void processCommand(
 	case eCmdType_MenuConfirm:
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.data);
 		if( aForwardCmd.type != eCmdType_Empty )
-			processCommand(theBtnState, aForwardCmd);
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuConfirmAndClose:
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.data);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
-			processCommand(theBtnState, aForwardCmd);
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			// Close menu as well if this didn't just switch to a sub-menu
 			if( aForwardCmd.type != eCmdType_Empty &&
 				aForwardCmd.type < eCmdType_FirstMenuControl &&
-				theBtnState.commandsLayer > 0 )
-			{// Assume removing this layer "closes" the menu
-				removeControlsLayer(theBtnState.commandsLayer);
+				theLayerIdx > 0 )
+			{// Assume removing calling layer "closes" the menu
+				removeControlsLayer(theLayerIdx);
 			}
 		}
 		break;
@@ -471,20 +482,20 @@ static void processCommand(
 		aForwardCmd = Menus::selectMenuItem(
 			theCmd.data2, ECommandDir(theCmd.data), isAutoRepeated);
 		if( aForwardCmd.type != eCmdType_Empty )
-			processCommand(theBtnState, aForwardCmd);
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuSelectAndClose:
 		aForwardCmd = Menus::selectMenuItem(
 			theCmd.data2, ECommandDir(theCmd.data), isAutoRepeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
-			processCommand(theBtnState, aForwardCmd);
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			// Close menu as well if this didn't just switch to a sub-menu
 			if( aForwardCmd.type != eCmdType_Empty &&
 				aForwardCmd.type < eCmdType_FirstMenuControl &&
-				theBtnState.commandsLayer > 0 )
-			{// Assume removing this layer "closes" the menu
-				removeControlsLayer(theBtnState.commandsLayer);
+				theLayerIdx > 0 )
+			{// Assume removing calling layer "closes" the menu
+				removeControlsLayer(theLayerIdx);
 			}
 		}
 		break;
@@ -523,6 +534,7 @@ static void processButtonPress(ButtonState& theBtnState)
 	// previously, which could be important - especially for cases like
 	// _Release matching up with a particular _Press.
 	theBtnState.commandsWhenPressed = theBtnState.commands;
+	theBtnState.layerWhenPressed = theBtnState.commandsLayer;
 
 	// Log that at least one button in the assigned layer has been pressed
 	sState.layers[theBtnState.commandsLayer].ownedButtonHit = true;
@@ -549,8 +561,10 @@ static void processButtonPress(ButtonState& theBtnState)
 
 	// _Press is processed before _Down since it is specifically called out
 	// and the name implies it should be first action on button press.
-	processCommand(theBtnState, theBtnState.commands[eBtnAct_Press]);
-	processCommand(theBtnState, aCmd);
+	processCommand(theBtnState,
+		theBtnState.commands[eBtnAct_Press],
+		theBtnState.commandsLayer);
+	processCommand(theBtnState, aCmd, theBtnState.commandsLayer);
 }
 
 
@@ -720,7 +734,8 @@ static void processButtonShortHold(ButtonState& theBtnState)
 	if( theBtnState.commandsWhenPressed )
 	{
 		processCommand(theBtnState,
-			theBtnState.commandsWhenPressed[eBtnAct_ShortHold]);
+			theBtnState.commandsWhenPressed[eBtnAct_ShortHold],
+			theBtnState.layerWhenPressed);
 	}
 }
 
@@ -738,7 +753,8 @@ static void processButtonLongHold(ButtonState& theBtnState)
 	if( theBtnState.commandsWhenPressed )
 	{
 		processCommand(theBtnState,
-			theBtnState.commandsWhenPressed[eBtnAct_LongHold]);
+			theBtnState.commandsWhenPressed[eBtnAct_LongHold],
+			theBtnState.layerWhenPressed);
 	}
 }
 
@@ -749,7 +765,8 @@ static void processButtonTap(ButtonState& theBtnState)
 	if( theBtnState.commandsWhenPressed )
 	{
 		processCommand(theBtnState,
-			theBtnState.commandsWhenPressed[eBtnAct_Tap]);
+			theBtnState.commandsWhenPressed[eBtnAct_Tap],
+			theBtnState.layerWhenPressed);
 	}
 }
 
@@ -798,6 +815,7 @@ static void processButtonReleased(ButtonState& theBtnState)
 	// releasing a held button, but for some reason didn't use the
 	// standard _HoldControlsLayer method that does it automatically.
 	Command aCmd;
+	u16 aCmdLayer = theBtnState.layerWhenPressed;
 	if( theBtnState.commandsWhenPressed )
 		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Release];
 	if( aCmd.type == eCmdType_Empty &&
@@ -806,8 +824,9 @@ static void processButtonReleased(ButtonState& theBtnState)
 		theBtnState.commands[eBtnAct_Press].type == eCmdType_Empty )
 	{
 		aCmd = theBtnState.commands[eBtnAct_Release];
+		aCmdLayer = theBtnState.commandsLayer;
 	}
-	processCommand(theBtnState, aCmd);
+	processCommand(theBtnState, aCmd, aCmdLayer);
 
 	// At this point no keys should be held by this button,
 	// but maybe something weird happened with release/tap commands,

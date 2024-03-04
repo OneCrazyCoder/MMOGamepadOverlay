@@ -5,6 +5,7 @@
 #include "Menus.h"
 
 #include "Dialogs.h" // editMenuCommand()
+#include "Lookup.h"
 #include "InputMap.h"
 #include "Profile.h"
 
@@ -37,7 +38,7 @@ struct MenuInfo
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static std::vector<MenuInfo> sMenuInfo;
+static VectorMap<u16, MenuInfo> sMenuInfo;
 
 
 //-----------------------------------------------------------------------------
@@ -46,27 +47,35 @@ static std::vector<MenuInfo> sMenuInfo;
 
 void init()
 {
-	const u16 kRootMenuCount = InputMap::rootMenuCount();
-	sMenuInfo.reserve(kRootMenuCount);
-	sMenuInfo.resize(kRootMenuCount);
-	for(u16 i = 0; i < kRootMenuCount; ++i)
+	for(u16 i = 0; i < InputMap::menuCount(); ++i)
 	{
-		sMenuInfo[i].subMenuStack.push_back(SubMenuInfo(i));
-		sMenuInfo[i].style = InputMap::menuStyle(i);
-		sMenuInfo[i].hudElementID = InputMap::hudElementForMenu(i);
-		sMenuInfo[i].gridWidth = 1;
-		if( sMenuInfo[i].style == eMenuStyle_Grid ||
-			sMenuInfo[i].style == eMenuStyle_GridWrap )
+		const u16 aRootMenuID = InputMap::rootMenuOfMenu(i);
+		sMenuInfo.addPair(aRootMenuID, MenuInfo());
+	}
+	sMenuInfo.sort();
+	sMenuInfo.removeDuplicates();
+	sMenuInfo.trim();
+	for(VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.begin();
+		itr != sMenuInfo.end(); ++itr)
+	{
+		const u16 aMenuID = itr->first;
+		MenuInfo& aMenuInfo = itr->second;
+		aMenuInfo.subMenuStack.push_back(SubMenuInfo(aMenuID));
+		aMenuInfo.style = InputMap::menuStyle(aMenuID);
+		aMenuInfo.hudElementID = InputMap::hudElementForMenu(aMenuID);
+		aMenuInfo.gridWidth = 1;
+		if( aMenuInfo.style == eMenuStyle_Grid ||
+			aMenuInfo.style == eMenuStyle_GridWrap )
 		{
 			std::string aKey = "Menu.";
-			aKey += InputMap::menuLabel(i);
+			aKey += InputMap::menuLabel(aMenuID);
 			aKey += "/GridWidth";
-			sMenuInfo[i].gridWidth =
+			aMenuInfo.gridWidth =
 				u8(max(0, intFromString(Profile::getStr(aKey))) & 0xFF);
-			if( sMenuInfo[i].gridWidth == 0 )
+			if( aMenuInfo.gridWidth == 0 )
 			{// Auto-calculate grid width based on item count
-				sMenuInfo[i].gridWidth =
-					u8(u32(ceil(sqrt(double(itemCount(i))))) & 0xFF);
+				aMenuInfo.gridWidth =
+					u8(u32(ceil(sqrt(double(itemCount(aMenuID))))) & 0xFF);
 			}
 		}
 	}
@@ -82,15 +91,18 @@ void cleanup()
 const Command& selectedMenuItemCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	const MenuInfo& aMenuInfo = itr->second;
 
 	// Even if no actual change made, mark menu as having been interacted with
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
-	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
 
-	const u16 aSubMenuID = activeSubMenu(theMenuID);
-	const u16 aSelection = sMenuInfo[theMenuID].subMenuStack.back().selected;
-	if( sMenuInfo[theMenuID].style == eMenuStyle_4Dir )
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
+	const u16 aSelection = aMenuInfo.subMenuStack.back().selected;
+	if( aMenuInfo.style == eMenuStyle_4Dir )
 		return kEmptyMenuCommand;
 	return InputMap::commandForMenuItem(aSubMenuID, aSelection);
 }
@@ -99,9 +111,11 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
 
-	SubMenuInfo& aSubMenu = sMenuInfo[theMenuID].subMenuStack.back();
+	SubMenuInfo& aSubMenu = aMenuInfo.subMenuStack.back();
 	const u16 aSubMenuID = aSubMenu.id;
 	u16& aSelection = aSubMenu.selected;
 	const u16 aPrevSel = aSelection;
@@ -109,10 +123,10 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 	const Command& aDirCmd = InputMap::commandForMenuDir(aSubMenuID, theDir);
 
 	// Even if no actual change made, mark menu as having been interacted with
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
-	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
 
-	const EHUDType aMenuStyle = sMenuInfo[theMenuID].style;
+	const EHUDType aMenuStyle = aMenuInfo.style;
 	const u16 aGridWidth = gridWidth(theMenuID);
 	switch(aMenuStyle)
 	{
@@ -235,8 +249,8 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 
 	if( aSelection != aPrevSel )
 	{// Need to redraw to show selection differently
-		DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
 
 	return kEmptyMenuCommand;
@@ -245,94 +259,101 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 
 void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 {
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theSubMenuID));
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
 
 	// Even if no actual change made, mark menu as having been interacted with
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
-	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
 
 	// If this is already the active sub-menu, do nothing else
-	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
-	if( sMenuInfo[theMenuID].subMenuStack.back().id == theSubMenuID )
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	if( aMenuInfo.subMenuStack.back().id == theSubMenuID )
 		return;
 
 	// Push new menu on to the stack
-	sMenuInfo[theMenuID].subMenuStack.push_back(SubMenuInfo(theSubMenuID));
+	aMenuInfo.subMenuStack.push_back(SubMenuInfo(theSubMenuID));
 
 	// Need to redraw new menu items
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gRedrawHUD.size());
-	gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+	gRedrawHUD.set(aMenuInfo.hudElementID);
 }
 
 
 void closeLastSubMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
 
 	// Even if no actual change made, mark menu as having been interacted with
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
-	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
 
-	if( sMenuInfo[theMenuID].subMenuStack.size() > 1 )
+	if( aMenuInfo.subMenuStack.size() > 1 )
 	{
-		sMenuInfo[theMenuID].subMenuStack.pop_back();
-		DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
+		aMenuInfo.subMenuStack.pop_back();
+		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
-	else if( sMenuInfo[theMenuID].style == eMenuStyle_Slots &&
-			 sMenuInfo[theMenuID].subMenuStack[0].id != theMenuID )
+	else if( aMenuInfo.style == eMenuStyle_Slots &&
+			 aMenuInfo.subMenuStack[0].id != theMenuID )
 	{
-		sMenuInfo[theMenuID].subMenuStack[0] = SubMenuInfo(theMenuID);
-		DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
+		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
 }
 
 
-void replaceMenu(u16 theMenuID, u16 theReplacementMenuID)
+void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	if( theMenuID != InputMap::rootMenuOfMenu(theReplacementMenuID) )
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
+
+	if( theMenuID != InputMap::rootMenuOfMenu(theReplacementSubMenuID) )
 	{
 		logError(
 			"Attempted to open sub-menu '%s' from menu '%s', "
 			"but it is not a sub-menu of this root menu!",
-			InputMap::menuLabel(theReplacementMenuID).c_str(),
+			InputMap::menuLabel(theReplacementSubMenuID).c_str(),
 			InputMap::menuLabel(theMenuID).c_str());
 		return;
 	}
 
 	// Even if no actual change made, mark menu as having been interacted with
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
-	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
 
 	// If this is already the active sub-menu, do nothing else
-	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
-	if( sMenuInfo[theMenuID].subMenuStack.back().id == theReplacementMenuID )
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	if( aMenuInfo.subMenuStack.back().id == theReplacementSubMenuID )
 		return;
 
 	// Going to change menus, will need to redraw
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gRedrawHUD.size());
-	gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+	gRedrawHUD.set(aMenuInfo.hudElementID);
 
-	if( sMenuInfo[theMenuID].style == eMenuStyle_Slots )
+	if( aMenuInfo.style == eMenuStyle_Slots )
 	{
 		// Want to retain selection of any "side menus", so check
 		// if the requested menu has already been opened and, if so,
 		// just bump it as-is to the top of the stack.
 		for(std::vector<SubMenuInfo>::iterator itr =
-				sMenuInfo[theMenuID].subMenuStack.begin();
-			itr != sMenuInfo[theMenuID].subMenuStack.end(); ++itr)
+				aMenuInfo.subMenuStack.begin();
+			itr != aMenuInfo.subMenuStack.end(); ++itr)
 		{
-			if( itr->id == theReplacementMenuID )
+			if( itr->id == theReplacementSubMenuID )
 			{
 				const SubMenuInfo aSideMenuInfo = *itr;
-				sMenuInfo[theMenuID].subMenuStack.erase(itr);
-				sMenuInfo[theMenuID].subMenuStack.push_back(aSideMenuInfo);
+				aMenuInfo.subMenuStack.erase(itr);
+				aMenuInfo.subMenuStack.push_back(aSideMenuInfo);
 				return;
 			}
 		}
@@ -341,46 +362,54 @@ void replaceMenu(u16 theMenuID, u16 theReplacementMenuID)
 		// Note that this does cause closeLastSubMenu() to act a little
 		// weird with this menu style, but its not really intended to use
 		// a "back" button or have normal sub-menus anyway.
-		sMenuInfo[theMenuID].subMenuStack.push_back(
-			SubMenuInfo(theReplacementMenuID));
+		aMenuInfo.subMenuStack.push_back(
+			SubMenuInfo(theReplacementSubMenuID));
 	}
 	else
 	{
 		// Replace current sub-menu id with new sub-menu id directly
-		DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
-		SubMenuInfo& aSubMenu = sMenuInfo[theMenuID].subMenuStack.back();
-		aSubMenu.id = theReplacementMenuID;
+		DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+		SubMenuInfo& aSubMenu = aMenuInfo.subMenuStack.back();
+		aSubMenu.id = theReplacementSubMenuID;
 		// Clamp selection to new sub-menu's max
-		const u16 anItemCount = InputMap::menuItemCount(theReplacementMenuID);
-		if( aSubMenu.selected >= anItemCount )
-			aSubMenu.selected = anItemCount - 1;
+		aSubMenu.selected = max(aSubMenu.selected,
+			InputMap::menuItemCount(theReplacementSubMenuID) - 1);
 	}
 
 	// Need to redraw new menu items
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gRedrawHUD.size());
-	gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+	gRedrawHUD.set(aMenuInfo.hudElementID);
 }
 
 
 void reset(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	if( sMenuInfo[theMenuID].subMenuStack.size() > 1 ||
-		sMenuInfo[theMenuID].subMenuStack.back().id != theMenuID ||
-		sMenuInfo[theMenuID].subMenuStack.back().selected != 0 )
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
+
+	if( aMenuInfo.subMenuStack.size() > 1 ||
+		aMenuInfo.subMenuStack.back().id != theMenuID ||
+		aMenuInfo.subMenuStack.back().selected != 0 )
 	{
-		sMenuInfo[theMenuID].subMenuStack.clear();
-		sMenuInfo[theMenuID].subMenuStack.push_back(SubMenuInfo(theMenuID));
-		DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(sMenuInfo[theMenuID].hudElementID);
+		aMenuInfo.subMenuStack.clear();
+		aMenuInfo.subMenuStack.push_back(SubMenuInfo(theMenuID));
+		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
 }
 
 
 void editMenuItem(u16 theMenuID)
 {
-	const u16 aSubMenuID = activeSubMenu(theMenuID);
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
+
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
 	const u16 anItemIdx = selectedItem(theMenuID);
 	const std::string& aMenuItemKey =
 		InputMap::menuItemKey(aSubMenuID, anItemIdx);
@@ -439,14 +468,20 @@ void editMenuItem(u16 theMenuID)
 			Profile::setStr(aMenuItemKey, aMenuItemCmd);
 		}
 	}
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
-	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
 }
 
 
 void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 {
-	const u16 aSubMenuID = activeSubMenu(theMenuID);
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
+
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
 	const std::string& aMenuItemKey =
 		InputMap::menuItemDirKey(aSubMenuID, theDir);
 	std::string aMenuItemCmd = Profile::getStr(aMenuItemKey);
@@ -460,46 +495,58 @@ void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 		gReloadProfile = true;
 		Profile::setStr(aMenuItemKey, aMenuItemCmd);
 	}
-	DBG_ASSERT(sMenuInfo[theMenuID].hudElementID < gActiveHUD.size());
-	gActiveHUD.set(sMenuInfo[theMenuID].hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
 }
 
 
 u16 activeSubMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
-	return sMenuInfo[theMenuID].subMenuStack.back().id;
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	const MenuInfo& aMenuInfo = itr->second;
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+
+	return aMenuInfo.subMenuStack.back().id;
 }
 
 
 u16 selectedItem(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
-	return sMenuInfo[theMenuID].subMenuStack.back().selected;
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	const MenuInfo& aMenuInfo = itr->second;
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+
+	return aMenuInfo.subMenuStack.back().selected;
 }
 
 
 u16 itemCount(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	const MenuInfo& aMenuInfo = itr->second;
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+
 	return InputMap::menuItemCount(
-		sMenuInfo[theMenuID].subMenuStack.back().id);
+		aMenuInfo.subMenuStack.back().id);
 }
 
 
 u8 gridWidth(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	DBG_ASSERT(theMenuID < sMenuInfo.size());
-	DBG_ASSERT(!sMenuInfo[theMenuID].subMenuStack.empty());
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	const MenuInfo& aMenuInfo = itr->second;
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+
 	return min(itemCount(theMenuID),
-		sMenuInfo[theMenuID].gridWidth);
+		aMenuInfo.gridWidth);
 }
 
 

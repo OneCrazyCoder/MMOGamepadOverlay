@@ -23,6 +23,10 @@ void init();
 // Resets all menu's states
 void cleanup();
 
+// NOTE: theMenuID should refer to a ROOT menu in all of the below,
+// meaning the menu ID used in any commands that act on menus, not
+// on the currently-active sub-menu ID.
+
 // Returns Command to execute for the selected menu item of given menu
 const Command& selectedMenuItemCommand(u16 theMenuID);
 
@@ -37,7 +41,7 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID);
 
 // Similar result to openSubMenu but replaces current menu entirely instead
 // of adding it to menu stack, changing how closeLastSubMenu() below behaves
-void replaceMenu(u16 theMenuID, u16 theReplacementMenuID);
+void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID);
 
 // Removes the most recently-added sub-menu (via openSubMenu), returning to
 // whichever sub-menu (or the root menu) was active before then.
