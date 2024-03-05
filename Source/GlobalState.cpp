@@ -15,6 +15,7 @@ int gAppFrameTime = 0;
 BitVector<> gVisibleHUD;
 BitVector<> gRedrawHUD;
 BitVector<> gActiveHUD;
+BitVector<> gDisabledHUD;
 u8 gLastGroupTarget = 0;
 u8 gGroupTargetOrigin = 0;
 u8 gDefaultGroupTarget = 0;

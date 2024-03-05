@@ -1030,7 +1030,7 @@ static void processLayerHoldButtons()
 		}
 
 		// Update button commands for newly added layers
-		// (removed layers will be handled later in main update)
+		// (removed layers & HUD will be handled later in main update)
 		if( aLayerWasAdded )
 		{
 			loadButtonCommandsForCurrentLayers();
@@ -1039,6 +1039,64 @@ static void processLayerHoldButtons()
 				logFatalError(
 					"Infinite loop of Controls Layer changes detected!");
 				break;
+			}
+		}
+	}
+}
+
+
+static void updateHUDStateForCurrentLayers()
+{
+	gVisibleHUD.reset();
+	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	{
+		sState.mouseLookOn = sState.mouseLookOn ||
+			InputMap::mouseLookShouldBeOn(sState.layerOrder[i]);
+		gVisibleHUD |=
+			InputMap::hudElementsToShow(sState.layerOrder[i]);
+		gVisibleHUD &=
+			~InputMap::hudElementsToHide(sState.layerOrder[i]);
+	}
+
+	// Also check to see if any Menus should be shown as disabled because
+	// they don't have any commands assigned to them any more.
+	// Start by assuming all visible menus are disabled...
+	for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+	{
+		if( InputMap::hudElementIsAMenu(i) && gVisibleHUD.test(i) )
+			gDisabledHUD.set(i);
+	}
+
+	// New re-enable any menus that have a command associated with them
+	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx)
+	{
+		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
+		if( aBtnState.commands )
+		{
+			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+			{
+				u16 aHUDIdx = 0xFFFF;
+				switch(aBtnState.commands[aBtnAct].type)
+				{
+				case eCmdType_MenuReset:
+				case eCmdType_MenuConfirm:
+				case eCmdType_MenuConfirmAndClose:
+				case eCmdType_MenuBack:
+				case eCmdType_MenuEdit:
+					aHUDIdx = InputMap::hudElementForMenu(
+						aBtnState.commands[aBtnAct].data);
+					break;
+				case eCmdType_MenuSelect:
+				case eCmdType_MenuSelectAndClose:
+				case eCmdType_MenuEditDir:
+					aHUDIdx = InputMap::hudElementForMenu(
+						aBtnState.commands[aBtnAct].data2);
+					break;
+				default:
+					continue;
+				}
+				DBG_ASSERT(aHUDIdx < gDisabledHUD.size());
+				gDisabledHUD.reset(aHUDIdx);
 			}
 		}
 	}
@@ -1055,6 +1113,7 @@ void loadProfile()
 	loadLayerData();
 	addControlsLayer(0);
 	loadButtonCommandsForCurrentLayers();
+	updateHUDStateForCurrentLayers();
 }
 
 
@@ -1116,17 +1175,8 @@ void update()
 	if( sResults.layerChangeMade )
 	{
 		loadButtonCommandsForCurrentLayers();
+		updateHUDStateForCurrentLayers();
 		sState.mouseLookOn = false;
-		gVisibleHUD.reset();
-		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
-		{
-			sState.mouseLookOn = sState.mouseLookOn ||
-				InputMap::mouseLookShouldBeOn(sState.layerOrder[i]);
-			gVisibleHUD |=
-				InputMap::hudElementsToShow(sState.layerOrder[i]);
-			gVisibleHUD &=
-				~InputMap::hudElementsToHide(sState.layerOrder[i]);
-		}
 	}
 
 	// Update mouselook status continuously

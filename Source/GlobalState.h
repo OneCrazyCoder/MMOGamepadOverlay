@@ -30,6 +30,9 @@ extern BitVector<> gRedrawHUD;
 // Which HUD elements have recently been interacted with (for inactive fade)
 extern BitVector<> gActiveHUD;
 
+// Which HUD elements are disabled (i.e. Menu w/o input assigned to control it)
+extern BitVector<> gDisabledHUD;
+
 // Which group member (self being #0) last targeted with relative targeting
 extern u8 gLastGroupTarget;
 

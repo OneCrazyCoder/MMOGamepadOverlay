@@ -2160,9 +2160,12 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 		sLayers[aLayerID].hideHUD.resize(sHUDElements.size());
 		sLayers[aLayerID].showHUD.resize(sHUDElements.size());
 	}
+
+	// Can now also set size of global BitVectors related to HUD elements
 	gVisibleHUD.clearAndResize(sHUDElements.size());
 	gRedrawHUD.clearAndResize(sHUDElements.size());
 	gActiveHUD.clearAndResize(sHUDElements.size());
+	gDisabledHUD.clearAndResize(sHUDElements.size());
 }
 
 
@@ -2420,6 +2423,15 @@ EHUDType hudElementType(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
 	return sHUDElements[theHUDElementID].type;
+}
+
+
+bool hudElementIsAMenu(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElements.size());
+	return
+		sHUDElements[theHUDElementID].type >= eMenuStyle_Begin &&
+		sHUDElements[theHUDElementID].type < eMenuStyle_End;
 }
 
 
