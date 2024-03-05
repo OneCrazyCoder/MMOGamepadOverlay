@@ -26,6 +26,8 @@ enum EFadeState
 	eFadeState_FadeInDelay,
 	eFadeState_FadingIn,
 	eFadeState_MaxAlpha,
+	eFadeState_DisabledFadeOut,
+	eFadeState_Disabled,
 	eFadeState_InactiveFadeOut,
 	eFadeState_Inactive,
 	eFadeState_FadeOutDelay,
@@ -141,9 +143,12 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 {
 	EFadeState oldState;
 	u8 aNewAlpha = theWindow.alpha;
+	const u8 aMaxAlpha = HUD::maxAlpha(id);
+	const u8 anInactiveAlpha = HUD::inactiveAlpha(id);
 	do
 	{
 		oldState = theWindow.fadeState;
+		const float oldFadeValue = theWindow.fadeValue;
 		switch(theWindow.fadeState)
 		{
 		case eFadeState_Hidden:
@@ -178,8 +183,17 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		case eFadeState_FadingIn:
 			theWindow.fadeValue += HUD::alphaFadeInRate(id) * gAppFrameTime;
 			aNewAlpha = u8(min(
-				theWindow.fadeValue, (float)HUD::maxAlpha(id)));
-			if( gActiveHUD.test(id) || aNewAlpha >= HUD::maxAlpha(id) )
+				theWindow.fadeValue, (float)aMaxAlpha));
+			if( gDisabledHUD.test(id) &&
+				anInactiveAlpha < aMaxAlpha &&
+				aNewAlpha >= anInactiveAlpha )
+			{
+				theWindow.fadeState = eFadeState_DisabledFadeOut;
+				if( oldFadeValue < anInactiveAlpha )
+					aNewAlpha = min(aNewAlpha, anInactiveAlpha);
+				break;
+			}
+			if( gActiveHUD.test(id) || aNewAlpha >= aMaxAlpha )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
@@ -192,7 +206,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			}
 			break;
 		case eFadeState_MaxAlpha:
-			aNewAlpha = HUD::maxAlpha(id);
+			aNewAlpha = aMaxAlpha;
 			if( !gVisibleHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadeOutDelay;
@@ -202,9 +216,17 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			if( gActiveHUD.test(id) )
 			{
 				theWindow.fadeValue = 0;
+				break;
 			}
-			else if( HUD::inactiveFadeOutDelay(id) > 0 &&
-					 HUD::inactiveAlpha(id) < HUD::maxAlpha(id) )
+			if( gDisabledHUD.test(id) &&
+				anInactiveAlpha < aMaxAlpha )
+			{
+				theWindow.fadeState = eFadeState_DisabledFadeOut;
+				theWindow.fadeValue = aNewAlpha;
+				break;
+			}
+			if( HUD::inactiveFadeOutDelay(id) > 0 &&
+				anInactiveAlpha < aMaxAlpha )
 			{
 				theWindow.fadeValue += gAppFrameTime;
 				if( theWindow.fadeValue >= HUD::inactiveFadeOutDelay(id) )
@@ -212,30 +234,53 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 					theWindow.fadeState = eFadeState_InactiveFadeOut;
 					theWindow.fadeValue = aNewAlpha;
 				}
+				break;
 			}
 			break;
 		case eFadeState_InactiveFadeOut:
+		case eFadeState_DisabledFadeOut:
 			if( !gVisibleHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingOut;
 				break;
 			}
 			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
-			aNewAlpha = u8(max(theWindow.fadeValue, HUD::inactiveAlpha(id)));
+			aNewAlpha = u8(max(theWindow.fadeValue, anInactiveAlpha));
 			if( gActiveHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
 				break;
 			}
-			if( aNewAlpha <= HUD::inactiveAlpha(id) )
+			if( aNewAlpha <= anInactiveAlpha )
 			{
-				theWindow.fadeState = eFadeState_Inactive;
+				theWindow.fadeState = oldState == eFadeState_InactiveFadeOut
+					? eFadeState_Inactive : eFadeState_Disabled;
+				theWindow.fadeValue = 0;
 				break;
 			}
 			break;
+		case eFadeState_Disabled:
+			if( !gDisabledHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingIn;
+				theWindow.fadeValue = anInactiveAlpha;
+				break;
+			}
+			if( HUD::inactiveFadeOutDelay(id) > 0 &&
+				anInactiveAlpha < aMaxAlpha )
+			{
+				theWindow.fadeValue += gAppFrameTime;
+				if( theWindow.fadeValue >= HUD::inactiveFadeOutDelay(id) )
+				{
+					theWindow.fadeState = eFadeState_Inactive;
+					theWindow.fadeValue = 0;
+				}
+				break;
+			}
+			// fall through
 		case eFadeState_Inactive:
-			aNewAlpha = HUD::inactiveAlpha(id);
+			aNewAlpha = anInactiveAlpha;
 			if( !gVisibleHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadeOutDelay;

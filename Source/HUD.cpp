@@ -1183,11 +1183,13 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_Position),
 			hi.position);
 		// hi.itemSize = eHUDProp_ItemSize (Menus) or eHUDProp_Size (HUD)
-		if( hi.type < eMenuStyle_End )
+		const bool isAMenu =
+			hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
+		if( isAMenu )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize, true);
 		else
 			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
-		if( aStr.empty() && hi.type < eMenuStyle_End )
+		if( aStr.empty() && isAMenu )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
 		if( aStr.empty() )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
@@ -1273,7 +1275,7 @@ void init()
 		hi.inactiveAlpha = u8(u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF);
 		// hi.titleHeight = eHUDProp_TitleHeight
-		if( hi.type < eMenuStyle_End )
+		if( isAMenu )
 		{
 			hi.titleHeight = u8(u32FromString(
 				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
