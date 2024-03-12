@@ -742,11 +742,12 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	// "= Quit [App]"
+	// "= Close App"
 	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Quit);
+	allowedKeyWords.set(eCmdWord_Close);
 	allowedKeyWords.set(eCmdWord_App);
-	if( keyWordsFound.test(eCmdWord_Quit) &&
+	if( keyWordsFound.test(eCmdWord_Close) &&
+		keyWordsFound.test(eCmdWord_App) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_QuitApp;
@@ -762,6 +763,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Remove);
 	allowedKeyWords.reset(eCmdWord_Hold);
 	allowedKeyWords.reset(eCmdWord_Replace);
+	allowedKeyWords.reset(eCmdWord_Toggle);
 	const std::string* aLayerName = null;
 	if( allowedKeyWords.count() == 1 )
 	{
@@ -793,16 +795,10 @@ static Command wordsToSpecialCommand(
 		aLayerName &&
 		(keyWordsFound & ~allowedKeyWords).count() == 1 )
 	{
-		if( u16* aLayerIdx =
-				theBuilder.layerNameToIdxMap.find(upper(*aLayerName)) )
-		{
-			if( *aLayerIdx != 0 )
-			{
-				result.type = eCmdType_RemoveControlsLayer;
-				result.data = *aLayerIdx;
-				return result;
-			}
-		}
+		result.type = eCmdType_RemoveControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		DBG_ASSERT(result.data != 0);
+		return result;
 	}
 
 	// "= Remove [Layer]"
@@ -845,6 +841,19 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 	allowedKeyWords.reset(eCmdWord_Replace);
+
+	// "= Toggle [Layer] <aLayerName>"
+	// allowedKeyWords = Layer
+	allowedKeyWords.set(eCmdWord_Toggle);
+	if( keyWordsFound.test(eCmdWord_Toggle) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+	{
+		result.type = eCmdType_ToggleControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		DBG_ASSERT(result.data != 0);
+		return result;
+	}
 
 	// Same deal here for the Menu-related commands needing a name of the
 	// menu in question as the one otherwise-unrelated word.
@@ -925,7 +934,22 @@ static Command wordsToSpecialCommand(
 			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
+
+		// "= [Menu] <aMenuName> Back or Close
+		// allowedKeyWords = Menu, Back
+		allowedKeyWords.set(eCmdWord_Back);
+		allowedKeyWords.set(eCmdWord_Close);
+		if( keyWordsFound.test(eCmdWord_Back) &&
+			keyWordsFound.test(eCmdWord_Close) &&
+			aMenuName &&
+			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		{
+			result.type = eCmdType_MenuBackOrClose;
+			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			return result;
+		}
 		allowedKeyWords.reset(eCmdWord_Back);
+		allowedKeyWords.reset(eCmdWord_Close);
 
 		// "= Edit <aMenuName> [Menu]
 		// allowedKeyWords = Menu
@@ -1902,6 +1926,11 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	// Check each key-value pair for button assignment requests
 	Profile::KeyValuePairs aSettings;
 	Profile::getAllKeys(aLayerPrefix, aSettings);
+	if( aSettings.empty() )
+	{
+		logError("No properties found for Layer [%s]!",
+			theBuilder.debugItemName.c_str());
+	}
 	for(Profile::KeyValuePairs::const_iterator itr = aSettings.begin();
 		itr != aSettings.end(); ++itr)
 	{
@@ -1970,6 +1999,27 @@ static MenuItem stringToMenuItem(
 	if( theString.empty() )
 	{
 		mapDebugPrint("%s: '%s' left <unassigned>!\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str());
+		return aMenuItem;
+	}
+
+	if( theString == ".." ||
+		commandWordToID(condense(theString)) == eCmdWord_Back )
+	{// Go back one sub-menu or close menu
+		aMenuItem.cmd.type = eCmdType_MenuBackOrClose;
+		aMenuItem.cmd.data = sMenus[theMenuID].rootMenuID;
+		mapDebugPrint("%s: '%s' assigned to back out of menu\n",
+			theBuilder.debugItemName.c_str(),
+			aMenuItem.label.c_str());
+		return aMenuItem;
+	}
+
+	if( commandWordToID(condense(theString)) == eCmdWord_Close )
+	{// Close self by removing calling controls Layer
+		aMenuItem.cmd.type = eCmdType_RemoveControlsLayer;
+		aMenuItem.cmd.data = 0;
+		mapDebugPrint("%s: '%s' assigned to close menu\n",
 			theBuilder.debugItemName.c_str(),
 			aMenuItem.label.c_str());
 		return aMenuItem;
@@ -2056,7 +2106,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			checkForNextMenuItem = false;
 			const std::string& aMenuItemKeyName = toString(itemIdx+1);
 			const std::string& aMenuItemString = Profile::getStr(
-				aPrefix + "/" + aMenuItemKeyName);
+				condense(aPrefix + "/" + aMenuItemKeyName));
 			checkForNextMenuItem = !aMenuItemString.empty();
 			if( checkForNextMenuItem || itemIdx == 0 )
 			{
@@ -2089,7 +2139,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 					aMenuStyle != eMenuStyle_4Dir )
 				{
 					// Requests to open sub-menus with directionals in
-					// most menu styles sholud use replace menu instead,
+					// most menu styles should use replace menu instead,
 					// so they behave like "side" instead of "sub" menus
 					aMenuItem.cmd.type = eCmdType_ReplaceMenu;
 				}
@@ -2108,6 +2158,10 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 	// Process the "HUD=" key for each layer
 	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
 	{
+		theBuilder.debugItemName.clear();
+		if( aLayerID != 0 )
+			theBuilder.debugItemName = kLayerPrefix;
+		theBuilder.debugItemName += sLayers[aLayerID].label;
 		sLayers[aLayerID].hideHUD.clearAndResize(sHUDElements.size());
 		sLayers[aLayerID].showHUD.clearAndResize(sHUDElements.size());
 		std::string aLayerHUDKey = sLayers[aLayerID].label;

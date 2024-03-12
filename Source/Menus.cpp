@@ -283,7 +283,7 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 }
 
 
-void closeLastSubMenu(u16 theMenuID)
+bool closeLastSubMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -299,14 +299,21 @@ void closeLastSubMenu(u16 theMenuID)
 		aMenuInfo.subMenuStack.pop_back();
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
+		return true;
 	}
-	else if( aMenuInfo.style == eMenuStyle_Slots &&
-			 aMenuInfo.subMenuStack[0].id != theMenuID )
+	
+	// For Slots-style menus, "side" menus (other slots) can replace
+	// root menu in 0th position, and this can be used to restore it
+	if( aMenuInfo.style == eMenuStyle_Slots &&
+		aMenuInfo.subMenuStack[0].id != theMenuID )
 	{
 		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
+		return true;
 	}
+
+	return false;
 }
 
 
