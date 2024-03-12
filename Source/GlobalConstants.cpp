@@ -401,13 +401,14 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 96;
+			const size_t kMapSize = 100;
 			map.reserve(kMapSize);
 			map.setValue("ADD",			eCmdWord_Add);
 			map.setValue("REMOVE",		eCmdWord_Remove);
 			map.setValue("HOLD",		eCmdWord_Hold);
 			map.setValue("REPLACE",		eCmdWord_Replace);
 			map.setValue("SWAP",		eCmdWord_Replace);
+			map.setValue("TOGGLE",		eCmdWord_Toggle);
 			map.setValue("LAYER",		eCmdWord_Layer);
 			map.setValue("MOUSE",		eCmdWord_Mouse);
 			map.setValue("WHEEL",		eCmdWord_MouseWheel);
@@ -435,6 +436,8 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("BACK",		eCmdWord_Back);
 			map.setValue("CANCEL",		eCmdWord_Back);
 			map.setValue("CLOSE",		eCmdWord_Close);
+			map.setValue("QUIT",		eCmdWord_Close);
+			map.setValue("EXIT",		eCmdWord_Close);
 			map.setValue("TARGET",		eCmdWord_Target);
 			map.setValue("GROUP",		eCmdWord_Group);
 			map.setValue("L",			eCmdWord_Left);
@@ -478,17 +481,18 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("CHANGE",		eCmdWord_Change);
 			map.setValue("SWITCH",		eCmdWord_Change);
 			map.setValue("PROFILE",		eCmdWord_Profile);
-			map.setValue("QUIT",		eCmdWord_Quit);
-			map.setValue("EXIT",		eCmdWord_Quit);
 			map.setValue("APP",			eCmdWord_App);
 			map.setValue("APPLICATION",	eCmdWord_App);
 			map.setValue("PROGRAM",		eCmdWord_App);
 			map.setValue("OVERLAY",		eCmdWord_App);
 			map.setValue("A",			eCmdWord_Filler);
 			map.setValue("AND",			eCmdWord_Filler);
+			map.setValue("OR",			eCmdWord_Filler);
 			map.setValue("THE",			eCmdWord_Filler);
 			map.setValue("IN",			eCmdWord_Filler);
 			map.setValue("TO",			eCmdWord_Filler);
+			map.setValue("OUT",			eCmdWord_Filler);
+			map.setValue("OF",			eCmdWord_Filler);
 			map.setValue("AT",			eCmdWord_Filler);
 			map.setValue("WITH",		eCmdWord_Filler);
 			map.setValue("MEMBER",		eCmdWord_Filler);

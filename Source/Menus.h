@@ -45,7 +45,8 @@ void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID);
 
 // Removes the most recently-added sub-menu (via openSubMenu), returning to
 // whichever sub-menu (or the root menu) was active before then.
-void closeLastSubMenu(u16 theMenuID);
+// Returns false if were already at the root menu and thus did nothing
+bool closeLastSubMenu(u16 theMenuID);
 
 // Resets menu to its default state (closes all sub-menus & resets selection),
 // but does NOT trigger this as "activating" the menu in terms of alpha fade

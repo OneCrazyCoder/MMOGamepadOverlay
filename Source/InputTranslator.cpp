@@ -61,6 +61,7 @@ struct ButtonState
 	u16 heldTime;
 	s16 repeatDelay;
 	u16 vKeyHeld;
+	bool isAutoButton;
 	bool heldDown;
 	bool shortHoldDone;
 	bool longHoldDone;
@@ -74,13 +75,15 @@ struct ButtonState
 
 	void resetWhenReleased()
 	{
-		const Command* backupCommands = this->commands;
-		const u16 backupParentLayer = this->commandsLayer;
-		const u16 backupChildLayer = this->layerHeld;
+		const Command* oldCommands = this->commands;
+		const u16 oldParentLayer = this->commandsLayer;
+		const u16 oldChildLayer = this->layerHeld;
+		const bool oldIsAutoButton = this->isAutoButton;
 		clear();
-		this->commands = backupCommands;
-		this->commandsLayer = backupParentLayer;
-		this->layerHeld = backupChildLayer;
+		this->commands = oldCommands;
+		this->commandsLayer = oldParentLayer;
+		this->layerHeld = oldChildLayer;
+		this->isAutoButton = oldIsAutoButton;
 	}
 
 	ButtonState() : vKeyHeld() { clear(); }
@@ -97,6 +100,7 @@ struct LayerState
 	void clear()
 	{
 		autoButton.clear();
+		autoButton.isAutoButton = true;
 		parentLayerID = 0;
 		active = false;
 		newlyActive = false;
@@ -180,10 +184,7 @@ static void loadLayerData()
 	for(u16 i = 0; i < sState.layers.size(); ++i)
 	{
 		sState.layers[i].clear();
-		// Assign auto-button commands for this layer ID
-		// Note that these leave .commandsLayer as default 0 value,
-		// to prevent them from setting ownedButtonHit flags,
-		// which should only be set by actual gamepad button presses.
+		sState.layers[i].autoButton.commandsLayer = i;
 		sState.layers[i].autoButton.commands =
 			InputMap::commandsForButton(i, eBtn_None);
 	}
@@ -252,17 +253,63 @@ static void removeControlsLayer(u16 theLayerID)
 }
 
 
+static bool layerIsParentOfLayer(u16 theParentLayerID, u16 theCheckLayerID)
+{
+	std::vector<u16> aCheckedIDVec;
+	aCheckedIDVec.reserve(4);
+	while(
+		std::find(aCheckedIDVec.begin(), aCheckedIDVec.end(),
+			theCheckLayerID) == aCheckedIDVec.end() )
+	{
+		if( theCheckLayerID == theParentLayerID )
+			return true;
+		aCheckedIDVec.push_back(theCheckLayerID);
+		theCheckLayerID = sState.layers[theCheckLayerID].parentLayerID;
+	}
+	return false;
+}
+
+
 static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID = 0)
 {
 	DBG_ASSERT(theLayerID < sState.layers.size());
 	DBG_ASSERT(theSpawningLayerID < sState.layers.size());
 
-	// Remove the layer first if it is already active
-	removeControlsLayer(theLayerID);
-	DBG_ASSERT(!sState.layers[theLayerID].active);
+	// Check to see if layer is already active
+	if( sState.layers[theLayerID].active )
+	{
+		// If request came from a child layer of the layer being added,
+		// meaning could end up with a recursive child/parent relationship,
+		// simply bump this layer to the top of the layer order instead,
+		// without adding/removing anything or changing parent relationships.
+		if( layerIsParentOfLayer(theLayerID, theSpawningLayerID) )
+		{
+			// Remove from layer order
+			sState.layerOrder.erase(std::find(
+				sState.layerOrder.begin(),
+				sState.layerOrder.end(),
+				theLayerID));
+			// Append to layer order
+			sState.layerOrder.push_back(theLayerID);
+			transDebugPrint("Moving Controls Layer '%s' to top\n",
+				InputMap::layerLabel(theLayerID).c_str());
+			sResults.layerChangeMade = true;
+			return;
+		}
 
-	transDebugPrint("Adding Controls Layer: %s\n",
-		InputMap::layerLabel(theLayerID).c_str());
+		// Otherwise, remove layer first then re-add it
+		removeControlsLayer(theLayerID);
+		DBG_ASSERT(!sState.layers[theLayerID].active);
+	}
+
+	// Remove the layer first if it is already active
+
+	if( theLayerID > 0 )
+	{
+		transDebugPrint("Adding Controls Layer '%s' as child of Layer '%s'\n",
+			InputMap::layerLabel(theLayerID).c_str(),
+			InputMap::layerLabel(theSpawningLayerID).c_str());
+	}
 
 	sState.layerOrder.push_back(theLayerID);
 	LayerState& aLayer = sState.layers[theLayerID];
@@ -357,6 +404,15 @@ static void processCommand(
 			addControlsLayer(theCmd.data, aParentLayerID);
 		}
 		break;
+	case eCmdType_ToggleControlsLayer:
+		DBG_ASSERT(theCmd.data != 0);
+		DBG_ASSERT(theCmd.data < sState.layers.size());
+		aForwardCmd = theCmd;
+		aForwardCmd.type = sState.layers[theCmd.data].active
+			? eCmdType_RemoveControlsLayer
+			: eCmdType_AddControlsLayer;
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		break;
 	case eCmdType_OpenSubMenu:
 		Menus::openSubMenu(theCmd.data2, theCmd.data);
 		break;
@@ -375,18 +431,28 @@ static void processCommand(
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.data);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			// Close menu as well if this didn't just switch to a sub-menu
+			// Close menu first if this won't just switch to a sub-menu
 			if( aForwardCmd.type != eCmdType_Empty &&
 				aForwardCmd.type < eCmdType_FirstMenuControl &&
 				theLayerIdx > 0 )
-			{// Assume removing calling layer "closes" the menu
-				removeControlsLayer(theLayerIdx);
+			{
+				// Set theLayerIdx to parent layer first,
+				// since this layer will be invalid for aForwardCmd
+				const u16 aLayerToRemoveID = theLayerIdx;
+				theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
+				// Assume removing calling layer "closes" the menu
+				removeControlsLayer(aLayerToRemoveID);
 			}
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		break;
 	case eCmdType_MenuBack:
 		Menus::closeLastSubMenu(theCmd.data);
+		break;
+	case eCmdType_MenuBackOrClose:
+		// If at root, assume removing calling layer "closes" the menu
+		if( !Menus::closeLastSubMenu(theCmd.data) )
+			removeControlsLayer(theLayerIdx);
 		break;
 	case eCmdType_MenuEdit:
 		Menus::editMenuItem(theCmd.data);
@@ -489,14 +555,19 @@ static void processCommand(
 			theCmd.data2, ECommandDir(theCmd.data), isAutoRepeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			// Close menu as well if this didn't just switch to a sub-menu
+			// Close menu first if this won't just switch to a sub-menu
 			if( aForwardCmd.type != eCmdType_Empty &&
 				aForwardCmd.type < eCmdType_FirstMenuControl &&
 				theLayerIdx > 0 )
-			{// Assume removing calling layer "closes" the menu
-				removeControlsLayer(theLayerIdx);
+			{
+				// Set theLayerIdx to parent layer first,
+				// since this layer will be invalid for aForwardCmd
+				const u16 aLayerToRemoveID = theLayerIdx;
+				theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
+				// Assume removing calling layer "closes" the menu
+				removeControlsLayer(aLayerToRemoveID);
 			}
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		break;
 	case eCmdType_MenuEditDir:
@@ -537,7 +608,9 @@ static void processButtonPress(ButtonState& theBtnState)
 	theBtnState.layerWhenPressed = theBtnState.commandsLayer;
 
 	// Log that at least one button in the assigned layer has been pressed
-	sState.layers[theBtnState.commandsLayer].ownedButtonHit = true;
+	// (unless it is just the Auto button for the layer, which doesn't count)
+	if( !theBtnState.isAutoButton )
+		sState.layers[theBtnState.commandsLayer].ownedButtonHit = true;
 
 	if( !theBtnState.commands )
 		return;
@@ -989,7 +1062,9 @@ static bool tryAddLayerFromButton(
 			if( aCmdSet[i].type != eCmdType_Empty &&
 				aCmdSet[i].type != eCmdType_HoldControlsLayer &&
 				aCmdSet[i].type != eCmdType_AddControlsLayer &&
-				aCmdSet[i].type != eCmdType_RemoveControlsLayer )
+				aCmdSet[i].type != eCmdType_RemoveControlsLayer &&
+				aCmdSet[i].type != eCmdType_ReplaceControlsLayer &&
+				aCmdSet[i].type != eCmdType_ToggleControlsLayer)
 				return false;
 		}
 	}
@@ -1082,6 +1157,7 @@ static void updateHUDStateForCurrentLayers()
 				case eCmdType_MenuConfirm:
 				case eCmdType_MenuConfirmAndClose:
 				case eCmdType_MenuBack:
+				case eCmdType_MenuBackOrClose:
 				case eCmdType_MenuEdit:
 					aHUDIdx = InputMap::hudElementForMenu(
 						aBtnState.commands[aBtnAct].data);
@@ -1177,6 +1253,19 @@ void update()
 		loadButtonCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
 		sState.mouseLookOn = false;
+		#ifndef NDEBUG
+		std::string aNewLayerOrder("Layers: ");
+		for(std::vector<u16>::iterator itr =
+			sState.layerOrder.begin();
+			itr != sState.layerOrder.end(); ++itr)
+		{
+			aNewLayerOrder += InputMap::layerLabel(*itr);
+			if( itr + 1 != sState.layerOrder.end() )
+				aNewLayerOrder += " < ";
+		}
+		aNewLayerOrder += "\n";
+		transDebugPrint("%s", aNewLayerOrder.c_str());
+		#endif
 	}
 
 	// Update mouselook status continuously

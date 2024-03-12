@@ -38,6 +38,7 @@ enum ECommandType
 	eCmdType_HoldControlsLayer,
 	eCmdType_RemoveControlsLayer,
 	eCmdType_ReplaceControlsLayer,
+	eCmdType_ToggleControlsLayer,
 
 	// These control Menu selections/state
 	eCmdType_OpenSubMenu,
@@ -46,6 +47,7 @@ enum ECommandType
 	eCmdType_MenuConfirm,
 	eCmdType_MenuConfirmAndClose,
 	eCmdType_MenuBack, // close last sub-menu
+	eCmdType_MenuBackOrClose, // close menu if no sub-menus open 
 	eCmdType_MenuEdit,
 
 	// This should have 'data' set as an ETargetGroupType
@@ -281,6 +283,7 @@ enum ECommandKeyWord
 	eCmdWord_Remove,
 	eCmdWord_Hold,
 	eCmdWord_Replace,
+	eCmdWord_Toggle,
 	eCmdWord_Layer,
 	eCmdWord_Mouse,
 	eCmdWord_MouseWheel,
@@ -317,7 +320,6 @@ enum ECommandKeyWord
 	eCmdWord_Pet,
 	eCmdWord_Change,
 	eCmdWord_Profile,
-	eCmdWord_Quit,
 	eCmdWord_App,
 
 	eCmdWord_Filler,
