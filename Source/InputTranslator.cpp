@@ -376,6 +376,9 @@ static void processCommand(
 		gShutdown = true;
 		break;
 	case eCmdType_AddControlsLayer:
+		// .data2 is how many parent layers up from current to attach to
+		for(int i = 0; i < theCmd.data2 && theLayerIdx != 0; ++i)
+			theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
 		addControlsLayer(theCmd.data, theLayerIdx);
 		break;
 	case eCmdType_RemoveControlsLayer:

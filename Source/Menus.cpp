@@ -140,20 +140,12 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 				return kEmptyMenuCommand;
 			else if( aDirCmd.type != eCmdType_Empty )
 				return aDirCmd;
-			else if( aMenuStyle == eMenuStyle_Slots )
-				return kEmptyMenuCommand;
-			else
-				aSelection = 0;
 			break;
 		case eCmdDir_R:
 			if( repeat )
 				return kEmptyMenuCommand;
 			else if( aDirCmd.type != eCmdType_Empty )
 				return aDirCmd;
-			else if( aMenuStyle == eMenuStyle_Slots )
-				return kEmptyMenuCommand;
-			else
-				aSelection = anItemCount - 1;
 			break;
 		case eCmdDir_U:
 			aSelection =
@@ -190,16 +182,12 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 		case eCmdDir_U:
 			if( repeat )
 				return kEmptyMenuCommand;
-			else if( aDirCmd.type == eCmdType_Empty )
-				aSelection = 0;
 			else
 				return aDirCmd;
 			break;
 		case eCmdDir_D:
 			if( repeat )
 				return kEmptyMenuCommand;
-			else if( aDirCmd.type == eCmdType_Empty )
-				aSelection = anItemCount - 1;
 			else
 				return aDirCmd;
 			break;
