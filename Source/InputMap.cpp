@@ -36,6 +36,8 @@ const char* kMouseLookKey = "MOUSELOOK";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
+const char* k4DirKeyNames[] = { "LEFT", "RIGHT", "UP", "DOWN" };
+const char* k4DirCmdSuffix[] = { " Left", " Right", " Up", " Down" };
 
 const char* kSpecialHotspotNames[] =
 {
@@ -160,6 +162,7 @@ struct InputMapBuilder
 	StringToValueMap<u16> layerNameToIdxMap;
 	StringToValueMap<u16> hudNameToIdxMap;
 	StringToValueMap<u16> menuPathToIdxMap;
+	BitVector<> elementsProcessed;
 	std::string debugItemName;
 };
 
@@ -711,20 +714,41 @@ static Command wordsToSpecialCommand(
 	// Find all key words that are actually included and their positions
 	theBuilder.keyWordMap.clear();
 	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
+	const std::string* anIgnoredWord = null;
 	for(size_t i = 0; i < theWords.size(); ++i)
 	{
 		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[i]));
 		if( aKeyWordID == eCmdWord_Filler )
 			continue;
-		// The same key word (including "unknown") can't be used twice
+		if( aKeyWordID == eCmdWord_Ignored )
+		{
+			anIgnoredWord = &theWords[i];
+			continue;
+		}
 		if( keyWordsFound.test(aKeyWordID) )
-			return result;
+		{// Key word was already found once
+			// Can't have more than one "unknown" key word
+			if( aKeyWordID == eCmdWord_Unknown )
+				return result;
+			// Don't add duplicate key words to the map
+			continue;
+		}
 		keyWordsFound.set(aKeyWordID);
 		theBuilder.keyWordMap.addPair(aKeyWordID, i);
 	}
 	if( theBuilder.keyWordMap.empty() )
 		return result;
 	theBuilder.keyWordMap.sort();
+	// If have no "unknown" word (layer name/etc), use "ignored" word as one
+	// This is the only difference between "ignored" and "filler" words
+	if( !keyWordsFound.test(eCmdWord_Unknown) &&
+		keyWordsFound.test(eCmdWord_Ignored) )
+	{
+		keyWordsFound.set(eCmdWord_Unknown);
+		theBuilder.keyWordMap.setValue(eCmdWord_Unknown,
+			theBuilder.keyWordMap.findOrAdd(eCmdWord_Ignored));
+	}
+	keyWordsFound.reset(eCmdWord_Ignored);
 
 	// Find a command by checking for specific key words + allowed related
 	// words and none more than that
@@ -764,7 +788,11 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Hold);
 	allowedKeyWords.reset(eCmdWord_Replace);
 	allowedKeyWords.reset(eCmdWord_Toggle);
-	const std::string* aLayerName = null;
+	allowedKeyWords.reset(eCmdWord_NonChild);
+	allowedKeyWords.reset(eCmdWord_Parent);
+	allowedKeyWords.reset(eCmdWord_Grandparent);
+	// If no extra words found, default to anIgnoredWord
+	const std::string* aLayerName = anIgnoredWord;
 	if( allowedKeyWords.count() == 1 )
 	{
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
@@ -780,12 +808,60 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Add);
 	if( keyWordsFound.test(eCmdWord_Add) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_AddControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		// 0 acts as a flag meaning add as child of the layer
+		// whose button input lead to this command
+		result.data2 = 0;
 		return result;
 	}
+
+	// "= Add [Layer] <aLayerName> [to] Parent"
+	// allowedKeyWords = Add & Layer
+	allowedKeyWords.set(eCmdWord_Parent);
+	if( keyWordsFound.test(eCmdWord_Add) &&
+		keyWordsFound.test(eCmdWord_Parent) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+	{
+		result.type = eCmdType_AddControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		result.data2 = 1; // Add as child of parent 1 level up from current
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Parent);
+
+	// "= Add [Layer] <aLayerName> [to] Grandparent"
+	// allowedKeyWords = Add & Layer
+	allowedKeyWords.set(eCmdWord_Grandparent);
+	if( keyWordsFound.test(eCmdWord_Add) &&
+		keyWordsFound.test(eCmdWord_Grandparent) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+	{
+		result.type = eCmdType_AddControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		result.data2 = 2; // Add as child of parent 2 levels up from current
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Grandparent);
+
+	// "= Add 'Independent'|'Non-Child' [Layer] <aLayerName>"
+	// allowedKeyWords = Add & Layer
+	allowedKeyWords.set(eCmdWord_NonChild);
+	if( keyWordsFound.test(eCmdWord_Add) &&
+		keyWordsFound.test(eCmdWord_NonChild) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+	{
+		result.type = eCmdType_AddControlsLayer;
+		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
+		result.data2 = 0xFFFF; // Add as child of root scheme (ALL layers up)
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_NonChild);
 	allowedKeyWords.reset(eCmdWord_Add);
 
 	// "= Remove [Layer] <aLayerName>"
@@ -793,7 +869,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Remove);
 	if( keyWordsFound.test(eCmdWord_Remove) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_RemoveControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
@@ -802,7 +878,7 @@ static Command wordsToSpecialCommand(
 	}
 
 	// "= Remove [Layer]"
-	// allowedKeyWords = Layer
+	// allowedKeyWords = Remove & Layer
 	if( keyWordsFound.test(eCmdWord_Remove) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
@@ -821,7 +897,7 @@ static Command wordsToSpecialCommand(
 		(keyWordsFound.test(eCmdWord_Hold) ||
 		 keyWordsFound.test(eCmdWord_Layer)) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_HoldControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
@@ -834,7 +910,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Replace);
 	if( keyWordsFound.test(eCmdWord_Replace) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_ReplaceControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
@@ -847,7 +923,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Toggle);
 	if( keyWordsFound.test(eCmdWord_Toggle) &&
 		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_ToggleControlsLayer;
 		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
@@ -855,9 +931,9 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	// Same deal here for the Menu-related commands needing a name of the
-	// menu in question as the one otherwise-unrelated word.
-	const std::string* aMenuName = null;
+	// Same deal as aLayerNamefor the Menu-related commands needing a name
+	// of the menu in question as the one otherwise-unrelated word.
+	const std::string* aMenuName = anIgnoredWord;
 	if( allowButtonActions )
 	{
 		allowedKeyWords = keyWordsFound;
@@ -888,7 +964,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Menu);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuReset;
 			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
@@ -901,7 +977,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Confirm);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
 			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
@@ -914,7 +990,7 @@ static Command wordsToSpecialCommand(
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
 			keyWordsFound.test(eCmdWord_Close) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirmAndClose;
 			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
@@ -928,7 +1004,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Back);
 		if( keyWordsFound.test(eCmdWord_Back) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuBack;
 			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
@@ -942,7 +1018,7 @@ static Command wordsToSpecialCommand(
 		if( keyWordsFound.test(eCmdWord_Back) &&
 			keyWordsFound.test(eCmdWord_Close) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuBackOrClose;
 			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
@@ -956,7 +1032,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Edit);
 		if( keyWordsFound.test(eCmdWord_Edit) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEdit;
 			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
@@ -1082,6 +1158,7 @@ static Command wordsToSpecialCommand(
 	}
 
 	// Get ECmdDir from key words for remaining commands
+	DBG_ASSERT(result.type == eCmdType_Empty);
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Up);
 	allowedKeyWords.set(eCmdWord_Down);
@@ -1110,7 +1187,7 @@ static Command wordsToSpecialCommand(
 		if( (keyWordsFound.test(eCmdWord_Select) ||
 			 keyWordsFound.test(eCmdWord_Menu)) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelect;
 			result.data = aCmdDir;
@@ -1125,7 +1202,7 @@ static Command wordsToSpecialCommand(
 			 keyWordsFound.test(eCmdWord_Menu)) &&
 			keyWordsFound.test(eCmdWord_Close) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelectAndClose;
 			result.data = aCmdDir;
@@ -1140,7 +1217,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Edit);
 		if( keyWordsFound.test(eCmdWord_Edit) &&
 			aMenuName &&
-			(keyWordsFound & ~allowedKeyWords).count() == 1 )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEditDir;
 			result.data = aCmdDir;
@@ -1326,6 +1403,18 @@ static Command stringToCommand(
 			}
 		}
 	}
+
+	// _PressAndHoldKey (and indirectly its associated _ReleaseKey)
+	// only works properly with a single key (+ mods), just like _TapKey,
+	// and only when allowHoldActions is true (_Down button action),
+	// so in that case change _TapKey to _PressAndHoldKey instead.
+	// This does mean there isn't currently a way to keep this button
+	// action assigned to only _TapKey, and that a _Down button action
+	// will just act the same as _Press for any other commmands
+	// (which can be used intentionally to have 2 commands for button
+	// initial press, thus can be useful even if a bit unintuitive).
+	if( result.type == eCmdType_TapKey && allowHoldActions )
+		result.type = eCmdType_PressAndHoldKey;
 
 	return result;
 }
@@ -1758,6 +1847,85 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 }
 
 
+static void reportButtonAssignment(
+	InputMapBuilder& theBuilder,
+	EButtonAction theBtnAct,
+	EButton theBtnID,
+	const Command& theCmd,
+	const std::string& theCmdStr)
+{
+	switch(theCmd.type)
+	{
+	case eCmdType_Empty:
+		// Report as an error if theCmdStr wasn't empty but result was.
+		// Empty command string is NOT an error since it can be used to
+		// prevent another layer's assignment from doing anything undesired.
+		if( !theCmdStr.empty() )
+		{
+			logError("[%s]: Not sure how to assign '%s%s%s' to '%s'!",
+				theBuilder.debugItemName.c_str(),
+				kButtonActionPrefx[theBtnAct],
+				kButtonActionPrefx[theBtnAct][0] ? " " : "",
+				kProfileButtonName[theBtnID],
+				theCmdStr.c_str());
+		}
+		else
+		{
+			mapDebugPrint("[%s]: Assigned '%s%s%s' to: <Do Nothing>\n",
+				theBuilder.debugItemName.c_str(),
+				kButtonActionPrefx[theBtnAct],
+				kButtonActionPrefx[theBtnAct][0] ? " " : "",
+				kProfileButtonName[theBtnID]);
+		}
+		break;
+	case eCmdType_SlashCommand:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID],
+			sKeyStrings[theCmd.data].c_str());
+		break;
+	case eCmdType_SayString:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID],
+			sKeyStrings[theCmd.data].c_str() + 1);
+	case eCmdType_TapKey:
+	case eCmdType_PressAndHoldKey:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to: %s (%s%s%s%s)\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID],
+			theCmdStr.c_str(),
+			!!(theCmd.data & kVKeyShiftFlag) ? "Shift+" : "",
+			!!(theCmd.data & kVKeyCtrlFlag) ? "Ctrl+" : "",
+			!!(theCmd.data & kVKeyAltFlag) ? "Alt+" : "",
+			virtualKeyToName(theCmd.data & kVKeyMask).c_str());
+		break;
+	case eCmdType_VKeySequence:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to sequence: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID],
+			theCmdStr.c_str());
+		break;
+	default:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to command: %s\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID],
+			theCmdStr.c_str());
+		break;
+	}
+}
+
+
 static void addButtonAction(
 	InputMapBuilder& theBuilder,
 	u16 theLayerIdx,
@@ -1768,123 +1936,80 @@ static void addButtonAction(
 	if( theBtnName.empty() )
 		return;
 
-	// Handle shortcuts for assigning multiple at once
-	for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
-	{
-		// Check if the *end* (after action tag) of button name matches
-		if( theBtnName.size() >= k4DirButtons[i].size() &&
-			theBtnName.compare(
-				theBtnName.size() - k4DirButtons[i].size(),
-				k4DirButtons[i].size(),
-				k4DirButtons[i]) == 0 )
-		{
-			addButtonAction(theBuilder, theLayerIdx,
-				theBtnName + "UP", theCmdStr + " Up");
-			addButtonAction(theBuilder, theLayerIdx,
-				theBtnName + "DOWN", theCmdStr + " Down");
-			addButtonAction(theBuilder, theLayerIdx,
-				theBtnName + "LEFT", theCmdStr + " Left");
-			addButtonAction(theBuilder, theLayerIdx,
-				theBtnName + "RIGHT", theCmdStr + " Right");
-			return;
-		}
-	}
-
 	// Determine button & action to assign command to
 	EButtonAction aBtnAct = breakOffButtonAction(theBtnName);
 	EButton aBtnID = buttonNameToID(theBtnName);
+
 	if( aBtnID >= eBtn_Num )
 	{
-		logError("Unable to identify Gamepad Button '%s%s' requested in [%s]",
-			kButtonActionPrefx[aBtnAct],
-			theBtnName.c_str(),
-			theBuilder.debugItemName.c_str());
+		// Button ID not identified from key string
+		// Could be an attempt to assign multiple buttons at once as
+		// a single 4-directional input (D-pad, analog sticks, etc).
+		bool isA4DirMultiAssign = false;
+		for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
+		{
+			if( theBtnName == k4DirButtons[i] )
+			{
+				isA4DirMultiAssign = true;
+				break;
+			}
+		}
+		// If not, must just be a badly-named action + button key
+		if( !isA4DirMultiAssign )
+		{
+			logError("Unable to identify Gamepad Button '%s' requested in [%s]",
+				theBtnName.c_str(),
+				theBuilder.debugItemName.c_str());
+			return;
+		}
+
+		// Attempt to assign to all 4 directional variations of this button
+		// to the same command (or directional variations of it).
+		const Command& aBaseCmd = stringToCommand(
+			theBuilder, theCmdStr, true,
+			aBtnAct == eBtnAct_Down);		
+		for(size_t i = 0; i < 4; ++i)
+		{
+			// Get true button ID by adding direction key to button name
+			aBtnID = buttonNameToID(theBtnName + k4DirKeyNames[i]);
+			DBG_ASSERT(aBtnID < eBtn_Num);
+			// Use base command string initially
+			Command aCmd = aBaseCmd;
+			std::string aCmdStr = theCmdStr;
+			// If base command was empty, try pasing the command string
+			// with an added direction name to get a valid command
+			if( aCmd.type == eCmdType_Empty )
+			{
+				aCmdStr += k4DirCmdSuffix[i];
+				aCmd = stringToCommand(
+					theBuilder, aCmdStr, true, aBtnAct == eBtnAct_Down);
+			}
+			// Get destination of command. Note that we do this AFTER
+			// parsing the command because stringToCommand() can lead to
+			// resizing sLayers and thus make this reference invalid!
+			Command& aDestCmd =
+				sLayers[theLayerIdx].map.findOrAdd(aBtnID).cmd[aBtnAct];
+			// Direct assignment should take priority over multi-assignment,
+			// so if this was already assigned directly then leave it alone.
+			if( aDestCmd.type != eCmdType_Empty )
+				continue;
+			// Make and report assignment
+			aDestCmd = aCmd;
+			reportButtonAssignment(
+				theBuilder, aBtnAct, aBtnID, aCmd, aCmdStr);
+		}
 		return;
 	}
 
+	// Parse command string into a Command struct
 	Command aCmd = stringToCommand(
 		theBuilder, theCmdStr, true, aBtnAct == eBtnAct_Down);
 
-	// Convert eCmdType_TapKey to eCmdType_PressAndHoldKey?
-	// True "while held down" only works with a single key (w/ mods),
-	// just like _TapKey, and only when assigned to eBtnAct_Down.
-	// For anything besides a single key, this will be skipped and
-	// _Down will just act the same as _Press (which can be used
-	// intentionally to have 2 actions on button initial press).
-	if( aCmd.type == eCmdType_TapKey && aBtnAct == eBtnAct_Down )
-		aCmd.type = eCmdType_PressAndHoldKey;
-
-	// Give error for inability to parse the command
-	// Note that an empty command string still counts as a valid assignment,
-	// possibly to block lower layers' assignments from doing anything
-	if( aCmd.type == eCmdType_Empty && !theCmdStr.empty() )
-	{
-		logError("[%s]: Not sure how to assign '%s%s%s' to '%s'!",
-			theBuilder.debugItemName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			theCmdStr.c_str());
-		return;
-	}
-
-	// Make the assignment!
+	// Make the assignment
 	sLayers[theLayerIdx].map.findOrAdd(aBtnID).cmd[aBtnAct] = aCmd;
 
-	switch(aCmd.type)
-	{
-	case eCmdType_Empty:
-		mapDebugPrint("[%s]: Assigned '%s%s%s' to: <Do Nothing>\n",
-			theBuilder.debugItemName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID]);
-		break;
-	case eCmdType_SlashCommand:
-		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
-			theBuilder.debugItemName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			sKeyStrings[aCmd.data].c_str());
-		break;
-	case eCmdType_SayString:
-		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
-			theBuilder.debugItemName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			sKeyStrings[aCmd.data].c_str() + 1);
-	case eCmdType_TapKey:
-	case eCmdType_PressAndHoldKey:
-		mapDebugPrint("[%s]: Assigned '%s%s%s' to: %s (%s%s%s%s)\n",
-			theBuilder.debugItemName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			theCmdStr.c_str(),
-			!!(aCmd.data & kVKeyShiftFlag) ? "Shift+" : "",
-			!!(aCmd.data & kVKeyCtrlFlag) ? "Ctrl+" : "",
-			!!(aCmd.data & kVKeyAltFlag) ? "Alt+" : "",
-			virtualKeyToName(aCmd.data & kVKeyMask).c_str());
-		break;
-	case eCmdType_VKeySequence:
-		mapDebugPrint("[%s]: Assigned '%s%s%s' to sequence: %s\n",
-			theBuilder.debugItemName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			theCmdStr.c_str());
-		break;
-	default:
-		mapDebugPrint("[%s]: Assigned '%s%s%s' to command: %s\n",
-			theBuilder.debugItemName.c_str(),
-			kButtonActionPrefx[aBtnAct],
-			kButtonActionPrefx[aBtnAct][0] ? " " : "",
-			kProfileButtonName[aBtnID],
-			theCmdStr.c_str());
-		break;
-	}
+	// Report the results of the assignment
+	reportButtonAssignment(theBuilder, aBtnAct, aBtnID, aCmd, theCmdStr);
 }
 
 
@@ -1897,10 +2022,6 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		sLayers[theLayerIdx].mouseLookOn =
 			sLayers[sLayers[theLayerIdx].includeLayer].mouseLookOn;
-		sLayers[theLayerIdx].showHUD =
-			sLayers[sLayers[theLayerIdx].includeLayer].showHUD;
-		sLayers[theLayerIdx].hideHUD =
-			sLayers[sLayers[theLayerIdx].includeLayer].hideHUD;
 	}
 
 	const std::string& aLayerName = sLayers[theLayerIdx].label;
@@ -2153,61 +2274,81 @@ static void buildMenus(InputMapBuilder& theBuilder)
 }
 
 
+static void buildHUDElementsForLayer(
+	InputMapBuilder& theBuilder,
+	u16 theLayerID)
+{
+	if( theBuilder.elementsProcessed.test(theLayerID) )
+		return;
+	theBuilder.elementsProcessed.set(theLayerID);
+	theBuilder.debugItemName.clear();
+	if( theLayerID != 0 )
+		theBuilder.debugItemName = kLayerPrefix;
+	theBuilder.debugItemName += sLayers[theLayerID].label;
+	sLayers[theLayerID].hideHUD.clearAndResize(sHUDElements.size());
+	sLayers[theLayerID].showHUD.clearAndResize(sHUDElements.size());
+	std::string aLayerHUDKey = sLayers[theLayerID].label;
+	if( theLayerID == 0 )
+		aLayerHUDKey += "/";
+	else
+		aLayerHUDKey = std::string(kLayerPrefix)+aLayerHUDKey+"/";
+	aLayerHUDKey += kHUDSettingsKey;
+	std::string aLayerHUDDescription = Profile::getStr(aLayerHUDKey);
+
+	if( aLayerHUDDescription.empty() )
+	{// Use include layer's settings, if have one
+		if( sLayers[theLayerID].includeLayer > 0 )
+		{
+			buildHUDElementsForLayer(
+				theBuilder, sLayers[theLayerID].includeLayer);
+			sLayers[theLayerID].showHUD =
+				sLayers[sLayers[theLayerID].includeLayer].showHUD;
+			sLayers[theLayerID].hideHUD =
+				sLayers[sLayers[theLayerID].includeLayer].hideHUD;
+		}
+		return;
+	}
+
+	// Break the string into individual words
+	theBuilder.parsedString.clear();
+	sanitizeSentence(aLayerHUDDescription, theBuilder.parsedString);
+
+	bool show = true;
+	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+	{
+		const std::string& anElementName = theBuilder.parsedString[i];
+		if( upper(anElementName) == "HIDE" )
+		{
+			show = false;
+			continue;
+		}
+		if( upper(anElementName) == "SHOW" )
+		{
+			show = true;
+			continue;
+		}
+		u16 anElementIdx = getOrCreateHUDElementID(
+			theBuilder, anElementName, false);
+		sLayers[theLayerID].showHUD.resize(sHUDElements.size());
+		sLayers[theLayerID].showHUD.set(anElementIdx, show);
+		sLayers[theLayerID].hideHUD.resize(sHUDElements.size());
+		sLayers[theLayerID].hideHUD.set(anElementIdx, !show);
+	}
+}
+
+
 static void buildHUDElements(InputMapBuilder& theBuilder)
 {
 	// Process the "HUD=" key for each layer
+	theBuilder.elementsProcessed.clearAndResize(sLayers.size());
 	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
-	{
-		theBuilder.debugItemName.clear();
-		if( aLayerID != 0 )
-			theBuilder.debugItemName = kLayerPrefix;
-		theBuilder.debugItemName += sLayers[aLayerID].label;
-		sLayers[aLayerID].hideHUD.clearAndResize(sHUDElements.size());
-		sLayers[aLayerID].showHUD.clearAndResize(sHUDElements.size());
-		std::string aLayerHUDKey = sLayers[aLayerID].label;
-		if( aLayerID == 0 )
-			aLayerHUDKey += "/";
-		else
-			aLayerHUDKey = std::string(kLayerPrefix)+aLayerHUDKey+"/";
-		aLayerHUDKey += kHUDSettingsKey;
-		const std::string& aLayerHUDDescription =
-			Profile::getStr(aLayerHUDKey);
-
-		if( aLayerHUDDescription.empty() )
-			continue;
-
-		// Break the string into individual words
-		theBuilder.parsedString.clear();
-		sanitizeSentence(aLayerHUDDescription, theBuilder.parsedString);
-
-		bool show = true;
-		for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
-		{
-			const std::string& anElementName = theBuilder.parsedString[i];
-			if( upper(anElementName) == "HIDE" )
-			{
-				show = false;
-				continue;
-			}
-			if( upper(anElementName) == "SHOW" )
-			{
-				show = true;
-				continue;
-			}
-			u16 anElementIdx = getOrCreateHUDElementID(
-				theBuilder, anElementName, false);
-			sLayers[aLayerID].showHUD.resize(sHUDElements.size());
-			sLayers[aLayerID].showHUD.set(anElementIdx, show);
-			sLayers[aLayerID].hideHUD.resize(sHUDElements.size());
-			sLayers[aLayerID].hideHUD.set(anElementIdx, !show);
-		}
-	}
+		buildHUDElementsForLayer(theBuilder, aLayerID);
 
 	// Special-case manually-managed HUD element (top-most overlay)
 	sHUDElements.push_back(HUDElement());
 	sHUDElements.back().type = eHUDType_System;
 
-	// Above may have added new HUD elements, now that all are added
+	// Above may have added new HUD elements. Now that all are added,
 	// make sure every layer's hideHUD and showHUD are correct size
 	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
 	{

@@ -275,8 +275,8 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 				{
 					theWindow.fadeState = eFadeState_Inactive;
 					theWindow.fadeValue = 0;
+					break;
 				}
-				break;
 			}
 			// fall through
 		case eFadeState_Inactive:

@@ -566,7 +566,7 @@ static void setKeyValueInINI(
 				break;
 
 			case eSKVState_SkipKeyLine:
-				// Look for end of line than resume key search
+				// Look for end of line then resume key search
 				if( c == '\r' || c == '\n' || c == '\0' )
 				{
 					aState = eSKVState_FindKey;

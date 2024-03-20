@@ -285,6 +285,9 @@ enum ECommandKeyWord
 	eCmdWord_Replace,
 	eCmdWord_Toggle,
 	eCmdWord_Layer,
+	eCmdWord_NonChild,
+	eCmdWord_Parent,
+	eCmdWord_Grandparent,
 	eCmdWord_Mouse,
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
@@ -322,6 +325,7 @@ enum ECommandKeyWord
 	eCmdWord_Profile,
 	eCmdWord_App,
 
+	eCmdWord_Ignored,
 	eCmdWord_Filler,
 	eCmdWord_Num,
 
