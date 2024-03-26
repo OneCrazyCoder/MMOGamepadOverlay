@@ -51,17 +51,24 @@ enum ECommandType
 	eCmdType_MenuBackOrClose, // close menu if no sub-menus open 
 	eCmdType_MenuEdit,
 
-	// This should have 'data' set as an ETargetGroupType
-	eCmdType_TargetGroup,
+	// These 2 do NOT actually send input to game to target anyone
+	eCmdType_TargetGroupResetLast,	// gLastGroupTarget = gDefaultGroupTarget
+	eCmdType_SetTargetGroupDefault,	// gDefaultGroupTarget = gLastGroupTarget
 
-	// These should have 'data' set to an ECommandDir
+	// These use the special group/self target keys and update gLastGroupTarget
+	eCmdType_TargetGroupPrev,
+	eCmdType_TargetGroupNext,
+	eCmdType_TargetGroupDefault, // gDefaultGroupTarget
+	eCmdType_TargetGroupPet, // gLastGroupTarget again
+
+	// These should have 'dir' set to an ECommandDir
 	eCmdType_MenuSelect,
 	eCmdType_MenuSelectAndClose,
 	eCmdType_MenuEditDir,
 	eCmdType_HotspotSelect,
 
 	// These should be processed continuously, not just on digital press
-	// (may respond to analog axis data), and also have 'data' as ECommandDir
+	// (may respond to analog axis data), and also have 'dir' as an ECommandDir
 	eCmdType_MoveTurn,
 	eCmdType_MoveStrafe,
 	eCmdType_MoveMouse,
@@ -103,23 +110,6 @@ enum EMouseWheelMotion
 	eMouseWheelMotion_Smooth,
 	eMouseWheelMotion_Stepped,
 	eMouseWheelMotion_Once,
-};
-
-enum ETargetGroupType
-{
-	// These first 2 do NOT actually send input to game to target anyone
-	eTargetGroupType_Reset,			// gGroupTargetOrigin = gDefaultGroupTarget
-	eTargetGroupType_SetDefault,	// gDefaultGroupTarget = gLastGroupTarget
-
-	// All of the below set gLastGroupTarget & gGroupTargetOrigin to target #
-	eTargetGroupType_Default,		// Target gDefaultGroupTarget
-	eTargetGroupType_Last,			// Target gLastGroupTarget (or their pet)
-	eTargetGroupType_Prev,			// Target max(0, gGroupTargetOrigin - 1)
-	eTargetGroupType_Next,			// Target min(max, gGroupTargetOrigin + 1)
-	eTargetGroupType_PrevWrap,		// Target decWrap(gGroupTargetOrigin, max)
-	eTargetGroupType_NextWrap,		// Target incWrap(gGroupTargetOrigin, max)
-
-	eTargetGroupType_Num
 };
 
 enum EButtonAction
@@ -370,8 +360,8 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 				u16 dir;
 				u16 layerID;
 				u16 subMenuID;
-				u16 targetGroupType;
 				u16 keyStringIdx;
+				bool wrap;
 			};
 			union
 			{

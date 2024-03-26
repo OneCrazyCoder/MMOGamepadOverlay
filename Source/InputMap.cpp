@@ -1038,12 +1038,9 @@ static Command wordsToSpecialCommand(
 		}
 	}
 
-	// "= Target Group <eTargetGroupType>"
 	if( keyWordsFound.test(eCmdWord_Target) &&
 		keyWordsFound.test(eCmdWord_Group) )
 	{
-		result.type = eCmdType_TargetGroup;
-
 		// "= Target Group Reset [Last]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Target);
@@ -1053,18 +1050,19 @@ static Command wordsToSpecialCommand(
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_Reset;
+			result.type = eCmdType_TargetGroupResetLast;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
 		allowedKeyWords.reset(eCmdWord_Last);
-		// "= Target Group [Load] [Default]"
+		// "= Target Group [Load] Default"
 		// allowedKeyWords = Target & Group
 		allowedKeyWords.set(eCmdWord_Load);
 		allowedKeyWords.set(eCmdWord_Default);
-		if( (keyWordsFound & ~allowedKeyWords).none() )
+		if( keyWordsFound.test(eCmdWord_Default) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_Default;
+			result.type = eCmdType_TargetGroupDefault;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Load);
@@ -1078,24 +1076,27 @@ static Command wordsToSpecialCommand(
 			 keyWordsFound.test(eCmdWord_Left)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_SetDefault;
+			result.type = eCmdType_SetTargetGroupDefault;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Set);
 		allowedKeyWords.reset(eCmdWord_Left);
 		allowedKeyWords.reset(eCmdWord_Default);
-		// "= Target Group 'Last'|'Pet'|'Right'"
+		// "= Target Group 'Pet'|'Last'|'Right'"
 		// allowedKeyWords = Target & Group & Wrap & NoWrap
-		allowedKeyWords.set(eCmdWord_Last);
 		allowedKeyWords.set(eCmdWord_Pet);
+		allowedKeyWords.set(eCmdWord_Last);
 		allowedKeyWords.set(eCmdWord_Right);
-		if( (keyWordsFound & ~allowedKeyWords).none() )
+		if( (keyWordsFound.test(eCmdWord_Pet) ||
+			 keyWordsFound.test(eCmdWord_Last) ||
+			 keyWordsFound.test(eCmdWord_Right)) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_Last;
+			result.type = eCmdType_TargetGroupPet;
 			return result;
 		}
-		allowedKeyWords.reset(eCmdWord_Last);
 		allowedKeyWords.reset(eCmdWord_Pet);
+		allowedKeyWords.reset(eCmdWord_Last);
 		allowedKeyWords.reset(eCmdWord_Right);
 		// "= Target Group 'Prev'|'Up'|'PrevNoWrap' [NoWrap]"
 		// allowedKeyWords = Target & Group & Wrap & NoWrap
@@ -1106,7 +1107,8 @@ static Command wordsToSpecialCommand(
 			 keyWordsFound.test(eCmdWord_PrevNoWrap)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_Prev;
+			result.type = eCmdType_TargetGroupPrev;
+			result.wrap = false;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Prev);
@@ -1119,7 +1121,8 @@ static Command wordsToSpecialCommand(
 			 keyWordsFound.test(eCmdWord_NextNoWrap)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_Next;
+			result.type = eCmdType_TargetGroupNext;
+			result.wrap = false;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Next);
@@ -1135,7 +1138,8 @@ static Command wordsToSpecialCommand(
 			  keyWordsFound.test(eCmdWord_Wrap))) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_PrevWrap;
+			result.type = eCmdType_TargetGroupPrev;
+			result.wrap = true;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Prev);
@@ -1149,10 +1153,10 @@ static Command wordsToSpecialCommand(
 			  keyWordsFound.test(eCmdWord_Wrap))) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.targetGroupType = eTargetGroupType_NextWrap;
+			result.type = eCmdType_TargetGroupNext;
+			result.wrap = true;
 			return result;
 		}
-		result.type = eCmdType_Empty;
 	}
 
 	// Get ECmdDir from key words for remaining commands
@@ -1879,7 +1883,7 @@ static void reportButtonAssignment(
 			kButtonActionPrefx[theBtnAct],
 			kButtonActionPrefx[theBtnAct][0] ? " " : "",
 			kProfileButtonName[theBtnID],
-			sKeyStrings[theCmd.data].c_str());
+			sKeyStrings[theCmd.keyStringIdx].c_str());
 		break;
 	case eCmdType_SayString:
 		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
@@ -1887,7 +1891,7 @@ static void reportButtonAssignment(
 			kButtonActionPrefx[theBtnAct],
 			kButtonActionPrefx[theBtnAct][0] ? " " : "",
 			kProfileButtonName[theBtnID],
-			sKeyStrings[theCmd.data].c_str() + 1);
+			sKeyStrings[theCmd.keyStringIdx].c_str() + 1);
 	case eCmdType_TapKey:
 	case eCmdType_PressAndHoldKey:
 		mapDebugPrint("[%s]: Assigned '%s%s%s' to: %s (%s%s%s%s)\n",
@@ -1896,10 +1900,10 @@ static void reportButtonAssignment(
 			kButtonActionPrefx[theBtnAct][0] ? " " : "",
 			kProfileButtonName[theBtnID],
 			theCmdStr.c_str(),
-			!!(theCmd.data & kVKeyShiftFlag) ? "Shift+" : "",
-			!!(theCmd.data & kVKeyCtrlFlag) ? "Ctrl+" : "",
-			!!(theCmd.data & kVKeyAltFlag) ? "Alt+" : "",
-			virtualKeyToName(theCmd.data & kVKeyMask).c_str());
+			!!(theCmd.vKey & kVKeyShiftFlag) ? "Shift+" : "",
+			!!(theCmd.vKey & kVKeyCtrlFlag) ? "Ctrl+" : "",
+			!!(theCmd.vKey & kVKeyAltFlag) ? "Alt+" : "",
+			virtualKeyToName(theCmd.vKey & kVKeyMask).c_str());
 		break;
 	case eCmdType_VKeySequence:
 		mapDebugPrint("[%s]: Assigned '%s%s%s' to sequence: %s\n",
@@ -2107,7 +2111,7 @@ static MenuItem stringToMenuItem(
 		{
 			mapDebugPrint("%s: Swap to '%s'\n",
 				theBuilder.debugItemName.c_str(),
-				menuPathOf(aMenuItem.cmd.data).c_str());
+				menuPathOf(aMenuItem.cmd.subMenuID).c_str());
 		}
 		return aMenuItem;
 	}
@@ -2161,10 +2165,10 @@ static MenuItem stringToMenuItem(
 			theBuilder.debugItemName.c_str(),
 			aMenuItem.label.c_str(),
 			theString.c_str(),
-			!!(aMenuItem.cmd.data & kVKeyShiftFlag) ? "Shift+" : "",
-			!!(aMenuItem.cmd.data & kVKeyCtrlFlag) ? "Ctrl+" : "",
-			!!(aMenuItem.cmd.data & kVKeyAltFlag) ? "Alt+" : "",
-			virtualKeyToName(aMenuItem.cmd.data & kVKeyMask).c_str());
+			!!(aMenuItem.cmd.vKey & kVKeyShiftFlag) ? "Shift+" : "",
+			!!(aMenuItem.cmd.vKey & kVKeyCtrlFlag) ? "Ctrl+" : "",
+			!!(aMenuItem.cmd.vKey & kVKeyAltFlag) ? "Alt+" : "",
+			virtualKeyToName(aMenuItem.cmd.vKey & kVKeyMask).c_str());
 		break;
 	case eCmdType_VKeySequence:
 		mapDebugPrint("%s: '%s' assigned to sequence: %s\n",
@@ -2469,10 +2473,10 @@ void loadProfile()
 	if( sMenus.size() < sMenus.capacity() )
 		std::vector<Menu>(sMenus).swap(sMenus);
 
-	// Now that are done messing with resizing vectors which can
-	// invalidate pointers, can convert Commands with 'data' field
-	// being an sKeyStrings index into having direct pointers to
-	// the C-strings for use in other modules.
+	// Now that are done messing with resizing vectors which can invalidate
+	// pointers, can convert Commands with temp keyStringIdx field being a
+	// sKeyStrings index into having direct pointers to the C-strings
+	// ('string' field of the Command) for use in other modules.
 	for(std::vector<Menu>::iterator itr = sMenus.begin();
 		itr != sMenus.end(); ++itr)
 	{
