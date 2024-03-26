@@ -36,9 +36,6 @@ extern BitVector<> gDisabledHUD;
 // Which group member (self being #0) last targeted with relative targeting
 extern u8 gLastGroupTarget;
 
-// Which group member to go to prev/next from using relative targeting
-extern u8 gGroupTargetOrigin;
-
 // Which group member to target initially when begin targeting
 extern u8 gDefaultGroupTarget;
 

@@ -518,92 +518,79 @@ static void processCommand(
 	case eCmdType_MenuEdit:
 		Menus::editMenuItem(theCmd.menuID);
 		break;
-	case eCmdType_TargetGroup:
-		DBG_ASSERT(theCmd.targetGroupType < eTargetGroupType_Num);
-		switch(theCmd.targetGroupType)
+	case eCmdType_TargetGroupResetLast:
+		gLastGroupTarget = gDefaultGroupTarget;
+		transDebugPrint("Resetting 'last' Group Member to default #%d\n",
+			gDefaultGroupTarget);
+		break;
+	case eCmdType_SetTargetGroupDefault:
+		gDefaultGroupTarget = gLastGroupTarget;
+		gDefaultGroupTargetUpdated = true;
+		transDebugPrint("Setting Group Member #%d as default\n",
+			gLastGroupTarget);
+		break;
+	case eCmdType_TargetGroupPrev:
+		gLastGroupTargetUpdated = true;
+		if( theCmd.wrap )
 		{
-		case eTargetGroupType_Reset:
-			gGroupTargetOrigin = gDefaultGroupTarget;
-			transDebugPrint("Resetting origin Group Member to default #%d\n",
-				gDefaultGroupTarget);
-			break;
-		case eTargetGroupType_SetDefault:
-			gDefaultGroupTarget = gLastGroupTarget;
-			gDefaultGroupTargetUpdated = true;
-			transDebugPrint("Setting Group Member #%d as default\n",
+			gLastGroupTarget =
+				decWrap(gLastGroupTarget, InputMap::targetGroupSize());
+			transDebugPrint("Targeting group member prev/up (wrap) (#%d)\n",
 				gLastGroupTarget);
-			break;
-		case eTargetGroupType_Default:
-			gLastGroupTarget = gGroupTargetOrigin = gDefaultGroupTarget;
-			gLastGroupTargetUpdated = true;
-			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Targeting default Group Member #%d\n",
-				gLastGroupTarget);
-			break;
-		case eTargetGroupType_Last:
-			gLastGroupTargetUpdated = true;
-			gGroupTargetOrigin = gLastGroupTarget;
-			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Re-targeting last group member/pet (#%d) \n",
-				gLastGroupTarget);
-			break;
-		case eTargetGroupType_Prev:
-			gLastGroupTargetUpdated = true;
-			gGroupTargetOrigin =
-				gGroupTargetOrigin == 0
-					? 0 : gGroupTargetOrigin - 1;
-			gLastGroupTarget = gGroupTargetOrigin;
-			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Targeting group member prev/up no-wrap (#%d)\n",
-				gLastGroupTarget);
-			break;
-		case eTargetGroupType_Next:
-			gLastGroupTargetUpdated = true;
-			gGroupTargetOrigin =
-				gGroupTargetOrigin >= InputMap::targetGroupSize() - 1
-					? InputMap::targetGroupSize() - 1 : gGroupTargetOrigin + 1;
-			gLastGroupTarget = gGroupTargetOrigin;
-			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Targeting group member next/down no-wrap (#%d)\n",
-				gLastGroupTarget);
-			break;
-		case eTargetGroupType_PrevWrap:
-			gLastGroupTargetUpdated = true;
-			gGroupTargetOrigin =
-				decWrap(gGroupTargetOrigin, InputMap::targetGroupSize());
-			gLastGroupTarget = gGroupTargetOrigin;
-			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Targeting group member prev/up (#%d)\n",
-				gLastGroupTarget);
-			break;
-		case eTargetGroupType_NextWrap:
-			gLastGroupTargetUpdated = true;
-			gGroupTargetOrigin =
-				incWrap(gGroupTargetOrigin, InputMap::targetGroupSize());
-			gLastGroupTarget = gGroupTargetOrigin;
-			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-			sResults.keys.push_back(aForwardCmd);
-			transDebugPrint("Targeting group member next/down (#%d)\n",
-				gLastGroupTarget);
-			break;
 		}
+		else
+		{
+			gLastGroupTarget =
+				gLastGroupTarget == 0
+					? 0 : gLastGroupTarget - 1;
+			transDebugPrint("Targeting group member prev/up (clamp) (#%d)\n",
+				gLastGroupTarget);
+		}
+		aForwardCmd.type = eCmdType_TapKey;
+		aForwardCmd.vKey = InputMap::keyForSpecialAction(
+			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+		sResults.keys.push_back(aForwardCmd);
+		break;
+	case eCmdType_TargetGroupNext:
+		gLastGroupTargetUpdated = true;
+		if( theCmd.wrap )
+		{
+			gLastGroupTarget =
+				incWrap(gLastGroupTarget, InputMap::targetGroupSize());
+			transDebugPrint("Targeting group member next/down (wrap) (#%d)\n",
+				gLastGroupTarget);
+		}
+		else
+		{
+			gLastGroupTarget =
+				gLastGroupTarget >= InputMap::targetGroupSize() - 1
+					? InputMap::targetGroupSize() - 1 : gLastGroupTarget + 1;
+			transDebugPrint("Targeting group member next/down (clamp) (#%d)\n",
+				gLastGroupTarget);
+		}
+		aForwardCmd.type = eCmdType_TapKey;
+		aForwardCmd.vKey = InputMap::keyForSpecialAction(
+			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+		sResults.keys.push_back(aForwardCmd);
+		break;
+	case eCmdType_TargetGroupDefault:
+		gLastGroupTarget = gDefaultGroupTarget;
+		gLastGroupTargetUpdated = true;
+		aForwardCmd.type = eCmdType_TapKey;
+		aForwardCmd.vKey = InputMap::keyForSpecialAction(
+			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+		sResults.keys.push_back(aForwardCmd);
+		transDebugPrint("Targeting default Group Member #%d\n",
+			gLastGroupTarget);
+		break;
+	case eCmdType_TargetGroupPet:
+		gLastGroupTargetUpdated = true;
+		aForwardCmd.type = eCmdType_TapKey;
+		aForwardCmd.vKey = InputMap::keyForSpecialAction(
+			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
+		sResults.keys.push_back(aForwardCmd);
+		transDebugPrint("Re-targeting last group member/pet (#%d) \n",
+			gLastGroupTarget);
 		break;
 	case eCmdType_MenuSelect:
 		aForwardCmd = Menus::selectMenuItem(
@@ -815,20 +802,9 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	case eCmdType_MenuSelect:
 	case eCmdType_MenuSelectAndClose:
 	case eCmdType_HotspotSelect:
+	case eCmdType_TargetGroupPrev:
+	case eCmdType_TargetGroupNext:
 		// Continue to further checks below
-		break;
-	case eCmdType_TargetGroup:
-		switch(aCmd.targetGroupType)
-		{
-		case eTargetGroupType_Prev:
-		case eTargetGroupType_Next:
-		case eTargetGroupType_PrevWrap:
-		case eTargetGroupType_NextWrap:
-			// Continue to further checks below
-			break;
-		default:
-			return;
-		}
 		break;
 	default:
 		// Incompatible with this feature

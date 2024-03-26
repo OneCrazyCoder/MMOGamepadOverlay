@@ -145,6 +145,8 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 	u8 aNewAlpha = theWindow.alpha;
 	const u8 aMaxAlpha = HUD::maxAlpha(id);
 	const u8 anInactiveAlpha = HUD::inactiveAlpha(id);
+	const bool startHidden =
+		HUD::shouldStartHidden(id) && !gActiveHUD.test(id);
 	do
 	{
 		oldState = theWindow.fadeState;
@@ -153,22 +155,28 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		{
 		case eFadeState_Hidden:
 			aNewAlpha = 0;
-			if( gVisibleHUD.test(id) )
+			if( gActiveHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_MaxAlpha;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			if( gVisibleHUD.test(id) && !startHidden )
 			{
 				theWindow.fadeState = eFadeState_FadeInDelay;
 				theWindow.fadeValue = 0;
 			}
 			break;
 		case eFadeState_FadeInDelay:
-			if( !gVisibleHUD.test(id) )
-			{
-				theWindow.fadeState = eFadeState_Hidden;
-				theWindow.fadeValue = 0;
-				break;
-			}
 			if( gActiveHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			if( !gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_Hidden;
 				theWindow.fadeValue = 0;
 				break;
 			}
@@ -237,8 +245,15 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 				break;
 			}
 			break;
-		case eFadeState_InactiveFadeOut:
 		case eFadeState_DisabledFadeOut:
+			if( !gDisabledHUD.test(id) && gVisibleHUD.test(id) )
+			{
+				theWindow.fadeState = eFadeState_FadingIn;
+				theWindow.fadeValue = max(anInactiveAlpha, aNewAlpha);
+				break;
+			}
+			// fall through
+		case eFadeState_InactiveFadeOut:
 			if( !gVisibleHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingOut;
@@ -297,8 +312,16 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		case eFadeState_FadeOutDelay:
 			if( gVisibleHUD.test(id) )
 			{
-				theWindow.fadeState = eFadeState_FadingIn;
-				theWindow.fadeValue = aNewAlpha;
+				if( startHidden )
+				{
+					theWindow.fadeState = eFadeState_Hidden;
+					theWindow.fadeValue = 0;
+				}
+				else
+				{
+					theWindow.fadeState = eFadeState_FadingIn;
+					theWindow.fadeValue = aNewAlpha;
+				}
 				break;
 			}
 			theWindow.fadeValue += gAppFrameTime;
@@ -320,7 +343,15 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			}
 			if( gVisibleHUD.test(id) )
 			{
-				theWindow.fadeState = eFadeState_FadingIn;
+				if( startHidden )
+				{
+					theWindow.fadeState = eFadeState_Hidden;
+					theWindow.fadeValue = 0;
+				}
+				else
+				{
+					theWindow.fadeState = eFadeState_FadingIn;
+				}
 				break;
 			}
 			break;
