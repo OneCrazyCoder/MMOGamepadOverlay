@@ -46,7 +46,7 @@ bool isAbsolutePath(const std::string& thePath);
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
 // Same as above but for last item after last instance of theChar
 std::string breakOffLastItemAferChar(std::string& theString, char theChar = ',');
-// Breaks the string into individual sub-strings of ASCII alhanumeric characters,
+// Breaks the string into individual sub-strings of ASCII alphanumeric characters,
 // and appends them to the passed-in vector of strings. All other characters are
 // stripped and act as separators for each "word" except for hyphenated or under-
 // scored words which are conjoined (Left-Click or Left_Click becomes LeftClick).
@@ -63,6 +63,8 @@ std::string toString(u8 theValue);
 std::string toString(float theValue);
 std::string toString(double theValue);
 
+bool isAnInteger(const std::string& theString); // must be pre-trim()'d
+bool isAnInteger(const char* theString); // must be pre-trim()'d
 int intFromString(const std::string& theString);
 int intFromString(const char* theString);
 u32 u32FromString(const std::string& theString);

@@ -401,7 +401,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 106;
+			const size_t kMapSize = 108;
 			map.reserve(kMapSize);
 			map.setValue("ADD",				eCmdWord_Add);
 			map.setValue("REMOVE",			eCmdWord_Remove);
@@ -410,12 +410,14 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 			map.setValue("SWAP",			eCmdWord_Replace);
 			map.setValue("TOGGLE",			eCmdWord_Toggle);
 			map.setValue("LAYER",			eCmdWord_Layer);
+			map.setValue("LAYERS",			eCmdWord_Layer);
 			map.setValue("NONCHILD",		eCmdWord_NonChild);
 			map.setValue("INDEPENDENT",		eCmdWord_NonChild);
 			map.setValue("INDEPENDENTLY",	eCmdWord_NonChild);
 			map.setValue("PARENT",			eCmdWord_Parent);
 			map.setValue("OWNER",			eCmdWord_Parent);
 			map.setValue("GRANDPARENT",		eCmdWord_Grandparent);
+			map.setValue("ALL",				eCmdWord_All);
 			map.setValue("MOUSE",			eCmdWord_Mouse);
 			map.setValue("WHEEL",			eCmdWord_MouseWheel);
 			map.setValue("MOUSEWHEEL",		eCmdWord_MouseWheel);
@@ -516,5 +518,12 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 	static WordToEnumMapper sWordToEnumMapper;
 
 	ECommandKeyWord* result = sWordToEnumMapper.map.find(theWord);
-	return result ? *result : eCmdWord_Unknown;
+	if( !result )
+	{
+		if( isAnInteger(theWord) )
+			return eCmdWord_Integer;
+		return eCmdWord_Unknown;
+	}
+
+	return *result;
 }

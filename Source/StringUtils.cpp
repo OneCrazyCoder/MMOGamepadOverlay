@@ -459,7 +459,8 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 		const char c = theString[i];
 		if( (c >= '0' && c <= '9') ||
 			(c >= 'A' && c <= 'Z') ||
-			(c >= 'a' && c <= 'z') )
+			(c >= 'a' && c <= 'z') ||
+			(c == '-' && word.empty()) )
 		{
 			word += c;
 		}

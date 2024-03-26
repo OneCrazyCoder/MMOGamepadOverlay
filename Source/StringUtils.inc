@@ -79,6 +79,33 @@ inline std::string toString(double theValue)
 }
 
 
+inline bool isAnInteger(const std::string& theString)
+{
+	return isAnInteger(theString.c_str());
+}
+
+
+inline bool isAnInteger(const char* theString)
+{
+	if( !theString || *theString == '\0' || *theString == ',' )
+		return false;
+	if( *theString == '-' )
+		++theString;
+
+	bool foundNumeral = false;
+	while(*theString != '\0')
+	{
+		if( *theString >= '0' && *theString <= '9' )
+			foundNumeral = true;
+		else if( *theString != ',' )
+			return false;
+		++theString;
+	}
+
+	return foundNumeral;
+}
+
+
 inline int intFromString(const std::string& theString)
 {
 	return atoi(theString.c_str());
