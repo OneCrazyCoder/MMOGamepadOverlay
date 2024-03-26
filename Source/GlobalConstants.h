@@ -15,6 +15,7 @@ kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,
 kVKeyAltFlag = 0x0400,
 kVKeyMask = 0x00FF,
+kAllLayers = 0xFFFF,
 };
 
 enum ECommandType
@@ -288,6 +289,7 @@ enum ECommandKeyWord
 	eCmdWord_NonChild,
 	eCmdWord_Parent,
 	eCmdWord_Grandparent,
+	eCmdWord_All,
 	eCmdWord_Mouse,
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
@@ -325,6 +327,7 @@ enum ECommandKeyWord
 	eCmdWord_Profile,
 	eCmdWord_App,
 
+	eCmdWord_Integer,
 	eCmdWord_Ignored,
 	eCmdWord_Filler,
 	eCmdWord_Num,
@@ -359,9 +362,30 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 	ECommandType type;
 	union
 	{
-		struct{ u16 data; u16 data2; };
+		struct
+		{
+			union
+			{
+				u16 vKey;
+				u16 dir;
+				u16 layerID;
+				u16 subMenuID;
+				u16 targetGroupType;
+				u16 keyStringIdx;
+			};
+			union
+			{
+				u16 relativeLayer;
+				u16 menuID;
+				u16 mouseWheelMotionType;
+			};
+		};
 		const char* string;
+		u32 compare;
 	};
+
+	bool operator==(const Command& rhs) const
+	{ return type == rhs.type && compare == rhs.compare; }
 };
 
 struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>

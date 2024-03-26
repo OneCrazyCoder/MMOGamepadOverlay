@@ -786,16 +786,16 @@ void update()
 		{
 		case eCmdType_PressAndHoldKey:
 			// Just set want the key/combo pressed
-			DBG_ASSERT(aCmd.data != 0);
-			DBG_ASSERT((aCmd.data & ~(kVKeyMask | kVKeyModsMask)) == 0);
-			sTracker.keysWantDown.findOrAdd(aCmd.data).depth += 1;
+			DBG_ASSERT(aCmd.vKey != 0);
+			DBG_ASSERT((aCmd.vKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
+			sTracker.keysWantDown.findOrAdd(aCmd.vKey).depth += 1;
 			break;
 		case eCmdType_ReleaseKey:
 			// Do nothing if key was never requested down anyway
 			// (or was already force-released by kVKeyForceReleaseFlag)
-			DBG_ASSERT(aCmd.data != 0);
-			DBG_ASSERT((aCmd.data & ~(kVKeyMask | kVKeyModsMask)) == 0);
-			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.data);
+			DBG_ASSERT(aCmd.vKey != 0);
+			DBG_ASSERT((aCmd.vKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
+			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.vKey);
 			if( aKeyWantDownItr == sTracker.keysWantDown.end() )
 				break;
 			if( !aKeyWantDownItr->second.pressed )
@@ -816,13 +816,13 @@ void update()
 				if( !tryQuickReleaseHeldKey(aKeyWantDownItr) )
 				{
 					--aKeyWantDownItr->second.depth;
-					sTracker.nextQueuedKey = aCmd.data | kVKeyReleaseFlag;
+					sTracker.nextQueuedKey = aCmd.vKey | kVKeyReleaseFlag;
 				}
 			}
 			break;
 		case eCmdType_TapKey:
 			if( !taskIsPastDue )
-				sTracker.nextQueuedKey = aCmd.data;
+				sTracker.nextQueuedKey = aCmd.vKey;
 			break;
 		case eCmdType_VKeySequence:
 			if( !taskIsPastDue )
@@ -1070,7 +1070,7 @@ void update()
 void sendKeyCommand(const Command& theCommand)
 {
 	// These values only valid for certain command types
-	const u16 aVKey = theCommand.data;
+	const u16 aVKey = theCommand.vKey;
 	const u8 aBaseVKey = u8(aVKey & kVKeyMask);
 
 	switch(theCommand.type)
@@ -1412,9 +1412,9 @@ void moveCharacter(int move, int turn, int strafe)
 	{
 		if( !sTracker.moveKeysHeld.test(aWantedKey) )
 		{
-			aCmd.data = InputMap::keyForSpecialAction(
+			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
-			if( aCmd.data != 0 )
+			if( aCmd.vKey != 0 )
 				sendKeyCommand(aCmd);
 			sTracker.moveKeysHeld.set(aWantedKey);
 		}
@@ -1428,9 +1428,9 @@ void moveCharacter(int move, int turn, int strafe)
 	{
 		if( !moveKeysWantDown.test(aHeldKey) )
 		{
-			aCmd.data = InputMap::keyForSpecialAction(
+			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
-			if( aCmd.data != 0 )
+			if( aCmd.vKey != 0 )
 				sendKeyCommand(aCmd);
 			sTracker.moveKeysHeld.reset(aHeldKey);
 		}

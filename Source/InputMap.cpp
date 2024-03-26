@@ -715,6 +715,7 @@ static Command wordsToSpecialCommand(
 	theBuilder.keyWordMap.clear();
 	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
 	const std::string* anIgnoredWord = null;
+	const std::string* anIntegerWord = null;
 	for(size_t i = 0; i < theWords.size(); ++i)
 	{
 		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[i]));
@@ -725,11 +726,15 @@ static Command wordsToSpecialCommand(
 			anIgnoredWord = &theWords[i];
 			continue;
 		}
+		if( aKeyWordID == eCmdWord_Integer )
+			anIntegerWord = &theWords[i];
 		if( keyWordsFound.test(aKeyWordID) )
 		{// Key word was already found once
-			// Can't have more than one "unknown" key word
-			if( aKeyWordID == eCmdWord_Unknown )
+			if( aKeyWordID == eCmdWord_Unknown ||
+				aKeyWordID == eCmdWord_Integer )
+			{// These aren't allowed more than once per command
 				return result;
+			}
 			// Don't add duplicate key words to the map
 			continue;
 		}
@@ -791,8 +796,12 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_NonChild);
 	allowedKeyWords.reset(eCmdWord_Parent);
 	allowedKeyWords.reset(eCmdWord_Grandparent);
+	allowedKeyWords.reset(eCmdWord_All);
+	allowedKeyWords.reset(eCmdWord_Integer);
 	// If no extra words found, default to anIgnoredWord
 	const std::string* aLayerName = anIgnoredWord;
+	// If no ignored word either, default to anIntegerWord
+	if( !aLayerName ) aLayerName = anIntegerWord;
 	if( allowedKeyWords.count() == 1 )
 	{
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
@@ -803,7 +812,37 @@ static Command wordsToSpecialCommand(
 	}
 	allowedKeyWords.reset();
 
-	// "= Add [Layer] <aLayerName>"
+	// Calculate relative layer if do end up being a layer command
+	u16 aRelativeLayer = 0; // 0 means current calling layer
+	allowedKeyWords.set(eCmdWord_Parent);
+	allowedKeyWords.set(eCmdWord_Grandparent);
+	allowedKeyWords.set(eCmdWord_NonChild);
+	allowedKeyWords.set(eCmdWord_All);
+	if( (keyWordsFound & allowedKeyWords).count() > 1 )
+	{// Invalid to combine more than one of the above specifiers
+		return result;
+	}
+	allowedKeyWords.set(eCmdWord_Integer);
+	if( keyWordsFound.test(eCmdWord_All) ||
+		keyWordsFound.test(eCmdWord_NonChild) )
+	{
+		aRelativeLayer = kAllLayers;
+	}
+	else if( keyWordsFound.test(eCmdWord_Parent) )
+	{
+		aRelativeLayer = 1;
+		if( anIntegerWord )
+			aRelativeLayer += intFromString(*anIntegerWord);
+	}
+	else if( keyWordsFound.test(eCmdWord_Grandparent) )
+	{
+		aRelativeLayer = 2;
+		if( anIntegerWord )
+			aRelativeLayer += intFromString(*anIntegerWord);
+	}
+
+	// "= Add [Layer] <aLayerName> [to parent/etc]"
+	// allowedKeyWords = Parent/etc
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Add);
 	if( keyWordsFound.test(eCmdWord_Add) &&
@@ -811,58 +850,57 @@ static Command wordsToSpecialCommand(
 		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_AddControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		// 0 acts as a flag meaning add as child of the layer
-		// whose button input lead to this command
-		result.data2 = 0;
+		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+		result.relativeLayer = aRelativeLayer;
 		return result;
 	}
-
-	// "= Add [Layer] <aLayerName> [to] Parent"
-	// allowedKeyWords = Add & Layer
-	allowedKeyWords.set(eCmdWord_Parent);
-	if( keyWordsFound.test(eCmdWord_Add) &&
-		keyWordsFound.test(eCmdWord_Parent) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_AddControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		result.data2 = 1; // Add as child of parent 1 level up from current
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Parent);
-
-	// "= Add [Layer] <aLayerName> [to] Grandparent"
-	// allowedKeyWords = Add & Layer
-	allowedKeyWords.set(eCmdWord_Grandparent);
-	if( keyWordsFound.test(eCmdWord_Add) &&
-		keyWordsFound.test(eCmdWord_Grandparent) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_AddControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		result.data2 = 2; // Add as child of parent 2 levels up from current
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Grandparent);
-
-	// "= Add 'Independent'|'Non-Child' [Layer] <aLayerName>"
-	// allowedKeyWords = Add & Layer
-	allowedKeyWords.set(eCmdWord_NonChild);
-	if( keyWordsFound.test(eCmdWord_Add) &&
-		keyWordsFound.test(eCmdWord_NonChild) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_AddControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		result.data2 = 0xFFFF; // Add as child of root scheme (ALL layers up)
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_NonChild);
 	allowedKeyWords.reset(eCmdWord_Add);
+
+	// "= Remove [parent/etc] [Layer]"
+	// OR "Remove All [Layers]"
+	// allowedKeyWords = Layer & Parent/etc
+	allowedKeyWords.set(eCmdWord_Remove);
+	if( keyWordsFound.test(eCmdWord_Remove) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_RemoveControlsLayer;
+		// Since can't remove layer 0 (main scheme), 0 acts as a flag
+		// meaning to remove relative layer instead
+		result.layerID = 0;
+		result.relativeLayer = aRelativeLayer;
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Remove);
+
+	// "= Replace [parent/etc] [with] [Layer] <aLayerName>"
+	// OR "= Replace All [Layers] [with] <aLayerName>"
+	// allowedKeyWords = Layer & Parent/etc
+	allowedKeyWords.set(eCmdWord_Replace);
+	if( keyWordsFound.test(eCmdWord_Replace) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+	{
+		result.type = eCmdType_ReplaceControlsLayer;
+		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+		result.relativeLayer = aRelativeLayer;
+		return result;
+	}
+
+	// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Layer);
+	allowedKeyWords.set(eCmdWord_Hold);
+	if( allowHoldActions &&
+		(keyWordsFound.test(eCmdWord_Hold) ||
+		 keyWordsFound.test(eCmdWord_Layer)) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+	{
+		result.type = eCmdType_HoldControlsLayer;
+		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Hold);
 
 	// "= Remove [Layer] <aLayerName>"
 	// allowedKeyWords = Layer
@@ -872,51 +910,11 @@ static Command wordsToSpecialCommand(
 		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_RemoveControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		DBG_ASSERT(result.data != 0);
-		return result;
-	}
-
-	// "= Remove [Layer]"
-	// allowedKeyWords = Remove & Layer
-	if( keyWordsFound.test(eCmdWord_Remove) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_RemoveControlsLayer;
-		// Since can't remove layer 0 (main scheme), 0 acts as a flag
-		// meaning remove the layer whose button input lead to this command
-		result.data = 0;
+		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+		DBG_ASSERT(result.layerID != 0);
 		return result;
 	}
 	allowedKeyWords.reset(eCmdWord_Remove);
-
-	// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
-	// allowedKeyWords = Layer
-	allowedKeyWords.set(eCmdWord_Hold);
-	if( allowHoldActions &&
-		(keyWordsFound.test(eCmdWord_Hold) ||
-		 keyWordsFound.test(eCmdWord_Layer)) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_HoldControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Hold);
-
-	// "= Replace [with] [Layer] <aLayerName>"
-	// allowedKeyWords = Layer
-	allowedKeyWords.set(eCmdWord_Replace);
-	if( keyWordsFound.test(eCmdWord_Replace) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_ReplaceControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Replace);
 
 	// "= Toggle [Layer] <aLayerName>"
 	// allowedKeyWords = Layer
@@ -926,8 +924,8 @@ static Command wordsToSpecialCommand(
 		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 	{
 		result.type = eCmdType_ToggleControlsLayer;
-		result.data = getOrCreateLayerID(theBuilder, *aLayerName);
-		DBG_ASSERT(result.data != 0);
+		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+		DBG_ASSERT(result.layerID != 0);
 		return result;
 	}
 
@@ -967,7 +965,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuReset;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
@@ -980,7 +978,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 
@@ -993,7 +991,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirmAndClose;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Close);
@@ -1007,7 +1005,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuBack;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 
@@ -1021,7 +1019,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuBackOrClose;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Back);
@@ -1035,7 +1033,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEdit;
-			result.data = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 	}
@@ -1055,7 +1053,7 @@ static Command wordsToSpecialCommand(
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_Reset;
+			result.targetGroupType = eTargetGroupType_Reset;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
@@ -1066,7 +1064,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Default);
 		if( (keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_Default;
+			result.targetGroupType = eTargetGroupType_Default;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Load);
@@ -1080,7 +1078,7 @@ static Command wordsToSpecialCommand(
 			 keyWordsFound.test(eCmdWord_Left)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_SetDefault;
+			result.targetGroupType = eTargetGroupType_SetDefault;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Set);
@@ -1093,7 +1091,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Right);
 		if( (keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_Last;
+			result.targetGroupType = eTargetGroupType_Last;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Last);
@@ -1108,7 +1106,7 @@ static Command wordsToSpecialCommand(
 			 keyWordsFound.test(eCmdWord_PrevNoWrap)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_Prev;
+			result.targetGroupType = eTargetGroupType_Prev;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Prev);
@@ -1121,7 +1119,7 @@ static Command wordsToSpecialCommand(
 			 keyWordsFound.test(eCmdWord_NextNoWrap)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_Next;
+			result.targetGroupType = eTargetGroupType_Next;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Next);
@@ -1137,7 +1135,7 @@ static Command wordsToSpecialCommand(
 			  keyWordsFound.test(eCmdWord_Wrap))) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_PrevWrap;
+			result.targetGroupType = eTargetGroupType_PrevWrap;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Prev);
@@ -1151,7 +1149,7 @@ static Command wordsToSpecialCommand(
 			  keyWordsFound.test(eCmdWord_Wrap))) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.data = eTargetGroupType_NextWrap;
+			result.targetGroupType = eTargetGroupType_NextWrap;
 			return result;
 		}
 		result.type = eCmdType_Empty;
@@ -1174,7 +1172,7 @@ static Command wordsToSpecialCommand(
 	else if( keyWordsFound.test(eCmdWord_Left) ) aCmdDir = eCmdDir_Left;
 	else if( keyWordsFound.test(eCmdWord_Right) ) aCmdDir = eCmdDir_Right;
 	else if( keyWordsFound.test(eCmdWord_Back) ) aCmdDir = eCmdDir_Back;
-	result.data = aCmdDir;
+	result.dir = aCmdDir;
 	// Remove direction-related bits from keyWordsFound
 	keyWordsFound &= ~allowedKeyWords;
 
@@ -1190,8 +1188,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelect;
-			result.data = aCmdDir;
-			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 
@@ -1205,8 +1202,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelectAndClose;
-			result.data = aCmdDir;
-			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Select);
@@ -1220,8 +1216,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEditDir;
-			result.data = aCmdDir;
-			result.data2 = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
 
@@ -1280,7 +1275,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
 			result.type = eCmdType_MouseWheel;
-			result.data2 = eMouseWheelMotion_Smooth;
+			result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Smooth);
@@ -1293,7 +1288,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
 			result.type = eCmdType_MouseWheel;
-			result.data2 = eMouseWheelMotion_Stepped;
+			result.mouseWheelMotionType = eMouseWheelMotion_Stepped;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Stepped);
@@ -1306,7 +1301,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
 			result.type = eCmdType_MouseWheel;
-			result.data2 = eMouseWheelMotion_Once;
+			result.mouseWheelMotionType = eMouseWheelMotion_Once;
 			return result;
 		}
 	}
@@ -1323,13 +1318,13 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
 			result.type = eCmdType_MouseWheel;
-			result.data2 = eMouseWheelMotion_Once;
+			result.mouseWheelMotionType = eMouseWheelMotion_Once;
 			return result;
 		}
 	}
 
 	DBG_ASSERT(result.type == eCmdType_Empty);
-	result.data = 0;
+	result.dir = 0;
 	return result;
 }
 
@@ -1351,14 +1346,14 @@ static Command stringToCommand(
 	{
 		sKeyStrings.push_back(theString);
 		result.type = eCmdType_SlashCommand;
-		result.data = u16(sKeyStrings.size()-1);
+		result.keyStringIdx = u16(sKeyStrings.size()-1);
 		return result;
 	}
 	if( theString[0] == '>' )
 	{
 		sKeyStrings.push_back(theString);
 		result.type = eCmdType_SayString;
-		result.data = u16(sKeyStrings.size()-1);
+		result.keyStringIdx = u16(sKeyStrings.size()-1);
 		return result;
 	}
 
@@ -1393,12 +1388,12 @@ static Command stringToCommand(
 			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
 			{
 				result.type = eCmdType_TapKey;
-				result.data = aVKey;
+				result.vKey = aVKey;
 			}
 			else
 			{
 				result.type = eCmdType_VKeySequence;
-				result.data = u16(sKeyStrings.size());
+				result.keyStringIdx = u16(sKeyStrings.size());
 				sKeyStrings.push_back(aVKeySeq);
 			}
 		}
@@ -1785,12 +1780,12 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
 			{
 				aCmd.type = eCmdType_TapKey;
-				aCmd.data = aVKey;
+				aCmd.vKey = aVKey;
 			}
 			else
 			{
 				aCmd.type = eCmdType_VKeySequence;
-				aCmd.data = u16(sKeyStrings.size());
+				aCmd.keyStringIdx = u16(sKeyStrings.size());
 				sKeyStrings.push_back(aVKeySeq);
 			}
 			theBuilder.commandAliases.setValue(anActionName, aCmd);
@@ -2098,10 +2093,10 @@ static MenuItem stringToMenuItem(
 	{// Having no : character means this points to a sub-menu
 		const size_t anOldMenuCount = sMenus.size();
 		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
-		aMenuItem.cmd.data = getOrCreateMenuID(
+		aMenuItem.cmd.subMenuID = getOrCreateMenuID(
 			theBuilder, trim(theString), theMenuID);
-		aMenuItem.cmd.data2 = sMenus[aMenuItem.cmd.data].rootMenuID;
-		aMenuItem.label = sMenus[aMenuItem.cmd.data].label;
+		aMenuItem.cmd.menuID = sMenus[aMenuItem.cmd.subMenuID].rootMenuID;
+		aMenuItem.label = sMenus[aMenuItem.cmd.subMenuID].label;
 		if( sMenus.size() > anOldMenuCount )
 		{
 			mapDebugPrint("%s: Sub-Menu: '%s'\n",
@@ -2129,7 +2124,7 @@ static MenuItem stringToMenuItem(
 		commandWordToID(condense(theString)) == eCmdWord_Back )
 	{// Go back one sub-menu or close menu
 		aMenuItem.cmd.type = eCmdType_MenuBackOrClose;
-		aMenuItem.cmd.data = sMenus[theMenuID].rootMenuID;
+		aMenuItem.cmd.menuID = sMenus[theMenuID].rootMenuID;
 		mapDebugPrint("%s: '%s' assigned to back out of menu\n",
 			theBuilder.debugItemName.c_str(),
 			aMenuItem.label.c_str());
@@ -2139,7 +2134,8 @@ static MenuItem stringToMenuItem(
 	if( commandWordToID(condense(theString)) == eCmdWord_Close )
 	{// Close self by removing calling controls Layer
 		aMenuItem.cmd.type = eCmdType_RemoveControlsLayer;
-		aMenuItem.cmd.data = 0;
+		aMenuItem.cmd.layerID = 0;
+		aMenuItem.cmd.relativeLayer = 0;
 		mapDebugPrint("%s: '%s' assigned to close menu\n",
 			theBuilder.debugItemName.c_str(),
 			aMenuItem.label.c_str());
@@ -2179,7 +2175,7 @@ static MenuItem stringToMenuItem(
 		// Probably just forgot the > at front of a plain string
 		sKeyStrings.push_back(std::string(">") + theString);
 		aMenuItem.cmd.type = eCmdType_SayString;
-		aMenuItem.cmd.data = u16(sKeyStrings.size()-1);
+		aMenuItem.cmd.keyStringIdx = u16(sKeyStrings.size()-1);
 		logError("%s: '%s' unsure of meaning of '%s'. "
 				 "Assigning as a chat box string. "
 				 "Add > to start of it if this was the intent!",
@@ -2381,7 +2377,7 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 				kSpecialKeyNames[i]);
 			continue;
 		}
-		sSpecialKeys[i] = aKeyBindCommand->data;
+		sSpecialKeys[i] = aKeyBindCommand->vKey;
 		if( i >= eSpecialKey_FirstGroupTarget &&
 			i <= eSpecialKey_LastGroupTarget )
 		{
@@ -2430,8 +2426,8 @@ void setCStringPointerFor(Command* theCommand)
 	case eCmdType_VKeySequence:
 	case eCmdType_SlashCommand:
 	case eCmdType_SayString:
-		DBG_ASSERT(theCommand->data < sKeyStrings.size());
-		theCommand->string = sKeyStrings[theCommand->data].c_str();
+		DBG_ASSERT(theCommand->keyStringIdx < sKeyStrings.size());
+		theCommand->string = sKeyStrings[theCommand->keyStringIdx].c_str();
 		break;
 	}
 }

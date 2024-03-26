@@ -86,6 +86,18 @@ struct ButtonState
 		this->isAutoButton = oldIsAutoButton;
 	}
 
+	void swapHeldState(ButtonState& rhs)
+	{
+		std::swap(layerHeld, rhs.layerHeld);
+		std::swap(heldTime, rhs.heldTime);
+		std::swap(repeatDelay, rhs.repeatDelay);
+		std::swap(vKeyHeld, rhs.vKeyHeld);
+		std::swap(heldDown, rhs.heldDown);
+		std::swap(shortHoldDone, rhs.shortHoldDone);
+		std::swap(longHoldDone, rhs.longHoldDone);
+		std::swap(usedInButtonCombo, rhs.usedInButtonCombo);
+	}
+
 	ButtonState() : vKeyHeld() { clear(); }
 };
 
@@ -96,6 +108,7 @@ struct LayerState
 	bool active;
 	bool newlyActive;
 	bool ownedButtonHit;
+	bool heldActiveByButton;
 
 	void clear()
 	{
@@ -105,6 +118,7 @@ struct LayerState
 		active = false;
 		newlyActive = false;
 		ownedButtonHit = false;
+		heldActiveByButton = false;
 	}
 };
 
@@ -215,26 +229,27 @@ static void	loadButtonCommandsForCurrentLayers()
 
 static void removeControlsLayer(u16 theLayerID)
 {
-	if( theLayerID == 0 || !sState.layers[theLayerID].active )
+	if( !sState.layers[theLayerID].active )
 		return;
 
-	// Remove given layer ID and any other layers it spawned via 'Add'
-	// (reverse iteration so children likely to be removed first)
+	// Layer ID 0 can't be removed, but trying to removes everything else
+	if( theLayerID == 0 )
+		transDebugPrint(
+			"Removing ALL Layers (besides [Scheme] & held by button)!\n");
+
+	// Remove given layer ID and any "child" layers it spawned via 'Add'.
+	// Child layers that are being held active by a held button are NOT
+	// automatically removed along with their parent layer though!
+	// Use reverse iteration so children are likely to be removed first.
 	for(std::vector<u16>::reverse_iterator itr =
 		sState.layerOrder.rbegin(), next_itr = itr;
 		itr != sState.layerOrder.rend(); itr = next_itr)
 	{
 		++next_itr;
+		if( *itr == 0 )
+			continue;
 		LayerState& aLayer = sState.layers[*itr];
-		if( aLayer.parentLayerID == theLayerID )
-		{
-			// Need to use recursion so also remove grandchildren, etc
-			removeControlsLayer(*itr);
-			// Recursion will mess up our iterator beyond reasonable recovery,
-			// so just start at the beginning (end) again
-			next_itr = sState.layerOrder.rbegin();
-		}
-		else if( *itr == theLayerID )
+		if( *itr == theLayerID )
 		{
 			transDebugPrint("Removing Controls Layer: %s\n",
 				InputMap::layerLabel(*itr).c_str());
@@ -243,11 +258,23 @@ static void removeControlsLayer(u16 theLayerID)
 			aLayer.active = false;
 			aLayer.ownedButtonHit = false;
 			aLayer.newlyActive = false;
+			aLayer.heldActiveByButton = false;
 			sResults.layerChangeMade = true;
 
 			// Remove from the layer order and recover iterator to continue
 			next_itr = std::vector<u16>::reverse_iterator(
 				sState.layerOrder.erase((itr+1).base()));
+		}
+		else if( aLayer.parentLayerID == theLayerID &&
+				 !aLayer.heldActiveByButton &&
+				 sState.layers[theLayerID].active )
+		{
+			// Need to use recursion so also remove grandchildren, etc
+			DBG_ASSERT(sState.layers[*itr].active);
+			removeControlsLayer(*itr);
+			// Recursion will mess up our iterator beyond reasonable recovery,
+			// so just start at the beginning (end) again
+			next_itr = sState.layerOrder.rbegin();
 		}
 	}
 }
@@ -302,13 +329,21 @@ static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID = 0)
 		DBG_ASSERT(!sState.layers[theLayerID].active);
 	}
 
-	// Remove the layer first if it is already active
-
 	if( theLayerID > 0 )
 	{
-		transDebugPrint("Adding Controls Layer '%s' as child of Layer '%s'\n",
-			InputMap::layerLabel(theLayerID).c_str(),
-			InputMap::layerLabel(theSpawningLayerID).c_str());
+		if( theSpawningLayerID > 0 )
+		{
+			transDebugPrint(
+				"Adding Controls Layer '%s' as child of Layer '%s'\n",
+				InputMap::layerLabel(theLayerID).c_str(),
+				InputMap::layerLabel(theSpawningLayerID).c_str());
+		}
+		else
+		{
+			transDebugPrint(
+				"Adding Controls Layer '%s'\n",
+				InputMap::layerLabel(theLayerID).c_str());
+		}
 	}
 
 	sState.layerOrder.push_back(theLayerID);
@@ -326,7 +361,7 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 	{
 		Command aCmd;
 		aCmd.type = eCmdType_ReleaseKey;
-		aCmd.data = theBtnState.vKeyHeld;
+		aCmd.vKey = theBtnState.vKeyHeld;
 		InputDispatcher::sendKeyCommand(aCmd);
 		theBtnState.vKeyHeld = 0;
 	}
@@ -352,7 +387,7 @@ static void processCommand(
 		// instead of needing to wait for input queue
 		InputDispatcher::sendKeyCommand(theCmd);
 		// Make note that this button is holding this key
-		theBtnState.vKeyHeld = theCmd.data;
+		theBtnState.vKeyHeld = theCmd.vKey;
 		break;
 	case eCmdType_ReleaseKey:
 		// Handled by releaseKeyHeldByButton() instead
@@ -376,20 +411,32 @@ static void processCommand(
 		gShutdown = true;
 		break;
 	case eCmdType_AddControlsLayer:
-		// .data2 is how many parent layers up from current to attach to
-		for(int i = 0; i < theCmd.data2 && theLayerIdx != 0; ++i)
+		// relativeLayer is how many parent layers up from current to attach to
+		for(int i = 0; i < theCmd.relativeLayer && theLayerIdx != 0; ++i)
 			theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
-		addControlsLayer(theCmd.data, theLayerIdx);
+		addControlsLayer(theCmd.layerID, theLayerIdx);
 		break;
 	case eCmdType_RemoveControlsLayer:
-		if( theCmd.data == 0 )
-		{// 0 means to remove layer that lead to this command
-			DBG_ASSERT(theLayerIdx != 0);
-			removeControlsLayer(theLayerIdx);
+		if( theCmd.layerID == 0 )
+		{// 0 means to remove relative rather than direct layer ID
+			if( theCmd.relativeLayer == kAllLayers )
+			{
+				removeControlsLayer(0);
+			}
+			else
+			{
+				// relativeLayer means how many parent layers up from calling
+				for(int i = 0; i < theCmd.relativeLayer &&
+					sState.layers[theLayerIdx].parentLayerID != 0; ++i)
+				{
+					theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
+				}
+				removeControlsLayer(theLayerIdx);
+			}
 		}
 		else
-		{// Otherwise remove a specific layer stored in .data
-			removeControlsLayer(theCmd.data);
+		{// Otherwise remove a specific layer ID specified
+			removeControlsLayer(theCmd.layerID);
 		}
 		break;
 	case eCmdType_HoldControlsLayer:
@@ -397,41 +444,52 @@ static void processCommand(
 		break;
 	case eCmdType_ReplaceControlsLayer:
 		// Replace can't name the layer to be replaced, only the one
-		// to replace it with, so it is assumed to be theLayerIdx
-		// in the same manner as RemoveControlsLayer with .data == 0
-		DBG_ASSERT(theLayerIdx != 0);
+		// to replace it with, so it uses relative layer for removal
+		// in the same manner as _Remove does when .layerID == 0
+		if( theCmd.relativeLayer == kAllLayers )
 		{
-			const u16 aParentLayerID = 
-				sState.layers[theLayerIdx].parentLayerID;
-			removeControlsLayer(theLayerIdx);
-			addControlsLayer(theCmd.data, aParentLayerID);
+			theLayerIdx = 0;
+			removeControlsLayer(0);
 		}
+		else
+		{
+			// relativeLayer means how many parent layers up from calling
+			u16 aParentIdx = sState.layers[theLayerIdx].parentLayerID;
+			for(int i = 0; i < theCmd.relativeLayer && aParentIdx != 0; ++i)
+			{
+				theLayerIdx = aParentIdx;
+				DBG_ASSERT(theLayerIdx < sState.layers.size());
+				aParentIdx = sState.layers[theLayerIdx].parentLayerID;
+			}
+			removeControlsLayer(theLayerIdx);
+			theLayerIdx = aParentIdx;
+		}
+		addControlsLayer(theCmd.layerID, theLayerIdx);
 		break;
 	case eCmdType_ToggleControlsLayer:
-		DBG_ASSERT(theCmd.data != 0);
-		DBG_ASSERT(theCmd.data < sState.layers.size());
 		aForwardCmd = theCmd;
-		aForwardCmd.type = sState.layers[theCmd.data].active
+		DBG_ASSERT(theCmd.layerID < sState.layers.size());
+		aForwardCmd.type = sState.layers[theCmd.layerID].active
 			? eCmdType_RemoveControlsLayer
 			: eCmdType_AddControlsLayer;
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_OpenSubMenu:
-		Menus::openSubMenu(theCmd.data2, theCmd.data);
+		Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
 		break;
 	case eCmdType_ReplaceMenu:
-		Menus::replaceMenu(theCmd.data2, theCmd.data);
+		Menus::replaceMenu(theCmd.menuID, theCmd.subMenuID);
 		break;
 	case eCmdType_MenuReset:
-		Menus::reset(theCmd.data);
+		Menus::reset(theCmd.menuID);
 		break;
 	case eCmdType_MenuConfirm:
-		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.data);
+		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
 		if( aForwardCmd.type != eCmdType_Empty )
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuConfirmAndClose:
-		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.data);
+		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			// Close menu first if this won't just switch to a sub-menu
@@ -450,19 +508,19 @@ static void processCommand(
 		}
 		break;
 	case eCmdType_MenuBack:
-		Menus::closeLastSubMenu(theCmd.data);
+		Menus::closeLastSubMenu(theCmd.menuID);
 		break;
 	case eCmdType_MenuBackOrClose:
 		// If at root, assume removing calling layer "closes" the menu
-		if( !Menus::closeLastSubMenu(theCmd.data) )
+		if( !Menus::closeLastSubMenu(theCmd.menuID) )
 			removeControlsLayer(theLayerIdx);
 		break;
 	case eCmdType_MenuEdit:
-		Menus::editMenuItem(theCmd.data);
+		Menus::editMenuItem(theCmd.menuID);
 		break;
 	case eCmdType_TargetGroup:
-		DBG_ASSERT(theCmd.data < eTargetGroupType_Num);
-		switch(theCmd.data)
+		DBG_ASSERT(theCmd.targetGroupType < eTargetGroupType_Num);
+		switch(theCmd.targetGroupType)
 		{
 		case eTargetGroupType_Reset:
 			gGroupTargetOrigin = gDefaultGroupTarget;
@@ -479,7 +537,7 @@ static void processCommand(
 			gLastGroupTarget = gGroupTargetOrigin = gDefaultGroupTarget;
 			gLastGroupTargetUpdated = true;
 			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting default Group Member #%d\n",
@@ -489,7 +547,7 @@ static void processCommand(
 			gLastGroupTargetUpdated = true;
 			gGroupTargetOrigin = gLastGroupTarget;
 			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Re-targeting last group member/pet (#%d) \n",
@@ -502,7 +560,7 @@ static void processCommand(
 					? 0 : gGroupTargetOrigin - 1;
 			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member prev/up no-wrap (#%d)\n",
@@ -515,7 +573,7 @@ static void processCommand(
 					? InputMap::targetGroupSize() - 1 : gGroupTargetOrigin + 1;
 			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member next/down no-wrap (#%d)\n",
@@ -527,7 +585,7 @@ static void processCommand(
 				decWrap(gGroupTargetOrigin, InputMap::targetGroupSize());
 			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member prev/up (#%d)\n",
@@ -539,7 +597,7 @@ static void processCommand(
 				incWrap(gGroupTargetOrigin, InputMap::targetGroupSize());
 			gLastGroupTarget = gGroupTargetOrigin;
 			aForwardCmd.type = eCmdType_TapKey;
-			aForwardCmd.data = InputMap::keyForSpecialAction(
+			aForwardCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
 			sResults.keys.push_back(aForwardCmd);
 			transDebugPrint("Targeting group member next/down (#%d)\n",
@@ -549,13 +607,13 @@ static void processCommand(
 		break;
 	case eCmdType_MenuSelect:
 		aForwardCmd = Menus::selectMenuItem(
-			theCmd.data2, ECommandDir(theCmd.data), isAutoRepeated);
+			theCmd.menuID, ECommandDir(theCmd.dir), isAutoRepeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuSelectAndClose:
 		aForwardCmd = Menus::selectMenuItem(
-			theCmd.data2, ECommandDir(theCmd.data), isAutoRepeated);
+			theCmd.menuID, ECommandDir(theCmd.dir), isAutoRepeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			// Close menu first if this won't just switch to a sub-menu
@@ -574,7 +632,7 @@ static void processCommand(
 		}
 		break;
 	case eCmdType_MenuEditDir:
-		Menus::editMenuItemDir(theCmd.data2, ECommandDir(theCmd.data));
+		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
 		// TODO
@@ -586,9 +644,9 @@ static void processCommand(
 		DBG_ASSERT(false && "Invalid command sent to processCommand()");
 		break;
 	case eCmdType_MouseWheel:
-		if( theCmd.data2 == eMouseWheelMotion_Once )
+		if( theCmd.mouseWheelMotionType == eMouseWheelMotion_Once )
 		{
-			InputDispatcher::scrollMouseWheelOnce(ECommandDir(theCmd.data));
+			InputDispatcher::scrollMouseWheelOnce(ECommandDir(theCmd.dir));
 			break;
 		}
 		// fall through
@@ -630,7 +688,7 @@ static void processButtonPress(ButtonState& theBtnState)
 		return;
 	case eCmdType_MouseWheel:
 		// Handled in processContinuousInput instead unless set to _Once
-		if( aCmd.data2 != eMouseWheelMotion_Once )
+		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Once )
 			return;
 		break;
 	}
@@ -669,7 +727,7 @@ static void processContinuousInput(
 		break;
 	case eCmdType_MouseWheel:
 		// Continue to analog checks below unless set to _Once
-		if( aCmd.data2 != eMouseWheelMotion_Once )
+		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Once )
 			break;
 		return;
 	default:
@@ -684,7 +742,7 @@ static void processContinuousInput(
 	else // if( theAnalogVal == 0 && !isDigitalDown )
 		return;
 
-	switch(u32(aCmd.type << 16) | aCmd.data)
+	switch(u32(aCmd.type << 16) | aCmd.dir)
 	{
 	case (eCmdType_MoveTurn << 16) | eCmdDir_Forward:
 	case (eCmdType_MoveStrafe << 16) | eCmdDir_Forward:
@@ -723,13 +781,13 @@ static void processContinuousInput(
 		sResults.mouseMoveDigital = isDigitalDown;
 		break;
 	case (eCmdType_MouseWheel << 16) | eCmdDir_Up:
-		if( aCmd.data2 == eMouseWheelMotion_Stepped )
+		if( aCmd.mouseWheelMotionType == eMouseWheelMotion_Stepped )
 			sResults.mouseWheelStepped = true;
 		sResults.mouseWheelY -= theAnalogVal;
 		sResults.mouseWheelDigital = isDigitalDown;
 		break;
 	case (eCmdType_MouseWheel << 16) | eCmdDir_Down:
-		if( aCmd.data2 == eMouseWheelMotion_Stepped )
+		if( aCmd.mouseWheelMotionType == eMouseWheelMotion_Stepped )
 			sResults.mouseWheelStepped = true;
 		sResults.mouseWheelY += theAnalogVal;
 		sResults.mouseWheelDigital = isDigitalDown;
@@ -760,7 +818,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 		// Continue to further checks below
 		break;
 	case eCmdType_TargetGroup:
-		switch(aCmd.data)
+		switch(aCmd.targetGroupType)
 		{
 		case eTargetGroupType_Prev:
 		case eTargetGroupType_Next:
@@ -980,6 +1038,7 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 		// Flag if used in a button combo, like L2 in L2+X
 		if( sState.layers[theBtnState.layerHeld].ownedButtonHit )
 			theBtnState.usedInButtonCombo = true;
+		sState.layers[theBtnState.layerHeld].heldActiveByButton = false;
 		removeControlsLayer(theBtnState.layerHeld);
 		theBtnState.layerHeld = 0;
 	}
@@ -991,6 +1050,7 @@ static void holdLayerByButton(ButtonState& theBtnState, u16 theLayerID)
 	releaseLayerHeldByButton(theBtnState);
 	addControlsLayer(theLayerID);
 	theBtnState.layerHeld = theLayerID;
+	sState.layers[theLayerID].heldActiveByButton = true;
 }
 
 
@@ -1006,6 +1066,7 @@ static bool tryAddLayerFromButton(
 	}
 
 	// Only concerned with buttons that have _HoldControlsLayer for _Down
+	// (in current 'commands', not necessarily 'commandsWhenPressed'!)
 	if( !theBtnState.commands )
 		return false;
 	const Command& aDownCmd = theBtnState.commands[eBtnAct_Down];
@@ -1013,7 +1074,7 @@ static bool tryAddLayerFromButton(
 		return false;
 
 	// Only concerned with layers that aren't already active
-	const u16 aLayerID = aDownCmd.data;
+	const u16 aLayerID = aDownCmd.layerID;
 	if( sState.layers[aLayerID].active )
 		return false;
 
@@ -1026,56 +1087,49 @@ static bool tryAddLayerFromButton(
 
 	// Generally if the button is just being held down and wasn't newly hit,
 	// nothing should change and we're done, but there is a special exception.
-	// Say want different actions for X, L2+X, R2+X, and L2+R2+X. Could use
-	// a Profile configuration such as (; = new line in actual .ini file):
-	// [Layer.A] L2 = Layer B; R2 = Layer C; X = A
-	// [Layer.B] R2 = Layer D; X = B
-	// [Layer.C] L2 = Layer D; X = C
-	// [Layer.D] X = D
+
+	// Say want different actions for X, L2+X, R2+X, and L2+R2+X, so use
+	// a Profile configuration such as:
+	// [Layer.A]\n X = A\n L2 = Layer B\n R2 = Layer C\n 
+	// [Layer.B]\n X = B\n R2 = Layer D\n 
+	// [Layer.C]\n X = C\n L2 = Layer D\n 
+	// [Layer.D]\n X = D
+
 	// This will make 'X' press A, L2+X=B, R2+X=C, and L2+R2+X=D. However, if
 	// hold L2 (layer B), then hold R2 (layer D), then release L2 but continue
-	// to hold R2, then press X, would get 'D' even though L2 is no longer held,
-	// and pressing L2 again would change it to now be 'B' instead! User would
+	// to hold R2, then press X, would get 'D' even though L2 is no longer
+	// held, and pressing L2 again would change X to be 'B' instead! User would
 	// likely expect that letting go of L2 would instead revert to layer C,
 	// then back to D again if press L2 again without ever releasing R2 at all.
-	// The below code is exclusively here to handle this specific execption.
-	// This altered behaviour should only occur in cases where the button sets
-	// a layer in both configurations and isn't doing anything else via the
-	// old layer's Auto button or having other commands besides holding layers.
-	if( theBtnState.layerHeld == 0 )
-		return false;
 
-	const Command* aCmdSet = theBtnState.commandsWhenPressed;
-	if( aCmdSet != null )
+	// The below code is exclusively here to handle this specific execption,
+	// by allowing a direct swap of layer being held even when the button has
+	// not been newly pressed, in the case where the button's _Down action was
+	// set to _HoldControlsLayer both before and after configuration change.
+
+	// If this exception is undesired, can avoid it by manually using Add and
+	// Remove Layer on button press & release instead of using Hold layer.
+	if( theBtnState.layerHeld &&
+		theBtnState.layerHeld != aLayerID &&
+		theBtnState.commandsWhenPressed &&
+		theBtnState.commandsWhenPressed[eBtnAct_Down].type ==
+			eCmdType_HoldControlsLayer )
 	{
-		for( size_t i = 0; i < eBtnAct_Num; ++i)
+		// Both new and old layer must have matching Auto button
+		// _Down and _Release commands to avoid side effects from the swap.
+		ButtonState& pab = sState.layers[theBtnState.layerHeld].autoButton;
+		ButtonState& nab = sState.layers[aLayerID].autoButton;
+		if( pab.commands[eBtnAct_Down] == nab.commands[eBtnAct_Down] &&
+			pab.commands[eBtnAct_Release] == nab.commands[eBtnAct_Release] )
 		{
-			if( i == eBtnAct_Down )
-				continue;
-			if( aCmdSet[i].type != eCmdType_Empty )
-				return false;
+			nab.swapHeldState(pab);
+			holdLayerByButton(theBtnState, aLayerID);
+			sState.layers[aLayerID].newlyActive = false;
 		}
+		return true;
 	}
 
-	aCmdSet = sState.layers[aLayerID].autoButton.commands;
-	if( aCmdSet != null )
-	{
-		for( size_t i = 0; i < eBtnAct_Num; ++i)
-		{
-			if( aCmdSet[i].type != eCmdType_Empty &&
-				aCmdSet[i].type != eCmdType_HoldControlsLayer &&
-				aCmdSet[i].type != eCmdType_AddControlsLayer &&
-				aCmdSet[i].type != eCmdType_RemoveControlsLayer &&
-				aCmdSet[i].type != eCmdType_ReplaceControlsLayer &&
-				aCmdSet[i].type != eCmdType_ToggleControlsLayer)
-				return false;
-		}
-	}
-
-	// Should be safe to directly transition from prior layer held to new one
-	holdLayerByButton(theBtnState, aLayerID);
-
-	return true;
+	return false;
 }
 
 
@@ -1145,7 +1199,7 @@ static void updateHUDStateForCurrentLayers()
 			gDisabledHUD.set(i);
 	}
 
-	// New re-enable any menus that have a command associated with them
+	// Now re-enable any menus that have a command associated with them
 	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx)
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
@@ -1162,14 +1216,11 @@ static void updateHUDStateForCurrentLayers()
 				case eCmdType_MenuBack:
 				case eCmdType_MenuBackOrClose:
 				case eCmdType_MenuEdit:
-					aHUDIdx = InputMap::hudElementForMenu(
-						aBtnState.commands[aBtnAct].data);
-					break;
 				case eCmdType_MenuSelect:
 				case eCmdType_MenuSelectAndClose:
 				case eCmdType_MenuEditDir:
 					aHUDIdx = InputMap::hudElementForMenu(
-						aBtnState.commands[aBtnAct].data2);
+						aBtnState.commands[aBtnAct].menuID);
 					break;
 				default:
 					continue;
