@@ -759,6 +759,16 @@ static Command wordsToSpecialCommand(
 	// words and none more than that
 	BitArray<eCmdWord_Num> allowedKeyWords;
 
+	// "= [Do] Nothing"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Nothing);
+	if( keyWordsFound.test(eCmdWord_Nothing) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_DoNothing;
+		return result;
+	}
+
 	// "= [Change] Profile"
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Change);

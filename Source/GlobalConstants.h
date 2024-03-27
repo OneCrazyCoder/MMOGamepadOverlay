@@ -20,7 +20,8 @@ kAllLayers = 0xFFFF,
 
 enum ECommandType
 {
-	eCmdType_Empty,
+	eCmdType_Empty, // Does nothing but also means 'not set to anything'
+	eCmdType_DoNothing, // _Empty, but set intentionally in place of others
 
 	// First group are valid for InputDispatcher::sendKeyCommand()
 	eCmdType_PressAndHoldKey,
@@ -270,6 +271,7 @@ enum ECommandKeyWord
 {
 	eCmdWord_Unknown,
 
+	eCmdWord_Nothing,
 	eCmdWord_Add,
 	eCmdWord_Remove,
 	eCmdWord_Hold,

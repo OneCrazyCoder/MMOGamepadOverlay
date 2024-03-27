@@ -1076,6 +1076,7 @@ void sendKeyCommand(const Command& theCommand)
 	switch(theCommand.type)
 	{
 	case eCmdType_Empty:
+	case eCmdType_DoNothing:
 		// Do nothing, but don't assert either
 		break;
 	case eCmdType_PressAndHoldKey:

@@ -343,8 +343,8 @@ static void parseINI(
 				if( c == '\r' || c == '\n' || c == '\0' )
 				{// Value string complete, time to process it!
 					aValue = trim(aValue);
-					// An empty value may still have some meaning...
-					theCallbackFunc(aKey, aValue, theUserData);
+					if( !aValue.empty() )
+						theCallbackFunc(aKey, aValue, theUserData);
 					aState = ePIState_Whitespace;
 				}
 				else
@@ -1370,7 +1370,10 @@ bool queryUserForProfile()
 std::string getStr(const std::string& theKey, const std::string& theDefaultValue)
 {
 	if( std::string* aString = sSettingsMap.find(upper(theKey)) )
-		return *aString;
+	{
+		if( !aString->empty() )
+			return *aString;
+	}
 
 	return theDefaultValue;
 }
@@ -1418,6 +1421,8 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
 	{
+		if( sSettingsMap.values()[anIndexSet[i]].empty() )
+			continue;
 		out.push_back(std::make_pair(
 			sSettingsMap.keys()[anIndexSet[i]].c_str() + aPrefixLength,
 			sSettingsMap.values()[anIndexSet[i]].c_str()));
