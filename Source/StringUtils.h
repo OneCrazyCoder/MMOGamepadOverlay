@@ -21,7 +21,7 @@ std::string trim(const std::string& theString);
 // Should only really be used for case-insensitive comparisons to ASCII strings
 std::string upper(const std::string& theString);
 std::string lower(const std::string& theString);
-// Remove ALL whitespace (and '-' and '_'), and set to all upper-case
+// Remove ALL whitespace (and '_' and non-leading '-'), and set to all upper-case
 std::string condense(const std::string& theString);
 // Replace all instances of a specific char with a different one
 std::string replaceChar(const std::string& theString, char oldChar, char newChar);

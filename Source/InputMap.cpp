@@ -882,6 +882,21 @@ static Command wordsToSpecialCommand(
 	}
 	allowedKeyWords.reset(eCmdWord_Remove);
 
+	// "= Toggle [Layer] <aLayerName> [on parent/etc] "
+	// allowedKeyWords = Layer & Parent/etc
+	allowedKeyWords.set(eCmdWord_Toggle);
+	if( keyWordsFound.test(eCmdWord_Toggle) &&
+		aLayerName &&
+		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+	{
+		result.type = eCmdType_ToggleControlsLayer;
+		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+		result.relativeLayer = aRelativeLayer;
+		DBG_ASSERT(result.layerID != 0);
+		return result;
+	}
+	allowedKeyWords.reset(eCmdWord_Toggle);
+
 	// "= Replace [parent/etc] [with] [Layer] <aLayerName>"
 	// OR "= Replace All [Layers] [with] <aLayerName>"
 	// allowedKeyWords = Layer & Parent/etc
@@ -926,19 +941,6 @@ static Command wordsToSpecialCommand(
 	}
 	allowedKeyWords.reset(eCmdWord_Remove);
 
-	// "= Toggle [Layer] <aLayerName>"
-	// allowedKeyWords = Layer
-	allowedKeyWords.set(eCmdWord_Toggle);
-	if( keyWordsFound.test(eCmdWord_Toggle) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_ToggleControlsLayer;
-		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-		DBG_ASSERT(result.layerID != 0);
-		return result;
-	}
-
 	// Same deal as aLayerNamefor the Menu-related commands needing a name
 	// of the menu in question as the one otherwise-unrelated word.
 	const std::string* aMenuName = anIgnoredWord;
@@ -957,6 +959,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Up);
 		allowedKeyWords.reset(eCmdWord_Down);
 		allowedKeyWords.reset(eCmdWord_Hotspot);
+		allowedKeyWords.reset(eCmdWord_Default);
 		if( allowedKeyWords.count() == 1 )
 		{
 			VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
@@ -966,10 +969,11 @@ static Command wordsToSpecialCommand(
 				aMenuName = &theWords[itr->second];
 		}
 
-		// "= Reset <aMenuName> [Menu]"
+		// "= Reset <aMenuName> [Menu] [to Default]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Menu);
+		allowedKeyWords.set(eCmdWord_Default);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -979,6 +983,7 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
+		allowedKeyWords.reset(eCmdWord_Default);
 
 		// "= Confirm <aMenuName> [Menu]
 		// allowedKeyWords = Menu
@@ -1051,12 +1056,13 @@ static Command wordsToSpecialCommand(
 	if( keyWordsFound.test(eCmdWord_Target) &&
 		keyWordsFound.test(eCmdWord_Group) )
 	{
-		// "= Target Group Reset [Last]"
+		// "= Target Group Reset [Last] [to Default]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Target);
 		allowedKeyWords.set(eCmdWord_Group);
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Last);
+		allowedKeyWords.set(eCmdWord_Default);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
@@ -1065,6 +1071,7 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
 		allowedKeyWords.reset(eCmdWord_Last);
+		allowedKeyWords.reset(eCmdWord_Default);
 		// "= Target Group [Load] Default"
 		// allowedKeyWords = Target & Group
 		allowedKeyWords.set(eCmdWord_Load);
@@ -1076,12 +1083,17 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Load);
-		// "= Target Group 'Set [Default]'|'Left'"
+		// "= Target Group 'Set [Default]'|'Left' [to Last]"
 		// allowedKeyWords = Target & Group & Default
 		allowedKeyWords.set(eCmdWord_Set);
 		allowedKeyWords.set(eCmdWord_Left);
 		allowedKeyWords.set(eCmdWord_Wrap);
 		allowedKeyWords.set(eCmdWord_NoWrap);
+		allowedKeyWords.set(eCmdWord_Last);
+		for(int i = 0; i < keyWordsFound.size(); ++i)
+			if( keyWordsFound.test(i) )
+				debugPrint("%d ", i);
+		debugPrint("\n");
 		if( (keyWordsFound.test(eCmdWord_Set) ||
 			 keyWordsFound.test(eCmdWord_Left)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
@@ -1093,9 +1105,8 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Left);
 		allowedKeyWords.reset(eCmdWord_Default);
 		// "= Target Group 'Pet'|'Last'|'Right'"
-		// allowedKeyWords = Target & Group & Wrap & NoWrap
+		// allowedKeyWords = Target & Group & Wrap & NoWrap & Last
 		allowedKeyWords.set(eCmdWord_Pet);
-		allowedKeyWords.set(eCmdWord_Last);
 		allowedKeyWords.set(eCmdWord_Right);
 		if( (keyWordsFound.test(eCmdWord_Pet) ||
 			 keyWordsFound.test(eCmdWord_Last) ||
@@ -2327,16 +2338,19 @@ static void buildHUDElementsForLayer(
 	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
 	{
 		const std::string& anElementName = theBuilder.parsedString[i];
-		if( upper(anElementName) == "HIDE" )
+		const std::string& anElementUpperName = upper(anElementName);
+		if( anElementUpperName == "HIDE" )
 		{
 			show = false;
 			continue;
 		}
-		if( upper(anElementName) == "SHOW" )
+		if( anElementUpperName == "SHOW" )
 		{
 			show = true;
 			continue;
 		}
+		if( commandWordToID(anElementUpperName) == eCmdWord_Filler )
+			continue;
 		u16 anElementIdx = getOrCreateHUDElementID(
 			theBuilder, anElementName, false);
 		sLayers[theLayerID].showHUD.resize(sHUDElements.size());
