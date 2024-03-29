@@ -297,17 +297,48 @@ static bool layerIsParentOfLayer(u16 theParentLayerID, u16 theCheckLayerID)
 }
 
 
-static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID = 0)
+static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
+{
+	// New layers typically should be at the "top" (back() of the vector).
+	// However, layers being held active by buttons should stay on top of
+	// layers added by Add/Replace/Toggle (except for their own "children").
+	std::vector<u16>::iterator result = sState.layerOrder.begin();
+
+	// First, work backwards until find theParentLayerID's position in the
+	// order to make sure insert after it.
+	for(std::vector<u16>::reverse_iterator itr =
+		sState.layerOrder.rbegin();
+		itr != sState.layerOrder.rend(); ++itr)
+	{
+		result = itr.base();
+		if( *itr == theParentLayerID )
+			break;
+	}
+	// Now move forward until run into top (back()) or hit a held layer,
+	// in which case will insert below it.
+	while( result != sState.layerOrder.end() &&
+		   !sState.layers[*result].heldActiveByButton )
+	{
+		++result;
+	}
+
+	return result;
+}
+
+
+static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID)
 {
 	DBG_ASSERT(theLayerID < sState.layers.size());
 	DBG_ASSERT(theSpawningLayerID < sState.layers.size());
 
+	// Calculate new position in the layer order.
+	
 	// Check to see if layer is already active
 	if( sState.layers[theLayerID].active )
 	{
 		// If request came from a child layer of the layer being added,
 		// meaning could end up with a recursive child/parent relationship,
-		// simply bump this layer to the top of the layer order instead,
+		// simply bump this layer to new position in layer order instead,
 		// without adding/removing anything or changing parent relationships.
 		if( layerIsParentOfLayer(theLayerID, theSpawningLayerID) )
 		{
@@ -316,8 +347,9 @@ static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID = 0)
 				sState.layerOrder.begin(),
 				sState.layerOrder.end(),
 				theLayerID));
-			// Append to layer order
-			sState.layerOrder.push_back(theLayerID);
+			// Re-insert into layer order
+			sState.layerOrder.insert(
+				layerOrderInsertPos(theSpawningLayerID), theLayerID);
 			transDebugPrint("Moving Controls Layer '%s' to top\n",
 				InputMap::layerLabel(theLayerID).c_str());
 			sResults.layerChangeMade = true;
@@ -346,7 +378,8 @@ static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID = 0)
 		}
 	}
 
-	sState.layerOrder.push_back(theLayerID);
+	sState.layerOrder.insert(
+		layerOrderInsertPos(theSpawningLayerID), theLayerID);
 	LayerState& aLayer = sState.layers[theLayerID];
 	aLayer.parentLayerID = theSpawningLayerID;
 	aLayer.active = true;
@@ -469,6 +502,7 @@ static void processCommand(
 		break;
 	case eCmdType_ToggleControlsLayer:
 		aForwardCmd = theCmd;
+		DBG_ASSERT(theCmd.layerID != 0);
 		DBG_ASSERT(theCmd.layerID < sState.layers.size());
 		aForwardCmd.type = sState.layers[theCmd.layerID].active
 			? eCmdType_RemoveControlsLayer
@@ -1015,7 +1049,6 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 		// Flag if used in a button combo, like L2 in L2+X
 		if( sState.layers[theBtnState.layerHeld].ownedButtonHit )
 			theBtnState.usedInButtonCombo = true;
-		sState.layers[theBtnState.layerHeld].heldActiveByButton = false;
 		removeControlsLayer(theBtnState.layerHeld);
 		theBtnState.layerHeld = 0;
 	}
@@ -1024,10 +1057,23 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 
 static void holdLayerByButton(ButtonState& theBtnState, u16 theLayerID)
 {
+	DBG_ASSERT(theLayerID < sState.layers.size());
+	DBG_ASSERT(theLayerID > 0);
 	releaseLayerHeldByButton(theBtnState);
-	addControlsLayer(theLayerID);
+
+	// Held layers are always independent (Layer 0 is their parent) and
+	// placed on "top" of all other layers when they are added.
+	transDebugPrint(
+		"Holding Controls Layer '%s'\n",
+		InputMap::layerLabel(theLayerID).c_str());
+	sState.layerOrder.push_back(theLayerID);
+	LayerState& aLayer = sState.layers[theLayerID];
+	aLayer.parentLayerID = 0;
+	aLayer.active = true;
+	aLayer.newlyActive = true;
+	aLayer.heldActiveByButton = true;
+	sResults.layerChangeMade = true;
 	theBtnState.layerHeld = theLayerID;
-	sState.layers[theLayerID].heldActiveByButton = true;
 }
 
 
@@ -1096,8 +1142,10 @@ static bool tryAddLayerFromButton(
 		// _Down and _Release commands to avoid side effects from the swap.
 		ButtonState& pab = sState.layers[theBtnState.layerHeld].autoButton;
 		ButtonState& nab = sState.layers[aLayerID].autoButton;
-		if( pab.commands[eBtnAct_Down] == nab.commands[eBtnAct_Down] &&
-			pab.commands[eBtnAct_Release] == nab.commands[eBtnAct_Release] )
+		if( pab.commands == nab.commands ||
+			(pab.commands != null && nab.commands != null &&
+			 pab.commands[eBtnAct_Down] == nab.commands[eBtnAct_Down] &&
+			 pab.commands[eBtnAct_Release] == nab.commands[eBtnAct_Release]) )
 		{
 			nab.swapHeldState(pab);
 			holdLayerByButton(theBtnState, aLayerID);
@@ -1218,7 +1266,7 @@ void loadProfile()
 {
 	kConfig.load();
 	loadLayerData();
-	addControlsLayer(0);
+	addControlsLayer(0, 0);
 	loadButtonCommandsForCurrentLayers();
 	updateHUDStateForCurrentLayers();
 }
