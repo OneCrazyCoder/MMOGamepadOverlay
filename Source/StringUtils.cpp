@@ -132,7 +132,8 @@ std::string condense(const std::string& theString)
 
 	for(size_t i = 0; i < theString.length(); ++i)
 	{
-		if( (unsigned)theString[i] > ' ' && theString[i] != '-' && theString[i] != '_' )
+		if( (unsigned)theString[i] > ' ' && theString[i] != '_' &&
+			(theString[i] != '-' || i == 0) )
 		{
 			aString += (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
 		}
@@ -464,7 +465,7 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 		{
 			word += c;
 		}
-		else if( c != '-' && c != '_' && !word.empty() )
+		else if( c != '-' && c != '_' && c != '\'' && !word.empty() )
 		{
 			out.push_back(word);
 			word.clear();

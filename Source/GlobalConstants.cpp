@@ -59,108 +59,111 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 		NameToVKeyMap map;
 		NameToVKeyMapper()
 		{
-			const size_t kMapSize = 131;
-			map.reserve(kMapSize);
-			map.setValue("CLICK",			VK_LBUTTON);
-			map.setValue("LCLICK",			VK_LBUTTON);
-			map.setValue("LEFTCLICK",		VK_LBUTTON);
-			map.setValue("LMB",				VK_LBUTTON);
-			map.setValue("RCLICK",			VK_RBUTTON);
-			map.setValue("RIGHTCLICK",		VK_RBUTTON);
-			map.setValue("RMB",				VK_RBUTTON);
-			map.setValue("RELEASE",			VK_CANCEL); // Force release a key
-			map.setValue("MCLICK",			VK_MBUTTON);
-			map.setValue("MIDDLECLICK",		VK_MBUTTON);
-			map.setValue("MMB",				VK_MBUTTON);
-			map.setValue("BACK",			VK_BACK);
-			map.setValue("BACKSPACE",		VK_BACK);
-			map.setValue("BS",				VK_BACK);
-			map.setValue("TAB",				VK_TAB);
-			map.setValue("RETURN",			VK_RETURN);
-			map.setValue("ENTER",			VK_RETURN);
-			map.setValue("SH",				VK_SHIFT);
-			map.setValue("SHFT",			VK_SHIFT);
-			map.setValue("SHIFT",			VK_SHIFT);
-			map.setValue("CTRL",			VK_CONTROL);
-			map.setValue("CONTROL",			VK_CONTROL);
-			map.setValue("ALT",				VK_MENU);
-			map.setValue("MENU",			VK_MENU);
-			map.setValue("ESC",				VK_ESCAPE);
-			map.setValue("ESCAPE",			VK_ESCAPE);
-			map.setValue("SPACE",			VK_SPACE);
-			map.setValue("SPACEBAR",		VK_SPACE);
-			map.setValue("PGUP",			VK_PRIOR);
-			map.setValue("PAGEUP",			VK_PRIOR);
-			map.setValue("PAGEDOWN",		VK_NEXT);
-			map.setValue("PGDOWN",			VK_NEXT);
-			map.setValue("PGDWN",			VK_NEXT);
-			map.setValue("END",				VK_END);
-			map.setValue("HOME",			VK_HOME);
-			map.setValue("LEFT",			VK_LEFT);
-			map.setValue("LEFTARROW",		VK_LEFT);
-			map.setValue("UP",				VK_UP);
-			map.setValue("UPARROW",			VK_UP);
-			map.setValue("RIGHT",			VK_RIGHT);
-			map.setValue("RIGHTARROW",		VK_RIGHT);
-			map.setValue("DOWN",			VK_DOWN);
-			map.setValue("DOWNARROW",		VK_DOWN);
-			map.setValue("JUMP",			VK_SELECT); // jump mouse to pos
-			map.setValue("POINT",			VK_SELECT); // jump mouse to pos
-			map.setValue("CURSOR",			VK_SELECT); // jump mouse to pos
-			map.setValue("INS",				VK_INSERT);
-			map.setValue("INSERT",			VK_INSERT);
-			map.setValue("DEL",				VK_DELETE);
-			map.setValue("DELETE",			VK_DELETE);
-			map.setValue("NUMMULT",			VK_MULTIPLY);
-			map.setValue("NUMMULTIPLY",		VK_MULTIPLY);
-			map.setValue("NUMADD",			VK_ADD);
-			map.setValue("NUMPLUS",			VK_ADD);
-			map.setValue("NUMSUB",			VK_SUBTRACT);
-			map.setValue("NUMSUBTRACT",		VK_SUBTRACT);
-			map.setValue("NUMMINUS",		VK_SUBTRACT);
-			map.setValue("NUMPERIOD",		VK_DECIMAL);
-			map.setValue("NUMDECIMAL",		VK_DECIMAL);
-			map.setValue("NUMDIV",			VK_DIVIDE);
-			map.setValue("NUMDIVIDE",		VK_DIVIDE);
-			map.setValue("NUMSLASH",		VK_DIVIDE);
-			map.setValue("NUMPADMULT",		VK_MULTIPLY);
-			map.setValue("NUMPADMULTIPLY",	VK_MULTIPLY);
-			map.setValue("NUMPADADD",		VK_ADD);
-			map.setValue("NUMPADPLUS",		VK_ADD);
-			map.setValue("NUMPADSUB",		VK_SUBTRACT);
-			map.setValue("NUMPADSUBTRACT",	VK_SUBTRACT);
-			map.setValue("NUMPADMINUS",		VK_SUBTRACT);
-			map.setValue("NUMPADPERIOD",	VK_DECIMAL);
-			map.setValue("NUMPADDECIMAL",	VK_DECIMAL);
-			map.setValue("NUMPADDIV",		VK_DIVIDE);
-			map.setValue("NUMPADDIVIDE",	VK_DIVIDE);
-			map.setValue("NUMPADSLASH",		VK_DIVIDE);
-			map.setValue("NUMLOCK",			VK_NUMLOCK);
-			map.setValue("COLON",			VK_OEM_1);
-			map.setValue("SEMICOLON",		VK_OEM_1);
-			map.setValue("PLUS",			VK_OEM_PLUS);
-			map.setValue("EQUAL",			VK_OEM_PLUS);
-			map.setValue("EQUALS",			VK_OEM_PLUS);
-			map.setValue("COMMA",			VK_OEM_COMMA);
-			map.setValue("MINUS",			VK_OEM_MINUS);
-			map.setValue("DASH",			VK_OEM_MINUS);
-			map.setValue("HYPHEN",			VK_OEM_MINUS);
-			map.setValue("UNDERSCORE",		VK_OEM_MINUS);
-			map.setValue("PERIOD",			VK_OEM_PERIOD);
-			map.setValue("SLASH",			VK_OEM_2);
-			map.setValue("FORWARDSLASH",	VK_OEM_2);
-			map.setValue("DIVIDE",			VK_OEM_2);
-			map.setValue("DIV",				VK_OEM_2);
-			map.setValue("QUESTION",		VK_OEM_2);
-			map.setValue("TILDE",			VK_OEM_3);
-			map.setValue("BACKTICK",		VK_OEM_3);
-			map.setValue("OPENB",			VK_OEM_4);
-			map.setValue("OPENBRACKET",		VK_OEM_4);
-			map.setValue("BACKSLASH",		VK_OEM_5);
-			map.setValue("CLOSEB",			VK_OEM_6);
-			map.setValue("CLOSEBRACKET",	VK_OEM_6);
-			map.setValue("QUOTE",			VK_OEM_7);
+			struct { const char* str; u8 val; } kEntries[] = {
+				{ "CLICK",			VK_LBUTTON		},
+				{ "LCLICK",			VK_LBUTTON		},
+				{ "LEFTCLICK",		VK_LBUTTON		},
+				{ "LMB",			VK_LBUTTON		},
+				{ "RCLICK",			VK_RBUTTON		},
+				{ "RIGHTCLICK",		VK_RBUTTON		},
+				{ "RMB",			VK_RBUTTON		},
+				{ "RELEASE",		VK_CANCEL		}, // Force release a key
+				{ "MCLICK",			VK_MBUTTON		},
+				{ "MIDDLECLICK",	VK_MBUTTON		},
+				{ "MMB",			VK_MBUTTON		},
+				{ "BACK",			VK_BACK			},
+				{ "BACKSPACE",		VK_BACK			},
+				{ "BS",				VK_BACK			},
+				{ "TAB",			VK_TAB			},
+				{ "RETURN",			VK_RETURN		},
+				{ "ENTER",			VK_RETURN		},
+				{ "SH",				VK_SHIFT		},
+				{ "SHFT",			VK_SHIFT		},
+				{ "SHIFT",			VK_SHIFT		},
+				{ "CTRL",			VK_CONTROL		},
+				{ "CONTROL",		VK_CONTROL		},
+				{ "ALT",			VK_MENU			},
+				{ "MENU",			VK_MENU			},
+				{ "ESC",			VK_ESCAPE		},
+				{ "ESCAPE",			VK_ESCAPE		},
+				{ "SPACE",			VK_SPACE		},
+				{ "SPACEBAR",		VK_SPACE		},
+				{ "PGUP",			VK_PRIOR		},
+				{ "PAGEUP",			VK_PRIOR		},
+				{ "PAGEDOWN",		VK_NEXT			},
+				{ "PGDOWN",			VK_NEXT			},
+				{ "PGDWN",			VK_NEXT			},
+				{ "END",			VK_END			},
+				{ "HOME",			VK_HOME			},
+				{ "LEFT",			VK_LEFT			},
+				{ "LEFTARROW",		VK_LEFT			},
+				{ "UP",				VK_UP			},
+				{ "UPARROW",		VK_UP			},
+				{ "RIGHT",			VK_RIGHT		},
+				{ "RIGHTARROW",		VK_RIGHT		},
+				{ "DOWN",			VK_DOWN			},
+				{ "DOWNARROW",		VK_DOWN			},
+				{ "JUMP",			VK_SELECT		}, // jump mouse to pos
+				{ "POINT",			VK_SELECT		}, // jump mouse to pos
+				{ "CURSOR",			VK_SELECT		}, // jump mouse to pos
+				{ "INS",			VK_INSERT		},
+				{ "INSERT",			VK_INSERT		},
+				{ "DEL",			VK_DELETE		},
+				{ "DELETE",			VK_DELETE		},
+				{ "NUMMULT",		VK_MULTIPLY		},
+				{ "NUMMULTIPLY",	VK_MULTIPLY		},
+				{ "NUMADD",			VK_ADD			},
+				{ "NUMPLUS",		VK_ADD			},
+				{ "NUMSUB",			VK_SUBTRACT		},
+				{ "NUMSUBTRACT",	VK_SUBTRACT		},
+				{ "NUMMINUS",		VK_SUBTRACT		},
+				{ "NUMPERIOD",		VK_DECIMAL		},
+				{ "NUMDECIMAL",		VK_DECIMAL		},
+				{ "NUMDIV",			VK_DIVIDE		},
+				{ "NUMDIVIDE",		VK_DIVIDE		},
+				{ "NUMSLASH",		VK_DIVIDE		},
+				{ "NUMPADMULT",		VK_MULTIPLY		},
+				{ "NUMPADMULTIPLY",	VK_MULTIPLY		},
+				{ "NUMPADADD",		VK_ADD			},
+				{ "NUMPADPLUS",		VK_ADD			},
+				{ "NUMPADSUB",		VK_SUBTRACT		},
+				{ "NUMPADSUBTRACT",	VK_SUBTRACT		},
+				{ "NUMPADMINUS",	VK_SUBTRACT		},
+				{ "NUMPADPERIOD",	VK_DECIMAL		},
+				{ "NUMPADDECIMAL",	VK_DECIMAL		},
+				{ "NUMPADDIV",		VK_DIVIDE		},
+				{ "NUMPADDIVIDE",	VK_DIVIDE		},
+				{ "NUMPADSLASH",	VK_DIVIDE		},
+				{ "NUMLOCK",		VK_NUMLOCK		},
+				{ "COLON",			VK_OEM_1		},
+				{ "SEMICOLON",		VK_OEM_1		},
+				{ "PLUS",			VK_OEM_PLUS		},
+				{ "EQUAL",			VK_OEM_PLUS		},
+				{ "EQUALS",			VK_OEM_PLUS		},
+				{ "COMMA",			VK_OEM_COMMA	},
+				{ "MINUS",			VK_OEM_MINUS	},
+				{ "DASH",			VK_OEM_MINUS	},
+				{ "HYPHEN",			VK_OEM_MINUS	},
+				{ "UNDERSCORE",		VK_OEM_MINUS	},
+				{ "PERIOD",			VK_OEM_PERIOD	},
+				{ "SLASH",			VK_OEM_2		},
+				{ "FORWARDSLASH",	VK_OEM_2		},
+				{ "DIVIDE",			VK_OEM_2		},
+				{ "DIV",			VK_OEM_2		},
+				{ "QUESTION",		VK_OEM_2		},
+				{ "TILDE",			VK_OEM_3		},
+				{ "BACKTICK",		VK_OEM_3		},
+				{ "OPENB",			VK_OEM_4		},
+				{ "OPENBRACKET",	VK_OEM_4		},
+				{ "BACKSLASH",		VK_OEM_5		},
+				{ "CLOSEB",			VK_OEM_6		},
+				{ "CLOSEBRACKET",	VK_OEM_6		},
+				{ "QUOTE",			VK_OEM_7		},
+			};
 			// VK_PAUSE not included because it has special use/meaning
+			map.reserve(ARRAYSIZE(kEntries) + 10 /*num*/ + 10 /*numpad*/ + 12 /*F1-12*/);
+			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
 			for(int i = 0; i <= 9; ++i)
 			{
 				map.setValue((std::string("NUM") + toString(i)).c_str(), VK_NUMPAD0 + i);
@@ -168,8 +171,6 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 			}
 			for(int i = 1; i <= 12; ++i)
 				map.setValue((std::string("F") + toString(i)).c_str(), VK_F1 - 1 + i);
-			const size_t actualMapSize = map.size();
-			DBG_ASSERT(actualMapSize == kMapSize);
 		}
 	};
 	static NameToVKeyMapper sKeyMapper;
@@ -211,84 +212,85 @@ EButton buttonNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			const size_t kMapSize = eBtn_Num + 70;
-			map.reserve(kMapSize);
-			// Add default names for each button to map
+			// These are in addition to kProfileButtonName above!
+			struct { const char* str; EButton val; } kEntries[] = {
+				{ "LL",				eBtn_LSLeft		},
+				{ "LSL",			eBtn_LSLeft		},
+				{ "LSTICKLEFT",		eBtn_LSLeft		},
+				{ "LEFTSTICKLEFT",	eBtn_LSLeft		},
+				{ "LR",				eBtn_LSRight	},
+				{ "LSR",			eBtn_LSRight	},
+				{ "LSTICKRIGHT",	eBtn_LSRight	},
+				{ "LEFTSTICKRIGHT",	eBtn_LSRight	},
+				{ "LU",				eBtn_LSUp		},
+				{ "LSU",			eBtn_LSUp		},
+				{ "LSTICKUP",		eBtn_LSUp		},
+				{ "LEFTSTICKUP",	eBtn_LSUp		},
+				{ "LD",				eBtn_LSDown		},
+				{ "LSD",			eBtn_LSDown		},
+				{ "LSTICKDOWN",		eBtn_LSDown		},
+				{ "LEFTSTICKDOWN",	eBtn_LSDown		},
+				{ "RL",				eBtn_RSLeft		},
+				{ "RSL",			eBtn_RSLeft		},
+				{ "RSTICKLEFT",		eBtn_RSLeft		},
+				{ "RIGHTSTICKLEFT",	eBtn_RSLeft		},
+				{ "RR",				eBtn_RSRight	},
+				{ "RSR",			eBtn_RSRight	},
+				{ "RSTICKRIGHT",	eBtn_RSRight	},
+				{ "RIGHTSTICKRIGHT",eBtn_RSRight	},
+				{ "RU",				eBtn_RSUp		},
+				{ "RSU",			eBtn_RSUp		},
+				{ "RSTICKUP",		eBtn_RSUp		},
+				{ "RIGHTSTICKUP",	eBtn_RSUp		},
+				{ "RD",				eBtn_RSDown		},
+				{ "RSD",			eBtn_RSDown		},
+				{ "RSTICKDOWN",		eBtn_RSDown		},
+				{ "RIGHTSTICKDOWN",	eBtn_RSDown		},
+				{ "DL",				eBtn_DLeft		},
+				{ "DPL",			eBtn_DLeft		},
+				{ "DPLEFT",			eBtn_DLeft		},
+				{ "DPADLEFT",		eBtn_DLeft		},
+				{ "DR",				eBtn_DRight		},
+				{ "DPR",			eBtn_DRight		},
+				{ "DPRIGHT",		eBtn_DRight		},
+				{ "DPADRIGHT",		eBtn_DRight		},
+				{ "DU",				eBtn_DUp		},
+				{ "DPU",			eBtn_DUp		},
+				{ "DPUP",			eBtn_DUp		},
+				{ "DPADUP",			eBtn_DUp		},
+				{ "DD",				eBtn_DDown		},
+				{ "DPD",			eBtn_DDown		},
+				{ "DPDOWN",			eBtn_DDown		},
+				{ "DPADDOWN",		eBtn_DDown		},
+				{ "FL",				eBtn_FLeft		},
+				{ "FPL",			eBtn_FLeft		},
+				{ "FPADLEFT",		eBtn_FLeft		},
+				{ "SQUARE",			eBtn_FLeft		},
+				{ "XBX",			eBtn_FLeft		},
+				{ "FR",				eBtn_FRight		},
+				{ "FPR",			eBtn_FRight		},
+				{ "FPADRIGHT",		eBtn_FRight		},
+				{ "CIRCLE",			eBtn_FRight		},
+				{ "CIRC",			eBtn_FRight		},
+				{ "XBB",			eBtn_FRight		},
+				{ "FU",				eBtn_FUp		},
+				{ "FPU",			eBtn_FUp		},
+				{ "FPADUP",			eBtn_FUp		},
+				{ "TRIANGLE",		eBtn_FUp		},
+				{ "TRI",			eBtn_FUp		},
+				{ "XBY",			eBtn_FUp		},
+				{ "FD",				eBtn_FDown		},
+				{ "FPD",			eBtn_FDown		},
+				{ "FPADDOWN",		eBtn_FDown		},
+				{ "XBA",			eBtn_FDown		},
+				{ "PSX",			eBtn_FDown		},
+			};
+			size_t aSize = eBtn_Num + ARRAYSIZE(kEntries);
+			map.reserve(eBtn_Num + ARRAYSIZE(kEntries));
 			for(int i = 0; i < eBtn_Num; ++i)
 				map.setValue(upper(kProfileButtonName[i]), EButton(i));
-			// Add some extra aliases
-			map.setValue("LL",				eBtn_LSLeft);
-			map.setValue("LSL",				eBtn_LSLeft);
-			map.setValue("LSTICKLEFT",		eBtn_LSLeft);
-			map.setValue("LEFTSTICKLEFT",	eBtn_LSLeft);
-			map.setValue("LR",				eBtn_LSRight);
-			map.setValue("LSR",				eBtn_LSRight);
-			map.setValue("LSTICKRIGHT",		eBtn_LSRight);
-			map.setValue("LEFTSTICKRIGHT",	eBtn_LSRight);
-			map.setValue("LU",				eBtn_LSUp);
-			map.setValue("LSU",				eBtn_LSUp);
-			map.setValue("LSTICKUP",		eBtn_LSUp);
-			map.setValue("LEFTSTICKUP",		eBtn_LSUp);
-			map.setValue("LD",				eBtn_LSDown);
-			map.setValue("LSD",				eBtn_LSDown);
-			map.setValue("LSTICKDOWN",		eBtn_LSDown);
-			map.setValue("LEFTSTICKDOWN",	eBtn_LSDown);
-			map.setValue("RL",				eBtn_RSLeft);
-			map.setValue("RSL",				eBtn_RSLeft);
-			map.setValue("RSTICKLEFT",		eBtn_RSLeft);
-			map.setValue("RIGHTSTICKLEFT",	eBtn_RSLeft);
-			map.setValue("RR",				eBtn_RSRight);
-			map.setValue("RSR",				eBtn_RSRight);
-			map.setValue("RSTICKRIGHT",		eBtn_RSRight);
-			map.setValue("RIGHTSTICKRIGHT",	eBtn_RSRight);
-			map.setValue("RU",				eBtn_RSUp);
-			map.setValue("RSU",				eBtn_RSUp);
-			map.setValue("RSTICKUP",		eBtn_RSUp);
-			map.setValue("RIGHTSTICKUP",	eBtn_RSUp);
-			map.setValue("RD",				eBtn_RSDown);
-			map.setValue("RSD",				eBtn_RSDown);
-			map.setValue("RSTICKDOWN",		eBtn_RSDown);
-			map.setValue("RIGHTSTICKDOWN",	eBtn_RSDown);
-			map.setValue("DL",				eBtn_DLeft);
-			map.setValue("DPL",				eBtn_DLeft);
-			map.setValue("DPLEFT",			eBtn_DLeft);
-			map.setValue("DPADLEFT",		eBtn_DLeft);
-			map.setValue("DR",				eBtn_DRight);
-			map.setValue("DPR",				eBtn_DRight);
-			map.setValue("DPRIGHT",			eBtn_DRight);
-			map.setValue("DPADRIGHT",		eBtn_DRight);
-			map.setValue("DU",				eBtn_DUp);
-			map.setValue("DPU",				eBtn_DUp);
-			map.setValue("DPUP",			eBtn_DUp);
-			map.setValue("DPADUP",			eBtn_DUp);
-			map.setValue("DD",				eBtn_DDown);
-			map.setValue("DPD",				eBtn_DDown);
-			map.setValue("DPDOWN",			eBtn_DDown);
-			map.setValue("DPADDOWN",		eBtn_DDown);
-			map.setValue("FL",				eBtn_FLeft);
-			map.setValue("FPL",				eBtn_FLeft);
-			map.setValue("FPADLEFT",		eBtn_FLeft);
-			map.setValue("SQUARE",			eBtn_FLeft);
-			map.setValue("XBX",				eBtn_FLeft);
-			map.setValue("FR",				eBtn_FRight);
-			map.setValue("FPR",				eBtn_FRight);
-			map.setValue("FPADRIGHT",		eBtn_FRight);
-			map.setValue("CIRCLE",			eBtn_FRight);
-			map.setValue("CIRC",			eBtn_FRight);
-			map.setValue("XBB",				eBtn_FRight);
-			map.setValue("FU",				eBtn_FUp);
-			map.setValue("FPU",				eBtn_FUp);
-			map.setValue("FPADUP",			eBtn_FUp);
-			map.setValue("TRIANGLE",		eBtn_FUp);
-			map.setValue("TRI",				eBtn_FUp);
-			map.setValue("XBY",				eBtn_FUp);
-			map.setValue("FD",				eBtn_FDown);
-			map.setValue("FPD",				eBtn_FDown);
-			map.setValue("FPADDOWN",		eBtn_FDown);
-			map.setValue("XBA",				eBtn_FDown);
-			map.setValue("PSX",				eBtn_FDown);
-			const size_t actualMapSize = map.size();
-			DBG_ASSERT(actualMapSize == kMapSize);
+			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
@@ -302,94 +304,94 @@ EHUDType hudTypeNameToID(const std::string& theName)
 {
 	struct NameToEnumMapper
 	{
-		typedef StringToValueMap<u32, u8> NameToEnumMap;
+		typedef StringToValueMap<EHUDType, u8> NameToEnumMap;
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			const size_t kMapSize = 73;
-			map.reserve(kMapSize);
-			map.setValue("LIST",				eMenuStyle_List);
-			map.setValue("BASIC",				eMenuStyle_List);
-			map.setValue("DEFAULT",				eMenuStyle_List);
-			map.setValue("NORMAL",				eMenuStyle_List);
-			map.setValue("LISTWRAP",			eMenuStyle_ListWrap);
-			map.setValue("BASICWRAP",			eMenuStyle_ListWrap);
-			map.setValue("DEFAULTWRAP",			eMenuStyle_ListWrap);
-			map.setValue("NORMALWRAP",			eMenuStyle_ListWrap);
-			map.setValue("SLOT",				eMenuStyle_Slots);
-			map.setValue("SLOTS",				eMenuStyle_Slots);
-			map.setValue("PILLAR",				eMenuStyle_Slots);
-			map.setValue("PILLARS",				eMenuStyle_Slots);
-			map.setValue("COLUMN",				eMenuStyle_Slots);
-			map.setValue("COLUMNS",				eMenuStyle_Slots);
-			map.setValue("BAR",					eMenuStyle_Bar);
-			map.setValue("BARS",				eMenuStyle_Bar);
-			map.setValue("ROW",					eMenuStyle_Bar);
-			map.setValue("ROWS",				eMenuStyle_Bar);
-			map.setValue("HOTBAR",				eMenuStyle_Bar);
-			map.setValue("BARWRAP",				eMenuStyle_BarWrap);
-			map.setValue("BARSWRAP",			eMenuStyle_BarWrap);
-			map.setValue("ROWWRAP",				eMenuStyle_BarWrap);
-			map.setValue("ROWSWRAP",			eMenuStyle_BarWrap);
-			map.setValue("HOTBARWRAP",			eMenuStyle_BarWrap);
-			map.setValue("4DIR",				eMenuStyle_4Dir);
-			map.setValue("COMPASS",				eMenuStyle_4Dir);
-			map.setValue("CROSS",				eMenuStyle_4Dir);
-			map.setValue("DPAD",				eMenuStyle_4Dir);
-			map.setValue("DIR",					eMenuStyle_4Dir);
-			map.setValue("DIRECTIONS",			eMenuStyle_4Dir);
-			map.setValue("DIRECTIONAL",			eMenuStyle_4Dir);
-			map.setValue("GRID",				eMenuStyle_Grid);
-			map.setValue("GRIDWRAP",			eMenuStyle_GridWrap);
-			map.setValue("RING",				eMenuStlye_Ring);
-			map.setValue("RADIAL",				eMenuStyle_Radial);
-			map.setValue("RECTANGLE",			eHUDItemType_Rect);
-			map.setValue("RECT",				eHUDItemType_Rect);
-			map.setValue("BLOCK",				eHUDItemType_Rect);
-			map.setValue("SQUARE",				eHUDItemType_Rect);
-			map.setValue("RNDRECT",				eHUDItemType_RndRect);
-			map.setValue("ROUNDRECT",			eHUDItemType_RndRect);
-			map.setValue("ROUNDEDRECT",			eHUDItemType_RndRect);
-			map.setValue("ROUNDRECTANGLE",		eHUDItemType_RndRect);
-			map.setValue("ROUNDEDRECTANGLE",	eHUDItemType_RndRect);
-			map.setValue("BITMAP",				eHUDItemType_Bitmap);
-			map.setValue("IMAGE",				eHUDItemType_Bitmap);
-			map.setValue("CIRCLE",				eHUDItemType_Circle);
-			map.setValue("DOT",					eHUDItemType_Circle);
-			map.setValue("ELLIPSE",				eHUDItemType_Circle);
-			map.setValue("ARROWL",				eHUDItemType_ArrowL);
-			map.setValue("LARROW",				eHUDItemType_ArrowL);
-			map.setValue("ARROWLEFT",			eHUDItemType_ArrowL);
-			map.setValue("LEFTARROW",			eHUDItemType_ArrowL);
-			map.setValue("ARROWR",				eHUDItemType_ArrowR);
-			map.setValue("RARROW",				eHUDItemType_ArrowR);
-			map.setValue("ARROWRIGHT",			eHUDItemType_ArrowR);
-			map.setValue("RIGHTARROW",			eHUDItemType_ArrowR);
-			map.setValue("ARROWU",				eHUDItemType_ArrowU);
-			map.setValue("UARROW",				eHUDItemType_ArrowU);
-			map.setValue("ARROWUP",				eHUDItemType_ArrowU);
-			map.setValue("UPARROW",				eHUDItemType_ArrowU);
-			map.setValue("ARROWD",				eHUDItemType_ArrowD);
-			map.setValue("DARROW",				eHUDItemType_ArrowD);
-			map.setValue("ARROWDOWN",			eHUDItemType_ArrowD);
-			map.setValue("DOWNARROW",			eHUDItemType_ArrowD);
-			map.setValue("GROUPTARGET",			eHUDType_GroupTarget);
-			map.setValue("TARGETGROUP",			eHUDType_GroupTarget);
-			map.setValue("SAVEDTARGET",			eHUDType_DefaultTarget);
-			map.setValue("DEFAULTTARGET",		eHUDType_DefaultTarget);
-			map.setValue("FAVORITETARGET",		eHUDType_DefaultTarget);
-			map.setValue("TARGETSAVED",			eHUDType_DefaultTarget);
-			map.setValue("TARGETDEFAULT",		eHUDType_DefaultTarget);
-			map.setValue("TARGETFAVORITE",		eHUDType_DefaultTarget);
-
-			const size_t actualMapSize = map.size();
-			DBG_ASSERT(actualMapSize == kMapSize);
+			struct { const char* str; EHUDType val; } kEntries[] = {
+				{ "LIST",				eMenuStyle_List			},
+				{ "BASIC",				eMenuStyle_List			},
+				{ "DEFAULT",			eMenuStyle_List			},
+				{ "NORMAL",				eMenuStyle_List			},
+				{ "LISTWRAP",			eMenuStyle_ListWrap		},
+				{ "BASICWRAP",			eMenuStyle_ListWrap		},
+				{ "DEFAULTWRAP",		eMenuStyle_ListWrap		},
+				{ "NORMALWRAP",			eMenuStyle_ListWrap		},
+				{ "SLOT",				eMenuStyle_Slots		},
+				{ "SLOTS",				eMenuStyle_Slots		},
+				{ "PILLAR",				eMenuStyle_Slots		},
+				{ "PILLARS",			eMenuStyle_Slots		},
+				{ "COLUMN",				eMenuStyle_Slots		},
+				{ "COLUMNS",			eMenuStyle_Slots		},
+				{ "BAR",				eMenuStyle_Bar			},
+				{ "BARS",				eMenuStyle_Bar			},
+				{ "ROW",				eMenuStyle_Bar			},
+				{ "ROWS",				eMenuStyle_Bar			},
+				{ "HOTBAR",				eMenuStyle_Bar			},
+				{ "BARWRAP",			eMenuStyle_BarWrap		},
+				{ "BARSWRAP",			eMenuStyle_BarWrap		},
+				{ "ROWWRAP",			eMenuStyle_BarWrap		},
+				{ "ROWSWRAP",			eMenuStyle_BarWrap		},
+				{ "HOTBARWRAP",			eMenuStyle_BarWrap		},
+				{ "4DIR",				eMenuStyle_4Dir			},
+				{ "COMPASS",			eMenuStyle_4Dir			},
+				{ "CROSS",				eMenuStyle_4Dir			},
+				{ "DPAD",				eMenuStyle_4Dir			},
+				{ "DIR",				eMenuStyle_4Dir			},
+				{ "DIRECTIONS",			eMenuStyle_4Dir			},
+				{ "DIRECTIONAL",		eMenuStyle_4Dir			},
+				{ "GRID",				eMenuStyle_Grid			},
+				{ "GRIDWRAP",			eMenuStyle_GridWrap		},
+				{ "RING",				eMenuStlye_Ring			},
+				{ "RADIAL",				eMenuStyle_Radial		},
+				{ "RECTANGLE",			eHUDItemType_Rect		},
+				{ "RECT",				eHUDItemType_Rect		},
+				{ "BLOCK",				eHUDItemType_Rect		},
+				{ "SQUARE",				eHUDItemType_Rect		},
+				{ "RNDRECT",			eHUDItemType_RndRect	},
+				{ "ROUNDRECT",			eHUDItemType_RndRect	},
+				{ "ROUNDEDRECT",		eHUDItemType_RndRect	},
+				{ "ROUNDRECTANGLE",		eHUDItemType_RndRect	},
+				{ "ROUNDEDRECTANGLE",	eHUDItemType_RndRect	},
+				{ "BITMAP",				eHUDItemType_Bitmap		},
+				{ "IMAGE",				eHUDItemType_Bitmap		},
+				{ "CIRCLE",				eHUDItemType_Circle		},
+				{ "DOT",				eHUDItemType_Circle		},
+				{ "ELLIPSE",			eHUDItemType_Circle		},
+				{ "ARROWL",				eHUDItemType_ArrowL		},
+				{ "LARROW",				eHUDItemType_ArrowL		},
+				{ "ARROWLEFT",			eHUDItemType_ArrowL		},
+				{ "LEFTARROW",			eHUDItemType_ArrowL		},
+				{ "ARROWR",				eHUDItemType_ArrowR		},
+				{ "RARROW",				eHUDItemType_ArrowR		},
+				{ "ARROWRIGHT",			eHUDItemType_ArrowR		},
+				{ "RIGHTARROW",			eHUDItemType_ArrowR		},
+				{ "ARROWU",				eHUDItemType_ArrowU		},
+				{ "UARROW",				eHUDItemType_ArrowU		},
+				{ "ARROWUP",			eHUDItemType_ArrowU		},
+				{ "UPARROW",			eHUDItemType_ArrowU		},
+				{ "ARROWD",				eHUDItemType_ArrowD		},
+				{ "DARROW",				eHUDItemType_ArrowD		},
+				{ "ARROWDOWN",			eHUDItemType_ArrowD		},
+				{ "DOWNARROW",			eHUDItemType_ArrowD		},
+				{ "GROUPTARGET",		eHUDType_GroupTarget	},
+				{ "TARGETGROUP",		eHUDType_GroupTarget	},
+				{ "SAVEDTARGET",		eHUDType_DefaultTarget	},
+				{ "DEFAULTTARGET",		eHUDType_DefaultTarget	},
+				{ "FAVORITETARGET",		eHUDType_DefaultTarget	},
+				{ "TARGETSAVED",		eHUDType_DefaultTarget	},
+				{ "TARGETDEFAULT",		eHUDType_DefaultTarget	},
+				{ "TARGETFAVORITE",		eHUDType_DefaultTarget	},
+			};
+			map.reserve(ARRAYSIZE(kEntries));
+			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
-	u32* result = sNameToEnumMapper.map.find(theName);
-	return result ? EHUDType(*result) : eHUDType_Num;
+	EHUDType* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eHUDType_Num;
 }
 
 
@@ -401,122 +403,136 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			const size_t kMapSize = 112;
-			map.reserve(kMapSize);
-			map.setValue("NOTHING",			eCmdWord_Nothing);
-			map.setValue("BLANK",			eCmdWord_Nothing);
-			map.setValue("EMPTY",			eCmdWord_Nothing);
-			map.setValue("ADD",				eCmdWord_Add);
-			map.setValue("REMOVE",			eCmdWord_Remove);
-			map.setValue("HOLD",			eCmdWord_Hold);
-			map.setValue("REPLACE",			eCmdWord_Replace);
-			map.setValue("SWAP",			eCmdWord_Replace);
-			map.setValue("TOGGLE",			eCmdWord_Toggle);
-			map.setValue("LAYER",			eCmdWord_Layer);
-			map.setValue("LAYERS",			eCmdWord_Layer);
-			map.setValue("NONCHILD",		eCmdWord_NonChild);
-			map.setValue("INDEPENDENT",		eCmdWord_NonChild);
-			map.setValue("INDEPENDENTLY",	eCmdWord_NonChild);
-			map.setValue("PARENT",			eCmdWord_Parent);
-			map.setValue("OWNER",			eCmdWord_Parent);
-			map.setValue("GRANDPARENT",		eCmdWord_Grandparent);
-			map.setValue("ALL",				eCmdWord_All);
-			map.setValue("MOUSE",			eCmdWord_Mouse);
-			map.setValue("WHEEL",			eCmdWord_MouseWheel);
-			map.setValue("MOUSEWHEEL",		eCmdWord_MouseWheel);
-			map.setValue("SMOOTH",			eCmdWord_Smooth);
-			map.setValue("STEP",			eCmdWord_Stepped);
-			map.setValue("STEPPED",			eCmdWord_Stepped);
-			map.setValue("ONCE",			eCmdWord_Once);
-			map.setValue("SINGLE",			eCmdWord_Once);
-			map.setValue("MOVE",			eCmdWord_Move);
-			map.setValue("TURN",			eCmdWord_Turn);
-			map.setValue("MOVETURN",		eCmdWord_Turn);
-			map.setValue("STRAFE",			eCmdWord_Strafe);
-			map.setValue("MOVESTRAFE",		eCmdWord_Strafe);
-			map.setValue("SELECT",			eCmdWord_Select);
-			map.setValue("HOTSPOT",			eCmdWord_Hotspot);
-			map.setValue("HOTSPOTS",		eCmdWord_Hotspot);
-			map.setValue("RESET",			eCmdWord_Reset);
-			map.setValue("EDIT",			eCmdWord_Edit);
-			map.setValue("REASSIGN",		eCmdWord_Edit);
-			map.setValue("REWRITE",			eCmdWord_Edit);
-			map.setValue("MENU",			eCmdWord_Menu);
-			map.setValue("CONFIRM",			eCmdWord_Confirm);
-			map.setValue("B",				eCmdWord_Back);
-			map.setValue("BACK",			eCmdWord_Back);
-			map.setValue("CANCEL",			eCmdWord_Back);
-			map.setValue("CLOSE",			eCmdWord_Close);
-			map.setValue("QUIT",			eCmdWord_Close);
-			map.setValue("EXIT",			eCmdWord_Close);
-			map.setValue("TARGET",			eCmdWord_Target);
-			map.setValue("GROUP",			eCmdWord_Group);
-			map.setValue("L",				eCmdWord_Left);
-			map.setValue("LEFT",			eCmdWord_Left);
-			map.setValue("R",				eCmdWord_Right);
-			map.setValue("RIGHT",			eCmdWord_Right);
-			map.setValue("U",				eCmdWord_Up);
-			map.setValue("UP",				eCmdWord_Up);
-			map.setValue("F",				eCmdWord_Up);
-			map.setValue("FORWARD",			eCmdWord_Up);
-			map.setValue("PREV",			eCmdWord_Up);
-			map.setValue("TOP",				eCmdWord_Up);
-			map.setValue("D",				eCmdWord_Down);
-			map.setValue("DOWN",			eCmdWord_Down);
-			map.setValue("NEXT",			eCmdWord_Down);
-			map.setValue("BOTTOM",			eCmdWord_Down);
-			map.setValue("PREVWRAP",		eCmdWord_PrevWrap);
-			map.setValue("UWRAP",			eCmdWord_PrevWrap);
-			map.setValue("UPWRAP",			eCmdWord_PrevWrap);
-			map.setValue("NEXTWRAP",		eCmdWord_NextWrap);
-			map.setValue("DWRAP",			eCmdWord_NextWrap);
-			map.setValue("DOWNWRAP",		eCmdWord_NextWrap);
-			map.setValue("WRAP",			eCmdWord_Wrap);
-			map.setValue("PREVNOWRAP",		eCmdWord_PrevNoWrap);
-			map.setValue("UNOWRAP",			eCmdWord_PrevNoWrap);
-			map.setValue("UPNOWRAP",		eCmdWord_PrevNoWrap);
-			map.setValue("NEXTNOWRAP",		eCmdWord_NextNoWrap);
-			map.setValue("DNOWRAP",			eCmdWord_NextNoWrap);
-			map.setValue("DOWNNOWRAP",		eCmdWord_NextNoWrap);
-			map.setValue("NOWRAP",			eCmdWord_NoWrap);
-			map.setValue("FAVORITE",		eCmdWord_Default);
-			map.setValue("SAVED",			eCmdWord_Default);
-			map.setValue("DEFAULT",			eCmdWord_Default);
-			map.setValue("LOAD",			eCmdWord_Load);
-			map.setValue("RECALL",			eCmdWord_Load);
-			map.setValue("SAVE",			eCmdWord_Set);
-			map.setValue("STORE",			eCmdWord_Set);
-			map.setValue("SET",				eCmdWord_Set);
-			map.setValue("LAST",			eCmdWord_Last);
-			map.setValue("PET",				eCmdWord_Pet);
-			map.setValue("CHANGE",			eCmdWord_Change);
-			map.setValue("SWITCH",			eCmdWord_Change);
-			map.setValue("PROFILE",			eCmdWord_Profile);
-			map.setValue("APP",				eCmdWord_App);
-			map.setValue("APPLICATION",		eCmdWord_App);
-			map.setValue("PROGRAM",			eCmdWord_App);
-			map.setValue("OVERLAY",			eCmdWord_App);
-			map.setValue("MEMBER",			eCmdWord_Ignored);
-			map.setValue("CHAR",			eCmdWord_Ignored);
-			map.setValue("CHARACTER",		eCmdWord_Ignored);
-			map.setValue("SELECTION",		eCmdWord_Ignored);
-			map.setValue("CURRENT",			eCmdWord_Ignored);
-			map.setValue("ACTIVE",			eCmdWord_Ignored);
-			map.setValue("ITEM",			eCmdWord_Ignored);
-			map.setValue("OPTION",			eCmdWord_Ignored);
-			map.setValue("A",				eCmdWord_Filler);
-			map.setValue("AND",				eCmdWord_Filler);
-			map.setValue("OR",				eCmdWord_Filler);
-			map.setValue("THE",				eCmdWord_Filler);
-			map.setValue("IN",				eCmdWord_Filler);
-			map.setValue("TO",				eCmdWord_Filler);
-			map.setValue("OUT",				eCmdWord_Filler);
-			map.setValue("OF",				eCmdWord_Filler);
-			map.setValue("AT",				eCmdWord_Filler);
-			map.setValue("WITH",			eCmdWord_Filler);
-			map.setValue("DO",				eCmdWord_Filler);
-			const size_t actualMapSize = map.size();
-			DBG_ASSERT(actualMapSize == kMapSize);
+			struct { const char* str; ECommandKeyWord val; } kEntries[] = {
+				{ "NOTHING",		eCmdWord_Nothing	},
+				{ "BLANK",			eCmdWord_Nothing	},
+				{ "EMPTY",			eCmdWord_Nothing	},
+				{ "ADD",			eCmdWord_Add		},
+				{ "REMOVE",			eCmdWord_Remove		},
+				{ "HOLD",			eCmdWord_Hold		},
+				{ "REPLACE",		eCmdWord_Replace	},
+				{ "SWAP",			eCmdWord_Replace	},
+				{ "TOGGLE",			eCmdWord_Toggle		},
+				{ "LAYER",			eCmdWord_Layer		},
+				{ "LAYERS",			eCmdWord_Layer		},
+				{ "NONCHILD",		eCmdWord_NonChild	},
+				{ "INDEPENDENT",	eCmdWord_NonChild	},
+				{ "INDEPENDENTLY",	eCmdWord_NonChild	},
+				{ "PARENT",			eCmdWord_Parent		},
+				{ "OWNER",			eCmdWord_Parent		},
+				{ "GRANDPARENT",	eCmdWord_Grandparent},
+				{ "ALL",			eCmdWord_All		},
+				{ "MOUSE",			eCmdWord_Mouse		},
+				{ "WHEEL",			eCmdWord_MouseWheel	},
+				{ "MOUSEWHEEL",		eCmdWord_MouseWheel	},
+				{ "SMOOTH",			eCmdWord_Smooth		},
+				{ "STEP",			eCmdWord_Stepped	},
+				{ "STEPPED",		eCmdWord_Stepped	},
+				{ "ONCE",			eCmdWord_Once		},
+				{ "SINGLE",			eCmdWord_Once		},
+				{ "MOVE",			eCmdWord_Move		},
+				{ "TURN",			eCmdWord_Turn		},
+				{ "MOVETURN",		eCmdWord_Turn		},
+				{ "STRAFE",			eCmdWord_Strafe		},
+				{ "MOVESTRAFE",		eCmdWord_Strafe		},
+				{ "SELECT",			eCmdWord_Select		},
+				{ "CHOOSE",			eCmdWord_Select		},
+				{ "HOTSPOT",		eCmdWord_Hotspot	},
+				{ "HOTSPOTS",		eCmdWord_Hotspot	},
+				{ "RESET",			eCmdWord_Reset		},
+				{ "EDIT",			eCmdWord_Edit		},
+				{ "REASSIGN",		eCmdWord_Edit		},
+				{ "REWRITE",		eCmdWord_Edit		},
+				{ "MENU",			eCmdWord_Menu		},
+				{ "CONFIRM",		eCmdWord_Confirm	},
+				{ "ACTIVATE",		eCmdWord_Confirm	},
+				{ "B",				eCmdWord_Back		},
+				{ "BACK",			eCmdWord_Back		},
+				{ "CANCEL",			eCmdWord_Back		},
+				{ "CLOSE",			eCmdWord_Close		},
+				{ "QUIT",			eCmdWord_Close		},
+				{ "EXIT",			eCmdWord_Close		},
+				{ "TARGET",			eCmdWord_Target		},
+				{ "TARGETS",		eCmdWord_Target		},
+				{ "TARGETED",		eCmdWord_Target		},
+				{ "RETARGET",		eCmdWord_Target		},
+				{ "GROUP",			eCmdWord_Group		},
+				{ "L",				eCmdWord_Left		},
+				{ "LEFT",			eCmdWord_Left		},
+				{ "R",				eCmdWord_Right		},
+				{ "RIGHT",			eCmdWord_Right		},
+				{ "U",				eCmdWord_Up			},
+				{ "UP",				eCmdWord_Up			},
+				{ "F",				eCmdWord_Up			},
+				{ "FORWARD",		eCmdWord_Up			},
+				{ "PREV",			eCmdWord_Up			},
+				{ "PREVIOUS",		eCmdWord_Up			},
+				{ "TOP",			eCmdWord_Up			},
+				{ "D",				eCmdWord_Down		},
+				{ "DOWN",			eCmdWord_Down		},
+				{ "NEXT",			eCmdWord_Down		},
+				{ "BOTTOM",			eCmdWord_Down		},
+				{ "PREVWRAP",		eCmdWord_PrevWrap	},
+				{ "UWRAP",			eCmdWord_PrevWrap	},
+				{ "UPWRAP",			eCmdWord_PrevWrap	},
+				{ "NEXTWRAP",		eCmdWord_NextWrap	},
+				{ "DWRAP",			eCmdWord_NextWrap	},
+				{ "DOWNWRAP",		eCmdWord_NextWrap	},
+				{ "WRAP",			eCmdWord_Wrap		},
+				{ "WRAPPING",		eCmdWord_Wrap		},
+				{ "PREVNOWRAP",		eCmdWord_PrevNoWrap	},
+				{ "UNOWRAP",		eCmdWord_PrevNoWrap	},
+				{ "UPNOWRAP",		eCmdWord_PrevNoWrap	},
+				{ "NEXTNOWRAP",		eCmdWord_NextNoWrap	},
+				{ "DNOWRAP",		eCmdWord_NextNoWrap	},
+				{ "DOWNNOWRAP",		eCmdWord_NextNoWrap	},
+				{ "NOWRAP",			eCmdWord_NoWrap		},
+				{ "FAVORITE",		eCmdWord_Default	},
+				{ "SAVED",			eCmdWord_Default	},
+				{ "DEFAULT",		eCmdWord_Default	},
+				{ "LOAD",			eCmdWord_Load		},
+				{ "RECALL",			eCmdWord_Load		},
+				{ "SAVE",			eCmdWord_Set		},
+				{ "STORE",			eCmdWord_Set		},
+				{ "SET",			eCmdWord_Set		},
+				{ "LAST",			eCmdWord_Last		},
+				{ "PET",			eCmdWord_Pet		},
+				{ "CHANGE",			eCmdWord_Change		},
+				{ "SWITCH",			eCmdWord_Change		},
+				{ "PROFILE",		eCmdWord_Profile	},
+				{ "APP",			eCmdWord_App		},
+				{ "APPLICATION",	eCmdWord_App		},
+				{ "PROGRAM",		eCmdWord_App		},
+				{ "OVERLAY",		eCmdWord_App		},
+				{ "MEMBER",			eCmdWord_Ignored	},
+				{ "MEMBERS",		eCmdWord_Ignored	},
+				{ "CHAR",			eCmdWord_Ignored	},
+				{ "CHARACTER",		eCmdWord_Ignored	},
+				{ "SELECTION",		eCmdWord_Ignored	},
+				{ "CURRENT",		eCmdWord_Ignored	},
+				{ "ACTIVE",			eCmdWord_Ignored	},
+				{ "ITEM",			eCmdWord_Ignored	},
+				{ "OPTION",			eCmdWord_Ignored	},
+				{ "A",				eCmdWord_Filler		},
+				{ "AND",			eCmdWord_Filler		},
+				{ "OR",				eCmdWord_Filler		},
+				{ "THE",			eCmdWord_Filler		},
+				{ "IN",				eCmdWord_Filler		},
+				{ "TO",				eCmdWord_Filler		},
+				{ "ON",				eCmdWord_Filler		},
+				{ "OUT",			eCmdWord_Filler		},
+				{ "OF",				eCmdWord_Filler		},
+				{ "AT",				eCmdWord_Filler		},
+				{ "WITH",			eCmdWord_Filler		},
+				{ "W",				eCmdWord_Filler		},
+				{ "DO",				eCmdWord_Filler		},
+				{ "THIS",			eCmdWord_Filler		},
+				{ "THEN",			eCmdWord_Filler		},
+				{ "IT",				eCmdWord_Filler		},
+			};
+			map.reserve(ARRAYSIZE(kEntries));
+			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
 		}
 	};
 	static WordToEnumMapper sWordToEnumMapper;
