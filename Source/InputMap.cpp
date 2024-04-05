@@ -1090,10 +1090,6 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Wrap);
 		allowedKeyWords.set(eCmdWord_NoWrap);
 		allowedKeyWords.set(eCmdWord_Last);
-		for(int i = 0; i < keyWordsFound.size(); ++i)
-			if( keyWordsFound.test(i) )
-				debugPrint("%d ", i);
-		debugPrint("\n");
 		if( (keyWordsFound.test(eCmdWord_Set) ||
 			 keyWordsFound.test(eCmdWord_Left)) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
