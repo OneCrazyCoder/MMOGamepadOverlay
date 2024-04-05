@@ -34,6 +34,7 @@ struct Config
 {
 	u16 shortHoldTime;
 	u16 longHoldTime;
+	u16 tapHoldTime;
 	u16 autoRepeatDelay;
 	u16 autoRepeatRate;
 
@@ -41,6 +42,7 @@ struct Config
 	{
 		shortHoldTime = Profile::getInt("System/ButtonShortHoldTime", 400);
 		longHoldTime = Profile::getInt("System/ButtonLongHoldTime", 800);
+		tapHoldTime = Profile::getInt("System/ButtonTapTime", 500);
 		autoRepeatDelay = Profile::getInt("System/AutoRepeatDelay", 400);
 		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
 	}
@@ -876,12 +878,12 @@ static void processButtonShortHold(ButtonState& theBtnState)
 		return;
 
 	// Only ever use commandsWhenPressed for short hold action
-	if( theBtnState.commandsWhenPressed )
-	{
-		processCommand(theBtnState,
-			theBtnState.commandsWhenPressed[eBtnAct_ShortHold],
-			theBtnState.layerWhenPressed);
-	}
+	if( !theBtnState.commandsWhenPressed )
+		return;
+
+	processCommand(theBtnState,
+		theBtnState.commandsWhenPressed[eBtnAct_ShortHold],
+		theBtnState.layerWhenPressed);
 }
 
 
@@ -895,19 +897,38 @@ static void processButtonLongHold(ButtonState& theBtnState)
 		return;
 
 	// Only ever use commandsWhenPressed for long hold action
-	if( theBtnState.commandsWhenPressed )
-	{
-		processCommand(theBtnState,
-			theBtnState.commandsWhenPressed[eBtnAct_LongHold],
-			theBtnState.layerWhenPressed);
-	}
+	if( !theBtnState.commandsWhenPressed )
+		return;
+
+	processCommand(theBtnState,
+		theBtnState.commandsWhenPressed[eBtnAct_LongHold],
+		theBtnState.layerWhenPressed);
 }
 
 
 static void processButtonTap(ButtonState& theBtnState)
 {
+	// Should not even call this if button was used in a button combo
+	DBG_ASSERT(!theBtnState.usedInButtonCombo);
+
 	// Only ever use commandsWhenPressed for tap action
-	if( theBtnState.commandsWhenPressed )
+	if( !theBtnState.commandsWhenPressed )
+		return;
+
+	// If has a short or long hold command, then a "tap" is just releasing
+	// before said command had a chance to execute. Otherwise it is based
+	// on holding less than tapHoldTime before releasing.
+	const bool hasShortHold =
+		theBtnState.commandsWhenPressed[eBtnAct_ShortHold]
+			.type != eCmdType_Empty;
+	const bool hasLongHold =
+		theBtnState.commandsWhenPressed[eBtnAct_LongHold]
+			.type != eCmdType_Empty;
+
+	if( (hasShortHold && !theBtnState.shortHoldDone) ||
+		(!hasShortHold && hasLongHold && !theBtnState.longHoldDone) ||
+		(!hasShortHold && !hasLongHold &&
+			theBtnState.heldTime < kConfig.tapHoldTime) )
 	{
 		processCommand(theBtnState,
 			theBtnState.commandsWhenPressed[eBtnAct_Tap],
@@ -931,26 +952,7 @@ static void processButtonReleased(ButtonState& theBtnState)
 	}
 
 	// If released quickly enough, process 'tap' event
-	if( !theBtnState.shortHoldDone )
-	{// If released before .shortHoldDone, definitely a tap
-		processButtonTap(theBtnState);
-	}
-	else if( !theBtnState.longHoldDone )
-	{// May still be a tap before .longHoldDone
-		// This is only allowed if has a valid _LongHold command type,
-		// and does NOT have a valid _ShortHold command type.
-		const ECommandType shortHoldCommandType =
-			!theBtnState.commandsWhenPressed ? eCmdType_Empty :
-			theBtnState.commandsWhenPressed[eBtnAct_ShortHold].type;
-		const ECommandType longHoldCommandType =
-			!theBtnState.commandsWhenPressed ? eCmdType_Empty :
-			theBtnState.commandsWhenPressed[eBtnAct_LongHold].type;
-		if( shortHoldCommandType == eCmdType_Empty &&
-			longHoldCommandType != eCmdType_Empty )
-		{
-			processButtonTap(theBtnState);
-		}
-	}
+	processButtonTap(theBtnState);
 
 	// Use commandsWhenPressed if it has a _Release action.
 	// If not, can use the _Release action for current setup instead,
