@@ -30,8 +30,8 @@ u16 keyForSpecialAction(ESpecialKey theAction);
 // if no commands have been assigned to given layer & button at all
 const Command* commandsForButton(u16 theLayerID, EButton theButton);
 
-// Checks if given controls layer should have mouse look turned on
-bool mouseLookShouldBeOn(u16 theLayerID);
+// Checks what EMouseMode given controls layer requests be used
+EMouseMode mouseMode(u16 theLayerID);
 
 // Gets what HUD elements given layer specifically wants to show
 const BitVector<>& hudElementsToShow(u16 theLayerID);

@@ -129,8 +129,6 @@ struct TranslatorState
 	ButtonState gamepadButtons[eBtn_Num];
 	std::vector<LayerState> layers;
 	std::vector<u16> layerOrder;
-	int mouseLookTime;
-	bool mouseLookOn;
 
 	void clear()
 	{
@@ -140,8 +138,6 @@ struct TranslatorState
 			layers[i].autoButton.clear();
 		layers.clear();
 		layerOrder.clear();
-		mouseLookTime = 0;
-		mouseLookOn = false;
 	}
 };
 
@@ -700,9 +696,14 @@ static void processButtonPress(ButtonState& theBtnState)
 	if( !theBtnState.commands )
 		return;
 
-	// Get default command for pressing this button (_Down action)
-	const Command& aCmd = theBtnState.commands[eBtnAct_Down];
+	// _Press is processed before _Down since it is specifically called out
+	// and the name implies it should be first action on button press.
+	processCommand(theBtnState,
+		theBtnState.commands[eBtnAct_Press],
+		theBtnState.commandsLayer);
 
+	// Get _Down command for this button (default when no action specified)
+	const Command& aCmd = theBtnState.commands[eBtnAct_Down];
 	switch(aCmd.type)
 	{
 	case eCmdType_MoveTurn:
@@ -716,12 +717,6 @@ static void processButtonPress(ButtonState& theBtnState)
 			return;
 		break;
 	}
-
-	// _Press is processed before _Down since it is specifically called out
-	// and the name implies it should be first action on button press.
-	processCommand(theBtnState,
-		theBtnState.commands[eBtnAct_Press],
-		theBtnState.commandsLayer);
 	processCommand(theBtnState, aCmd, theBtnState.commandsLayer);
 }
 
@@ -1209,8 +1204,6 @@ static void updateHUDStateForCurrentLayers()
 	gVisibleHUD.reset();
 	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 	{
-		sState.mouseLookOn = sState.mouseLookOn ||
-			InputMap::mouseLookShouldBeOn(sState.layerOrder[i]);
 		gVisibleHUD |=
 			InputMap::hudElementsToShow(sState.layerOrder[i]);
 		gVisibleHUD &=
@@ -1260,6 +1253,21 @@ static void updateHUDStateForCurrentLayers()
 }
 
 
+static void updateMouseModeForCurrentLayers()
+{
+	EMouseMode aMouseMode = eMouseMode_Cursor;
+	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	{
+		EMouseMode aLayerMouseMode =
+			InputMap::mouseMode(sState.layerOrder[i]);
+		if( aLayerMouseMode != eMouseMode_Default )
+			aMouseMode = aLayerMouseMode;
+	}
+
+	InputDispatcher::setMouseMode(aMouseMode);
+}
+
+
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
@@ -1271,6 +1279,7 @@ void loadProfile()
 	addControlsLayer(0, 0);
 	loadButtonCommandsForCurrentLayers();
 	updateHUDStateForCurrentLayers();
+	updateMouseModeForCurrentLayers();
 }
 
 
@@ -1328,12 +1337,12 @@ void update()
 		}
 	}
 
-	// Update button commands, mouselook mode, HUD, etc for new layer order
+	// Update button commands, mouse mode, HUD, etc for new layer order
 	if( sResults.layerChangeMade )
 	{
 		loadButtonCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
-		sState.mouseLookOn = false;
+		updateMouseModeForCurrentLayers();
 		#ifndef NDEBUG
 		std::string aNewLayerOrder("Layers: ");
 		for(std::vector<u16>::iterator itr =
@@ -1350,11 +1359,6 @@ void update()
 	}
 
 	// Update mouselook status continuously
-	InputDispatcher::setMouseLookMode(sState.mouseLookOn);
-	if( sState.mouseLookOn )
-		sState.mouseLookTime += gAppFrameTime;
-	else
-		sState.mouseLookTime = 0;
 
 	// Send input that was queued up by any of the above
 	InputDispatcher::moveCharacter(

@@ -173,6 +173,16 @@ enum EButton
 	eBtn_DInputBtnNum = eBtn_Num - eBtn_FirstDInputBtn,
 };
 
+enum EMouseMode
+{
+	eMouseMode_Default,	// Use whatever previous layers specified (or _Cursor)
+	eMouseMode_Cursor,	// Normal mouse cursor
+	eMouseMode_Look,	// Mouse Look (holding right mouse button)
+	eMouseMode_Hide,	// Hide cursor without using MouseLook
+
+	eMouseMode_Num
+};
+
 enum EHUDType
 {
 	eMenuStyle_List,
@@ -397,5 +407,6 @@ extern const char* kProfileButtonName[];
 extern u8 keyNameToVirtualKey(const std::string& theKeyName);
 extern std::string virtualKeyToName(u8 theVKey);
 extern EButton buttonNameToID(const std::string& theName);
+extern EMouseMode mouseModeNameToID(const std::string& theName);
 extern EHUDType hudTypeNameToID(const std::string& theName);
 extern ECommandKeyWord commandWordToID(const std::string& theWord);
