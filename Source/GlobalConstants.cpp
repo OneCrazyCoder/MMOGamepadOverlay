@@ -300,6 +300,38 @@ EButton buttonNameToID(const std::string& theName)
 }
 
 
+EMouseMode mouseModeNameToID(const std::string& theName)
+{
+	struct NameToEnumMapper
+	{
+		typedef StringToValueMap<EMouseMode, u8> NameToEnumMap;
+		NameToEnumMap map;
+		NameToEnumMapper()
+		{
+			struct { const char* str; EMouseMode val; } kEntries[] = {
+				{ "DEFAULT",	eMouseMode_Default	},
+				{ "CURSOR",		eMouseMode_Cursor	},
+				{ "SHOW",		eMouseMode_Cursor	},
+				{ "VISIBLE",	eMouseMode_Cursor	},
+				{ "LOOK",		eMouseMode_Look		},
+				{ "CAMERA",		eMouseMode_Look		},
+				{ "MOUSELOOK",	eMouseMode_Look		},
+				{ "HIDE",		eMouseMode_Hide		},
+				{ "HIDDEN",		eMouseMode_Hide		},
+				{ "INVISIBLE",	eMouseMode_Hide		},
+			};
+			map.reserve(ARRAYSIZE(kEntries));
+			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
+		}
+	};
+	static NameToEnumMapper sNameToEnumMapper;
+
+	EMouseMode* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eMouseMode_Num;
+}
+
+
 EHUDType hudTypeNameToID(const std::string& theName)
 {
 	struct NameToEnumMapper

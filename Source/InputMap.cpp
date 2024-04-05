@@ -32,7 +32,7 @@ DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 // These need to be in all upper case
 const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
-const char* kMouseLookKey = "MOUSELOOK";
+const char* kMouseModeKey = "MOUSE";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
@@ -142,13 +142,13 @@ struct ControlsLayer
 	u16 includeLayer;
 	BitVector<> showHUD;
 	BitVector<> hideHUD;
-	bool mouseLookOn;
+	EMouseMode mouseMode;
 
 	ControlsLayer() :
 		includeLayer(),
 		showHUD(),
 		hideHUD(),
-		mouseLookOn()
+		mouseMode(eMouseMode_Default)
 	{}
 };
 
@@ -2036,8 +2036,8 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	// If has an includeLayer, get default settings from it first
 	if( sLayers[theLayerIdx].includeLayer != 0 )
 	{
-		sLayers[theLayerIdx].mouseLookOn =
-			sLayers[sLayers[theLayerIdx].includeLayer].mouseLookOn;
+		sLayers[theLayerIdx].mouseMode =
+			sLayers[sLayers[theLayerIdx].includeLayer].mouseMode;
 	}
 
 	const std::string& aLayerName = sLayers[theLayerIdx].label;
@@ -2055,10 +2055,34 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	else
 		aLayerPrefix = std::string(kLayerPrefix)+aLayerName+"/";
 
-	// Get mouse look layer setting directly
-	sLayers[theLayerIdx].mouseLookOn = Profile::getBool(
-		aLayerPrefix + kMouseLookKey,
-		sLayers[theLayerIdx].mouseLookOn);
+	{// Get mouse mode layer setting directly
+		const std::string& aMouseModeStr =
+			Profile::getStr(aLayerPrefix + kMouseModeKey);
+		if( !aMouseModeStr.empty() )
+		{
+			const EMouseMode aMouseMode =
+				mouseModeNameToID(condense(aMouseModeStr));
+			if( aMouseMode >= eMouseMode_Num )
+			{
+				logError("Unknown mode for 'Mouse = %s' in Layer [%s]!",
+					aMouseModeStr.c_str(),
+					theBuilder.debugItemName.c_str());
+			}
+			else
+			{
+				sLayers[theLayerIdx].mouseMode = aMouseMode;
+			}
+		}
+	}
+	DBG_ASSERT(sLayers[theLayerIdx].mouseMode < eMouseMode_Num);
+	if( sLayers[theLayerIdx].mouseMode != eMouseMode_Default )
+	{
+		mapDebugPrint("[%s]: Mouse set to '%s' mode\n",
+			theBuilder.debugItemName.c_str(),
+			sLayers[theLayerIdx].mouseMode == eMouseMode_Cursor ? "Cursor" :
+			sLayers[theLayerIdx].mouseMode == eMouseMode_Look ? "Mouse Look" :
+			/*sLayers[theLayerIdx].mouseMode == eMouseMode_Hide*/ "Hidden");
+	}
 
 	// Check each key-value pair for button assignment requests
 	Profile::KeyValuePairs aSettings;
@@ -2073,7 +2097,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		const std::string aKey = itr->first;
 		if( aKey == kIncludeKey ||
-			aKey == kMouseLookKey ||
+			aKey == kMouseModeKey ||
 			aKey == kHUDSettingsKey )
 			continue;
 
@@ -2554,10 +2578,10 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 }
 
 
-bool mouseLookShouldBeOn(u16 theLayerID)
+EMouseMode mouseMode(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
-	return sLayers[theLayerID].mouseLookOn;
+	return sLayers[theLayerID].mouseMode;
 }
 
 

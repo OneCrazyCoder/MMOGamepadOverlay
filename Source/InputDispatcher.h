@@ -31,9 +31,10 @@ void update();
 // as key inputs (see GlobalConstants.h)
 void sendKeyCommand(const Command& theCommand);
 
-// Adjusts speeds used in moveMouse and (if true) causes
-// right mouse button to be held down indefinitely.
-void setMouseLookMode(bool);
+// Sets mouse mode, which affects things like mouse movement
+// speed in moveMouse (if allowed at all) and automatically
+// holding down right mouse button to active MouseLook mode.
+void setMouseMode(EMouseMode theMouseMode);
 
 // Shift mouse mouse position relative to current position.
 // Amount specified by dx/dy is in relation to mouse speed

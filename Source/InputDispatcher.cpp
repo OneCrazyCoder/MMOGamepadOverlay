@@ -231,10 +231,15 @@ struct DispatchTracker
 	KeysWantDownMap keysWantDown;
 	VectorMap<u8, int> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
+	EMouseMode mouseModeWanted;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
 	u16 jumpToHotspot;
-	bool mouseLookWanted;
+	u16 mouseRestorePosX;
+	u16 mouseRestorePosY;
+	bool hasMouseRestorePos;
+	bool mouseInHiddenPos;
+	bool disableMouseHide;
 	bool typingChatBoxString;
 
 	DispatchTracker() :
@@ -243,10 +248,15 @@ struct DispatchTracker
 		digitalMouseVel(),
 		mouseLookActiveTime(),
 		keysHeldDown(),
+		mouseModeWanted(eMouseMode_Cursor),
 		nextQueuedKey(),
 		backupQueuedKey(),
 		jumpToHotspot(),
-		mouseLookWanted(),
+		mouseRestorePosX(),
+		mouseRestorePosY(),
+		hasMouseRestorePos(),
+		mouseInHiddenPos(),
+		disableMouseHide(),
 		typingChatBoxString()
 	{}
 };
@@ -440,6 +450,88 @@ static bool isMouseButton(u16 theVKey)
 		return true;
 	}
 	return false;
+}
+
+
+static void backupMousePos()
+{
+	if( sTracker.hasMouseRestorePos )
+		return;
+
+	POINT aMousePos;
+	GetCursorPos(&aMousePos);
+	aMousePos.x += GetSystemMetrics(SM_XVIRTUALSCREEN);
+	aMousePos.y += GetSystemMetrics(SM_XVIRTUALSCREEN);
+	const int aDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	const int aDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+	sTracker.mouseRestorePosX =
+		clamp(aMousePos.x * 65535 / aDesktopWidth, 0, 65535);
+	sTracker.mouseRestorePosY =
+		clamp(aMousePos.y * 65535 / aDesktopHeight, 0, 65535);
+	sTracker.hasMouseRestorePos = true;
+}
+
+
+static void restoreMousePos()
+{
+	if( !sTracker.hasMouseRestorePos )
+		return;
+
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.dx = sTracker.mouseRestorePosX;
+	anInput.mi.dy = sTracker.mouseRestorePosY;
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
+	sTracker.inputs.push_back(anInput);
+	sTracker.mouseInHiddenPos = true;
+	sTracker.mouseInHiddenPos = false;
+	if( sTracker.mouseModeWanted == eMouseMode_Cursor )
+		sTracker.hasMouseRestorePos = false;
+}
+
+
+static void hideMouseCursor()
+{
+	if( sTracker.mouseInHiddenPos || sTracker.disableMouseHide )
+		return;
+
+	// While it is feasibly possible, attempting to actually hide a
+	// mouse cursor for another app is quite invasive, so instead will
+	// just jump cursor to the bottom-right corner of the desktop.
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.dx = 0xFFFF;
+	anInput.mi.dy = 0xFFFF;
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
+	sTracker.inputs.push_back(anInput);
+	sTracker.mouseInHiddenPos = true;
+}
+
+
+static void prepareMousePosForWheelMotion()
+{
+	// Most of the time the mouse cursor should be fine wherever it is,
+	// but after using hideMouseCursor() the mouse may be jumped outside
+	// of the game window, and it assumed that any mouse wheel commands
+	// at that point are for the purpose of zooming the camera in/out.
+	// In that case, will temporarily jump the mouse to MouseLook position
+	// (i.e. center of the screen) which is assumed to not be pointing at
+	// UI windows and thus will move the game camera. Also sets a flag
+	// to prevent re-hiding the cursor on the same frame.
+	sTracker.disableMouseHide = true;
+	if( !sTracker.mouseInHiddenPos )
+		return;
+
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	const Hotspot& aHotspot =
+		InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
+	anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
+	anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
+	sTracker.inputs.push_back(anInput);
+	sTracker.mouseInHiddenPos = false;
 }
 
 
@@ -704,7 +796,7 @@ void loadProfile()
 
 void cleanup()
 {
-	sTracker.mouseLookWanted = false;
+	sTracker.mouseModeWanted = eMouseMode_Cursor;
 	sTracker.keysLockedDown.clear();
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
@@ -748,19 +840,34 @@ void update()
 	}
 
 
-	// Initiate MouseLook mode
-	// -----------------------
-	if( sTracker.mouseLookWanted &&
+	// Initiate special mouse modes (look or hide)
+	// -------------------------------------------
+	if( sTracker.mouseModeWanted != eMouseMode_Cursor &&
 		!sTracker.keysHeldDown.test(VK_RBUTTON) &&
+		!sTracker.keysHeldDown.test(VK_LBUTTON) &&
 		!sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.jumpToHotspot &&
 		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) )
-	{// Between other tasks, so should start up mouse look mode
-		// Jump curser to safe spot for initial right-click first
-		sTracker.jumpToHotspot = eSpecialHotspot_MouseLookStart;
-		sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
+	{// Between other tasks, so safe to start up new mouse mode
+		// Store current mouse position to restore when return to Cursor mode
+		backupMousePos();
+		switch(sTracker.mouseModeWanted)
+		{
+		case eMouseMode_Look:
+			// Jump curser to safe spot for initial right-click
+			sTracker.jumpToHotspot = eSpecialHotspot_MouseLookStart;
+			// Begin holding down right mouse button
+			sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
+			break;
+		case eMouseMode_Hide:
+			hideMouseCursor();
+			break;
+		default:
+			DBG_ASSERT(false && "Invalid sTracker.mouseModeWanted value!");
+		}
 	}
+	sTracker.disableMouseHide = false;
 
 
 	// Update queue
@@ -845,7 +952,8 @@ void update()
 	// Process keysWantDown
 	// --------------------
 	BitArray<0xFF> aDesiredKeysDown; aDesiredKeysDown.reset();
-	if( sTracker.mouseLookWanted && sTracker.keysHeldDown.test(VK_RBUTTON) )
+	if( sTracker.mouseModeWanted == eMouseMode_Look &&
+		sTracker.keysHeldDown.test(VK_RBUTTON) )
 	{// Keep holding right mouse button once mouselook mode started
 		aDesiredKeysDown.set(VK_RBUTTON);
 		sTracker.mouseLookActiveTime += gAppFrameTime;
@@ -970,7 +1078,7 @@ void update()
 		release time in the case of mouse buttons. If this turns out not to
 		be the case then the logic can change to just not allow any keys to
 		be pressed that don't align with the current modifiers being held down,
-		but this will obviously lower responsiveness.
+		but this will obviously make the controls feel less responsive.
 	*/
 
 
@@ -1012,6 +1120,7 @@ void update()
 		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 		sTracker.inputs.push_back(anInput);
 		sTracker.jumpToHotspot = 0;
+		sTracker.mouseInHiddenPos = false;
 	}
 	else if( readyForQueuedEvent && sTracker.nextQueuedKey )
 	{
@@ -1143,20 +1252,29 @@ void sendKeyCommand(const Command& theCommand)
 }
 
 
-void setMouseLookMode(bool active)
+void setMouseMode(EMouseMode theMouseMode)
 {
-	sTracker.mouseLookWanted = active;
+	DBG_ASSERT(theMouseMode < eMouseMode_Num);
+	if( theMouseMode == eMouseMode_Default )
+		theMouseMode = eMouseMode_Cursor;
+	sTracker.mouseModeWanted = theMouseMode;
 }
 
 
 void moveMouse(int dx, int dy, bool digital)
 {
 	// Ignore mouse movement while trying to jump cursor to a hotspot
-	if( sTracker.jumpToHotspot )
+	// or while trying to keep the mouse cursor hidden
+	if( sTracker.jumpToHotspot || sTracker.mouseModeWanted == eMouseMode_Hide )
 		return;
 
+	// In normal 'cursor' mode, first restore backed-up mouse position
+	// (won't do anything unless just finished 'hide' or 'mouselook' modes)
+	if( sTracker.mouseModeWanted == eMouseMode_Cursor )
+		restoreMousePos();
+
 	const bool kMouseLookSpeed =
-		sTracker.mouseLookWanted ||
+		sTracker.mouseModeWanted == eMouseMode_Look ||
 		sTracker.keysHeldDown.test(VK_RBUTTON);
 
 	// Get magnitude of desired mouse motion in 0 to 1.0 range
@@ -1187,8 +1305,11 @@ void moveMouse(int dx, int dy, bool digital)
 	}
 
 	// Assume user manually using mouse look if drag mouse while holding RMB
-	if( !sTracker.mouseLookWanted && sTracker.keysHeldDown.test(VK_RBUTTON) )
+	if( sTracker.mouseModeWanted != eMouseMode_Look &&
+		sTracker.keysHeldDown.test(VK_RBUTTON) )
+	{
 		sTracker.mouseLookActiveTime += gAppFrameTime * aMagnitude;
+	}
 
 	// Get angle of desired mouse motion
 	const double anAngle = atan2(double(dy), double(dx));
@@ -1233,6 +1354,7 @@ void moveMouse(int dx, int dy, bool digital)
 	anInput.mi.dy = dy;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
 	sTracker.inputs.push_back(anInput);
+	sTracker.mouseInHiddenPos = false;
 }
 
 
@@ -1286,6 +1408,9 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	if( stepped )
 		dy *= WHEEL_DELTA;
 
+	// Make sure mouse cursor is in a valid position for mouse wheel input
+	prepareMousePosForWheelMotion();
+
 	// Send the mouse wheel movement to the OS
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
@@ -1297,6 +1422,9 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 
 void scrollMouseWheelOnce(ECommandDir theDir)
 {
+	// Make sure mouse cursor is in a valid position for mouse wheel input
+	prepareMousePosForWheelMotion();
+
 	if( theDir == eCmdDir_Up )
 	{
 		Input anInput;
