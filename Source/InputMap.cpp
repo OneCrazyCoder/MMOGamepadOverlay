@@ -2132,9 +2132,9 @@ static MenuItem stringToMenuItem(
 	}
 
 	// Get the label (part of the string before first colon)
-	aMenuItem.label = breakOffItemBeforeChar(theString, ':');
+	std::string aLabel = breakOffItemBeforeChar(theString, ':');
 
-	if( aMenuItem.label.empty() && !theString.empty() )
+	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
 	{// Having no : character means this points to a sub-menu
 		const size_t anOldMenuCount = sMenus.size();
 		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
@@ -2157,11 +2157,21 @@ static MenuItem stringToMenuItem(
 		return aMenuItem;
 	}
 
+	if( aLabel.empty() && !theString.empty() && theString[0] == ':' )
+	{// Possibly valid command with just an empty label
+		theString = trim(&theString[1]);
+		aLabel = "<unnamed>";
+	}
+	else
+	{
+		aMenuItem.label = aLabel;
+	}
+
 	if( theString.empty() )
 	{
 		mapDebugPrint("%s: '%s' left <unassigned>!\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str());
+			aLabel.c_str());
 		return aMenuItem;
 	}
 
@@ -2172,7 +2182,7 @@ static MenuItem stringToMenuItem(
 		aMenuItem.cmd.menuID = sMenus[theMenuID].rootMenuID;
 		mapDebugPrint("%s: '%s' assigned to back out of menu\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str());
+			aLabel.c_str());
 		return aMenuItem;
 	}
 
@@ -2183,7 +2193,7 @@ static MenuItem stringToMenuItem(
 		aMenuItem.cmd.relativeLayer = 0;
 		mapDebugPrint("%s: '%s' assigned to close menu\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str());
+			aLabel.c_str());
 		return aMenuItem;
 	}
 
@@ -2194,17 +2204,17 @@ static MenuItem stringToMenuItem(
 	case eCmdType_SlashCommand:
 		mapDebugPrint("%s: '%s' assigned to macro: %s\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str(), theString.c_str());
+			aLabel.c_str(), theString.c_str());
 		break;
 	case eCmdType_SayString:
 		mapDebugPrint("%s: '%s' assigned to macro: %s\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str(), theString.c_str() + 1);
+			aLabel.c_str(), theString.c_str() + 1);
 		break;
 	case eCmdType_TapKey:
 		mapDebugPrint("%s: '%s' assigned to: %s (%s%s%s%s)\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str(),
+			aLabel.c_str(),
 			theString.c_str(),
 			!!(aMenuItem.cmd.vKey & kVKeyShiftFlag) ? "Shift+" : "",
 			!!(aMenuItem.cmd.vKey & kVKeyCtrlFlag) ? "Ctrl+" : "",
@@ -2214,7 +2224,7 @@ static MenuItem stringToMenuItem(
 	case eCmdType_VKeySequence:
 		mapDebugPrint("%s: '%s' assigned to sequence: %s\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str(), theString.c_str());
+			aLabel.c_str(), theString.c_str());
 		break;
 	case eCmdType_Empty:
 		// Probably just forgot the > at front of a plain string
@@ -2225,12 +2235,12 @@ static MenuItem stringToMenuItem(
 				 "Assigning as a chat box string. "
 				 "Add > to start of it if this was the intent!",
 				theBuilder.debugItemName.c_str(),
-		aMenuItem.label.c_str(), theString.c_str());
+		aLabel.c_str(), theString.c_str());
 		break;
 	default:
 		mapDebugPrint("%s: '%s' assigned to command: %s\n",
 			theBuilder.debugItemName.c_str(),
-			aMenuItem.label.c_str(), theString.c_str());
+			aLabel.c_str(), theString.c_str());
 		break;
 	}
 

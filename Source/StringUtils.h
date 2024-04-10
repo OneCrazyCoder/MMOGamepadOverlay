@@ -42,10 +42,9 @@ bool isAbsolutePath(const std::string& thePath);
 
 // Returns string before first theChar, and removes it+theChar from theString
 // Also trims whitespace around returned string and start of theString
-// If theChar is not found, returns empty string and leaves theString as-is
+// If theChar is not found or is the first non-whitespace character,
+// returns empty string and only trims whitespace from beginning of theString.
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
-// Same as above but for last item after last instance of theChar
-std::string breakOffLastItemAferChar(std::string& theString, char theChar = ',');
 // Breaks the string into individual sub-strings of ASCII alphanumeric characters,
 // and appends them to the passed-in vector of strings. All other characters are
 // stripped and act as separators for each "word" except for hyphenated or under-

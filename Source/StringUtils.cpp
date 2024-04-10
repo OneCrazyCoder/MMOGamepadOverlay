@@ -416,37 +416,25 @@ bool isAbsolutePath(const std::string& thePath)
 std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 {
 	std::string result;
-	size_t aCharPos = theString.find(theChar);
+	size_t aStripCount = 0;
 
+	size_t aCharPos = theString.find(theChar);
 	if( aCharPos != std::string::npos )
 	{
 		result = trim(theString.substr(0, aCharPos));
-
-		// Find first non-whitespace part of theString after aCharPos
-		for(++aCharPos; aCharPos < theString.length(); ++aCharPos)
-		{
-			if( theString[aCharPos] > ' ' )
-				break;
-		}
-		theString.erase(0, aCharPos);
+		// If result is non-empty, everything up to and include theChar
+		if( !result.empty() )
+			aStripCount = aCharPos + 1;
 	}
 
-	return result;
-}
-
-
-std::string breakOffLastItemAferChar(std::string& theString, char theChar)
-{
-	std::string result;
-	size_t aCharPos = theString.rfind(theChar);
-	
-	if( aCharPos != std::string::npos )
+	// Whether or not stripping anything else from above, additionally strip
+	// any whitespace characters that would otherwise be at start of theString
+	for(; aStripCount < theString.length(); ++aStripCount)
 	{
-		result = trim(theString.substr(aCharPos+1));
-		theString = theString.substr(0, aCharPos);
-		while(!theString.empty() && theString[theString.size()-1] <= ' ')
-			theString.resize(theString.size()-1);
+		if( theString[aStripCount] > ' ' )
+			break;
 	}
+	theString.erase(0, aStripCount);
 
 	return result;
 }
