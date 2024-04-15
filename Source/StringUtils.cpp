@@ -440,6 +440,32 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 }
 
 
+int breakOffIntegerSuffix(std::string& theString)
+{
+	int result = 0;
+	int multiplier = 1;
+	size_t aStrPos = theString.size()-1;
+	while(
+		aStrPos > 0 &&
+		theString[aStrPos] >= '0' &&
+		theString[aStrPos] <= '9' )
+	{
+		result += int(theString[aStrPos] - '0') * multiplier;
+		multiplier *= 10;
+		--aStrPos;
+	}
+
+	// If stayed at end of string or got all the way to start, invalid as a
+	// string ending in (but not entirely being) an integer
+	if( aStrPos >= theString.size()-1 || aStrPos <= 0 )
+		result = -1;
+	else
+		theString.resize(aStrPos+1);
+
+	return result;
+}
+
+
 void sanitizeSentence(const std::string& theString, std::vector<std::string>& out)
 {
 	std::string word;

@@ -19,9 +19,13 @@ namespace InputMap
 // Load the input mappings and macro sets from current profile
 void loadProfile();
 
-// Get certain special-case keybinds directly
+// KEYBINDS
 u16 keyForSpecialAction(ESpecialKey theAction);
-
+const Command& keyBindArrayCommand(u16 theArrayID, u16 theIndex);
+// Adjust index by theOffset but skipping over any _Empty commands
+// Offset of 0 may still adjust by +1 or more if array[theIndex] is _Empty
+u16 offsetKeyBindArrayIndex(
+	u16 theArrayID, u16 theIndex, s16 theOffset, bool wrap);
 
 // CONTROLS LAYERS
 
@@ -45,12 +49,13 @@ const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
 const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
-// Full Profile key for specified menu item's command
+// Full Profile (.ini file) key for specified menu item's command
 std::string menuItemKey(u16 theMenuID, u16 theMenuItemIdx);
 std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir);
 
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);
+Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
 EResult profileStringToHotspot(std::string& theString, Hotspot& out);
 
 // HUD ELEMENTS
@@ -59,14 +64,17 @@ bool hudElementIsAMenu(u16 theHUDElementID);
 // Not all HUD elements are menus, so may return invalid menu ID
 u16 menuForHUDElement(u16 theHUDElementID);
 u16 hudElementForMenu(u16 theMenuID);
+// Only valid for HUD element types that are tied to Key Bind Arrays
+u16 keyBindArrayForHUDElement(u16 theHUDElementID);
 
 // SIZES
+u16 keyBindArrayCount();
+u16 keyBindArraySize(u16 theArrayID);
 u16 controlsLayerCount();
 u16 hudElementCount();
 u16 menuCount();
 u16 menuItemCount(u16 theMenuID);
 u16 hotspotCount();
-u8 targetGroupSize();
 
 // LABELS
 const std::string& layerLabel(u16 theLayerID);

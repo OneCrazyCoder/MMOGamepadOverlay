@@ -31,6 +31,19 @@ enum ECommandType
 	eCmdType_SlashCommand,
 	eCmdType_SayString,
 
+	// These active "keybind arrays" which allow a sequence of different keys
+	// to be pressed by a single buton that changes the key pressed each time.
+	// These first 2 do not actually send any input...
+	eCmdType_KeyBindArrayResetLast, // Sets "last" index to "default" index
+	eCmdType_KeyBindArraySetDefault, // Sets "default" index to "last" index
+	// These all update "last" to the index in the array that was pressed
+	eCmdType_KeyBindArrayPrev, // Press previous key in array
+	eCmdType_KeyBindArrayNext, // Press next key in array
+	eCmdType_KeyBindArrayDefault, // Press key at saved "default" index
+	eCmdType_KeyBindArrayLast, // Re-press last-pressed key in the array
+	eCmdType_KeyBindArrayIndex, // Skip to pressing key at specified index
+	eCmdType_KeyBindArrayHoldIndex, // PressAndHold version of above
+
 	// These give controller access to basic app features
 	eCmdType_ChangeProfile,
 	eCmdType_QuitApp,
@@ -51,16 +64,6 @@ enum ECommandType
 	eCmdType_MenuBack, // close last sub-menu
 	eCmdType_MenuBackOrClose, // close menu if no sub-menus open 
 	eCmdType_MenuEdit,
-
-	// These 2 do NOT actually send input to game to target anyone
-	eCmdType_TargetGroupResetLast,	// gLastGroupTarget = gDefaultGroupTarget
-	eCmdType_SetTargetGroupDefault,	// gDefaultGroupTarget = gLastGroupTarget
-
-	// These use the special group/self target keys and update gLastGroupTarget
-	eCmdType_TargetGroupPrev,
-	eCmdType_TargetGroupNext,
-	eCmdType_TargetGroupDefault, // gDefaultGroupTarget
-	eCmdType_TargetGroupPet, // gLastGroupTarget again
 
 	// These should have 'dir' set to an ECommandDir
 	eCmdType_MenuSelect,
@@ -186,13 +189,10 @@ enum EMouseMode
 enum EHUDType
 {
 	eMenuStyle_List,
-	eMenuStyle_ListWrap,
 	eMenuStyle_Slots,
 	eMenuStyle_Bar,
-	eMenuStyle_BarWrap,
 	eMenuStyle_4Dir,
 	eMenuStyle_Grid,
-	eMenuStyle_GridWrap,
 	eMenuStlye_Ring,
 	eMenuStyle_Radial,
 
@@ -205,8 +205,8 @@ enum EHUDType
 	eHUDItemType_ArrowU,
 	eHUDItemType_ArrowD,
 
-	eHUDType_GroupTarget,
-	eHUDType_DefaultTarget,
+	eHUDType_KBArrayLast,
+	eHUDType_KBArrayDefault,
 	eHUDType_System, // Internal use only
 
 	eHUDType_Num,
@@ -214,8 +214,8 @@ enum EHUDType
 	eMenuStyle_Begin = 0,
 	eMenuStyle_End = eHUDItemType_Rect,
 	eHUDItemType_Begin = eHUDItemType_Rect,
-	eHUDItemType_End = eHUDType_GroupTarget,
-	eHUDType_Begin = eHUDType_GroupTarget,
+	eHUDItemType_End = eHUDType_KBArrayLast,
+	eHUDType_Begin = eHUDType_KBArrayLast,
 	eHUDType_End = eHUDType_Num,
 };
 
@@ -235,44 +235,18 @@ enum ESpecialKey
 	eSpecialKey_MLStrafeL,
 	eSpecialKey_MLStrafeR,
 
-	eSpecialKey_TargetSelf,
-	eSpecialKey_TargetGroup1,
-	eSpecialKey_TargetGroup2,
-	eSpecialKey_TargetGroup3,
-	eSpecialKey_TargetGroup4,
-	eSpecialKey_TargetGroup5,
-	eSpecialKey_TargetGroup6,
-	eSpecialKey_TargetGroup7,
-	eSpecialKey_TargetGroup8,
-	eSpecialKey_TargetGroup9,
-
 	eSpecialKey_Num,
 
 	eSpecialKey_FirstMove = eSpecialKey_MoveF,
 	eSpecialKey_LastMove = eSpecialKey_MLStrafeR,
 	eSpecialKey_MoveNum =
 		eSpecialKey_LastMove - eSpecialKey_FirstMove + 1,
-
-	eSpecialKey_FirstGroupTarget = eSpecialKey_TargetSelf,
-	eSpecialKey_LastGroupTarget = eSpecialKey_TargetGroup9,
-	eSpecialKey_GroupTargetNum =
-		eSpecialKey_LastGroupTarget - eSpecialKey_FirstGroupTarget + 1,
 };
 
 enum ESpecialHotspot
 {
 	eSpecialHotspot_None,
 	eSpecialHotspot_MouseLookStart,
-	eSpecialHotspot_TargetSelf,
-	eSpecialHotspot_TargetGroup1,
-	eSpecialHotspot_TargetGroup2,
-	eSpecialHotspot_TargetGroup3,
-	eSpecialHotspot_TargetGroup4,
-	eSpecialHotspot_TargetGroup5,
-	eSpecialHotspot_TargetGroup6,
-	eSpecialHotspot_TargetGroup7,
-	eSpecialHotspot_TargetGroup8,
-	eSpecialHotspot_TargetGroup9,
 
 	eSpecialHotspot_Num
 };
@@ -308,23 +282,24 @@ enum ECommandKeyWord
 	eCmdWord_Confirm,
 	eCmdWord_Back,
 	eCmdWord_Close,
-	eCmdWord_Target,
-	eCmdWord_Group,
-	eCmdWord_Left,
-	eCmdWord_Right,
-	eCmdWord_Up,
-	eCmdWord_Down,
-	eCmdWord_PrevWrap,
-	eCmdWord_NextWrap,
 	eCmdWord_Wrap,
-	eCmdWord_PrevNoWrap,
-	eCmdWord_NextNoWrap,
 	eCmdWord_NoWrap,
+	eCmdWord_Left,
+	eCmdWord_LeftWrap,
+	eCmdWord_LeftNoWrap,
+	eCmdWord_Right,
+	eCmdWord_RightWrap,
+	eCmdWord_RightNoWrap,
+	eCmdWord_Up,
+	eCmdWord_UpWrap,
+	eCmdWord_UpNoWrap,
+	eCmdWord_Down,
+	eCmdWord_DownWrap,
+	eCmdWord_DownNoWrap,
 	eCmdWord_Default,
 	eCmdWord_Load,
 	eCmdWord_Set,
 	eCmdWord_Last,
-	eCmdWord_Pet,
 	eCmdWord_Change,
 	eCmdWord_Profile,
 	eCmdWord_App,
@@ -336,7 +311,11 @@ enum ECommandKeyWord
 
 	eCmdWord_Forward = eCmdWord_Up,
 	eCmdWord_Prev = eCmdWord_Up,
+	eCmdWord_PrevWrap = eCmdWord_UpWrap,
+	eCmdWord_PrevNoWrap = eCmdWord_UpNoWrap,
 	eCmdWord_Next = eCmdWord_Down,
+	eCmdWord_NextWrap = eCmdWord_DownWrap,
+	eCmdWord_NextNoWrap = eCmdWord_DownNoWrap,
 	eCmdWord_Top = eCmdWord_Up,
 	eCmdWord_Bottom = eCmdWord_Down,
 };
@@ -368,22 +347,25 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 		{
 			union
 			{
-				u16 vKey;
 				u16 dir;
+				u16 vKey;
 				u16 layerID;
 				u16 subMenuID;
 				u16 keyStringIdx;
-				bool wrap;
+				u16 arrayIdx;
 			};
 			union
 			{
 				u16 relativeLayer;
 				u16 menuID;
+				u16 keybindArrayID;
 				u16 mouseWheelMotionType;
 			};
+			u8 count;
+			bool wrap;
 		};
 		const char* string;
-		u32 compare;
+		u64 compare;
 	};
 
 	bool operator==(const Command& rhs) const

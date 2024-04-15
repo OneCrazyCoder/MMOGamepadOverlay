@@ -403,7 +403,7 @@ static void processCommand(
 	ButtonState& theBtnState,
 	const Command& theCmd,
 	u16 theLayerIdx,
-	bool isAutoRepeated = false)
+	bool repeated = false)
 {
 	Command aForwardCmd;
 	switch(theCmd.type)
@@ -434,6 +434,93 @@ static void processCommand(
 	case eCmdType_SayString:
 		// Queue to send last, since can block other input the longest
 		sResults.strings.push_back(theCmd);
+		break;
+	case eCmdType_KeyBindArrayResetLast:
+		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
+			InputMap::offsetKeyBindArrayIndex(
+				theCmd.keybindArrayID,
+				gKeyBindArrayDefaultIndex[theCmd.keybindArrayID],
+				0, false);
+		break;
+	case eCmdType_KeyBindArraySetDefault:
+		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayDefaultIndex.size());
+		gKeyBindArrayDefaultIndex[theCmd.keybindArrayID] =
+			InputMap::offsetKeyBindArrayIndex(
+				theCmd.keybindArrayID,
+				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
+				0, false);
+		gKeyBindArrayDefaultIndexChanged.set(theCmd.keybindArrayID);
+		break;
+	case eCmdType_KeyBindArrayPrev:
+		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
+			InputMap::offsetKeyBindArrayIndex(
+				theCmd.keybindArrayID,
+				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
+				-s16(theCmd.count), theCmd.wrap);
+		aForwardCmd = InputMap::keyBindArrayCommand(
+			theCmd.keybindArrayID,
+			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		break;
+	case eCmdType_KeyBindArrayNext:
+		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
+			InputMap::offsetKeyBindArrayIndex(
+				theCmd.keybindArrayID,
+				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
+				s16(theCmd.count), theCmd.wrap);
+		aForwardCmd = InputMap::keyBindArrayCommand(
+			theCmd.keybindArrayID,
+			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		break;
+	case eCmdType_KeyBindArrayDefault:
+		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
+			InputMap::offsetKeyBindArrayIndex(
+				theCmd.keybindArrayID,
+				gKeyBindArrayDefaultIndex[theCmd.keybindArrayID],
+				0, false);
+		aForwardCmd = InputMap::keyBindArrayCommand(
+			theCmd.keybindArrayID,
+			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		break;
+	case eCmdType_KeyBindArrayLast:
+		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
+			InputMap::offsetKeyBindArrayIndex(
+				theCmd.keybindArrayID,
+				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
+				0, false);
+		aForwardCmd = InputMap::keyBindArrayCommand(
+			theCmd.keybindArrayID,
+			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		break;
+	case eCmdType_KeyBindArrayIndex:
+	case eCmdType_KeyBindArrayHoldIndex:
+		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
+			InputMap::offsetKeyBindArrayIndex(
+				theCmd.keybindArrayID, theCmd.arrayIdx,
+				0, false);
+		aForwardCmd = InputMap::keyBindArrayCommand(
+			theCmd.keybindArrayID,
+			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		if( theCmd.type == eCmdType_KeyBindArrayHoldIndex )
+		{
+			DBG_ASSERT(aForwardCmd.type == eCmdType_TapKey);
+			aForwardCmd.type = eCmdType_PressAndHoldKey;
+		}
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
 		break;
 	case eCmdType_ChangeProfile:
 		Profile::queryUserForProfile();
@@ -551,89 +638,23 @@ static void processCommand(
 	case eCmdType_MenuEdit:
 		Menus::editMenuItem(theCmd.menuID);
 		break;
-	case eCmdType_TargetGroupResetLast:
-		gLastGroupTarget = gDefaultGroupTarget;
-		transDebugPrint("Resetting 'last' Group Member to default #%d\n",
-			gDefaultGroupTarget);
-		break;
-	case eCmdType_SetTargetGroupDefault:
-		gDefaultGroupTarget = gLastGroupTarget;
-		gDefaultGroupTargetUpdated = true;
-		transDebugPrint("Setting Group Member #%d as default\n",
-			gLastGroupTarget);
-		break;
-	case eCmdType_TargetGroupPrev:
-		gLastGroupTargetUpdated = true;
-		if( theCmd.wrap )
-		{
-			gLastGroupTarget =
-				decWrap(gLastGroupTarget, InputMap::targetGroupSize());
-			transDebugPrint("Targeting group member prev/up (wrap) (#%d)\n",
-				gLastGroupTarget);
-		}
-		else
-		{
-			gLastGroupTarget =
-				gLastGroupTarget == 0
-					? 0 : gLastGroupTarget - 1;
-			transDebugPrint("Targeting group member prev/up (clamp) (#%d)\n",
-				gLastGroupTarget);
-		}
-		aForwardCmd.type = eCmdType_TapKey;
-		aForwardCmd.vKey = InputMap::keyForSpecialAction(
-			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-		sResults.keys.push_back(aForwardCmd);
-		break;
-	case eCmdType_TargetGroupNext:
-		gLastGroupTargetUpdated = true;
-		if( theCmd.wrap )
-		{
-			gLastGroupTarget =
-				incWrap(gLastGroupTarget, InputMap::targetGroupSize());
-			transDebugPrint("Targeting group member next/down (wrap) (#%d)\n",
-				gLastGroupTarget);
-		}
-		else
-		{
-			gLastGroupTarget =
-				gLastGroupTarget >= InputMap::targetGroupSize() - 1
-					? InputMap::targetGroupSize() - 1 : gLastGroupTarget + 1;
-			transDebugPrint("Targeting group member next/down (clamp) (#%d)\n",
-				gLastGroupTarget);
-		}
-		aForwardCmd.type = eCmdType_TapKey;
-		aForwardCmd.vKey = InputMap::keyForSpecialAction(
-			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-		sResults.keys.push_back(aForwardCmd);
-		break;
-	case eCmdType_TargetGroupDefault:
-		gLastGroupTarget = gDefaultGroupTarget;
-		gLastGroupTargetUpdated = true;
-		aForwardCmd.type = eCmdType_TapKey;
-		aForwardCmd.vKey = InputMap::keyForSpecialAction(
-			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-		sResults.keys.push_back(aForwardCmd);
-		transDebugPrint("Targeting default Group Member #%d\n",
-			gLastGroupTarget);
-		break;
-	case eCmdType_TargetGroupPet:
-		gLastGroupTargetUpdated = true;
-		aForwardCmd.type = eCmdType_TapKey;
-		aForwardCmd.vKey = InputMap::keyForSpecialAction(
-			ESpecialKey(eSpecialKey_FirstGroupTarget + gLastGroupTarget));
-		sResults.keys.push_back(aForwardCmd);
-		transDebugPrint("Re-targeting last group member/pet (#%d) \n",
-			gLastGroupTarget);
-		break;
 	case eCmdType_MenuSelect:
-		aForwardCmd = Menus::selectMenuItem(
-			theCmd.menuID, ECommandDir(theCmd.dir), isAutoRepeated);
+		for(int i = 0; i < theCmd.count; ++i)
+		{
+			aForwardCmd = Menus::selectMenuItem(
+				theCmd.menuID, ECommandDir(theCmd.dir),
+				theCmd.wrap, repeated || i > 0);
+		}
 		if( aForwardCmd.type != eCmdType_Empty )
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuSelectAndClose:
-		aForwardCmd = Menus::selectMenuItem(
-			theCmd.menuID, ECommandDir(theCmd.dir), isAutoRepeated);
+		for(int i = 0; i < theCmd.count; ++i)
+		{
+			aForwardCmd = Menus::selectMenuItem(
+				theCmd.menuID, ECommandDir(theCmd.dir),
+				theCmd.wrap, repeated || i > 0);
+		}
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			// Close menu first if this won't just switch to a sub-menu
@@ -834,8 +855,8 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	case eCmdType_MenuSelect:
 	case eCmdType_MenuSelectAndClose:
 	case eCmdType_HotspotSelect:
-	case eCmdType_TargetGroupPrev:
-	case eCmdType_TargetGroupNext:
+	case eCmdType_KeyBindArrayPrev:
+	case eCmdType_KeyBindArrayNext:
 		// Continue to further checks below
 		break;
 	default:
@@ -853,7 +874,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	if( theBtnState.heldTime < kConfig.autoRepeatDelay )
 		return;
 
-	// Now can start using repeatDelayr to re-send command at autoRepeatRate
+	// Now can start using repeatDelay to re-send command at autoRepeatRate
 	if( theBtnState.repeatDelay <= 0 )
 	{
 		processCommand(theBtnState, aCmd, true);
