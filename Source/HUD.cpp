@@ -130,7 +130,7 @@ struct HUDElementInfo
 	int fadeOutDelay;
 	int delayUntilInactive;
 	int selection;
-	u16 subMenuID;
+	union { u16 subMenuID; u16 arrayID; };
 	u16 fontID;
 	u16 itemBrushID;
 	u16 borderPenID;
@@ -1301,6 +1301,12 @@ void init()
 			else
 				hi.selBitmapID = getOrCreateBitmapID(aHUDBuilder, aStr);
 		}
+		if( hi.type == eHUDType_KBArrayLast ||
+			hi.type == eHUDType_KBArrayDefault )
+		{
+			hi.arrayID = InputMap::keyBindArrayForHUDElement(aHUDElementID);
+			DBG_ASSERT(hi.arrayID < InputMap::keyBindArrayCount());
+		}
 	}
 }
 
@@ -1394,24 +1400,24 @@ void update()
 		HUDElementInfo& hi = sHUDElementInfo[i];
 		switch(hi.type)
 		{
-		case eHUDType_GroupTarget:
-			if( gLastGroupTargetUpdated )
+		case eHUDType_KBArrayLast:
+			if( gKeyBindArrayLastIndexChanged.test(hi.arrayID) )
 			{
 				gActiveHUD.set(i);
-				hi.selection = gLastGroupTarget;
+				hi.selection = gKeyBindArrayLastIndex[hi.arrayID];
 			}
 			break;
-		case eHUDType_DefaultTarget:
-			if( gDefaultGroupTargetUpdated )
+		case eHUDType_KBArrayDefault:
+			if( gKeyBindArrayDefaultIndexChanged.test(hi.arrayID) )
 			{
 				gActiveHUD.set(i);
-				hi.selection = gDefaultGroupTarget;
+				hi.selection = gKeyBindArrayDefaultIndex[hi.arrayID];
 			}
 			break;
 		}
 	}
-	gLastGroupTargetUpdated = false;
-	gDefaultGroupTargetUpdated = false;
+	gKeyBindArrayLastIndexChanged.reset();
+	gKeyBindArrayDefaultIndexChanged.reset();
 }
 
 
@@ -1480,18 +1486,15 @@ void drawElement(
 	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
 	switch(aHUDType)
 	{
-	case eMenuStyle_List:
-	case eMenuStyle_ListWrap:		drawListMenu(aDrawData);	break;
+	case eMenuStyle_List:			drawListMenu(aDrawData);	break;
 	case eMenuStyle_Slots:			drawSlotsMenu(aDrawData);	break;
-	case eMenuStyle_Bar:
-	case eMenuStyle_BarWrap:		drawBarMenu(aDrawData);		break;
+	case eMenuStyle_Bar:			drawBarMenu(aDrawData);		break;
 	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
-	case eMenuStyle_Grid:
-	case eMenuStyle_GridWrap:		drawGridMenu(aDrawData);	break;
+	case eMenuStyle_Grid:			drawGridMenu(aDrawData);	break;
 	case eMenuStlye_Ring:			/* TODO */					break;
 	case eMenuStyle_Radial:			/* TODO */					break;
-	case eHUDType_GroupTarget:		drawBasicHUD(aDrawData);	break;
-	case eHUDType_DefaultTarget:	drawBasicHUD(aDrawData);	break;
+	case eHUDType_KBArrayLast:		drawBasicHUD(aDrawData);	break;
+	case eHUDType_KBArrayDefault:	drawBasicHUD(aDrawData);	break;
 	case eHUDType_System:			drawSystemHUD(aDrawData);	break;
 	default:
 		if( aHUDType >= eHUDItemType_Begin && aHUDType < eHUDItemType_End )
@@ -1528,21 +1531,14 @@ void updateWindowLayout(
 	// Apply special-case position offsets
 	switch(hi.type)
 	{
-	case eHUDType_GroupTarget:
-		theWindowPos.x += scaleHotspot(InputMap::getHotspot(
-			eSpecialHotspot_TargetSelf + hi.selection).x,
-			theTargetSize.cx);
-		theWindowPos.y += scaleHotspot(InputMap::getHotspot(
-			eSpecialHotspot_TargetSelf + hi.selection).y,
-			theTargetSize.cy);
-		break;
-	case eHUDType_DefaultTarget:
-		theWindowPos.x += scaleHotspot(InputMap::getHotspot(
-			eSpecialHotspot_TargetSelf + hi.selection).x,
-			theTargetSize.cx);
-		theWindowPos.y += scaleHotspot(InputMap::getHotspot(
-			eSpecialHotspot_TargetSelf + hi.selection).y,
-			theTargetSize.cy);
+	case eHUDType_KBArrayLast:
+	case eHUDType_KBArrayDefault:
+		if( Hotspot* aHotspot =
+				InputMap::keyBindArrayHotspot(hi.arrayID, hi.selection) )
+		{
+			theWindowPos.x += scaleHotspot(aHotspot->x, theTargetSize.cx);
+			theWindowPos.y += scaleHotspot(aHotspot->y, theTargetSize.cy);
+		}
 		break;
 	}
 
@@ -1552,12 +1548,10 @@ void updateWindowLayout(
 	switch(hi.type)
 	{
 	case eMenuStyle_List:
-	case eMenuStyle_ListWrap:
 	case eMenuStyle_Slots:
 		theWindowSize.cy *= Menus::itemCount(aMenuID);
 		break;
 	case eMenuStyle_Bar:
-	case eMenuStyle_BarWrap:
 		theWindowSize.cx *= Menus::itemCount(aMenuID);
 		break;
 	case eMenuStyle_4Dir:
@@ -1565,7 +1559,6 @@ void updateWindowLayout(
 		theWindowSize.cy *= 3;
 		break;
 	case eMenuStyle_Grid:
-	case eMenuStyle_GridWrap:
 		theWindowSize.cx *= Menus::gridWidth(aMenuID);
 		theWindowSize.cy *= Menus::gridHeight(aMenuID);
 		break;
@@ -1704,7 +1697,7 @@ bool shouldStartHidden(u16 theHUDElementID)
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	switch(sHUDElementInfo[theHUDElementID].type)
 	{
-	case eHUDType_GroupTarget:
+	case eHUDType_KBArrayLast:
 		return true;
 	}
 

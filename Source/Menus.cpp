@@ -64,8 +64,7 @@ void init()
 		aMenuInfo.style = InputMap::menuStyle(aMenuID);
 		aMenuInfo.hudElementID = InputMap::hudElementForMenu(aMenuID);
 		aMenuInfo.gridWidth = 1;
-		if( aMenuInfo.style == eMenuStyle_Grid ||
-			aMenuInfo.style == eMenuStyle_GridWrap )
+		if( aMenuInfo.style == eMenuStyle_Grid )
 		{
 			std::string aKey = "Menu.";
 			aKey += InputMap::menuLabel(aMenuID);
@@ -108,7 +107,11 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 }
 
 
-const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
+const Command& selectMenuItem(
+	u16 theMenuID,
+	ECommandDir theDir,
+	bool wrap,
+	bool repeat)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -131,7 +134,6 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 	switch(aMenuStyle)
 	{
 	case eMenuStyle_List:
-	case eMenuStyle_ListWrap:
 	case eMenuStyle_Slots:
 		switch(theDir)
 		{
@@ -149,35 +151,32 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 			break;
 		case eCmdDir_U:
 			aSelection =
-				(aMenuStyle == eMenuStyle_List ||
-				 (anItemCount <= 2 && aMenuStyle != eMenuStyle_Slots)) 
-					? max(0, (signed)aSelection - 1)
-					: decWrap(aSelection, anItemCount);
+				(aMenuStyle == eMenuStyle_Slots || (wrap && anItemCount > 2))
+					? decWrap(aSelection, anItemCount)
+					: max(0, (signed)aSelection - 1);
 			break;
 		case eCmdDir_D:
 			aSelection =
-				(aMenuStyle == eMenuStyle_List ||
-				 (anItemCount <= 2 && aMenuStyle != eMenuStyle_Slots)) 
-					? min(anItemCount - 1, aSelection + 1)
-					: incWrap(aSelection, anItemCount);
+				(aMenuStyle == eMenuStyle_Slots || (wrap && anItemCount > 2)) 
+					? incWrap(aSelection, anItemCount)
+					: min(anItemCount - 1, aSelection + 1);
 			break;
 		}
 		break;
 	case eMenuStyle_Bar:
-	case eMenuStyle_BarWrap:
 		switch(theDir)
 		{
 		case eCmdDir_L:
 			aSelection =
-				(aMenuStyle == eMenuStyle_Bar || anItemCount <= 2) 
-					? max(0, (signed)aSelection - 1)
-					: decWrap(aSelection, anItemCount);
+				(wrap && anItemCount > 2) 
+					? decWrap(aSelection, anItemCount)
+					: max(0, (signed)aSelection - 1);
 			break;
 		case eCmdDir_R:
 			aSelection =
-				(aMenuStyle == eMenuStyle_Bar || anItemCount <= 2) 
-					? min(anItemCount - 1, aSelection + 1)
-					: incWrap(aSelection, anItemCount);
+				(wrap && anItemCount > 2) 
+					? incWrap(aSelection, anItemCount)
+					: min(anItemCount - 1, aSelection + 1);
 			break;
 		case eCmdDir_U:
 			if( repeat )
@@ -199,26 +198,25 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 			return kEmptyMenuCommand;
 		return aDirCmd;
 	case eMenuStyle_Grid:
-	case eMenuStyle_GridWrap:
 		switch(theDir)
 		{
 		case eCmdDir_L:
 			if( aSelection % aGridWidth != 0 )
 				--aSelection;
-			else if( aMenuStyle == eMenuStyle_GridWrap )
+			else if( wrap )
 				aSelection = min(anItemCount - 1, aSelection + aGridWidth - 1);
 			break;
 		case eCmdDir_R:
 			if( aSelection % aGridWidth != aGridWidth - 1 &&
 				aSelection < anItemCount - 1 )
 				++aSelection;
-			else if( aMenuStyle == eMenuStyle_GridWrap )
+			else if( wrap )
 				aSelection = (aSelection / aGridWidth) * aGridWidth;
 			break;
 		case eCmdDir_U:
 			if( aSelection >= aGridWidth )
 				aSelection -= aGridWidth;
-			else if( aMenuStyle == eMenuStyle_GridWrap )
+			else if( wrap )
 				aSelection += ((anItemCount-1) / aGridWidth) * aGridWidth;
 			if( aSelection >= anItemCount )
 				aSelection -= aGridWidth;
@@ -226,7 +224,7 @@ const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat)
 		case eCmdDir_D:
 			if( aSelection + aGridWidth < anItemCount )
 				aSelection = min(anItemCount - 1, aSelection + aGridWidth);
-			else if( aMenuStyle == eMenuStyle_GridWrap )
+			else if( wrap )
 				aSelection = aSelection % aGridWidth;
 			else if( aSelection < ((anItemCount-1) / aGridWidth) * aGridWidth )
 				aSelection = anItemCount - 1;

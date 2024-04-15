@@ -24,6 +24,7 @@ const char* kLayerPrefix = "Layer.";
 const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kTypeKeys[] = { "Type", "Style" };
+const char* kKBArrayKeys[] = { "KeyBindArray", "Array", "KeyBinds" };
 const char* kKeybindsPrefix = "KeyBinds/";
 const char* kGlobalHotspotsPrefix = "Hotspots/";
 const char* k4DirMenuItemLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
@@ -43,16 +44,6 @@ const char* kSpecialHotspotNames[] =
 {
 	"",						// eSpecialHotspot_None
 	"MOUSELOOKSTART",		// eSpecialHotspot_MouseLookStart
-	"TARGETSELF",			// eSpecialHotspot_TargetSelf
-	"TARGETGROUP1",			// eSpecialHotspot_TargetGroup1
-	"TARGETGROUP2",			// eSpecialHotspot_TargetGroup2
-	"TARGETGROUP3",			// eSpecialHotspot_TargetGroup3
-	"TARGETGROUP4",			// eSpecialHotspot_TargetGroup4
-	"TARGETGROUP5",			// eSpecialHotspot_TargetGroup5
-	"TARGETGROUP6",			// eSpecialHotspot_TargetGroup6
-	"TARGETGROUP7",			// eSpecialHotspot_TargetGroup7
-	"TARGETGROUP8",			// eSpecialHotspot_TargetGroup8
-	"TARGETGROUP9",			// eSpecialHotspot_TargetGroup9
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
@@ -82,16 +73,6 @@ const char* kSpecialKeyNames[] =
 	"MOUSELOOKTURNRIGHT",	// eSpecialKey_MLTurnR
 	"MOUSELOOKSTRAFELEFT",	// eSpecialKey_MLStrafeL
 	"MOUSELOOKSTRAFERIGHT",	// eSpecialKey_MLStrafeR
-	"TARGETSELF",			// eSpecialKey_TargetSelf
-	"TARGETGROUP1",			// eSpecialKey_TargetGroup1
-	"TARGETGROUP2",			// eSpecialKey_TargetGroup2
-	"TARGETGROUP3",			// eSpecialKey_TargetGroup3
-	"TARGETGROUP4",			// eSpecialKey_TargetGroup4
-	"TARGETGROUP5",			// eSpecialKey_TargetGroup5
-	"TARGETGROUP6",			// eSpecialKey_TargetGroup6
-	"TARGETGROUP7",			// eSpecialKey_TargetGroup7
-	"TARGETGROUP8",			// eSpecialKey_TargetGroup8
-	"TARGETGROUP9",			// eSpecialKey_TargetGroup9
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialKeyNames) == eSpecialKey_Num);
 
@@ -99,6 +80,15 @@ DBG_CTASSERT(ARRAYSIZE(kSpecialKeyNames) == eSpecialKey_Num);
 //-----------------------------------------------------------------------------
 // Local Structures
 //-----------------------------------------------------------------------------
+
+struct KeyBindArrayEntry
+{
+	Command cmd;
+	u16 hotspotID;
+
+	KeyBindArrayEntry() : hotspotID() {}
+};
+typedef std::vector<KeyBindArrayEntry> KeyBindArray;
 
 struct MenuItem
 {
@@ -122,7 +112,7 @@ struct HUDElement
 {
 	std::string label;
 	EHUDType type : 16;
-	u16 menuID;
+	union { u16 menuID; u16 keyBindArrayID; };
 	// Visual details will be parsed by HUD module
 
 	HUDElement() : menuID(kInvalidID) { type = eHUDItemType_Rect; }
@@ -158,6 +148,7 @@ struct InputMapBuilder
 	std::vector<std::string> parsedString;
 	VectorMap<ECommandKeyWord, size_t> keyWordMap;
 	StringToValueMap<Command> commandAliases;
+	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<u16> layerNameToIdxMap;
 	StringToValueMap<u16> hudNameToIdxMap;
@@ -173,11 +164,11 @@ struct InputMapBuilder
 
 static std::vector<Hotspot> sHotspots;
 static std::vector<std::string> sKeyStrings;
+static std::vector<KeyBindArray> sKeyBindArrays;
 static std::vector<ControlsLayer> sLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
-static u8 sTargetGroupSize = 1;
 
 
 //-----------------------------------------------------------------------------
@@ -562,7 +553,7 @@ static u16 getOrCreateHUDElementID(
 	if( aHUDTypeName.empty() )
 	{
 		logError(
-			"Can't find '[%s%s]/%s =' entry "
+			"Can't find '[%s%s]/%s =' property "
 			"for item referenced by [%s]! "
 			"Defaulting to type '%s'...",
 			hasInputAssigned ? kMenuPrefix : kHUDPrefix,
@@ -579,7 +570,7 @@ static u16 getOrCreateHUDElementID(
 		if( aHUDElement.type >= eHUDType_Num )
 		{
 			logError(
-				"Unrecognized '%s' specified for '[%s%s]/%s ='entry "
+				"Unrecognized '%s' specified for '[%s%s]/%s =' property "
 				"for item referenced by [%s]! "
 				"Defaulting to type '%s'...",
 				aHUDTypeName.c_str(),
@@ -620,6 +611,44 @@ static u16 getOrCreateHUDElementID(
 			aMenu.hudElementID = aHUDElementID;
 		}
 		aHUDElement.menuID = aMenuID;
+	}
+
+	if( aHUDElement.type == eHUDType_KBArrayLast ||
+		aHUDElement.type == eHUDType_KBArrayDefault )
+	{
+		std::string aKBArrayName;
+		int i = 0;
+		for(; aKBArrayName.empty() && i < ARRAYSIZE(kKBArrayKeys); ++i)
+			aKBArrayName = Profile::getStr(aHUDPath + "/" + kKBArrayKeys[i]);
+		if( aKBArrayName.empty() )
+		{
+			logError(
+				"Can't find required '[%s%s]/%s =' property "
+				"for item referenced by [%s]! ",
+				kHUDPrefix,
+				theName.c_str(),
+				kKBArrayKeys[0],
+				theBuilder.debugItemName.c_str());
+			aHUDElement.type = eHUDItemType_Rect;
+		}
+		else if( u16* aKeyBindArrayID =
+					theBuilder.keyBindArrayNameToIdxMap.find(
+						condense(aKBArrayName)) )
+		{
+			aHUDElement.keyBindArrayID = *aKeyBindArrayID;
+		}
+		else
+		{
+			logError(
+				"Unrecognized '%s' specified for '[%s%s]/%s =' property "
+				"for item referenced by [%s]! ",
+				aKBArrayName.c_str(),
+				kHUDPrefix,
+				theName.c_str(),
+				kKBArrayKeys[i-1],
+				theBuilder.debugItemName.c_str());
+			aHUDElement.type = eHUDItemType_Rect;
+		}
 	}
 
 	return aHUDElementID;
@@ -716,30 +745,82 @@ static Command wordsToSpecialCommand(
 	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
 	const std::string* anIgnoredWord = null;
 	const std::string* anIntegerWord = null;
+	result.wrap = false;
+	result.count = 1;
 	for(size_t i = 0; i < theWords.size(); ++i)
 	{
 		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[i]));
-		if( aKeyWordID == eCmdWord_Filler )
-			continue;
-		if( aKeyWordID == eCmdWord_Ignored )
+		// Convert LeftWrap/NextNoWrap/etc into just dir & wrap flag
+		switch(aKeyWordID)
 		{
+		case eCmdWord_LeftWrap:
+			aKeyWordID = eCmdWord_Left;
+			result.wrap = true;
+			break;
+		case eCmdWord_LeftNoWrap:
+			aKeyWordID = eCmdWord_Left;
+			result.wrap = false;
+			break;
+		case eCmdWord_RightWrap:
+			aKeyWordID = eCmdWord_Right;
+			result.wrap = true;
+			break;
+		case eCmdWord_RightNoWrap:
+			aKeyWordID = eCmdWord_Right;
+			result.wrap = false;
+			break;
+		case eCmdWord_UpWrap:
+			aKeyWordID = eCmdWord_Up;
+			result.wrap = true;
+			break;
+		case eCmdWord_UpNoWrap:
+			aKeyWordID = eCmdWord_Up;
+			result.wrap = false;
+			break;
+		case eCmdWord_DownWrap:
+			aKeyWordID = eCmdWord_Down;
+			result.wrap = true;
+			break;
+		case eCmdWord_DownNoWrap:
+			aKeyWordID = eCmdWord_Down;
+			result.wrap = false;
+			break;
+		}
+		switch(aKeyWordID)
+		{
+		case eCmdWord_Filler:
+			break;
+		case eCmdWord_Ignored:
 			anIgnoredWord = &theWords[i];
-			continue;
-		}
-		if( aKeyWordID == eCmdWord_Integer )
+			break;
+		case eCmdWord_Wrap:
+			result.wrap = true;
+			anIgnoredWord = &theWords[i];
+			break;
+		case eCmdWord_NoWrap:
+			result.wrap = false;
+			anIgnoredWord = &theWords[i];
+			break;
+		case eCmdWord_Integer:
 			anIntegerWord = &theWords[i];
-		if( keyWordsFound.test(aKeyWordID) )
-		{// Key word was already found once
-			if( aKeyWordID == eCmdWord_Unknown ||
-				aKeyWordID == eCmdWord_Integer )
-			{// These aren't allowed more than once per command
+			result.count = max(result.count, intFromString(theWords[i]));
+			// fall through
+		case eCmdWord_Unknown:
+			// Not allowed more than once per command
+			if( keyWordsFound.test(aKeyWordID) )
 				return result;
+			keyWordsFound.set(aKeyWordID);
+			theBuilder.keyWordMap.addPair(aKeyWordID, i);
+			break;
+		default:
+			// Don't add duplicate keys to the map
+			if( !keyWordsFound.test(aKeyWordID) )
+			{
+				keyWordsFound.set(aKeyWordID);
+				theBuilder.keyWordMap.addPair(aKeyWordID, i);
 			}
-			// Don't add duplicate key words to the map
-			continue;
+			break;
 		}
-		keyWordsFound.set(aKeyWordID);
-		theBuilder.keyWordMap.addPair(aKeyWordID, i);
 	}
 	if( theBuilder.keyWordMap.empty() )
 		return result;
@@ -793,9 +874,46 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	// For the following Layer-related commands, most need one extra word
-	// that is not a key word related to layers, which will be the name
-	// of the layer (likely, but not always, the eCmdWord_Unknown entry).
+	// Calculate relative layer for possible layer-related commands
+	u16 aRelativeLayer = 0; // 0 means current calling layer
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Parent);
+	allowedKeyWords.set(eCmdWord_Grandparent);
+	allowedKeyWords.set(eCmdWord_NonChild);
+	allowedKeyWords.set(eCmdWord_All);
+	if( (keyWordsFound & allowedKeyWords).count() > 1 )
+	{// Invalid to combine more than one of the above specifiers
+		return result;
+	}
+	if( keyWordsFound.test(eCmdWord_All) )
+		aRelativeLayer = kAllLayers;
+	else if( keyWordsFound.test(eCmdWord_NonChild) )
+		aRelativeLayer = kAllLayers;
+	else if( keyWordsFound.test(eCmdWord_Parent) )
+		aRelativeLayer = result.count;
+	else if( keyWordsFound.test(eCmdWord_Grandparent) )
+		aRelativeLayer = 1 + result.count;
+
+	// "= Remove [parent/etc] [Layer]"
+	// OR "Remove All [Layers]"
+	// allowedKeyWords = Parent/etc
+	allowedKeyWords.set(eCmdWord_Layer);
+	allowedKeyWords.set(eCmdWord_Remove);
+	allowedKeyWords.set(eCmdWord_Integer);
+	if( keyWordsFound.test(eCmdWord_Remove) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_RemoveControlsLayer;
+		// Since can't remove layer 0 (main scheme), 0 acts as a flag
+		// meaning to remove relative layer instead
+		result.layerID = 0;
+		result.relativeLayer = aRelativeLayer;
+		return result;
+	}
+
+	// The remainng Layer-related commands need one extra word that is
+	// not a key word related to layers, which will be the name of the
+	// layer (likely, but not always, the eCmdWord_Unknown entry).
 	allowedKeyWords = keyWordsFound;
 	allowedKeyWords.reset(eCmdWord_Layer);
 	allowedKeyWords.reset(eCmdWord_Add);
@@ -822,126 +940,84 @@ static Command wordsToSpecialCommand(
 	}
 	allowedKeyWords.reset();
 
-	// Calculate relative layer if do end up being a layer command
-	u16 aRelativeLayer = 0; // 0 means current calling layer
-	allowedKeyWords.set(eCmdWord_Parent);
-	allowedKeyWords.set(eCmdWord_Grandparent);
-	allowedKeyWords.set(eCmdWord_NonChild);
-	allowedKeyWords.set(eCmdWord_All);
-	if( (keyWordsFound & allowedKeyWords).count() > 1 )
-	{// Invalid to combine more than one of the above specifiers
-		return result;
-	}
-	allowedKeyWords.set(eCmdWord_Integer);
-	if( keyWordsFound.test(eCmdWord_All) ||
-		keyWordsFound.test(eCmdWord_NonChild) )
+	if( aLayerName )
 	{
-		aRelativeLayer = kAllLayers;
-	}
-	else if( keyWordsFound.test(eCmdWord_Parent) )
-	{
-		aRelativeLayer = 1;
-		if( anIntegerWord )
-			aRelativeLayer += intFromString(*anIntegerWord);
-	}
-	else if( keyWordsFound.test(eCmdWord_Grandparent) )
-	{
-		aRelativeLayer = 2;
-		if( anIntegerWord )
-			aRelativeLayer += intFromString(*anIntegerWord);
+		// "= Add [Layer] <aLayerName> [to parent/etc]"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Layer);
+		allowedKeyWords.set(eCmdWord_Add);
+		allowedKeyWords.set(eCmdWord_Parent);
+		allowedKeyWords.set(eCmdWord_Grandparent);
+		allowedKeyWords.set(eCmdWord_NonChild);
+		allowedKeyWords.set(eCmdWord_All);
+		allowedKeyWords.set(eCmdWord_Integer);
+		if( keyWordsFound.test(eCmdWord_Add) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+		{
+			result.type = eCmdType_AddControlsLayer;
+			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			result.relativeLayer = aRelativeLayer;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Add);
+
+		// "= Toggle [Layer] <aLayerName> [on parent/etc] "
+		// allowedKeyWords = Layer & Parent/etc
+		allowedKeyWords.set(eCmdWord_Toggle);
+		if( keyWordsFound.test(eCmdWord_Toggle) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+		{
+			result.type = eCmdType_ToggleControlsLayer;
+			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			result.relativeLayer = aRelativeLayer;
+			DBG_ASSERT(result.layerID != 0);
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Toggle);
+
+		// "= Replace [parent/etc] [with] [Layer] <aLayerName>"
+		// OR "= Replace All [Layers] [with] <aLayerName>"
+		// allowedKeyWords = Layer & Parent/etc
+		allowedKeyWords.set(eCmdWord_Replace);
+		if( keyWordsFound.test(eCmdWord_Replace) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+		{
+			result.type = eCmdType_ReplaceControlsLayer;
+			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			result.relativeLayer = aRelativeLayer;
+			return result;
+		}
+
+		// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Layer);
+		allowedKeyWords.set(eCmdWord_Hold);
+		if( allowHoldActions &&
+			(keyWordsFound.test(eCmdWord_Hold) ||
+			 keyWordsFound.test(eCmdWord_Layer)) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+		{
+			result.type = eCmdType_HoldControlsLayer;
+			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Hold);
+
+		// "= Remove [Layer] <aLayerName>"
+		// allowedKeyWords = Layer
+		allowedKeyWords.set(eCmdWord_Remove);
+		if( keyWordsFound.test(eCmdWord_Remove) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+		{
+			result.type = eCmdType_RemoveControlsLayer;
+			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			DBG_ASSERT(result.layerID != 0);
+			return result;
+		}
+		//allowedKeyWords.reset(eCmdWord_Remove);
 	}
 
-	// "= Add [Layer] <aLayerName> [to parent/etc]"
-	// allowedKeyWords = Parent/etc
-	allowedKeyWords.set(eCmdWord_Layer);
-	allowedKeyWords.set(eCmdWord_Add);
-	if( keyWordsFound.test(eCmdWord_Add) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_AddControlsLayer;
-		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-		result.relativeLayer = aRelativeLayer;
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Add);
-
-	// "= Remove [parent/etc] [Layer]"
-	// OR "Remove All [Layers]"
-	// allowedKeyWords = Layer & Parent/etc
-	allowedKeyWords.set(eCmdWord_Remove);
-	if( keyWordsFound.test(eCmdWord_Remove) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_RemoveControlsLayer;
-		// Since can't remove layer 0 (main scheme), 0 acts as a flag
-		// meaning to remove relative layer instead
-		result.layerID = 0;
-		result.relativeLayer = aRelativeLayer;
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Remove);
-
-	// "= Toggle [Layer] <aLayerName> [on parent/etc] "
-	// allowedKeyWords = Layer & Parent/etc
-	allowedKeyWords.set(eCmdWord_Toggle);
-	if( keyWordsFound.test(eCmdWord_Toggle) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_ToggleControlsLayer;
-		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-		result.relativeLayer = aRelativeLayer;
-		DBG_ASSERT(result.layerID != 0);
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Toggle);
-
-	// "= Replace [parent/etc] [with] [Layer] <aLayerName>"
-	// OR "= Replace All [Layers] [with] <aLayerName>"
-	// allowedKeyWords = Layer & Parent/etc
-	allowedKeyWords.set(eCmdWord_Replace);
-	if( keyWordsFound.test(eCmdWord_Replace) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_ReplaceControlsLayer;
-		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-		result.relativeLayer = aRelativeLayer;
-		return result;
-	}
-
-	// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Layer);
-	allowedKeyWords.set(eCmdWord_Hold);
-	if( allowHoldActions &&
-		(keyWordsFound.test(eCmdWord_Hold) ||
-		 keyWordsFound.test(eCmdWord_Layer)) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_HoldControlsLayer;
-		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Hold);
-
-	// "= Remove [Layer] <aLayerName>"
-	// allowedKeyWords = Layer
-	allowedKeyWords.set(eCmdWord_Remove);
-	if( keyWordsFound.test(eCmdWord_Remove) &&
-		aLayerName &&
-		(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-	{
-		result.type = eCmdType_RemoveControlsLayer;
-		result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-		DBG_ASSERT(result.layerID != 0);
-		return result;
-	}
-	allowedKeyWords.reset(eCmdWord_Remove);
-
-	// Same deal as aLayerNamefor the Menu-related commands needing a name
+	// Same deal as aLayerName for the Menu-related commands needing a name
 	// of the menu in question as the one otherwise-unrelated word.
 	const std::string* aMenuName = anIgnoredWord;
 	if( allowButtonActions )
@@ -960,6 +1036,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Down);
 		allowedKeyWords.reset(eCmdWord_Hotspot);
 		allowedKeyWords.reset(eCmdWord_Default);
+		allowedKeyWords.reset(eCmdWord_Integer);
 		if( allowedKeyWords.count() == 1 )
 		{
 			VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
@@ -968,14 +1045,16 @@ static Command wordsToSpecialCommand(
 			if( itr != theBuilder.keyWordMap.end() )
 				aMenuName = &theWords[itr->second];
 		}
+	}
 
+	if( allowButtonActions && aMenuName )
+	{
 		// "= Reset <aMenuName> [Menu] [to Default]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Menu);
 		allowedKeyWords.set(eCmdWord_Default);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuReset;
@@ -989,7 +1068,6 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Confirm);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
@@ -1002,7 +1080,6 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Close);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
 			keyWordsFound.test(eCmdWord_Close) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirmAndClose;
@@ -1016,7 +1093,6 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Back);
 		if( keyWordsFound.test(eCmdWord_Back) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuBack;
@@ -1030,7 +1106,6 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Close);
 		if( keyWordsFound.test(eCmdWord_Back) &&
 			keyWordsFound.test(eCmdWord_Close) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuBackOrClose;
@@ -1044,7 +1119,6 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Edit);
 		if( keyWordsFound.test(eCmdWord_Edit) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEdit;
@@ -1053,125 +1127,102 @@ static Command wordsToSpecialCommand(
 		}
 	}
 
-	if( keyWordsFound.test(eCmdWord_Target) &&
-		keyWordsFound.test(eCmdWord_Group) )
+	// Now once again same deal for the name of a Key Bind Array
+	const std::string* aKeyBindArrayName = anIgnoredWord;
+	allowedKeyWords = keyWordsFound;
+	allowedKeyWords.reset(eCmdWord_Reset);
+	allowedKeyWords.reset(eCmdWord_Last);
+	allowedKeyWords.reset(eCmdWord_Default);
+	allowedKeyWords.reset(eCmdWord_Load);
+	allowedKeyWords.reset(eCmdWord_Set);
+	allowedKeyWords.reset(eCmdWord_Prev);
+	allowedKeyWords.reset(eCmdWord_Next);
+	allowedKeyWords.reset(eCmdWord_Integer);
+	if( allowedKeyWords.count() == 1 )
 	{
-		// "= Target Group Reset [Last] [to Default]"
+		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
+			theBuilder.keyWordMap.find(
+				ECommandKeyWord(allowedKeyWords.firstSetBit()));
+		if( itr != theBuilder.keyWordMap.end() )
+			aKeyBindArrayName = &theWords[itr->second];
+	}
+	// In this case, need to confirm key bind name is valid and get ID from it
+	u16* aKeyBindArrayID = null;
+	if( aKeyBindArrayName )
+	{
+		aKeyBindArrayID =
+			theBuilder.keyBindArrayNameToIdxMap.find(
+				condense(*aKeyBindArrayName));
+	}
+
+	if( aKeyBindArrayID )
+	{
+		// "= Reset <aKeyBindArrayID> [Last] [to Default]"
 		allowedKeyWords.reset();
-		allowedKeyWords.set(eCmdWord_Target);
-		allowedKeyWords.set(eCmdWord_Group);
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Last);
 		allowedKeyWords.set(eCmdWord_Default);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
-			result.type = eCmdType_TargetGroupResetLast;
+			result.type = eCmdType_KeyBindArrayResetLast;
+			result.keybindArrayID = *aKeyBindArrayID;
 			return result;
 		}
-		allowedKeyWords.reset(eCmdWord_Reset);
-		allowedKeyWords.reset(eCmdWord_Last);
-		allowedKeyWords.reset(eCmdWord_Default);
-		// "= Target Group [Load] Default"
-		// allowedKeyWords = Target & Group
+		// "= <aKeyBindArrayID> [Load] Default"
+		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Load);
 		allowedKeyWords.set(eCmdWord_Default);
 		if( keyWordsFound.test(eCmdWord_Default) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
-			result.type = eCmdType_TargetGroupDefault;
+			result.type = eCmdType_KeyBindArrayDefault;
+			result.keybindArrayID = *aKeyBindArrayID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Load);
-		// "= Target Group 'Set [Default]'|'Left' [to Last]"
-		// allowedKeyWords = Target & Group & Default
+		// "= <aKeyBindArrayID> 'Set [Default] [to Last]"
+		// allowedKeyWords = Default
 		allowedKeyWords.set(eCmdWord_Set);
-		allowedKeyWords.set(eCmdWord_Left);
-		allowedKeyWords.set(eCmdWord_Wrap);
-		allowedKeyWords.set(eCmdWord_NoWrap);
 		allowedKeyWords.set(eCmdWord_Last);
-		if( (keyWordsFound.test(eCmdWord_Set) ||
-			 keyWordsFound.test(eCmdWord_Left)) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
+		if( keyWordsFound.test(eCmdWord_Set) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
-			result.type = eCmdType_SetTargetGroupDefault;
+			result.type = eCmdType_KeyBindArraySetDefault;
+			result.keybindArrayID = *aKeyBindArrayID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Set);
-		allowedKeyWords.reset(eCmdWord_Left);
 		allowedKeyWords.reset(eCmdWord_Default);
-		// "= Target Group 'Pet'|'Last'|'Right'"
-		// allowedKeyWords = Target & Group & Wrap & NoWrap & Last
-		allowedKeyWords.set(eCmdWord_Pet);
-		allowedKeyWords.set(eCmdWord_Right);
-		if( (keyWordsFound.test(eCmdWord_Pet) ||
-			 keyWordsFound.test(eCmdWord_Last) ||
-			 keyWordsFound.test(eCmdWord_Right)) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
+		// "= <aKeyBindArrayID> Last"
+		// allowedKeyWords = Last
+		if( keyWordsFound.test(eCmdWord_Last) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
-			result.type = eCmdType_TargetGroupPet;
+			result.type = eCmdType_KeyBindArrayLast;
+			result.keybindArrayID = *aKeyBindArrayID;
 			return result;
 		}
-		allowedKeyWords.reset(eCmdWord_Pet);
-		allowedKeyWords.reset(eCmdWord_Last);
-		allowedKeyWords.reset(eCmdWord_Right);
-		// "= Target Group 'Prev'|'Up'|'PrevNoWrap' [NoWrap]"
-		// allowedKeyWords = Target & Group & Wrap & NoWrap
-		allowedKeyWords.reset(eCmdWord_Wrap);
+		// "= <aKeyBindArrayID> Prev [No/Wrap] [#]
+		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Prev);
-		allowedKeyWords.set(eCmdWord_PrevNoWrap);
-		if( (keyWordsFound.test(eCmdWord_Prev) ||
-			 keyWordsFound.test(eCmdWord_PrevNoWrap)) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
+		allowedKeyWords.set(eCmdWord_Integer);
+		if( keyWordsFound.test(eCmdWord_Prev) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
-			result.type = eCmdType_TargetGroupPrev;
-			result.wrap = false;
+			result.type = eCmdType_KeyBindArrayPrev;
+			result.keybindArrayID = *aKeyBindArrayID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Prev);
-		allowedKeyWords.reset(eCmdWord_PrevNoWrap);
-		// "= Target Group 'Next'|'Down'|'NextNoWrap' [NoWrap]"
-		// allowedKeyWords = Target & Group & NoWrap
+		// "= <aKeyBindArrayID> Next [No/Wrap] [#]
+		// allowedKeyWords = Integer
 		allowedKeyWords.set(eCmdWord_Next);
-		allowedKeyWords.set(eCmdWord_NextNoWrap);
-		if( (keyWordsFound.test(eCmdWord_Next) ||
-			 keyWordsFound.test(eCmdWord_NextNoWrap)) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
+		if( keyWordsFound.test(eCmdWord_Next) &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
-			result.type = eCmdType_TargetGroupNext;
-			result.wrap = false;
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Next);
-		allowedKeyWords.reset(eCmdWord_NextNoWrap);
-		allowedKeyWords.reset(eCmdWord_NoWrap);
-		// "= Target Group 'Prev Wrap'|'Up Wrap'|'PrevWrap'|'UpWrap'"
-		// allowedKeyWords = Target & Group
-		allowedKeyWords.set(eCmdWord_Wrap);
-		allowedKeyWords.set(eCmdWord_Prev);
-		allowedKeyWords.set(eCmdWord_PrevWrap);
-		if( (keyWordsFound.test(eCmdWord_PrevWrap) ||
-			 (keyWordsFound.test(eCmdWord_Prev) &&
-			  keyWordsFound.test(eCmdWord_Wrap))) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
-		{
-			result.type = eCmdType_TargetGroupPrev;
-			result.wrap = true;
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Prev);
-		allowedKeyWords.reset(eCmdWord_PrevWrap);
-		// "= Target Group 'Next Wrap'|'Down Wrap'|'NextWrap'|'DownWrap'"
-		// allowedKeyWords = Target & Group & Wrap
-		allowedKeyWords.set(eCmdWord_Next);
-		allowedKeyWords.set(eCmdWord_NextWrap);
-		if( (keyWordsFound.test(eCmdWord_NextWrap) ||
-			 (keyWordsFound.test(eCmdWord_Next) &&
-			  keyWordsFound.test(eCmdWord_Wrap))) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
-		{
-			result.type = eCmdType_TargetGroupNext;
-			result.wrap = true;
+			result.type = eCmdType_KeyBindArrayNext;
+			result.keybindArrayID = *aKeyBindArrayID;
 			return result;
 		}
 	}
@@ -1197,15 +1248,16 @@ static Command wordsToSpecialCommand(
 	// Remove direction-related bits from keyWordsFound
 	keyWordsFound &= ~allowedKeyWords;
 
-	if( allowButtonActions )
+	if( allowButtonActions && aMenuName )
 	{
-		// "= 'Select'|'Menu'|'Select Menu' <aMenuName> <aCmdDir>"
+		// "= 'Select'|'Menu'|'Select Menu'
+		// <aMenuName> <aCmdDir> [No/Wrap] [#]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Select);
 		allowedKeyWords.set(eCmdWord_Menu);
+		allowedKeyWords.set(eCmdWord_Integer);
 		if( (keyWordsFound.test(eCmdWord_Select) ||
 			 keyWordsFound.test(eCmdWord_Menu)) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelect;
@@ -1213,13 +1265,13 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 
-		// "= 'Select'|'Menu'|'Select Menu' <aMenuName> <aCmdDir> and Close"
+		// "= 'Select'|'Menu'|'Select Menu' and Close
+		// <aMenuName> <aCmdDir> [No/Wrap] [#]"
 		// allowedKeyWords = Menu & Select
 		allowedKeyWords.set(eCmdWord_Close);
 		if( (keyWordsFound.test(eCmdWord_Select) ||
 			 keyWordsFound.test(eCmdWord_Menu)) &&
 			keyWordsFound.test(eCmdWord_Close) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelectAndClose;
@@ -1233,18 +1285,21 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Edit);
 		if( keyWordsFound.test(eCmdWord_Edit) &&
-			aMenuName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEditDir;
 			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
+	}
 
-		// "= [Select] Hotspot <aCmdDir>"
+	if( allowButtonActions )
+	{
+		// "= [Select] Hotspot <aCmdDir> [No/Wrap] [#]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Select);
 		allowedKeyWords.set(eCmdWord_Hotspot);
+		allowedKeyWords.set(eCmdWord_Integer);
 		if( keyWordsFound.test(eCmdWord_Hotspot) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
@@ -1345,7 +1400,6 @@ static Command wordsToSpecialCommand(
 	}
 
 	DBG_ASSERT(result.type == eCmdType_Empty);
-	result.dir = 0;
 	return result;
 }
 
@@ -1390,10 +1444,29 @@ static Command stringToCommand(
 	// Check for alias to a keybind
 	if( result.type == eCmdType_Empty )
 	{
+		std::string aKeyBindName = condense(theString);
 		if( Command* aKeyBindCommand =
-				theBuilder.commandAliases.find(condense(theString)) )
+				theBuilder.commandAliases.find(aKeyBindName) )
 		{
 			result = *aKeyBindCommand;
+			// Check if this keybind is part of an array, and if so, use
+			// eCmdType_KeyBindArrayIndex instead so "last" will update
+			const int anArrayIdx = breakOffIntegerSuffix(aKeyBindName);
+			if( anArrayIdx >= 0 )
+			{
+				u16* aKeyBindArrayID =
+					theBuilder.keyBindArrayNameToIdxMap.find(aKeyBindName);
+				if( aKeyBindArrayID )
+				{
+					// Comment on _PressAndHoldKey further down explains this
+					if( result.type == eCmdType_TapKey && allowHoldActions )
+						result.type = eCmdType_KeyBindArrayHoldIndex;
+					else
+						result.type = eCmdType_KeyBindArrayIndex;
+					result.keybindArrayID = *aKeyBindArrayID;
+					result.arrayIdx = anArrayIdx;
+				}
+			}
 		}
 	}
 
@@ -1756,19 +1829,19 @@ static void buildGlobalHotspots(InputMapBuilder& theBuilder)
 	Profile::getAllKeys(kGlobalHotspotsPrefix, aHotspotRequests);
 	for(size_t i = 0; i < aHotspotRequests.size(); ++i)
 	{
-		std::string aHotspotName = condense(aHotspotRequests[i].first);
-		std::string aHotspotDescription(aHotspotRequests[i].second);
+		std::string aHotspotName = aHotspotRequests[i].first;
+		std::string aHotspotDescription = aHotspotRequests[i].second;
 
 		u16& aHotspotIdx = theBuilder.hotspotNameToIdxMap.findOrAdd(
-			condense(aHotspotName), u16(sHotspots.size()));
-		while(aHotspotIdx >= sHotspots.size())
-			sHotspots.push_back(Hotspot());
+			aHotspotName, u16(sHotspots.size()));
+		if( aHotspotIdx >= sHotspots.size() )
+			sHotspots.resize(aHotspotIdx+1);
 		EResult aResult =
 			stringToHotspot(aHotspotDescription, sHotspots[aHotspotIdx]);
 		if( aResult == eResult_Malformed )
 		{
 			logError("Hotspot %s: Could not decipher hotspot position '%s'",
-				aHotspotRequests[i].first, aHotspotRequests[i].second);
+				aHotspotName.c_str(), aHotspotDescription.c_str());
 			sHotspots[aHotspotIdx] = aHotspot;
 		}
 	}
@@ -1783,10 +1856,10 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 	Profile::getAllKeys(kKeybindsPrefix, aKeyBindRequests);
 	for(size_t i = 0; i < aKeyBindRequests.size(); ++i)
 	{
-		const char* anActionName = aKeyBindRequests[i].first;
-		const char* aCommandDescription = aKeyBindRequests[i].second;
+		std::string anActionName = aKeyBindRequests[i].first;
+		std::string aCommandDescription = aKeyBindRequests[i].second;
 
-		if( !aCommandDescription || aCommandDescription[0] == '\0' )
+		if( aCommandDescription.empty() )
 			continue;
 
 		// Break keys description string into individual words
@@ -1812,15 +1885,51 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 			theBuilder.commandAliases.setValue(anActionName, aCmd);
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
-				anActionName, aCommandDescription);
+				anActionName.c_str(),
+				aCommandDescription.c_str());
+
+			// Check if could be part of a keybind array
+			const int anArrayIdx = breakOffIntegerSuffix(anActionName);
+			if( anArrayIdx >= 0 )
+			{
+				u16 aKeyBindArrayID =
+					theBuilder.keyBindArrayNameToIdxMap.findOrAdd(
+						anActionName, u16(sKeyBindArrays.size()));
+				if( aKeyBindArrayID >= sKeyBindArrays.size() )
+					sKeyBindArrays.resize(aKeyBindArrayID+1);
+				KeyBindArray& aKeyBindArray = sKeyBindArrays[aKeyBindArrayID];
+				if( anArrayIdx >= aKeyBindArray.size() )
+					aKeyBindArray.resize(anArrayIdx+1);
+				aKeyBindArray[anArrayIdx].cmd = aCmd;
+				// Check for a matching named hotspot
+				u16* aHotspotID = theBuilder.hotspotNameToIdxMap.find(
+					anActionName + toString(anArrayIdx));
+				if( aHotspotID )
+					aKeyBindArray[anArrayIdx].hotspotID = *aHotspotID;
+				mapDebugPrint("Assigned KeyBindArray '%s' index #%d to '%s'%s\n",
+					anActionName.c_str(),
+					anArrayIdx,
+					aCommandDescription.c_str(),
+					aHotspotID ? " (+ hotspot)" : "");
+			}
 		}
 		else
 		{
 			logError(
 				"%s%s: Unable to decipher and assign '%s'",
-				kKeybindsPrefix, anActionName, aCommandDescription);
+				kKeybindsPrefix,
+				anActionName.c_str(),
+				aCommandDescription.c_str());
 		}
 	}
+
+	// Can now also set size of global vectors related to Key Bind Arrays
+	gKeyBindArrayLastIndex.reserve(sKeyBindArrays.size());
+	gKeyBindArrayLastIndex.resize(sKeyBindArrays.size());
+	gKeyBindArrayDefaultIndex.reserve(sKeyBindArrays.size());
+	gKeyBindArrayDefaultIndex.resize(sKeyBindArrays.size());
+	gKeyBindArrayLastIndexChanged.clearAndResize(sKeyBindArrays.size());
+	gKeyBindArrayDefaultIndexChanged.clearAndResize(sKeyBindArrays.size());
 }
 
 
@@ -2420,7 +2529,6 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 
 static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
-	sTargetGroupSize = 1;
 	for(size_t i = 0; i < eSpecialKey_Num; ++i)
 	{
 		DBG_ASSERT(sSpecialKeys[i] == 0);
@@ -2436,12 +2544,6 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 			continue;
 		}
 		sSpecialKeys[i] = aKeyBindCommand->vKey;
-		if( i >= eSpecialKey_FirstGroupTarget &&
-			i <= eSpecialKey_LastGroupTarget )
-		{
-			sTargetGroupSize = max(sTargetGroupSize,
-				u8(i + 1 - eSpecialKey_FirstGroupTarget));
-		}
 	}
 
 	// Have some special keys borrow the value of others if left unassigned
@@ -2518,6 +2620,8 @@ void loadProfile()
 	// Trim unused memory
 	if( sHotspots.size() < sHotspots.capacity() )
 		std::vector<Hotspot>(sHotspots).swap(sHotspots);
+	if( sKeyBindArrays.size() < sKeyBindArrays.capacity() )
+		std::vector<KeyBindArray>(sKeyBindArrays).swap(sKeyBindArrays);
 	if( sKeyStrings.size() < sKeyStrings.capacity() )
 		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
 	if( sLayers.size() < sLayers.capacity() )
@@ -2563,6 +2667,42 @@ u16 keyForSpecialAction(ESpecialKey theAction)
 {
 	DBG_ASSERT(theAction < eSpecialKey_Num);
 	return sSpecialKeys[theAction];
+}
+
+
+const Command& keyBindArrayCommand(u16 theArrayID, u16 theIndex)
+{
+	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
+	DBG_ASSERT(theIndex < sKeyBindArrays[theArrayID].size());
+	return sKeyBindArrays[theArrayID][theIndex].cmd;
+}
+
+
+u16 offsetKeyBindArrayIndex(
+	u16 theArrayID, u16 theIndex, s16 theOffset, bool wrap)
+{
+	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
+	DBG_ASSERT(theIndex < sKeyBindArrays[theArrayID].size());
+	KeyBindArray& aKeyBindArray = sKeyBindArrays[theArrayID];
+	// The last command in the array should never be empty
+	DBG_ASSERT(aKeyBindArray.back().cmd.type != eCmdType_Empty);
+	while(theOffset < 0 && (wrap || theIndex > 0) )
+	{
+		if( theIndex-- == 0 )
+			theIndex = wrap ? u16(aKeyBindArray.size()-1) : 0;
+		if( aKeyBindArray[theIndex].cmd.type != eCmdType_Empty )
+			++theOffset;
+	}
+	while(theOffset > 0)
+	{
+		if( theIndex++ >= aKeyBindArray.size()-1 )
+			theIndex = wrap ? 0 : u16(aKeyBindArray.size()-1);
+		if( aKeyBindArray[theIndex].cmd.type != eCmdType_Empty )
+			--theOffset;
+	}
+	while(aKeyBindArray[theIndex].cmd.type == eCmdType_Empty)
+		++theIndex;
+	return theIndex;
 }
 
 
@@ -2662,6 +2802,20 @@ const Hotspot& getHotspot(u16 theHotspotID)
 }
 
 
+Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex)
+{
+	Hotspot* result = null;
+	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
+	DBG_ASSERT(theIndex < sKeyBindArrays[theArrayID].size());
+	theIndex = offsetKeyBindArrayIndex(theArrayID, theIndex, 0, false);
+	const u16 aHotspotID = sKeyBindArrays[theArrayID][theIndex].hotspotID;
+	DBG_ASSERT(aHotspotID < sHotspots.size());
+	if( aHotspotID > 0 )
+		result = &sHotspots[aHotspotID];
+	return result;
+}
+
+
 EResult profileStringToHotspot(std::string& theString, Hotspot& out)
 {
 	return stringToHotspot(theString, out);
@@ -2698,6 +2852,26 @@ u16 hudElementForMenu(u16 theMenuID)
 }
 
 
+u16 keyBindArrayForHUDElement(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElements.size());
+	return sHUDElements[theHUDElementID].keyBindArrayID;
+}
+
+
+u16 keyBindArrayCount()
+{
+	return u16(sKeyBindArrays.size());
+}
+
+
+u16 keyBindArraySize(u16 theArrayID)
+{
+	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
+	return u16(sKeyBindArrays[theArrayID].size());
+}
+
+
 u16 controlsLayerCount()
 {
 	return u16(sLayers.size());
@@ -2720,12 +2894,6 @@ u16 menuItemCount(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	return u16(sMenus[theMenuID].items.size());
-}
-
-
-u8 targetGroupSize()
-{
-	return sTargetGroupSize;
 }
 
 

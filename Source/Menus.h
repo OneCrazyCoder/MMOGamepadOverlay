@@ -33,7 +33,8 @@ const Command& selectedMenuItemCommand(u16 theMenuID);
 // Changes currently selected menu item.
 // In some menu styles, the act of selecting a menu item should also
 // trigger an associated Command to execute immediately, which is returned.
-const Command& selectMenuItem(u16 theMenuID, ECommandDir theDir, bool repeat);
+const Command&
+selectMenuItem(u16 theMenuID, ECommandDir theDir, bool wrap, bool repeat);
 
 // Opens a sub-menu, meaning all references to the menu ID will actually refer
 // to the sub-menu's data instead untli it is closed.

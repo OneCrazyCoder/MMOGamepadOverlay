@@ -33,12 +33,8 @@ extern BitVector<> gActiveHUD;
 // Which HUD elements are disabled (i.e. Menu w/o input assigned to control it)
 extern BitVector<> gDisabledHUD;
 
-// Which group member (self being #0) last targeted with relative targeting
-extern u8 gLastGroupTarget;
-
-// Which group member to target initially when begin targeting
-extern u8 gDefaultGroupTarget;
-
-// Flag that used group target feature and needs to display that in HUD
-extern bool gLastGroupTargetUpdated;
-extern bool gDefaultGroupTargetUpdated;
+// Last-used and default index for Key Bind Arrays, and flags for changing them
+extern std::vector<u8> gKeyBindArrayLastIndex;
+extern std::vector<u8> gKeyBindArrayDefaultIndex;
+extern BitVector<> gKeyBindArrayLastIndexChanged;
+extern BitVector<> gKeyBindArrayDefaultIndexChanged;
