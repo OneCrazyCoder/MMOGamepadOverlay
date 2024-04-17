@@ -639,22 +639,28 @@ static void processCommand(
 		Menus::editMenuItem(theCmd.menuID);
 		break;
 	case eCmdType_MenuSelect:
-		for(int i = 0; i < theCmd.count; ++i)
+		for(int i = 1; i < theCmd.count; ++i)
 		{
-			aForwardCmd = Menus::selectMenuItem(
+			Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
-				theCmd.wrap, repeated || i > 0);
+				theCmd.wrap, true);
 		}
+		aForwardCmd = Menus::selectMenuItem(
+			theCmd.menuID, ECommandDir(theCmd.dir),
+			theCmd.wrap, repeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuSelectAndClose:
-		for(int i = 0; i < theCmd.count; ++i)
+		for(int i = 1; i < theCmd.count; ++i)
 		{
-			aForwardCmd = Menus::selectMenuItem(
+			Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
-				theCmd.wrap, repeated || i > 0);
+				theCmd.wrap, true);
 		}
+		aForwardCmd = Menus::selectMenuItem(
+			theCmd.menuID, ECommandDir(theCmd.dir),
+			theCmd.wrap, repeated);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			// Close menu first if this won't just switch to a sub-menu
