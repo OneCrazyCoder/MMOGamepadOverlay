@@ -595,18 +595,20 @@ static void processCommand(
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_OpenSubMenu:
-		Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
+		aForwardCmd = Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_ReplaceMenu:
-		Menus::replaceMenu(theCmd.menuID, theCmd.subMenuID);
+		aForwardCmd = Menus::replaceMenu(theCmd.menuID, theCmd.subMenuID);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuReset:
-		Menus::reset(theCmd.menuID);
+		aForwardCmd = Menus::reset(theCmd.menuID);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuConfirm:
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
-		if( aForwardCmd.type != eCmdType_Empty )
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuConfirmAndClose:
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
@@ -628,54 +630,55 @@ static void processCommand(
 		}
 		break;
 	case eCmdType_MenuBack:
-		Menus::closeLastSubMenu(theCmd.menuID);
+		if( const Command* aCmdPtr = Menus::closeLastSubMenu(theCmd.menuID) )
+			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
 		break;
 	case eCmdType_MenuBackOrClose:
 		// If at root, assume removing calling layer "closes" the menu
-		if( !Menus::closeLastSubMenu(theCmd.menuID) )
+		if( const Command* aCmdPtr = Menus::closeLastSubMenu(theCmd.menuID) )
+			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
+		else
 			removeControlsLayer(theLayerIdx);
 		break;
 	case eCmdType_MenuEdit:
 		Menus::editMenuItem(theCmd.menuID);
 		break;
 	case eCmdType_MenuSelect:
-		for(int i = 1; i < theCmd.count; ++i)
+		for(int i = 0; i < theCmd.count; ++i)
 		{
-			Menus::selectMenuItem(
+			aForwardCmd = Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
-				theCmd.wrap, true);
+				theCmd.wrap, repeated || i < theCmd.count-1);
+			if( aForwardCmd.type != eCmdType_Empty )
+				processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
-		aForwardCmd = Menus::selectMenuItem(
-			theCmd.menuID, ECommandDir(theCmd.dir),
-			theCmd.wrap, repeated);
-		if( aForwardCmd.type != eCmdType_Empty )
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuSelectAndClose:
-		for(int i = 1; i < theCmd.count; ++i)
+		for(int i = 0; i < theCmd.count; ++i)
 		{
-			Menus::selectMenuItem(
+			aForwardCmd = Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
-				theCmd.wrap, true);
-		}
-		aForwardCmd = Menus::selectMenuItem(
-			theCmd.menuID, ECommandDir(theCmd.dir),
-			theCmd.wrap, repeated);
-		if( aForwardCmd.type != eCmdType_Empty )
-		{
-			// Close menu first if this won't just switch to a sub-menu
-			if( aForwardCmd.type != eCmdType_Empty &&
-				aForwardCmd.type < eCmdType_FirstMenuControl &&
-				theLayerIdx > 0 )
+				theCmd.wrap, repeated || i < theCmd.count-1);
+			if( aForwardCmd.type != eCmdType_Empty )
 			{
-				// Set theLayerIdx to parent layer first,
-				// since this layer will be invalid for aForwardCmd
-				const u16 aLayerToRemoveID = theLayerIdx;
-				theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
-				// Assume removing calling layer "closes" the menu
-				removeControlsLayer(aLayerToRemoveID);
+				// Close menu first if this won't just switch to a sub-menu
+				if( aForwardCmd.type != eCmdType_Empty &&
+					theLayerIdx > 0 &&
+					(aForwardCmd.type < eCmdType_FirstMenuControl ||
+					 aForwardCmd.type > eCmdType_LastMenuControl) )
+				{
+					// Set theLayerIdx to parent layer first,
+					// since this layer will be invalid for aForwardCmd
+					const u16 aLayerToRemoveID = theLayerIdx;
+					theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
+					// Assume removing calling layer "closes" the menu
+					removeControlsLayer(aLayerToRemoveID);
+					// Process command and break out of loop
+					processCommand(theBtnState, aForwardCmd, theLayerIdx);
+					break;
+				}
+				processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			}
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		break;
 	case eCmdType_MenuEditDir:

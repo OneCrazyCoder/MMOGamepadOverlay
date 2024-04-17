@@ -139,10 +139,10 @@ const Command& selectMenuItem(
 		switch(theDir)
 		{
 		case eCmdDir_L:
-			pushedPastEdge = true;
+			pushedPastEdge = !repeat;
 			break;
 		case eCmdDir_R:
-			pushedPastEdge = true;
+			pushedPastEdge = !repeat;
 			break;
 		case eCmdDir_U:
 			pushedPastEdge = aSelection == 0;
@@ -164,10 +164,10 @@ const Command& selectMenuItem(
 		switch(theDir)
 		{
 		case eCmdDir_L:
-			pushedPastEdge = true;
+			pushedPastEdge = !repeat;
 			break;
 		case eCmdDir_R:
-			pushedPastEdge = true;
+			pushedPastEdge = !repeat;
 			break;
 		case eCmdDir_U:
 			aSelection = decWrap(aSelection, anItemCount);
@@ -176,7 +176,6 @@ const Command& selectMenuItem(
 			aSelection = incWrap(aSelection, anItemCount);
 			break;
 		}
-		break;
 		break;
 	case eMenuStyle_Bar:
 		switch(theDir)
@@ -196,15 +195,15 @@ const Command& selectMenuItem(
 				aSelection = 0;
 			break;
 		case eCmdDir_U:
-			pushedPastEdge = true;
+			pushedPastEdge = !repeat;
 			break;
 		case eCmdDir_D:
-			pushedPastEdge = true;
+			pushedPastEdge = !repeat;
 			break;
 		}
 		break;
 	case eMenuStyle_4Dir:
-		pushedPastEdge = true;
+		pushedPastEdge = !repeat;
 		break;
 	case eMenuStyle_Grid:
 		switch(theDir)
@@ -254,15 +253,13 @@ const Command& selectMenuItem(
 		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
 
-	if( repeat )
-		return kEmptyMenuCommand;
 	if( pushedPastEdge && aDirCmd.type != eCmdType_Empty )
 		return aDirCmd;
 	return kEmptyMenuCommand;
 }
 
 
-void openSubMenu(u16 theMenuID, u16 theSubMenuID)
+const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theSubMenuID));
@@ -277,7 +274,7 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 	// If this is already the active sub-menu, do nothing else
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	if( aMenuInfo.subMenuStack.back().id == theSubMenuID )
-		return;
+		return kEmptyMenuCommand;
 
 	// Push new menu on to the stack
 	aMenuInfo.subMenuStack.push_back(SubMenuInfo(theSubMenuID));
@@ -285,10 +282,12 @@ void openSubMenu(u16 theMenuID, u16 theSubMenuID)
 	// Need to redraw new menu items
 	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 	gRedrawHUD.set(aMenuInfo.hudElementID);
+
+	return InputMap::menuAutoCommand(theSubMenuID);
 }
 
 
-bool closeLastSubMenu(u16 theMenuID)
+const Command* closeLastSubMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -304,7 +303,9 @@ bool closeLastSubMenu(u16 theMenuID)
 		aMenuInfo.subMenuStack.pop_back();
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
-		return true;
+		const Command& aCmd =
+			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
+		return &aCmd;
 	}
 	
 	// For Slots-style menus, "side" menus (other slots) can replace
@@ -315,14 +316,16 @@ bool closeLastSubMenu(u16 theMenuID)
 		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
-		return true;
+		const Command& aCmd =
+			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
+		return &aCmd;
 	}
 
-	return false;
+	return null;
 }
 
 
-void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
+const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -336,7 +339,7 @@ void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 			"but it is not a sub-menu of this root menu!",
 			InputMap::menuLabel(theReplacementSubMenuID).c_str(),
 			InputMap::menuLabel(theMenuID).c_str());
-		return;
+		return kEmptyMenuCommand;
 	}
 
 	// Even if no actual change made, mark menu as having been interacted with
@@ -346,7 +349,7 @@ void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 	// If this is already the active sub-menu, do nothing else
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	if( aMenuInfo.subMenuStack.back().id == theReplacementSubMenuID )
-		return;
+		return kEmptyMenuCommand;
 
 	// Going to change menus, will need to redraw
 	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
@@ -366,7 +369,7 @@ void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 				const SubMenuInfo aSideMenuInfo = *itr;
 				aMenuInfo.subMenuStack.erase(itr);
 				aMenuInfo.subMenuStack.push_back(aSideMenuInfo);
-				return;
+				return InputMap::menuAutoCommand(aSideMenuInfo.id);
 			}
 		}
 		// If doesn't exist, push it on to the stack like a sub-menu,
@@ -391,10 +394,12 @@ void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 	// Need to redraw new menu items
 	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 	gRedrawHUD.set(aMenuInfo.hudElementID);
+
+	return InputMap::menuAutoCommand(theReplacementSubMenuID);
 }
 
 
-void reset(u16 theMenuID)
+const Command& reset(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -410,6 +415,8 @@ void reset(u16 theMenuID)
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
+
+	return InputMap::menuAutoCommand(theMenuID);
 }
 
 

@@ -47,6 +47,7 @@ const BitVector<>& hudElementsToHide(u16 theLayerID);
 // MENUS
 const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
 const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
+const Command& menuAutoCommand(u16 theMenuID);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
 // Full Profile (.ini file) key for specified menu item's command
