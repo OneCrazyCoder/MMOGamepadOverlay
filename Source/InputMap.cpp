@@ -34,6 +34,7 @@ DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
 const char* kMouseModeKey = "MOUSE";
+const char* kMenuOpenKey = "AUTO";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
@@ -101,6 +102,7 @@ struct Menu
 	std::string label;
 	std::vector<MenuItem> items;
 	MenuItem dirItems[eCmdDir_Num];
+	Command autoCommand;
 	u16 parentMenuID;
 	u16 rootMenuID;
 	u16 hudElementID;
@@ -2380,6 +2382,33 @@ static void buildMenus(InputMapBuilder& theBuilder)
 		const std::string aDebugNamePrefix =
 			std::string("[") + aPrefix + "] (";
 
+		// Check for command to execute automatically on menu open
+		const std::string anOnOpenCmd =
+			Profile::getStr(condense(aPrefix + "/" + kMenuOpenKey));
+		if( !anOnOpenCmd.empty() )
+		{
+			theBuilder.debugItemName =
+				aDebugNamePrefix + kMenuOpenKey + ")";
+			const Command& aCmd =
+				stringToCommand(theBuilder, anOnOpenCmd);
+			if( aCmd.type == eCmdType_Empty ||
+				(aCmd.type >= eCmdType_FirstMenuControl &&
+				 aCmd.type <= eCmdType_LastMenuControl) )
+			{
+				logError("%s: Invalid command '%s'!\n",
+					theBuilder.debugItemName.c_str(),
+					anOnOpenCmd.c_str());
+				sMenus[aMenuID].autoCommand = Command();
+			}
+			else
+			{
+				sMenus[aMenuID].autoCommand = aCmd;
+				mapDebugPrint("%s: Assigned to command: %s\n",
+					theBuilder.debugItemName.c_str(),
+					anOnOpenCmd.c_str());
+			}
+		}
+
 		u16 itemIdx = 0;
 		bool checkForNextMenuItem = aMenuStyle != eMenuStyle_4Dir;
 		while(checkForNextMenuItem)
@@ -2638,6 +2667,7 @@ void loadProfile()
 	for(std::vector<Menu>::iterator itr = sMenus.begin();
 		itr != sMenus.end(); ++itr)
 	{
+		setCStringPointerFor(&itr->autoCommand);
 		// Trim unused memory while here anyway
 		if( itr->items.size() < itr->items.capacity() )
 			std::vector<MenuItem>(itr->items).swap(itr->items);
@@ -2762,6 +2792,13 @@ const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir)
 	DBG_ASSERT(theMenuID < sMenus.size());
 	DBG_ASSERT(theDir < eCmdDir_Num);
 	return sMenus[theMenuID].dirItems[theDir].cmd;
+}
+
+
+const Command& menuAutoCommand(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	return sMenus[theMenuID].autoCommand;
 }
 
 

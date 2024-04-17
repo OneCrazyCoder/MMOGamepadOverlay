@@ -37,21 +37,23 @@ const Command&
 selectMenuItem(u16 theMenuID, ECommandDir theDir, bool wrap, bool repeat);
 
 // Opens a sub-menu, meaning all references to the menu ID will actually refer
-// to the sub-menu's data instead untli it is closed.
-void openSubMenu(u16 theMenuID, u16 theSubMenuID);
+// to the sub-menu's data instead untli it is close. Returns its Auto command.
+const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID);
 
 // Similar result to openSubMenu but replaces current menu entirely instead
-// of adding it to menu stack, changing how closeLastSubMenu() below behaves
-void replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID);
+// of adding it to menu stack, changing how closeLastSubMenu() below behaves.
+const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID);
 
 // Removes the most recently-added sub-menu (via openSubMenu), returning to
 // whichever sub-menu (or the root menu) was active before then.
-// Returns false if were already at the root menu and thus did nothing
-bool closeLastSubMenu(u16 theMenuID);
+// Returns NULL if were already at the root menu and thus did nothing,
+// otherwise pointer to Auto command of the now-active parent menu.
+const Command* closeLastSubMenu(u16 theMenuID);
 
 // Resets menu to its default state (closes all sub-menus & resets selection),
-// but does NOT trigger this as "activating" the menu in terms of alpha fade
-void reset(u16 theMenuID);
+// but does NOT trigger this as "activating" the menu in terms of alpha fade.
+// Returns Auto command of the root menu.
+const Command& reset(u16 theMenuID);
 
 // Prompts user for new label & command for currently selected menu item
 void editMenuItem(u16 theMenuID);
