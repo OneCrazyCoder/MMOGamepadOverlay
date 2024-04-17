@@ -123,6 +123,8 @@ const Command& selectMenuItem(
 	u16& aSelection = aSubMenu.selected;
 	const u16 aPrevSel = aSelection;
 	const u16 anItemCount = InputMap::menuItemCount(aSubMenuID);
+	bool pushedPastEdge = false;
+	
 	const Command& aDirCmd = InputMap::commandForMenuDir(aSubMenuID, theDir);
 
 	// Even if no actual change made, mark menu as having been interacted with
@@ -134,97 +136,110 @@ const Command& selectMenuItem(
 	switch(aMenuStyle)
 	{
 	case eMenuStyle_List:
+		switch(theDir)
+		{
+		case eCmdDir_L:
+			pushedPastEdge = true;
+			break;
+		case eCmdDir_R:
+			pushedPastEdge = true;
+			break;
+		case eCmdDir_U:
+			pushedPastEdge = aSelection == 0;
+			if( !pushedPastEdge )
+				--aSelection;
+			else if( wrap && anItemCount > 2 )
+				aSelection = anItemCount - 1;
+			break;
+		case eCmdDir_D:
+			pushedPastEdge = aSelection >= anItemCount - 1;
+			if( !pushedPastEdge )
+				++aSelection;
+			else if( wrap && anItemCount > 2 )
+				aSelection = 0;
+			break;
+		}
+		break;
 	case eMenuStyle_Slots:
 		switch(theDir)
 		{
 		case eCmdDir_L:
-			if( repeat )
-				return kEmptyMenuCommand;
-			else if( aDirCmd.type != eCmdType_Empty )
-				return aDirCmd;
+			pushedPastEdge = true;
 			break;
 		case eCmdDir_R:
-			if( repeat )
-				return kEmptyMenuCommand;
-			else if( aDirCmd.type != eCmdType_Empty )
-				return aDirCmd;
+			pushedPastEdge = true;
 			break;
 		case eCmdDir_U:
-			aSelection =
-				(aMenuStyle == eMenuStyle_Slots || (wrap && anItemCount > 2))
-					? decWrap(aSelection, anItemCount)
-					: max(0, (signed)aSelection - 1);
+			aSelection = decWrap(aSelection, anItemCount);
 			break;
 		case eCmdDir_D:
-			aSelection =
-				(aMenuStyle == eMenuStyle_Slots || (wrap && anItemCount > 2)) 
-					? incWrap(aSelection, anItemCount)
-					: min(anItemCount - 1, aSelection + 1);
+			aSelection = incWrap(aSelection, anItemCount);
 			break;
 		}
+		break;
 		break;
 	case eMenuStyle_Bar:
 		switch(theDir)
 		{
 		case eCmdDir_L:
-			aSelection =
-				(wrap && anItemCount > 2) 
-					? decWrap(aSelection, anItemCount)
-					: max(0, (signed)aSelection - 1);
+			pushedPastEdge = aSelection == 0;
+			if( !pushedPastEdge )
+				--aSelection;
+			else if( wrap && anItemCount > 2 )
+				aSelection = anItemCount - 1;
 			break;
 		case eCmdDir_R:
-			aSelection =
-				(wrap && anItemCount > 2) 
-					? incWrap(aSelection, anItemCount)
-					: min(anItemCount - 1, aSelection + 1);
+			pushedPastEdge = aSelection >= anItemCount - 1;
+			if( !pushedPastEdge )
+				++aSelection;
+			else if( wrap && anItemCount > 2 )
+				aSelection = 0;
 			break;
 		case eCmdDir_U:
-			if( repeat )
-				return kEmptyMenuCommand;
-			else
-				return aDirCmd;
+			pushedPastEdge = true;
 			break;
 		case eCmdDir_D:
-			if( repeat )
-				return kEmptyMenuCommand;
-			else
-				return aDirCmd;
+			pushedPastEdge = true;
 			break;
 		}
 		break;
 	case eMenuStyle_4Dir:
-		// Ignore auto-repeat with this menu style
-		if( repeat )
-			return kEmptyMenuCommand;
-		return aDirCmd;
+		pushedPastEdge = true;
+		break;
 	case eMenuStyle_Grid:
 		switch(theDir)
 		{
 		case eCmdDir_L:
-			if( aSelection % aGridWidth != 0 )
+			pushedPastEdge = aSelection % aGridWidth == 0;
+			if( !pushedPastEdge )
 				--aSelection;
-			else if( wrap )
+			else if( wrap && anItemCount > 2 )
 				aSelection = min(anItemCount - 1, aSelection + aGridWidth - 1);
 			break;
 		case eCmdDir_R:
-			if( aSelection % aGridWidth != aGridWidth - 1 &&
-				aSelection < anItemCount - 1 )
+			pushedPastEdge =
+				aSelection >= anItemCount -1 ||
+				aSelection % aGridWidth == aGridWidth - 1;
+			if( !pushedPastEdge )
 				++aSelection;
-			else if( wrap )
+			else if( wrap && anItemCount > 2 )
 				aSelection = (aSelection / aGridWidth) * aGridWidth;
 			break;
 		case eCmdDir_U:
-			if( aSelection >= aGridWidth )
+			pushedPastEdge = aSelection < aGridWidth;
+			if( !pushedPastEdge )
 				aSelection -= aGridWidth;
-			else if( wrap )
+			else if( wrap && anItemCount > 2 )
 				aSelection += ((anItemCount-1) / aGridWidth) * aGridWidth;
 			if( aSelection >= anItemCount )
 				aSelection -= aGridWidth;
 			break;
 		case eCmdDir_D:
+			pushedPastEdge =
+				aSelection >= (anItemCount / aGridWidth) * aGridWidth;
 			if( aSelection + aGridWidth < anItemCount )
 				aSelection = min(anItemCount - 1, aSelection + aGridWidth);
-			else if( wrap )
+			else if( wrap && anItemCount > 2 )
 				aSelection = aSelection % aGridWidth;
 			else if( aSelection < ((anItemCount-1) / aGridWidth) * aGridWidth )
 				aSelection = anItemCount - 1;
@@ -239,6 +254,10 @@ const Command& selectMenuItem(
 		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
 
+	if( repeat )
+		return kEmptyMenuCommand;
+	if( pushedPastEdge && aDirCmd.type != eCmdType_Empty )
+		return aDirCmd;
 	return kEmptyMenuCommand;
 }
 

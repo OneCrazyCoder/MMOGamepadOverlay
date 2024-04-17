@@ -47,20 +47,20 @@ inline Val clamp(Val val, Min min, Max max)
 	return val;
 }
 
-template<class Val, class Max>
-inline Val incWrap(Val val, Max max)
+template<class Val, class Count>
+inline Val incWrap(Val val, Count count)
 {
-	if(int(val) + 1 >= int(max))
+	if(int(val) + 1 >= int(count))
 		return Val(0);
 	else
 		return Val(int(val) + 1);
 }
 
-template<class Val, class Max>
-inline Val decWrap(Val val, Max max)
+template<class Val, class Count>
+inline Val decWrap(Val val, Count count)
 {
 	if(int(val) - 1 < 0)
-		return Val(int(max) - 1);
+		return Val(int(count) - 1);
 	else
 		return Val(int(val) - 1);
 }
