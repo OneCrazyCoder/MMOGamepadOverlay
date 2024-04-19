@@ -11,8 +11,8 @@ namespace InputMap
 {
 
 // Whether or not debug messages print depends on which line is commented out
-//#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
-#define mapDebugPrint(...) ((void)0)
+#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
+//#define mapDebugPrint(...) ((void)0)
 
 //-----------------------------------------------------------------------------
 // Const Data
@@ -1864,26 +1864,47 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 		if( aCommandDescription.empty() )
 			continue;
 
-		// Break keys description string into individual words
-		theBuilder.parsedString.clear();
-		sanitizeSentence(aCommandDescription, theBuilder.parsedString);
-		const std::string& aVKeySeq = namesToVKeySequence(
-			theBuilder, theBuilder.parsedString);
-		if( !aVKeySeq.empty() )
+		// Keybinds can only be assigned to direct input
+		Command aCmd;
+		// Check for a slash command or say string, which stores the string
+		// as ASCII text and outputs it by typing it into the chat box
+		if( aCommandDescription[0] == '/' )
 		{
-			// Keybinds can only be assigned to Virtual-Key Code sequences/taps
-			Command aCmd;
-			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+			aCmd.type = eCmdType_SlashCommand;
+			sKeyStrings.push_back(aCommandDescription);
+			aCmd.keyStringIdx = u16(sKeyStrings.size()-1);
+		}
+		else if( aCommandDescription[0] == '>' )
+		{
+			aCmd.type = eCmdType_SayString;
+			sKeyStrings.push_back(aCommandDescription);
+			aCmd.keyStringIdx = u16(sKeyStrings.size()-1);
+		}
+		else
+		{
+			// VKey Sequence
+			theBuilder.parsedString.clear();
+			sanitizeSentence(aCommandDescription, theBuilder.parsedString);
+			const std::string& aVKeySeq = namesToVKeySequence(
+				theBuilder, theBuilder.parsedString);
+			if( !aVKeySeq.empty() )
 			{
-				aCmd.type = eCmdType_TapKey;
-				aCmd.vKey = aVKey;
+				if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+				{
+					aCmd.type = eCmdType_TapKey;
+					aCmd.vKey = aVKey;
+				}
+				else
+				{
+					aCmd.type = eCmdType_VKeySequence;
+					aCmd.keyStringIdx = u16(sKeyStrings.size());
+					sKeyStrings.push_back(aVKeySeq);
+				}
 			}
-			else
-			{
-				aCmd.type = eCmdType_VKeySequence;
-				aCmd.keyStringIdx = u16(sKeyStrings.size());
-				sKeyStrings.push_back(aVKeySeq);
-			}
+		}
+
+		if( aCmd.type != eCmdType_Empty )
+		{
 			theBuilder.commandAliases.setValue(anActionName, aCmd);
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
@@ -2664,6 +2685,15 @@ void loadProfile()
 	// pointers, can convert Commands with temp keyStringIdx field being a
 	// sKeyStrings index into having direct pointers to the C-strings
 	// ('string' field of the Command) for use in other modules.
+	for(std::vector<KeyBindArray>::iterator itr = sKeyBindArrays.begin();
+		itr != sKeyBindArrays.end(); ++itr)
+	{
+		for(KeyBindArray::iterator itr2 = itr->begin();
+			itr2 != itr->end(); ++itr2)
+		{
+			setCStringPointerFor(&itr2->cmd);
+		}
+	}
 	for(std::vector<Menu>::iterator itr = sMenus.begin();
 		itr != sMenus.end(); ++itr)
 	{

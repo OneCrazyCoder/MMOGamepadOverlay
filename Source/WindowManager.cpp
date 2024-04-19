@@ -680,7 +680,7 @@ void setOverlaysToTopZ()
 }
 
 
-bool areOverlaysHidden()
+bool overlaysAreHidden()
 {
 	return sHidden;
 }
