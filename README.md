@@ -1,3 +1,4 @@
+
 # MMO Gamepad Overlay
 
 Download links for latest built version:
@@ -5,14 +6,13 @@ Download links for latest built version:
 * [Windows 32-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-x86.zip)
 * [Windows 64-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-a64.zip)
 
-This application translates game controller input (via DirectInput and/or XInput) into keyboard and mouse input (via the SendInput() Win32 API function), possibly with HUD elements (drawn on a transparent overlay window over top of a game's window) to help visualize what various buttons may do (particularly with the use of customizable on-screen menus).
+This application translates game controller input (via DirectInput and/or XInput) into keyboard and mouse input (via the SendInput() Win32 API function), possibly with HUD elements (drawn as a transparent overlay windows over top of a game's window) to help visualize what various buttons may do (particularly with the use of customizable on-screen menus).
 
 Although there are plenty of other applications that can fit this basic description, including Steam, this particular application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and eventually the upcoming *Monsters & Memories*, with a control scheme inspired by the only MMORPG ever exclusively designed for playing with a controller - *EQOA* for the PlayStation 2. It thus has specific features related to these games that are difficult to reproduce with other, more generic options for translating gamepad input for games without native gamepad support.
 
 Nothing says it can't also be used for other games though, as it is customizable.
 
 ## Basic operation
-
 Place the executable wherever is convenient, keeping in mind that it will generate and read text files with the *.ini* extension in the same folder in which it is placed. When run for the first time, you will be prompted to create a **Profile**, which is associated with one or more *.ini* files that customize how the application looks and behaves. Multiple example Profiles are provided to pick from as a base template. You can just choose to have a single Profile and auto-load it every time, or have different ones for different games or even different characters for the same game. You will then be prompted if you want your Profile to also automatically launch an associated game (if it is the first Profile loaded when launching the app), for convenience.
 
 After that, load up the game and you should be able to use the controller to move your character, move the mouse, and perform actions. How that all functions depends on the game and the settings in your loaded Profile.
@@ -34,15 +34,14 @@ The application generates a *MMOGO_Core.ini* file which contains some default se
 The list of profiles is at the top of *MMOGO_Core.ini*, along with an entry for specifying which one to load automatically, if any. Each Profile *.ini* file can specify a "parent" Profile with a line like:
 
     ParentProfile = MyBaseProfile
-This system is intended to allow for having a "base" profile for a particular game, and then multiple profiles for different characters that use that same base as their parent. You can set up as long of "chain" of parent profiles as you desire, however. It is not necessary to specify the "Core" profile as a ParentProfile at any point, as it will always be loaded first anyway. Profiles are loaded in order from parent to child, and any duplicate properties are overwritten as they are encountered. That means the main profile you are loading will take priority over its parent base, which itself will take priority over any parent it has, and all other files will take priority over "Core".
+This system is intended to allow for having a "base" profile for a particular game, and then multiple profiles for different characters that use that same base as their parent. You can set up as long of a chain of parent profiles as you desire. It is not necessary to specify the "Core" profile as a ParentProfile at any point, as it will always be loaded first anyway. Profiles are loaded in order from parent to child, and any duplicate properties are overwritten as they are encountered. That means the specific Profile you are loading will take priority over its parent base, which itself will take priority over any parent it has, and all other files will take priority over "Core".
 
 All of this is set up automatically with the default example profiles generated on first launch.
 
 You can edit MMOGO_Core.ini yourself to add more profiles, or use the menu option File->Profile from within the application to do so with a GUI.
 
 ## Profile customization
-
-Each Profile is a *.ini* file (and possibly one or more parent *.ini* file(s) as explained above). These are plain-text files you can edit in Notepad, or whatever you prefer, that contain a list of *properties*. Each property is identified by a *property category* and a *property name* with an associated *property value*.
+Each Profile is a *.ini* file (and possibly one or more parent *.ini* file(s) as explained above). These are plain-text files you can edit in Notepad/etc that contain a list of *properties*. Each property is identified by a *property category* and a *property name* with an associated *property value*.
 
 If the same *property category*+*property name* is encountered more than once, the most recent one will override any previous ones (which allows for having "default values" specified in Core or a parent Profile that are then overwritten by a specific child Profile). However, the same *property name* can be used in more than one *property category* and will be considered different properties. There is also a special unnamed "root" category at the top of each file before the first category label is encountered, which is where the ParentProfile property mentioned earlier is placed.
 
@@ -64,10 +63,12 @@ The .ini files are formatted as follows:
     ;Property Name 1 = Property Value 1 - commented out
     Property Name 2 = Property Value 2
 
-*NOTE: Comments are only supported by placing # and ; at the beginning of a line, you can not add comments at the end of a line, it will instead be considered part of the Property Value.*
+*NOTE: Comments are only supported by placing # and ; at the beginning of a line, you can NOT add comments at the end of a line, it will instead be considered part of the Property Value.*
 
 ## [Scheme] Category
-This is the main category for determining how Gamepad input is translated into keyboard and mouse input. With a couple of special exceptions, each *property name* in this category represents a gamepad button (and optionally an action associated with that button like *press*, *tap*, *release*, etc), and each *property value* represents a keyboard key, mouse button, mouse movement, or special command that should be triggered while pressing that button. For example, to assign R2 to act as the right mouse button, you could include:
+This is the main category for determining how Gamepad input is translated into keyboard and mouse input. With a couple of special exceptions, each *property name* in this category represents a gamepad button (and optionally an action associated with that button like *press*, *tap*, *release*, etc), and each *property value* represents a **Command** for the application to execute when that button is used.
+
+Commands are usually input to send to the game, such as keyboard keys, mouse buttons, and mouse movement. For example, to assign R2 to act as the right mouse button, you could include:
 
     [Scheme]
     R2 = RMB
@@ -76,7 +77,10 @@ There are various ways supported of specifying gamepad buttons and keys, so you 
     [Scheme]
     RT = Right-click
 
-If you want the full list, check *Source\GlobalConstants.cpp* in the source code. Note also that you can sometimes assign 4 buttons at once in the case of the D-pad, analog sticks, and face buttons, to certain commands that support it. For example:
+If you want the full list, check *Source\GlobalConstants.cpp* in the source code.
+
+### Multi-button assignment
+Note also that you can sometimes assign 4 buttons at once in the case of the D-pad, analog sticks, and face buttons. For example:
 
     [Scheme]
     DPad = MoveTurn
@@ -85,7 +89,12 @@ If you want the full list, check *Source\GlobalConstants.cpp* in the source code
     # Below treats face buttons like a D-pad
     FPad = Move
 
-When the button is specified by itself, it is treated as the action "press and hold", meaning that in the earlier examples, the right mouse button will be pressed and held for as long as R2 is pressed and held. Other actions can be specified instead, and each button can have multiple commands assigned to it at once such as for a tap vs a hold. For example:
+Each of these (including the analog sticks) are otherwise treated as 4 separate buttons like "LStickUp" or "DPadDown", etc. when want to assign each direction to a separate function.
+
+### Button actions
+When the *property name* is simply the button name by itself like in the above examples, it is treated as the action "press and hold". So in the earlier ``R2 = RMB`` example, the right mouse button will be pressed when R2 is, held for an long as R2 is held, and released when R2 is released.
+
+Other "button actions" can be specified instead, and each button can have multiple Commands assigned to it at once such as for a "tap" vs a "hold." For example:
 
     [Scheme]
     R2 = A
@@ -95,73 +104,118 @@ When the button is specified by itself, it is treated as the action "press and h
     Hold R2 = E
     Long Hold R2 = F
 
-This is the maximum that could be assigned to one button. In the above example, when R2 is first pressed, 'A' and 'B' keyboard keys would be sent to the game ('A' would be held down but 'B' would just be tapped). If R2 was quickly released, a single tap of the 'C' key would be sent. If R2 was held for a short time, an 'E' tap would be sent once. If R2 was still held for a while after that, a single 'F' tap would be sent as well. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of 'D' would be sent to the game, as well as finally releasing 'A'.
+This example demonstrates the maximum number of Commands that could be assigned to a single button. When R2 is first pressed, 'A' and 'B' keyboard keys would be sent to the game ('A' would be held down but 'B' would just be tapped and immediately released). If R2 was quickly released, a single tap of the 'C' key would be sent. If R2 was held for a short time, an 'E' tap would be sent once. If R2 was still held for a while after that, a single 'F' tap would be sent as well. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of 'D' would be sent to the game, as well as finally releasing 'A'.
 
-Notice how only the button name by itself can be assigned to "hold" a key. All other button actions can only "tap" a key. Certain commands, and *key sequences*, can't be "held" anyway, so assigning one of these to just the button name by itself will make it act the same as the *Press* action (meaning can have 2 *Press* commands on the same button in these cases).
+Notice how only the base ``R2=`` property can actually hold a key down for more than split second. All other button actions can only "tap" a key (press and then immediately release it). Certain Commands can't be "held" anyway, so assigning one of these to just ``R2=`` will make it act the same as assigning it to ``Press R2=`` (meaning can essentially have two ``Press R2=`` commands on the same button in these cases).
 
-## Sent input and key sequences
+## Commands
+As mentioned above, Commands assigned to buttons can be as simple as the name of a keyboard key or mouse button, as well as mouse movement (such as ``=Mouse Up`` or ``=Mouse Left``).
 
-In addition to mouse buttons, mouse movement, and keyboard keys, you can also send combination keys using the modifier keys Shift, Ctrl, and Alt, such as:
+Not mentioned yet is mouse wheel movement, which can be set with Commands such as ``=MouseWheel Up Smooth`` or ``=MouseWheel Down Stepped`` or ``MouseWheel Down Once``. "Smooth" vs "Stepped" affects whether or not movement of less than one 'notch' at a time is sent to the application, and "Once" can be used if only want the wheel to only move one 'notch' even when the button assigned to the command is held continuously.
+
+### Combination keys
+A command can also be a keyboard key or mouse button combined with a *modifier* key - Shift, Ctrl, or Alt - such as:
 
     R2 = Shift+A
     L2 = Ctrl X
     L1 = Ctrl-Alt-R
 These can still be "held" as if they are single keys.
 
-*WARNING: Modifier keys should be used sparingly, as they can interfere with or delay other keys. For example, if you are holding Shift+A and then want to press just 'X', since the Shift key is still being held down, the game would normally interpret it as you pressing 'Shift+X', which may be totally different command. This application specifically avoids this by briefly releasing Shift before pressing X and then re-pressing Shift again as needed, but this can make the controls seem less responsive. Consider re-mapping controls for the game to use Shift/Ctrl/Alt as little as possible for best results!*
+*WARNING: Modifier keys should be used sparingly, as they can interfere with or delay other keys. For example, if you are holding Shift+A and then want to press just 'X', since the Shift key is still being held down, the game would normally interpret it as you pressing 'Shift+X', which may be totally different command. This application specifically avoids this by briefly releasing Shift before pressing X and then re-pressing Shift again as needed, but this can make the controls seem less responsive due to the delays needed to make sure each release and re-press are processed in the correct order. Consider re-mapping controls for the game to use Shift/Ctrl/Alt as little as possible for best results!*
 
+### Key Sequence
 You can also specify a sequence of keys to be pressed. For example, you could have a single button press the sequence Shift+2 (to switch to hotbar #2), then 1 (to use hotbutton #1), then Shift+1 (to switch back to hotbar #1), like so:
 
     R2 = Shift+2, 1, Shift+1
 
 Key sequences can NOT be "held", so holding R2 vs just tapping it will give the same result in the above example.
 
-You can also add delays (specified in milliseconds) into the sequence if needed, such as this sequence to automatically "consider" a target when changing targets
+You can also add delays (specified in milliseconds) into the sequence if needed, such as this sequence to automatically "consider" a target when changing targets:
 
     # 'Delay' or 'Wait' also work
     R1 = F8, pause 100, C
     
 *WARNING: Do not use this to fully automate complex tasks, or you're likely to get banned from whichever game you are using this with.*
 
-On a more advanced note, you can also request in the sequence to jump the mouse cursor to a named *hotspot* location to click on it, such as:
+#### Mouse jump in key sequence
+On a more advanced note, you can also request in the sequence to jump the mouse cursor to a named **Hotspot** location to click on it, such as:
 
     [Hotspots]
     CenterScreen = 50%, 50%
 
     [Scheme]
-    R1 = Point to CenterScreen->LClick
+    R1 = Point to CenterScreen, LClick
+    R2 = Release RMB->LClick at CenterScreen->RClick
+*Hotspots are explained later.*
+    
+### Chat box macros
 
-## KeyBinds (aliases)
+While a Key Sequence could technically be used to type a message directly into the game's chat box, it is easier to directly use a *Slash Command* or *Say String* Command to do this.
 
-KeyBinds are basically just aliases or shortcuts for inputs that should be sent by gamepad buttons. Using KeyBinds, instead of saying:
+Slash Commands start with ``/`` and Say Strings (chat messages) start with ``>`` (the '>' is replaced with the Return key to switch to the chat box when the Command is actually executed). These Commands will actually "type" the sequence into the chat box as a series of keyboard key presses, followed by pressing Return to send the macro. For example:
+
+    [Scheme]
+    Hold R1 = /who
+    Hold R2 = /g Roll for loot please!
+    Hold L1 = >Would you like to group?
+
+This will lock out most other inputs while typing though, so in general it is better to instead create macros using the in-game interface and activate them via key sequences that activate in-game "hotbuttons", like ``= Shift+2, 4`` instead.
+
+## Key Binds (aliases)
+Key Binds are basically just aliases or shortcuts for sent input. Using Key Binds, instead of saying:
 
     [Scheme]
     XB_A = Space
+    R2 = Release RMB->LClick at CenterScreen->RClick
 
 You would instead say:
 
     [KeyBinds]
     Jump = Space
+    UseCenterScreen = Release RMB->LClick at CenterScreen->RClick
 
     [Scheme]
     XB_A = Jump
+    R2 = UseCenterScreen
 
-In this example it may not seem worth the effort, but it can be convenient for assigning a KeyBind alias to a full sequence of keys, or for just making your [Scheme] more readable and easily updating your controls in one place if you re-map them within the target game.
+In this example it may not seem worth the effort, but it can be convenient when using the same input in multiple places, or for just making your [Scheme] easier to read.
 
-There are also some KeyBinds that are specifically checked for and used by the application for certain commands - namely for character movement and self/group targeting, as explained in more detail later.
+There are also some KeyBinds that are specifically checked for and used by the application for certain commands - namely for character movement.
+
+### Key Bind Arrays
+If multiple Key Binds have the same name except for a number on the end of the name, they will be logged as a **Key Bind Array**. For example:
+
+    [KeyBinds]
+    TargetGroup1 = F1
+    TargetGroup2 = F2
+    TargetGroup3 = F3
+    TargetGroup4 = F4
+    TargetGroup5 = F5
+    TargetGroup6 = F6
+
+Will make a Key Bind Array called "TargetGroup" with 6 elements. Each can be used as a normal alias by directly referencing "TargetGroup2", for example, but the last one used and a default (the first one initially) will be remembered. Certain commands can then request re-using the last one used, using the default in the array, and using the next/previous ones in the array. This could allow, for example, to assign a button that will cycle through them each time it is pressed by assigning:
+
+    [Scheme]
+    L1 = TargetGroup Next Wrap
+
+Other commands that can use Key Bind Arrays include *Previous, Last, Default, Set Default* (sets Default to Last), and *Reset* (sets Last to Default). *Previous* and *Next* can be set to *Wrap* or *NoWrap*.
+
+When using this for the above example of relative group targeting, a visual indicator may be helpful to know what will happen the next time the button is pressed. There are special **HUD Elements** covered later to help with this, ``Type=KeyBindArrayLast`` and ``Type=KeyBindArrayDefault``.
 
 ## Controls Layers
-To really unlock the full range of actions in an MMO using a Gamepad, you will need to use Controls Layers. These Layers change what commands are assigned to what buttons while the Layer is active. You can have multiple Layers added at once, and for any given button, the top-most Layer's assignments will take priority. Newly-added Layers are placed on "top" of all previous layers and the base [Scheme].
+To really unlock the full range of actions in an MMO using a Gamepad, you will almost certainly need to employ button combinations like L2+X to execute different Commands. This and more can be accomplished through the use of **Controls Layers**. These Layers change what Commands are assigned to what buttons while the Layer is active.
 
-Layers can be added with the Add Layer command and removed with the Remove Layer command assigned to a gamepad button action. Alternatively, they can be "held" by just using the "Layer" command assigned to a button, which means that the Layer will be added when the button is first pressed, and then automatically removed when the button is released. For example:
+You can have multiple Layers added at once, and for any given button, the top-most Layer's assignments will take priority. Newly-added Layers are placed on "top" of all previous layers and the [Scheme] category, which acts as the default (lowest) Layer.
+
+Layers can be added with the ``=Add Layer <LayerName>`` command and removed with the ``=Remove Layer`` command assigned to a gamepad button action (or both added and removed with the same button with a single ``=Toggle Layer <LayerName>`` command). Alternatively, they can be "held" by just using the ``=Layer <LayerName>`` command assigned to a button, which means that the Layer will be added when the button is first pressed, and then automatically removed when the button is released. For example:
 
     [Scheme]
     # Add "Alt" layer as long as L2 is held
     L2 = Layer Alt
-    # Add "MouseLook" layer until another command elsewhere removes it
+    # Add "MouseLook" layer until another Command elsewhere removes it
     R3 = Add Layer MouseLook
 
-If the same Layer is added when it is already active, it just moves that Layer priority to be the top layer instead of adding another copy of it.
+*If the same Layer is added when it is already active, that Layer is just moved to become the top layer instead of another copy of it being added!*
 
 Layers are defined the same as [Scheme], with just the category name [Layer.LayerName] instead. So for the above example, you could add:
 
@@ -170,13 +224,13 @@ Layers are defined the same as [Scheme], with just the category name [Layer.Laye
     Triangle = Jump
 
     [Layer.MouseLook]
-    MouseLook = On
-    # If don't specify Layer name, assume mean remove self
+    Mouse = Look
+    # If don't specify Layer name, removes self
     R3 = Remove Layer
-With the above setup, R3 will act as a toggle button turning MouseLook mode on and off, and L2+Triangle will cause the character to jump (via Spacebar).
+With the above setup, L2+Triangle will cause the character to jump (via a ``Jump=`` Key Bind), and R3 will act as a toggle button turning MouseLook mode on and off (alternatively could have just assigned ``R3 = Toggle Layer MouseLook`` in [Scheme] instead, but in complex control schemes Toggle may not be sufficient).
 
 ### The "Auto" Button
-Each Layer also has a special 'virtual button' unique to it, that can be assigned commands like any real Gamepad button. This button is called "Auto". It is "pressed" whenever the Layer is added, and then "released" whenever the Layer is removed. This can be particularly useful to assign a button to simultaneously 'hold' a Layer while also holding a key, by having the Layer hold the key instead using its "Auto" button.
+Each Layer also has a special 'virtual button' unique to it, that can be assigned commands like any real Gamepad button. This button is called "Auto". It is "pressed" whenever the Layer is added, and then "released" whenever the Layer is removed. This can be particularly useful to assign a button to simultaneously 'hold' a Layer while also holding a key, by having the Layer hold the key instead using its Auto button.
 
 For example, let's say you wanted to make pressing and holding Circle on a PS controller act the same as holding the left mouse button, but you also want to make it so while holding Circle, you could use your left thumb on the D-pad to move the cursor around to "drag" the mouse, even though normally the D-pad is used for character movement. You could accomplish this as follows:
 
@@ -188,19 +242,19 @@ For example, let's say you wanted to make pressing and holding Circle on a PS co
     Auto = LMB
     D-Pad = Mouse
 
-With this setup, pressing Circle will add the MouseDrag layer, which will click and hold the left mouse button for as long as the layer is active via Auto, while also changing the D-Pad to control the mouse. Releasing Circle will remove the layer, restoring the D-Pad to character movement instead and releasing the left mouse button (since Auto is "released" when the layer is removed).
+With this setup, pressing Circle will add the MouseDrag Layer, which will click and hold the left mouse button for as long as the Layer is active via Auto, while also changing the D-Pad to control the mouse. Releasing Circle will remove the Layer, restoring the D-Pad to character movement instead and releasing the left mouse button (since Auto is "released" when the Layer is removed).
 
 You can even assign commands to ``Release Auto=`` and ``Tap Auto =`` and so on, like any real button.
 
 ### Layer Includes
-To save on copying and pasting a lot, each Layer can also "include" the contents of another Layer, if they are mostly the same anyway. For example, this:
+To save on copying and pasting a lot when editing the .ini file, each Layer can also "include" the contents of another Layer, if they are mostly the same anyway. For example, this:
 
     [Layer.MyLayer]
     L1 = Target NPC
     R1 = Target PC
     PS_X = Attack
 
-    [Layer.MyOtherLayer]
+    [Layer.MyDerivedLayer]
     Include = MyLayer
     # Overrides R1 = Target Pc from MyLayer
     R1 = Jump
@@ -213,54 +267,131 @@ Would be the same as typing out this:
     R1 = Target PC
     PS_X = Attack
 
-    [Layer.MyOtherLayer]
+    [Layer.MyDerivedLayer]
     L1 = Target NPC
     R1 = Jump
     PS_X = Attack
     R2 = RMB
 
+### Advanced Layer control (parenting)
+When a Command adds a new Layer, that new Layer treats the Layer that contained the Command as its "Parent Layer". If this Parent Layer is later removed, the new "child" Layer will be automatically removed along with it. This allows removing an entire hierarchy of Layers all at once by just removing the base Layer that spawned them.
+
+In some cases this is not desired, so you can override the new Layer's parent by including extra specifiers to commands like ``=Add Layer``, such as ``Add Layer <LayerName> to Parent`` (causes the new layer to treat the current's parent as its own), ``Add Layer <LayerName> to Grandparent`` or ``Add Layer <LayerName> to Parent +1`` (both do the same thing), or even ``Add Independent Layer <LayerName>`` to prevent it being removed automatically at all (uses [Scheme] as its parent). Note that "held" Layers are only automatically removed when the button "holding" it active is released (they are always set to just have [Scheme] as their parent, and [Scheme] can never be removed).
+
+There is also the more advanced Layer command Replace, such as ``Replace Layer with <LayerName>`` or ``Replace Parent/GrandParent/etc Layer with <LayerName>`` or even ``Replace All Layers with <LayerName>`` which can be used to simultaneously Remove and Add in a single Command. *Note that Replace All will not remove any Layer being "held" active by holding a button down, and that the base [Scheme] Layer can never be removed.*
+
 ### Other Layer Properties
+In addition to changing button assignments temporarily while they are active, each Layer (and the [Scheme] category) has a few other properties.
 
-In addition to changing button assignments temporarily while they are active, each Layer has a few other properties. This includes turning MouseLook on or off automatically (i.e. holding the right-mouse button down) using ``MouseLook=On`` or ``MouseLook=Off``.
+This includes changing how the mouse is treated by using ``Mouse=Cursor`` (normal), ``Mouse=Look`` (holding the right-mouse button down to keep MouseLook mode active), or ``Mouse=Hidden`` ("hide" the cursor by jumping it to the bottom right corner of the screen). The top-most Layer with a ``Mouse=`` property specified dictates the mouse mode used.
 
-More significantly, each Layer specifies which HUD elements (including Menus) should be visible while that Layer in active. By default, all HUD elements specified by all active Layers (and [Scheme], which can also specify HUD elements to show by default) are shown, however, Layers can also specifically *hide* HUD elements from lower layers, stopping them from being shown (unless yet another, higher layer overrides it by showing it again). This is done via the ``HUD=`` property including a list of HUD element names to show (and optionally the 'Show' and 'Hide' key words), such as:
+Each Layer also specifies which **HUD Elements** (including **Menus**) should be visible while that Layer in active. Layers can also specifically *hide* HUD Elements that were requested to be shown by lower Layers, stopping them from being shown (unless yet another, higher layer overrides the *hide*). This is done via the ``HUD=`` property including a list of HUD Element names to show (and optionally the 'Show' and 'Hide' key words), such as:
 
-    [Layer.Macros]
-    HUD = MacroMenu
+    [Layer.MainMenu]
+    HUD = MainMenu
     
     [Layer.MouseLook]
-    MouseLook = On
+    Mouse = Look
     HUD = Show Reticle
     
     [Layer.TopMost]
-    HUD = Hide MacroMenu, Show GroupTarget
+    HUD = Hide MainMenu, Show GroupTargetLast
 
 ## Menus
-While it is possible to use Layers alone to send all the input needed to an MMO, it would require a lot of complex button combinations and sequences you'd need to memorize. Menus can make things a lot easier, by instead assigning buttons to add/remove/control menus and then having the menus including various commands, macros, etc.
+While it is possible to use Layers alone to send all the input needed to an MMO, it would require a lot of complex button combinations and sequences you'd need to memorize. **Menus** can make things a lot easier, by instead assigning buttons to add/remove/control Menus and then having the Menus including a large number of Commands.
 
-Each Menu also counts as a HUD element, so the Menu must be made visible by the ``HUD=`` property for an active Layer or in [Scheme] to actually see it.
+Each Menu also counts as a **HUD Element**, so the Menu must be made visible by the ``HUD=`` property for an active Layer to actually see it.
 
-Each Menu has a ``Style=`` property that determines its basic structure and appearance, as well as visual properties like colors, shapes, etc of the menu items (more on the visuals later). The menu must also have menu items assigned to it of course, which include a label and a command, and possible sub-menus.
+Each Menu has a ``Style=`` property that determines its basic structure and appearance, as well as visual properties like colors, shapes, etc of the menu items. Example Menu Styles include List, Slots, Bar, 4Dir, and Grid (which can include a ``GridWidth=`` property to specify the grid shape).
 
-Menus are defined using the category name [Menu.MenuName]. Each Menu Item is defined by a property name that depends on that Menu's style. The property value for each Menu Item contains a label followed by colon ``:`` followed by a command to execute (input to send to the target game). Here's an example of a 4-directional Menu, which emulates the style used by EQOA Macros when you pressed L2:
+Menus are defined using the category name [Menu.MenuName]. Each Menu Item is defined by a *property name* of just the Menu Item number (with some exceptions covered later). The *property value* for each Menu Item contains a name/label to be displayed followed by colon ``:`` followed by a Command to execute when that Menu Item is chosen. Here's an example of a basic menu:
 
-    [Menu.Macros]
-    Style = 4Dir
-    Position = 50%, 10
-    U = Book: B
-    L = Skills: K
-    R = Ability 2: 2 
-    D = Undefined:
+    [Menu.MainMenu]
+    Style = List
+    Position = L+10, 25%
+    Alignment = L, T
+    1=Inventory: Toggle Inventory layer
+    2=Book: Toggle Book layer
+    3=TBD:
+    4=Settings
 
-Notice how the Down menu item has no command, but still has a colon, so the label will be shown but nothing will happen if you choose that Menu Item.
-
-*Currently no other menu styles are implemented, so will need to update this later to talk about how menu items are specified in other menu styles*
+Notice how Menu Item #3 has no Command, but still contains ``:``, so the label will be shown but nothing will happen if it is used. Menu Item #6 specifies a Sub-Menu, indicated by the absence of ``:``. You could also just have ``:`` followed by a Command if you want no label for the Menu Item.
 
 ### Sub-Menus
 
-A sub-menu is created by having a Menu Item without the colon specified, thus being just a label. The sub-menu is defined by the category name ``[Menu.MenuName.SubMenuName]``. You can have multiple nested sub-menus, but need to specify the entire "path" as the category name when defining them, such as ``[Menus.Macros.Group.Creation]``. Sub-menus should only specify Menu Items - things like ``Style=`` as well as ``Position=`` and other visible HUD properties will be ignored for all but the "root" menu ("Macros" in this example).
+A sub-menu is created by having a Menu Item *property value* without any ``:`` character, which then has the label double as the sub-menu's name. The sub-menu is defined by the category name ``[Menu.MenuName.SubMenuName]``.  In the earlier example, ``4=Settings`` specified a sub-menu. Here is an example setup for that sub-menu:
 
-So for macros in the style of EQOA, you could define a Menu like this:
+    [Menu.MainMenu.Settings]
+    1=Profile: Change Profile
+    2=Close Overlay
+
+    [Menu.MainMenu.Settings.Close Overlay]
+    1=Cancel Quit: ..
+    2=Confirm Quit: Quit App
+
+Sub-menus should only specify Menu Items - things like ``Style=`` as well as ``Position=`` and other visible HUD properties will be ignored for all but the "root" menu ([Menu.MainMenu] in this example). Note the ``..`` Command, which, when selected, just backs out of the sub-menu.
+
+### Controlling menus
+
+To actually use a Menu, you will need to assign Menu-controlling commands to Gamepad buttons in ``[Scheme]`` or a ``[Layer.LayerName]`` category.  These commands must specify the name of the Menu they are referring to. Below is an example of controlling the MainMenu example from earlier, including showing/hiding it with the Start button.
+
+    [Scheme]
+    Start = Toggle Layer MainMenu
+
+    [Layer.MainMenu]
+    HUD = MainMenu
+    # Exits all sub-menus and selects Menu Item #1
+    Auto = Reset MainMenu
+    DPad = Select MainMenu Wrap
+    PS_X = Confirm MainMenu
+    Circle = Back MainMenu
+
+If you want to make it so pressing Circle when at the root Main Menu also closes the menu entirely (like pressing Start would), you can use this instead:
+
+    Circle = Back or Close MainMenu
+*Note that root menus are never actually "closed", just hidden by the HUD= property, so what actually happens with this Command when you press Circle with no sub-menus, is it temporarily becomes the Command "Remove Layer" instead, with the assumption being that removing the layer containing the ``=Back or Close`` Command will result in hiding the Menu and removing button assignments related to it*
+
+### Menu Auto command
+Similar to the Auto button for each Controls Layer, you can add an ``Auto=`` property to a Sub-Menu which can be set to a direct input Command to be used whenever that sub-menu is opened (including when it is returned to when backing out of another sub-menu).
+
+*Note that since "root" Menus aren't really ever "opened" or "closed" (just hidden or shown), the ``Auto=`` Command on a root menu will only be run via the ``=Reset`` command or after opening a sub-menu and then backing out to the root Menu again.*
+
+### Menu directional commands
+In addition to the numbered menu items and Auto, each Menu can have 4 directional Menu Items specified, labeled as ``L=, R=, U=``, and ``D=`` and tied to using ``=Select <MenuName> Left, Right, Up,`` and ``Down`` respectively. These special Menu Items have their Commands run directly via the ``=Select`` Command rather than the ``=Confirm`` Command, but *only when pressing that direction when there is no numbered Menu Item in that direction any more!*
+
+For example, in a basic List-style menu, normally ``=Select Left`` and ``=Select Right`` wouldn't do anything since all of the Menu Items are in a single vertical list, but if a ``L=`` and/or ``R=`` Menu Item is included, then ``=Select Left`` and/or ``=Select Right``will immediately execute the ``L/R=`` Menu Item Commands.
+
+Even in a List menu, the ``U=`` and ``D=`` Menu Items can also still be used, but only if use Up while the first Menu Item is currently selected, or Down when the last item is currently selected. Similar logic applies to other Menu Styles but may be slightly different for each one.
+
+One key use of these is allowing for "side menus", particularly for the "Slots" Menu Style which is designed to emulate EQOA's ability list (basically a List-style menu but the current selection is always listed first and the entire menu "rotates" as you select Up or Down, like a slot machine). Using "side menus" via ``L=`` and ``R=`` allows swapping to a different column of Menu Items, just like swapping between the Ability List and the Tool Belt in EQOA. Each column of items is technically a sub-menu. Here is an example of how to set something like that up:
+
+    [Menu.Abilities]
+    Style = Slots
+    L=Hotbar
+    R=Spells
+    1=Abil1: Ability1
+    2=Abil2: Ability2
+    ...
+
+    [Menu.Abilities.Spells]
+    L=..
+    R=.Hotbar
+    1=Abil6: Ability6
+    2=Abil7: Ability7
+    ...
+
+    [Menu.Abilities.Hotbar]
+    L=.Spells
+    R=..
+    1=HB1: Hotbar1
+    2=HB2: Hotbar2
+    ...
+
+Notice how the sub-menus use ``..`` to specify returning to the the base "Abilities" menu. There is also a single ``.`` in front of another sub-menu's name to specify it is actually a "sibling" menu. For example, if ``[Menu.Abilities.Spells]`` had the property ``R=Hotbar``, then that would reference a "child" sub-menu ``[Menu.Abilities.Spells.Hotbar]`` which doesn't exist. Using ``R=.Hotbar`` instead indicates it wants to open its "sibling" sub-menu ``[Menu.Abilities.Hotbar]``.
+
+### 4Dir Menu Style
+
+This special Menu style is designed after the "Quick Chat" menu in EQOA, which allows for quickly selecting a Menu Item through a series of direction presses without needing to ever use a Confirm button. For this Menu, no numbered Menu Items are specified, only the directional Menu Items are used. So for macros in the style of EQOA, you could define a Menu like this:
 
     [Menu.Macros]
     Style = 4Dir
@@ -287,44 +418,43 @@ So for macros in the style of EQOA, you could define a Menu like this:
     L = Loot up!: /g Loot up if you want this.
     R = Want Group?: >Would you like to group?
     D = Roll 100: /rand
-		...
+    ...
 
-### Chat box macros
+When defining buttons to control such a menu, no ``Confirm=`` is needed. If you want the menu to automatically close once a Command (that doesn't open a sub-menu) is selected like in EQOA, assign a button to ``=Select and Close <MenuName``. 
 
-Note that in the above example, the actual commands are slash commands and chat messages. This is another option in addition to keys and key sequences that can be assigned as a command. Slash commands start with ``/`` and chat messages start with ``>`` (the '>' is replaced with the Return key to switch to the chat box when the command is actually executed). These commands will actually "type" the sequence into the chat box as a series of keyboard key presses, followed by pressing Return to send the macro. This will lock out most other inputs while typing though, so in general it is better to instead create macros using the in-game interface and activate them via key sequences that press "hotbuttons", like ``= Shift+2, 4`` instead.
-
-### Controlling menus
-
-To actually use a Menu, you will need to assign Menu-controlling commands to buttons in ``[Scheme]`` or a ``[Layer.]``.  These commands must specify the name of the Menu they are referring to. The main commands are ``Reset`` (exits sub-menus to return to root menu), ``Select``, ``Confirm``,  and ``Back``.
-
-Here is an example of controlling the 4-Dir style Macros menu example from earlier using L2+DPad
-
-    [Scheme]
-    L2 = Layer Macros
+### Edit Menus at runtime
+It can be helpful to allow changing Menu contents while playing the game, such as for quickly creating Macros in a 4Dir style menu. You can do this by assigning the Command ``=Edit <MenuName>`` to a button action, which will edit whichever Menu Item is currently selected, or ``=Edit <MenuName> Up/Down/Left/Right`` for editing directional Menu Items. For example, to work like the Quick Chat menu in EQOA from the above example, where holding the D-Pad for a while allows editing the macros, you could use:
 
     [Layer.Macros]
     HUD = Macros
     Auto = Reset Macros
-    DPad = Select Macros
-
-*Note that this example does not cover the 'and Close' option or Confirm or Back since those aren't used in the only style currently implemented, the 4-Dir style*
+    Tap DPad = Select and Close Macros
+    LongHold DPad = Edit Macros
+    L2 = Remove Layer
+    
+When the ``=Edit`` command is executed, a dialog box pops up that allows changing the Label or Command, adding new Menu Items or sub-menus or deleting or replacing them, with instructions included in the dialog.
 
 ## HUD Elements
 
-As mentioned above, Menus are also HUD Elements. However, you can have additional HUD Elements that are not Menus. These are created with the category name ``[HUD.HUDElementName]``. You can use this to create a reticle in the middle of the screen while in MouseLook mode, to aim better with the "Use CenterScreen" key, for example, as well as special HUD Elements like the Group Target indicator.
+As mentioned above, Menus are also **HUD Elements**. However, there are also HUD Element types that are *not* Menus. These are created with the category name ``[HUD.HUDElementName]``. You can use this to create a reticle in the middle of the screen while in MouseLook mode (to aim better with a "Use CenterScreen" key, for example), as well as special HUD Elements like Key Bind Array indicators.
 
-Default properties used by all HUD Elements and Menus can be defined in the base ``[HUD]`` category, saving having to specify them for every individual instance. The exception being the ``Position=`` property, which should be specified for each individual HUD element and Menu.
+Default properties used by all HUD Elements and Menus can be defined in the base ``[HUD]`` category if don't want to specify them for every individual HUD Element. The exception being the ``Position=`` property, which should always be specified.
 
-Like ``Style =`` for a Menu, each HUD element must specify a ``Type =`` entry. Available types include: Rectangle, Rounded Rectangle (needs ``Radius=`` as well), Circle, Bitmap (needs a ``BitmapPath=`` property specifying the .bmp file to use), and ArrowL/R/U/D. These are also used for Menus for the ``ItemType=`` which determines how the background for each Menu Item is drawn.
+Like ``Style =`` for a Menu, each HUD element must specify a ``Type =`` entry. Available types include: Rectangle, Rounded Rectangle (needs ``Radius=`` as well), Circle, Bitmap (needs a ``BitmapPath=`` property specifying the .bmp file to use), and ArrowL/R/U/D. These are also used for Menus for the ``ItemType=`` property, which determines how the background for each Menu Item is drawn. There are also some special-case types covered later.
 
-There are also special HUD types "GroupTarget" and "DefaultTarget", explained further down in relation to the Target Group special commands.
+In addition, other properties can be defined that set the size and colors used, including ``Size=`` and/or ``ItemSize=, Alignment=, Font=, FontSize=, FontWeight=, BorderSize=, LabelRGB=, ItemRGB=, BorderRGB=``, and ``TransRGB=`` (which color is treated as a fully transparent "mask" color). Menus can optionally include a Title Bar with the ``TitleHeight=`` property as well as extra colors for the currently-selected Menu Item with ``SelectedItemRGB=, SelectedBorderRGB=``, and ``SelectedLabelRGB=``.
 
-In addition, other properties can be defined that set the size and colors used, including Size and/or ItemSize, Alignment, Font, FontSize, FontWeight, BorderSize, LabelRGB, ItemRGB, BorderRGB, and TransRGB (which color is treated as a fully transparent "mask" color).
+HUD Elements can also fade in and out when shown or hidden, or Menus can be partially faded out when they haven't been used for a while or are currently "disabled" (by virtue of having no active buttons assigned that can control the Menu), all of which can be controlled with the properties ``MaxAlpha=, FadeInDelay=, FadeInTime=, FadeOutDelay=, FadeOutTime=, InactiveDelay=``, and ``InactiveAlpha=``. All alpha values should be in the range of 0 to 255 (0 fully invisible, 255 fully opaque), and delay times are in milliseconds (1/1000th of a second).
 
-HUD Elements can also fade in and out when shown or hidden, which can be controlled with the properties MaxAlpha, FadeInDelay, FadeInTime, FadeOutDelay, FadeOutTime, InactiveDelay, and InactiveAlpha. All alpha values are 0 to 255, and times are in milliseconds (1/1000th of a second).
+### Key Bind Array HUD Elements
+Two special HUD element types offset their visual position to named **Hotspots** with the same name as Key Bind Array elements. These use ``Type = KeyBindArrayLast`` and ``Type = KeyBindArrayDefault`` and must also have a special property to specify which Key Bind Array and Hotspots to use, such as ``KeyBindArray = TargetGroup``. 
+
+``Type=KeyBindArrayLast`` will change to the position matching the last used Key Bind from the array. ``Type=KeyBindArrayDefault`` will change to the position of the set Default Key Bind of the array (initially the first item in the array, but can be changed with the ``=Set <KeyBindArrayName> Default`` command).
+
+For these to work, make sure to add Hotspots in the ``[Hotspots]`` category with the same name as each Key Bind name. These will specify a position offset this HUD Element should jump to when either the "Last" or "Default" Key Bind Array index is changed.
 
 ## Hotspots and positions
-Hotspots (positions on the screen of significance, such as where a mouse click should occur) and things such as HUD Element positions and sizes, are specified as X and Y coordinates with each possibly having a relative and/or absolute value. The relative value is related to the size of the target game's window/screen size, and the absolute value is in pixels. They can be specified in the format ``relativeValue% +/- absoluteValue`` and you can optionally specify only one or both. Some relative value's can be specified by shortcuts like L/T/R/B/C/CX/CY instead of numbers.
+Hotspots (positions on the screen of significance, such as where a mouse click should occur) and things such as HUD Element positions and sizes, are specified as X and Y coordinates with Y=0 being the top of the window/screen and X=0 being the left side. Each axis can possibly have a relative and/or an absolute value. The relative value is related to the size of the target game's window/screen size, and the absolute value is in pixels. They can be specified in the format ``relativeValue% +/- absoluteValue`` and you can optionally specify only one or both. Some relative values can be specified by shortcuts like L/T/R/B/C/CX/CY instead of numbers.
 
 Some accepted examples of valid positions for reference:
 
@@ -332,45 +462,27 @@ Some accepted examples of valid positions for reference:
     = 50% x 50%
     = 0.5, 0.5
     = CX CY
-    # 10 pixels to the left of right edge
+    # 10 pixels to the left of right edge, and
     # 5 pixels down from 30.5% of the game window's height
     = R - 10, 30.5% + 5
-    # Pixel position 200 x 100 regardless of target size
+    # Pixel position 200 x 100 regardless of target window size
     = 200 x 100
 
-Note that L/R/T/B/C are also used for the ``Alignment=`` property for HUD Elements and Menus. For example, if you specified ``R-10`` for the position, but the Menu is 50 wide, most of it would end up cut off because the left edge of the menu would be at R-10. Instead, you can use the following to make the *right* edge of the menu be 10 pixels to the left of the right edge of the screen, and exactly centered on the Y axis:
+Note that L/R/T/B/C are also used for the ``Alignment=`` property for HUD Elements and Menus. For example, if you specified ``R-10`` for the position, but the Menu is 50 pixels wide, most of it would end up cut off by the right edge of the screen (only the left 10 pixels of the Menu would be shown). Instead, you can use the following to make the *right* edge of the menu be 10 pixels to the left of the right edge of the screen, and exactly centered on the Y axis:
 
     [Menu.Macros]
     Position = R-10, CY
     Alignment = R, C
 
-## Other assignable commands
-In addition to keyboard and mouse input, key sequences, and commands for adding/removing Layers and managing Menus, there are some other special-case commands you can assign to buttons and menu items.
+## Other Commands
+In addition to keyboard and mouse input and Commands for adding/removing Layers and managing Menus, there are some other special-case commands you can assign to Gamepad buttons and Menu Items.
+
+This includes commands for controlling the overlay app itself, such as ``=Change Profile`` to bring up the Profile selection dialog or ``=Quit App`` to shut down the overlay application.
 
 ### Character movement commands
-These include Move, which is the same as MoveTurn, and MoveStrafe, which can be conveniently assigned to the DPad or an analog stick in a single property. Which actual key is pressed may changed depending on whether or not MouseLook mode is turned on (via ``MouseLook = On`` property set on an active Layer). These require the KeyBinds be assigned for MoveForward, MoveBack, TurnLeft, and TurnRight at minimum, as well as optionally StrafeLeft and StrafeRight if want to use the MoveStrafe option. All of these can have a MouseLook version of them as well for which key to use in MouseLook mode (if it is different), such as the notable common example ``MouseLookMoveForward = LClick``.
+Special character movement commands include ``=Move Up/Down/Left/Right`` (same thing as ``=MoveTurn``), and ``=MoveStrafe``. These are special because which actual key is pressed may change depending on whether or not MouseLook mode is turned on (via ``Mouse = Look`` property set on an active Layer). These require the Key Binds be assigned for ``MoveForward=, MoveBack=, TurnLeft=``, and ``TurnRight=`` at minimum, as well as optionally ``StrafeLeft=`` and ``StrafeRight=`` if want to use the ``=MoveStrafe`` Command.
 
-### Target Group commands
-
-These commands allow "relative" group targeting. Most MMO's have a specific key assigned to target each group member (and yourself), but with limited buttons, it can be helpful to have buttons for "cycling" through group members rather than having a dedicated button for each group member. To facilitate this, the application remembers the group members "Last", "Origin", and "Default" (i*n all cases, your own character is considered "Group Member #0" and the default setting*) and are used and updated by the following commands:
-
-*NOTE: These first 2 do NOT actually target anyone in the game*
-
-* **Target Group Reset** - Sets just "Origin" to "Default"
-* **Target Group Set Default** - Sets "Default" to "Last"
-
-*NOTE: The rest of these all set "Last" and "Origin" to match whomever was targeted*
-
-* **Target Group Default** - Targets "Default"
-* **Target Group Last** - Targets "Last" (which may target their pet if they were already targeted)
-* **Target Group Next** - Targets "Origin" + 1 group member
-* **Target Group Prev** - Targets "Origin" - 1 group member
-*  **Target Group Next Wrap** - Same as Next but wraps back to first if used when "Origin" = max
-* **Target Group Prev Wrap** - Same as Prev but wraps to max if "Origin" = self (0)
-
-In order for these to work properly, you will need the KeyBinds defined for ``TargetSelf =`` and ``TargetGroup1 =``, ``TargetGroup2=``, etc, up to however many other group members the game supports.
-
-When using these, any HUD Elements with ``Type = GroupTarget`` will be moved to a position corresponding to "Last", and any with ``Type = DefaultTarget`` will be moved to a position corresponding to "Deafult", to help visualize which group member will be targeted next by use of these commands. You will need to define these positions to match how you have your game's UI set up, by adding them under the category ``[Hotspots]`` and using the same names as the aforementioned KeyBinds (TargetSelf and TargetGroup#).
+All of these can have a MouseLook version of them as well for which key to use in MouseLook mode (if it is different), such as the notable common example ``MouseLookMoveForward = LClick``.
 
 ## Other system features
-As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD Elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD Elements actually show up over top of the game. There are various other system options you can set like how long a "tap" vs a "short hold" is, analog stick deadzones and mouse cursor speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since it refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.
+As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD Elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD Elements actually show up over top of the game. There are various other system options you can set like how long a "tap" vs a "short hold" is, analog stick deadzones and mouse cursor speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since Discord refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.

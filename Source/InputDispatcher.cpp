@@ -7,7 +7,7 @@
 #include "InputMap.h"
 #include "Lookup.h"
 #include "Profile.h"
-#include "WindowManager.h" // hotspotMousePosX/Y()
+#include "WindowManager.h" // hotspotMousePosX/Y(), overlaysAreHidden()
 
 namespace InputDispatcher
 {
@@ -798,6 +798,7 @@ void cleanup()
 {
 	sTracker.mouseModeWanted = eMouseMode_Cursor;
 	sTracker.keysLockedDown.clear();
+	sTracker.mouseInHiddenPos = false;
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
@@ -811,8 +812,9 @@ void cleanup()
 }
 
 
-void prepareForDialog()
+void forceReleaseHeldKeys()
 {
+	sTracker.mouseInHiddenPos = false;
 	sTracker.keysLockedDown.clear();
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
@@ -848,7 +850,8 @@ void update()
 		!sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.jumpToHotspot &&
-		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) )
+		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) &&
+		!WindowManager::overlaysAreHidden() )
 	{// Between other tasks, so safe to start up new mouse mode
 		// Store current mouse position to restore when return to Cursor mode
 		backupMousePos();

@@ -48,7 +48,7 @@ void resize(RECT theNewTargetRect);
 void hideOverlays();
 void showOverlays();
 void setOverlaysToTopZ();
-bool areOverlaysHidden();
+bool overlaysAreHidden();
 
 // Gets virtual-desktop-relative mouse coordinates normalized to 0-65535 range
 u16 hotspotMousePosX(const Hotspot& theHotspot);

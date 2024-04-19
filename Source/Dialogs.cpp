@@ -556,7 +556,7 @@ ProfileSelectResult profileSelect(
 	}
 
 	// Release any keys held by InputDispatcher first
-	InputDispatcher::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
 
 	// Create and show dialog window
 	HWND hWnd = CreateDialogParam(
@@ -605,7 +605,7 @@ std::string targetAppPath(std::string& theCommandLineParams)
 
 	sDialogEditText = &theCommandLineParams;
 
-	InputDispatcher::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
 
 	HWND hTempParentWindow = NULL;
 	if( TargetApp::targetWindowIsTopMost() )
@@ -674,7 +674,7 @@ std::string targetAppPath(std::string& theCommandLineParams)
 
 EResult showLicenseAgreement(HWND theParentWindow)
 {
-	InputDispatcher::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
 
 	if( DialogBoxParam(
 		GetModuleHandle(NULL),
@@ -705,7 +705,7 @@ EResult editMenuCommand(std::string& theString, bool directional)
 	}
 
 	// Release any keys held by InputDispatcher first
-	InputDispatcher::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
 
 	// Create and show dialog window
 	HWND hWnd = CreateDialogParam(

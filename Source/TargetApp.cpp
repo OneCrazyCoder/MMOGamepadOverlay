@@ -4,7 +4,7 @@
 
 #include "TargetApp.h"
 
-#include "InputDispatcher.h" // send hotkey to exit full-screen mode
+#include "InputDispatcher.h" // forceReleaseHeldKeys(), send _SwapWindowMode
 #include "InputMap.h" // get eSpecialKey_SwapWindowMode
 #include "Profile.h"
 #include "WindowManager.h"
@@ -152,13 +152,14 @@ void checkWindowActive()
 		SetForegroundWindow(sTargetWindowHandle);
 	}
 
-	if( WindowManager::areOverlaysHidden() )
+	if( WindowManager::overlaysAreHidden() )
 		return;
 
 	// Target window is not the active foreground window
 	// Hide overlay windows until target window is active again
 	targetDebugPrint("Target window inactive! Hiding overlays!\n");
 	WindowManager::hideOverlays();
+	InputDispatcher::forceReleaseHeldKeys();
 	// Trigger checkWindowPosition() to show overlays later
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	// Don't interfere with other applications by keeping hotkey registered
@@ -175,7 +176,7 @@ void checkWindowZOrder()
 	if( !sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
 		IsIconic(sTargetWindowHandle) ||
-		WindowManager::areOverlaysHidden() )
+		WindowManager::overlaysAreHidden() )
 		return;
 
 	// If Target isn't a TOPMOST, it must be beneath overlays
@@ -223,6 +224,7 @@ void checkWindowClosed()
 	else
 	{
 		WindowManager::hideOverlays();
+		InputDispatcher::forceReleaseHeldKeys();
 		targetDebugPrint("Target window closed! Hiding overlays!\n");
 	}
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
