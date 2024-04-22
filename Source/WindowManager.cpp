@@ -640,7 +640,14 @@ void resize(RECT theNewWindowRect)
 		aNewTargetSize.cy != sTargetSize.cy )
 	{
 		sTargetSize = aNewTargetSize;
-		HUD::clearCache();
+		gUIScaleX = gUIScaleY = Profile::getFloat("System/UIScale", 1.0f);
+		float aScaleResX = Profile::getInt("System/BaseScaleResolutionX");
+		if( aScaleResX > 0 )
+			gUIScaleX *= sTargetSize.cx / aScaleResX;
+		float aScaleResY = Profile::getInt("System/BaseScaleResolutionY");
+		if( aScaleResY > 0 )
+			gUIScaleY *= sTargetSize.cy / aScaleResY;
+		HUD::updateScaling();
 	}
 
 	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
@@ -696,8 +703,8 @@ u16 hotspotMousePosX(const Hotspot& theHotspot)
 	int aPos = theHotspot.x.origin;
 	// Convert client-rect-relative  pixel position
 	aPos = aPos * sTargetSize.cx / 0x10000;
-	// Add pixel offset
-	aPos += theHotspot.x.offset;
+	// Add pixel offset w/ position scaling applied
+	aPos += theHotspot.x.offset * gUIScaleX;
 	// Convert to virtual desktop pixel coordinate
 	aPos = max(0, aPos + sDesktopTargetRect.left);
 	// Convert to % of virtual desktop size (again 65536 == 100%)
@@ -714,30 +721,10 @@ u16 hotspotMousePosY(const Hotspot& theHotspot)
 
 	int aPos = theHotspot.y.origin;
 	aPos = aPos * sTargetSize.cy / 0x10000;
-	aPos += theHotspot.y.offset;
+	aPos += theHotspot.y.offset * gUIScaleY;
 	aPos = max(0, aPos + sDesktopTargetRect.top);
 	aPos = min(0xFFFF, s64(aPos) * 0x10000 / kDesktopHeight);
 	return u16(aPos);
-}
-
-
-int hotspotClientX(const Hotspot& theHotspot)
-{
-	if( !sMainWindow ) return 0; // Left edge of window
-	int aPos = theHotspot.x.origin;
-	aPos = aPos * sTargetSize.cx / 0x10000;
-	aPos += theHotspot.x.offset;
-	return aPos;
-}
-
-
-int hotspotClientY(const Hotspot& theHotspot)
-{
-	if( !sMainWindow ) return 0; // Top edge of window
-	int aPos = theHotspot.y.origin;
-	aPos = aPos * sTargetSize.cy / 0x10000;
-	aPos += theHotspot.y.offset;
-	return aPos;
 }
 
 } // WindowManager
