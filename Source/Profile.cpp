@@ -1408,6 +1408,16 @@ bool getBool(const std::string& theKey, bool theDefaultValue)
 }
 
 
+float getFloat(const std::string& theKey, float theDefaultValue)
+{
+	const std::string& theValue = getStr(theKey, toString(theDefaultValue));
+	float result = floatFromString(theValue);
+	if( theValue[theValue.size()-1] == '%' )
+		result /= 100;
+	return result;
+}
+
+
 void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 {
 	const size_t aPrefixLength = thePrefix.length();

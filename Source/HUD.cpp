@@ -172,11 +172,10 @@ struct HUDDrawData
 	bool firstDraw;
 };
 
-struct HUDDrawCacheEntry
+struct StringScaleCacheEntry
 {
 	u16 width, height, fontID;
-	bool initialized;
-	HUDDrawCacheEntry() : initialized(false) {}
+	StringScaleCacheEntry() : width(), height(), fontID() {}
 };
 
 struct HUDBuilder
@@ -199,7 +198,7 @@ static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
 static std::vector<HBITMAP> sBitmaps;
 static std::vector<HUDElementInfo> sHUDElementInfo;
-static std::vector< std::vector<HUDDrawCacheEntry> > sMenuDrawCache;
+static std::vector< std::vector<StringScaleCacheEntry> > sMenuDrawCache;
 static VectorMap<std::pair<u16, LONG>, u16> sResizedFontsMap;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
@@ -324,7 +323,7 @@ static u16 getOrCreateFontID(
 		return result;
 
 	// Create new font
-	const int aFontPointSize = intFromString(theFontSize);
+	const int aFontPointSize = intFromString(theFontSize) * gUIScaleY;
 	HDC hdc = GetDC(NULL);
 	const int aFontHeight =
 		-MulDiv(aFontPointSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
@@ -411,14 +410,30 @@ static u16 getOrCreateBitmapID(
 }
 
 
-LONG scaleHotspot(
-	const Hotspot::Coord& theCoord,
-	u16 theTargetSize)
+static POINT hotspotToPoint(
+	const Hotspot& theHotspot,
+	const SIZE& theTargetSize)
 {
-	return
-		LONG(theCoord.origin) *
-		theTargetSize / 0x10000 +
-		theCoord.offset;
+	POINT result;
+	result.x =
+		LONG(theHotspot.x.origin) * theTargetSize.cx / 0x10000 +
+		LONG(theHotspot.x.offset * gUIScaleX);
+	result.y =
+		LONG(theHotspot.y.origin) * theTargetSize.cy / 0x10000 +
+		LONG(theHotspot.y.offset * gUIScaleY);
+	return result;
+}
+
+
+static SIZE hotspotToSize(
+	const Hotspot& theHotspot,
+	const SIZE& theTargetSize)
+{
+	POINT aPoint = hotspotToPoint(theHotspot, theTargetSize);
+	SIZE result;
+	result.cx = aPoint.x;
+	result.cy = aPoint.y;
+	return result;
 }
 
 
@@ -443,10 +458,14 @@ static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 	SelectObject(dd.hdc, sPens[hi.borderPenID]);
 	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
 
+	u16 aRadius = hi.radius;
+	aRadius = min(aRadius, (theRect.right-theRect.left) * 3 / 4);
+	aRadius = min(aRadius, (theRect.bottom-theRect.top) * 3 / 4);
+
 	RoundRect(dd.hdc,
 		theRect.left, theRect.top,
 		theRect.right, theRect.bottom,
-		hi.radius, hi.radius);
+		aRadius, aRadius);
 }
 
 
@@ -659,11 +678,11 @@ static void initCacheEntry(
 	const RECT& theRect,
 	const std::wstring& theStr,
 	UINT theFormat,
-	HUDDrawCacheEntry& theCacheEntry)
+	StringScaleCacheEntry& theCacheEntry)
 {
 	// This will not only check if an alternate font size is needed, but
 	// also calculate drawn width and height for given string, which
-	// can be used to calculate an offsets for things like vertical justify
+	// can be used to calculate offsets for things like vertical justify
 	// when not using DT_SINGLELINE (meaning DT_VCENTER/_BOTTOM don't work).
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	theCacheEntry.fontID = hi.fontID;
@@ -688,7 +707,6 @@ static void initCacheEntry(
 
 	theCacheEntry.width = aNeededRect.right - aNeededRect.left;
 	theCacheEntry.height = aNeededRect.bottom - aNeededRect.top;
-	theCacheEntry.initialized = true;
 }
 
 
@@ -697,7 +715,7 @@ static void drawLabelString(
 	RECT theRect,
 	const std::wstring& theStr,
 	UINT theFormat,
-	HUDDrawCacheEntry& theCacheEntry)
+	StringScaleCacheEntry& theCacheEntry)
 {
 	if( theStr.empty() )
 		return;
@@ -705,7 +723,7 @@ static void drawLabelString(
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 
 	// Initialize cache entry to get font & height
-	if( !theCacheEntry.initialized )
+	if( theCacheEntry.width == 0 )
 		initCacheEntry(dd, theRect, theStr, theFormat, theCacheEntry);
 
 	// Adjust vertial draw position manually when not using DT_SINGLELINE,
@@ -726,16 +744,18 @@ static void drawLabelString(
 	}
 
 	// Draw label based on cache entry's fields
-	DBG_ASSERT(theCacheEntry.initialized);
-	SelectObject(dd.hdc, sFonts[theCacheEntry.fontID]);
-	DrawText(dd.hdc, theStr.c_str(), -1, &theRect, theFormat);
+	if( theCacheEntry.width > 0 )
+	{
+		SelectObject(dd.hdc, sFonts[theCacheEntry.fontID]);
+		DrawText(dd.hdc, theStr.c_str(), -1, &theRect, theFormat);
+	}
 }
 
 
 static void drawMenuTitle(
 	HUDDrawData& dd,
 	u16 theSubMenuID,
-	HUDDrawCacheEntry& theCacheEntry,
+	StringScaleCacheEntry& theCacheEntry,
 	bool centered = false)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -747,7 +767,7 @@ static void drawMenuTitle(
 	const std::wstring& aStr = widen(InputMap::menuLabel(theSubMenuID));
 	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
 	if( centered) aFormat |= DT_CENTER;
-	if( !theCacheEntry.initialized )
+	if( theCacheEntry.width == 0 )
 		initCacheEntry(dd, aTitleRect, aStr, aFormat, theCacheEntry);
 
 	// Fill in 2px margin around text with titleBG (border) color
@@ -770,7 +790,7 @@ static void drawMenuItem(
 	HUDDrawData& dd,
 	const RECT& theRect,
 	const std::string& theLabel,
-	HUDDrawCacheEntry& theCacheEntry,
+	StringScaleCacheEntry& theCacheEntry,
 	bool selected = false)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -815,11 +835,8 @@ static void drawListMenu(HUDDrawData& dd)
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle &&
-		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-	{
+	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
 		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
-	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
@@ -869,11 +886,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle &&
-		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-	{
+	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
 		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
-	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
@@ -935,11 +949,8 @@ static void drawBarMenu(HUDDrawData& dd)
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle &&
-		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-	{
+	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
 		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
-	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
@@ -1039,11 +1050,8 @@ static void drawGridMenu(HUDDrawData& dd)
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle &&
-		(dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-	{
+	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
 		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0]);
-	}
 
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
@@ -1207,11 +1215,6 @@ void init()
 			aTempHotspot.y.origin < 0x4000	? eAlignment_Min :
 			aTempHotspot.y.origin > 0xC000	? eAlignment_Max :
 			/*otherwise*/					  eAlignment_Center;
-		// hi.fontID = eHUDProp_FontName & _FontSize & _FontWeight
-		hi.fontID = getOrCreateFontID(aHUDBuilder,
-			getHUDPropStr(aHUDName, eHUDProp_FontName),
-			getHUDPropStr(aHUDName, eHUDProp_FontSize),
-			getHUDPropStr(aHUDName, eHUDProp_FontWeight));
 		// hi.labelColor = eHUDProp_FontColor
 		hi.labelColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_FontColor));
@@ -1220,16 +1223,10 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_ItemColor));
 		hi.itemBrushID = getOrCreateBrushID(
 			aHUDBuilder, hi.labelBGColor);
-		// hi.borderSize = eHUDProp_BorderSize
-		hi.borderSize =
-			u16(u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize)));
-		// hi.borderPenID & .titleBGColor/BrushID = eHUDProp_BorderColor
+		// hi.titleBGColor/BrushID = eHUDProp_BorderColor
 		hi.titleBGColor = strToRGB(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_BorderColor));
 		hi.titleBrushID = getOrCreateBrushID(aHUDBuilder, hi.titleBGColor);
-		hi.borderPenID = getOrCreatePenID(aHUDBuilder,
-			hi.titleBGColor,
-			hi.borderSize ? PS_INSIDEFRAME : PS_NULL, int(hi.borderSize));
 		// hi.selLabelColor = eHUDProp_SFontColor
 		hi.selLabelColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_SFontColor));
@@ -1238,11 +1235,6 @@ void init()
 			getHUDPropStr(aHUDName, eHUDProp_SItemColor));
 		hi.selItemBrushID = getOrCreateBrushID(
 			aHUDBuilder, hi.selLabelBGColor);
-		// hi.selBorderPenID = eHUDProp_SBorderColor (and +1 to size)
-		hi.selBorderPenID = getOrCreatePenID(aHUDBuilder,
-			strToRGB(aHUDBuilder,
-				getHUDPropStr(aHUDName, eHUDProp_SBorderColor)),
-			PS_INSIDEFRAME, int(hi.borderSize + 1));
 		// hi.titleColor = eHUDProp_TitleColor
 		hi.titleColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_TitleColor));
@@ -1274,22 +1266,8 @@ void init()
 		// hi.inactiveAlpha = eHUDProp_InactiveAlpha
 		hi.inactiveAlpha = u8(u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF);
-		// hi.titleHeight = eHUDProp_TitleHeight
-		if( isAMenu )
-		{
-			hi.titleHeight = u8(u32FromString(
-				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
-			if( hi.titleHeight )
-				hi.titleHeight = max(hi.titleHeight, 8);
-		}
 
 		// Extra data values for specific types
-		if( hi.type == eHUDItemType_RndRect ||
-			hi.itemType == eHUDItemType_RndRect )
-		{
-			hi.radius = u32FromString(
-				getHUDPropStr(aHUDName, eHUDProp_Radius));
-		}
 		if( hi.type == eHUDItemType_Bitmap ||
 			hi.itemType == eHUDItemType_Bitmap )
 		{
@@ -1308,6 +1286,8 @@ void init()
 			DBG_ASSERT(hi.arrayID < InputMap::keyBindArrayCount());
 		}
 	}
+
+	updateScaling();
 }
 
 
@@ -1421,12 +1401,74 @@ void update()
 }
 
 
-void clearCache()
+void updateScaling()
 {
+	if( sHUDElementInfo.empty() )
+		return;
+
+	// Reset string auto-sizing cache entries
 	for(size_t i = 0; i < sMenuDrawCache.size(); ++i)
 	{
 		for(size_t j = 0; j < sMenuDrawCache[i].size(); ++j)
-			sMenuDrawCache[i][j].initialized = false;
+			sMenuDrawCache[i][j] = StringScaleCacheEntry();
+	}
+	sResizedFontsMap.clear();
+
+	// Clear fonts and border pens
+	for(size_t i = 0; i < sFonts.size(); ++i)
+		DeleteObject(sFonts[i]);
+	for(size_t i = 0; i < sPens.size(); ++i)
+		DeleteObject(sPens[i]);
+	sFonts.clear();
+	sPens.clear();
+
+	// Generate fonts and border pens based on current gScale values
+	HUDBuilder aHUDBuilder;
+	for(u16 aHUDElementID = 0;
+		aHUDElementID < sHUDElementInfo.size();
+		++aHUDElementID)
+	{
+		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
+		if( hi.type == eHUDType_System )
+			continue;
+		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
+		const bool isAMenu =
+			hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
+		// hi.fontID = eHUDProp_FontName & _FontSize & _FontWeight
+		hi.fontID = getOrCreateFontID(aHUDBuilder,
+			getHUDPropStr(aHUDName, eHUDProp_FontName),
+			getHUDPropStr(aHUDName, eHUDProp_FontSize),
+			getHUDPropStr(aHUDName, eHUDProp_FontWeight));
+		// hi.borderSize = eHUDProp_BorderSize
+		hi.borderSize =
+			u16(u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize)));
+		if( hi.borderSize > 0 )
+			hi.borderSize = max(1, hi.borderSize * gUIScaleY);
+		// hi.borderPenID
+		hi.borderPenID = getOrCreatePenID(aHUDBuilder,
+			hi.titleBGColor,
+			hi.borderSize ? PS_INSIDEFRAME : PS_NULL, int(hi.borderSize));
+		// hi.selBorderPenID = eHUDProp_SBorderColor (and +1 to size)
+		hi.selBorderPenID = getOrCreatePenID(aHUDBuilder,
+			strToRGB(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_SBorderColor)),
+			PS_INSIDEFRAME, int(hi.borderSize + 1));
+		// hi.titleHeight = eHUDProp_TitleHeight
+		if( isAMenu )
+		{
+			hi.titleHeight = u8(u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
+			if( hi.titleHeight )
+				hi.titleHeight = max(8, hi.titleHeight * gUIScaleY);
+		}
+
+		// Extra data values for specific types
+		if( hi.type == eHUDItemType_RndRect ||
+			hi.itemType == eHUDItemType_RndRect )
+		{
+			hi.radius = gUIScaleY * u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_Radius));
+		}
 	}
 }
 
@@ -1521,12 +1563,10 @@ void updateWindowLayout(
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
 	// Calculate component size first since it affects other properties
-	theComponentSize.cx = scaleHotspot(hi.itemSize.x, theTargetSize.cx);
-	theComponentSize.cy = scaleHotspot(hi.itemSize.y, theTargetSize.cy);
+	theComponentSize = hotspotToSize(hi.itemSize, theTargetSize);
 
 	// Get window position (top-left corner) assuming top-left alignment
-	theWindowPos.x = scaleHotspot(hi.position.x, theTargetSize.cx);
-	theWindowPos.y = scaleHotspot(hi.position.y, theTargetSize.cy);
+	theWindowPos = hotspotToPoint(hi.position, theTargetSize);
 
 	// Apply special-case position offsets
 	switch(hi.type)
@@ -1536,8 +1576,9 @@ void updateWindowLayout(
 		if( Hotspot* aHotspot =
 				InputMap::keyBindArrayHotspot(hi.arrayID, hi.selection) )
 		{
-			theWindowPos.x += scaleHotspot(aHotspot->x, theTargetSize.cx);
-			theWindowPos.y += scaleHotspot(aHotspot->y, theTargetSize.cy);
+			const POINT& anOffset = hotspotToPoint(*aHotspot, theTargetSize);
+			theWindowPos.x += anOffset.x;
+			theWindowPos.y += anOffset.y;
 		}
 		break;
 	}
@@ -1594,6 +1635,12 @@ void updateWindowLayout(
 		theWindowPos.y -= theWindowSize.cy;
 		break;
 	}
+
+	// Clamp to target area
+	theWindowPos.x = max(0, theWindowPos.x);
+	theWindowPos.y = max(0, theWindowPos.y);
+	theWindowSize.cx = min(theWindowSize.cx, theTargetSize.cx - theWindowPos.x);
+	theWindowSize.cy = min(theWindowSize.cy, theTargetSize.cy - theWindowPos.y);
 }
 
 

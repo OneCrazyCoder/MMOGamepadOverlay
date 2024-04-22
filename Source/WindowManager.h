@@ -54,8 +54,4 @@ bool overlaysAreHidden();
 u16 hotspotMousePosX(const Hotspot& theHotspot);
 u16 hotspotMousePosY(const Hotspot& theHotspot);
 
-// Gets pixel position relative to target's GetClientRect
-int hotspotClientX(const Hotspot& theHotspot);
-int hotspotClientY(const Hotspot& theHotspot);
-
 } // WindowManager
