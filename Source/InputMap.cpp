@@ -11,8 +11,8 @@ namespace InputMap
 {
 
 // Whether or not debug messages print depends on which line is commented out
-#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
-//#define mapDebugPrint(...) ((void)0)
+//#define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
+#define mapDebugPrint(...) ((void)0)
 
 //-----------------------------------------------------------------------------
 // Const Data

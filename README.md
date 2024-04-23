@@ -1,4 +1,3 @@
-
 # MMO Gamepad Overlay
 
 Download links for latest built version:
@@ -442,7 +441,7 @@ Default properties used by all HUD Elements and Menus can be defined in the base
 
 Like ``Style =`` for a Menu, each HUD element must specify a ``Type =`` entry. Available types include: Rectangle, Rounded Rectangle (needs ``Radius=`` as well), Circle, Bitmap (needs a ``BitmapPath=`` property specifying the .bmp file to use), and ArrowL/R/U/D. These are also used for Menus for the ``ItemType=`` property, which determines how the background for each Menu Item is drawn. There are also some special-case types covered later.
 
-In addition, other properties can be defined that set the size and colors used, including ``Size=`` and/or ``ItemSize=, Alignment=, Font=, FontSize=, FontWeight=, BorderSize=, LabelRGB=, ItemRGB=, BorderRGB=``, and ``TransRGB=`` (which color is treated as a fully transparent "mask" color). Menus can optionally include a Title Bar with the ``TitleHeight=`` property as well as extra colors for the currently-selected Menu Item with ``SelectedItemRGB=, SelectedBorderRGB=``, and ``SelectedLabelRGB=``.
+In addition, other properties can be defined that set the size and colors used, including ``Size=`` and/or ``ItemSize=, Alignment=, Font=, FontSize=, FontWeight=, BorderSize=, LabelRGB=, ItemRGB=, BorderRGB=``, and ``TransRGB=`` (which color is treated as a fully-transparent "mask" color). Menus can optionally include a Title Bar with the ``TitleHeight=`` property, a gap between menu items (or overlap by using a negative value) with the ``GapSize=`` property, as well as extra colors for the currently-selected Menu Item with ``SelectedItemRGB=, SelectedBorderRGB=``, and ``SelectedLabelRGB=``.
 
 HUD Elements can also fade in and out when shown or hidden, or Menus can be partially faded out when they haven't been used for a while or are currently "disabled" (by virtue of having no active buttons assigned that can control the Menu), all of which can be controlled with the properties ``MaxAlpha=, FadeInDelay=, FadeInTime=, FadeOutDelay=, FadeOutTime=, InactiveDelay=``, and ``InactiveAlpha=``. All alpha values should be in the range of 0 to 255 (0 fully invisible, 255 fully opaque), and delay times are in milliseconds (1/1000th of a second).
 
@@ -453,8 +452,8 @@ Two special HUD element types offset their visual position to named **Hotspots**
 
 For these to work, make sure to add Hotspots in the ``[Hotspots]`` category with the same name as each Key Bind name. These will specify a position offset this HUD Element should jump to when either the "Last" or "Default" Key Bind Array index is changed.
 
-## Hotspots and positions
-Hotspots (positions on the screen of significance, such as where a mouse click should occur) and things such as HUD Element positions and sizes, are specified as X and Y coordinates with Y=0 being the top of the window/screen and X=0 being the left side. Each axis can possibly have a relative and/or an absolute value. The relative value is related to the size of the target game's window/screen size, and the absolute value is in pixels. They can be specified in the format ``relativeValue% +/- absoluteValue`` and you can optionally specify only one or both. Some relative values can be specified by shortcuts like L/T/R/B/C/CX/CY instead of numbers.
+## Hotspots and positions/sizes
+Hotspots (positions on the screen of significance, such as where a mouse click should occur) and things such as HUD Element positions and sizes, are specified as X and Y coordinates with Y=0 being the top of the window/screen and X=0 being the left side. Each axis can possibly have a relative and/or an absolute value. The relative value is related to the size of the target game's window/screen size, and the absolute value is in pixels. They can be specified in the format ``relativeValue% +/- absoluteValue`` if specify both. Some relative values can be also be specified by shortcuts like L/T/R/B/C/CX/CY instead of numbers.
 
 Some accepted examples of valid positions for reference:
 
@@ -473,6 +472,13 @@ Note that L/R/T/B/C are also used for the ``Alignment=`` property for HUD Elemen
     [Menu.Macros]
     Position = R-10, CY
     Alignment = R, C
+
+### Global automatic scaling
+The absolute (pixel) position/size values described above can also be automatically scaled according to a fixed ``UIScale=`` value and/or according to the current size of the game's window/screen. This can potentially be easier to deal with than using a relative (%) value for every individual position/hotspot/etc. This automatic scaling also applies to some properties that otherwise do not have a relative value option, like BorderSize, GapSize, TitleHeight, and FontSize.
+
+To set a fixed scaling value, just use the [System] property ``UIScale=`` with a percentage, like 150% (or 1.5 if you prefer). To enable automatic scaling, first set what the base resolution all your positions/sizes/etc is based on, and then they will be scaled up or down automatically as the game window is resized (assuming you've set ``TargetWindowName=`` properly). The base resolution to scale from is set by the [System] properties ``BaseScaleResolutionX=`` and ``BaseScaleResolutionY=``.
+
+*Note that UIScale and resolution scaling are both applied (multiplied by each other), but that neither affects the relative (%) positions directly set in individual hotspots/positions/etc - only absolute pixel values are scaled by these!*
 
 ## Other Commands
 In addition to keyboard and mouse input and Commands for adding/removing Layers and managing Menus, there are some other special-case commands you can assign to Gamepad buttons and Menu Items.
