@@ -21,7 +21,7 @@ void loadProfile();
 // Clean up and prepares for app shutdown
 void cleanup();
 
-// Use when switch to a dialog or minimize game app to release
+// Use when switch to a dialog or minimize game app
 void forceReleaseHeldKeys();
 
 // Call once per frame to process the queue and dispatch input

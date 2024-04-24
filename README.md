@@ -282,7 +282,7 @@ There is also the more advanced Layer command Replace, such as ``Replace Layer w
 ### Other Layer Properties
 In addition to changing button assignments temporarily while they are active, each Layer (and the [Scheme] category) has a few other properties.
 
-This includes changing how the mouse is treated by using ``Mouse=Cursor`` (normal), ``Mouse=Look`` (holding the right-mouse button down to keep MouseLook mode active), or ``Mouse=Hidden`` ("hide" the cursor by jumping it to the bottom right corner of the screen). The top-most Layer with a ``Mouse=`` property specified dictates the mouse mode used.
+This includes changing how the mouse is treated by using ``Mouse=Cursor`` (normal), ``Mouse=Look`` (holding the right-mouse button down to keep MouseLook mode active), or ``Mouse=Hide`` ("hide" the cursor by jumping it to the bottom right corner of the screen). The top-most Layer with a ``Mouse=`` property specified dictates the mouse mode used (except for ``=Hide`` being above a ``=Look`` layer which will just stay in MouseLook mode since that hides the cursor anyway).
 
 Each Layer also specifies which **HUD Elements** (including **Menus**) should be visible while that Layer in active. Layers can also specifically *hide* HUD Elements that were requested to be shown by lower Layers, stopping them from being shown (unless yet another, higher layer overrides the *hide*). This is done via the ``HUD=`` property including a list of HUD Element names to show (and optionally the 'Show' and 'Hide' key words), such as:
 

@@ -484,7 +484,6 @@ static void restoreMousePos()
 	anInput.mi.dy = sTracker.mouseRestorePosY;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
-	sTracker.mouseInHiddenPos = true;
 	sTracker.mouseInHiddenPos = false;
 	if( sTracker.mouseModeWanted == eMouseMode_Cursor )
 		sTracker.hasMouseRestorePos = false;
@@ -814,7 +813,7 @@ void cleanup()
 
 void forceReleaseHeldKeys()
 {
-	sTracker.mouseInHiddenPos = false;
+	restoreMousePos();
 	sTracker.keysLockedDown.clear();
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
