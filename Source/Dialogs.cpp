@@ -568,6 +568,7 @@ ProfileSelectResult profileSelect(
 	ShowWindow(hWnd, SW_SHOW);
 	if( TargetApp::targetWindowIsTopMost() )
 		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	SetForegroundWindow(hWnd);
 
 	// Loop until dialog signals it is done
 	sDialogDone = false;

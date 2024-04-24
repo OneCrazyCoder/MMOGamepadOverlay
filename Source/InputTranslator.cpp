@@ -1290,8 +1290,17 @@ static void updateMouseModeForCurrentLayers()
 	{
 		EMouseMode aLayerMouseMode =
 			InputMap::mouseMode(sState.layerOrder[i]);
-		if( aLayerMouseMode != eMouseMode_Default )
-			aMouseMode = aLayerMouseMode;
+		// _Default means just use lower layers' mode
+		if( aLayerMouseMode == eMouseMode_Default )
+			continue;
+		// _Hide should not override _Look since cursor is hidden in _Look
+		// anyway by the game itself, and if really want to guarantee cursor
+		// is hidden AND MouseLook disabled, the layer can just make sure no
+		// Mouse movement is assigned.
+		if( aLayerMouseMode == eMouseMode_Hide &&
+			aMouseMode == eMouseMode_Look )
+			continue;
+		aMouseMode = aLayerMouseMode;
 	}
 
 	InputDispatcher::setMouseMode(aMouseMode);
