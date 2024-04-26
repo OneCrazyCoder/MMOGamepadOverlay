@@ -535,7 +535,8 @@ void autoLaunch()
 	si.cb = sizeof(STARTUPINFO);
 	if( CreateProcess(NULL, aFinalPath,
 			NULL, NULL, FALSE, 0, NULL,
-			NULL, &si, &pi))
+			widen(getFileDir(aPath)).c_str(),
+			&si, &pi))
 	{
 		CloseHandle(pi.hThread);
 		if( kConfig.autoCloseWithTargetApp )

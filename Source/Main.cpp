@@ -64,6 +64,7 @@ void mainLoopUpdate(HWND theDialog)
 			Gamepad::checkDeviceChange();
 			break;
 		case WM_SYSCOLORCHANGE:
+		case WM_DISPLAYCHANGE:
 			gReloadProfile = true;
 			break;
 		case WM_HOTKEY:

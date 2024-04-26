@@ -1653,8 +1653,8 @@ static EResult stringToHotspotCoord(
 				break;
 			}
 			break;
-		case 'r': case 'R': // aka "Right"
-		case 'b': case 'B': // aka "Bottom"
+		case 'r': case 'R': case 'w': case 'W': // aka "Right" or "Width"
+		case 'b': case 'B': case 'h': case 'H':// aka "Bottom" or "Height"
 			switch(aMode)
 			{
 			case eMode_Prefix:
@@ -1672,7 +1672,7 @@ static EResult stringToHotspotCoord(
 				break;
 			}
 			break;
-		case 'c': case 'C':
+		case 'c': case 'C': // aka "Center"
 			switch(aMode)
 			{
 			case eMode_Prefix:

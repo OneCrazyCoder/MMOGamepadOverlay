@@ -107,7 +107,9 @@ static LRESULT CALLBACK mainWindowProc(
 		return 0;
 
 	case WM_DEVICECHANGE:
-         // Forward this message to app's main message handler
+ 	case WM_SYSCOLORCHANGE:
+	case WM_DISPLAYCHANGE:
+        // Forward this message to app's main message handler
 		PostMessage(NULL, theMessage, wParam, lParam);
 		break;
 	}
@@ -126,6 +128,7 @@ static LRESULT CALLBACK overlayWindowProc(
 		gRedrawHUD.set(aHUDElementID);
 		break;
 	case WM_SYSCOLORCHANGE:
+	case WM_DISPLAYCHANGE:
 		if( sOverlayWindows.size() > aHUDElementID &&
 			sOverlayWindows[aHUDElementID].bitmap )
 		{
@@ -701,7 +704,7 @@ u16 hotspotMousePosX(const Hotspot& theHotspot)
 
 	// Start with percentage of client rect as u16 (i.e. 65536 == 100%)
 	int aPos = theHotspot.x.origin;
-	// Convert client-rect-relative  pixel position
+	// Convert to client-rect-relative pixel position
 	aPos = aPos * sTargetSize.cx / 0x10000;
 	// Add pixel offset w/ position scaling applied
 	aPos += theHotspot.x.offset * gUIScaleX;

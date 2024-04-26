@@ -377,9 +377,14 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 {
 	struct Coord
 	{
-		u16 origin; // normalized 0-65535 percentage of window
+		u16 origin; // normalized x/65536 percentage of area
 		s16 offset; // direct pixel offset from .origin
+		bool operator==(const Coord& rhs) const
+		{ return origin == rhs.origin && offset == rhs.offset; }
 	} x, y;
+
+	bool operator==(const Hotspot& rhs) const
+	{ return x == rhs.x && y == rhs.y; }
 };
 
 // Generic button names used in Profile .ini files
