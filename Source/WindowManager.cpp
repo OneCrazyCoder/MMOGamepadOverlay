@@ -9,6 +9,7 @@
 #include "InputMap.h"
 #include "Profile.h"
 #include "Resources/resource.h"
+#include "TargetApp.h" // targetWindowHandle()
 
 namespace WindowManager
 {
@@ -512,6 +513,7 @@ void update()
 {
 	// Update each overlay window as needed
 	HDC aScreenDC = GetDC(NULL);
+	HDC aTargetDC = GetDC(TargetApp::targetWindowHandle());
 	POINT anOriginPoint = { 0, 0 };
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
@@ -581,8 +583,8 @@ void update()
 		if( gRedrawHUD.test(i) )
 		{
 			HUD::drawElement(
-				aWindowDC, u16(i),
-				aWindow.componentSize, aWindow.size,
+				aWindowDC, aTargetDC, sTargetSize,
+				u16(i), aWindow.componentSize, aWindow.size,
 				needToEraseBitmap);
 			aWindow.updated = false;
 			gRedrawHUD.reset(i);
@@ -613,6 +615,7 @@ void update()
 		DeleteDC(aWindowDC);
 	}
 	ReleaseDC(NULL, aScreenDC);
+	ReleaseDC(NULL, aTargetDC);
 }
 
 

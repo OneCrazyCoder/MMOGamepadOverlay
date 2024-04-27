@@ -623,6 +623,12 @@ void swapWindowMode()
 }
 
 
+HWND targetWindowHandle()
+{
+	return sTargetWindowHandle;
+}
+
+
 bool targetAppActive()
 {
 	return sTargetWindowHandle || sTargetAppProcess;

@@ -323,6 +323,8 @@ enum ECommandKeyWord
 
 enum EResult
 {
+	eResult_None,
+
 	eResult_Ok,
 	eResult_TaskCompleted = eResult_Ok,
 	eResult_Accepted = eResult_Ok,

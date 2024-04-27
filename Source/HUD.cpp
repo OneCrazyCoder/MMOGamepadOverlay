@@ -169,9 +169,11 @@ struct HUDElementInfo
 struct HUDDrawData
 {
 	HDC hdc;
-	SIZE itemSize;
+	HDC hTargetDC;
 	SIZE targetSize;
-	RECT targetRect;
+	SIZE itemSize;
+	SIZE destSize;
+	RECT destRect;
 	u16 hudElementID;
 	bool firstDraw;
 };
@@ -179,9 +181,32 @@ struct HUDDrawData
 struct IconEntry
 	: public ConstructFromZeroInitializedMemory<IconEntry>
 {
-	u16 bitmapID; // 0 == copy from target window
+	union
+	{
+		struct
+		{
+			HBITMAP handle;
+			SIZE size;
+		} bitmap;
+		struct
+		{
+			Hotspot::Coord x;
+			Hotspot::Coord y;
+			Hotspot::Coord w;
+			Hotspot::Coord h;
+		} copy;
+	};
+	bool copyFromTarget;
+};
+
+struct BuildIconEntry
+	: public ConstructFromZeroInitializedMemory<BuildIconEntry>
+{
+	HBITMAP srcFile;
 	Hotspot pos;
 	Hotspot size;
+	bool operator==(const BuildIconEntry& rhs)
+	{ return srcFile == rhs.srcFile && pos == rhs.pos && size == rhs.size; }
 };
 
 struct StringScaleCacheEntry
@@ -203,7 +228,10 @@ struct HUDBuilder
 	VectorMap<COLORREF, u16> colorToBrushMap;
 	typedef std::pair< COLORREF, std::pair<int, int> > PenDef;
 	VectorMap<PenDef, u16> penDefToPenMap;
-	StringToValueMap<u16> bitmapNameToIdxMap;
+	StringToValueMap<HBITMAP> bitmapNameToHandleMap;
+	std::vector<BuildIconEntry> iconBuildHistory;
+
+	~HUDBuilder() { DBG_ASSERT(bitmapNameToHandleMap.empty()); }
 };
 
 
@@ -214,7 +242,6 @@ struct HUDBuilder
 static std::vector<HFONT> sFonts;
 static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
-static std::vector<HBITMAP> sBitmaps;
 static std::vector<IconEntry> sIcons;
 static std::vector<HUDElementInfo> sHUDElementInfo;
 static std::vector< std::vector<MenuDrawCacheEntry> > sMenuDrawCache;
@@ -369,7 +396,7 @@ static u16 getOrCreateFontID(
 }
 
 
-static void loadBitmap(
+static void loadBitmapFile(
 	HUDBuilder& theBuilder,
 	const std::string& theBitmapName,
 	std::string theBitmapPath)
@@ -406,9 +433,8 @@ static void loadBitmap(
 		return;
 	}
 
-	sBitmaps.push_back(aBitmapHandle);
-	theBuilder.bitmapNameToIdxMap.setValue(
-		theBitmapName, u16(sBitmaps.size()-1));
+	theBuilder.bitmapNameToHandleMap.setValue(
+		theBitmapName, aBitmapHandle);
 }
 
 
@@ -439,114 +465,137 @@ static inline SIZE hotspotToSize(
 }
 
 
-static void hotspotToPixelsOnly(
-	Hotspot& theHotspot,
-	const SIZE theTargetSize)
+static LONG hotspotCoordToValue(
+	Hotspot::Coord& theCoord,
+	const LONG theMaxValue)
 {
-	theHotspot.x.offset +=
-		u32(theHotspot.x.origin) * theTargetSize.cx / 0x10000;
-	theHotspot.y.offset +=
-		u32(theHotspot.y.origin) * theTargetSize.cy / 0x10000;
-	theHotspot.x.origin = 0;
-	theHotspot.y.origin = 0;
+	return
+		LONG(theCoord.origin) * theMaxValue / 0x10000 +
+		LONG(theCoord.offset);
 }
 
 
 static u16 createIconID(
 	HUDBuilder& theBuilder,
-	const std::string& theIconDescription)
+	const std::string& theIconDescription,
+	bool allowCopyFromTarget = false)
 {
 	// The description could contain just the bitmap name, just a rectangle
 	// (to copy from target), or "bitmap : rect" format for both.
 	// First try getting the bitmap name
 	std::string aRectDesc = theIconDescription;
 	std::string aBitmapName = breakOffItemBeforeChar(aRectDesc, ':');
-	u16* aBitmapIDPtr = aBitmapName.empty()
-		? theBuilder.bitmapNameToIdxMap.find(condense(theIconDescription))
-		: theBuilder.bitmapNameToIdxMap.find(condense(aBitmapName));
-	IconEntry anEntry;
-	anEntry.bitmapID = aBitmapIDPtr ? *aBitmapIDPtr : 0;
+	HBITMAP* hBitmapPtr = aBitmapName.empty()
+		? theBuilder.bitmapNameToHandleMap.find(condense(theIconDescription))
+		: theBuilder.bitmapNameToHandleMap.find(condense(aBitmapName));
+	BuildIconEntry aBuildEntry;
+	aBuildEntry.srcFile = hBitmapPtr ? *hBitmapPtr : 0;
 
-	// If anEntry.bitmapID > 0, a bitmap name was found
-	// If it wasn't separated by :, then full description was used, meaning
-	// there must not be a rect description included
-	if( aBitmapIDPtr && aBitmapName.empty() )
+	// If aBuildEntry.srcFile != null, a bitmap name was found
+	// If it wasn't separated by : (aBitmapName is empty), then full string
+	// was used, meaning there must not be any included rect description
+	if( aBuildEntry.srcFile && aBitmapName.empty() )
 		aRectDesc.clear();
 
-	// If separated by : (has aBitmapName) yet none found, something is wrong
-	if( anEntry.bitmapID == 0 && !aBitmapName.empty() )
+	// If separated by : (aBitmapName isn't empty) yet no bitmap found,
+	// the given name must be incorrect. Also, a proper bitmap handle is
+	// required if !allowCopyFromTarget.
+	if( !aBuildEntry.srcFile &&
+		(!aBitmapName.empty() || !allowCopyFromTarget) )
 	{
-		logError("Could not find a [%s] entry named '%s'!",
+		if( aBitmapName.empty() )
+			aBitmapName = theIconDescription;
+		logError("Could not find a [%s] entry '%s='!",
 			kBitmapsPrefix,
 			aBitmapName.c_str());
 		return 0;
 	}
 
 	// aRectDesc should now be empty, or contain two hotspots
-	EResult aHotspotParseResult = eResult_NotFound;
+	EResult aHotspotParseResult = eResult_None;
 	if( !aRectDesc.empty() )
 	{
-		InputMap::profileStringToHotspot(aRectDesc, anEntry.pos);
+		InputMap::profileStringToHotspot(aRectDesc, aBuildEntry.pos);
 		aHotspotParseResult =
-			InputMap::profileStringToHotspot(aRectDesc, anEntry.size);
+			InputMap::profileStringToHotspot(aRectDesc, aBuildEntry.size);
 	}
 
-	if( anEntry.bitmapID > 0 )
+	// Check for malformed entry
+	if( aBuildEntry.srcFile &&
+		aHotspotParseResult != eResult_Ok &&
+		aHotspotParseResult != eResult_None )
 	{
-		BITMAP bm;
-		DBG_ASSERT(anEntry.bitmapID < sBitmaps.size());
-		GetObject(sBitmaps[anEntry.bitmapID], sizeof(bm), &bm);
-		if( aHotspotParseResult == eResult_Ok )
-		{// When using a bitmap, pre-convert relative coordinates to pixels
-			SIZE aBitmapSize;
-			// Hotspot to pixel conversions are endpoint-exclusive so add +1
-			aBitmapSize.cx = bm.bmWidth + 1;
-			aBitmapSize.cy = bm.bmHeight + 1;
-			hotspotToPixelsOnly(anEntry.pos, aBitmapSize);
-			hotspotToPixelsOnly(anEntry.size, aBitmapSize);
-		}
-		else if( aHotspotParseResult == eResult_NotFound )
-		{
-			// Just bitmap specified, assume draw entire size
-			anEntry.pos = Hotspot();
-			anEntry.size = Hotspot();
-			anEntry.size.x.offset = bm.bmWidth;
-			anEntry.size.y.offset = bm.bmHeight;
-		}
-		else
-		{
-			// Bitmap + rect specified yet rect didn't parse properly
-			// aRectDesc is modified during parse, so re-create it for error
-			aRectDesc = theIconDescription;
-			breakOffItemBeforeChar(aRectDesc, ':');
-			logError("Could not decipher bitmap source rect '%s'",
-				aRectDesc.c_str());
-			return 0;
-		}
+		// Bitmap + rect specified yet rect didn't parse properly
+		// aRectDesc is modified during parse, so re-create it for error
+		aRectDesc = theIconDescription;
+		breakOffItemBeforeChar(aRectDesc, ':');
+		logError("Could not decipher bitmap source rect '%s'",
+			aRectDesc.c_str());
+		return 0;
 	}
-	else if( aHotspotParseResult != eResult_Ok )
+	if( !aBuildEntry.srcFile && aHotspotParseResult != eResult_Ok )
 	{
+		// No bitmap file, yet couldn't parse as a rect description
 		logError("Could not decipher bitmap/icon description '%s'",
 			theIconDescription.c_str());
 		return 0;
 	}
-	// else if( anEntry.bitmapID == 0 && aHotspotParseResult == eResult_Ok )
-	// .bitmapID == 0 flags to copy region of target game window at runtime,
-	// and region stays in the form of Hotspot::Coord for now to retain
-	// possible target-size-relative coordinates.
 
-	// Check if is a duplicate icon
-	for(u16 i = 0; i < sIcons.size(); ++i)
+	// Check if a duplicate of aBuildEntry was already created
+	DBG_ASSERT(sIcons.size() == theBuilder.iconBuildHistory.size());
+	for(size_t i = 0; i < theBuilder.iconBuildHistory.size(); ++i)
 	{
-		if( sIcons[i].bitmapID == anEntry.bitmapID &&
-			sIcons[i].pos == anEntry.pos &&
-			sIcons[i].size == anEntry.size )
-		{
-			return i;
-		}
+		if( theBuilder.iconBuildHistory[i] == aBuildEntry )
+			return u16(i);
 	}
 
-	sIcons.push_back(anEntry);
+	// aBuildEntry is ready to be converted into a permanent IconEntry
+	IconEntry anIconEntry;
+	anIconEntry.copyFromTarget = !aBuildEntry.srcFile;
+	if( anIconEntry.copyFromTarget )
+	{
+		// Set up copying a region from target game window at runtime
+		anIconEntry.copy.x = aBuildEntry.pos.x;
+		anIconEntry.copy.y = aBuildEntry.pos.y;
+		anIconEntry.copy.w = aBuildEntry.size.x;
+		anIconEntry.copy.h = aBuildEntry.size.y;
+	}
+	else
+	{
+		// Create a bitmap in memory from portion of bitmap file
+		BITMAP bm;
+		GetObject(aBuildEntry.srcFile, sizeof(bm), &bm);
+		LONG x = 0, y = 0, w = bm.bmWidth, h = bm.bmHeight;
+		if( aHotspotParseResult == eResult_Ok )
+		{
+			// Hotspot to pixel conversions are endpoint-exclusive so add +1
+			x = clamp(hotspotCoordToValue(aBuildEntry.pos.x, w+1), 0, w);
+			y = clamp(hotspotCoordToValue(aBuildEntry.pos.y, h+1), 0, h);
+			w = clamp(hotspotCoordToValue(aBuildEntry.size.x, w+1), 0, w-x);
+			h = clamp(hotspotCoordToValue(aBuildEntry.size.y, h+1), 0, h-y);
+		}
+
+		// Copy over to the new bitmap
+		HDC hdcSrc = CreateCompatibleDC(NULL);
+		HBITMAP hOldSrcBitmap = (HBITMAP)
+			SelectObject(hdcSrc, aBuildEntry.srcFile);
+		HDC hdcDest = CreateCompatibleDC(NULL);
+		anIconEntry.bitmap.handle = CreateCompatibleBitmap(hdcSrc, w, h);
+		anIconEntry.bitmap.size.cx = w;
+		anIconEntry.bitmap.size.cy = h;
+		HBITMAP hOldDestBitmap = (HBITMAP)
+			SelectObject(hdcDest, anIconEntry.bitmap.handle);
+
+		BitBlt(hdcDest, 0, 0, w, h, hdcSrc, x, y, SRCCOPY);
+
+		SelectObject(hdcSrc, hOldSrcBitmap);
+		DeleteDC(hdcSrc);
+		SelectObject(hdcDest, hOldDestBitmap);
+		DeleteDC(hdcDest);
+	}
+
+	theBuilder.iconBuildHistory.push_back(aBuildEntry);
+	sIcons.push_back(anIconEntry);
 	return u16(sIcons.size()-1);
 }
 
@@ -555,22 +604,21 @@ static void drawHUDIcon(HUDDrawData& dd, u16 theIconID, const RECT& theRect)
 {
 	DBG_ASSERT(theIconID < sIcons.size());
 	const IconEntry& anIcon = sIcons[theIconID];
-	const u16 aBitmapID = anIcon.bitmapID;
-	if( aBitmapID > 0 )
+	if( !anIcon.copyFromTarget )
 	{
-		// Draw bitmap read in from file
-		DBG_ASSERT(aBitmapID < sBitmaps.size());
-		HBITMAP aBitmap = sBitmaps[aBitmapID];
+		// Draw from bitmap already in memory
 		DBG_ASSERT(sBitmapDrawSrc);
-		HBITMAP hOldBitmap = (HBITMAP)SelectObject(sBitmapDrawSrc, aBitmap);
+		HBITMAP hOldBitmap = (HBITMAP)
+			SelectObject(sBitmapDrawSrc, anIcon.bitmap.handle);
 
 		StretchBlt(dd.hdc,
 				   theRect.left, theRect.top,
 				   theRect.right - theRect.left,
 				   theRect.bottom - theRect.top,
 				   sBitmapDrawSrc,
-				   anIcon.pos.x.offset, anIcon.pos.y.offset,
-				   anIcon.size.x.offset, anIcon.size.y.offset,
+				   0, 0,
+				   anIcon.bitmap.size.cx,
+				   anIcon.bitmap.size.cy,
 				   SRCCOPY);
 
 		SelectObject(sBitmapDrawSrc, hOldBitmap);
@@ -578,7 +626,19 @@ static void drawHUDIcon(HUDDrawData& dd, u16 theIconID, const RECT& theRect)
 	else
 	{
 		// Copy region of target app window
-		// TODO
+		Hotspot aHotspot;
+		aHotspot.x = anIcon.copy.x; aHotspot.y = anIcon.copy.y;
+		const POINT& aTargetPos = hotspotToPoint(aHotspot, dd.targetSize);
+		aHotspot.x = anIcon.copy.w; aHotspot.y = anIcon.copy.h;
+		const SIZE& aTargetSize = hotspotToSize(aHotspot, dd.targetSize);
+		StretchBlt(dd.hdc,
+				   theRect.left, theRect.top,
+				   theRect.right - theRect.left,
+				   theRect.bottom - theRect.top,
+				   dd.hTargetDC,
+				   aTargetPos.x, aTargetPos.y,
+				   aTargetSize.cx, aTargetSize.cy,
+				   SRCCOPY);
 	}
 }
 
@@ -889,7 +949,7 @@ static void drawMenuTitle(
 	bool centered = false)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	RECT aTitleRect = { 0, 0, dd.targetSize.cx, hi.titleHeight };
+	RECT aTitleRect = { 0, 0, dd.destSize.cx, hi.titleHeight };
 
 	if( !dd.firstDraw )
 		FillRect(dd.hdc, &aTitleRect, sBrushes[hi.eraseBrushID]);
@@ -903,7 +963,7 @@ static void drawMenuTitle(
 	// Fill in 2px margin around text with titleBG (border) color
 	RECT aBGRect;
 	LONG aSize = theCacheEntry.width + 4;
-	aBGRect.left = centered ? ((dd.targetSize.cx - aSize) / 2) : 0;
+	aBGRect.left = centered ? ((dd.destSize.cx - aSize) / 2) : 0;
 	aBGRect.right = aBGRect.left + aSize;
 	aSize = theCacheEntry.height + 4;
 	aBGRect.bottom = hi.titleHeight;
@@ -1145,7 +1205,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 
 	if( !dd.firstDraw && (hi.itemType != eHUDItemType_Rect || hi.gapSize < 0) )
 	{
-		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
+		FillRect(dd.hdc, &dd.destRect, sBrushes[hi.eraseBrushID]);
 		// Since erased entire thing now, treat as firstDraw from now on
 		dd.firstDraw = true;
 	}
@@ -1266,9 +1326,9 @@ static void drawBasicHUD(HUDDrawData& dd)
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 
 	if( !dd.firstDraw )
-		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
+		FillRect(dd.hdc, &dd.destRect, sBrushes[hi.eraseBrushID]);
 
-	drawHUDItem(dd, dd.targetRect);
+	drawHUDItem(dd, dd.destRect);
 }
 
 
@@ -1279,9 +1339,9 @@ static void drawSystemHUD(HUDDrawData& dd)
 
 	// Erase any previous strings
 	if( !dd.firstDraw )
-		FillRect(dd.hdc, &dd.targetRect, sBrushes[hi.eraseBrushID]);
+		FillRect(dd.hdc, &dd.destRect, sBrushes[hi.eraseBrushID]);
 
-	RECT aTextRect = dd.targetRect;
+	RECT aTextRect = dd.destRect;
 	InflateRect(&aTextRect, -8, -8);
 
 	if( !sErrorMessage.empty() )
@@ -1314,8 +1374,8 @@ void init()
 	sHUDElementInfo.resize(InputMap::hudElementCount());
 	sMenuDrawCache.resize(InputMap::menuCount());
 
-	sBitmaps.push_back(NULL);
-	aHUDBuilder.bitmapNameToIdxMap.setValue("", 0);
+	aHUDBuilder.bitmapNameToHandleMap.setValue("", NULL);
+	aHUDBuilder.iconBuildHistory.push_back(BuildIconEntry());
 	sIcons.push_back(IconEntry());
 
 	// Get default erase (transparent) color value
@@ -1324,14 +1384,14 @@ void init()
 	const u16 aDefaultEraseBrush =
 		getOrCreateBrushID(aHUDBuilder, aDefaultTransColor);
 
-	// Create Bitmaps and load bitmap images
+	// Load bitmap files
 	Profile::KeyValuePairs aBitmapRequests;
 	Profile::getAllKeys(std::string(kBitmapsPrefix) + "/", aBitmapRequests);
 	for(size_t i = 0; i < aBitmapRequests.size(); ++i)
 	{
 		std::string aBitmapName = aBitmapRequests[i].first;
 		std::string aBitmapPath = aBitmapRequests[i].second;
-		loadBitmap(aHUDBuilder, aBitmapName, aBitmapPath);
+		loadBitmapFile(aHUDBuilder, aBitmapName, aBitmapPath);
 	}
 
 	// Get information for each HUD Element from Profile
@@ -1470,6 +1530,11 @@ void init()
 
 	updateScaling();
 
+	// Free loaded bitmap files now that have copied them to local versions
+	for(size_t i = 0; i < aHUDBuilder.bitmapNameToHandleMap.size(); ++i)
+		DeleteObject(aHUDBuilder.bitmapNameToHandleMap.values()[i]);
+	aHUDBuilder.bitmapNameToHandleMap.clear();
+
 	// Trim unused memory
 	if( sFonts.size() < sFonts.capacity() )
 		std::vector<HFONT>(sFonts).swap(sFonts);
@@ -1477,8 +1542,6 @@ void init()
 		std::vector<HBRUSH>(sBrushes).swap(sBrushes);
 	if( sPens.size() < sPens.capacity() )
 		std::vector<HPEN>(sPens).swap(sPens);
-	if( sBitmaps.size() < sBitmaps.capacity() )
-		std::vector<HBITMAP>(sBitmaps).swap(sBitmaps);
 	if( sIcons.size() < sIcons.capacity() )
 		std::vector<IconEntry>(sIcons).swap(sIcons);
 	if( sHUDElementInfo.size() < sHUDElementInfo.capacity() )
@@ -1496,14 +1559,16 @@ void cleanup()
 		DeleteObject(sBrushes[i]);
 	for(size_t i = 0; i < sPens.size(); ++i)
 		DeleteObject(sPens[i]);
-	for(size_t i = 0; i < sBitmaps.size(); ++i)
-		DeleteObject(sBitmaps[i]);
+	for(size_t i = 0; i < sIcons.size(); ++i)
+	{
+		if( !sIcons[i].copyFromTarget && sIcons[i].bitmap.handle )
+			DeleteObject(sIcons[i].bitmap.handle);
+	}
 	sMenuDrawCache.clear();
 	sResizedFontsMap.clear();
 	sFonts.clear();
 	sBrushes.clear();
 	sPens.clear();
-	sBitmaps.clear();
 	sIcons.clear();
 	sHUDElementInfo.clear();
 }
@@ -1676,6 +1741,8 @@ void updateScaling()
 
 void drawElement(
 	HDC hdc,
+	HDC hTargetDC,
+	const SIZE& theTargetSize,
 	u16 theHUDElementID,
 	const SIZE& theComponentSize,
 	const SIZE& theDestSize,
@@ -1686,9 +1753,11 @@ void drawElement(
 
 	HUDDrawData aDrawData = { 0 };
 	aDrawData.hdc = hdc;
+	aDrawData.hTargetDC = hTargetDC;
+	aDrawData.targetSize = theTargetSize;
 	aDrawData.itemSize = theComponentSize;
-	aDrawData.targetSize = theDestSize;
-	SetRect(&aDrawData.targetRect, 0, 0, theDestSize.cx, theDestSize.cy);
+	aDrawData.destSize = theDestSize;
+	SetRect(&aDrawData.destRect, 0, 0, theDestSize.cx, theDestSize.cy);
 	aDrawData.hudElementID = theHUDElementID;
 	aDrawData.firstDraw = needsInitialErase;
 	if( !sBitmapDrawSrc )
@@ -1723,9 +1792,9 @@ void drawElement(
 
 	if( needsInitialErase )
 	{
-		RECT aTargetRect;
-		SetRect(&aTargetRect, 0, 0, theDestSize.cx, theDestSize.cy);
-		FillRect(hdc, &aTargetRect, sBrushes[hi.eraseBrushID]);
+		RECT aDestRect;
+		SetRect(&aDestRect, 0, 0, theDestSize.cx, theDestSize.cy);
+		FillRect(hdc, &aDestRect, sBrushes[hi.eraseBrushID]);
 	}
 
 	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
