@@ -31,6 +31,9 @@ void update();
 // Call when get WM_HOTKEY with kSwapWindowModeHotkeyID
 void swapWindowMode();
 
+// Get target window handle
+HWND targetWindowHandle();
+
 // Check if have a target app running already
 bool targetAppActive();
 

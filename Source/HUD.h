@@ -31,6 +31,8 @@ void updateScaling();
 // Draws given HUD element to given Device Context (bitmap), starting at 0,0
 void drawElement(
 	HDC hdc,
+	HDC hTargetDC,
+	const SIZE& theTargetSize,
 	u16 theHUDElementID,
 	const SIZE& theComponentSize,
 	const SIZE& theDestSize,
