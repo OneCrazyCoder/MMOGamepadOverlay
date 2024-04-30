@@ -16,6 +16,7 @@ BitVector<> gVisibleHUD;
 BitVector<> gRedrawHUD;
 BitVector<> gActiveHUD;
 BitVector<> gDisabledHUD;
+std::vector<u16> gConfirmedMenuItem;
 std::vector<u8> gKeyBindArrayLastIndex;
 std::vector<u8> gKeyBindArrayDefaultIndex;
 BitVector<> gKeyBindArrayLastIndexChanged;

@@ -2569,11 +2569,14 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 		sLayers[aLayerID].showHUD.resize(sHUDElements.size());
 	}
 
-	// Can now also set size of global BitVectors related to HUD elements
+	// Can now also set size of global sizes related to HUD elements
 	gVisibleHUD.clearAndResize(sHUDElements.size());
 	gRedrawHUD.clearAndResize(sHUDElements.size());
 	gActiveHUD.clearAndResize(sHUDElements.size());
 	gDisabledHUD.clearAndResize(sHUDElements.size());
+	gConfirmedMenuItem.resize(sHUDElements.size());
+	for(size_t i = 0; i < gConfirmedMenuItem.size(); ++i)
+		gConfirmedMenuItem[i] = kInvalidItem;
 }
 
 

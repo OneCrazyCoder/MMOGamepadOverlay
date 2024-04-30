@@ -47,9 +47,6 @@ enum EHUDProperty
 	eHUDProp_BorderColor,
 	eHUDProp_BorderSize,
 	eHUDProp_GapSize,
-	eHUDProp_SFontColor,
-	eHUDProp_SItemColor,
-	eHUDProp_SBorderColor,
 	eHUDProp_TitleColor,
 	eHUDProp_TransColor,
 	eHUDProp_MaxAlpha,
@@ -60,9 +57,9 @@ enum EHUDProperty
 	eHUDProp_InactiveDelay,
 	eHUDProp_InactiveAlpha,
 	eHUDProp_Bitmap,
-	eHUDProp_SelBitmap,
 	eHUDProp_Radius,
 	eHUDProp_TitleHeight,
+	eHUDProp_FlashTime,
 
 	eHUDProp_Num
 };
@@ -74,37 +71,47 @@ enum EAlignment
 	eAlignment_Max,		// R or B
 };
 
+enum EAppearanceMode
+{
+	eAppearanceMode_Normal,
+	eAppearanceMode_Selected,
+	eAppearanceMode_Flash,
+	eAppearanceMode_FlashSelected,
+
+	eAppearanceMode_Num
+};
+
+const char* kAppearancePrefix[] = { "", "Selected", "Flash", "FlashSelected" };
+DBG_CTASSERT(ARRAYSIZE(kAppearancePrefix) == eAppearanceMode_Num);
+
 const char* kHUDPropStr[] =
 {
-	"Position",				// eHUDProp_Position
-	"ItemType",				// eHUDProp_ItemType
-	"ItemSize",				// eHUDProp_ItemSize
-	"Size",					// eHUDProp_Size
-	"Alignment",			// eHUDProp_Alignment
-	"Font",					// eHUDProp_FontName
-	"FontSize",				// eHUDProp_FontSize
-	"FontWeight",			// eHUDProp_FontWeight
-	"LabelRGB",				// eHUDProp_FontColor
-	"ItemRGB",				// eHUDProp_ItemColor
-	"BorderRGB",			// eHUDProp_BorderColor
-	"BorderSize",			// eHUDProp_BorderSize
-	"GapSize",				// eHUDProp_GapSize
-	"SelectedLabelRGB",		// eHUDProp_SFontColor
-	"SelectedItemRGB",		// eHUDProp_SItemColor
-	"SelectedBorderRGB",	// eHUDProp_SBorderColor
-	"TitleRGB",				// eHUDProp_TitleColor
-	"TransRGB",				// eHUDProp_TransColor
-	"MaxAlpha",				// eHUDProp_MaxAlpha
-	"FadeInDelay",			// eHUDProp_FadeInDelay
-	"FadeInTime",			// eHUDProp_FadeInTime
-	"FadeOutDelay",			// eHUDProp_FadeOutDelay
-	"FadeOutTime",			// eHUDProp_FadeOutTime
-	"InactiveDelay",		// eHUDProp_InactiveDelay
-	"InactiveAlpha",		// eHUDProp_InactiveAlpha
-	"Bitmap",				// eHUDProp_Bitmap
-	"SelectedBitmap",		// eHUDProp_SelBitmap
-	"Radius",				// eHUDProp_Radius
-	"TitleHeight",			// eHUDProp_TitleHeight
+	"Position",			// eHUDProp_Position
+	"ItemType",			// eHUDProp_ItemType
+	"ItemSize",			// eHUDProp_ItemSize
+	"Size",				// eHUDProp_Size
+	"Alignment",		// eHUDProp_Alignment
+	"Font",				// eHUDProp_FontName
+	"FontSize",			// eHUDProp_FontSize
+	"FontWeight",		// eHUDProp_FontWeight
+	"LabelRGB",			// eHUDProp_FontColor
+	"ItemRGB",			// eHUDProp_ItemColor
+	"BorderRGB",		// eHUDProp_BorderColor
+	"BorderSize",		// eHUDProp_BorderSize
+	"GapSize",			// eHUDProp_GapSize
+	"TitleRGB",			// eHUDProp_TitleColor
+	"TransRGB",			// eHUDProp_TransColor
+	"MaxAlpha",			// eHUDProp_MaxAlpha
+	"FadeInDelay",		// eHUDProp_FadeInDelay
+	"FadeInTime",		// eHUDProp_FadeInTime
+	"FadeOutDelay",		// eHUDProp_FadeOutDelay
+	"FadeOutTime",		// eHUDProp_FadeOutTime
+	"InactiveDelay",	// eHUDProp_InactiveDelay
+	"InactiveAlpha",	// eHUDProp_InactiveAlpha
+	"Bitmap",			// eHUDProp_Bitmap
+	"Radius",			// eHUDProp_Radius
+	"TitleHeight",		// eHUDProp_TitleHeight
+	"FlashTime",		// eHUDProp_FlashTime
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -118,13 +125,8 @@ struct HUDElementInfo
 {
 	EHUDType type;
 	EHUDType itemType;
-	COLORREF labelColor;
-	COLORREF labelBGColor;
-	COLORREF titleColor;
-	COLORREF titleBGColor;
-	COLORREF selLabelColor;
-	COLORREF selLabelBGColor;
 	COLORREF transColor;
+	COLORREF titleColor;
 	Hotspot position;
 	Hotspot itemSize;
 	float fadeInRate;
@@ -133,17 +135,13 @@ struct HUDElementInfo
 	int fadeOutDelay;
 	int delayUntilInactive;
 	int selection;
+	u32 flashMaxTime;
+	u32 flashStartTime;
+	u16 flashing;
+	u16 prevFlashing;
 	union { u16 subMenuID; u16 arrayID; };
+	u16 appearanceID[eAppearanceMode_Num];
 	u16 fontID;
-	u16 itemBrushID;
-	u16 borderPenID;
-	u16 selItemBrushID;
-	u16 selBorderPenID;
-	u16 eraseBrushID;
-	u16 iconID;
-	u16 selIconID;
-	u16 titleBrushID;
-	u8 borderSize;
 	s8 gapSize;
 	u8 radius;
 	u8 titleHeight;
@@ -156,6 +154,8 @@ struct HUDElementInfo
 		itemType(eHUDItemType_Rect),
 		fadeInRate(255),
 		fadeOutRate(255),
+		flashing(kInvalidItem),
+		prevFlashing(kInvalidItem),
 		maxAlpha(255),
 		inactiveAlpha(255)
 	{}
@@ -175,7 +175,23 @@ struct HUDDrawData
 	SIZE destSize;
 	RECT destRect;
 	u16 hudElementID;
+	EAppearanceMode appearanceMode;
 	bool firstDraw;
+};
+
+struct Appearance
+	: public ConstructFromZeroInitializedMemory<Appearance>
+{
+	COLORREF itemColor;
+	COLORREF labelColor;
+	COLORREF borderColor;
+	u16 backdropIconID;
+	u16 borderPenID;
+	u8 borderSize;
+	u8 baseBorderSize;
+
+	bool operator==(const Appearance& rhs) const
+	{ return std::memcmp(this, &rhs, sizeof(Appearance)) == 0; }
 };
 
 struct IconEntry
@@ -225,7 +241,6 @@ struct HUDBuilder
 {
 	std::vector<std::string> parsedString;
 	StringToValueMap<u16> fontInfoToFontIDMap;
-	VectorMap<COLORREF, u16> colorToBrushMap;
 	typedef std::pair< COLORREF, std::pair<int, int> > PenDef;
 	VectorMap<PenDef, u16> penDefToPenMap;
 	StringToValueMap<HBITMAP> bitmapNameToHandleMap;
@@ -240,8 +255,8 @@ struct HUDBuilder
 //-----------------------------------------------------------------------------
 
 static std::vector<HFONT> sFonts;
-static std::vector<HBRUSH> sBrushes;
 static std::vector<HPEN> sPens;
+static std::vector<Appearance> sAppearances;
 static std::vector<IconEntry> sIcons;
 static std::vector<HUDElementInfo> sHUDElementInfo;
 static std::vector< std::vector<MenuDrawCacheEntry> > sMenuDrawCache;
@@ -257,39 +272,79 @@ static int sNoticeMessageTimer = 0;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static std::string getHUDPropStr(
+static std::string getNamedHUDPropStr(
 	const std::string& theName,
 	EHUDProperty theProperty,
-	bool namedOnly = false)
+	u32 theAppearanceMode = eAppearanceMode_Normal,
+	bool recursive = false)
 {
+	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
 	std::string result;
 	std::string aKey;
 
-	if( !theName.empty() )
-	{
-		// Try [Menu.Name] first since most HUD elements are likely Menus
-		aKey = kMenuPrefix;
-		aKey += "."; aKey += theName + "/";
-		aKey += kHUDPropStr[theProperty];
-		result = Profile::getStr(aKey);
-		if( !result.empty() )
-			return result;
+	if( theName.empty() )
+		return result;
 
-		// Try [HUD.Name] next
-		aKey = kHUDPrefix;
-		aKey += "."; aKey += theName + "/";
-		aKey += kHUDPropStr[theProperty];
-		result = Profile::getStr(aKey);
+	// Try [Menu.Name] first since most HUD elements are likely Menus
+	aKey = kMenuPrefix;
+	aKey += "."; aKey += theName + "/";
+	aKey += kAppearancePrefix[theAppearanceMode];
+	aKey += kHUDPropStr[theProperty];
+	result = Profile::getStr(aKey);
+	if( !result.empty() )
+		return result;
+
+	// Try [HUD.Name] next
+	aKey = kHUDPrefix;
+	aKey += "."; aKey += theName + "/";
+	aKey += kAppearancePrefix[theAppearanceMode];
+	aKey += kHUDPropStr[theProperty];
+	result = Profile::getStr(aKey);
+	if( !result.empty() )
+		return result;
+
+	switch(theAppearanceMode)
+	{
+	case eAppearanceMode_FlashSelected:
+		// Try getting "flash" appearance version of this property
+		result = getNamedHUDPropStr(
+			theName, theProperty, eAppearanceMode_Flash, true);
 		if( !result.empty() )
 			return result;
+		// If that didn't exist, try getting "selected" version
+		result = getNamedHUDPropStr(
+			theName, theProperty, eAppearanceMode_Selected, true);
+		if( !result.empty() )
+			return result;
+		// Fall through
+	case eAppearanceMode_Selected:
+	case eAppearanceMode_Flash:
+		// Try getting normal appearance version of this property
+		if( !recursive )
+		{
+			result = getNamedHUDPropStr(
+				theName, theProperty, eAppearanceMode_Normal, true);
+		}
+		break;
 	}
 
-	if( namedOnly )
-		return result;
+	return result;
+}
+
+
+static std::string getDefaultHUDPropStr(
+	EHUDProperty theProperty,
+	u32 theAppearanceMode = eAppearanceMode_Normal,
+	bool recursive = false)
+{
+	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
+	std::string result;
+	std::string aKey;
 
 	// Try just [HUD] for a default value
 	aKey = kHUDPrefix;
 	aKey += "/";
+	aKey += kAppearancePrefix[theAppearanceMode];
 	aKey += kHUDPropStr[theProperty];
 	result = Profile::getStr(aKey);
 	if( !result.empty() )
@@ -298,11 +353,56 @@ static std::string getHUDPropStr(
 	// Maybe just [Menu] for default value?
 	aKey = kMenuPrefix;
 	aKey += "/";
+	aKey += kAppearancePrefix[theAppearanceMode];
 	aKey += kHUDPropStr[theProperty];
 	result = Profile::getStr(aKey);
 	if( !result.empty() )
 		return result;
 
+	switch(theAppearanceMode)
+	{
+	case eAppearanceMode_FlashSelected:
+		// Trying getting "flash" version of appearance
+		result = getDefaultHUDPropStr(
+			theProperty, eAppearanceMode_Flash, true);
+		if( !result.empty() )
+			return result;
+		// If that didn't exist, try getting "selected" version
+		result = getDefaultHUDPropStr(
+			theProperty, eAppearanceMode_Selected, true);
+		if( !result.empty() )
+			return result;
+		// Fall through
+	case eAppearanceMode_Selected:
+	case eAppearanceMode_Flash:
+		// Get property use for normal appearance instead
+		if( !recursive )
+		{
+			result = getDefaultHUDPropStr(
+				theProperty, eAppearanceMode_Normal, true);
+		}
+		break;
+	}
+
+	return result;
+}
+
+
+static std::string getHUDPropStr(
+	const std::string& theName,
+	EHUDProperty theProperty,
+	u32 theAppearanceMode = eAppearanceMode_Normal)
+{
+	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
+	std::string result;
+
+	// Try specific named HUD Element first
+	result = getNamedHUDPropStr(theName, theProperty, theAppearanceMode);
+	if( !result.empty() )
+		return result;
+
+	// Try default setting under just [HUD] or [Menu]
+	result = getDefaultHUDPropStr(theProperty, theAppearanceMode);
 	return result;
 }
 
@@ -319,27 +419,18 @@ static COLORREF strToRGB(HUDBuilder& theBuilder, const std::string& theString)
 }
 
 
-static u16 getOrCreateBrushID(HUDBuilder& theBuilder, COLORREF theColor)
-{
-	// Check for and return existing brush
-	u16 result = theBuilder.colorToBrushMap.findOrAdd(
-		theColor, u16(sBrushes.size()));
-	if( result < sBrushes.size() )
-		return result;
-
-	// Create new brush
-	HBRUSH aBrush = CreateSolidBrush(theColor);
-	sBrushes.push_back(aBrush);
-	return result;
-}
-
-
 static u16 getOrCreatePenID(
 	HUDBuilder& theBuilder,
 	COLORREF theColor,
-	int theStyle,
 	int theWidth)
 {
+	int theStyle = PS_INSIDEFRAME;
+	if( theWidth <= 0 )
+	{
+		theWidth = 0;
+		theStyle = PS_NULL;
+		theColor = RGB(0, 0, 0);
+	}
 	// Check for and return existing pen
 	HUDBuilder::PenDef aPenDef =
 		std::make_pair(theColor, std::make_pair(theStyle, theWidth));
@@ -393,6 +484,19 @@ static u16 getOrCreateFontID(
 	);
 	sFonts.push_back(aFont);
 	return result;
+}
+
+
+static u16 getOrCreateAppearanceID(const Appearance& theAppearance)
+{
+	for(u16 i = 0; i < sAppearances.size(); ++i)
+	{
+		if( sAppearances[i] == theAppearance )
+			return i;
+	}
+
+	sAppearances.push_back(theAppearance);
+	return u16(sAppearances.size()-1);
 }
 
 
@@ -480,6 +584,9 @@ static u16 createIconID(
 	const std::string& theIconDescription,
 	bool allowCopyFromTarget = false)
 {
+	if( theIconDescription.empty() )
+		return 0;
+
 	// The description could contain just the bitmap name, just a rectangle
 	// (to copy from target), or "bitmap : rect" format for both.
 	// First try getting the bitmap name
@@ -600,6 +707,16 @@ static u16 createIconID(
 }
 
 
+static void eraseRect(HUDDrawData& dd, const RECT& theRect)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	COLORREF oldColor = SetDCBrushColor(dd.hdc, hi.transColor);
+	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
+	FillRect(dd.hdc, &theRect, hBrush);
+	SetDCBrushColor(dd.hdc, oldColor);
+}
+
+
 static void drawHUDIcon(HUDDrawData& dd, u16 theIconID, const RECT& theRect)
 {
 	DBG_ASSERT(theIconID < sIcons.size());
@@ -646,9 +763,10 @@ static void drawHUDIcon(HUDDrawData& dd, u16 theIconID, const RECT& theRect)
 static void drawHUDRect(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	Rectangle(dd.hdc,
 		theRect.left, theRect.top,
@@ -658,11 +776,11 @@ static void drawHUDRect(HUDDrawData& dd, const RECT& theRect)
 
 static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 {
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	int aRadius = hi.radius;
 	aRadius = min(aRadius, (theRect.right-theRect.left) * 3 / 4);
@@ -678,22 +796,26 @@ static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 static void drawHUDBitmap(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	if( hi.iconID == 0 )
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	const u16 anIconID = appearance.backdropIconID;
+
+	if( anIconID == 0 )
 	{
 		drawHUDRect(dd, theRect);
 		return;
 	}
-	drawHUDIcon(dd, hi.iconID, theRect);
+	drawHUDIcon(dd, anIconID, theRect);
 }
 
 
 static void drawHUDCircle(HUDDrawData& dd, const RECT& theRect)
 {
-	const u16 aHUDElementID = dd.hudElementID;
-	const HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	Ellipse(dd.hdc,
 		theRect.left, theRect.top,
@@ -704,9 +826,10 @@ static void drawHUDCircle(HUDDrawData& dd, const RECT& theRect)
 static void drawHUDArrowL(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	POINT points[3];
 	points[0].x = theRect.right;
@@ -722,9 +845,10 @@ static void drawHUDArrowL(HUDDrawData& dd, const RECT& theRect)
 static void drawHUDArrowR(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -740,9 +864,10 @@ static void drawHUDArrowR(HUDDrawData& dd, const RECT& theRect)
 static void drawHUDArrowU(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -758,9 +883,10 @@ static void drawHUDArrowU(HUDDrawData& dd, const RECT& theRect)
 static void drawHUDArrowD(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-
-	SelectObject(dd.hdc, sPens[hi.borderPenID]);
-	SelectObject(dd.hdc, sBrushes[hi.itemBrushID]);
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
+	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -949,10 +1075,12 @@ static void drawMenuTitle(
 	bool centered = false)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[eAppearanceMode_Normal]];
 	RECT aTitleRect = { 0, 0, dd.destSize.cx, hi.titleHeight };
 
 	if( !dd.firstDraw )
-		FillRect(dd.hdc, &aTitleRect, sBrushes[hi.eraseBrushID]);
+		eraseRect(dd, aTitleRect);
 	InflateRect(&aTitleRect, -2, -2);
 	const std::wstring& aStr = widen(InputMap::menuLabel(theSubMenuID));
 	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
@@ -968,10 +1096,12 @@ static void drawMenuTitle(
 	aSize = theCacheEntry.height + 4;
 	aBGRect.bottom = hi.titleHeight;
 	aBGRect.top = aBGRect.bottom - aSize;
-	FillRect(dd.hdc, &aBGRect, sBrushes[hi.titleBrushID]);
+	COLORREF oldColor = SetDCBrushColor(dd.hdc, appearance.borderColor);
+	FillRect(dd.hdc, &aBGRect, (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH));
+	SetDCBrushColor(dd.hdc, oldColor);
 
 	SetTextColor(dd.hdc, hi.titleColor);
-	SetBkColor(dd.hdc, hi.titleBGColor);
+	SetBkColor(dd.hdc, appearance.borderColor);
 	drawLabelString(dd, aTitleRect, aStr, aFormat, theCacheEntry);	
 }
 
@@ -981,30 +1111,36 @@ static void drawMenuItem(
 	const RECT& theRect,
 	const std::string& theLabel,
 	MenuDrawCacheEntry& theCacheEntry,
-	bool selected = false)
+	bool selected,
+	bool flashing)
 {
+	// Select appropriate appearance
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	if( selected && flashing )
+		dd.appearanceMode = eAppearanceMode_FlashSelected;
+	else if( flashing )
+		dd.appearanceMode = eAppearanceMode_Flash;
+	else if( selected )
+		dd.appearanceMode = eAppearanceMode_Selected;
+	else
+		dd.appearanceMode = eAppearanceMode_Normal;
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[dd.appearanceMode]];
 
 	// Background (usually a bordered rectangle)
-	if( selected )
-	{
-		swap(hi.itemBrushID, hi.selItemBrushID);
-		swap(hi.borderPenID, hi.selBorderPenID);
-		swap(hi.iconID, hi.selIconID);
-	}
 	drawHUDItem(dd, theRect);
-	if( selected )
-	{
-		swap(hi.itemBrushID, hi.selItemBrushID);
-		swap(hi.borderPenID, hi.selBorderPenID);
-		swap(hi.iconID, hi.selIconID);
-	}
 
 	// Label (usually word-wrapped and centered text)
 	RECT aLabelRect = theRect;
-	InflateRect(&aLabelRect, -hi.borderSize - 1, -hi.borderSize - 1);
-	SetTextColor(dd.hdc, selected ? hi.selLabelColor : hi.labelColor);
-	SetBkColor(dd.hdc, selected ? hi.selLabelBGColor : hi.labelBGColor);
+	int aMaxBorderSize = 0;
+	for(int i = 0; i < eAppearanceMode_Num; ++i)
+	{
+		aMaxBorderSize = max(aMaxBorderSize,
+			sAppearances[hi.appearanceID[i]].borderSize);
+	}
+	InflateRect(&aLabelRect, -aMaxBorderSize - 1, -aMaxBorderSize - 1);
+	SetTextColor(dd.hdc, appearance.labelColor);
+	SetBkColor(dd.hdc, appearance.itemColor);
 	drawLabelString(dd, aLabelRect, widen(theLabel),
 		DT_WORDBREAK | DT_CENTER | DT_VCENTER,
 		theCacheEntry.str);
@@ -1014,19 +1150,22 @@ static void drawMenuItem(
 static void drawListMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aPrevSubMenuID = hi.subMenuID;
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
 	const u16 aSelection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0].str);
+	if( hasTitle && dd.firstDraw )
+		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+
+	const bool flashingChanged = hi.flashing != hi.prevFlashing;
+	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool shouldRedrawAll =
+		dd.firstDraw ||
+		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1035,21 +1174,12 @@ static void drawListMenu(HUDDrawData& dd)
 	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
-		// Don't need to re-draw menu items that haven't changed their
-		// "selected" status or label (sub-menu) after firstDraw done,
-		// unless they overlap each other due to negative gapSize
-		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID || hi.gapSize < 0 ||
-			itemIdx == aPrevSelection || itemIdx == aSelection )
+		if( shouldRedrawAll ||
+			(selectionChanged &&
+				(itemIdx == aPrevSelection || itemIdx == aSelection)) ||
+			(flashingChanged &&
+				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( !dd.firstDraw &&
-				aSubMenuID != aPrevSubMenuID &&
-				hi.itemType != eHUDItemType_Rect )
-			{
-				// Non-_Rect menu items need to erase the full rect when
-				// the label (sub-menu) changes (except for firstDraw),
-				// in case old label poked out of the background shape.
-				FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
-			}
 			if( itemIdx == aSelection && hi.gapSize < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
@@ -1057,9 +1187,9 @@ static void drawListMenu(HUDDrawData& dd)
 			else
 			{
 				drawMenuItem(dd, anItemRect,
-					InputMap::menuItemLabel(aSubMenuID, itemIdx),
-					sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
-					itemIdx == aSelection);
+					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
+					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
+					itemIdx == aSelection, itemIdx == hi.flashing);
 			}
 		}
 		anItemRect.top = anItemRect.bottom + hi.gapSize;
@@ -1070,31 +1200,33 @@ static void drawListMenu(HUDDrawData& dd)
 	if( aSelectedItemRect.right > aSelectedItemRect.left )
 	{
 		drawMenuItem(dd, aSelectedItemRect,
-			InputMap::menuItemLabel(aSubMenuID, aSelection),
-			sMenuDrawCache[aSubMenuID][aSelection + hasTitle], true);
+			InputMap::menuItemLabel(hi.subMenuID, aSelection),
+			sMenuDrawCache[hi.subMenuID][aSelection + hasTitle],
+			true, aSelection == hi.flashing);
 	}
 
-	hi.subMenuID = aSubMenuID;
 	hi.selection = aSelection;
+	hi.prevFlashing = hi.flashing;
 }
 
 
 static void drawSlotsMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aPrevSubMenuID = hi.subMenuID;
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
 	const u16 aSelection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0].str);
+	if( hasTitle && dd.firstDraw )
+		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+
+	const bool flashingChanged = hi.flashing != hi.prevFlashing;
+	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool shouldRedrawAll = dd.firstDraw || selectionChanged;
 
 	// Draw in a wrapping fashion, starting with aSelection+1 being drawn just
 	// below the top slot, and ending when draw aSelection last at the top
@@ -1111,43 +1243,43 @@ static void drawSlotsMenu(HUDDrawData& dd)
 			anItemRect.top = hi.titleHeight;
 			anItemRect.bottom = dd.itemSize.cy;
 		}
-		if( !dd.firstDraw &&
-			aSubMenuID != aPrevSubMenuID &&
-			hi.itemType != eHUDItemType_Rect )
+		if( shouldRedrawAll || (isSelection && flashingChanged) )
 		{
-			FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
+			drawMenuItem(dd, anItemRect,
+				InputMap::menuItemLabel(hi.subMenuID, itemIdx),
+				sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
+				isSelection, isSelection && hi.flashing != kInvalidItem);
 		}
-		drawMenuItem(dd, anItemRect,
-			InputMap::menuItemLabel(aSubMenuID, itemIdx),
-			sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
-			isSelection);
 		if( isSelection )
 			break;
 		anItemRect.top = anItemRect.bottom + hi.gapSize;
 		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
 
-	hi.subMenuID = aSubMenuID;
 	hi.selection = aSelection;
+	hi.prevFlashing = hi.flashing;
 }
 
 
 static void drawBarMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aPrevSubMenuID = hi.subMenuID;
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
 	const u16 aSelection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0].str);
+	if( hasTitle && dd.firstDraw )
+		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+
+	const bool flashingChanged = hi.flashing != hi.prevFlashing;
+	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool shouldRedrawAll =
+		dd.firstDraw ||
+		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1156,15 +1288,12 @@ static void drawBarMenu(HUDDrawData& dd)
 	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
-		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID || hi.gapSize < 0 ||
-			itemIdx == aPrevSelection || itemIdx == aSelection )
+		if( shouldRedrawAll ||
+			(selectionChanged &&
+				(itemIdx == aPrevSelection || itemIdx == aSelection)) ||
+			(flashingChanged &&
+				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( !dd.firstDraw &&
-				aSubMenuID != aPrevSubMenuID &&
-				hi.itemType != eHUDItemType_Rect )
-			{
-				FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
-			}
 			if( itemIdx == aSelection && hi.gapSize < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
@@ -1172,9 +1301,9 @@ static void drawBarMenu(HUDDrawData& dd)
 			else
 			{
 				drawMenuItem(dd, anItemRect,
-					InputMap::menuItemLabel(aSubMenuID, itemIdx),
-					sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
-					itemIdx == aSelection);
+					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
+					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
+					itemIdx == aSelection, itemIdx == hi.flashing);
 			}
 		}
 		anItemRect.left = anItemRect.right + hi.gapSize;
@@ -1185,86 +1314,92 @@ static void drawBarMenu(HUDDrawData& dd)
 	if( aSelectedItemRect.right > aSelectedItemRect.left )
 	{
 		drawMenuItem(dd, aSelectedItemRect,
-			InputMap::menuItemLabel(aSubMenuID, aSelection),
-			sMenuDrawCache[aSubMenuID][aSelection + hasTitle], true);
+			InputMap::menuItemLabel(hi.subMenuID, aSelection),
+			sMenuDrawCache[hi.subMenuID][aSelection + hasTitle],
+			true, aSelection == hi.flashing);
 	}
 
-	hi.subMenuID = aSubMenuID;
 	hi.selection = aSelection;
+	hi.prevFlashing = hi.flashing;
 }
 
 
 static void draw4DirMenu(HUDDrawData& dd)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
+	sMenuDrawCache[hi.subMenuID].resize(eCmdDir_Num + hasTitle);
 
-	if( !dd.firstDraw && (hi.itemType != eHUDItemType_Rect || hi.gapSize < 0) )
+	if( hasTitle && dd.firstDraw )
 	{
-		FillRect(dd.hdc, &dd.destRect, sBrushes[hi.eraseBrushID]);
-		// Since erased entire thing now, treat as firstDraw from now on
-		dd.firstDraw = true;
+		drawMenuTitle(dd,
+			hi.subMenuID,
+			sMenuDrawCache[hi.subMenuID][0].str,
+			true);
 	}
 
-	if( hasTitle )
+	RECT anItemRect = { 0 };
+	for(u16 itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
 	{
-		drawMenuTitle(dd, aSubMenuID,
-			sMenuDrawCache[aSubMenuID][eCmdDir_Num].str, true);
+		const ECommandDir aDir = ECommandDir(itemIdx);
+		if( dd.firstDraw ||
+			(hi.flashing != hi.prevFlashing &&
+				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
+		{
+			switch(itemIdx)
+			{
+			case eCmdDir_Left:
+				anItemRect.left = 0;
+				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSize;
+				break;
+			case eCmdDir_Right:
+				anItemRect.left = dd.itemSize.cx + hi.gapSize;
+				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSize;
+				break;
+			case eCmdDir_Up:
+				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSize / 2;
+				anItemRect.top = hi.titleHeight;
+				break;
+			case eCmdDir_Down:
+				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSize / 2;
+				anItemRect.top =
+					hi.titleHeight + dd.itemSize.cy * 2 + hi.gapSize * 2;
+				break;
+			}
+			anItemRect.right = anItemRect.left + dd.itemSize.cx;
+			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
+			drawMenuItem(dd, anItemRect,
+				InputMap::menuDirLabel(hi.subMenuID, aDir),
+				sMenuDrawCache[hi.subMenuID][aDir + hasTitle],
+				false, aDir == hi.flashing);
+		}
 	}
 
-	// Left
-	RECT anItemRect;
-	anItemRect.left = 0;
-	anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSize;
-	anItemRect.right = anItemRect.left + dd.itemSize.cx;
-	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-	drawMenuItem(dd, anItemRect,
-		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Left),
-		sMenuDrawCache[aSubMenuID][eCmdDir_Left]);
-	// Right
-	anItemRect.left += dd.itemSize.cx + hi.gapSize;
-	anItemRect.right = anItemRect.left + dd.itemSize.cx;
-	drawMenuItem(dd, anItemRect,
-		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Right),
-		sMenuDrawCache[aSubMenuID][eCmdDir_Right]);
-	// Up
-	anItemRect.left -= dd.itemSize.cx / 2 + hi.gapSize / 2;
-	anItemRect.top = hi.titleHeight;
-	anItemRect.right = anItemRect.left + dd.itemSize.cx;
-	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-	drawMenuItem(dd, anItemRect,
-		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Up),
-		sMenuDrawCache[aSubMenuID][eCmdDir_Up]);
-	// Down
-	anItemRect.top += dd.itemSize.cy * 2 + hi.gapSize * 2;
-	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-	drawMenuItem(dd, anItemRect,
-		InputMap::menuDirLabel(aSubMenuID, eCmdDir_Down),
-		sMenuDrawCache[aSubMenuID][eCmdDir_Down]);
+	hi.prevFlashing = hi.flashing;
 }
 
 
 static void drawGridMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aPrevSubMenuID = hi.subMenuID;
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	DBG_ASSERT(aSubMenuID < sMenuDrawCache.size());
 	const u16 aPrevSelection = hi.selection;
 	const u16 aSelection = Menus::selectedItem(aMenuID);
-	const u16 anItemCount = Menus::itemCount(aMenuID);
 	const u16 aGridWidth = Menus::gridWidth(aMenuID);
+	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(aSelection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle && (dd.firstDraw || aSubMenuID != aPrevSubMenuID) )
-		drawMenuTitle(dd, aSubMenuID, sMenuDrawCache[aSubMenuID][0].str);
+	if( hasTitle && dd.firstDraw )
+		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+
+	const bool flashingChanged = hi.flashing != hi.prevFlashing;
+	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool shouldRedrawAll =
+		dd.firstDraw ||
+		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1273,15 +1408,12 @@ static void drawGridMenu(HUDDrawData& dd)
 	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
-		if( dd.firstDraw || aSubMenuID != aPrevSubMenuID ||
-			itemIdx == aPrevSelection || itemIdx == aSelection )
+		if( shouldRedrawAll ||
+			(selectionChanged &&
+				(itemIdx == aPrevSelection || itemIdx == aSelection)) ||
+			(flashingChanged &&
+				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( !dd.firstDraw &&
-				aSubMenuID != aPrevSubMenuID &&
-				hi.itemType != eHUDItemType_Rect )
-			{
-				FillRect(dd.hdc, &anItemRect, sBrushes[hi.eraseBrushID]);
-			}
 			if( itemIdx == aSelection && hi.gapSize < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
@@ -1289,9 +1421,9 @@ static void drawGridMenu(HUDDrawData& dd)
 			else
 			{
 				drawMenuItem(dd, anItemRect,
-					InputMap::menuItemLabel(aSubMenuID, itemIdx),
-					sMenuDrawCache[aSubMenuID][itemIdx + hasTitle],
-					itemIdx == aSelection);
+					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
+					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
+					itemIdx == aSelection, itemIdx == hi.flashing);
 			}
 		}
 		if( itemIdx % aGridWidth == aGridWidth - 1 )
@@ -1312,12 +1444,13 @@ static void drawGridMenu(HUDDrawData& dd)
 	if( aSelectedItemRect.right > aSelectedItemRect.left )
 	{
 		drawMenuItem(dd, aSelectedItemRect,
-			InputMap::menuItemLabel(aSubMenuID, aSelection),
-			sMenuDrawCache[aSubMenuID][aSelection + hasTitle], true);
+			InputMap::menuItemLabel(hi.subMenuID, aSelection),
+			sMenuDrawCache[hi.subMenuID][aSelection + hasTitle],
+			true, aSelection == hi.flashing);
 	}
 
-	hi.subMenuID = aSubMenuID;
 	hi.selection = aSelection;
+	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1326,7 +1459,7 @@ static void drawBasicHUD(HUDDrawData& dd)
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 
 	if( !dd.firstDraw )
-		FillRect(dd.hdc, &dd.destRect, sBrushes[hi.eraseBrushID]);
+		eraseRect(dd, dd.destRect);
 
 	drawHUDItem(dd, dd.destRect);
 }
@@ -1339,7 +1472,7 @@ static void drawSystemHUD(HUDDrawData& dd)
 
 	// Erase any previous strings
 	if( !dd.firstDraw )
-		FillRect(dd.hdc, &dd.destRect, sBrushes[hi.eraseBrushID]);
+		eraseRect(dd, dd.destRect);
 
 	RECT aTextRect = dd.destRect;
 	InflateRect(&aTextRect, -8, -8);
@@ -1378,11 +1511,23 @@ void init()
 	aHUDBuilder.iconBuildHistory.push_back(BuildIconEntry());
 	sIcons.push_back(IconEntry());
 
-	// Get default erase (transparent) color value
+	// Generate default appearances as entries 0 to eAppearanceMode_Num
+	sAppearances.resize(eAppearanceMode_Num);
 	const COLORREF aDefaultTransColor = strToRGB(aHUDBuilder,
-					getHUDPropStr("", eHUDProp_TransColor));
-	const u16 aDefaultEraseBrush =
-		getOrCreateBrushID(aHUDBuilder, aDefaultTransColor);
+					getDefaultHUDPropStr(eHUDProp_TransColor));
+	for(u32 i = 0; i < eAppearanceMode_Num; ++i)
+	{
+		sAppearances[i].itemColor = strToRGB(aHUDBuilder,
+			getDefaultHUDPropStr(eHUDProp_ItemColor, i));
+		sAppearances[i].labelColor = strToRGB(aHUDBuilder,
+			getDefaultHUDPropStr(eHUDProp_FontColor, i));
+		sAppearances[i].borderColor = strToRGB(aHUDBuilder,
+			getDefaultHUDPropStr(eHUDProp_BorderColor, i));
+		sAppearances[i].baseBorderSize = u32FromString(
+			getDefaultHUDPropStr(eHUDProp_BorderSize, i));
+		sAppearances[i].backdropIconID = createIconID(aHUDBuilder,
+			getDefaultHUDPropStr(eHUDProp_Bitmap, i));
+	}
 
 	// Load bitmap files
 	Profile::KeyValuePairs aBitmapRequests;
@@ -1402,7 +1547,8 @@ void init()
 		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
 		hi.type = InputMap::hudElementType(aHUDElementID);
 		hi.transColor = aDefaultTransColor;
-		hi.eraseBrushID = aDefaultEraseBrush;
+		for(u16 i = 0; i < eAppearanceMode_Num; ++i)
+			hi.appearanceID[i] = i;
 		if( hi.type == eHUDType_System )
 			continue;
 		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
@@ -1435,11 +1581,11 @@ void init()
 		const bool isAMenu =
 			hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
 		if( isAMenu )
-			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize, true);
+			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_ItemSize);
 		else
-			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
+			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
 		if( aStr.empty() && isAMenu )
-			aStr = getHUDPropStr(aHUDName, eHUDProp_Size, true);
+			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
 		if( aStr.empty() )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
 		InputMap::profileStringToHotspot(aStr, hi.itemSize);
@@ -1456,34 +1602,12 @@ void init()
 			aTempHotspot.y.origin < 0x4000	? eAlignment_Min :
 			aTempHotspot.y.origin > 0xC000	? eAlignment_Max :
 			/*otherwise*/					  eAlignment_Center;
-		// hi.labelColor = eHUDProp_FontColor
-		hi.labelColor = strToRGB(aHUDBuilder,
-			getHUDPropStr(aHUDName, eHUDProp_FontColor));
-		// hi.itemBrushID & .labelBGColor = eHUDProp_ItemColor
-		hi.labelBGColor = strToRGB(aHUDBuilder,
-			getHUDPropStr(aHUDName, eHUDProp_ItemColor));
-		hi.itemBrushID = getOrCreateBrushID(
-			aHUDBuilder, hi.labelBGColor);
-		// hi.titleBGColor/BrushID = eHUDProp_BorderColor
-		hi.titleBGColor = strToRGB(aHUDBuilder,
-				getHUDPropStr(aHUDName, eHUDProp_BorderColor));
-		hi.titleBrushID = getOrCreateBrushID(aHUDBuilder, hi.titleBGColor);
-		// hi.selLabelColor = eHUDProp_SFontColor
-		hi.selLabelColor = strToRGB(aHUDBuilder,
-			getHUDPropStr(aHUDName, eHUDProp_SFontColor));
-		// hi.selItemBrushID & .setLabelBGColor = eHUDProp_SItemColor
-		hi.selLabelBGColor = strToRGB(aHUDBuilder,
-			getHUDPropStr(aHUDName, eHUDProp_SItemColor));
-		hi.selItemBrushID = getOrCreateBrushID(
-			aHUDBuilder, hi.selLabelBGColor);
+		// hi.transColor = eHUDProp_TransColor
+		hi.transColor = strToRGB(aHUDBuilder,
+			getHUDPropStr(aHUDName, eHUDProp_TransColor));
 		// hi.titleColor = eHUDProp_TitleColor
 		hi.titleColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_TitleColor));
-		// hi.transColor & .eraseBrushID = eHUDProp_TransColor
-		hi.transColor = strToRGB(aHUDBuilder,
-			getHUDPropStr(aHUDName, eHUDProp_TransColor));
-		hi.eraseBrushID = getOrCreateBrushID(
-			aHUDBuilder, hi.transColor);
 		// hi.maxAlpha = eHUDProp_MaxAlpha
 		hi.maxAlpha = u8(u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_MaxAlpha)) & 0xFF);
@@ -1507,19 +1631,31 @@ void init()
 		// hi.inactiveAlpha = eHUDProp_InactiveAlpha
 		hi.inactiveAlpha = u8(u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_InactiveAlpha)) & 0xFF);
-
-		// Extra data values for specific types
-		if( hi.type == eHUDItemType_Bitmap ||
-			hi.itemType == eHUDItemType_Bitmap )
+		// hi.flashMaxTime = eHUDProp_FlashTime
+		hi.flashMaxTime = u32FromString(
+			getHUDPropStr(aHUDName, eHUDProp_FlashTime));
+		
+		// Generate custom appearances if have any custom properties
+		for(u32 i = 0; i < eAppearanceMode_Num; ++i)
 		{
-			hi.iconID = createIconID(aHUDBuilder,
-				getHUDPropStr(aHUDName, eHUDProp_Bitmap));
-			aStr = getHUDPropStr(aHUDName, eHUDProp_SelBitmap);
-			if( aStr.empty() )
-				hi.selIconID = hi.iconID;
-			else
-				hi.selIconID = createIconID(aHUDBuilder, aStr);
+			Appearance anAppearance;
+			anAppearance.itemColor = strToRGB(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_ItemColor, i));
+			anAppearance.labelColor = strToRGB(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_FontColor, i));
+			anAppearance.borderColor = strToRGB(aHUDBuilder,
+				getHUDPropStr(aHUDName, eHUDProp_BorderColor, i));
+			anAppearance.baseBorderSize = u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_BorderSize, i));
+			if( hi.type == eHUDItemType_Bitmap ||
+				hi.itemType == eHUDItemType_Bitmap )
+			{
+				anAppearance.backdropIconID = createIconID(aHUDBuilder,
+					getHUDPropStr(aHUDName, eHUDProp_Bitmap, i));
+			}
+			hi.appearanceID[i] = getOrCreateAppearanceID(anAppearance);
 		}
+
 		if( hi.type == eHUDType_KBArrayLast ||
 			hi.type == eHUDType_KBArrayDefault )
 		{
@@ -1538,10 +1674,10 @@ void init()
 	// Trim unused memory
 	if( sFonts.size() < sFonts.capacity() )
 		std::vector<HFONT>(sFonts).swap(sFonts);
-	if( sBrushes.size() < sBrushes.capacity() )
-		std::vector<HBRUSH>(sBrushes).swap(sBrushes);
 	if( sPens.size() < sPens.capacity() )
 		std::vector<HPEN>(sPens).swap(sPens);
+	if( sAppearances.size() < sAppearances.capacity() )
+		std::vector<Appearance>(sAppearances).swap(sAppearances);
 	if( sIcons.size() < sIcons.capacity() )
 		std::vector<IconEntry>(sIcons).swap(sIcons);
 	if( sHUDElementInfo.size() < sHUDElementInfo.capacity() )
@@ -1551,12 +1687,8 @@ void init()
 
 void cleanup()
 {
-	DeleteDC(sBitmapDrawSrc);
-	sBitmapDrawSrc = NULL;
 	for(size_t i = 0; i < sFonts.size(); ++i)
 		DeleteObject(sFonts[i]);
-	for(size_t i = 0; i < sBrushes.size(); ++i)
-		DeleteObject(sBrushes[i]);
 	for(size_t i = 0; i < sPens.size(); ++i)
 		DeleteObject(sPens[i]);
 	for(size_t i = 0; i < sIcons.size(); ++i)
@@ -1564,13 +1696,17 @@ void cleanup()
 		if( !sIcons[i].copyFromTarget && sIcons[i].bitmap.handle )
 			DeleteObject(sIcons[i].bitmap.handle);
 	}
+
 	sMenuDrawCache.clear();
 	sResizedFontsMap.clear();
 	sFonts.clear();
-	sBrushes.clear();
 	sPens.clear();
+	sAppearances.clear();
 	sIcons.clear();
 	sHUDElementInfo.clear();
+
+	DeleteDC(sBitmapDrawSrc);
+	sBitmapDrawSrc = NULL;
 }
 
 
@@ -1658,6 +1794,24 @@ void update()
 			}
 			break;
 		}
+
+		// Update flash effect on confirmed menu item
+		if( gConfirmedMenuItem[i] != kInvalidItem )
+		{
+			if( hi.flashMaxTime )
+			{
+				hi.flashing = gConfirmedMenuItem[i];
+				hi.flashStartTime = gAppRunTime;
+				gRedrawHUD.set(i);
+			}
+			gConfirmedMenuItem[i] = kInvalidItem;
+		}
+		else if( hi.flashing != kInvalidItem &&
+				 (gAppRunTime - hi.flashStartTime) > hi.flashMaxTime )
+		{
+			hi.flashing = kInvalidItem;
+			gRedrawHUD.set(i);
+		}
 	}
 	gKeyBindArrayLastIndexChanged.reset();
 	gKeyBindArrayDefaultIndexChanged.reset();
@@ -1685,7 +1839,7 @@ void updateScaling()
 	sFonts.clear();
 	sPens.clear();
 
-	// Generate fonts and border pens based on current gScale values
+	// Generate fonts, border pens, etc based on current gScale values
 	HUDBuilder aHUDBuilder;
 	for(u16 aHUDElementID = 0;
 		aHUDElementID < sHUDElementInfo.size();
@@ -1702,20 +1856,6 @@ void updateScaling()
 			getHUDPropStr(aHUDName, eHUDProp_FontName),
 			getHUDPropStr(aHUDName, eHUDProp_FontSize),
 			getHUDPropStr(aHUDName, eHUDProp_FontWeight));
-		// hi.borderSize = eHUDProp_BorderSize
-		hi.borderSize =
-			u32FromString(getHUDPropStr(aHUDName, eHUDProp_BorderSize));
-		if( hi.borderSize > 0 )
-			hi.borderSize = max(1, hi.borderSize * gUIScaleY);
-		// hi.borderPenID
-		hi.borderPenID = getOrCreatePenID(aHUDBuilder,
-			hi.titleBGColor,
-			hi.borderSize ? PS_INSIDEFRAME : PS_NULL, int(hi.borderSize));
-		// hi.selBorderPenID = eHUDProp_SBorderColor (and +1 to size)
-		hi.selBorderPenID = getOrCreatePenID(aHUDBuilder,
-			strToRGB(aHUDBuilder,
-				getHUDPropStr(aHUDName, eHUDProp_SBorderColor)),
-			PS_INSIDEFRAME, int(hi.borderSize + max(1, gUIScaleY)));
 		if( isAMenu )
 		{
 			// hi.gapSize = eHUDProp_GapSize
@@ -1736,6 +1876,20 @@ void updateScaling()
 				getHUDPropStr(aHUDName, eHUDProp_Radius));
 		}
 	}
+	for(u16 anAppearanceID = 0;
+		anAppearanceID < sAppearances.size();
+		++anAppearanceID)
+	{
+		Appearance& appearance = sAppearances[anAppearanceID];
+		appearance.borderSize = 0;
+		if( appearance.baseBorderSize > 0 )
+		{
+			appearance.borderSize =
+				max(1, appearance.baseBorderSize * gUIScaleY);
+		}
+		appearance.borderPenID = getOrCreatePenID(aHUDBuilder,
+			appearance.borderColor, appearance.borderSize);
+	}
 }
 
 
@@ -1749,7 +1903,7 @@ void drawElement(
 	bool needsInitialErase)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
-	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
+	HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
 	HUDDrawData aDrawData = { 0 };
 	aDrawData.hdc = hdc;
@@ -1759,12 +1913,25 @@ void drawElement(
 	aDrawData.destSize = theDestSize;
 	SetRect(&aDrawData.destRect, 0, 0, theDestSize.cx, theDestSize.cy);
 	aDrawData.hudElementID = theHUDElementID;
+	aDrawData.appearanceMode = eAppearanceMode_Normal;
 	aDrawData.firstDraw = needsInitialErase;
 	if( !sBitmapDrawSrc )
 		sBitmapDrawSrc = CreateCompatibleDC(hdc);
 
-	// Select the eraseBrush (transparent color) by default first
-	SelectObject(hdc, sBrushes[hi.eraseBrushID]);
+	if( hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End )
+	{// Check for complete redraw from sub-menu change
+		u16 aNewSubMenu = Menus::activeSubMenu(
+			InputMap::menuForHUDElement(theHUDElementID));
+		if( aNewSubMenu != hi.subMenuID )
+		{
+			needsInitialErase = aDrawData.firstDraw = true;
+			hi.subMenuID = aNewSubMenu;
+		}
+	}
+
+	// Select the transparent color (erase) brush by default first
+	SelectObject(hdc, GetStockObject(DC_BRUSH));
+	SetDCBrushColor(hdc, hi.transColor);
 
 	#ifdef _DEBUG
 	COLORREF aFrameColor = RGB(0, 0, 0);
@@ -1794,7 +1961,7 @@ void drawElement(
 	{
 		RECT aDestRect;
 		SetRect(&aDestRect, 0, 0, theDestSize.cx, theDestSize.cy);
-		FillRect(hdc, &aDestRect, sBrushes[hi.eraseBrushID]);
+		eraseRect(aDrawData, aDestRect);
 	}
 
 	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;

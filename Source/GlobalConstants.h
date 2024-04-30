@@ -16,6 +16,7 @@ kVKeyCtrlFlag = 0x0200,
 kVKeyAltFlag = 0x0400,
 kVKeyMask = 0x00FF,
 kAllLayers = 0xFFFF,
+kInvalidItem = 0xFFFF,
 };
 
 enum ECommandType
