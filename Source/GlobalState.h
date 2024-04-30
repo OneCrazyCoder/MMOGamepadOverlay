@@ -33,6 +33,9 @@ extern BitVector<> gActiveHUD;
 // Which HUD elements are disabled (i.e. Menu w/o input assigned to control it)
 extern BitVector<> gDisabledHUD;
 
+// A menu item has been selected & confirmed and should show a confirmation flash
+extern std::vector<u16> gConfirmedMenuItem;
+
 // Last-used and default index for Key Bind Arrays, and flags for changing them
 extern std::vector<u8> gKeyBindArrayLastIndex;
 extern std::vector<u8> gKeyBindArrayDefaultIndex;

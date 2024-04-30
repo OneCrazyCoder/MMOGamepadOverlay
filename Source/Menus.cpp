@@ -103,6 +103,23 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 	const u16 aSelection = aMenuInfo.subMenuStack.back().selected;
 	if( aMenuInfo.style == eMenuStyle_4Dir )
 		return kEmptyMenuCommand;
+
+	// Have selected menu item show a confirmation flash if
+	// this command won't change sub-menus
+	const Command& result =
+		InputMap::commandForMenuItem(aSubMenuID, aSelection);
+	switch(result.type)
+	{
+	case eCmdType_OpenSubMenu:
+	case eCmdType_ReplaceMenu:
+	case eCmdType_MenuReset:
+	case eCmdType_MenuBack:
+	case eCmdType_MenuBackOrClose:
+		break;
+	default:
+		gConfirmedMenuItem[aMenuInfo.hudElementID] = aSelection;
+	}
+
 	return InputMap::commandForMenuItem(aSubMenuID, aSelection);
 }
 
@@ -204,6 +221,8 @@ const Command& selectMenuItem(
 		break;
 	case eMenuStyle_4Dir:
 		pushedPastEdge = !repeat;
+		if( pushedPastEdge )
+			gConfirmedMenuItem[aMenuInfo.hudElementID] = theDir;
 		break;
 	case eMenuStyle_Grid:
 		switch(theDir)
