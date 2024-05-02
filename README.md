@@ -528,6 +528,42 @@ Once a Bitmap is set properly as in the above example, set the HUD Element Type 
     
 The coordinates listed for using a portion of a bitmap are in the format of LeftX, TopY, Width, Height. *The bitmap or bitmap region will be scaled as needed to fit into HUD Element's Size or Menu's ItemSize dimensions if they do not match.*
 
+### Label Icons
+
+In addition to the backdrop of a Menu Item, a Bitmap be used in place of the text label for a Menu Item. This allows having a different image for each individual Menu Item. This image will be copied into the inner area of the Menu Item, meaning the resulting bitmap will be drawn at (ItemSize.x/y - (BorderSize x 2)) size.
+
+The [Icons] Category is used to link each Menu Item's label text to what should be drawn in place of it. For example:
+
+    [Menu.MyMenu]
+    Style = List
+    1 = Spell1: Alt-1
+    2 = Spell2: Alt-2
+    ...
+
+    [Bitmaps]
+    MyIcons = Bitmaps\MyIcons.bmp
+
+    [Icons]
+    Spell2 = MyIcons: 0, 0, 32, 32
+
+Would have a menu where the first Menu Item would have the text label "Spell1", but the second Menu Item would instead show a copy of the (0, 0, 32, 32) region of Bitmaps\MyIcons.bmp displayed instead of text. *Note that linking a label to an icon is case-insensitive and ignores spaces, so "SPELL 2" would link to the same icon as "Spell2".*
+
+### Icons copied from game window
+
+While icons from bitmaps stored on your hard drive might look nicer then plain shapes, they can't dynamically display information that might change during play. In the above example, the "Spell2" label would always show the same icon, but what if you want it to display an icon that matches the in-game icon for whatever spell you actually have memorized in slot 2? To do this, you can specify a rectangular region of the game's window to be copied and act as an icon, which will then be continuously updated.
+
+To do this, simply omit the name of a Bitmap, and have the coordinates be the portion of the game's window you want copied over, like so:
+
+    [Icons]
+    Spell2 = 500, 250, 32, 32
+
+These copy-from coordinates work like Hotspots and can be expressed relative to the screen size rather than direct pixel values, or even a combination, like this:
+
+    [Icons]
+    Spell2 = R-20, 20%, 5%, 15
+
+*TIP: This copy technique should work even if the copied-from area of the game's window is being covered up by an overlay Menu or HUD Element, so you can purposefully hide the portion of the game screen you are copying from with an overlay HUD Element, or even the copied-to Menu itself, to avoid having the same icons shown in two places at once on your screen*
+
 ### Key Bind Array HUD Elements
 
 Two special HUD element types offset their visual position to named Hotspots with the same name as Key Bind Array elements. These use ``Type = KeyBindArrayLast`` and ``Type = KeyBindArrayDefault`` and must also have a special property to specify which Key Bind Array and Hotspots to use, such as ``KeyBindArray = TargetGroup``. 
