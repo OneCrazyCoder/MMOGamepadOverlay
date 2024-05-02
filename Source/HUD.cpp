@@ -30,6 +30,7 @@ kNoticeStringMinTime = 3000,
 const char* kMenuPrefix = "Menu";
 const char* kHUDPrefix = "HUD";
 const char* kBitmapsPrefix = "Bitmaps";
+const char* kIconsPrefix = "Icons/";
 const char* kAppVersionString = "Version: " __DATE__;
 
 enum EHUDProperty
@@ -79,6 +80,14 @@ enum EAppearanceMode
 	eAppearanceMode_FlashSelected,
 
 	eAppearanceMode_Num
+};
+
+enum EMenuItemLabelType
+{
+	eMenuItemLabelType_Unknown,
+	eMenuItemLabelType_String,
+	eMenuItemLabelType_Bitmap,
+	eMenuItemLabelType_CopyRect,
 };
 
 const char* kAppearancePrefix[] = { "", "Selected", "Flash", "FlashSelected" };
@@ -180,12 +189,11 @@ struct HUDDrawData
 };
 
 struct Appearance
-	: public ConstructFromZeroInitializedMemory<Appearance>
 {
 	COLORREF itemColor;
 	COLORREF labelColor;
 	COLORREF borderColor;
-	u16 backdropIconID;
+	u16 bitmapIconID;
 	u16 borderPenID;
 	u8 borderSize;
 	u8 baseBorderSize;
@@ -194,35 +202,33 @@ struct Appearance
 	{ return std::memcmp(this, &rhs, sizeof(Appearance)) == 0; }
 };
 
-struct IconEntry
-	: public ConstructFromZeroInitializedMemory<IconEntry>
+struct BitmapIcon
 {
-	union
-	{
-		struct
-		{
-			HBITMAP handle;
-			SIZE size;
-		} bitmap;
-		struct
-		{
-			Hotspot::Coord x;
-			Hotspot::Coord y;
-			Hotspot::Coord w;
-			Hotspot::Coord h;
-		} copy;
-	};
+	HBITMAP image;
+	HBITMAP mask;
+	SIZE size;
+};
+
+struct CopyIcon
+{
+	Hotspot pos;
+	Hotspot size;
+};
+
+struct IconEntry
+{
+	u16 iconID;
 	bool copyFromTarget;
 };
 
 struct BuildIconEntry
-	: public ConstructFromZeroInitializedMemory<BuildIconEntry>
 {
-	HBITMAP srcFile;
+	HBITMAP srcFile; // 0 == copy from target window
 	Hotspot pos;
 	Hotspot size;
-	bool operator==(const BuildIconEntry& rhs)
-	{ return srcFile == rhs.srcFile && pos == rhs.pos && size == rhs.size; }
+	IconEntry result;
+
+	BuildIconEntry() : srcFile(), result() {}
 };
 
 struct StringScaleCacheEntry
@@ -230,11 +236,22 @@ struct StringScaleCacheEntry
 	u16 width, height, fontID;
 };
 
+struct CopyRectCacheEntry
+{
+	POINT fromPos;
+	SIZE fromSize;
+};
+
 struct MenuDrawCacheEntry
 	: public ConstructFromZeroInitializedMemory<MenuDrawCacheEntry>
 {
-	u16 iconID;
-	StringScaleCacheEntry str;
+	EMenuItemLabelType type;
+	union
+	{
+		u16 bitmapIconID;
+		CopyRectCacheEntry copyRect;
+		StringScaleCacheEntry str;
+	};
 };
 
 struct HUDBuilder
@@ -244,7 +261,7 @@ struct HUDBuilder
 	typedef std::pair< COLORREF, std::pair<int, int> > PenDef;
 	VectorMap<PenDef, u16> penDefToPenMap;
 	StringToValueMap<HBITMAP> bitmapNameToHandleMap;
-	std::vector<BuildIconEntry> iconBuildHistory;
+	std::vector<BuildIconEntry> iconBuilders;
 
 	~HUDBuilder() { DBG_ASSERT(bitmapNameToHandleMap.empty()); }
 };
@@ -257,7 +274,9 @@ struct HUDBuilder
 static std::vector<HFONT> sFonts;
 static std::vector<HPEN> sPens;
 static std::vector<Appearance> sAppearances;
-static std::vector<IconEntry> sIcons;
+static std::vector<BitmapIcon> sBitmapIcons;
+static std::vector<CopyIcon> sCopyIcons;
+static StringToValueMap<IconEntry> sLabelIcons;
 static std::vector<HUDElementInfo> sHUDElementInfo;
 static std::vector< std::vector<MenuDrawCacheEntry> > sMenuDrawCache;
 static VectorMap<std::pair<u16, LONG>, u16> sResizedFontsMap;
@@ -419,6 +438,85 @@ static COLORREF strToRGB(HUDBuilder& theBuilder, const std::string& theString)
 }
 
 
+static void loadBitmapFile(
+	HUDBuilder& theBuilder,
+	const std::string& theBitmapName,
+	std::string theBitmapPath)
+{
+	if( theBitmapPath.empty() )
+		return;
+
+	// Convert given path into a wstring absolute path
+	theBitmapPath = removeExtension(removePathParams(theBitmapPath)) + ".bmp";
+
+	if( !isAbsolutePath(theBitmapPath) )
+	{
+		WCHAR anAppPath[MAX_PATH];
+		GetModuleFileName(NULL, anAppPath, MAX_PATH);
+		theBitmapPath = getFileDir(narrow(anAppPath), true) + theBitmapPath;
+	}
+	const std::wstring aFilePathW = widen(theBitmapPath);
+
+	const DWORD aFileAttributes = GetFileAttributes(aFilePathW.c_str());
+	if( aFileAttributes == INVALID_FILE_ATTRIBUTES ||
+		(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
+	{
+		logError("Could not find requested bitmap file %s!",
+			theBitmapPath.c_str());
+		return;
+	}
+
+	HBITMAP aBitmapHandle = (HBITMAP)LoadImage(
+		NULL, aFilePathW.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+	if( !aBitmapHandle )
+	{
+		logError("Could not load bitmap %s. Wrong file format?",
+			theBitmapPath.c_str());
+		return;
+	}
+
+	theBuilder.bitmapNameToHandleMap.setValue(
+		theBitmapName, aBitmapHandle);
+}
+
+
+static inline POINT hotspotToPoint(
+	const Hotspot& theHotspot,
+	const SIZE& theTargetSize)
+{
+	POINT result;
+	result.x =
+		LONG(theHotspot.x.origin) * theTargetSize.cx / 0x10000 +
+		LONG(theHotspot.x.offset * gUIScaleX);
+	result.y =
+		LONG(theHotspot.y.origin) * theTargetSize.cy / 0x10000 +
+		LONG(theHotspot.y.offset * gUIScaleY);
+	return result;
+}
+
+
+static inline SIZE hotspotToSize(
+	const Hotspot& theHotspot,
+	const SIZE& theTargetSize)
+{
+	POINT aPoint = hotspotToPoint(theHotspot, theTargetSize);
+	SIZE result;
+	result.cx = aPoint.x;
+	result.cy = aPoint.y;
+	return result;
+}
+
+
+static LONG hotspotCoordToValue(
+	Hotspot::Coord& theCoord,
+	const LONG theMaxValue)
+{
+	return
+		LONG(theCoord.origin) * theMaxValue / 0x10000 +
+		LONG(theCoord.offset);
+}
+
+
 static u16 getOrCreatePenID(
 	HUDBuilder& theBuilder,
 	COLORREF theColor,
@@ -500,89 +598,10 @@ static u16 getOrCreateAppearanceID(const Appearance& theAppearance)
 }
 
 
-static void loadBitmapFile(
-	HUDBuilder& theBuilder,
-	const std::string& theBitmapName,
-	std::string theBitmapPath)
-{
-	if( theBitmapPath.empty() )
-		return;
-
-	// Convert given path into a wstring absolute path
-	theBitmapPath = removeExtension(removePathParams(theBitmapPath)) + ".bmp";
-
-	if( !isAbsolutePath(theBitmapPath) )
-	{
-		WCHAR anAppPath[MAX_PATH];
-		GetModuleFileName(NULL, anAppPath, MAX_PATH);
-		theBitmapPath = getFileDir(narrow(anAppPath), true) + theBitmapPath;
-	}
-	const std::wstring aFilePathW = widen(theBitmapPath);
-
-	const DWORD aFileAttributes = GetFileAttributes(aFilePathW.c_str());
-	if( aFileAttributes == INVALID_FILE_ATTRIBUTES ||
-		(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
-	{
-		logError("Could not find requested bitmap file %s!",
-			theBitmapPath.c_str());
-		return;
-	}
-
-	HBITMAP aBitmapHandle = (HBITMAP)LoadImage(
-		NULL, aFilePathW.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
-	if( !aBitmapHandle )
-	{
-		logError("Could not load bitmap %s. Wrong file format?",
-			theBitmapPath.c_str());
-		return;
-	}
-
-	theBuilder.bitmapNameToHandleMap.setValue(
-		theBitmapName, aBitmapHandle);
-}
-
-
-static inline POINT hotspotToPoint(
-	const Hotspot& theHotspot,
-	const SIZE& theTargetSize)
-{
-	POINT result;
-	result.x =
-		LONG(theHotspot.x.origin) * theTargetSize.cx / 0x10000 +
-		LONG(theHotspot.x.offset * gUIScaleX);
-	result.y =
-		LONG(theHotspot.y.origin) * theTargetSize.cy / 0x10000 +
-		LONG(theHotspot.y.offset * gUIScaleY);
-	return result;
-}
-
-
-static inline SIZE hotspotToSize(
-	const Hotspot& theHotspot,
-	const SIZE& theTargetSize)
-{
-	POINT aPoint = hotspotToPoint(theHotspot, theTargetSize);
-	SIZE result;
-	result.cx = aPoint.x;
-	result.cy = aPoint.y;
-	return result;
-}
-
-
-static LONG hotspotCoordToValue(
-	Hotspot::Coord& theCoord,
-	const LONG theMaxValue)
-{
-	return
-		LONG(theCoord.origin) * theMaxValue / 0x10000 +
-		LONG(theCoord.offset);
-}
-
-
-static u16 createIconID(
+static size_t getOrCreateBuildIconEntry(
 	HUDBuilder& theBuilder,
 	const std::string& theIconDescription,
-	bool allowCopyFromTarget = false)
+	bool allowCopyFromTarget)
 {
 	if( theIconDescription.empty() )
 		return 0;
@@ -595,7 +614,7 @@ static u16 createIconID(
 	HBITMAP* hBitmapPtr = aBitmapName.empty()
 		? theBuilder.bitmapNameToHandleMap.find(condense(theIconDescription))
 		: theBuilder.bitmapNameToHandleMap.find(condense(aBitmapName));
-	BuildIconEntry aBuildEntry;
+	BuildIconEntry aBuildEntry = BuildIconEntry();
 	aBuildEntry.srcFile = hBitmapPtr ? *hBitmapPtr : 0;
 
 	// If aBuildEntry.srcFile != null, a bitmap name was found
@@ -649,61 +668,137 @@ static u16 createIconID(
 	}
 
 	// Check if a duplicate of aBuildEntry was already created
-	DBG_ASSERT(sIcons.size() == theBuilder.iconBuildHistory.size());
-	for(size_t i = 0; i < theBuilder.iconBuildHistory.size(); ++i)
+	for(size_t i = 0; i < theBuilder.iconBuilders.size(); ++i)
 	{
-		if( theBuilder.iconBuildHistory[i] == aBuildEntry )
-			return u16(i);
+		if( theBuilder.iconBuilders[i].srcFile == aBuildEntry.srcFile &&
+			theBuilder.iconBuilders[i].pos == aBuildEntry.pos &&
+			theBuilder.iconBuilders[i].size == aBuildEntry.size )
+			return i;
 	}
 
-	// aBuildEntry is ready to be converted into a permanent IconEntry
-	IconEntry anIconEntry;
-	anIconEntry.copyFromTarget = !aBuildEntry.srcFile;
-	if( anIconEntry.copyFromTarget )
+	theBuilder.iconBuilders.push_back(aBuildEntry);
+	return theBuilder.iconBuilders.size()-1;
+}
+
+
+static void createBitmapIcon(BuildIconEntry& theBuildEntry)
+{
+	if( !theBuildEntry.srcFile || theBuildEntry.result.iconID > 0 )
+		return;
+
+	// Create a bitmap in memory from portion of bitmap file
+	BITMAP bm;
+	GetObject(theBuildEntry.srcFile, sizeof(bm), &bm);
+	LONG x = 0, y = 0, w = bm.bmWidth, h = bm.bmHeight;
+	if( !(theBuildEntry.size == Hotspot()) )
 	{
-		// Set up copying a region from target game window at runtime
-		anIconEntry.copy.x = aBuildEntry.pos.x;
-		anIconEntry.copy.y = aBuildEntry.pos.y;
-		anIconEntry.copy.w = aBuildEntry.size.x;
-		anIconEntry.copy.h = aBuildEntry.size.y;
-	}
-	else
-	{
-		// Create a bitmap in memory from portion of bitmap file
-		BITMAP bm;
-		GetObject(aBuildEntry.srcFile, sizeof(bm), &bm);
-		LONG x = 0, y = 0, w = bm.bmWidth, h = bm.bmHeight;
-		if( aHotspotParseResult == eResult_Ok )
-		{
-			// Hotspot to pixel conversions are endpoint-exclusive so add +1
-			x = clamp(hotspotCoordToValue(aBuildEntry.pos.x, w+1), 0, w);
-			y = clamp(hotspotCoordToValue(aBuildEntry.pos.y, h+1), 0, h);
-			w = clamp(hotspotCoordToValue(aBuildEntry.size.x, w+1), 0, w-x);
-			h = clamp(hotspotCoordToValue(aBuildEntry.size.y, h+1), 0, h-y);
-		}
-
-		// Copy over to the new bitmap
-		HDC hdcSrc = CreateCompatibleDC(NULL);
-		HBITMAP hOldSrcBitmap = (HBITMAP)
-			SelectObject(hdcSrc, aBuildEntry.srcFile);
-		HDC hdcDest = CreateCompatibleDC(NULL);
-		anIconEntry.bitmap.handle = CreateCompatibleBitmap(hdcSrc, w, h);
-		anIconEntry.bitmap.size.cx = w;
-		anIconEntry.bitmap.size.cy = h;
-		HBITMAP hOldDestBitmap = (HBITMAP)
-			SelectObject(hdcDest, anIconEntry.bitmap.handle);
-
-		BitBlt(hdcDest, 0, 0, w, h, hdcSrc, x, y, SRCCOPY);
-
-		SelectObject(hdcSrc, hOldSrcBitmap);
-		DeleteDC(hdcSrc);
-		SelectObject(hdcDest, hOldDestBitmap);
-		DeleteDC(hdcDest);
+		// Hotspot to pixel conversions are endpoint-exclusive so add +1
+		x = clamp(hotspotCoordToValue(theBuildEntry.pos.x, w+1), 0, w);
+		y = clamp(hotspotCoordToValue(theBuildEntry.pos.y, h+1), 0, h);
+		w = clamp(hotspotCoordToValue(theBuildEntry.size.x, w+1), 0, w-x);
+		h = clamp(hotspotCoordToValue(theBuildEntry.size.y, h+1), 0, h-y);
 	}
 
-	theBuilder.iconBuildHistory.push_back(aBuildEntry);
-	sIcons.push_back(anIconEntry);
-	return u16(sIcons.size()-1);
+	// Copy over to the new bitmap
+	HDC hdcSrc = CreateCompatibleDC(NULL);
+	HBITMAP hOldSrcBitmap = (HBITMAP)
+		SelectObject(hdcSrc, theBuildEntry.srcFile);
+	HDC hdcDest = CreateCompatibleDC(NULL);
+	BitmapIcon aBitmapIcon = BitmapIcon();
+	aBitmapIcon.image = CreateCompatibleBitmap(hdcSrc, w, h);
+	aBitmapIcon.size.cx = w;
+	aBitmapIcon.size.cy = h;
+	HBITMAP hOldDestBitmap = (HBITMAP)
+		SelectObject(hdcDest, aBitmapIcon.image);
+
+	BitBlt(hdcDest, 0, 0, w, h, hdcSrc, x, y, SRCCOPY);
+
+	SelectObject(hdcSrc, hOldSrcBitmap);
+	DeleteDC(hdcSrc);
+	SelectObject(hdcDest, hOldDestBitmap);
+	DeleteDC(hdcDest);
+
+	sBitmapIcons.push_back(aBitmapIcon);
+	theBuildEntry.result.copyFromTarget = false;
+	theBuildEntry.result.iconID = u16(sBitmapIcons.size()-1);
+}
+
+
+void generateBitmapIconMask(BitmapIcon& theIcon, COLORREF theTransColor)
+{
+	BITMAP bm;
+	GetObject(theIcon.image, sizeof(BITMAP), &bm);
+	theIcon.mask = CreateBitmap(bm.bmWidth, bm.bmHeight, 1, 1, NULL);
+
+	HDC hdcImage = CreateCompatibleDC(NULL);
+	HDC hdcMask = CreateCompatibleDC(NULL);
+	SelectObject(hdcImage, theIcon.image);
+	SelectObject(hdcMask, theIcon.mask);
+
+	SetBkColor(hdcImage, theTransColor);
+	BitBlt(hdcMask, 0, 0, bm.bmWidth, bm.bmHeight, hdcImage, 0, 0, SRCCOPY);
+	BitBlt(hdcImage, 0, 0, bm.bmWidth, bm.bmHeight, hdcMask, 0, 0, SRCINVERT);
+
+	DeleteDC(hdcImage);
+	DeleteDC(hdcMask);
+}
+
+
+static void createCopyIcon(BuildIconEntry& theBuildEntry)
+{
+	if( theBuildEntry.srcFile || theBuildEntry.result.iconID > 0 )
+		return;
+
+	CopyIcon aCopyIcon = CopyIcon();
+	aCopyIcon.pos = theBuildEntry.pos;
+	aCopyIcon.size = theBuildEntry.size;
+	sCopyIcons.push_back(aCopyIcon);
+	theBuildEntry.result.copyFromTarget = true;
+	theBuildEntry.result.iconID = u16(sCopyIcons.size()-1);
+}
+
+
+static u16 getOrCreateBitmapIconID(
+	HUDBuilder& theBuilder,
+	const std::string& theIconDescription)
+{
+	size_t anIconBuildID = getOrCreateBuildIconEntry(
+		theBuilder, theIconDescription, false);
+	if( anIconBuildID == 0 )
+		return 0;
+	BuildIconEntry& aBuildEntry = theBuilder.iconBuilders[anIconBuildID];
+	if( !aBuildEntry.srcFile )
+		return 0;
+	if( aBuildEntry.result.iconID > 0 )
+		return aBuildEntry.result.iconID;
+	createBitmapIcon(aBuildEntry);
+	return aBuildEntry.result.iconID;
+}
+
+
+static void createLabelIcon(
+	HUDBuilder& theBuilder,
+	const std::string& theTextLabel,
+	const std::string& theIconDescription)
+{
+	size_t anIconBuildID = getOrCreateBuildIconEntry(
+		theBuilder, theIconDescription, true);
+	if( anIconBuildID == 0 )
+		return;
+	BuildIconEntry& aBuildEntry = theBuilder.iconBuilders[anIconBuildID];
+	if( aBuildEntry.result.iconID > 0 )
+	{
+		sLabelIcons.setValue(theTextLabel, aBuildEntry.result);
+		return;
+	}
+	if( aBuildEntry.srcFile )
+	{
+		createBitmapIcon(aBuildEntry);
+		sLabelIcons.setValue(theTextLabel, aBuildEntry.result);
+		return;
+	}
+	createCopyIcon(aBuildEntry);
+	sLabelIcons.setValue(theTextLabel, aBuildEntry.result);	
 }
 
 
@@ -714,49 +809,6 @@ static void eraseRect(HUDDrawData& dd, const RECT& theRect)
 	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 	FillRect(dd.hdc, &theRect, hBrush);
 	SetDCBrushColor(dd.hdc, oldColor);
-}
-
-
-static void drawHUDIcon(HUDDrawData& dd, u16 theIconID, const RECT& theRect)
-{
-	DBG_ASSERT(theIconID < sIcons.size());
-	const IconEntry& anIcon = sIcons[theIconID];
-	if( !anIcon.copyFromTarget )
-	{
-		// Draw from bitmap already in memory
-		DBG_ASSERT(sBitmapDrawSrc);
-		HBITMAP hOldBitmap = (HBITMAP)
-			SelectObject(sBitmapDrawSrc, anIcon.bitmap.handle);
-
-		StretchBlt(dd.hdc,
-				   theRect.left, theRect.top,
-				   theRect.right - theRect.left,
-				   theRect.bottom - theRect.top,
-				   sBitmapDrawSrc,
-				   0, 0,
-				   anIcon.bitmap.size.cx,
-				   anIcon.bitmap.size.cy,
-				   SRCCOPY);
-
-		SelectObject(sBitmapDrawSrc, hOldBitmap);
-	}
-	else
-	{
-		// Copy region of target app window
-		Hotspot aHotspot;
-		aHotspot.x = anIcon.copy.x; aHotspot.y = anIcon.copy.y;
-		const POINT& aTargetPos = hotspotToPoint(aHotspot, dd.targetSize);
-		aHotspot.x = anIcon.copy.w; aHotspot.y = anIcon.copy.h;
-		const SIZE& aTargetSize = hotspotToSize(aHotspot, dd.targetSize);
-		StretchBlt(dd.hdc,
-				   theRect.left, theRect.top,
-				   theRect.right - theRect.left,
-				   theRect.bottom - theRect.top,
-				   dd.hTargetDC,
-				   aTargetPos.x, aTargetPos.y,
-				   aTargetSize.cx, aTargetSize.cy,
-				   SRCCOPY);
-	}
 }
 
 
@@ -798,14 +850,31 @@ static void drawHUDBitmap(HUDDrawData& dd, const RECT& theRect)
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[dd.appearanceMode]];
-	const u16 anIconID = appearance.backdropIconID;
+	const u16 anIconID = appearance.bitmapIconID;
 
 	if( anIconID == 0 )
 	{
 		drawHUDRect(dd, theRect);
 		return;
 	}
-	drawHUDIcon(dd, anIconID, theRect);
+
+	DBG_ASSERT(anIconID < sBitmapIcons.size());
+	const BitmapIcon& anIcon = sBitmapIcons[anIconID];
+	DBG_ASSERT(sBitmapDrawSrc);
+	HBITMAP hOldBitmap = (HBITMAP)
+		SelectObject(sBitmapDrawSrc, anIcon.image);
+
+	StretchBlt(dd.hdc,
+			   theRect.left, theRect.top,
+			   theRect.right - theRect.left,
+			   theRect.bottom - theRect.top,
+			   sBitmapDrawSrc,
+			   0, 0,
+			   anIcon.size.cx,
+			   anIcon.size.cy,
+			   SRCCOPY);
+
+	SelectObject(sBitmapDrawSrc, hOldBitmap);
 }
 
 
@@ -1068,6 +1137,99 @@ static void drawLabelString(
 }
 
 
+static void drawMenuItemLabel(
+	HUDDrawData& dd,
+	const RECT& theRect,
+	const std::string& theLabel,
+	const Appearance& theAppearance,
+	MenuDrawCacheEntry& theCacheEntry)		
+{
+	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
+	{// Initialize cache entry
+		IconEntry* anIconEntry = sLabelIcons.find(condense(theLabel));
+		if( anIconEntry && anIconEntry->copyFromTarget )
+		{
+			theCacheEntry.type = eMenuItemLabelType_CopyRect;
+			theCacheEntry.copyRect.fromPos = hotspotToPoint(
+				sCopyIcons[anIconEntry->iconID].pos,
+				dd.targetSize);
+			theCacheEntry.copyRect.fromSize = hotspotToSize(
+				sCopyIcons[anIconEntry->iconID].size,
+				dd.targetSize);
+		}
+		else if( anIconEntry && !anIconEntry->copyFromTarget )
+		{
+			theCacheEntry.type = eMenuItemLabelType_Bitmap;
+			theCacheEntry.bitmapIconID = anIconEntry->iconID;
+			if( !sBitmapIcons[anIconEntry->iconID].mask )
+			{
+				generateBitmapIconMask(
+					sBitmapIcons[anIconEntry->iconID],
+					sHUDElementInfo[dd.hudElementID].transColor);
+			}
+		}
+		else
+		{
+			theCacheEntry.type = eMenuItemLabelType_String;
+			theCacheEntry.str = StringScaleCacheEntry();
+		}
+	}
+
+	if( theCacheEntry.type == eMenuItemLabelType_String )
+	{
+		SetTextColor(dd.hdc, theAppearance.labelColor);
+		SetBkColor(dd.hdc, theAppearance.itemColor);
+		drawLabelString(dd, theRect, widen(theLabel),
+			DT_WORDBREAK | DT_CENTER | DT_VCENTER,
+			theCacheEntry.str);
+	}
+	else if( theCacheEntry.type == eMenuItemLabelType_Bitmap )
+	{
+		DBG_ASSERT(theCacheEntry.bitmapIconID < sBitmapIcons.size());
+		const BitmapIcon& anIcon = sBitmapIcons[theCacheEntry.bitmapIconID];
+		DBG_ASSERT(sBitmapDrawSrc);
+		HBITMAP hOldBitmap = (HBITMAP)
+			SelectObject(sBitmapDrawSrc, anIcon.mask);
+
+		StretchBlt(dd.hdc,
+				   theRect.left, theRect.top,
+				   theRect.right - theRect.left,
+				   theRect.bottom - theRect.top,
+				   sBitmapDrawSrc,
+				   0, 0,
+				   anIcon.size.cx,
+				   anIcon.size.cy,
+				   SRCAND);
+
+		SelectObject(sBitmapDrawSrc, anIcon.image);
+		StretchBlt(dd.hdc,
+				   theRect.left, theRect.top,
+				   theRect.right - theRect.left,
+				   theRect.bottom - theRect.top,
+				   sBitmapDrawSrc,
+				   0, 0,
+				   anIcon.size.cx,
+				   anIcon.size.cy,
+				   SRCPAINT);
+
+		SelectObject(sBitmapDrawSrc, hOldBitmap);
+	}
+	else if( theCacheEntry.type == eMenuItemLabelType_CopyRect )
+	{
+		StretchBlt(dd.hdc,
+				   theRect.left, theRect.top,
+				   theRect.right - theRect.left,
+				   theRect.bottom - theRect.top,
+				   dd.hTargetDC,
+				   theCacheEntry.copyRect.fromPos.x,
+				   theCacheEntry.copyRect.fromPos.y,
+				   theCacheEntry.copyRect.fromSize.cx,
+				   theCacheEntry.copyRect.fromSize.cy,
+				   SRCCOPY);
+	}
+}
+
+
 static void drawMenuTitle(
 	HUDDrawData& dd,
 	u16 theSubMenuID,
@@ -1139,11 +1301,7 @@ static void drawMenuItem(
 			sAppearances[hi.appearanceID[i]].borderSize);
 	}
 	InflateRect(&aLabelRect, -aMaxBorderSize - 1, -aMaxBorderSize - 1);
-	SetTextColor(dd.hdc, appearance.labelColor);
-	SetBkColor(dd.hdc, appearance.itemColor);
-	drawLabelString(dd, aLabelRect, widen(theLabel),
-		DT_WORDBREAK | DT_CENTER | DT_VCENTER,
-		theCacheEntry.str);
+	drawMenuItemLabel(dd, aLabelRect, theLabel, appearance, theCacheEntry);
 }
 
 
@@ -1507,9 +1665,11 @@ void init()
 	sHUDElementInfo.resize(InputMap::hudElementCount());
 	sMenuDrawCache.resize(InputMap::menuCount());
 
+	// Add dummy 0th entries to some vectors
 	aHUDBuilder.bitmapNameToHandleMap.setValue("", NULL);
-	aHUDBuilder.iconBuildHistory.push_back(BuildIconEntry());
-	sIcons.push_back(IconEntry());
+	aHUDBuilder.iconBuilders.push_back(BuildIconEntry());
+	sBitmapIcons.push_back(BitmapIcon());
+	sCopyIcons.push_back(CopyIcon());
 
 	// Generate default appearances as entries 0 to eAppearanceMode_Num
 	sAppearances.resize(eAppearanceMode_Num);
@@ -1525,18 +1685,28 @@ void init()
 			getDefaultHUDPropStr(eHUDProp_BorderColor, i));
 		sAppearances[i].baseBorderSize = u32FromString(
 			getDefaultHUDPropStr(eHUDProp_BorderSize, i));
-		sAppearances[i].backdropIconID = createIconID(aHUDBuilder,
-			getDefaultHUDPropStr(eHUDProp_Bitmap, i));
+		sAppearances[i].bitmapIconID = getOrCreateBitmapIconID(
+			aHUDBuilder, getDefaultHUDPropStr(eHUDProp_Bitmap, i));
 	}
 
 	// Load bitmap files
-	Profile::KeyValuePairs aBitmapRequests;
-	Profile::getAllKeys(std::string(kBitmapsPrefix) + "/", aBitmapRequests);
-	for(size_t i = 0; i < aBitmapRequests.size(); ++i)
+	Profile::KeyValuePairs aKeyValueList;
+	Profile::getAllKeys(std::string(kBitmapsPrefix) + "/", aKeyValueList);
+	for(size_t i = 0; i < aKeyValueList.size(); ++i)
 	{
-		std::string aBitmapName = aBitmapRequests[i].first;
-		std::string aBitmapPath = aBitmapRequests[i].second;
+		std::string aBitmapName = aKeyValueList[i].first;
+		std::string aBitmapPath = aKeyValueList[i].second;
 		loadBitmapFile(aHUDBuilder, aBitmapName, aBitmapPath);
+	}
+
+	// Generate text label to icon label map
+	aKeyValueList.clear();
+	Profile::getAllKeys(kIconsPrefix, aKeyValueList);
+	for(size_t i = 0; i < aKeyValueList.size(); ++i)
+	{
+		std::string aTextLabel = aKeyValueList[i].first;
+		std::string anIconDesc = aKeyValueList[i].second;
+		createLabelIcon(aHUDBuilder, aTextLabel, anIconDesc);
 	}
 
 	// Get information for each HUD Element from Profile
@@ -1638,7 +1808,7 @@ void init()
 		// Generate custom appearances if have any custom properties
 		for(u32 i = 0; i < eAppearanceMode_Num; ++i)
 		{
-			Appearance anAppearance;
+			Appearance anAppearance = Appearance();
 			anAppearance.itemColor = strToRGB(aHUDBuilder,
 				getHUDPropStr(aHUDName, eHUDProp_ItemColor, i));
 			anAppearance.labelColor = strToRGB(aHUDBuilder,
@@ -1650,8 +1820,8 @@ void init()
 			if( hi.type == eHUDItemType_Bitmap ||
 				hi.itemType == eHUDItemType_Bitmap )
 			{
-				anAppearance.backdropIconID = createIconID(aHUDBuilder,
-					getHUDPropStr(aHUDName, eHUDProp_Bitmap, i));
+				anAppearance.bitmapIconID = getOrCreateBitmapIconID(
+					aHUDBuilder, getHUDPropStr(aHUDName, eHUDProp_Bitmap, i));
 			}
 			hi.appearanceID[i] = getOrCreateAppearanceID(anAppearance);
 		}
@@ -1678,8 +1848,11 @@ void init()
 		std::vector<HPEN>(sPens).swap(sPens);
 	if( sAppearances.size() < sAppearances.capacity() )
 		std::vector<Appearance>(sAppearances).swap(sAppearances);
-	if( sIcons.size() < sIcons.capacity() )
-		std::vector<IconEntry>(sIcons).swap(sIcons);
+	if( sBitmapIcons.size() < sBitmapIcons.capacity() )
+		std::vector<BitmapIcon>(sBitmapIcons).swap(sBitmapIcons);
+	if( sCopyIcons.size() < sCopyIcons.capacity() )
+		std::vector<CopyIcon>(sCopyIcons).swap(sCopyIcons);
+	sLabelIcons.trim();
 	if( sHUDElementInfo.size() < sHUDElementInfo.capacity() )
 		std::vector<HUDElementInfo>(sHUDElementInfo).swap(sHUDElementInfo);
 }
@@ -1691,10 +1864,10 @@ void cleanup()
 		DeleteObject(sFonts[i]);
 	for(size_t i = 0; i < sPens.size(); ++i)
 		DeleteObject(sPens[i]);
-	for(size_t i = 0; i < sIcons.size(); ++i)
+	for(size_t i = 0; i < sBitmapIcons.size(); ++i)
 	{
-		if( !sIcons[i].copyFromTarget && sIcons[i].bitmap.handle )
-			DeleteObject(sIcons[i].bitmap.handle);
+		DeleteObject(sBitmapIcons[i].image);
+		DeleteObject(sBitmapIcons[i].mask);
 	}
 
 	sMenuDrawCache.clear();
@@ -1702,7 +1875,9 @@ void cleanup()
 	sFonts.clear();
 	sPens.clear();
 	sAppearances.clear();
-	sIcons.clear();
+	sBitmapIcons.clear();
+	sCopyIcons.clear();
+	sLabelIcons.clear();
 	sHUDElementInfo.clear();
 
 	DeleteDC(sBitmapDrawSrc);
