@@ -550,7 +550,7 @@ Would have a menu where the first Menu Item would have the text label "Spell1", 
 
 ### Icons copied from game window
 
-While icons from bitmaps stored on your hard drive might look nicer then plain shapes, they can't dynamically display information that might change during play. In the above example, the "Spell2" label would always show the same icon, but what if you want it to display an icon that matches the in-game icon for whatever spell you actually have memorized in slot 2? To do this, you can specify a rectangular region of the game's window to be copied and act as an icon, which will then be continuously updated.
+While icons from bitmaps stored on your hard drive might look nicer then plain shapes, they can't dynamically display information that might change during play. In the above example, the "Spell2" label would always show the same icon, but what if you want it to display an icon that matches the in-game icon for whatever spell you actually have memorized in slot 2? To do this, you can specify a rectangular region of the game's window to be copied and act as an icon, which will then be continuously updated (at least once every ``[System]CopyIconFrameTime=`` milliseconds).
 
 To do this, simply omit the name of a Bitmap, and have the coordinates be the portion of the game's window you want copied over, like so:
 

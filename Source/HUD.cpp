@@ -32,6 +32,7 @@ const char* kHUDPrefix = "HUD";
 const char* kBitmapsPrefix = "Bitmaps";
 const char* kIconsPrefix = "Icons/";
 const char* kAppVersionString = "Version: " __DATE__;
+const char* kCopyIconRateKey = "System/CopyIconFrameTime";
 
 enum EHUDProperty
 {
@@ -143,14 +144,15 @@ struct HUDElementInfo
 	int fadeInDelay;
 	int fadeOutDelay;
 	int delayUntilInactive;
-	int selection;
 	u32 flashMaxTime;
 	u32 flashStartTime;
+	u16 appearanceID[eAppearanceMode_Num];
+	union { u16 subMenuID; u16 arrayID; };
+	u16 selection;
 	u16 flashing;
 	u16 prevFlashing;
-	union { u16 subMenuID; u16 arrayID; };
-	u16 appearanceID[eAppearanceMode_Num];
 	u16 fontID;
+	u16 forcedRedrawItemID;
 	s8 gapSize;
 	u8 radius;
 	u8 titleHeight;
@@ -165,6 +167,7 @@ struct HUDElementInfo
 		fadeOutRate(255),
 		flashing(kInvalidItem),
 		prevFlashing(kInvalidItem),
+		forcedRedrawItemID(kInvalidItem),
 		maxAlpha(255),
 		inactiveAlpha(255)
 	{}
@@ -231,15 +234,15 @@ struct BuildIconEntry
 	BuildIconEntry() : srcFile(), result() {}
 };
 
-struct StringScaleCacheEntry
-{
-	u16 width, height, fontID;
-};
-
 struct CopyRectCacheEntry
 {
 	POINT fromPos;
 	SIZE fromSize;
+};
+
+struct StringScaleCacheEntry
+{
+	u16 width, height, fontID;
 };
 
 struct MenuDrawCacheEntry
@@ -280,11 +283,15 @@ static StringToValueMap<IconEntry> sLabelIcons;
 static std::vector<HUDElementInfo> sHUDElementInfo;
 static std::vector< std::vector<MenuDrawCacheEntry> > sMenuDrawCache;
 static VectorMap<std::pair<u16, LONG>, u16> sResizedFontsMap;
+typedef VectorMap<std::pair<u16, u16>, u32> AutoRefreshLabels;
+static AutoRefreshLabels sAutoRefreshLabels;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
 static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
+static u32 sCopyIconUpdateRate = 100;
+static u32 sLastForcedIconCopyTime = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -1140,10 +1147,20 @@ static void drawLabelString(
 static void drawMenuItemLabel(
 	HUDDrawData& dd,
 	const RECT& theRect,
+	u16 theItemIdx,
 	const std::string& theLabel,
 	const Appearance& theAppearance,
-	MenuDrawCacheEntry& theCacheEntry)		
+	MenuDrawCacheEntry& theCacheEntry)	
 {
+	// Get auto-refresh draw entry if have one
+	const std::pair<u16, u16> anAutoRefreshLabelKey =
+		std::make_pair(dd.hudElementID, theItemIdx);
+	AutoRefreshLabels::iterator anAutoRefreshLabelEntry =
+		sAutoRefreshLabels.find(anAutoRefreshLabelKey);
+	// Set auto-refresh time to 0 to mark as drawn and halt future draws
+	if( anAutoRefreshLabelEntry != sAutoRefreshLabels.end() )
+		anAutoRefreshLabelEntry->second = 0;
+
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{// Initialize cache entry
 		IconEntry* anIconEntry = sLabelIcons.find(condense(theLabel));
@@ -1226,6 +1243,11 @@ static void drawMenuItemLabel(
 				   theCacheEntry.copyRect.fromSize.cx,
 				   theCacheEntry.copyRect.fromSize.cy,
 				   SRCCOPY);
+		// Set drawn time to allow auto-refresh of this label
+		if( anAutoRefreshLabelEntry == sAutoRefreshLabels.end() )
+			sAutoRefreshLabels.setValue(anAutoRefreshLabelKey, gAppRunTime);
+		else
+			anAutoRefreshLabelEntry->second = gAppRunTime;
 	}
 }
 
@@ -1271,13 +1293,14 @@ static void drawMenuTitle(
 static void drawMenuItem(
 	HUDDrawData& dd,
 	const RECT& theRect,
+	u16 theItemIdx,
 	const std::string& theLabel,
-	MenuDrawCacheEntry& theCacheEntry,
-	bool selected,
-	bool flashing)
+	MenuDrawCacheEntry& theCacheEntry)
 {
 	// Select appropriate appearance
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	const bool selected = theItemIdx == hi.selection;
+	const bool flashing = theItemIdx == hi.flashing;
 	if( selected && flashing )
 		dd.appearanceMode = eAppearanceMode_FlashSelected;
 	else if( flashing )
@@ -1294,14 +1317,19 @@ static void drawMenuItem(
 
 	// Label (usually word-wrapped and centered text)
 	RECT aLabelRect = theRect;
-	int aMaxBorderSize = 0;
+	int aMaxBorderSize = hi.radius / 4;
 	for(int i = 0; i < eAppearanceMode_Num; ++i)
 	{
 		aMaxBorderSize = max(aMaxBorderSize,
 			sAppearances[hi.appearanceID[i]].borderSize);
 	}
 	InflateRect(&aLabelRect, -aMaxBorderSize - 1, -aMaxBorderSize - 1);
-	drawMenuItemLabel(dd, aLabelRect, theLabel, appearance, theCacheEntry);
+	drawMenuItemLabel(
+		dd, aLabelRect,
+		theItemIdx,
+		theLabel,
+		appearance,
+		theCacheEntry);
 }
 
 
@@ -1310,9 +1338,9 @@ static void drawListMenu(HUDDrawData& dd)
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	const u16 aPrevSelection = hi.selection;
-	const u16 aSelection = Menus::selectedItem(aMenuID);
+	hi.selection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
-	DBG_ASSERT(aSelection < anItemCount);
+	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
@@ -1320,10 +1348,11 @@ static void drawListMenu(HUDDrawData& dd)
 		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
 		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
+	hi.prevFlashing = hi.flashing;
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1333,21 +1362,21 @@ static void drawListMenu(HUDDrawData& dd)
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
+			hi.forcedRedrawItemID == itemIdx ||
 			(selectionChanged &&
-				(itemIdx == aPrevSelection || itemIdx == aSelection)) ||
+				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( itemIdx == aSelection && hi.gapSize < 0 )
+			if( itemIdx == hi.selection && hi.gapSize < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
 			}
 			else
 			{
-				drawMenuItem(dd, anItemRect,
+				drawMenuItem(dd, anItemRect, itemIdx,
 					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
-					itemIdx == aSelection, itemIdx == hi.flashing);
+					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
 		anItemRect.top = anItemRect.bottom + hi.gapSize;
@@ -1357,14 +1386,10 @@ static void drawListMenu(HUDDrawData& dd)
 	// Draw selected menu item last
 	if( aSelectedItemRect.right > aSelectedItemRect.left )
 	{
-		drawMenuItem(dd, aSelectedItemRect,
-			InputMap::menuItemLabel(hi.subMenuID, aSelection),
-			sMenuDrawCache[hi.subMenuID][aSelection + hasTitle],
-			true, aSelection == hi.flashing);
+		drawMenuItem(dd, aSelectedItemRect, hi.selection,
+			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
+			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
-
-	hi.selection = aSelection;
-	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1373,9 +1398,9 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	const u16 aPrevSelection = hi.selection;
-	const u16 aSelection = Menus::selectedItem(aMenuID);
+	hi.selection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
-	DBG_ASSERT(aSelection < anItemCount);
+	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
@@ -1383,39 +1408,38 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll = dd.firstDraw || selectionChanged;
+	hi.prevFlashing = hi.flashing;
 
-	// Draw in a wrapping fashion, starting with aSelection+1 being drawn just
-	// below the top slot, and ending when draw aSelection last at the top
+	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
+	// just below the top slot, and ending when draw hi.selection last at top
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
 	anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSize;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-	for(u16 itemIdx = (aSelection + 1) % anItemCount;
+	for(u16 itemIdx = (hi.selection + 1) % anItemCount;
 		true; itemIdx = (itemIdx + 1) % anItemCount)
 	{
-		const bool isSelection = itemIdx == aSelection;
+		const bool isSelection = itemIdx == hi.selection;
 		if( isSelection )
 		{
 			anItemRect.top = hi.titleHeight;
 			anItemRect.bottom = dd.itemSize.cy;
 		}
-		if( shouldRedrawAll || (isSelection && flashingChanged) )
+		if( shouldRedrawAll ||
+			hi.forcedRedrawItemID == itemIdx ||
+			(isSelection && flashingChanged) )
 		{
-			drawMenuItem(dd, anItemRect,
+			drawMenuItem(dd, anItemRect, itemIdx,
 				InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-				sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
-				isSelection, isSelection && hi.flashing != kInvalidItem);
+				sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 		}
 		if( isSelection )
 			break;
 		anItemRect.top = anItemRect.bottom + hi.gapSize;
 		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
-
-	hi.selection = aSelection;
-	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1424,9 +1448,9 @@ static void drawBarMenu(HUDDrawData& dd)
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	const u16 aPrevSelection = hi.selection;
-	const u16 aSelection = Menus::selectedItem(aMenuID);
+	hi.selection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
-	DBG_ASSERT(aSelection < anItemCount);
+	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
@@ -1434,10 +1458,11 @@ static void drawBarMenu(HUDDrawData& dd)
 		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
 		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
+	hi.prevFlashing = hi.flashing;
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1447,21 +1472,21 @@ static void drawBarMenu(HUDDrawData& dd)
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
+			hi.forcedRedrawItemID == itemIdx ||
 			(selectionChanged &&
-				(itemIdx == aPrevSelection || itemIdx == aSelection)) ||
+				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( itemIdx == aSelection && hi.gapSize < 0 )
+			if( itemIdx == hi.selection && hi.gapSize < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
 			}
 			else
 			{
-				drawMenuItem(dd, anItemRect,
+				drawMenuItem(dd, anItemRect, itemIdx,
 					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
-					itemIdx == aSelection, itemIdx == hi.flashing);
+					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
 		anItemRect.left = anItemRect.right + hi.gapSize;
@@ -1471,14 +1496,10 @@ static void drawBarMenu(HUDDrawData& dd)
 	// Draw selected menu item last
 	if( aSelectedItemRect.right > aSelectedItemRect.left )
 	{
-		drawMenuItem(dd, aSelectedItemRect,
-			InputMap::menuItemLabel(hi.subMenuID, aSelection),
-			sMenuDrawCache[hi.subMenuID][aSelection + hasTitle],
-			true, aSelection == hi.flashing);
+		drawMenuItem(dd, aSelectedItemRect, hi.selection,
+			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
+			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
-
-	hi.selection = aSelection;
-	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1486,6 +1507,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
+	hi.selection = kInvalidItem;
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[hi.subMenuID].resize(eCmdDir_Num + hasTitle);
 
@@ -1502,6 +1524,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 	{
 		const ECommandDir aDir = ECommandDir(itemIdx);
 		if( dd.firstDraw ||
+			hi.forcedRedrawItemID == itemIdx ||
 			(hi.flashing != hi.prevFlashing &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
@@ -1527,10 +1550,9 @@ static void draw4DirMenu(HUDDrawData& dd)
 			}
 			anItemRect.right = anItemRect.left + dd.itemSize.cx;
 			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-			drawMenuItem(dd, anItemRect,
+			drawMenuItem(dd, anItemRect, itemIdx,
 				InputMap::menuDirLabel(hi.subMenuID, aDir),
-				sMenuDrawCache[hi.subMenuID][aDir + hasTitle],
-				false, aDir == hi.flashing);
+				sMenuDrawCache[hi.subMenuID][aDir + hasTitle]);
 		}
 	}
 
@@ -1543,10 +1565,10 @@ static void drawGridMenu(HUDDrawData& dd)
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	const u16 aPrevSelection = hi.selection;
-	const u16 aSelection = Menus::selectedItem(aMenuID);
+	hi.selection = Menus::selectedItem(aMenuID);
 	const u16 aGridWidth = Menus::gridWidth(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
-	DBG_ASSERT(aSelection < anItemCount);
+	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
@@ -1554,10 +1576,11 @@ static void drawGridMenu(HUDDrawData& dd)
 		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = aSelection != aPrevSelection;
+	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
 		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
+	hi.prevFlashing = hi.flashing;
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1567,21 +1590,21 @@ static void drawGridMenu(HUDDrawData& dd)
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
+			hi.forcedRedrawItemID == itemIdx ||
 			(selectionChanged &&
-				(itemIdx == aPrevSelection || itemIdx == aSelection)) ||
+				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( itemIdx == aSelection && hi.gapSize < 0 )
+			if( itemIdx == hi.selection && hi.gapSize < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
 			}
 			else
 			{
-				drawMenuItem(dd, anItemRect,
+				drawMenuItem(dd, anItemRect, itemIdx,
 					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle],
-					itemIdx == aSelection, itemIdx == hi.flashing);
+					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
 		if( itemIdx % aGridWidth == aGridWidth - 1 )
@@ -1601,14 +1624,10 @@ static void drawGridMenu(HUDDrawData& dd)
 	// Draw selected menu item last
 	if( aSelectedItemRect.right > aSelectedItemRect.left )
 	{
-		drawMenuItem(dd, aSelectedItemRect,
-			InputMap::menuItemLabel(hi.subMenuID, aSelection),
-			sMenuDrawCache[hi.subMenuID][aSelection + hasTitle],
-			true, aSelection == hi.flashing);
+		drawMenuItem(dd, aSelectedItemRect, hi.selection,
+			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
+			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
-
-	hi.selection = aSelection;
-	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1664,6 +1683,8 @@ void init()
 	HUDBuilder aHUDBuilder;
 	sHUDElementInfo.resize(InputMap::hudElementCount());
 	sMenuDrawCache.resize(InputMap::menuCount());
+	sCopyIconUpdateRate =
+		Profile::getInt(kCopyIconRateKey, sCopyIconUpdateRate);
 
 	// Add dummy 0th entries to some vectors
 	aHUDBuilder.bitmapNameToHandleMap.setValue("", NULL);
@@ -1872,6 +1893,7 @@ void cleanup()
 
 	sMenuDrawCache.clear();
 	sResizedFontsMap.clear();
+	sAutoRefreshLabels.clear();
 	sFonts.clear();
 	sPens.clear();
 	sAppearances.clear();
@@ -1988,6 +2010,51 @@ void update()
 			gRedrawHUD.set(i);
 		}
 	}
+
+	// Update auto-refresh of idle copy-from-target icons
+	// This system is set up to only force-redraw one icon per update,
+	// but still have each icon only redraw at sCopyIconUpdateRate, to
+	// spread the copy-paste operation out over multiple frames and
+	// possibly reduce framerate hiccups from redrawing all at once.
+	size_t anAutoRefreshLabelEntryCount = 0;
+	AutoRefreshLabels::iterator aNextAutoRefreshEntry =
+		sAutoRefreshLabels.end();
+	u32 aNextAutoRefreshEntryTime = gAppRunTime;
+	for(AutoRefreshLabels::iterator itr = sAutoRefreshLabels.begin();
+		itr != sAutoRefreshLabels.end(); ++itr)
+	{
+		const u32 anAutoRefreshEntryLastDrawTime = itr->second;
+		if( anAutoRefreshEntryLastDrawTime == 0 )
+			continue;
+		++anAutoRefreshLabelEntryCount;
+		if( anAutoRefreshEntryLastDrawTime < aNextAutoRefreshEntryTime )
+		{
+			aNextAutoRefreshEntryTime = anAutoRefreshEntryLastDrawTime;
+			aNextAutoRefreshEntry = itr;
+		}
+	}
+	if( aNextAutoRefreshEntry != sAutoRefreshLabels.end() )
+	{
+		const u32 anAutoRefreshRate =
+			sCopyIconUpdateRate / anAutoRefreshLabelEntryCount;
+		const u32 aNextRefreshTime = anAutoRefreshRate +
+			max(sLastForcedIconCopyTime, aNextAutoRefreshEntryTime);
+		if( gAppRunTime >= aNextRefreshTime )
+		{
+			// Time to force re-draw an item in a HUD element
+			const u16 aHUDElementID = aNextAutoRefreshEntry->first.first;
+			const u16 anItemIdx = aNextAutoRefreshEntry->first.second;
+			sHUDElementInfo[aHUDElementID].forcedRedrawItemID = anItemIdx;
+			gRedrawHUD.set(aHUDElementID);
+
+			// Just in case draw gets skipped somehow, reset this entry to
+			// 0 to allow labels to auto-redraw next time
+			aNextAutoRefreshEntry->second = 0;
+
+			sLastForcedIconCopyTime = gAppRunTime;
+		}
+	}
+
 	gKeyBindArrayLastIndexChanged.reset();
 	gKeyBindArrayDefaultIndexChanged.reset();
 }
@@ -1998,15 +2065,15 @@ void updateScaling()
 	if( sHUDElementInfo.empty() )
 		return;
 
-	// Reset string auto-sizing cache entries
+	// Reset menu item cache entries
 	for(size_t i = 0; i < sMenuDrawCache.size(); ++i)
 	{
 		for(size_t j = 0; j < sMenuDrawCache[i].size(); ++j)
-			sMenuDrawCache[i][j].str = StringScaleCacheEntry();
+			sMenuDrawCache[i][j] = MenuDrawCacheEntry();
 	}
-	sResizedFontsMap.clear();
 
 	// Clear fonts and border pens
+	sResizedFontsMap.clear();
 	for(size_t i = 0; i < sFonts.size(); ++i)
 		DeleteObject(sFonts[i]);
 	for(size_t i = 0; i < sPens.size(); ++i)
@@ -2163,6 +2230,9 @@ void drawElement(
 			DBG_ASSERT(false && "Invaild HUD/Menu Type/Style!");
 		}
 	}
+
+	// Should have redrawn forced item now, so don't force it again
+	hi.forcedRedrawItemID = kInvalidItem;
 }
 
 
