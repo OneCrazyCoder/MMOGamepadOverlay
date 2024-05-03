@@ -568,8 +568,10 @@ u16 itemCount(u16 theMenuID)
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
 	DBG_ASSERT(itr != sMenuInfo.end());
 	const MenuInfo& aMenuInfo = itr->second;
-	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	if( aMenuInfo.style == eMenuStyle_4Dir )
+		return eCmdDir_Num;
 
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	return InputMap::menuItemCount(
 		aMenuInfo.subMenuStack.back().id);
 }
