@@ -257,6 +257,12 @@ struct MenuDrawCacheEntry
 	};
 };
 
+struct AutoRefreshLabelEntry
+{
+	u16 hudElementID;
+	u16 itemIdx;
+};
+
 struct HUDBuilder
 {
 	std::vector<std::string> parsedString;
@@ -283,8 +289,7 @@ static StringToValueMap<IconEntry> sLabelIcons;
 static std::vector<HUDElementInfo> sHUDElementInfo;
 static std::vector< std::vector<MenuDrawCacheEntry> > sMenuDrawCache;
 static VectorMap<std::pair<u16, LONG>, u16> sResizedFontsMap;
-typedef VectorMap<std::pair<u16, u16>, u32> AutoRefreshLabels;
-static AutoRefreshLabels sAutoRefreshLabels;
+static std::vector<AutoRefreshLabelEntry> sAutoRefreshLabels;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
@@ -1152,14 +1157,17 @@ static void drawMenuItemLabel(
 	const Appearance& theAppearance,
 	MenuDrawCacheEntry& theCacheEntry)	
 {
-	// Get auto-refresh draw entry if have one
-	const std::pair<u16, u16> anAutoRefreshLabelKey =
-		std::make_pair(dd.hudElementID, theItemIdx);
-	AutoRefreshLabels::iterator anAutoRefreshLabelEntry =
-		sAutoRefreshLabels.find(anAutoRefreshLabelKey);
-	// Set auto-refresh time to 0 to mark as drawn and halt future draws
-	if( anAutoRefreshLabelEntry != sAutoRefreshLabels.end() )
-		anAutoRefreshLabelEntry->second = 0;
+	// Remove auto-refresh draw entry if have one now that are being drawn
+	for(std::vector<AutoRefreshLabelEntry>::iterator itr =
+		sAutoRefreshLabels.begin(); itr != sAutoRefreshLabels.end(); ++itr )
+	{
+		if( itr->hudElementID == dd.hudElementID &&
+			itr->itemIdx == theItemIdx )
+		{
+			sAutoRefreshLabels.erase(itr);
+			break;
+		}
+	}
 
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{// Initialize cache entry
@@ -1243,11 +1251,10 @@ static void drawMenuItemLabel(
 				   theCacheEntry.copyRect.fromSize.cx,
 				   theCacheEntry.copyRect.fromSize.cy,
 				   SRCCOPY);
-		// Set drawn time to allow auto-refresh of this label
-		if( anAutoRefreshLabelEntry == sAutoRefreshLabels.end() )
-			sAutoRefreshLabels.setValue(anAutoRefreshLabelKey, gAppRunTime);
-		else
-			anAutoRefreshLabelEntry->second = gAppRunTime;
+		// Queue auto-refresh of this label later if nothing else draws it
+		sAutoRefreshLabels.push_back(AutoRefreshLabelEntry());
+		sAutoRefreshLabels.back().hudElementID = dd.hudElementID;
+		sAutoRefreshLabels.back().itemIdx = theItemIdx;
 	}
 }
 
@@ -2013,46 +2020,29 @@ void update()
 
 	// Update auto-refresh of idle copy-from-target icons
 	// This system is set up to only force-redraw one icon per update,
-	// but still have each icon only redraw at sCopyIconUpdateRate, to
-	// spread the copy-paste operation out over multiple frames and
-	// possibly reduce framerate hiccups from redrawing all at once.
-	size_t anAutoRefreshLabelEntryCount = 0;
-	AutoRefreshLabels::iterator aNextAutoRefreshEntry =
-		sAutoRefreshLabels.end();
-	u32 aNextAutoRefreshEntryTime = gAppRunTime;
-	for(AutoRefreshLabels::iterator itr = sAutoRefreshLabels.begin();
-		itr != sAutoRefreshLabels.end(); ++itr)
+	// but still have each icon individually only redraw at
+	// sCopyIconUpdateRate, to spread the copy-paste operations out over
+	// multiple frames and reduce chance of causing a framerate hitch.
+	// First clear out any queued requests that no longer apply
+	while(!sAutoRefreshLabels.empty() &&
+		  sAutoRefreshLabels.begin()->itemIdx >=
+			Menus::itemCount(InputMap::menuForHUDElement(
+				sAutoRefreshLabels.begin()->hudElementID)))
 	{
-		const u32 anAutoRefreshEntryLastDrawTime = itr->second;
-		if( anAutoRefreshEntryLastDrawTime == 0 )
-			continue;
-		++anAutoRefreshLabelEntryCount;
-		if( anAutoRefreshEntryLastDrawTime < aNextAutoRefreshEntryTime )
-		{
-			aNextAutoRefreshEntryTime = anAutoRefreshEntryLastDrawTime;
-			aNextAutoRefreshEntry = itr;
-		}
+		sAutoRefreshLabels.erase(sAutoRefreshLabels.begin());
 	}
-	if( aNextAutoRefreshEntry != sAutoRefreshLabels.end() )
+	if( sAutoRefreshLabels.empty() )
 	{
-		const u32 anAutoRefreshRate =
-			sCopyIconUpdateRate / anAutoRefreshLabelEntryCount;
-		const u32 aNextRefreshTime = anAutoRefreshRate +
-			max(sLastForcedIconCopyTime, aNextAutoRefreshEntryTime);
-		if( gAppRunTime >= aNextRefreshTime )
-		{
-			// Time to force re-draw an item in a HUD element
-			const u16 aHUDElementID = aNextAutoRefreshEntry->first.first;
-			const u16 anItemIdx = aNextAutoRefreshEntry->first.second;
-			sHUDElementInfo[aHUDElementID].forcedRedrawItemID = anItemIdx;
-			gRedrawHUD.set(aHUDElementID);
-
-			// Just in case draw gets skipped somehow, reset this entry to
-			// 0 to allow labels to auto-redraw next time
-			aNextAutoRefreshEntry->second = 0;
-
-			sLastForcedIconCopyTime = gAppRunTime;
-		}
+		sLastForcedIconCopyTime = gAppRunTime;
+	}
+	else if( gAppRunTime > sLastForcedIconCopyTime +
+				(sCopyIconUpdateRate / sAutoRefreshLabels.size()) )
+	{
+		sLastForcedIconCopyTime = gAppRunTime;
+		sHUDElementInfo[sAutoRefreshLabels.begin()->hudElementID]
+			.forcedRedrawItemID = sAutoRefreshLabels.begin()->itemIdx;
+		gRedrawHUD.set(sAutoRefreshLabels.begin()->hudElementID);
+		sAutoRefreshLabels.erase(sAutoRefreshLabels.begin());
 	}
 
 	gKeyBindArrayLastIndexChanged.reset();
