@@ -2115,22 +2115,29 @@ static void addButtonAction(
 		// to the same command (or directional variations of it).
 		const Command& aBaseCmd = stringToCommand(
 			theBuilder, theCmdStr, true,
-			aBtnAct == eBtnAct_Down);		
+			aBtnAct == eBtnAct_Down);
+		bool dirCommandFailed = false;
 		for(size_t i = 0; i < 4; ++i)
 		{
 			// Get true button ID by adding direction key to button name
 			aBtnID = buttonNameToID(theBtnName + k4DirKeyNames[i]);
 			DBG_ASSERT(aBtnID < eBtn_Num);
-			// Use base command string initially
-			Command aCmd = aBaseCmd;
+			// See if can get a different command if append a direction,
+			// if didn't already fail previously
 			std::string aCmdStr = theCmdStr;
-			// If base command was empty, try pasing the command string
-			// with an added direction name to get a valid command
-			if( aCmd.type == eCmdType_Empty )
+			Command aCmd;
+			if( !dirCommandFailed )
 			{
 				aCmdStr += k4DirCmdSuffix[i];
 				aCmd = stringToCommand(
 					theBuilder, aCmdStr, true, aBtnAct == eBtnAct_Down);
+			}
+			// If not, use the base command
+			if( aCmd.type == eCmdType_Empty )
+			{
+				aCmdStr = theCmdStr;
+				aCmd = aBaseCmd;
+				dirCommandFailed = true;
 			}
 			// Get destination of command. Note that we do this AFTER
 			// parsing the command because stringToCommand() can lead to
@@ -2655,6 +2662,7 @@ void loadProfile()
 	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
 	sHotspots.clear();
 	sKeyStrings.clear();
+	sKeyBindArrays.clear();
 	sLayers.clear();
 	sMenus.clear();
 	sHUDElements.clear();
