@@ -538,6 +538,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "MEMBERS",		eCmdWord_Ignored	},
 				{ "CHAR",			eCmdWord_Ignored	},
 				{ "CHARACTER",		eCmdWord_Ignored	},
+				{ "DIRECTION",		eCmdWord_Ignored	},
 				{ "SELECTION",		eCmdWord_Ignored	},
 				{ "SELECTED",		eCmdWord_Ignored	},
 				{ "CURRENT",		eCmdWord_Ignored	},

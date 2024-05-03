@@ -1241,10 +1241,23 @@ static void drawMenuItemLabel(
 	}
 	else if( theCacheEntry.type == eMenuItemLabelType_CopyRect )
 	{
-		StretchBlt(dd.hdc,
-				   theRect.left, theRect.top,
-				   theRect.right - theRect.left,
-				   theRect.bottom - theRect.top,
+		// If source rect is smaller than dest rect on either axis,
+		// center it rather than expanding it
+		int aDstL = theRect.left;
+		int aDstT = theRect.top;
+		int aDstW = theRect.right - theRect.left;
+		int aDstH = theRect.bottom - theRect.top;
+		if( theCacheEntry.copyRect.fromSize.cx < aDstW )
+		{
+			aDstL += (aDstW - theCacheEntry.copyRect.fromSize.cx) / 2;
+			aDstW = theCacheEntry.copyRect.fromSize.cx;
+		}
+		if( theCacheEntry.copyRect.fromSize.cy < aDstH )
+		{
+			aDstT += (aDstH - theCacheEntry.copyRect.fromSize.cy) / 2;
+			aDstH = theCacheEntry.copyRect.fromSize.cy;
+		}
+		StretchBlt(dd.hdc, aDstL, aDstT, aDstW, aDstH,
 				   dd.hTargetDC,
 				   theCacheEntry.copyRect.fromPos.x,
 				   theCacheEntry.copyRect.fromPos.y,
@@ -1359,7 +1372,6 @@ static void drawListMenu(HUDDrawData& dd)
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
 		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
-	hi.prevFlashing = hi.flashing;
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1397,6 +1409,8 @@ static void drawListMenu(HUDDrawData& dd)
 			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
 			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
+
+	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1417,7 +1431,6 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll = dd.firstDraw || selectionChanged;
-	hi.prevFlashing = hi.flashing;
 
 	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
 	// just below the top slot, and ending when draw hi.selection last at top
@@ -1447,6 +1460,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		anItemRect.top = anItemRect.bottom + hi.gapSize;
 		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
+
+	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1469,7 +1484,6 @@ static void drawBarMenu(HUDDrawData& dd)
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
 		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
-	hi.prevFlashing = hi.flashing;
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1507,6 +1521,8 @@ static void drawBarMenu(HUDDrawData& dd)
 			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
 			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
+
+	hi.prevFlashing = hi.flashing;
 }
 
 
@@ -1587,7 +1603,6 @@ static void drawGridMenu(HUDDrawData& dd)
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
 		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
-	hi.prevFlashing = hi.flashing;
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1635,6 +1650,8 @@ static void drawGridMenu(HUDDrawData& dd)
 			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
 			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
+
+	hi.prevFlashing = hi.flashing;
 }
 
 

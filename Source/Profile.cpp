@@ -343,8 +343,7 @@ static void parseINI(
 				if( c == '\r' || c == '\n' || c == '\0' )
 				{// Value string complete, time to process it!
 					aValue = trim(aValue);
-					if( !aValue.empty() )
-						theCallbackFunc(aKey, aValue, theUserData);
+					theCallbackFunc(aKey, aValue, theUserData);
 					aState = ePIState_Whitespace;
 				}
 				else
@@ -694,6 +693,8 @@ static void getProfileListCallback(
    const std::string& theValue,
    void*)
 {
+	if( theValue.empty() )
+		return;
 	const std::string kProfilePrefix = "PROFILE";
 	if( theKey.compare(0, kProfilePrefix.length(), kProfilePrefix) == 0 )
 	{
@@ -754,7 +755,7 @@ static void addParentCallback(
    const std::string& theValue,
    void* theLoadList)
 {
-	if( !theLoadList )
+	if( !theLoadList || theValue.empty() )
 		return;
 
 	std::vector<int>* aLoadPriorityList = (std::vector<int>*)(theLoadList);
@@ -883,7 +884,16 @@ static void readProfileCallback(
    const std::string& theValue,
    void*)
 {
-	sSettingsMap.setValue(theKey, theValue);
+	if( theValue.empty() )
+	{
+		// Set value to "" if was previously added, otherwise don't add it
+		if( std::string* aVal = sSettingsMap.find(theKey) )
+			aVal->clear();
+	}
+	else
+	{
+		sSettingsMap.setValue(theKey, theValue);
+	}
 }
 
 
