@@ -180,10 +180,11 @@ enum EButton
 
 enum EMouseMode
 {
-	eMouseMode_Default,	// Use whatever previous layers specified (or _Cursor)
-	eMouseMode_Cursor,	// Normal mouse cursor
-	eMouseMode_Look,	// Mouse Look (holding right mouse button)
-	eMouseMode_Hide,	// Hide cursor without using MouseLook
+	eMouseMode_Default,		// Use whatever previous layers specified
+	eMouseMode_Cursor,		// Normal mouse cursor (default if none specified)
+	eMouseMode_Look,		// Mouse Look (holding right mouse button)
+	eMouseMode_Hide,		// Hide cursor without using MouseLook
+	eMouseMode_HideOrLook,	// Hide unless below layer is _Look, then _Look
 
 	eMouseMode_Num
 };
@@ -249,6 +250,7 @@ enum ESpecialHotspot
 {
 	eSpecialHotspot_None,
 	eSpecialHotspot_MouseLookStart,
+	eSpecialHotspot_MouseHidden,
 
 	eSpecialHotspot_Num
 };
@@ -340,6 +342,7 @@ enum EResult
 	eResult_Overflow,
 	eResult_Empty,
 	eResult_Declined,
+	eResult_NotNeeded,
 };
 
 struct Command : public ConstructFromZeroInitializedMemory<Command>

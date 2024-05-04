@@ -45,6 +45,7 @@ const char* kSpecialHotspotNames[] =
 {
 	"",						// eSpecialHotspot_None
 	"MOUSELOOKSTART",		// eSpecialHotspot_MouseLookStart
+	"MOUSEHIDDEN",			// eSpecialHotspot_MouseHidden
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
@@ -2220,7 +2221,8 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			theBuilder.debugItemName.c_str(),
 			sLayers[theLayerIdx].mouseMode == eMouseMode_Cursor ? "Cursor" :
 			sLayers[theLayerIdx].mouseMode == eMouseMode_Look ? "Mouse Look" :
-			/*sLayers[theLayerIdx].mouseMode == eMouseMode_Hide*/ "Hidden");
+			sLayers[theLayerIdx].mouseMode == eMouseMode_Hide ? "Hidden" :
+			/*otherwise*/ "Hidden OR Mouse Look" );
 	}
 
 	// Check each key-value pair for button assignment requests
