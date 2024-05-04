@@ -1293,13 +1293,14 @@ static void updateMouseModeForCurrentLayers()
 		// _Default means just use lower layers' mode
 		if( aLayerMouseMode == eMouseMode_Default )
 			continue;
-		// _Hide should not override _Look since cursor is hidden in _Look
-		// anyway by the game itself, and if really want to guarantee cursor
-		// is hidden AND MouseLook disabled, the layer can just make sure no
-		// Mouse movement is assigned.
-		if( aLayerMouseMode == eMouseMode_Hide &&
-			aMouseMode == eMouseMode_Look )
+		if( aLayerMouseMode == eMouseMode_HideOrLook )
+		{
+			// Act like _Default unless currently set to show cursor,
+			// in which case act like _Hide
+			if( aMouseMode == eMouseMode_Cursor )
+				aMouseMode = eMouseMode_Hide;
 			continue;
+		}
 		aMouseMode = aLayerMouseMode;
 	}
 

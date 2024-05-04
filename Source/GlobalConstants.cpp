@@ -309,16 +309,26 @@ EMouseMode mouseModeNameToID(const std::string& theName)
 		NameToEnumMapper()
 		{
 			struct { const char* str; EMouseMode val; } kEntries[] = {
-				{ "DEFAULT",	eMouseMode_Default	},
-				{ "CURSOR",		eMouseMode_Cursor	},
-				{ "SHOW",		eMouseMode_Cursor	},
-				{ "VISIBLE",	eMouseMode_Cursor	},
-				{ "LOOK",		eMouseMode_Look		},
-				{ "CAMERA",		eMouseMode_Look		},
-				{ "MOUSELOOK",	eMouseMode_Look		},
-				{ "HIDE",		eMouseMode_Hide		},
-				{ "HIDDEN",		eMouseMode_Hide		},
-				{ "INVISIBLE",	eMouseMode_Hide		},
+				{ "DEFAULT",				eMouseMode_Default		},
+				{ "CURSOR",					eMouseMode_Cursor		},
+				{ "SHOW",					eMouseMode_Cursor		},
+				{ "LOOK",					eMouseMode_Look			},
+				{ "CAMERA",					eMouseMode_Look			},
+				{ "MOUSELOOK",				eMouseMode_Look			},
+				{ "HIDE",					eMouseMode_Hide			},
+				{ "HIDDEN",					eMouseMode_Hide			},
+				{ "HIDEORLOOK",				eMouseMode_HideOrLook	},
+				{ "HIDEORCAMERA",			eMouseMode_HideOrLook	},
+				{ "HIDEORMOUSELOOK",		eMouseMode_HideOrLook	},
+				{ "HIDDENORLOOK",			eMouseMode_HideOrLook	},
+				{ "HIDDENORCAMERA",			eMouseMode_HideOrLook	},
+				{ "HIDDENORMOUSELOOK",		eMouseMode_HideOrLook	},
+				{ "LOOKORHIDE",				eMouseMode_HideOrLook	},
+				{ "CAMERAORHIDE",			eMouseMode_HideOrLook	},
+				{ "MOUSELOOKORHIDE",		eMouseMode_HideOrLook	},
+				{ "LOOKORHIDDEN",			eMouseMode_HideOrLook	},
+				{ "CAMERAORHIDDEN",			eMouseMode_HideOrLook	},
+				{ "MOUSELOOKORHIDDEN",		eMouseMode_HideOrLook	},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)

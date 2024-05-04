@@ -232,11 +232,10 @@ struct DispatchTracker
 	VectorMap<u8, int> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	EMouseMode mouseModeWanted;
+	POINT mouseRestorePos;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
 	u16 jumpToHotspot;
-	u16 mouseRestorePosX;
-	u16 mouseRestorePosY;
 	bool hasMouseRestorePos;
 	bool mouseInHiddenPos;
 	bool disableMouseHide;
@@ -249,11 +248,10 @@ struct DispatchTracker
 		mouseLookActiveTime(),
 		keysHeldDown(),
 		mouseModeWanted(eMouseMode_Cursor),
+		mouseRestorePos(),
 		nextQueuedKey(),
 		backupQueuedKey(),
 		jumpToHotspot(),
-		mouseRestorePosX(),
-		mouseRestorePosY(),
 		hasMouseRestorePos(),
 		mouseInHiddenPos(),
 		disableMouseHide(),
@@ -458,35 +456,52 @@ static void backupMousePos()
 	if( sTracker.hasMouseRestorePos )
 		return;
 
+	GetCursorPos(&sTracker.mouseRestorePos);
+	sTracker.hasMouseRestorePos = true;
+}
+
+
+static EResult restoreMousePos()
+{
+	if( !sTracker.hasMouseRestorePos )
+		return eResult_Ok;
+
+	if( sTracker.keysHeldDown.test(VK_RBUTTON) )
+		return eResult_NotAllowed;
+		
+	if( sTracker.keysHeldDown.test(VK_LBUTTON) )
+		return eResult_NotAllowed;
+
+	// Check if now at restore position
 	POINT aMousePos;
 	GetCursorPos(&aMousePos);
+	if( abs(aMousePos.x - sTracker.mouseRestorePos.x) < 2 &&
+		abs(aMousePos.y - sTracker.mouseRestorePos.y) < 2  )
+	{
+		if( sTracker.mouseModeWanted == eMouseMode_Cursor )
+			sTracker.hasMouseRestorePos = false;
+		sTracker.mouseInHiddenPos = false;
+		return eResult_Ok;
+	}
+
+	aMousePos = sTracker.mouseRestorePos;
 	aMousePos.x += GetSystemMetrics(SM_XVIRTUALSCREEN);
 	aMousePos.y += GetSystemMetrics(SM_XVIRTUALSCREEN);
 	const int aDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	const int aDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-	sTracker.mouseRestorePosX =
-		clamp(aMousePos.x * 65535 / aDesktopWidth, 0, 65535);
-	sTracker.mouseRestorePosY =
-		clamp(aMousePos.y * 65535 / aDesktopHeight, 0, 65535);
-	sTracker.hasMouseRestorePos = true;
-}
-
-
-static void restoreMousePos()
-{
-	if( !sTracker.hasMouseRestorePos )
-		return;
+	aMousePos.x = clamp(aMousePos.x * 65535 / aDesktopWidth, 0, 65535);
+	aMousePos.y = clamp(aMousePos.y * 65535 / aDesktopHeight, 0, 65535);
 
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
-	anInput.mi.dx = sTracker.mouseRestorePosX;
-	anInput.mi.dy = sTracker.mouseRestorePosY;
+	anInput.mi.dx = aMousePos.x;
+	anInput.mi.dy = aMousePos.y;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
-	sTracker.mouseInHiddenPos = false;
-	if( sTracker.mouseModeWanted == eMouseMode_Cursor )
-		sTracker.hasMouseRestorePos = false;
+
+	// Wait for next call to confirm jump actually happened
+	return eResult_Incomplete;
 }
 
 
@@ -497,11 +512,13 @@ static void hideMouseCursor()
 
 	// While it is feasibly possible, attempting to actually hide a
 	// mouse cursor for another app is quite invasive, so instead will
-	// just jump cursor to the bottom-right corner of the desktop.
+	// just jump cursor to a "hidden" spot (corner of the desktop).
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
-	anInput.mi.dx = 0xFFFF;
-	anInput.mi.dy = 0xFFFF;
+	const Hotspot& aHotspot =
+		InputMap::getHotspot(eSpecialHotspot_MouseHidden);
+	anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
+	anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseInHiddenPos = true;
@@ -813,7 +830,6 @@ void cleanup()
 
 void forceReleaseHeldKeys()
 {
-	restoreMousePos();
 	sTracker.keysLockedDown.clear();
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
@@ -821,6 +837,7 @@ void forceReleaseHeldKeys()
 	{
 		setKeyDown(u16(aVKey), false);
 	}
+	restoreMousePos();
 	flushInputVector();
 }
 
@@ -1270,10 +1287,13 @@ void moveMouse(int dx, int dy, bool digital)
 	if( sTracker.jumpToHotspot || sTracker.mouseModeWanted == eMouseMode_Hide )
 		return;
 
-	// In normal 'cursor' mode, first restore backed-up mouse position
-	// (won't do anything unless just finished 'hide' or 'mouselook' modes)
-	if( sTracker.mouseModeWanted == eMouseMode_Cursor )
-		restoreMousePos();
+	// In normal 'cursor' mode, first try restoring backed-up mouse position
+	if( sTracker.mouseModeWanted == eMouseMode_Cursor &&
+		restoreMousePos() == eResult_Incomplete )
+	{
+		// Need to attempt to restore position again next frame
+		return;
+	}
 
 	const bool kMouseLookSpeed =
 		sTracker.mouseModeWanted == eMouseMode_Look ||
