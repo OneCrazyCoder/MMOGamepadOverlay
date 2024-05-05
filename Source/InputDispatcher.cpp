@@ -491,6 +491,12 @@ static EResult restoreMousePos()
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
 
+	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
+		if( sTracker.mouseModeWanted == eMouseMode_Cursor )
+			sTracker.hasMouseRestorePos = false;
+		sTracker.mouseInHiddenPos = false;
+	#endif
+
 	// Wait for next call to confirm jump actually happened
 	return eResult_Incomplete;
 }
