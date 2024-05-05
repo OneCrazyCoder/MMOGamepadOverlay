@@ -1346,24 +1346,11 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 
-		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Smooth] <aCmdDir>"
+		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Stepped] <aCmdDir>"
 		// allowedKeyWords = Move & Mouse
 		allowedKeyWords.set(eCmdWord_MouseWheel);
-		allowedKeyWords.set(eCmdWord_Smooth);
-		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
-		{
-			result.type = eCmdType_MouseWheel;
-			result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Smooth);
-
-		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Step[ped] <aCmdDir>"
-		// allowedKeyWords = Move & Mouse & Wheel
 		allowedKeyWords.set(eCmdWord_Stepped);
 		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
-			keyWordsFound.test(eCmdWord_Stepped) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
 			result.type = eCmdType_MouseWheel;
@@ -1371,6 +1358,19 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Stepped);
+
+		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Smooth <aCmdDir>"
+		// allowedKeyWords = Move & Mouse & Wheel
+		allowedKeyWords.set(eCmdWord_Smooth);
+		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+			keyWordsFound.test(eCmdWord_Smooth) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MouseWheel;
+			result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Smooth);
 
 		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' <aCmdDir> Once"
 		// allowedKeyWords = Move & Mouse & Wheel

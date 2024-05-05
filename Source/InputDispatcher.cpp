@@ -531,10 +531,10 @@ static void prepareMousePosForWheelMotion()
 	// but after using hideMouseCursor() the mouse may be jumped outside
 	// of the game window, and it assumed that any mouse wheel commands
 	// at that point are for the purpose of zooming the camera in/out.
-	// In that case, will temporarily jump the mouse to MouseLook position
-	// (i.e. center of the screen) which is assumed to not be pointing at
-	// UI windows and thus will move the game camera. Also sets a flag
-	// to prevent re-hiding the cursor on the same frame.
+	// In that case, will temporarily jump the mouse to MouseLook start
+	// position, which is assumed to not be pointing at UI windows and
+	// thus will move the game camera. Also sets a flag to prevent re-hiding
+	// the cursor on the same frame.
 	sTracker.disableMouseHide = true;
 	if( !sTracker.mouseInHiddenPos )
 		return;
@@ -590,6 +590,13 @@ static EResult setKeyDown(u16 theKey, bool down)
 			sTracker.keysLockedDown.find(theKey);
 		if( itr != sTracker.keysLockedDown.end() && itr->second > 0 )
 			return eResult_NotAllowed;
+	}
+
+	if( down && sTracker.mouseInHiddenPos &&
+		(theKey == VK_LBUTTON || theKey == VK_RBUTTON) )
+	{// Ignore requests to press mouse buttons while mouse is in hidden mode
+		// Pretend were successful so can continue to next queue item
+		return eResult_Ok;
 	}
 
 	Input anInput;
@@ -1283,9 +1290,15 @@ void setMouseMode(EMouseMode theMouseMode)
 void moveMouse(int dx, int dy, bool digital)
 {
 	// Ignore mouse movement while trying to jump cursor to a hotspot
-	// or while trying to keep the mouse cursor hidden
-	if( sTracker.jumpToHotspot || sTracker.mouseModeWanted == eMouseMode_Hide )
+	if( sTracker.jumpToHotspot )
 		return;
+
+	// Ignore mouse movement while cursor is "hidden" (unless holding RMB)
+	if( sTracker.mouseModeWanted == eMouseMode_Hide &&
+		!sTracker.keysHeldDown.test(VK_RBUTTON) )
+	{
+		return;
+	}
 
 	// In normal 'cursor' mode, first try restoring backed-up mouse position
 	if( sTracker.mouseModeWanted == eMouseMode_Cursor &&
@@ -1305,7 +1318,7 @@ void moveMouse(int dx, int dy, bool digital)
 	// Apply deadzone and saturation to magnitude
 	const double kDeadZone = kMouseLookSpeed
 		? kConfig.mouseLookDeadzone : kConfig.cursorDeadzone;
-	if( aMagnitude < kDeadZone )
+	if( aMagnitude <= kDeadZone )
 		return;
 	aMagnitude -= kDeadZone;
 	const double kRange = kMouseLookSpeed
@@ -1386,7 +1399,7 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	double aMagnitude = abs(dy) / 255.0;
 
 	// Apply deadzone and saturation to dy
-	if( aMagnitude < kConfig.mouseWheelDeadzone )
+	if( aMagnitude <= kConfig.mouseWheelDeadzone )
 		return;
 	aMagnitude -= kConfig.mouseWheelDeadzone;
 	aMagnitude = min(aMagnitude / kConfig.mouseWheelRange, 1.0);
@@ -1405,10 +1418,6 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
 	}
 
-	// Restrict to increments of WHEEL_DELTA when stepped == true
-	if( stepped )
-		aMagnitude /= WHEEL_DELTA;
-
 	// Convert back into integer dy w/ 32,768 range
 	dy = dy < 0 ? (-32768.0 * aMagnitude) : (32768.0 * aMagnitude);
 
@@ -1416,7 +1425,6 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	dy = dy * kConfig.mouseWheelSpeed / kMouseMaxSpeed * gAppFrameTime;
 
 	// Use same logic as shiftMouseCursor() for fractional speeds
-	// Especially important when restricting to WHEEL_DATA increments
 	static int sMouseWheelSubPixel = 0;
 	dy += sMouseWheelSubPixel;
 	if( dy < 0 )
@@ -1424,11 +1432,19 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	else
 		sMouseWheelSubPixel = dy % kMouseToPixelDivisor;
 	dy = dy / kMouseToPixelDivisor;
+	if( !dy )
+		return;
 
-	// Counter above division by WHEEL_DELTA for true speed,
-	// but now resulting value will be a multiple of WHEEL_DATA
 	if( stepped )
+	{
+		static int sMouseWheelDeltaAcc = 0;
+		sMouseWheelDeltaAcc += dy;
+		dy = sMouseWheelDeltaAcc / WHEEL_DELTA;
+		if( !dy )
+			return;
 		dy *= WHEEL_DELTA;
+		sMouseWheelDeltaAcc -= dy;
+	}
 
 	// Make sure mouse cursor is in a valid position for mouse wheel input
 	prepareMousePosForWheelMotion();

@@ -184,19 +184,23 @@ std::string virtualKeyToName(u8 theVKey)
 {
 	switch(theVKey)
 	{
-	case VK_LBUTTON: return "Left Mouse Button";
-	case VK_MBUTTON: return "Middle Mouse Button";
-	case VK_RBUTTON: return "Right Mouse Button";
+	case VK_LBUTTON:	return "Left Mouse Button";
+	case VK_MBUTTON:	return "Middle Mouse Button";
+	case VK_RBUTTON:	return "Right Mouse Button";
+	case VK_LEFT:		return "Left";
+	case VK_RIGHT:		return "Right";
+	case VK_UP:			return "Up";
+	case VK_DOWN:		return "Down";
+	case VK_PRIOR:		return "PageUp";
+	case VK_NEXT:		return "PageDown";
+	case VK_END:		return "End";
+	case VK_HOME:		return "Home";
+	case VK_INSERT:		return "Insert";
+	case VK_DELETE:		return "Del";
+	case VK_DIVIDE:		return "Num Div";
+	case VK_NUMLOCK:	return "NumLock";
 	}
 	LONG aScanCode = MapVirtualKey(theVKey, 0) << 16;
-	switch(theVKey)
-	{
-	case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
-	case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
-	case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
-	case VK_NUMLOCK:
-		aScanCode |= KF_EXTENDED;
-	}
 	char aKeyName[256];
 	if( GetKeyNameTextA(aScanCode, aKeyName, 256) )
 		return aKeyName;
