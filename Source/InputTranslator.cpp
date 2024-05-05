@@ -841,6 +841,10 @@ static void processContinuousInput(
 		sResults.mouseWheelY += theAnalogVal;
 		sResults.mouseWheelDigital = isDigitalDown;
 		break;
+	case (eCmdType_MouseWheel << 16) | eCmdDir_Left:
+	case (eCmdType_MouseWheel << 16) | eCmdDir_Right:
+		// Ignore (multi-directional assigned)
+		break;
 	default:
 		DBG_ASSERT(false && "Command and direction combo invalid");
 		break;
