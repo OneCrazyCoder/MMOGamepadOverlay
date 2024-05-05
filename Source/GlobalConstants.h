@@ -231,17 +231,11 @@ enum ESpecialKey
 	eSpecialKey_TurnR,
 	eSpecialKey_StrafeL,
 	eSpecialKey_StrafeR,
-	eSpecialKey_MLMoveF,
-	eSpecialKey_MLMoveB,
-	eSpecialKey_MLTurnL,
-	eSpecialKey_MLTurnR,
-	eSpecialKey_MLStrafeL,
-	eSpecialKey_MLStrafeR,
 
 	eSpecialKey_Num,
 
 	eSpecialKey_FirstMove = eSpecialKey_MoveF,
-	eSpecialKey_LastMove = eSpecialKey_MLStrafeR,
+	eSpecialKey_LastMove = eSpecialKey_StrafeR,
 	eSpecialKey_MoveNum =
 		eSpecialKey_LastMove - eSpecialKey_FirstMove + 1,
 };

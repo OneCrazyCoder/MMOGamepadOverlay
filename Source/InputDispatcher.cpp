@@ -225,7 +225,6 @@ struct DispatchTracker
 	std::vector<Input> inputs;
 	int queuePauseTime;
 	int digitalMouseVel;
-	int mouseLookActiveTime;
 	size_t currTaskProgress;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
@@ -245,7 +244,6 @@ struct DispatchTracker
 		queuePauseTime(),
 		currTaskProgress(),
 		digitalMouseVel(),
-		mouseLookActiveTime(),
 		keysHeldDown(),
 		mouseModeWanted(eMouseMode_Cursor),
 		mouseRestorePos(),
@@ -420,13 +418,6 @@ static bool isSafeAsyncKey(u16 theVKey)
 		return false;
 
 	const u8 aBaseVkey = u8(theVKey & kVKeyMask);
-
-	// If MouseLookMoveForward is Left-Click, should be safe during mouselook
-	// because it won't cause a click in the UI
-	if( aBaseVkey == VK_LBUTTON &&
-		InputMap::keyForSpecialAction(eSpecialKey_MLMoveF) == VK_LBUTTON &&
-		sTracker.mouseLookActiveTime > kMinMouseLookTimeForAltMove )
-		return true;
 
 	// Remaining safe async keys depend on target, so use Profile data
 	return
@@ -656,10 +647,6 @@ static EResult setKeyDown(u16 theKey, bool down)
 			sTracker.keysLockedDown.setValue(VK_CONTROL, aLockDownTime);
 		if( sTracker.keysHeldDown.test(VK_MENU) )
 			sTracker.keysLockedDown.setValue(VK_MENU, aLockDownTime);
-
-		// Releasing RClick resets mouseLookActiveTime
-		if( sTracker.mouseLookActiveTime && theKey == VK_RBUTTON && !down )
-			sTracker.mouseLookActiveTime = 0;
 	}
 
 	return eResult_Ok;
@@ -982,7 +969,6 @@ void update()
 		sTracker.keysHeldDown.test(VK_RBUTTON) )
 	{// Keep holding right mouse button once mouselook mode started
 		aDesiredKeysDown.set(VK_RBUTTON);
-		sTracker.mouseLookActiveTime += gAppFrameTime;
 	}
 	bool hasNonPressedKeyThatWantsHeldDown = false;
 	u16 aPressedKeysDesiredMods = 0;
@@ -1339,13 +1325,6 @@ void moveMouse(int dx, int dy, bool digital)
 		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
 	}
 
-	// Assume user manually using mouse look if drag mouse while holding RMB
-	if( sTracker.mouseModeWanted != eMouseMode_Look &&
-		sTracker.keysHeldDown.test(VK_RBUTTON) )
-	{
-		sTracker.mouseLookActiveTime += gAppFrameTime * aMagnitude;
-	}
-
 	// Get angle of desired mouse motion
 	const double anAngle = atan2(double(dy), double(dx));
 
@@ -1504,68 +1483,38 @@ void moveCharacter(int move, int turn, int strafe)
 	// Check if MoveStrafe should apply
 	const bool applyMoveStrafe = aMagnitude > kConfig.moveDeadzone;
 
-	/*
-		Decide if should use mouselook movement keys...
-		What is the point of having a separate set of move keys for mouselook?
-
-		The primary reason is to make sure movement is processed as much as
-		possible, and movement keys like WASD will be locked out when
-		sending a macro or holding a modifier like Shift because that could
-		change what they do (type in a chat box or be a totally different
-		command like opening a menu). However, in most clients holding
-		right-click and then pressing left-click also acts as move forward,
-		and that won't interfere with any of the above, so might as well
-		take advantage of it for more responsiveness during mouselook.
-		But left-click won't move forward unless in mouselook, which is why
-		need to figure out if it is active or not to know what keys to use.
-	*/
-	const bool useMouseLookMoveKeys =
-		sTracker.mouseLookActiveTime > kMinMouseLookTimeForAltMove;
-
 	// Calculate which movement actions, if any, should now apply
 	moveKeysWantDown.set(
-		useMouseLookMoveKeys
-			? eSpecialKey_MLTurnL - eSpecialKey_FirstMove
-			: eSpecialKey_TurnL - eSpecialKey_FirstMove,
+		eSpecialKey_TurnL - eSpecialKey_FirstMove,
 		applyMoveTurn &&
 		(aTurnAngle < M_PI * -0.625 || aTurnAngle > M_PI * 0.625));
 
 	moveKeysWantDown.set(
-		useMouseLookMoveKeys
-			? eSpecialKey_MLTurnR - eSpecialKey_FirstMove
-			: eSpecialKey_TurnR - eSpecialKey_FirstMove,
+		eSpecialKey_TurnR - eSpecialKey_FirstMove,
 		applyMoveTurn &&
 		aTurnAngle > M_PI * -0.375 && aTurnAngle < M_PI * 0.375);
 
 	moveKeysWantDown.set(
-		useMouseLookMoveKeys
-			? eSpecialKey_MLStrafeL - eSpecialKey_FirstMove
-			: eSpecialKey_StrafeL - eSpecialKey_FirstMove,
+		eSpecialKey_StrafeL - eSpecialKey_FirstMove,
 		applyMoveStrafe &&
 		(aStrafeAngle < M_PI * -0.625 || aStrafeAngle > M_PI * 0.625));
 
 	moveKeysWantDown.set(
-		useMouseLookMoveKeys
-			? eSpecialKey_MLStrafeR - eSpecialKey_FirstMove
-			: eSpecialKey_StrafeR - eSpecialKey_FirstMove,
+		eSpecialKey_StrafeR - eSpecialKey_FirstMove,
 		applyMoveStrafe &&
 		aStrafeAngle > M_PI * -0.375 && aStrafeAngle < M_PI * 0.375);
 
 	// For move forward/back, use the virtual stick that had the greatest X
 	// motion in order to make sure a proper circular deadzone is used.
 	moveKeysWantDown.set(
-		useMouseLookMoveKeys
-			? eSpecialKey_MLMoveF - eSpecialKey_FirstMove
-			: eSpecialKey_MoveF - eSpecialKey_FirstMove,
+		eSpecialKey_MoveF - eSpecialKey_FirstMove,
 		(applyMoveTurn && abs(turn) >= abs(strafe) &&
 			aTurnAngle > M_PI * 0.125 && aTurnAngle < M_PI * 0.875) ||
 		(applyMoveStrafe && abs(strafe) >= abs(turn) &&
 			aStrafeAngle > M_PI * 0.125 && aStrafeAngle < M_PI * 0.875));
 
 	moveKeysWantDown.set(
-		useMouseLookMoveKeys
-			? eSpecialKey_MLMoveB - eSpecialKey_FirstMove
-			: eSpecialKey_MoveB - eSpecialKey_FirstMove,
+		eSpecialKey_MoveB - eSpecialKey_FirstMove,
 		(applyMoveTurn && abs(turn) >= abs(strafe) &&
 			aTurnAngle < M_PI * -0.125 && aTurnAngle > M_PI * -0.875) ||
 		(applyMoveStrafe && abs(strafe) >= abs(turn) &&

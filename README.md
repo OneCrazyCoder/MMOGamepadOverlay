@@ -147,7 +147,7 @@ You can also add delays (specified in milliseconds) into the sequence if needed,
 
 #### Mouse jump in key sequence
 
-On a more advanced note, you can also request in the sequence to jump the mouse cursor to a named **Hotspot** location to click on it, such as:
+On a more advanced note, you can also request in the sequence to jump the mouse cursor to a named **Hotspot** location (defined in [Hotspots]) to click on it, such as:
 
     [Hotspots]
     CenterScreen = 50%, 50%
@@ -155,7 +155,6 @@ On a more advanced note, you can also request in the sequence to jump the mouse 
     [Scheme]
     R1 = Point to CenterScreen, LClick
     R2 = Release RMB->LClick at CenterScreen->RClick
-*Hotspots are explained later.*
     
 ### Chat box macros
 
@@ -191,6 +190,22 @@ You would instead say:
 In this example it may not seem worth the effort, but it can be convenient when using the same input in multiple places, or for just making your [Scheme] easier to read.
 
 There are also some KeyBinds that are specifically checked for and used by the application for certain commands - namely for character movement.
+
+### Special Key Binds
+
+A few Key Bind names are specifically checked for by the program and used directly as more than just aliases. These include:
+
+    SwapWindowMode =
+    MoveForward =
+    MoveBack =
+    TurnLeft =
+    TurnRight =
+    StrafeLeft =
+    StrafeRight =
+
+``SwapWindowMode=`` is used in the code for attempting to force the target game into full-screen-windowed mode (as opposed to *true* full screen mode which would prevent the overlay from being visible), which can be set in the [System] category with the flag ``ForceFullScreenWindow = Yes`` (and optionally ``StartInFullScreenWindow = Yes``). It is typically set to ``=Alt+Enter``.
+
+The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe`` (or their directional versions if not using multi-assign, like ``=Move Left``, etc). While you could just manually assign the movement keys or use different Key Binds, using these utilizes special extra code that helps improve movement responsiveness, particularly when using analog sticks. If the Strafe versions aren't set, the Turn versions will be used instead automatically (which for many games will automatically convert to being a Strafe motion while in Mouse Look mode).
 
 ### Key Bind Arrays
 
@@ -578,17 +593,11 @@ In addition to keyboard and mouse input and Commands for adding/removing Layers 
 
 This includes commands for controlling the overlay app itself, such as ``=Change Profile`` to bring up the Profile selection dialog or ``=Quit App`` to shut down the overlay application.
 
-### Character movement commands
-
-Special character movement commands include ``=Move Up/Down/Left/Right`` (same thing as ``=MoveTurn``), and ``=MoveStrafe``. These are special because which actual key is pressed may change depending on whether or not MouseLook mode is turned on (via ``Mouse = Look`` property set on an active Layer). These require the Key Binds be assigned for ``MoveForward=, MoveBack=, TurnLeft=``, and ``TurnRight=`` at minimum, as well as optionally ``StrafeLeft=`` and ``StrafeRight=`` if want to use the ``=MoveStrafe`` Command.
-
-All of these can have a MouseLook version of them as well for which key to use in MouseLook mode (if it is different), such as the notable common example ``MouseLookMoveForward = LClick``.
-
 ## Other system features
 
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD Elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD Elements actually show up over top of the game.
 
-There are various other system options you can set like how long a "tap" vs a "short hold" is, analog stick deadzones and mouse cursor speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since Discord refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.
+There are various other system options you can set like how long a "tap" vs a "short hold" is, analog stick deadzones and mouse cursor/wheel speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since Discord refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.
 
 ### Global automatic scaling
 
