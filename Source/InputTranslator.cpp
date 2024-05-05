@@ -22,7 +22,7 @@ namespace InputTranslator
 //-----------------------------------------------------------------------------
 
 enum {
-kMaxLayerChangesPerUpdate = 20,
+kMaxLayerChangesPerUpdate = 32,
 };
 
 
@@ -1119,20 +1119,26 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 }
 
 
-static void holdLayerByButton(ButtonState& theBtnState, u16 theLayerID)
+static void holdLayerByButton(
+	ButtonState& theBtnState,
+	u16 theLayerID,
+	u16 theSpawningLayerID)
 {
 	DBG_ASSERT(theLayerID < sState.layers.size());
 	DBG_ASSERT(theLayerID > 0);
+	DBG_ASSERT(theSpawningLayerID < sState.layers.size());
 	releaseLayerHeldByButton(theBtnState);
 
-	// Held layers are always independent (Layer 0 is their parent) and
-	// placed on "top" of all other layers when they are added.
 	transDebugPrint(
-		"Holding Controls Layer '%s'\n",
-		InputMap::layerLabel(theLayerID).c_str());
+		"Holding Controls Layer '%s' as child of Layer '%s'\n",
+		InputMap::layerLabel(theLayerID).c_str(),
+		InputMap::layerLabel(theSpawningLayerID).c_str());
+
+	// Held layers are always placed on "top" (back() of the vector)
+	// of all other layers when they are added.
 	sState.layerOrder.push_back(theLayerID);
 	LayerState& aLayer = sState.layers[theLayerID];
-	aLayer.parentLayerID = 0;
+	aLayer.parentLayerID = theSpawningLayerID;
 	aLayer.active = true;
 	aLayer.newlyActive = true;
 	aLayer.heldActiveByButton = true;
@@ -1166,9 +1172,10 @@ static bool tryAddLayerFromButton(
 		return false;
 
 	// If newly hit, replace any past layer with new layer
+	const u16 aParentLayer = theBtnState.commandsLayer;
 	if( wasHit )
 	{
-		holdLayerByButton(theBtnState, aLayerID);
+		holdLayerByButton(theBtnState, aLayerID, aParentLayer);
 		return true;
 	}
 
@@ -1212,7 +1219,7 @@ static bool tryAddLayerFromButton(
 			 pab.commands[eBtnAct_Release] == nab.commands[eBtnAct_Release]) )
 		{
 			nab.swapHeldState(pab);
-			holdLayerByButton(theBtnState, aLayerID);
+			holdLayerByButton(theBtnState, aLayerID, aParentLayer);
 			sState.layers[aLayerID].newlyActive = false;
 		}
 		return true;

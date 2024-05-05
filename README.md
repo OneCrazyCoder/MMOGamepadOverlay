@@ -256,7 +256,7 @@ means 50% of the image size for the left edge of the source rectangle to copy, t
 
 To really unlock the full range of actions in an MMO using a Gamepad, you will almost certainly need to employ button combinations like L2+X to execute different Commands. This and more can be accomplished through the use of **Controls Layers**. These Layers change what Commands are assigned to what buttons while the Layer is active.
 
-You can have multiple Layers added at once, and for any given button, the top-most Layer's assignments will take priority. Newly-added Layers are placed on "top" of all previous layers and the [Scheme] category, which acts as the default (lowest) Layer.
+You can have multiple Layers added at once. Layers can be thought of as stacked on top of each other, and for any given button, the top-most Layer's assignments will take priority. If the top-most Layer has nothing assigned to a button, the next Layer below it will be checked for an assignment for that button, and so on. [Scheme] is always the bottom-most layer, and newly-added layers are added to the top of the stack (with some exceptions).
 
 Layers can be added with the ``=Add Layer <LayerName>`` command and removed with the ``=Remove Layer`` command assigned to a gamepad button action (or both added and removed with the same button with a single ``=Toggle Layer <LayerName>`` command). Alternatively, they can be "held" by just using the ``=Layer <LayerName>`` command assigned to a button, which means that the Layer will be added when the button is first pressed, and then automatically removed when the button is released. For example:
 
@@ -266,7 +266,7 @@ Layers can be added with the ``=Add Layer <LayerName>`` command and removed with
     # Add "MouseLook" layer until another Command elsewhere removes it
     R3 = Add Layer MouseLook
 
-*If the same Layer is added when it is already active, that Layer is just moved to become the top layer instead of another copy of it being added!*
+*There can only be one of each named Layer active at once, so trying to add an active Layer again will simply move it to the top instead!*
 
 Layers are defined the same as [Scheme], with just the category name [Layer.LayerName] instead. So for the above example, you could add:
 
@@ -278,7 +278,7 @@ Layers are defined the same as [Scheme], with just the category name [Layer.Laye
     Mouse = Look
     # If don't specify Layer name, removes self
     R3 = Remove Layer
-With the above setup, L2+Triangle will cause the character to jump (via a ``Jump=`` Key Bind), and R3 will act as a toggle button turning MouseLook mode on and off (alternatively could have just assigned ``R3 = Toggle Layer MouseLook`` in [Scheme] instead, but in complex control schemes Toggle may not be sufficient).
+With the above setup, L2+Triangle will cause the character to jump (via a ``Jump=`` Key Bind), and R3 will act as a toggle button turning MouseLook mode on and off (alternatively could have just assigned ``R3 = Toggle Layer MouseLook`` in [Scheme] instead, but in complex control schemes Toggle may not always be ideal).
 
 ### The "Auto" Button
 
@@ -326,14 +326,6 @@ Would be the same as typing out this:
     PS_X = Attack
     R2 = RMB
 
-### Advanced Layer control (parenting)
-
-When a Command adds a new Layer, that new Layer treats the Layer that contained the Command as its "Parent Layer". If this Parent Layer is later removed, the new "child" Layer will be automatically removed along with it. This allows removing an entire hierarchy of Layers all at once by just removing the base Layer that spawned them.
-
-In some cases this is not desired, so you can override the new Layer's parent by including extra specifiers to commands like ``=Add Layer``, such as ``Add Layer <LayerName> to Parent`` (causes the new layer to treat the current's parent as its own), ``Add Layer <LayerName> to Grandparent`` or ``Add Layer <LayerName> to Parent +1`` (both do the same thing), or even ``Add Independent Layer <LayerName>`` to prevent it being removed automatically at all (uses [Scheme] as its parent). Note that "held" Layers are only automatically removed when the button "holding" it active is released (they are always set to just have [Scheme] as their parent, and [Scheme] can never be removed).
-
-There is also the more advanced Layer command Replace, such as ``Replace Layer with <LayerName>`` or ``Replace Parent/GrandParent/etc Layer with <LayerName>`` or even ``Replace All Layers with <LayerName>`` which can be used to simultaneously Remove and Add in a single Command. *Note that Replace All will not remove any Layer being "held" active by holding a button down, and that the base [Scheme] Layer can never be removed.*
-
 ### Other Layer Properties
 
 In addition to changing button assignments temporarily while they are active, each Layer (and the [Scheme] category) has a few other properties.
@@ -351,6 +343,22 @@ Each Layer also specifies which **HUD Elements** (including **Menus**) should be
     
     [Layer.TopMost]
     HUD = Hide MainMenu, Show GroupTargetLast
+
+### Advanced Layer control (parenting)
+
+When a Command adds a new Layer, that new Layer treats the Layer that contained the Command as its "Parent Layer". If this Parent Layer is later removed, the new "child" Layer will be automatically removed along with it (with some exceptions). This allows removing an entire hierarchy of Layers all at once by just removing the base Layer that spawned them.
+
+In some cases this is not desired, so you can override the new Layer's parent by including extra specifiers to commands like ``=Add Layer``, such as ``Add Layer <LayerName> to Parent`` (causes the new layer to treat the current's parent as its own), ``Add Layer <LayerName> to Grandparent`` or ``Add Layer <LayerName> to Parent +1`` (both do the same thing), or even ``Add Independent Layer <LayerName>`` to prevent it being removed automatically at all (uses [Scheme] as its parent). You can also use these with ``=Remove Layer``, such as a layer removing both itself and its parent with ``=Remove parent layer``.
+
+Note that "held" Layers (layer active only so long as are holding a button such as [Layer.Alt] from the ``L2 = Layer Alt`` example above) are NOT automatically removed when their parent is removed. They are only removed when the button "holding" it active (L2 in this case) is released! *In some special circumstances, they CAN be auto-replaced with an alternate "hold" layer assigned to the same button though, if that button's assignment changes via other layers being added or removed.*
+
+There is also the more advanced Layer command Replace, such as ``Replace Layer with <LayerName>`` or ``Replace Parent/GrandParent/etc Layer with <LayerName>`` or even ``Replace All Layers with <LayerName>`` which can be used to simultaneously Remove and Add in a single Command. *Note that Replace All will **not** remove any "held" Layers!*
+
+In terms of actual Layer order in the stack (which affects the final button assignments, visible HUD, etc), parenting *mostly* doesn't matter, only the order the Layers were added in and what type of Layer it is.
+
+There are 3 types of Layers when it comes to ordering: the root [Scheme], a "normal" Layer (added with Add/Replace/Toggle), and a "held" Layer (held active by a button like). The basic order is [Scheme] at the bottom, followed by normal layers above it in the order added, and then held layers at the top, again in order added.
+
+*The one special exception to the above ordering is normal layers added as children to a held layer, which will be sorted directly on top of their parent held layer yet beneath any other held layers that were added after their parent was.*
 
 ## Menus
 
