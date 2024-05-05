@@ -69,12 +69,6 @@ const char* kSpecialKeyNames[] =
 	"TURNRIGHT",			// eSpecialKey_TurnR
 	"STRAFELEFT",			// eSpecialKey_StrafeL
 	"STRAFERIGHT",			// eSpecialKey_StrafeR
-	"MOUSELOOKMOVEFORWARD",	// eSpecialKey_MLMoveF
-	"MOUSELOOKMOVEBACK",	// eSpecialKey_MLMoveB
-	"MOUSELOOKTURNLEFT",	// eSpecialKey_MLTurnL
-	"MOUSELOOKTURNRIGHT",	// eSpecialKey_MLTurnR
-	"MOUSELOOKSTRAFELEFT",	// eSpecialKey_MLStrafeL
-	"MOUSELOOKSTRAFERIGHT",	// eSpecialKey_MLStrafeR
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialKeyNames) == eSpecialKey_Num);
 
@@ -2609,28 +2603,14 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 	}
 
 	// Have some special keys borrow the value of others if left unassigned
-	if( sSpecialKeys[eSpecialKey_MLMoveF] == 0 )
-		sSpecialKeys[eSpecialKey_MLMoveF] = sSpecialKeys[eSpecialKey_MoveF];
-	if( sSpecialKeys[eSpecialKey_MLMoveB] == 0 )
-		sSpecialKeys[eSpecialKey_MLMoveB] = sSpecialKeys[eSpecialKey_MoveB];
-	if( sSpecialKeys[eSpecialKey_MLTurnL] == 0 )
-		sSpecialKeys[eSpecialKey_MLTurnL] = sSpecialKeys[eSpecialKey_TurnL];
-	if( sSpecialKeys[eSpecialKey_MLTurnR] == 0 )
-		sSpecialKeys[eSpecialKey_MLTurnR] = sSpecialKeys[eSpecialKey_TurnR];
-	if( sSpecialKeys[eSpecialKey_MLStrafeL] == 0 )
-	{
-		sSpecialKeys[eSpecialKey_MLStrafeL] =
-			sSpecialKeys[eSpecialKey_StrafeL]
-				? sSpecialKeys[eSpecialKey_StrafeL]
-				: sSpecialKeys[eSpecialKey_MLTurnL];
-	}
-	if( sSpecialKeys[eSpecialKey_MLStrafeR] == 0 )
-	{
-		sSpecialKeys[eSpecialKey_MLStrafeR] =
-			sSpecialKeys[eSpecialKey_StrafeR]
-				? sSpecialKeys[eSpecialKey_StrafeR]
-				: sSpecialKeys[eSpecialKey_MLTurnR];
-	}
+	if( sSpecialKeys[eSpecialKey_StrafeL] == 0 )
+		sSpecialKeys[eSpecialKey_StrafeL] = sSpecialKeys[eSpecialKey_TurnL];
+	if( sSpecialKeys[eSpecialKey_StrafeR] == 0 )
+		sSpecialKeys[eSpecialKey_StrafeR] = sSpecialKeys[eSpecialKey_TurnR];
+	if( sSpecialKeys[eSpecialKey_TurnL] == 0 )
+		sSpecialKeys[eSpecialKey_TurnL] = sSpecialKeys[eSpecialKey_StrafeL];
+	if( sSpecialKeys[eSpecialKey_TurnR] == 0 )
+		sSpecialKeys[eSpecialKey_TurnR] = sSpecialKeys[eSpecialKey_StrafeR];
 }
 
 
