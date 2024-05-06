@@ -57,12 +57,28 @@ struct OverlayWindow
 };
 
 
+struct OverlayWindowPriority
+{
+	u16 id;
+	s16 priority;
+
+	OverlayWindowPriority() : id(), priority() {}
+	bool operator<(const OverlayWindowPriority& rhs) const
+	{
+		if( priority != rhs.priority )
+			return priority < rhs.priority;
+		return id < rhs.id; 
+	}
+};
+
+
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
 
 static HWND sMainWindow = NULL;
 static std::vector<OverlayWindow> sOverlayWindows;
+static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
 static RECT sDesktopTargetRect; // relative to virtual desktop
 static RECT sScreenTargetRect; // relative to main screen
 static SIZE sTargetSize = { 0 };
@@ -462,20 +478,31 @@ void createMain(HINSTANCE theAppInstanceHandle)
 void createOverlays(HINSTANCE theAppInstanceHandle)
 {
 	DBG_ASSERT(sOverlayWindows.empty());
+	DBG_ASSERT(sOverlayWindowOrder.empty());
 
 	// Create one transparent overlay window per HUD Element
 	sOverlayWindows.reserve(InputMap::hudElementCount());
 	sOverlayWindows.resize(InputMap::hudElementCount());
-	for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+	sOverlayWindowOrder.reserve(sOverlayWindows.size());
+	sOverlayWindowOrder.resize(sOverlayWindows.size());
+	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
 	{
-		OverlayWindow& aWindow = sOverlayWindows[i];
-		HUD::updateWindowLayout(i, sTargetSize,
+		sOverlayWindowOrder[i].id = u16(i);
+		sOverlayWindowOrder[i].priority = HUD::drawPriority(u16(i));
+	}
+	std::sort(sOverlayWindowOrder.begin(), sOverlayWindowOrder.end());
+	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
+	{
+		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 			aWindow.componentSize, aWindow.position, aWindow.size);
+
 		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
 			WS_EX_TRANSPARENT | WS_EX_LAYERED,
 			kOverlayWindowClassName,
-			widen(InputMap::hudElementLabel(i)).c_str(),
+			widen(InputMap::hudElementLabel(aHUDElementID)).c_str(),
 			WS_POPUP | (sUseChildWindows ? WS_CHILD : 0),
 			aWindow.position.x,
 			aWindow.position.y,
@@ -483,8 +510,9 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 			aWindow.size.cy,
 			sUseChildWindows ? sMainWindow : NULL,
 			NULL, theAppInstanceHandle, NULL);
-		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, i);
-		aWindow.hideUntilActivated = HUD::shouldStartHidden(u16(i));
+
+		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, aHUDElementID);
+		aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
 	}
 }
 
@@ -504,6 +532,7 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 			DestroyWindow(sOverlayWindows[i].handle);
 	}
 	sOverlayWindows.clear();
+	sOverlayWindowOrder.clear();
 	UnregisterClassW(kMainWindowClassName, theAppInstanceHandle);
 	UnregisterClassW(kOverlayWindowClassName, theAppInstanceHandle);
 }
@@ -515,34 +544,37 @@ void update()
 	HDC aScreenDC = GetDC(NULL);
 	HDC aTargetDC = GetDC(TargetApp::targetWindowHandle());
 	POINT anOriginPoint = { 0, 0 };
-	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
+	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
 	{
-		OverlayWindow& aWindow = sOverlayWindows[i];
+		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
 		// Update alpha fade effects based on gVisibleHUD & gActiveHUD
-		updateAlphaFades(aWindow, u16(i));
+		updateAlphaFades(aWindow, aHUDElementID);
 
 		// Check visibility status so can mostly ignore hidden windows
 		if( sHidden || aWindow.alpha == 0 ||
-			(aWindow.hideUntilActivated && !gActiveHUD.test(i)) )
+			(aWindow.hideUntilActivated && !gActiveHUD.test(aHUDElementID)) )
 		{
 			if( IsWindowVisible(aWindow.handle) )
 				ShowWindow(aWindow.handle, SW_HIDE);
-			aWindow.hideUntilActivated = HUD::shouldStartHidden(u16(i));
-			gActiveHUD.reset(i);
+			aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
+			gActiveHUD.reset(aHUDElementID);
 			continue;
 		}
 		aWindow.hideUntilActivated = false;
 
 		// Check for possible update to window layout
-		if( !aWindow.updated || gRedrawHUD.test(i) || gActiveHUD.test(i) )
+		if( !aWindow.updated ||
+			gRedrawHUD.test(aHUDElementID) ||
+			gActiveHUD.test(aHUDElementID) )
 		{
-			HUD::updateWindowLayout(u16(i), sTargetSize,
+			HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 				aWindow.componentSize, aWindow.position, aWindow.size);
 			aWindow.updated = false;
 			if( aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
 			{
-				gActiveHUD.reset(i);
+				gActiveHUD.reset(aHUDElementID);
 				continue;
 			}
 		}
@@ -568,7 +600,7 @@ void update()
 				logFatalError("Could not create bitmap for overlay!");
 				continue;
 			}
-			gRedrawHUD.set(i);
+			gRedrawHUD.set(aHUDElementID);
 		}
 
 		// Redraw bitmap contents if needed
@@ -580,14 +612,13 @@ void update()
 			continue;
 		}
 		SelectObject(aWindowDC, aWindow.bitmap);
-		if( gRedrawHUD.test(i) )
+		if( gRedrawHUD.test(aHUDElementID) )
 		{
 			HUD::drawElement(
-				aWindowDC, aTargetDC, sTargetSize,
-				u16(i), aWindow.componentSize, aWindow.size,
-				needToEraseBitmap);
+				aWindowDC, aTargetDC, sTargetSize, aHUDElementID,
+				aWindow.componentSize, aWindow.size, needToEraseBitmap);
 			aWindow.updated = false;
-			gRedrawHUD.reset(i);
+			gRedrawHUD.reset(aHUDElementID);
 		}
 
 		// Update window
@@ -600,11 +631,11 @@ void update()
 			UpdateLayeredWindow(aWindow.handle, aScreenDC,
 				&aWindowScreenPos, &aWindow.size,
 				aWindowDC, &anOriginPoint,
-				HUD::transColor(u16(i)), &aBlendFunction,
-				ULW_ALPHA | ULW_COLORKEY);
+				HUD::transColor(aHUDElementID),
+				&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
 			aWindow.updated = true;
 		}
-		gActiveHUD.reset(i);
+		gActiveHUD.reset(aHUDElementID);
 
 		// Show window if it isn't visible yet
 		if( !IsWindowVisible(aWindow.handle) )
@@ -681,9 +712,11 @@ void showOverlays()
 
 void setOverlaysToTopZ()
 {
-	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
+	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
 	{
-		OverlayWindow& aWindow = sOverlayWindows[i];
+		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+
 		DBG_ASSERT(aWindow.handle);
 		SetWindowPos(
 			aWindow.handle, HWND_TOPMOST,

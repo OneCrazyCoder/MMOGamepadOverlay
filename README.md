@@ -505,7 +505,7 @@ When the ``=Edit`` command is executed, a dialog box pops up that allows changin
 
 As mentioned above, Menus are also **HUD Elements**. However, there are also HUD Element types that are *not* Menus. These are created with the category name ``[HUD.HUDElementName]``. You can use this to create a reticle in the middle of the screen while in MouseLook mode (to aim better with a "Use CenterScreen" key, for example), as well as special HUD Elements like Key Bind Array indicators.
 
-Default properties used by all HUD Elements and Menus can be defined in the base ``[HUD]`` category if don't want to specify them for every individual HUD Element. The exception being the ``Position=`` property, which should always be specified.
+Default properties used by all HUD Elements and Menus can be defined in the base ``[HUD]`` category if don't want to specify them for every individual HUD Element. The exceptions being the ``Position=`` property, which should always be specified, and the optional ``Priority=`` property, which determines draw order (higher priority are drawn on top of lower priority, allowed range is -100 to 100 and default is 0).
 
 Like ``Style =`` for a Menu, each HUD element must specify a ``Type =`` entry. Available types include: Rectangle, Rounded Rectangle (needs ``Radius=`` as well), Circle, Bitmap (needs ``Bitmap=`` as well), and ArrowL/R/U/D. These are also used for Menus for the ``ItemType=`` property, which determines how the background for each Menu Item is drawn. There are also some special-case types covered later.
 
