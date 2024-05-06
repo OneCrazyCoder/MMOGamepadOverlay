@@ -413,17 +413,9 @@ static std::string namesToVKeySequence(
 static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 {
 	u16 result = 0;
-	if( theVKeySeq == null )
+	if( theVKeySeq == null || theVKeySeq[0] == '\0' )
 		return result;
-	if( theVKeySeq[0] == '\0' )
-		return result;
-	if( theVKeySeq[1] == '\0' )
-	{
-		result = theVKeySeq[0];
-		return result;
-	}
 
-	bool hasNonModKey = false;
 	for(const u8* aVKeyPtr = theVKeySeq; *aVKeyPtr != '\0'; ++aVKeyPtr)
 	{
 		// If encounter anything else after the first non-mod key,
@@ -456,6 +448,10 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 			break;
 		}
 	}
+
+	// If purely mod keys, add dummy base key
+	if( result && !(result & kVKeyMask) )
+		result |= kVKeyModKeyOnlyBase;
 
 	return result;
 }

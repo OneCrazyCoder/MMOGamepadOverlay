@@ -1209,8 +1209,6 @@ static bool tryAddLayerFromButton(
 		theBtnState.commandsWhenPressed[eBtnAct_Down].type ==
 			eCmdType_HoldControlsLayer )
 	{
-		// Both new and old layer must have matching Auto button
-		// _Down and _Release commands to avoid side effects from the swap.
 		ButtonState& pab = sState.layers[theBtnState.layerHeld].autoButton;
 		ButtonState& nab = sState.layers[aLayerID].autoButton;
 		if( pab.commands == nab.commands ||
@@ -1218,9 +1216,16 @@ static bool tryAddLayerFromButton(
 			 pab.commands[eBtnAct_Down] == nab.commands[eBtnAct_Down] &&
 			 pab.commands[eBtnAct_Release] == nab.commands[eBtnAct_Release]) )
 		{
+			// Both new and old layers have matching Auto button
+			// _Down and _Release commands, so can swap them
+			// without affecting anything they are holding active.
 			nab.swapHeldState(pab);
 			holdLayerByButton(theBtnState, aLayerID, aParentLayer);
 			sState.layers[aLayerID].newlyActive = false;
+		}
+		else
+		{
+			holdLayerByButton(theBtnState, aLayerID, aParentLayer);			
 		}
 		return true;
 	}
