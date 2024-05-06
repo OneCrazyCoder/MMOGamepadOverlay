@@ -62,6 +62,7 @@ enum EHUDProperty
 	eHUDProp_Radius,
 	eHUDProp_TitleHeight,
 	eHUDProp_FlashTime,
+	eHUDProp_Priority,
 
 	eHUDProp_Num
 };
@@ -122,6 +123,7 @@ const char* kHUDPropStr[] =
 	"Radius",			// eHUDProp_Radius
 	"TitleHeight",		// eHUDProp_TitleHeight
 	"FlashTime",		// eHUDProp_FlashTime
+	"Priority",			// eHUDProp_Priority
 };
 DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 
@@ -160,6 +162,7 @@ struct HUDElementInfo
 	u8 alignmentY;
 	u8 maxAlpha;
 	u8 inactiveAlpha;
+	s8 drawPriority;
 
 	HUDElementInfo() :
 		itemType(eHUDItemType_Rect),
@@ -1765,7 +1768,10 @@ void init()
 		for(u16 i = 0; i < eAppearanceMode_Num; ++i)
 			hi.appearanceID[i] = i;
 		if( hi.type == eHUDType_System )
+		{
+			hi.drawPriority = 127; // Higher than any can be manually set to
 			continue;
+		}
 		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
 		std::string aStr;
 		u32 aVal;
@@ -1849,6 +1855,10 @@ void init()
 		// hi.flashMaxTime = eHUDProp_FlashTime
 		hi.flashMaxTime = u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FlashTime));
+		// hi.drawPriority = eHUDProp_Priority
+		hi.drawPriority = clamp(intFromString(
+			getNamedHUDPropStr(aHUDName, eHUDProp_Priority)),
+			-100, 100);
 		
 		// Generate custom appearances if have any custom properties
 		for(u32 i = 0; i < eAppearanceMode_Num; ++i)
@@ -2445,6 +2455,13 @@ COLORREF transColor(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].transColor;
+}
+
+
+s8 drawPriority(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	return sHUDElementInfo[theHUDElementID].drawPriority;
 }
 
 

@@ -61,6 +61,9 @@ int inactiveFadeOutDelay(u16 theHUDElementID);
 // Returns background color to become fully transparent
 COLORREF transColor(u16 theHUDElementID);
 
+// Returns draw priority (which are on top of which)
+s8 drawPriority(u16 theHUDElementID);
+
 // Returns if should start hidden until certain user input
 bool shouldStartHidden(u16 theHUDElementID);
 
