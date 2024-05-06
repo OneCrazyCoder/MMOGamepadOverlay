@@ -713,9 +713,8 @@ u16 hotspotMousePosX(const Hotspot& theHotspot)
 	aPos += theHotspot.x.offset * gUIScaleX;
 	// Convert to virtual desktop pixel coordinate
 	aPos = max(0, aPos + sDesktopTargetRect.left);
-	// Convert to % of virtual desktop size (again 65536 == 100%)
-	// Use 64-bit variable temporarily to avoid multiply overflow
-	aPos = min(0xFFFF, s64(aPos) * 0x10000 / kDesktopWidth);
+	// Convert to % of virtual desktop size as normalized 0-65535
+	aPos = (aPos + 1) * 0xFFFF / kDesktopWidth;
 	return u16(aPos);
 }
 
@@ -729,8 +728,64 @@ u16 hotspotMousePosY(const Hotspot& theHotspot)
 	aPos = aPos * sTargetSize.cy / 0x10000;
 	aPos += theHotspot.y.offset * gUIScaleY;
 	aPos = max(0, aPos + sDesktopTargetRect.top);
-	aPos = min(0xFFFF, s64(aPos) * 0x10000 / kDesktopHeight);
+	aPos = (aPos + 1) * 0xFFFF / kDesktopHeight;
 	return u16(aPos);
+}
+
+
+
+POINT overlayToNormalizedMousePos(POINT theMousePos)
+{
+	if( !sMainWindow )
+	{
+		theMousePos.x = 32768;
+		theMousePos.y = 32768;
+		return theMousePos;
+	}
+
+	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+	// Convert to virtual desktop pixel coordinate
+	theMousePos.x = max(0, theMousePos.x + sDesktopTargetRect.left);
+	theMousePos.y = max(0, theMousePos.y + sDesktopTargetRect.top);
+	// Convert to % of virtual desktop size as normalized 0-65535
+	theMousePos.x = (theMousePos.x + 1) * 0xFFFF / kDesktopWidth;
+	theMousePos.y = (theMousePos.y + 1) * 0xFFFF / kDesktopHeight;
+	return theMousePos;
+}
+
+
+POINT normalizedToOverlayMousePos(POINT theSentMousePos)
+{
+	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+	
+	// Restore from normalized to pixel position of virtual desktop
+	theSentMousePos.x = theSentMousePos.x * kDesktopWidth / 0x10000;
+	theSentMousePos.y = theSentMousePos.y * kDesktopHeight / 0x10000;
+	// Offset to be client relative position
+	theSentMousePos.x -= sDesktopTargetRect.left;
+	theSentMousePos.y -= sDesktopTargetRect.top;
+	// Clamp to within client rect range
+	clamp(theSentMousePos.x, 0, sTargetSize.cx - 1);
+	clamp(theSentMousePos.y, 0, sTargetSize.cy - 1);
+	return theSentMousePos;
+}
+
+
+POINT currentOverlayMousePos()
+{
+	POINT result;
+	// Get main screen relevant pixel position
+	GetCursorPos(&result);
+	// Offset to client relative position
+	result.x -= sScreenTargetRect.left;
+	result.y -= sScreenTargetRect.top;
+	// Clamp to within client rect range
+	clamp(result.x, 0, sTargetSize.cx - 1);
+	clamp(result.y, 0, sTargetSize.cy - 1);
+	return result;
 }
 
 } // WindowManager

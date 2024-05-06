@@ -10,7 +10,7 @@
 	paint events sent to the HUD module), positioning to match the target game
 	window, and alpha fading HUD overlay windows in and out when requested.
 	Also converts between different coordinate systems like window-relative to
-	virtual-desktop-relative for hotspots and such.
+	virtual-desktop-relative for hotspots and mouse cursor positions.
 
 	Note that there is no single "Overlay Window" overlapping target game.
 	Instead, each HUD Element has its own small overlay window, managed by this
@@ -53,5 +53,8 @@ bool overlaysAreHidden();
 // Gets virtual-desktop-relative mouse coordinates normalized to 0-65535 range
 u16 hotspotMousePosX(const Hotspot& theHotspot);
 u16 hotspotMousePosY(const Hotspot& theHotspot);
+POINT overlayToNormalizedMousePos(POINT theMousePos);
+POINT normalizedToOverlayMousePos(POINT theSentMousePos);
+POINT currentOverlayMousePos();
 
 } // WindowManager

@@ -7,7 +7,7 @@
 #include "InputMap.h"
 #include "Lookup.h"
 #include "Profile.h"
-#include "WindowManager.h" // hotspotMousePosX/Y(), overlaysAreHidden()
+#include "WindowManager.h"
 
 namespace InputDispatcher
 {
@@ -447,7 +447,7 @@ static void backupMousePos()
 	if( sTracker.hasMouseRestorePos )
 		return;
 
-	GetCursorPos(&sTracker.mouseRestorePos);
+	sTracker.mouseRestorePos = WindowManager::currentOverlayMousePos();
 	sTracker.hasMouseRestorePos = true;
 }
 
@@ -463,26 +463,23 @@ static EResult restoreMousePos()
 	if( sTracker.keysHeldDown.test(VK_LBUTTON) )
 		return eResult_NotAllowed;
 
-	// Check if now at restore position
+	// Check if already at restore position (relative to main screen)
 	POINT aMousePos;
-	GetCursorPos(&aMousePos);
-	if( abs(aMousePos.x - sTracker.mouseRestorePos.x) < 2 &&
-		abs(aMousePos.y - sTracker.mouseRestorePos.y) < 2  )
-	{
-		if( sTracker.mouseModeWanted == eMouseMode_Cursor )
-			sTracker.hasMouseRestorePos = false;
-		sTracker.mouseInHiddenPos = false;
-		return eResult_Ok;
-	}
+	#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
+		aMousePos = WindowManager::currentOverlayMousePos();
+		if( abs(aMousePos.x - sTracker.mouseRestorePos.x) < 2 &&
+			abs(aMousePos.y - sTracker.mouseRestorePos.y) < 2  )
+		{
+			if( sTracker.mouseModeWanted == eMouseMode_Cursor )
+				sTracker.hasMouseRestorePos = false;
+			sTracker.mouseInHiddenPos = false;
+			return eResult_Ok;
+		}
+	#endif
 
-	aMousePos = sTracker.mouseRestorePos;
-	aMousePos.x += GetSystemMetrics(SM_XVIRTUALSCREEN);
-	aMousePos.y += GetSystemMetrics(SM_XVIRTUALSCREEN);
-	const int aDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-	const int aDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-	aMousePos.x = clamp(aMousePos.x * 65535 / aDesktopWidth, 0, 65535);
-	aMousePos.y = clamp(aMousePos.y * 65535 / aDesktopHeight, 0, 65535);
+	aMousePos =
+		WindowManager::overlayToNormalizedMousePos(
+			sTracker.mouseRestorePos);
 
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
@@ -743,9 +740,12 @@ static void debugPrintInputVector()
 			case MOUSEEVENTF_MIDDLEDOWN: siPrint("MMB pressed\n"); break;
 			case MOUSEEVENTF_MIDDLEUP: siPrint("MMB released\n"); break;
 			case MOUSEEVENTF_MOVEABSOLUTE:
-				siPrint("Jumped cursor to %d%%x x %d%%y of desktop\n",
-					anInput.mi.dx * 100 / 0xFFFF,
-					anInput.mi.dy * 100 / 0xFFFF);
+				{
+					POINT aPos = { anInput.mi.dx, anInput.mi.dy };
+					aPos = WindowManager::normalizedToOverlayMousePos(aPos);
+					siPrint("Jumped cursor to %dx x %dy\n",
+						aPos.x, aPos.y);
+				}
 				break;
 			}
 		}
