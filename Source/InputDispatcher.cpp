@@ -641,6 +641,11 @@ static EResult setKeyDown(u16 theKey, bool down)
 	int aLockDownTime = kConfig.baseKeyReleaseLockTime;
 	switch(theKey)
 	{
+	case kVKeyModKeyOnlyBase:
+		// Just a dummy base key used when want to press a mod key by itself
+		// Don't actually press it, but act like did
+		sTracker.keysHeldDown.set(theKey, down);
+		return eResult_Ok;
 	case VK_LBUTTON:
 		anInput.type = INPUT_MOUSE;
 		anInput.mi.dwFlags = down
@@ -1090,8 +1095,8 @@ void update()
 	}
 
 	// If nothing queued or needs to be newly pressed, hold down any
-	// modifier keys that any combo-keys wanted held down.
-	// This likely isn't necessary but target apps may behave better.
+	// modifier keys that any combo-keys wanted held down, as well as
+	// any modifier keys assigned directly using kVKeyModKeyOnlyBase
 	if( !sTracker.nextQueuedKey && !hasNonPressedKeyThatWantsHeldDown )
 	{
 		aDesiredKeysDown.set(VK_SHIFT,
