@@ -733,6 +733,24 @@ u16 hotspotMousePosY(const Hotspot& theHotspot)
 }
 
 
+POINT hotspotOverlayPos(const Hotspot& theHotspot)
+{
+	POINT result;
+	if( !sMainWindow )
+	{
+		result.x = 32768;
+		result.y = 32768;
+		return result;
+	}
+	result.x = theHotspot.x.origin;
+	result.y = theHotspot.y.origin;
+	result.x = result.x * sTargetSize.cx / 0x10000;
+	result.y = result.y * sTargetSize.cy / 0x10000;
+	result.x += theHotspot.y.offset * gUIScaleX;
+	result.y += theHotspot.y.offset * gUIScaleY;
+	return result;
+}
+
 
 POINT overlayToNormalizedMousePos(POINT theMousePos)
 {

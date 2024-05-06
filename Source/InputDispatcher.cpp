@@ -75,6 +75,7 @@ struct Config
 	int mouseWheelSpeed;
 	double moveDeadzone;
 	std::vector<u8> safeAsyncKeys;
+	int mouseLookZoneFixTime;
 	bool useScanCodes;
 
 	void load()
@@ -103,6 +104,7 @@ struct Config
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
 		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
 		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
+		mouseLookZoneFixTime = Profile::getInt("System/MouseLookZoneFix");
 		std::string aString = Profile::getStr("System/safeAsyncKeys");
 		if( !aString.empty() )
 		{
@@ -225,6 +227,7 @@ struct DispatchTracker
 	std::vector<Input> inputs;
 	int queuePauseTime;
 	int digitalMouseVel;
+	int mouseLookZoneFixTimer;
 	size_t currTaskProgress;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
@@ -244,6 +247,7 @@ struct DispatchTracker
 		queuePauseTime(),
 		currTaskProgress(),
 		digitalMouseVel(),
+		mouseLookZoneFixTimer(),
 		keysHeldDown(),
 		mouseModeWanted(eMouseMode_Cursor),
 		mouseRestorePos(),
@@ -308,6 +312,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 
 		if( aVKey == VK_CANCEL )
 		{
+			// Flag next key should be released instead of pressed
 			// Just set the flags since this can never be an actual key
 			sTracker.nextQueuedKey |= kVKeyForceReleaseFlag;
 		}
@@ -542,6 +547,45 @@ static void prepareMousePosForWheelMotion()
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseInHiddenPos = false;
+}
+
+
+static void tryMouseLookZoningFix()
+{
+	// In the EverQuest Titanium client, if you zone while holding RMB for
+	// Mouse Look mode and keep holding it throughout the zoning, there's
+	// a minor bug where the RMB is force-released and re-pressed once
+	// done zoning, causing a right-click at whatever location the cursor
+	// actually is (the cursor continues to move invisibly during Mouse Look
+	// and the game just restores it's old position once release RMB).
+	// This right-click is thus at an unpredictable location, potentially
+	// being on a UI element which will cause a drop out of Mouse Look mode
+	// as well as forcing the user to press Esc or left-click somewhere to
+	// close the contextual menu that pops up.
+
+	// To fix this, if haven't moved the mouse or character for a while
+	// and the mouse has moved away from _MouseLookStart, assume zoning
+	// might be happening and, either way, it should be safe to release
+	// RMB and re-initialize MouseLook mode at the safe _MouseLookStart pos
+	// (at worse will make mouse cursor flicker visible for a frame).
+	DBG_ASSERT(sTracker.nextQueuedKey == 0);
+	const Hotspot& aHotspot =
+		InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
+	const POINT& anExpectedPos =
+		WindowManager::hotspotOverlayPos(aHotspot);
+	const POINT& anActualPos =
+		WindowManager::currentOverlayMousePos();
+	if( anExpectedPos.x != anActualPos.x ||
+		anExpectedPos.y != anActualPos.y )
+	{
+		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+		debugPrint("Input Dispatcher: Refreshing Mouse Look mode\n");
+		#endif
+		// Force release RMB
+		sTracker.nextQueuedKey = VK_RBUTTON | kVKeyForceReleaseFlag;
+		// eMouseMode_Look will cause automatic jump to safe spot
+		// and re-press of RMB on a later update
+	}
 }
 
 
@@ -856,34 +900,46 @@ void update()
 		if( itr->second <= 0 )
 			next_itr = sTracker.keysLockedDown.erase(itr);
 	}
+	sTracker.mouseLookZoneFixTimer += gAppFrameTime;
 
 
 	// Initiate special mouse modes (look or hide)
 	// -------------------------------------------
-	if( sTracker.mouseModeWanted != eMouseMode_Cursor &&
-		!sTracker.keysHeldDown.test(VK_RBUTTON) &&
-		!sTracker.keysHeldDown.test(VK_LBUTTON) &&
-		!sTracker.nextQueuedKey &&
+	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.jumpToHotspot &&
 		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) &&
 		!WindowManager::overlaysAreHidden() )
-	{// Between other tasks, so safe to start up new mouse mode
-		// Store current mouse position to restore when return to Cursor mode
-		backupMousePos();
-		switch(sTracker.mouseModeWanted)
-		{
-		case eMouseMode_Look:
-			// Jump curser to safe spot for initial right-click
-			sTracker.jumpToHotspot = eSpecialHotspot_MouseLookStart;
-			// Begin holding down right mouse button
-			sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
-			break;
-		case eMouseMode_Hide:
-			hideMouseCursor();
-			break;
-		default:
-			DBG_ASSERT(false && "Invalid sTracker.mouseModeWanted value!");
+	{// No user-requested tasks, so available for automatic ones
+		if( sTracker.mouseModeWanted != eMouseMode_Cursor &&
+			!sTracker.keysHeldDown.test(VK_RBUTTON) &&
+			!sTracker.keysHeldDown.test(VK_LBUTTON) )		
+		{// Safe to start up new mouse mode
+			backupMousePos(); // to restore when return to _Cursor mode
+			switch(sTracker.mouseModeWanted)
+			{
+			case eMouseMode_Look:
+				// Jump curser to safe spot for initial right-click
+				sTracker.jumpToHotspot = eSpecialHotspot_MouseLookStart;
+				// Begin holding down right mouse button
+				sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
+				sTracker.mouseLookZoneFixTimer = 0;
+				break;
+			case eMouseMode_Hide:
+				hideMouseCursor();
+				break;
+			default:
+				DBG_ASSERT(false && "Invalid sTracker.mouseModeWanted value!");
+			}
+		}
+		if(	sTracker.mouseModeWanted == eMouseMode_Look &&
+			sTracker.keysHeldDown.test(VK_RBUTTON) &&
+			kConfig.mouseLookZoneFixTime > 0 &&
+			sTracker.mouseLookZoneFixTimer - gAppFrameTime >
+				kConfig.mouseLookZoneFixTime )
+		{// Special fix to EQ Titanium client for zoning while holding RMB
+			tryMouseLookZoningFix();
+			sTracker.mouseLookZoneFixTimer = 0;
 		}
 	}
 	sTracker.disableMouseHide = false;
@@ -1375,6 +1431,7 @@ void moveMouse(int dx, int dy, bool digital)
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseInHiddenPos = false;
+	sTracker.mouseLookZoneFixTimer = 0;
 }
 
 
@@ -1469,9 +1526,6 @@ void scrollMouseWheelOnce(ECommandDir theDir)
 
 void moveCharacter(int move, int turn, int strafe)
 {
-	BitArray<eSpecialKey_MoveNum> moveKeysWantDown;
-	moveKeysWantDown.reset();
-
 	// Treat as 2 virtual analog sticks initially,
 	// one for MoveTurn and one for MoveStrafe
 
@@ -1490,25 +1544,28 @@ void moveCharacter(int move, int turn, int strafe)
 	const bool applyMoveStrafe = aMagnitude > kConfig.moveDeadzone;
 
 	// Calculate which movement actions, if any, should now apply
-	moveKeysWantDown.set(
-		eSpecialKey_TurnL - eSpecialKey_FirstMove,
+	BitArray<eSpecialKey_MoveNum> moveKeysWantDown;
+	moveKeysWantDown.reset();
+	moveKeysWantDown.set(eSpecialKey_TurnL - eSpecialKey_FirstMove,
 		applyMoveTurn &&
-		(aTurnAngle < M_PI * -0.625 || aTurnAngle > M_PI * 0.625));
+			(aTurnAngle < M_PI * -0.625 || aTurnAngle > M_PI * 0.625));
 
-	moveKeysWantDown.set(
-		eSpecialKey_TurnR - eSpecialKey_FirstMove,
+	moveKeysWantDown.set(eSpecialKey_TurnR - eSpecialKey_FirstMove,
 		applyMoveTurn &&
-		aTurnAngle > M_PI * -0.375 && aTurnAngle < M_PI * 0.375);
+			aTurnAngle > M_PI * -0.375 && aTurnAngle < M_PI * 0.375);
 
-	moveKeysWantDown.set(
-		eSpecialKey_StrafeL - eSpecialKey_FirstMove,
+	moveKeysWantDown.set(eSpecialKey_StrafeL - eSpecialKey_FirstMove,
 		applyMoveStrafe &&
 		(aStrafeAngle < M_PI * -0.625 || aStrafeAngle > M_PI * 0.625));
 
-	moveKeysWantDown.set(
-		eSpecialKey_StrafeR - eSpecialKey_FirstMove,
+	moveKeysWantDown.set(eSpecialKey_StrafeR - eSpecialKey_FirstMove,
 		applyMoveStrafe &&
-		aStrafeAngle > M_PI * -0.375 && aStrafeAngle < M_PI * 0.375);
+			aStrafeAngle > M_PI * -0.375 && aStrafeAngle < M_PI * 0.375);
+
+	// Effects of left/right move keys can change while in Mouse Look mode,
+	// so reset Mouse Look zone fix timer whenever any of them are pressed
+	if( moveKeysWantDown.any() )
+		sTracker.mouseLookZoneFixTimer = 0;
 
 	// For move forward/back, use the virtual stick that had the greatest X
 	// motion in order to make sure a proper circular deadzone is used.
