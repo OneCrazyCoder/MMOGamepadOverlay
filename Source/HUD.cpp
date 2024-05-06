@@ -2183,13 +2183,13 @@ void drawElement(
 	SetDCBrushColor(hdc, hi.transColor);
 
 	#ifdef _DEBUG
-	COLORREF aFrameColor = RGB(0, 0, 0);
-	#ifdef DEBUG_DRAW_HUD_ELEMENT_FRAME
-	aFrameColor = RGB(0, 0, 200);
-	#endif
+		COLORREF aFrameColor = RGB(0, 0, 0);
+		#ifdef DEBUG_DRAW_HUD_ELEMENT_FRAME
+			aFrameColor = RGB(0, 0, 200);
+		#endif
 	#ifdef DEBUG_DRAW_OVERLAY_FRAME
-	if( hi.type == eHUDType_System )
-		aFrameColor = RGB(255, 0, 0);
+		if( hi.type == eHUDType_System )
+			aFrameColor = RGB(255, 0, 0);
 	#endif
 	if( aFrameColor != RGB(0, 0, 0) )
 	{
