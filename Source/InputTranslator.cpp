@@ -434,7 +434,6 @@ static void processCommand(
 	switch(theCmd.type)
 	{
 	case eCmdType_Empty:
-	case eCmdType_DoNothing:
 		// Do nothing
 		break;
 	case eCmdType_PressAndHoldKey:

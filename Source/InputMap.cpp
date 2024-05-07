@@ -117,7 +117,7 @@ struct HUDElement
 
 struct ButtonActions
 {
-	std::string label[eBtnAct_Num];
+	//std::string label[eBtnAct_Num]; // TODO
 	Command cmd[eBtnAct_Num];
 };
 typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
@@ -727,11 +727,19 @@ static Command wordsToSpecialCommand(
 	DBG_ASSERT(!allowHoldActions || allowButtonActions);
 	Command result;
 
-	// All commands require more than one "word", even if only one of the
+	// Almost all commands require more than one "word", even if only one of
 	// words is actually a command key word (thus can force a keybind to be
-	// used instead of a command by specifying the keybind as a single word)
+	// used instead of a command by specifying the keybind as a single word).
+	// The exception are the "nothing" and "unassigned" key words.
 	if( theWords.size() <= 1 )
-		return result;
+	{
+		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[0]));
+		if( aKeyWordID != eCmdWord_Nothing &&
+			aKeyWordID != eCmdWord_Unassigned )
+		{
+			return result;
+		}
+	}
 
 	// Find all key words that are actually included and their positions
 	theBuilder.keyWordMap.clear();
@@ -830,16 +838,20 @@ static Command wordsToSpecialCommand(
 	keyWordsFound.reset(eCmdWord_Ignored);
 
 	// Find a command by checking for specific key words + allowed related
-	// words and none more than that
+	// words (but no extra words beyond that, besides fillers)
 	BitArray<eCmdWord_Num> allowedKeyWords;
 
 	// "= [Do] Nothing"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Nothing);
-	if( keyWordsFound.test(eCmdWord_Nothing) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+	if( keyWordsFound.test(eCmdWord_Nothing) && keyWordsFound.count() == 1)
 	{
 		result.type = eCmdType_DoNothing;
+		return result;
+	}
+
+	// "= [Leave] Unassigned"
+	if( keyWordsFound.test(eCmdType_Unassigned) && keyWordsFound.count() == 1)
+	{
+		result.type = eCmdType_Unassigned;
 		return result;
 	}
 
@@ -1990,30 +2002,46 @@ static void reportButtonAssignment(
 	InputMapBuilder& theBuilder,
 	EButtonAction theBtnAct,
 	EButton theBtnID,
-	const Command& theCmd,
+	Command& theCmd,
 	const std::string& theCmdStr)
 {
 	switch(theCmd.type)
 	{
 	case eCmdType_Empty:
-		// Report as an error if theCmdStr wasn't empty but result was.
-		// Empty command string is NOT an error since it can be used to
-		// prevent another layer's assignment from doing anything undesired.
-		if( !theCmdStr.empty() )
+		logError("[%s]: Not sure how to assign '%s%s%s' to '%s'!",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID],
+			theCmdStr.c_str());
+		break;
+	case eCmdType_DoNothing:
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to <do nothing>\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID]);
+		// Now that reported it as <Do Nothing>, change it to just be _Empty.
+		// The point of eCmdType_DoNothing is to make the buttton assigned to
+		// a on-null command list so will override lower layers' assignments,
+		// but it should still come back as just _Empty commands for all the
+		// checks against _Empty in other parts of the code.
+		theCmd.type = eCmdType_Empty;
+		break;
+	case eCmdType_Unassigned:
+		if( theBtnAct != eBtnAct_Down )
 		{
-			logError("[%s]: Not sure how to assign '%s%s%s' to '%s'!",
+			logError("[%s]: Can only set entire '%s' button to <unassigned>, "
+				"not individual button actions!",
 				theBuilder.debugItemName.c_str(),
-				kButtonActionPrefx[theBtnAct],
-				kButtonActionPrefx[theBtnAct][0] ? " " : "",
-				kProfileButtonName[theBtnID],
-				theCmdStr.c_str());
+				kProfileButtonName[theBtnID]);
+			theCmd.type = eCmdType_Empty;
 		}
 		else
 		{
-			mapDebugPrint("[%s]: Assigned '%s%s%s' to: <Do Nothing>\n",
+			mapDebugPrint("[%s]: '%s' left as <unassigned> "
+				"(ignoring Include= layer assignment)\n",
 				theBuilder.debugItemName.c_str(),
-				kButtonActionPrefx[theBtnAct],
-				kButtonActionPrefx[theBtnAct][0] ? " " : "",
 				kProfileButtonName[theBtnID]);
 		}
 		break;
@@ -2142,7 +2170,7 @@ static void addButtonAction(
 			// Make and report assignment
 			aDestCmd = aCmd;
 			reportButtonAssignment(
-				theBuilder, aBtnAct, aBtnID, aCmd, aCmdStr);
+				theBuilder, aBtnAct, aBtnID, aDestCmd, aCmdStr);
 		}
 		return;
 	}
@@ -2152,10 +2180,12 @@ static void addButtonAction(
 		theBuilder, theCmdStr, true, aBtnAct == eBtnAct_Down);
 
 	// Make the assignment
-	sLayers[theLayerIdx].map.findOrAdd(aBtnID).cmd[aBtnAct] = aCmd;
+	Command& aDestCmd =
+		sLayers[theLayerIdx].map.findOrAdd(aBtnID).cmd[aBtnAct];
+	aDestCmd = aCmd;
 
 	// Report the results of the assignment
-	reportButtonAssignment(theBuilder, aBtnAct, aBtnID, aCmd, theCmdStr);
+	reportButtonAssignment(theBuilder, aBtnAct, aBtnID, aDestCmd, theCmdStr);
 }
 
 
@@ -2176,6 +2206,13 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		theBuilder.debugItemName = kLayerPrefix;
 		mapDebugPrint("Building controls layer: %s\n", aLayerName.c_str());
+		if( sLayers[theLayerIdx].includeLayer != 0 )
+		{
+			mapDebugPrint("[%s%s]: Including all data from layer '%s'\n",
+				kLayerPrefix,
+				aLayerName.c_str(),
+				sLayers[sLayers[theLayerIdx].includeLayer].label.c_str());
+		}
 	}
 	theBuilder.debugItemName += aLayerName;
 
@@ -2356,6 +2393,13 @@ static MenuItem stringToMenuItem(
 		mapDebugPrint("%s: '%s' assigned to sequence: %s\n",
 			theBuilder.debugItemName.c_str(),
 			aLabel.c_str(), theString.c_str());
+		break;
+	case eCmdType_DoNothing:
+	case eCmdType_Unassigned:
+		mapDebugPrint("%s: '%s' left <unassigned>!\n",
+			theBuilder.debugItemName.c_str(),
+			aLabel.c_str());
+		aMenuItem.cmd.type = eCmdType_Empty;
 		break;
 	case eCmdType_Empty:
 		// Probably just forgot the > at front of a plain string
@@ -2765,6 +2809,8 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 		itr = sLayers[theLayerID].map.find(theButton);
 		if( itr != sLayers[theLayerID].map.end() )
 		{// Button has something assigned
+			if( itr->second.cmd[0].type == eCmdType_Unassigned )
+				return null;
 			return &itr->second.cmd[0];
 		}
 		else
@@ -2773,7 +2819,7 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 		}
 	} while(theLayerID != 0);
 
-	return NULL;
+	return null;
 }
 
 
