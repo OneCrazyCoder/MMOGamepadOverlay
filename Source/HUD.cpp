@@ -1368,7 +1368,11 @@ static void drawListMenu(HUDDrawData& dd)
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
-		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+	{
+		drawMenuTitle(dd, hi.subMenuID,
+			sMenuDrawCache[hi.subMenuID][0].str,
+			hi.itemType != eHUDItemType_Rect);
+	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
 	const bool selectionChanged = hi.selection != aPrevSelection;
@@ -1429,11 +1433,19 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
-		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+	{
+		drawMenuTitle(dd, hi.subMenuID,
+			sMenuDrawCache[hi.subMenuID][0].str,
+			hi.itemType != eHUDItemType_Rect);
+	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll = dd.firstDraw || selectionChanged;
+
+	// Make sure only flash top slot even if selection changes during flash
+	if( hi.flashing != kInvalidItem )
+		hi.flashing = hi.selection;
 
 	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
 	// just below the top slot, and ending when draw hi.selection last at top
@@ -1480,7 +1492,10 @@ static void drawBarMenu(HUDDrawData& dd)
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
-		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+	{
+		drawMenuTitle(dd, hi.subMenuID,
+			sMenuDrawCache[hi.subMenuID][0].str);
+	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
 	const bool selectionChanged = hi.selection != aPrevSelection;
@@ -1599,7 +1614,11 @@ static void drawGridMenu(HUDDrawData& dd)
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
-		drawMenuTitle(dd, hi.subMenuID, sMenuDrawCache[hi.subMenuID][0].str);
+	{
+		drawMenuTitle(dd, hi.subMenuID,
+			sMenuDrawCache[hi.subMenuID][0].str,
+			hi.itemType != eHUDItemType_Rect);
+	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
 	const bool selectionChanged = hi.selection != aPrevSelection;

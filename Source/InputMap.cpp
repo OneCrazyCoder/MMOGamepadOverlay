@@ -2194,10 +2194,11 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	DBG_ASSERT(theLayerIdx < sLayers.size());
 
 	// If has an includeLayer, get default settings from it first
-	if( sLayers[theLayerIdx].includeLayer != 0 )
+	const u16 anIncludeLayer = sLayers[theLayerIdx].includeLayer;
+	if( anIncludeLayer != 0 )
 	{
 		sLayers[theLayerIdx].mouseMode =
-			sLayers[sLayers[theLayerIdx].includeLayer].mouseMode;
+			sLayers[anIncludeLayer].mouseMode;
 	}
 
 	const std::string& aLayerName = sLayers[theLayerIdx].label;
@@ -2206,12 +2207,12 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		theBuilder.debugItemName = kLayerPrefix;
 		mapDebugPrint("Building controls layer: %s\n", aLayerName.c_str());
-		if( sLayers[theLayerIdx].includeLayer != 0 )
+		if( anIncludeLayer != 0 )
 		{
 			mapDebugPrint("[%s%s]: Including all data from layer '%s'\n",
 				kLayerPrefix,
 				aLayerName.c_str(),
-				sLayers[sLayers[theLayerIdx].includeLayer].label.c_str());
+				sLayers[anIncludeLayer].label.c_str());
 		}
 	}
 	theBuilder.debugItemName += aLayerName;
@@ -2272,6 +2273,37 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		// Parse and add assignment to this layer's commands map
 		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second);
 	}
+
+	// If included another layer, copy commands from include layer into any
+	// empty entries for any buttons that had something assigned (besides
+	// ones specifically set to _Unassigned). Buttons that had no new
+	// assignments at all don't need to be copied over because the include
+	// copy will be directly returned by commandsForButton() later instead.
+	if( anIncludeLayer != 0 )
+	{
+		ButtonActionsMap& myMap = sLayers[theLayerIdx].map;
+		ButtonActionsMap& incMap = sLayers[anIncludeLayer].map;
+		for(size_t i = 0; i < myMap.size(); ++i)
+		{
+			ButtonActions& myActions = myMap[i].second;
+			if( myActions.cmd[0].type == eCmdType_Unassigned )
+				continue;
+			ButtonActionsMap::const_iterator itr = incMap.find(myMap[i].first);
+			if( itr != incMap.end() )
+			{
+				const ButtonActions& incActions = itr->second;
+				for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+				{
+					if( myActions.cmd[aBtnAct].type != eCmdType_Empty )
+						continue;
+					if( incActions.cmd[aBtnAct].type == eCmdType_Empty )
+						continue;
+					myActions.cmd[aBtnAct] = incActions.cmd[aBtnAct];
+				}
+			}
+		}
+	}
+
 	sLayers[theLayerIdx].map.trim();
 }
 
