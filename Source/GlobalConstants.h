@@ -23,7 +23,8 @@ kInvalidItem = 0xFFFF,
 enum ECommandType
 {
 	eCmdType_Empty, // Does nothing but also means 'not set to anything'
-	eCmdType_DoNothing, // _Empty, but set intentionally in place of others
+	eCmdType_DoNothing, // _Empty but overrides lower Layers' assignments
+	eCmdType_Unassigned, // _Empty but overrides Include= Layer's assignment
 
 	// First group are valid for InputDispatcher::sendKeyCommand()
 	eCmdType_PressAndHoldKey,
@@ -255,6 +256,7 @@ enum ECommandKeyWord
 	eCmdWord_Unknown,
 
 	eCmdWord_Nothing,
+	eCmdWord_Unassigned,
 	eCmdWord_Add,
 	eCmdWord_Remove,
 	eCmdWord_Hold,

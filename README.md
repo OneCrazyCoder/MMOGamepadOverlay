@@ -258,15 +258,13 @@ To really unlock the full range of actions in an MMO using a Gamepad, you will a
 
 You can have multiple Layers added at once. Layers can be thought of as stacked on top of each other, and for any given button, the top-most Layer's assignments will take priority. If the top-most Layer has nothing assigned to a button, the next Layer below it will be checked for an assignment for that button, and so on. [Scheme] is always the bottom-most layer, and newly-added layers are added to the top of the stack (with some exceptions).
 
-Layers can be added with the ``=Add Layer <LayerName>`` command and removed with the ``=Remove Layer`` command assigned to a gamepad button action (or both added and removed with the same button with a single ``=Toggle Layer <LayerName>`` command). Alternatively, they can be "held" by just using the ``=Layer <LayerName>`` command assigned to a button, which means that the Layer will be added when the button is first pressed, and then automatically removed when the button is released. For example:
+Layers can be added with the ``=Add Layer <LayerName>`` command and removed with the ``=Remove Layer`` command (or both added and removed with the same command with a single ``=Toggle Layer <LayerName>`` command). Alternatively, they can be "held" by just using the ``=Layer <LayerName>`` command assigned to a button, which means that the Layer will be added when the button is first pressed, and then automatically removed when the button is released. For example:
 
     [Scheme]
     # Add "Alt" layer as long as L2 is held
     L2 = Layer Alt
     # Add "MouseLook" layer until another Command elsewhere removes it
     R3 = Add Layer MouseLook
-
-*There can only be one of each named Layer active at once, so trying to add an active Layer again will simply move it to the top instead!*
 
 Layers are defined the same as [Scheme], with just the category name [Layer.LayerName] instead. So for the above example, you could add:
 
@@ -279,6 +277,12 @@ Layers are defined the same as [Scheme], with just the category name [Layer.Laye
     # If don't specify Layer name, removes self
     R3 = Remove Layer
 With the above setup, L2+Triangle will cause the character to jump (via a ``Jump=`` Key Bind), and R3 will act as a toggle button turning MouseLook mode on and off (alternatively could have just assigned ``R3 = Toggle Layer MouseLook`` in [Scheme] instead, but in complex control schemes Toggle may not always be ideal).
+
+*There can only be one of each named Layer active at once, so trying to add a Layer with the same name again will simply move the old one to the top of the stack instead.*
+
+*Assigning something to **any** action for a button blocks **all** commands assigned to that button from lower layers. For example, a command assigned to ``Press L2=`` on a lower Layer will never execute if a higher Layer has ``Tap L2=`` assigned to something even though those are different actions*.
+
+*If you want a button to literally do nothing, including blocking lower layers' assignments for that button, set that specific button to do nothing (``L2 = Do Nothing``). Leaving the button assignment blank (just ``L2=``) has that button defer to lower layers' assignments instead.*
 
 ### The "Auto" Button
 
@@ -306,12 +310,12 @@ To save on copying and pasting a lot when editing the .ini file, each Layer can 
     L1 = Target NPC
     R1 = Target PC
     PS_X = Attack
-
-    [Layer.MyDerivedLayer]
-    Include = MyLayer
-    # Overrides R1 = Target Pc from MyLayer
-    R1 = Jump
     R2 = RMB
+    ...
+
+    [Layer.MyLayerButR1Jumps]
+    Include = MyLayer
+    R1 = Jump
 
 Would be the same as typing out this:
 
@@ -319,12 +323,17 @@ Would be the same as typing out this:
     L1 = Target NPC
     R1 = Target PC
     PS_X = Attack
+    R2 = RMB
+    ...
 
-    [Layer.MyDerivedLayer]
+    [Layer.MyLayerButR1Jumps]
     L1 = Target NPC
     R1 = Jump
     PS_X = Attack
     R2 = RMB
+    ...
+
+*If you want to include a layer but change one of the buttons from the included layer to be unassigned (thus allowing whatever is assigned to lower layers to be used for that button instead), set that specific button to be unassigned (``R1 = Unassigned``). Leaving the button assignment blank (just ``R1=``) defers to whatever the included layer had set for it.*
 
 ### Other Layer Properties
 

@@ -68,6 +68,10 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 				{ "RIGHTCLICK",		VK_RBUTTON		},
 				{ "RMB",			VK_RBUTTON		},
 				{ "RELEASE",		VK_CANCEL		}, // Force release a key
+				{ "REL",			VK_CANCEL		}, // Force release a key
+				{ "CANCEL",			VK_CANCEL		}, // Force release a key
+				{ "STOP",			VK_CANCEL		}, // Force release a key
+				{ "LIFT",			VK_CANCEL		}, // Force release a key
 				{ "MCLICK",			VK_MBUTTON		},
 				{ "MIDDLECLICK",	VK_MBUTTON		},
 				{ "MMB",			VK_MBUTTON		},
@@ -447,10 +451,10 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "NOTHING",		eCmdWord_Nothing	},
 				{ "BLANK",			eCmdWord_Nothing	},
 				{ "EMPTY",			eCmdWord_Nothing	},
-				{ "UNUSED",			eCmdWord_Nothing	},
-				{ "UNASSIGNED",		eCmdWord_Nothing	},
 				{ "RESERVED",		eCmdWord_Nothing	},
-				{ "TBD",			eCmdWord_Nothing	},
+				{ "UNUSED",			eCmdWord_Unassigned	},
+				{ "UNASSIGNED",		eCmdWord_Unassigned	},
+				{ "TBD",			eCmdWord_Unassigned	},
 				{ "ADD",			eCmdWord_Add		},
 				{ "REMOVE",			eCmdWord_Remove		},
 				{ "HOLD",			eCmdWord_Hold		},
@@ -562,9 +566,11 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "ITEM",			eCmdWord_Ignored	},
 				{ "OPTION",			eCmdWord_Ignored	},
 				{ "PRESS",			eCmdWord_Ignored	},
+				{ "REPRESS",		eCmdWord_Ignored	},
 				{ "PRESSED",		eCmdWord_Ignored	},
 				{ "ARRAY",			eCmdWord_Ignored	},
 				{ "KEY",			eCmdWord_Ignored	},
+				{ "LEAVE",			eCmdWord_Ignored	},
 				{ "A",				eCmdWord_Filler		},
 				{ "AND",			eCmdWord_Filler		},
 				{ "BY",				eCmdWord_Filler		},
@@ -578,6 +584,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "AT",				eCmdWord_Filler		},
 				{ "WITH",			eCmdWord_Filler		},
 				{ "W",				eCmdWord_Filler		},
+				{ "USING",			eCmdWord_Filler		},
 				{ "DO",				eCmdWord_Filler		},
 				{ "THIS",			eCmdWord_Filler		},
 				{ "THEN",			eCmdWord_Filler		},

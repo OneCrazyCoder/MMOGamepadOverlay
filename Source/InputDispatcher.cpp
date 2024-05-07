@@ -568,6 +568,7 @@ static void tryMouseLookZoningFix()
 	// might be happening and, either way, it should be safe to release
 	// RMB and re-initialize MouseLook mode at the safe _MouseLookStart pos
 	// (at worse will make mouse cursor flicker visible for a frame).
+#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 	DBG_ASSERT(sTracker.nextQueuedKey == 0);
 	const Hotspot& aHotspot =
 		InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
@@ -586,6 +587,7 @@ static void tryMouseLookZoningFix()
 		// eMouseMode_Look will cause automatic jump to safe spot
 		// and re-press of RMB on a later update
 	}
+#endif
 }
 
 
