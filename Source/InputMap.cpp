@@ -24,6 +24,7 @@ const char* kLayerPrefix = "Layer.";
 const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kTypeKeys[] = { "Type", "Style" };
+const char* kDisplayNameKeys[] = { "Label", "Title", "Name", "String" };
 const char* kKBArrayKeys[] = { "KeyBindArray", "Array", "KeyBinds" };
 const char* kKeybindsPrefix = "KeyBinds/";
 const char* kGlobalHotspotsPrefix = "Hotspots/";
@@ -107,7 +108,8 @@ struct Menu
 
 struct HUDElement
 {
-	std::string label;
+	std::string keyName;
+	std::string displayName;
 	EHUDType type : 16;
 	union { u16 menuID; u16 keyBindArrayID; };
 	// Visual details will be parsed by HUD module
@@ -532,7 +534,7 @@ static u16 getOrCreateHUDElementID(
 	// Add new HUD element
 	sHUDElements.push_back(HUDElement());
 	HUDElement& aHUDElement = sHUDElements.back();
-	aHUDElement.label = theName;
+	aHUDElement.keyName = theName;
 
 	const std::string& aMenuPath = std::string(kMenuPrefix) + theName;
 	const std::string& aHUDPath = std::string(kHUDPrefix) + theName;
@@ -585,6 +587,21 @@ static u16 getOrCreateHUDElementID(
 				"Changing it to a Menu of type List instead...",
 				theName.c_str(), aHUDTypeName.c_str());
 			aHUDElement.type = eMenuStyle_List;
+		}
+	}
+
+	{// Get display name if different than key name
+		for(int i = 0; aHUDElement.displayName.empty() &&
+			i < ARRAYSIZE(kDisplayNameKeys); ++i)
+		{
+			aHUDElement.displayName = Profile::getStr(
+				aHUDPath + "/" + kDisplayNameKeys[i]);
+		}
+		for(int i = 0; aHUDElement.displayName.empty() &&
+			i < ARRAYSIZE(kDisplayNameKeys); ++i)
+		{
+			aHUDElement.displayName = Profile::getStr(
+				aMenuPath + "/" + kDisplayNameKeys[i]);
 		}
 	}
 
@@ -3047,6 +3064,8 @@ const std::string& layerLabel(u16 theLayerID)
 const std::string& menuLabel(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
+	if( sMenus[theMenuID].rootMenuID == theMenuID )
+		return hudElementDisplayName(hudElementForMenu(theMenuID));
 	return sMenus[theMenuID].label;
 }
 
@@ -3067,10 +3086,18 @@ const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir)
 }
 
 
-const std::string& hudElementLabel(u16 theHUDElementID)
+const std::string& hudElementKeyName(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
-	return sHUDElements[theHUDElementID].label;
+	return sHUDElements[theHUDElementID].keyName;
+}
+
+const std::string& hudElementDisplayName(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElements.size());
+	if( sHUDElements[theHUDElementID].displayName.empty() )
+		return sHUDElements[theHUDElementID].keyName;
+	return sHUDElements[theHUDElementID].displayName;
 }
 
 } // InputMap

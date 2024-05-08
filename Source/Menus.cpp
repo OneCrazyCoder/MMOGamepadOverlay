@@ -67,7 +67,7 @@ void init()
 		if( aMenuInfo.style == eMenuStyle_Grid )
 		{
 			std::string aKey = "Menu.";
-			aKey += InputMap::menuLabel(aMenuID);
+			aKey += InputMap::hudElementKeyName(aMenuInfo.hudElementID);
 			aKey += "/GridWidth";
 			aMenuInfo.gridWidth =
 				u8(max(0, intFromString(Profile::getStr(aKey))) & 0xFF);
