@@ -1390,35 +1390,20 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Smooth);
-
-		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' <aCmdDir> Once"
-		// allowedKeyWords = Move & Mouse & Wheel
-		allowedKeyWords.set(eCmdWord_Once);
-		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
-			keyWordsFound.test(eCmdWord_Stepped) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
-		{
-			result.type = eCmdType_MouseWheel;
-			result.mouseWheelMotionType = eMouseWheelMotion_Once;
-			return result;
-		}
 	}
-	else if( allowButtonActions )
+
+	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Once] <aCmdDir>"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Move);
+	allowedKeyWords.set(eCmdWord_Mouse);
+	allowedKeyWords.set(eCmdWord_MouseWheel);
+	allowedKeyWords.set(eCmdWord_Once);
+	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
 	{
-		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Once] <aCmdDir>"
-		allowedKeyWords.reset();
-		allowedKeyWords.set(eCmdWord_Move);
-		allowedKeyWords.set(eCmdWord_Mouse);
-		allowedKeyWords.set(eCmdWord_MouseWheel);
-		allowedKeyWords.set(eCmdWord_Once);
-		if( allowButtonActions &&
-			keyWordsFound.test(eCmdWord_MouseWheel) &&
-			(keyWordsFound & ~allowedKeyWords).none() )
-		{
-			result.type = eCmdType_MouseWheel;
-			result.mouseWheelMotionType = eMouseWheelMotion_Once;
-			return result;
-		}
+		result.type = eCmdType_MouseWheel;
+		result.mouseWheelMotionType = eMouseWheelMotion_Once;
+		return result;
 	}
 
 	DBG_ASSERT(result.type == eCmdType_Empty);
@@ -2299,23 +2284,21 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	if( anIncludeLayer != 0 )
 	{
 		ButtonActionsMap& myMap = sLayers[theLayerIdx].map;
-		ButtonActionsMap& incMap = sLayers[anIncludeLayer].map;
 		for(size_t i = 0; i < myMap.size(); ++i)
 		{
 			ButtonActions& myActions = myMap[i].second;
 			if( myActions.cmd[0].type == eCmdType_Unassigned )
 				continue;
-			ButtonActionsMap::const_iterator itr = incMap.find(myMap[i].first);
-			if( itr != incMap.end() )
+			if( const Command* incCommands =
+				commandsForButton(anIncludeLayer, myMap[i].first) )
 			{
-				const ButtonActions& incActions = itr->second;
 				for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 				{
 					if( myActions.cmd[aBtnAct].type != eCmdType_Empty )
 						continue;
-					if( incActions.cmd[aBtnAct].type == eCmdType_Empty )
+					if( incCommands[aBtnAct].type == eCmdType_Empty )
 						continue;
-					myActions.cmd[aBtnAct] = incActions.cmd[aBtnAct];
+					myActions.cmd[aBtnAct] = incCommands[aBtnAct];
 				}
 			}
 		}
