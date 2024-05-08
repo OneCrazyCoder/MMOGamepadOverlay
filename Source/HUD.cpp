@@ -1284,7 +1284,10 @@ static void drawMenuTitle(
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[eAppearanceMode_Normal]];
-	RECT aTitleRect = { 0, 0, dd.destSize.cx, hi.titleHeight };
+	RECT aTitleRect = {
+		hi.radius / 2, 0,
+		dd.destSize.cx - hi.radius / 2,
+		hi.titleHeight };
 
 	if( !dd.firstDraw )
 		eraseRect(dd, aTitleRect);
@@ -1791,7 +1794,8 @@ void init()
 			hi.drawPriority = 127; // Higher than any can be manually set to
 			continue;
 		}
-		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
+		const std::string& aHUDName =
+			InputMap::hudElementKeyName(aHUDElementID);
 		std::string aStr;
 		u32 aVal;
 		// hi.itemType = eHUDProp_ItemType
@@ -2126,7 +2130,8 @@ void updateScaling()
 		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
 		if( hi.type == eHUDType_System )
 			continue;
-		const std::string& aHUDName = InputMap::hudElementLabel(aHUDElementID);
+		const std::string& aHUDName =
+			InputMap::hudElementKeyName(aHUDElementID);
 		const bool isAMenu =
 			hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
 		// hi.fontID = eHUDProp_FontName & _FontSize & _FontWeight

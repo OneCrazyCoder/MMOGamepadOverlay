@@ -502,7 +502,7 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
 			WS_EX_TRANSPARENT | WS_EX_LAYERED,
 			kOverlayWindowClassName,
-			widen(InputMap::hudElementLabel(aHUDElementID)).c_str(),
+			widen(InputMap::hudElementKeyName(aHUDElementID)).c_str(),
 			WS_POPUP | (sUseChildWindows ? WS_CHILD : 0),
 			aWindow.position.x,
 			aWindow.position.y,
