@@ -56,6 +56,6 @@ u16 hotspotMousePosY(const Hotspot& theHotspot);
 POINT hotspotOverlayPos(const Hotspot& theHotspot);
 POINT overlayToNormalizedMousePos(POINT theMousePos);
 POINT normalizedToOverlayMousePos(POINT theSentMousePos);
-POINT currentOverlayMousePos();
+Hotspot mousePosAsHotspot();
 
 } // WindowManager

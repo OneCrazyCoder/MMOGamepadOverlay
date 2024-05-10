@@ -56,7 +56,8 @@ std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir);
 
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);
-Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
+const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
+void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
 // This function also removes the hotspot from start of string
 // in case multiple hotspots are specified by the same string
 EResult profileStringToHotspot(std::string& theString, Hotspot& out);

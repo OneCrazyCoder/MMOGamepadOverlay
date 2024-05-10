@@ -1446,8 +1446,6 @@ void update()
 		#endif
 	}
 
-	// Update mouselook status continuously
-
 	// Send input that was queued up by any of the above
 	InputDispatcher::moveCharacter(
 		sResults.charMove,

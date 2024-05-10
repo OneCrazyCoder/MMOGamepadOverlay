@@ -14,6 +14,8 @@ namespace InputDispatcher
 
 // Uncomment this to print out SendInput events to debug window
 //#define INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+// Uncomment this along with the above to also print mouse movement
+//#define INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
 // Uncomment this to stop sending actual input (can still print via above)
 //#define INPUT_DISPATCHER_SIMULATION_ONLY
 
@@ -222,42 +224,31 @@ private:
 //-----------------------------------------------------------------------------
 
 struct DispatchTracker
+	: public ConstructFromZeroInitializedMemory<DispatchTracker>
 {
 	DispatchQueue queue;
 	std::vector<Input> inputs;
-	int queuePauseTime;
-	int digitalMouseVel;
-	int mouseLookZoneFixTimer;
 	size_t currTaskProgress;
+	int queuePauseTime;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
 	VectorMap<u8, int> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
-	EMouseMode mouseModeWanted;
-	POINT mouseRestorePos;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
-	u16 jumpToHotspot;
-	bool hasMouseRestorePos;
-	bool mouseInHiddenPos;
-	bool disableMouseHide;
 	bool typingChatBoxString;
 
+	EMouseMode mouseMode;
+	EMouseMode mouseModeWanted;
+	POINT mouseLastCursorModePos;
+	int mouseVelX, mouseVelY;
+	int mouseDigitalVel;
+	int mouseLookZoneFixTimer;
+	u16 mouseJumpToHotspot;
+
 	DispatchTracker() :
-		queuePauseTime(),
-		currTaskProgress(),
-		digitalMouseVel(),
-		mouseLookZoneFixTimer(),
-		keysHeldDown(),
-		mouseModeWanted(eMouseMode_Cursor),
-		mouseRestorePos(),
-		nextQueuedKey(),
-		backupQueuedKey(),
-		jumpToHotspot(),
-		hasMouseRestorePos(),
-		mouseInHiddenPos(),
-		disableMouseHide(),
-		typingChatBoxString()
+		mouseMode(eMouseMode_Cursor),
+		mouseModeWanted(eMouseMode_Cursor)
 	{}
 };
 
@@ -303,10 +294,10 @@ static EResult popNextKey(const u8* theVKeySequence)
 			// Special 3-byte sequence to cause mouse cursor jump to hotspot
 			u8 c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
-			sTracker.jumpToHotspot = (c & 0x7F) << 7;
+			sTracker.mouseJumpToHotspot = (c & 0x7F) << 7;
 			c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
-			sTracker.jumpToHotspot |= (c & 0x7F);
+			sTracker.mouseJumpToHotspot |= (c & 0x7F);
 			continue;
 		}
 
@@ -412,27 +403,6 @@ static EResult popNextStringChar(const char* theString)
 }
 
 
-static bool isSafeAsyncKey(u16 theVKey)
-{
-	// These are keys that can be pressed while typing
-	// in a macro into the chat box without interfering
-	// with the macro or being interfered with by it.
-
-	// Only keys that don't need modifier keys are safe
-	if( (theVKey & ~kVKeyMask) != 0 )
-		return false;
-
-	const u8 aBaseVkey = u8(theVKey & kVKeyMask);
-
-	// Remaining safe async keys depend on target, so use Profile data
-	return
-		std::binary_search(
-			kConfig.safeAsyncKeys.begin(),
-			kConfig.safeAsyncKeys.end(),
-			aBaseVkey);
-}
-
-
 static bool isMouseButton(u16 theVKey)
 {
 	const u8 aBaseVKey = u8(theVKey & kVKeyMask);
@@ -447,106 +417,108 @@ static bool isMouseButton(u16 theVKey)
 }
 
 
-static void backupMousePos()
+static bool isSafeAsyncKey(u16 theVKey)
 {
-	if( sTracker.hasMouseRestorePos )
-		return;
+	// These are keys that can be pressed while typing
+	// in a macro into the chat box without interfering
+	// with the macro or being interfered with by it.
 
-	sTracker.mouseRestorePos = WindowManager::currentOverlayMousePos();
-	sTracker.hasMouseRestorePos = true;
+	// Only keys that don't need modifier keys are safe
+	if( (theVKey & ~kVKeyMask) != 0 )
+		return false;
+
+	// Mouse buttons are not safe while in certain mouse modes
+	if( isMouseButton(theVKey) &&
+		(sTracker.mouseMode == eMouseMode_Hide ||
+		 sTracker.mouseMode == eMouseMode_PostJump ||
+		 sTracker.mouseMode == eMouseMode_JumpClicked ||
+		 sTracker.mouseJumpToHotspot) )
+		return false;
+
+	const u8 aBaseVkey = u8(theVKey & kVKeyMask);
+
+	// Remaining safe async keys depend on target, so use Profile data
+	return
+		std::binary_search(
+			kConfig.safeAsyncKeys.begin(),
+			kConfig.safeAsyncKeys.end(),
+			aBaseVkey);
 }
 
 
-static EResult restoreMousePos()
+static void offsetMousePos(int x, int y)
 {
-	if( !sTracker.hasMouseRestorePos )
-		return eResult_Ok;
+	switch(sTracker.mouseMode)
+	{
+	case eMouseMode_Cursor:
+	case eMouseMode_Look:
+		Input anInput;
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.dx = sTracker.mouseVelX;
+		anInput.mi.dy = sTracker.mouseVelY;
+		anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
+		sTracker.inputs.push_back(anInput);
+		sTracker.mouseLookZoneFixTimer = 0;
+		break;
+	}
+}
 
-	if( sTracker.keysHeldDown.test(VK_RBUTTON) )
-		return eResult_NotAllowed;
-		
-	if( sTracker.keysHeldDown.test(VK_LBUTTON) )
-		return eResult_NotAllowed;
 
-	// Check if already at restore position (relative to main screen)
-	POINT aMousePos;
-	#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
-		aMousePos = WindowManager::currentOverlayMousePos();
-		if( abs(aMousePos.x - sTracker.mouseRestorePos.x) < 2 &&
-			abs(aMousePos.y - sTracker.mouseRestorePos.y) < 2  )
-		{
-			if( sTracker.mouseModeWanted == eMouseMode_Cursor )
-				sTracker.hasMouseRestorePos = false;
-			sTracker.mouseInHiddenPos = false;
-			return eResult_Ok;
+static void jumpMouseToHotspot(u16 theHotspotID)
+{
+	// No jumps allowed while holding down a mouse button!
+	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_LBUTTON));
+	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_MBUTTON));
+	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_RBUTTON));
+
+	// Save pre-jump mouse position to possibly restore later
+	if( sTracker.mouseMode == eMouseMode_Cursor ||
+		sTracker.mouseMode == eMouseMode_PostJump )
+	{// Use actual position mouse is in now
+		InputMap::modifyHotspot(
+			eSpecialHotspot_PreJumpPos,
+			WindowManager::mousePosAsHotspot());
+	}
+	else
+	{// Treat last known normal cursor mode position as pre-jump pos
+		InputMap::modifyHotspot(
+			eSpecialHotspot_PreJumpPos,
+			InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
+	}
+
+	const Hotspot& aHotspot =
+		InputMap::getHotspot(theHotspotID);
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
+	anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
+	sTracker.inputs.push_back(anInput);
+	sTracker.mouseLookZoneFixTimer = 0;
+
+	if( (theHotspotID == eSpecialHotspot_MouseLookStart &&
+		 sTracker.mouseModeWanted == eMouseMode_Look) ||
+		(theHotspotID == eSpecialHotspot_MouseHidden &&
+		 sTracker.mouseModeWanted == eMouseMode_Hide) )
+	{// In position to start these alternate mouse modes
+		if( sTracker.mouseMode == eMouseMode_Cursor ||
+			sTracker.mouseMode == eMouseMode_PostJump )
+		{// Save pre-jump position as last known normal cursor position
+			InputMap::modifyHotspot(
+				eSpecialHotspot_LastCursorPos,
+				InputMap::getHotspot(eSpecialHotspot_PreJumpPos));
 		}
-	#endif
-
-	aMousePos =
-		WindowManager::overlayToNormalizedMousePos(
-			sTracker.mouseRestorePos);
-
-	Input anInput;
-	anInput.type = INPUT_MOUSE;
-	anInput.mi.dx = aMousePos.x;
-	anInput.mi.dy = aMousePos.y;
-	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
-	sTracker.inputs.push_back(anInput);
-
-	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
-		if( sTracker.mouseModeWanted == eMouseMode_Cursor )
-			sTracker.hasMouseRestorePos = false;
-		sTracker.mouseInHiddenPos = false;
-	#endif
-
-	// Wait for next call to confirm jump actually happened
-	return eResult_Incomplete;
-}
-
-
-static void hideMouseCursor()
-{
-	if( sTracker.mouseInHiddenPos || sTracker.disableMouseHide )
-		return;
-
-	// While it is feasibly possible, attempting to actually hide a
-	// mouse cursor for another app is quite invasive, so instead will
-	// just jump cursor to a "hidden" spot (corner of the desktop).
-	Input anInput;
-	anInput.type = INPUT_MOUSE;
-	const Hotspot& aHotspot =
-		InputMap::getHotspot(eSpecialHotspot_MouseHidden);
-	anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
-	anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
-	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
-	sTracker.inputs.push_back(anInput);
-	sTracker.mouseInHiddenPos = true;
-}
-
-
-static void prepareMousePosForWheelMotion()
-{
-	// Most of the time the mouse cursor should be fine wherever it is,
-	// but after using hideMouseCursor() the mouse may be jumped outside
-	// of the game window, and it assumed that any mouse wheel commands
-	// at that point are for the purpose of zooming the camera in/out.
-	// In that case, will temporarily jump the mouse to MouseLook start
-	// position, which is assumed to not be pointing at UI windows and
-	// thus will move the game camera. Also sets a flag to prevent re-hiding
-	// the cursor on the same frame.
-	sTracker.disableMouseHide = true;
-	if( !sTracker.mouseInHiddenPos )
-		return;
-
-	Input anInput;
-	anInput.type = INPUT_MOUSE;
-	const Hotspot& aHotspot =
-		InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
-	anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
-	anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
-	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
-	sTracker.inputs.push_back(anInput);
-	sTracker.mouseInHiddenPos = false;
+		sTracker.mouseMode = sTracker.mouseModeWanted;
+	}
+	else if( (theHotspotID == eSpecialHotspot_LastCursorPos &&
+			  sTracker.mouseModeWanted == eMouseMode_Cursor) )
+	{// Restored position for normal cursor mode
+		sTracker.mouseMode = eMouseMode_Cursor;
+	}
+	else
+	{// Prevent motion and wait to see if just a basic jump or a jump-click
+		sTracker.mouseMode = eMouseMode_PostJump;
+	}
 }
 
 
@@ -568,6 +540,18 @@ static void tryMouseLookZoningFix()
 	// might be happening and, either way, it should be safe to release
 	// RMB and re-initialize MouseLook mode at the safe _MouseLookStart pos
 	// (at worse will make mouse cursor flicker visible for a frame).
+	if( kConfig.mouseLookZoneFixTime == 0 ||
+		sTracker.mouseMode != eMouseMode_Look ||
+		!sTracker.keysHeldDown.test(VK_RBUTTON) ||
+		WindowManager::overlaysAreHidden() )
+		return;
+
+	if( sTracker.mouseLookZoneFixTimer - gAppFrameTime <
+			kConfig.mouseLookZoneFixTime )
+		return;
+
+	sTracker.mouseLookZoneFixTimer = 0;
+
 #ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 	DBG_ASSERT(sTracker.nextQueuedKey == 0);
 	const Hotspot& aHotspot =
@@ -575,7 +559,7 @@ static void tryMouseLookZoningFix()
 	const POINT& anExpectedPos =
 		WindowManager::hotspotOverlayPos(aHotspot);
 	const POINT& anActualPos =
-		WindowManager::currentOverlayMousePos();
+		WindowManager::hotspotOverlayPos(WindowManager::mousePosAsHotspot());
 	if( anExpectedPos.x != anActualPos.x ||
 		anExpectedPos.y != anActualPos.y )
 	{
@@ -630,13 +614,6 @@ static EResult setKeyDown(u16 theKey, bool down)
 			sTracker.keysLockedDown.find(theKey);
 		if( itr != sTracker.keysLockedDown.end() && itr->second > 0 )
 			return eResult_NotAllowed;
-	}
-
-	if( down && sTracker.mouseInHiddenPos &&
-		(theKey == VK_LBUTTON || theKey == VK_RBUTTON) )
-	{// Ignore requests to press mouse buttons while mouse is in hidden mode
-		// Pretend were successful so can continue to next queue item
-		return eResult_Ok;
 	}
 
 	Input anInput;
@@ -790,6 +767,22 @@ static void debugPrintInputVector()
 			case MOUSEEVENTF_RIGHTUP: siPrint("RMB released\n"); break;
 			case MOUSEEVENTF_MIDDLEDOWN: siPrint("MMB pressed\n"); break;
 			case MOUSEEVENTF_MIDDLEUP: siPrint("MMB released\n"); break;
+			case MOUSEEVENTF_MOVE:
+				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
+				{
+					siPrint("Mouse vel: %dx x %dy\n",
+						anInput.mi.dx, anInput.mi.dy);
+				}
+				#endif
+				break;
+			case MOUSEEVENTF_WHEEL:
+				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
+				{
+					siPrint("Mouse wheel: %.02f steps\n",
+						float(-int(anInput.mi.mouseData)) / WHEEL_DELTA);
+				}
+				#endif
+				break;
 			case MOUSEEVENTF_MOVEABSOLUTE:
 				{
 					POINT aPos = { anInput.mi.dx, anInput.mi.dy };
@@ -863,9 +856,7 @@ void loadProfile()
 
 void cleanup()
 {
-	sTracker.mouseModeWanted = eMouseMode_Cursor;
 	sTracker.keysLockedDown.clear();
-	sTracker.mouseInHiddenPos = false;
 	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
@@ -875,6 +866,9 @@ void cleanup()
 	sTracker.keysHeldDown.reset();
 	sTracker.keysWantDown.clear();
 	sTracker.moveKeysHeld.reset();
+	sTracker.mouseModeWanted = eMouseMode_Cursor;
+	if( sTracker.mouseMode != eMouseMode_Cursor )
+		jumpMouseToHotspot(eSpecialHotspot_LastCursorPos);
 	flushInputVector();
 }
 
@@ -888,7 +882,8 @@ void forceReleaseHeldKeys()
 	{
 		setKeyDown(u16(aVKey), false);
 	}
-	restoreMousePos();
+	if( sTracker.mouseMode != eMouseMode_Cursor )
+		jumpMouseToHotspot(eSpecialHotspot_LastCursorPos);
 	flushInputVector();
 }
 
@@ -910,46 +905,63 @@ void update()
 	sTracker.mouseLookZoneFixTimer += gAppFrameTime;
 
 
-	// Initiate special mouse modes (look or hide)
-	// -------------------------------------------
+	// Update mouse mode
+	// -----------------
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
-		!sTracker.jumpToHotspot &&
-		(sTracker.queuePauseTime > 0 || sTracker.currTaskProgress == 0) &&
-		!WindowManager::overlaysAreHidden() )
-	{// No user-requested tasks, so available for automatic ones
-		if( sTracker.mouseModeWanted != eMouseMode_Cursor &&
-			!sTracker.keysHeldDown.test(VK_RBUTTON) &&
-			!sTracker.keysHeldDown.test(VK_LBUTTON) )		
-		{// Safe to start up new mouse mode
-			backupMousePos(); // to restore when return to _Cursor mode
+		!sTracker.mouseJumpToHotspot &&
+		(sTracker.currTaskProgress == 0 || sTracker.queuePauseTime > 0) )
+	{// No tasks in progress that mouse mode change could interfere with
+
+		// If mouse was jumped but didn't click during action just completed,
+		// no need for any further action - just treat as new cursor mode pos
+		if( sTracker.mouseMode == eMouseMode_PostJump )
+			sTracker.mouseMode = eMouseMode_Cursor;
+		// If not holding RMB in _Look mode, it must have been force-released
+		if( sTracker.mouseMode == eMouseMode_Look &&
+			sTracker.mouseModeWanted == sTracker.mouseModeWanted &&
+			!sTracker.keysHeldDown.test(VK_RBUTTON) )
+		{
+			// Sets next if to true while avoiding updating _LastCursorPos
+			sTracker.mouseMode = eMouseMode_Default;
+		}
+		if( sTracker.mouseMode != sTracker.mouseModeWanted )
+		{
+			// Not in the middle of another task, so transition mouse mode
 			switch(sTracker.mouseModeWanted)
 			{
+			case eMouseMode_Cursor:
+				// Restore last known normal cursor position
+				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
+				break;
 			case eMouseMode_Look:
-				// Jump curser to safe spot for initial right-click
-				sTracker.jumpToHotspot = eSpecialHotspot_MouseLookStart;
-				// Begin holding down right mouse button
-				sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
-				sTracker.mouseLookZoneFixTimer = 0;
+				if( sTracker.mouseMode == eMouseMode_JumpClicked )
+				{// Give one more update to process queue before resuming
+					// (in case have multiple jump-clicks queued in a row)
+					sTracker.mouseMode = eMouseMode_Default;
+				}
+				else if( !WindowManager::overlaysAreHidden() )
+				{// Jump curser to safe spot for initial right-click
+					sTracker.mouseJumpToHotspot =
+						eSpecialHotspot_MouseLookStart;
+					// Begin holding down right mouse button
+					sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
+					sTracker.mouseLookZoneFixTimer = 0;
+				}
 				break;
 			case eMouseMode_Hide:
-				hideMouseCursor();
+				// Can't actually hide cursor without messing with target app
+				// (or using _Look which can affect undesired side effects)
+				// so just move it out of the way (bottom corner usually)
+				if( !WindowManager::overlaysAreHidden() )
+					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
 				break;
 			default:
 				DBG_ASSERT(false && "Invalid sTracker.mouseModeWanted value!");
 			}
 		}
-		if(	sTracker.mouseModeWanted == eMouseMode_Look &&
-			sTracker.keysHeldDown.test(VK_RBUTTON) &&
-			kConfig.mouseLookZoneFixTime > 0 &&
-			sTracker.mouseLookZoneFixTimer - gAppFrameTime >
-				kConfig.mouseLookZoneFixTime )
-		{// Special fix to EQ Titanium client for zoning while holding RMB
-			tryMouseLookZoningFix();
-			sTracker.mouseLookZoneFixTimer = 0;
-		}
+		tryMouseLookZoningFix();
 	}
-	sTracker.disableMouseHide = false;
 
 
 	// Update queue
@@ -993,9 +1005,14 @@ void update()
 				// unless this is a past-due event, in which case just
 				// forget ever wanted the key pressed in the first place
 				if( !taskIsPastDue )
-					sTracker.queuePauseTime = 1; // to abort queue loop
+				{
+					sTracker.queuePauseTime = 1; 
+					aTaskResult = eResult_Incomplete;
+				}
 				else if( --aKeyWantDownItr->second.depth <= 0 )
+				{
 					sTracker.keysWantDown.erase(aKeyWantDownItr);
+				}
 			}
 			else
 			{// Key has been pressed, and should release even if past due
@@ -1034,9 +1051,9 @@ void update()
 	// Process keysWantDown
 	// --------------------
 	BitArray<0xFF> aDesiredKeysDown; aDesiredKeysDown.reset();
-	if( sTracker.mouseModeWanted == eMouseMode_Look &&
+	if( sTracker.mouseMode == eMouseMode_Look &&
 		sTracker.keysHeldDown.test(VK_RBUTTON) )
-	{// Keep holding right mouse button once mouselook mode started
+	{// Keep holding right mouse button while eMouseMode_Look is active
 		aDesiredKeysDown.set(VK_RBUTTON);
 	}
 	bool hasNonPressedKeyThatWantsHeldDown = false;
@@ -1055,6 +1072,16 @@ void update()
 		if( pressed && !wantPressed )
 		{// Been pressed and no longer needs to be
 			next_itr = sTracker.keysWantDown.erase(itr);
+			continue;
+		}
+
+		if( isMouseButton(aVKey) &&
+			(sTracker.mouseMode == eMouseMode_Hide ||
+			 sTracker.mouseMode == eMouseMode_PostJump ||
+			 sTracker.mouseMode == eMouseMode_JumpClicked ||
+			 sTracker.mouseJumpToHotspot) )
+		{// Mouse not in a state where can hold a mouse button
+			hasNonPressedKeyThatWantsHeldDown = true;
 			continue;
 		}
 
@@ -1110,10 +1137,23 @@ void update()
 	}
 
 
-	// Prepare for nextQueuedKey
-	// -------------------------
+	// Prepare for queued event (cursor jump or nextQueuedKey)
+	// -------------------------------------------------------
 	bool readyForQueuedEvent = true;
-	if( sTracker.nextQueuedKey )
+	if( sTracker.mouseJumpToHotspot )
+	{
+		// No mouse button should be held down during a jump
+		aDesiredKeysDown.reset(VK_LBUTTON);
+		aDesiredKeysDown.reset(VK_MBUTTON);
+		aDesiredKeysDown.reset(VK_RBUTTON);
+		if( sTracker.keysHeldDown.test(VK_LBUTTON) ||
+			sTracker.keysHeldDown.test(VK_MBUTTON) ||
+			sTracker.keysHeldDown.test(VK_RBUTTON) )
+		{
+			readyForQueuedEvent = false;
+		}
+	}
+	else if( sTracker.nextQueuedKey )
 	{
 		const u16 aVKey = sTracker.nextQueuedKey;
 		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
@@ -1134,20 +1174,11 @@ void update()
 			if( sTracker.keysHeldDown.test(aBaseVKey) == press )
 				readyForQueuedEvent = false;
 		}
-		// For mouse buttons in key sequences, before *any* are pressed,
-		// *all* other mouse buttons should be released.
-		if( !forced && press && isMouseButton(aVKey) &&
-			!(aVKey & kVKeyHoldFlag) )
+		// Skip mouse clicks entirely while mouse is hidden
+		if( sTracker.mouseMode == eMouseMode_Hide &&
+			isMouseButton(aBaseVKey) && press )
 		{
-			aDesiredKeysDown.reset(VK_LBUTTON);
-			aDesiredKeysDown.reset(VK_MBUTTON);
-			aDesiredKeysDown.reset(VK_RBUTTON);
-			if( sTracker.keysHeldDown.test(VK_LBUTTON) ||
-				sTracker.keysHeldDown.test(VK_MBUTTON) ||
-				sTracker.keysHeldDown.test(VK_RBUTTON) )
-			{
-				readyForQueuedEvent = false;
-			}
+			sTracker.nextQueuedKey = 0;
 		}
 	}
 	/*
@@ -1161,6 +1192,20 @@ void update()
 		be pressed that don't align with the current modifiers being held down,
 		but this will obviously make the controls feel less responsive.
 	*/
+
+
+	// Apply normal mouse motion
+	// -------------------------
+	if( !sTracker.mouseJumpToHotspot &&
+		(sTracker.mouseVelX || sTracker.mouseVelY) )
+	{
+		offsetMousePos(sTracker.mouseVelX, sTracker.mouseVelY);
+		sTracker.mouseVelX = sTracker.mouseVelY = 0;
+	}
+	// Return speed from digital mouse acceleration back to 0 over time
+	sTracker.mouseDigitalVel = max(0,
+		sTracker.mouseDigitalVel -
+		kConfig.mouseDPadAccel * 3 * gAppFrameTime);
 
 
 	// Sync actual keys held to desired state
@@ -1189,19 +1234,12 @@ void update()
 	}
 
 
-	// Send queued key event OR jump to hotspot event
-	// ----------------------------------------------
-	if( readyForQueuedEvent && sTracker.jumpToHotspot )
+	// Send queued event (cursor jump OR queued key)
+	// ---------------------------------------------
+	if( readyForQueuedEvent && sTracker.mouseJumpToHotspot )
 	{
-		Input anInput;
-		anInput.type = INPUT_MOUSE;
-		const Hotspot& aHotspot = InputMap::getHotspot(sTracker.jumpToHotspot);
-		anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
-		anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
-		anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
-		sTracker.inputs.push_back(anInput);
-		sTracker.jumpToHotspot = 0;
-		sTracker.mouseInHiddenPos = false;
+		jumpMouseToHotspot(sTracker.mouseJumpToHotspot);
+		sTracker.mouseJumpToHotspot = 0;
 	}
 	else if( readyForQueuedEvent && sTracker.nextQueuedKey )
 	{
@@ -1238,17 +1276,17 @@ void update()
 			{// Mouse button that wanted to be "clicked" once in a sequence
 				// Should release the mouse button for next queued key action
 				sTracker.nextQueuedKey = aVKey | kVKeyReleaseFlag;
+				if( sTracker.mouseMode == eMouseMode_PostJump )
+				{// If jumped first then clicked, update mode and restore pos
+					sTracker.mouseMode = eMouseMode_JumpClicked;
+					InputMap::modifyHotspot(
+						eSpecialHotspot_LastCursorPos,
+						InputMap::getHotspot(eSpecialHotspot_PreJumpPos));
+				}
 			}
 		}
 	}
 	sTracker.typingChatBoxString = false;
-
-
-	// Update mouse acceleration from digital buttons
-	// ----------------------------------------------
-	sTracker.digitalMouseVel = max(0,
-		sTracker.digitalMouseVel -
-		kConfig.mouseDPadAccel * 3 * gAppFrameTime);
 
 
 	// Dispatch input to system
@@ -1335,7 +1373,7 @@ void sendKeyCommand(const Command& theCommand)
 
 void setMouseMode(EMouseMode theMouseMode)
 {
-	DBG_ASSERT(theMouseMode < eMouseMode_Num);
+	DBG_ASSERT(theMouseMode <= eMouseMode_Hide);
 	if( theMouseMode == eMouseMode_Default )
 		theMouseMode = eMouseMode_Cursor;
 	sTracker.mouseModeWanted = theMouseMode;
@@ -1344,25 +1382,6 @@ void setMouseMode(EMouseMode theMouseMode)
 
 void moveMouse(int dx, int dy, bool digital)
 {
-	// Ignore mouse movement while trying to jump cursor to a hotspot
-	if( sTracker.jumpToHotspot )
-		return;
-
-	// Ignore mouse movement while cursor is "hidden" (unless holding RMB)
-	if( sTracker.mouseModeWanted == eMouseMode_Hide &&
-		!sTracker.keysHeldDown.test(VK_RBUTTON) )
-	{
-		return;
-	}
-
-	// In normal 'cursor' mode, first try restoring backed-up mouse position
-	if( sTracker.mouseModeWanted == eMouseMode_Cursor &&
-		restoreMousePos() == eResult_Incomplete )
-	{
-		// Need to attempt to restore position again next frame
-		return;
-	}
-
 	const bool kMouseLookSpeed =
 		sTracker.mouseModeWanted == eMouseMode_Look ||
 		sTracker.keysHeldDown.test(VK_RBUTTON);
@@ -1383,11 +1402,11 @@ void moveMouse(int dx, int dy, bool digital)
 	// Apply adjustments to allow for low-speed fine control
 	if( digital )
 	{// Apply acceleration to magnitude
-		sTracker.digitalMouseVel = min(
+		sTracker.mouseDigitalVel = min(
 			kMouseMaxDigitalVel,
-			sTracker.digitalMouseVel +
+			sTracker.mouseDigitalVel +
 				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
-		aMagnitude *= double(sTracker.digitalMouseVel) / kMouseMaxDigitalVel;
+		aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxDigitalVel;
 	}
 	else if( aMagnitude < 1.0 )
 	{// Apply exponential easing curve to magnitude
@@ -1422,23 +1441,13 @@ void moveMouse(int dx, int dy, bool digital)
 		sMouseXSubPixel = -((-dx) % kMouseToPixelDivisor);
 	else
 		sMouseXSubPixel = dx % kMouseToPixelDivisor;
-	dx = dx / kMouseToPixelDivisor;
+	sTracker.mouseVelX += dx / kMouseToPixelDivisor;
 
 	if( dy < 0 )
 		sMouseYSubPixel = -((-dy) % kMouseToPixelDivisor);
 	else
 		sMouseYSubPixel = dy % kMouseToPixelDivisor;
-	dy = dy / kMouseToPixelDivisor;
-
-	// Send the mouse movement to the OS
-	Input anInput;
-	anInput.type = INPUT_MOUSE;
-	anInput.mi.dx = dx;
-	anInput.mi.dy = dy;
-	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
-	sTracker.inputs.push_back(anInput);
-	sTracker.mouseInHiddenPos = false;
-	sTracker.mouseLookZoneFixTimer = 0;
+	sTracker.mouseVelY +=dy / kMouseToPixelDivisor;
 }
 
 
@@ -1456,11 +1465,11 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	// Apply adjustments to allow for low-speed fine control
 	if( digital )
 	{// Apply acceleration to magnitude
-		sTracker.digitalMouseVel = min(
+		sTracker.mouseDigitalVel = min(
 			kMouseMaxDigitalVel,
-			sTracker.digitalMouseVel +
+			sTracker.mouseDigitalVel +
 				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
-		aMagnitude *= double(sTracker.digitalMouseVel) / kMouseMaxDigitalVel;
+		aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxDigitalVel;
 	}
 	else if( aMagnitude < 1.0 )
 	{// Apply exponential easing curve to magnitude
@@ -1495,10 +1504,8 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 		sMouseWheelDeltaAcc -= dy;
 	}
 
-	// Make sure mouse cursor is in a valid position for mouse wheel input
-	prepareMousePosForWheelMotion();
-
-	// Send the mouse wheel movement to the OS
+	// Send the mouse wheel movement to the OS now
+	// (no need to queue as shouldn't interfere with anything else)
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
 	anInput.mi.mouseData = DWORD(-dy);
@@ -1509,9 +1516,6 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 
 void scrollMouseWheelOnce(ECommandDir theDir)
 {
-	// Make sure mouse cursor is in a valid position for mouse wheel input
-	prepareMousePosForWheelMotion();
-
 	if( theDir == eCmdDir_Up )
 	{
 		Input anInput;

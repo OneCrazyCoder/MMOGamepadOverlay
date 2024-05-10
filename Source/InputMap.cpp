@@ -47,6 +47,8 @@ const char* kSpecialHotspotNames[] =
 	"",						// eSpecialHotspot_None
 	"MOUSELOOKSTART",		// eSpecialHotspot_MouseLookStart
 	"MOUSEHIDDEN",			// eSpecialHotspot_MouseHidden
+	"~",					// eSpecialHotspot_LastCursorPos
+	"~~",					// eSpecialHotspot_PreJumpPos
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
@@ -2936,7 +2938,7 @@ const Hotspot& getHotspot(u16 theHotspotID)
 }
 
 
-Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex)
+const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex)
 {
 	Hotspot* result = null;
 	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
@@ -2947,6 +2949,13 @@ Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex)
 	if( aHotspotID > 0 )
 		result = &sHotspots[aHotspotID];
 	return result;
+}
+
+
+void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues)
+{
+	DBG_ASSERT(theHotspotID < sHotspots.size());
+	sHotspots[theHotspotID] = theNewValues;
 }
 
 
