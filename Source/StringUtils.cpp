@@ -472,21 +472,29 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 	for(size_t i = 0; i < theString.length(); ++i)
 	{
 		const char c = theString[i];
-		if( (c >= '0' && c <= '9') ||
-			(c >= 'A' && c <= 'Z') ||
-			(c >= 'a' && c <= 'z') ||
-			(c == '-' && word.empty()) )
+		if( (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') )
+		{
+			// Only negative integers can start with '-'
+			if( !word.empty() && word[0] == '-' )
+				word = word.substr(1);
+			word += c;
+			continue;
+		}
+
+		if( (c >= '0' && c <= '9') || (c == '-' && word.empty()) )
 		{
 			word += c;
+			continue;
 		}
-		else if( c != '-' && c != '_' && c != '\'' && !word.empty() )
+				
+		if( c != '-' && c != '_' && c != '\'' && !word.empty() )
 		{
 			out.push_back(word);
 			word.clear();
 		}
 	}
 
-	if( !word.empty() )
+	if( !word.empty() && word != "-" )
 		out.push_back(word);
 }
 

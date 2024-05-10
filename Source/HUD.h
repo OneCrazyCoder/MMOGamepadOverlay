@@ -16,10 +16,10 @@
 namespace HUD
 {
 
-// Load Profile data and create brushes, fonts, etc.
+// Load Profile data and create fonts, bitmaps, etc.
 void init();
 
-// Free resources such as brushes and fonts
+// Free resources such as pens and fonts
 void cleanup();
 
 // Update visual element timers (animations etc)

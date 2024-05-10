@@ -155,7 +155,8 @@ struct HUDElementInfo
 	u16 prevFlashing;
 	u16 fontID;
 	u16 forcedRedrawItemID;
-	s8 gapSize;
+	s8 gapSizeX;
+	s8 gapSizeY;
 	u8 radius;
 	u8 titleHeight;
 	u8 alignmentX;
@@ -1385,7 +1386,7 @@ static void drawListMenu(HUDDrawData& dd)
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
-		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
+		(hi.gapSizeY < 0 && (flashingChanged || selectionChanged));
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1401,7 +1402,7 @@ static void drawListMenu(HUDDrawData& dd)
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( itemIdx == hi.selection && hi.gapSize < 0 )
+			if( itemIdx == hi.selection && hi.gapSizeY < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
 			}
@@ -1412,7 +1413,7 @@ static void drawListMenu(HUDDrawData& dd)
 					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
-		anItemRect.top = anItemRect.bottom + hi.gapSize;
+		anItemRect.top = anItemRect.bottom + hi.gapSizeY;
 		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
 
@@ -1458,7 +1459,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	// just below the top slot, and ending when draw hi.selection last at top
 	RECT anItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSize;
+	anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSizeY;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	for(u16 itemIdx = (hi.selection + 1) % anItemCount;
 		true; itemIdx = (itemIdx + 1) % anItemCount)
@@ -1479,7 +1480,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		}
 		if( isSelection )
 			break;
-		anItemRect.top = anItemRect.bottom + hi.gapSize;
+		anItemRect.top = anItemRect.bottom + hi.gapSizeY;
 		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
 
@@ -1508,7 +1509,7 @@ static void drawBarMenu(HUDDrawData& dd)
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
-		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
+		(hi.gapSizeX < 0 && (flashingChanged || selectionChanged));
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1524,7 +1525,7 @@ static void drawBarMenu(HUDDrawData& dd)
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( itemIdx == hi.selection && hi.gapSize < 0 )
+			if( itemIdx == hi.selection && hi.gapSizeX < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
 			}
@@ -1535,7 +1536,7 @@ static void drawBarMenu(HUDDrawData& dd)
 					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
-		anItemRect.left = anItemRect.right + hi.gapSize;
+		anItemRect.left = anItemRect.right + hi.gapSizeX;
 		anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	}
 
@@ -1580,20 +1581,20 @@ static void draw4DirMenu(HUDDrawData& dd)
 			{
 			case eCmdDir_Left:
 				anItemRect.left = 0;
-				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSize;
+				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSizeY;
 				break;
 			case eCmdDir_Right:
-				anItemRect.left = dd.itemSize.cx + hi.gapSize;
-				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSize;
+				anItemRect.left = dd.itemSize.cx + hi.gapSizeX;
+				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSizeY;
 				break;
 			case eCmdDir_Up:
-				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSize / 2;
+				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSizeX / 2;
 				anItemRect.top = hi.titleHeight;
 				break;
 			case eCmdDir_Down:
-				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSize / 2;
+				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSizeX / 2;
 				anItemRect.top =
-					hi.titleHeight + dd.itemSize.cy * 2 + hi.gapSize * 2;
+					hi.titleHeight + dd.itemSize.cy * 2 + hi.gapSizeY * 2;
 				break;
 			}
 			anItemRect.right = anItemRect.left + dd.itemSize.cx;
@@ -1631,7 +1632,8 @@ static void drawGridMenu(HUDDrawData& dd)
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
-		(hi.gapSize < 0 && (flashingChanged || selectionChanged));
+		((hi.gapSizeX < 0 || hi.gapSizeY < 0) &&
+			(flashingChanged || selectionChanged));
 
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
@@ -1647,7 +1649,8 @@ static void drawGridMenu(HUDDrawData& dd)
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			if( itemIdx == hi.selection && hi.gapSize < 0 )
+			if( itemIdx == hi.selection &&
+				(hi.gapSizeX < 0 || hi.gapSizeY < 0) )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
 			}
@@ -1662,12 +1665,12 @@ static void drawGridMenu(HUDDrawData& dd)
 		{// Next menu item is left edge and one down
 			anItemRect.left = 0;
 			anItemRect.right = dd.itemSize.cx;
-			anItemRect.top = anItemRect.bottom + hi.gapSize;
+			anItemRect.top = anItemRect.bottom + hi.gapSizeY;
 			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 		}
 		else
 		{// Next menu item is to the right
-			anItemRect.left = anItemRect.right + hi.gapSize;
+			anItemRect.left = anItemRect.right + hi.gapSizeX;
 			anItemRect.right = anItemRect.left + dd.itemSize.cx;
 		}
 	}
@@ -2173,9 +2176,20 @@ void updateScaling()
 			getHUDPropStr(aHUDName, eHUDProp_FontWeight));
 		if( isAMenu )
 		{
-			// hi.gapSize = eHUDProp_GapSize
-			hi.gapSize = gUIScaleY *
-				intFromString(getHUDPropStr(aHUDName, eHUDProp_GapSize));
+			// hi.gapSizeX/Y = eHUDProp_GapSize
+			aHUDBuilder.parsedString.clear();
+			sanitizeSentence(
+				getHUDPropStr(aHUDName, eHUDProp_GapSize),
+				aHUDBuilder.parsedString);
+			hi.gapSizeX = hi.gapSizeY = 0;
+			if( !aHUDBuilder.parsedString.empty() )
+				hi.gapSizeX = intFromString(aHUDBuilder.parsedString[0]);
+			if( aHUDBuilder.parsedString.size() > 1 )
+				hi.gapSizeY = intFromString(aHUDBuilder.parsedString[1]);
+			else
+				hi.gapSizeY = hi.gapSizeX;
+			hi.gapSizeX *= gUIScaleX;
+			hi.gapSizeY *= gUIScaleY;
 			// hi.titleHeight = eHUDProp_TitleHeight
 			hi.titleHeight = u8(u32FromString(
 				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
@@ -2348,7 +2362,7 @@ void updateWindowLayout(
 			const u16 aMenuItemCount = Menus::itemCount(aMenuID);
 			theWindowSize.cy *= aMenuItemCount;
 			if( aMenuItemCount > 1 )
-				theWindowSize.cy += hi.gapSize * (aMenuItemCount - 1);
+				theWindowSize.cy += hi.gapSizeY * (aMenuItemCount - 1);
 		}
 		break;
 	case eMenuStyle_Bar:
@@ -2356,12 +2370,12 @@ void updateWindowLayout(
 			const u16 aMenuItemCount = Menus::itemCount(aMenuID);
 			theWindowSize.cx *= aMenuItemCount;
 			if( aMenuItemCount > 1 )
-				theWindowSize.cx += hi.gapSize * (aMenuItemCount - 1);
+				theWindowSize.cx += hi.gapSizeX * (aMenuItemCount - 1);
 		}
 		break;
 	case eMenuStyle_4Dir:
-		theWindowSize.cx = theWindowSize.cx * 2 + hi.gapSize;
-		theWindowSize.cy = theWindowSize.cy * 3 + hi.gapSize * 2;
+		theWindowSize.cx = theWindowSize.cx * 2 + hi.gapSizeX;
+		theWindowSize.cy = theWindowSize.cy * 3 + hi.gapSizeY * 2;
 		break;
 	case eMenuStyle_Grid:
 		{
@@ -2370,9 +2384,9 @@ void updateWindowLayout(
 			theWindowSize.cx *= aMenuItemXCount;
 			theWindowSize.cy *= aMenuItemYCount;
 			if( aMenuItemXCount > 1 )
-				theWindowSize.cx += hi.gapSize * (aMenuItemXCount-1);
+				theWindowSize.cx += hi.gapSizeX * (aMenuItemXCount-1);
 			if( aMenuItemYCount > 1 )
-				theWindowSize.cy += hi.gapSize * (aMenuItemYCount-1);
+				theWindowSize.cy += hi.gapSizeY * (aMenuItemYCount-1);
 		}
 		break;
 	case eHUDType_System:
