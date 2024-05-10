@@ -299,7 +299,7 @@ static HDC sBitmapDrawSrc = NULL;
 static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
 static u32 sCopyIconUpdateRate = 100;
-static u32 sLastForcedIconCopyTime = 0;
+static u32 sNextAutoRefreshTime = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -1356,6 +1356,10 @@ static void drawMenuItem(
 		theLabel,
 		appearance,
 		theCacheEntry);
+
+	// Flag when successfully redrew forced-redraw item
+	if( hi.forcedRedrawItemID == theItemIdx )
+		hi.forcedRedrawItemID = kInvalidItem;
 }
 
 
@@ -2073,26 +2077,54 @@ void update()
 	// but still have each icon individually only redraw at
 	// sCopyIconUpdateRate, to spread the copy-paste operations out over
 	// multiple frames and reduce chance of causing a framerate hitch.
-	// First clear out any queued requests that no longer apply
-	while(!sAutoRefreshLabels.empty() &&
-		  sAutoRefreshLabels.begin()->itemIdx >=
-			Menus::itemCount(InputMap::menuForHUDElement(
-				sAutoRefreshLabels.begin()->hudElementID)))
+	if( gAppRunTime >= sNextAutoRefreshTime )
 	{
-		sAutoRefreshLabels.erase(sAutoRefreshLabels.begin());
-	}
-	if( sAutoRefreshLabels.empty() )
-	{
-		sLastForcedIconCopyTime = gAppRunTime;
-	}
-	else if( gAppRunTime > sLastForcedIconCopyTime +
-				(sCopyIconUpdateRate / sAutoRefreshLabels.size()) )
-	{
-		sLastForcedIconCopyTime = gAppRunTime;
-		sHUDElementInfo[sAutoRefreshLabels.begin()->hudElementID]
-			.forcedRedrawItemID = sAutoRefreshLabels.begin()->itemIdx;
-		gRedrawHUD.set(sAutoRefreshLabels.begin()->hudElementID);
-		sAutoRefreshLabels.erase(sAutoRefreshLabels.begin());
+		sNextAutoRefreshTime = gAppRunTime;
+		u32 validItemCount = 0;
+		u16 aHUDElementToRefresh = kInvalidItem;
+		u16 aMenuItemToRefresh = kInvalidItem;
+		for(std::vector<AutoRefreshLabelEntry>::iterator itr =
+			sAutoRefreshLabels.begin(), next_itr = itr;
+			itr != sAutoRefreshLabels.end(); itr = next_itr)
+		{
+			++next_itr;
+			// Make sure this item is still valid
+			u16 aMaxItemID = 0;
+			DBG_ASSERT(itr->hudElementID < sHUDElementInfo.size());
+			HUDElementInfo& hi = sHUDElementInfo[itr->hudElementID];
+			const bool isAMenu =
+				hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
+			if( isAMenu )
+			{
+				aMaxItemID = Menus::itemCount(
+					InputMap::menuForHUDElement(itr->hudElementID)) - 1;
+			}
+			if( itr->itemIdx > aMaxItemID )
+			{// Invalid item ID, can't refresh, just remove it from queue
+				next_itr = sAutoRefreshLabels.erase(itr);
+				continue;
+			}
+			gRedrawHUD.set(itr->hudElementID);
+			u16& aDestItemID = hi.forcedRedrawItemID;
+			// If aDestItemID is already set as a valid entry, it means still
+			// waiting for it to refresh (might be currently hidden), so don't
+			// count any of this HUD Element's items as valid until then
+			if( aDestItemID != kInvalidItem && aDestItemID <= aMaxItemID )
+				continue;
+			if( validItemCount++ == 0 )
+			{// Only first valid item found actually refreshes
+				aHUDElementToRefresh = itr->hudElementID;
+				aMenuItemToRefresh = itr->itemIdx;
+				next_itr = sAutoRefreshLabels.erase(itr);
+			}
+		}
+		if( validItemCount )
+		{
+			sHUDElementInfo[aHUDElementToRefresh]
+				.forcedRedrawItemID = aMenuItemToRefresh;
+			sNextAutoRefreshTime +=
+				sCopyIconUpdateRate / validItemCount;
+		}
 	}
 
 	gKeyBindArrayLastIndexChanged.reset();
@@ -2271,9 +2303,6 @@ void drawElement(
 			DBG_ASSERT(false && "Invaild HUD/Menu Type/Style!");
 		}
 	}
-
-	// Should have redrawn forced item now, so don't force it again
-	hi.forcedRedrawItemID = kInvalidItem;
 }
 
 
