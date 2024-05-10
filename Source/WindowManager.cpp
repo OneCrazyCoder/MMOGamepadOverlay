@@ -825,17 +825,21 @@ POINT normalizedToOverlayMousePos(POINT theSentMousePos)
 }
 
 
-POINT currentOverlayMousePos()
+Hotspot mousePosAsHotspot()
 {
-	POINT result;
+	Hotspot result;
 	// Get main screen relevant pixel position
-	GetCursorPos(&result);
+	POINT aMousePos;
+	GetCursorPos(&aMousePos);
 	// Offset to client relative position
-	result.x -= sScreenTargetRect.left;
-	result.y -= sScreenTargetRect.top;
+	aMousePos.x -= sScreenTargetRect.left;
+	aMousePos.y -= sScreenTargetRect.top;
 	// Clamp to within client rect range
-	clamp(result.x, 0, sTargetSize.cx - 1);
-	clamp(result.y, 0, sTargetSize.cy - 1);
+	clamp(aMousePos.x, 0, sTargetSize.cx - 1);
+	clamp(aMousePos.y, 0, sTargetSize.cy - 1);
+	// Convert to hotspot position (normalized 0-65535 of target size)
+	result.x.origin = aMousePos.x * 0x10000 / sTargetSize.cx;
+	result.y.origin = aMousePos.y * 0x10000 / sTargetSize.cy;
 	return result;
 }
 

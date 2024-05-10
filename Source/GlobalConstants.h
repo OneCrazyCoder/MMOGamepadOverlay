@@ -187,6 +187,8 @@ enum EMouseMode
 	eMouseMode_Look,		// Mouse Look (holding right mouse button)
 	eMouseMode_Hide,		// Hide cursor without using MouseLook
 	eMouseMode_HideOrLook,	// Hide unless below layer is _Look, then _Look
+	eMouseMode_PostJump,	// Cursor mode just after a jump
+	eMouseMode_JumpClicked,	// Cursor mode just after jump-then-click event
 
 	eMouseMode_Num
 };
@@ -247,6 +249,8 @@ enum ESpecialHotspot
 	eSpecialHotspot_None,
 	eSpecialHotspot_MouseLookStart,
 	eSpecialHotspot_MouseHidden,
+	eSpecialHotspot_LastCursorPos,
+	eSpecialHotspot_PreJumpPos,
 
 	eSpecialHotspot_Num
 };

@@ -2298,7 +2298,7 @@ void updateWindowLayout(
 	{
 	case eHUDType_KBArrayLast:
 	case eHUDType_KBArrayDefault:
-		if( Hotspot* aHotspot =
+		if( const Hotspot* aHotspot =
 				InputMap::keyBindArrayHotspot(hi.arrayID, hi.selection) )
 		{
 			const POINT& anOffset = hotspotToPoint(*aHotspot, theTargetSize);
