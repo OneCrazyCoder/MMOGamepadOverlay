@@ -245,7 +245,8 @@ struct DispatchTracker
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
 	u16 mouseJumpToHotspot;
-	bool mouseMadeUntestedJump;
+	bool mouseJumpAttempted;
+	bool mouseJumpVerified;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
@@ -418,6 +419,27 @@ static bool isMouseButton(u16 theVKey)
 }
 
 
+static u16 modKeysHeldAsFlags()
+{
+	u16 result = 0;
+	if( sTracker.keysHeldDown.test(VK_SHIFT) )
+		result |= kVKeyShiftFlag;
+	if( sTracker.keysHeldDown.test(VK_CONTROL) )
+		result |= kVKeyCtrlFlag;
+	if( sTracker.keysHeldDown.test(VK_MENU) )
+		result |= kVKeyAltFlag;
+
+	return result;
+}
+
+
+static bool requiredModKeysAreAlreadyHeld(u16 theVKey)
+{
+	return
+		(theVKey & kVKeyModsMask) == modKeysHeldAsFlags();
+}
+
+
 static bool isSafeAsyncKey(u16 theVKey)
 {
 	// These are keys that can be pressed while typing
@@ -426,6 +448,10 @@ static bool isSafeAsyncKey(u16 theVKey)
 
 	// Only keys that don't need modifier keys are safe
 	if( (theVKey & ~kVKeyMask) != 0 )
+		return false;
+
+	// No keys are safe while already holding a modifier key
+	if( modKeysHeldAsFlags() != 0 )
 		return false;
 
 	// Mouse buttons are not safe while in certain mouse modes
@@ -473,7 +499,7 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_RBUTTON));
 
 	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
-	if( !sTracker.mouseMadeUntestedJump )
+	if( !sTracker.mouseJumpAttempted || sTracker.mouseJumpVerified )
 	{// Save pre-jump mouse position to possibly restore later
 		if( sTracker.mouseMode == eMouseMode_Cursor ||
 			sTracker.mouseMode == eMouseMode_PostJump )
@@ -486,12 +512,17 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 				InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
 		}
 	}
+	sTracker.mouseJumpAttempted = true;
+	sTracker.mouseJumpVerified = false;
 
 	// If already at dest pos anyway, don't bother with the jump itself
 	POINT aDestPos = WindowManager::hotspotToOverlayPos(
 		InputMap::getHotspot(theHotspotID));
 	if( aCurrentPos.x == aDestPos.x && aCurrentPos.y == aDestPos.y )
+	{
+		sTracker.mouseJumpVerified = true;
 		return;
+	}
 
 	aDestPos = WindowManager::overlayPosToNormalizedMousePos(aDestPos);
 	Input anInput;
@@ -501,31 +532,45 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseLookZoneFixTimer = 0;
-	sTracker.mouseMadeUntestedJump = true;
 }
 
 
 static bool verifyCursorJumpedTo(u16 theHotspotID)
 {
-	if( !sTracker.mouseMadeUntestedJump )
-		return true;
+	if( !sTracker.mouseJumpAttempted )
+		return false;
 
 	// In simulation mode always act as if jump was successful
-#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
-	const POINT& aDestPos = WindowManager::hotspotToOverlayPos(
-		InputMap::getHotspot(theHotspotID));
-	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
-	if( abs(aCurrentPos.x - aDestPos.x) >= 2 ||
-		abs(aCurrentPos.y - aDestPos.y) >= 2 )
-	{
-		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-		debugPrint("InputDispatcher: Cursor jump failed, trying again!\n");
-		#endif
-		return false;
-	}
-#endif
+	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
+	sTracker.mouseJumpVerified = true;
+	#endif
 
-	sTracker.mouseMadeUntestedJump = false;
+	if( !sTracker.mouseJumpVerified )
+	{
+		static u8 sFailedJumpAttemptsInARow = 0;
+		const POINT& aDestPos = WindowManager::hotspotToOverlayPos(
+			InputMap::getHotspot(theHotspotID));
+		const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
+		if( abs(aCurrentPos.x - aDestPos.x) >= 2 ||
+			abs(aCurrentPos.y - aDestPos.y) >= 2 )
+		{
+			const bool retryJump = ++sFailedJumpAttemptsInARow < 5;
+			#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+			debugPrint(
+				"InputDispatcher: Cursor jump to %d x %d failed! %s\n",
+				aDestPos.x, aDestPos.y,
+				retryJump ? "Will attempt jump again" : "Giving up!");
+			#endif
+			if( retryJump )
+				return false;
+		}
+		sFailedJumpAttemptsInARow = 0;
+	}
+
+	// If reached this point, jump was attempted and verified successful
+	// Clear flags for next jump attempt
+	sTracker.mouseJumpAttempted = false;
+	sTracker.mouseJumpVerified = false;
 
 	// Reached jump destination and can update mouse mode accordingly
 	if( (theHotspotID == eSpecialHotspot_MouseLookStart &&
@@ -608,27 +653,6 @@ static void tryMouseLookZoningFix()
 		// and re-press of RMB on a later update
 	}
 #endif
-}
-
-
-static u16 modKeysHeldAsFlags()
-{
-	u16 result = 0;
-	if( sTracker.keysHeldDown.test(VK_SHIFT) )
-		result |= kVKeyShiftFlag;
-	if( sTracker.keysHeldDown.test(VK_CONTROL) )
-		result |= kVKeyCtrlFlag;
-	if( sTracker.keysHeldDown.test(VK_MENU) )
-		result |= kVKeyAltFlag;
-
-	return result;
-}
-
-
-static bool areModKeysHeld(u16 theVKey)
-{
-	return
-		(theVKey & kVKeyModsMask) == modKeysHeldAsFlags();
 }
 
 
@@ -748,7 +772,7 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 	// keys usually only cares about the modifiers when the key is pressed.
 	// Therefore if the "key" is a mouse button, need to make sure all related
 	// modifier keys like Shift are held before releasing the mouse button!
-	if( isMouseButton(aVKey) && !areModKeysHeld(aVKey) )
+	if( isMouseButton(aVKey) && !requiredModKeysAreAlreadyHeld(aVKey) )
 		return false;
 
 	// Make sure no other keysWantDown use this same base key
@@ -943,8 +967,7 @@ void update()
 
 	// Update mouse mode
 	// -----------------
-	if( sTracker.mouseMadeUntestedJump &&
-		sTracker.mouseJumpToHotspot &&
+	if( sTracker.mouseJumpToHotspot &&
 		verifyCursorJumpedTo(sTracker.mouseJumpToHotspot) )
 	{// Can clear .mouseJumpToHotspot now that verified it worked
 		sTracker.mouseJumpToHotspot = 0;
@@ -961,7 +984,7 @@ void update()
 			sTracker.mouseMode = eMouseMode_Cursor;
 		// If not holding RMB in _Look mode, it must have been force-released
 		if( sTracker.mouseMode == eMouseMode_Look &&
-			sTracker.mouseModeWanted == sTracker.mouseModeWanted &&
+			sTracker.mouseModeWanted == eMouseMode_Look &&
 			!sTracker.keysHeldDown.test(VK_RBUTTON) )
 		{
 			// Sets next if to true while avoiding updating _LastCursorPos
@@ -1140,7 +1163,7 @@ void update()
 			continue;
 		}
 
-		if( areModKeysHeld(aVKey) &&
+		if( requiredModKeysAreAlreadyHeld(aVKey) &&
 			(sTracker.nextQueuedKey == 0 ||
 			 (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags) )
 		{// Doesn't need a change in mod keys, so can press safely
@@ -1208,7 +1231,8 @@ void update()
 		aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
 		// Only send the key if related keys are already in correct state
 		// Otherwise, need to wait until other keys are ready next frame
-		readyForQueuedEvent = areModKeysHeld(sTracker.nextQueuedKey);
+		readyForQueuedEvent =
+			requiredModKeysAreAlreadyHeld(sTracker.nextQueuedKey);
 		// Make sure base key is in opposite of desired pressed state
 		if( !forced )
 		{
