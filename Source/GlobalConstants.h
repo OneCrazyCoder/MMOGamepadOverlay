@@ -250,7 +250,6 @@ enum ESpecialHotspot
 	eSpecialHotspot_MouseLookStart,
 	eSpecialHotspot_MouseHidden,
 	eSpecialHotspot_LastCursorPos,
-	eSpecialHotspot_PreJumpPos,
 
 	eSpecialHotspot_Num
 };

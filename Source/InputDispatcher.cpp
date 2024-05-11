@@ -240,11 +240,12 @@ struct DispatchTracker
 
 	EMouseMode mouseMode;
 	EMouseMode mouseModeWanted;
-	POINT mouseLastCursorModePos;
+	POINT mousePreJumpPos;
 	int mouseVelX, mouseVelY;
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
 	u16 mouseJumpToHotspot;
+	bool mouseMadeUntestedJump;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
@@ -471,31 +472,62 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_MBUTTON));
 	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_RBUTTON));
 
-	// Save pre-jump mouse position to possibly restore later
-	if( sTracker.mouseMode == eMouseMode_Cursor ||
-		sTracker.mouseMode == eMouseMode_PostJump )
-	{// Use actual position mouse is in now
-		InputMap::modifyHotspot(
-			eSpecialHotspot_PreJumpPos,
-			WindowManager::mousePosAsHotspot());
-	}
-	else
-	{// Treat last known normal cursor mode position as pre-jump pos
-		InputMap::modifyHotspot(
-			eSpecialHotspot_PreJumpPos,
-			InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
+	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
+	if( !sTracker.mouseMadeUntestedJump )
+	{// Save pre-jump mouse position to possibly restore later
+		if( sTracker.mouseMode == eMouseMode_Cursor ||
+			sTracker.mouseMode == eMouseMode_PostJump )
+		{// Use actual position mouse is in now
+			sTracker.mousePreJumpPos = aCurrentPos;
+		}
+		else
+		{// Treat last known normal cursor mode position as pre-jump pos
+			sTracker.mousePreJumpPos = WindowManager::hotspotToOverlayPos(
+				InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
+		}
 	}
 
-	const Hotspot& aHotspot =
-		InputMap::getHotspot(theHotspotID);
+	// If already at dest pos anyway, don't bother with the jump itself
+	POINT aDestPos = WindowManager::hotspotToOverlayPos(
+		InputMap::getHotspot(theHotspotID));
+	if( aCurrentPos.x == aDestPos.x && aCurrentPos.y == aDestPos.y )
+		return;
+
+	aDestPos = WindowManager::overlayPosToNormalizedMousePos(aDestPos);
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
-	anInput.mi.dx = WindowManager::hotspotMousePosX(aHotspot);
-	anInput.mi.dy = WindowManager::hotspotMousePosY(aHotspot);
+	anInput.mi.dx = aDestPos.x;
+	anInput.mi.dy = aDestPos.y;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseLookZoneFixTimer = 0;
+	sTracker.mouseMadeUntestedJump = true;
+}
 
+
+static bool verifyCursorJumpedTo(u16 theHotspotID)
+{
+	if( !sTracker.mouseMadeUntestedJump )
+		return true;
+
+	// In simulation mode always act as if jump was successful
+#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
+	const POINT& aDestPos = WindowManager::hotspotToOverlayPos(
+		InputMap::getHotspot(theHotspotID));
+	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
+	if( abs(aCurrentPos.x - aDestPos.x) >= 2 ||
+		abs(aCurrentPos.y - aDestPos.y) >= 2 )
+	{
+		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+		debugPrint("InputDispatcher: Cursor jump failed, trying again!\n");
+		#endif
+		return false;
+	}
+#endif
+
+	sTracker.mouseMadeUntestedJump = false;
+
+	// Reached jump destination and can update mouse mode accordingly
 	if( (theHotspotID == eSpecialHotspot_MouseLookStart &&
 		 sTracker.mouseModeWanted == eMouseMode_Look) ||
 		(theHotspotID == eSpecialHotspot_MouseHidden &&
@@ -506,19 +538,23 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 		{// Save pre-jump position as last known normal cursor position
 			InputMap::modifyHotspot(
 				eSpecialHotspot_LastCursorPos,
-				InputMap::getHotspot(eSpecialHotspot_PreJumpPos));
+				WindowManager::overlayPosToHotspot(
+					sTracker.mousePreJumpPos));
 		}
 		sTracker.mouseMode = sTracker.mouseModeWanted;
+		return true;
 	}
-	else if( (theHotspotID == eSpecialHotspot_LastCursorPos &&
-			  sTracker.mouseModeWanted == eMouseMode_Cursor) )
+
+	if( (theHotspotID == eSpecialHotspot_LastCursorPos &&
+		sTracker.mouseModeWanted == eMouseMode_Cursor) )
 	{// Restored position for normal cursor mode
 		sTracker.mouseMode = eMouseMode_Cursor;
+		return true;
 	}
-	else
-	{// Prevent motion and wait to see if just a basic jump or a jump-click
-		sTracker.mouseMode = eMouseMode_PostJump;
-	}
+	
+	// Prevent motion and wait to see if just a basic jump or a jump-click
+	sTracker.mouseMode = eMouseMode_PostJump;
+	return true;
 }
 
 
@@ -557,9 +593,9 @@ static void tryMouseLookZoningFix()
 	const Hotspot& aHotspot =
 		InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
 	const POINT& anExpectedPos =
-		WindowManager::hotspotOverlayPos(aHotspot);
+		WindowManager::hotspotToOverlayPos(aHotspot);
 	const POINT& anActualPos =
-		WindowManager::hotspotOverlayPos(WindowManager::mousePosAsHotspot());
+		WindowManager::mouseToOverlayPos();
 	if( anExpectedPos.x != anActualPos.x ||
 		anExpectedPos.y != anActualPos.y )
 	{
@@ -786,7 +822,7 @@ static void debugPrintInputVector()
 			case MOUSEEVENTF_MOVEABSOLUTE:
 				{
 					POINT aPos = { anInput.mi.dx, anInput.mi.dy };
-					aPos = WindowManager::normalizedToOverlayMousePos(aPos);
+					aPos = WindowManager::normalizedMouseToOverlayPos(aPos);
 					siPrint("Jumped cursor to %dx x %dy\n",
 						aPos.x, aPos.y);
 				}
@@ -907,6 +943,12 @@ void update()
 
 	// Update mouse mode
 	// -----------------
+	if( sTracker.mouseMadeUntestedJump &&
+		sTracker.mouseJumpToHotspot &&
+		verifyCursorJumpedTo(sTracker.mouseJumpToHotspot) )
+	{// Can clear .mouseJumpToHotspot now that verified it worked
+		sTracker.mouseJumpToHotspot = 0;
+	}
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.mouseJumpToHotspot &&
@@ -1239,7 +1281,7 @@ void update()
 	if( readyForQueuedEvent && sTracker.mouseJumpToHotspot )
 	{
 		jumpMouseToHotspot(sTracker.mouseJumpToHotspot);
-		sTracker.mouseJumpToHotspot = 0;
+		// mouseJumpToHotspot will be reset once jump is verified next update
 	}
 	else if( readyForQueuedEvent && sTracker.nextQueuedKey )
 	{
@@ -1281,7 +1323,8 @@ void update()
 					sTracker.mouseMode = eMouseMode_JumpClicked;
 					InputMap::modifyHotspot(
 						eSpecialHotspot_LastCursorPos,
-						InputMap::getHotspot(eSpecialHotspot_PreJumpPos));
+						WindowManager::overlayPosToHotspot(
+							sTracker.mousePreJumpPos));
 				}
 			}
 		}
