@@ -838,7 +838,8 @@ static void drawHUDRect(HUDDrawData& dd, const RECT& theRect)
 
 	Rectangle(dd.hdc,
 		theRect.left, theRect.top,
-		theRect.right, theRect.bottom);
+		theRect.right + (appearance.borderSize ? 0 : 1),
+		theRect.bottom + (appearance.borderSize ? 0 : 1));
 }
 
 
@@ -856,7 +857,8 @@ static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 
 	RoundRect(dd.hdc,
 		theRect.left, theRect.top,
-		theRect.right, theRect.bottom,
+		theRect.right + (appearance.borderSize ? 0 : 1),
+		theRect.bottom + (appearance.borderSize ? 0 : 1),
 		aRadius, aRadius);
 }
 
