@@ -50,12 +50,16 @@ void showOverlays();
 void setOverlaysToTopZ();
 bool overlaysAreHidden();
 
-// Gets virtual-desktop-relative mouse coordinates normalized to 0-65535 range
-u16 hotspotMousePosX(const Hotspot& theHotspot);
-u16 hotspotMousePosY(const Hotspot& theHotspot);
-POINT hotspotOverlayPos(const Hotspot& theHotspot);
-POINT overlayToNormalizedMousePos(POINT theMousePos);
-POINT normalizedToOverlayMousePos(POINT theSentMousePos);
-Hotspot mousePosAsHotspot();
+// Gets overlay-window-relative/clamped mouse position
+POINT mouseToOverlayPos();
+// Converts a hotspot into overlay-window-relative position
+POINT hotspotToOverlayPos(const Hotspot& theHotspot);
+// Converts overlay-window-relative position into a hotspot
+Hotspot overlayPosToHotspot(POINT theMousePos);
+// Converts overlay-window-relative mouse position into a
+// virtual-desktop-relative 0-65535 normalized pos for SendInput
+POINT overlayPosToNormalizedMousePos(POINT theMousePos);
+// Converts above back to overlay-window-relative mouse position
+POINT normalizedMouseToOverlayPos(POINT theSentMousePos);
 
 } // WindowManager

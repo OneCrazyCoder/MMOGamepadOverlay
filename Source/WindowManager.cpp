@@ -732,60 +732,53 @@ bool overlaysAreHidden()
 }
 
 
-u16 hotspotMousePosX(const Hotspot& theHotspot)
-{
-	if( !sMainWindow ) return 32768; // center of desktop
-	// Client Rect left is always 0
-	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-
-	// Start with percentage of client rect as u16 (i.e. 65536 == 100%)
-	int aPos = theHotspot.x.origin;
-	// Convert to client-rect-relative pixel position
-	aPos = aPos * sTargetSize.cx / 0x10000;
-	// Add pixel offset w/ position scaling applied
-	aPos += theHotspot.x.offset * gUIScaleX;
-	// Convert to virtual desktop pixel coordinate
-	aPos = max(0, aPos + sDesktopTargetRect.left);
-	// Convert to % of virtual desktop size as normalized 0-65535
-	aPos = (aPos + 1) * 0xFFFF / kDesktopWidth;
-	return u16(aPos);
-}
-
-
-u16 hotspotMousePosY(const Hotspot& theHotspot)
-{
-	if( !sMainWindow ) return 32768; // center of desktop
-	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-	int aPos = theHotspot.y.origin;
-	aPos = aPos * sTargetSize.cy / 0x10000;
-	aPos += theHotspot.y.offset * gUIScaleY;
-	aPos = max(0, aPos + sDesktopTargetRect.top);
-	aPos = (aPos + 1) * 0xFFFF / kDesktopHeight;
-	return u16(aPos);
-}
-
-
-POINT hotspotOverlayPos(const Hotspot& theHotspot)
+POINT mouseToOverlayPos()
 {
 	POINT result;
-	if( !sMainWindow )
-	{
-		result.x = 32768;
-		result.y = 32768;
-		return result;
-	}
-	result.x = theHotspot.x.origin;
-	result.y = theHotspot.y.origin;
-	result.x = result.x * sTargetSize.cx / 0x10000;
-	result.y = result.y * sTargetSize.cy / 0x10000;
-	result.x += theHotspot.y.offset * gUIScaleX;
-	result.y += theHotspot.y.offset * gUIScaleY;
+	//  Get current screen-relative mouse position
+	GetCursorPos(&result);
+	// Offset to client relative position
+	result.x -= sScreenTargetRect.left;
+	result.y -= sScreenTargetRect.top;
+	// Clamp to within client rect range
+	clamp(result.x, 0, sTargetSize.cx - 1);
+	clamp(result.y, 0, sTargetSize.cy - 1);
 	return result;
 }
 
 
-POINT overlayToNormalizedMousePos(POINT theMousePos)
+POINT hotspotToOverlayPos(const Hotspot& theHotspot)
+{
+	POINT result = {0, 0};
+	if( !sMainWindow )
+		return result;
+
+	// Start with percentage of client rect as u16 (i.e. 65536 == 100%)
+	result.x = theHotspot.x.origin;
+	result.y = theHotspot.y.origin;
+	// Convert to client-rect-relative pixel position
+	result.x = result.x * sTargetSize.cx / 0x10000;
+	result.y = result.y * sTargetSize.cy / 0x10000;
+	// Add pixel offset w/ position scaling applied
+	result.x += theHotspot.x.offset * gUIScaleX;
+	result.y += theHotspot.y.offset * gUIScaleY;
+	// Clamp to within client rect range
+	clamp(result.x, 0, sTargetSize.cx - 1);
+	clamp(result.y, 0, sTargetSize.cy - 1);
+	return result;
+}
+
+
+Hotspot overlayPosToHotspot(POINT theMousePos)
+{
+	Hotspot result;
+	result.x.origin = theMousePos.x * 0x10000 / sTargetSize.cx;
+	result.y.origin = theMousePos.y * 0x10000 / sTargetSize.cy;
+	return result;
+}
+
+
+POINT overlayPosToNormalizedMousePos(POINT theMousePos)
 {
 	if( !sMainWindow )
 	{
@@ -807,7 +800,7 @@ POINT overlayToNormalizedMousePos(POINT theMousePos)
 }
 
 
-POINT normalizedToOverlayMousePos(POINT theSentMousePos)
+POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 {
 	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
@@ -822,25 +815,6 @@ POINT normalizedToOverlayMousePos(POINT theSentMousePos)
 	clamp(theSentMousePos.x, 0, sTargetSize.cx - 1);
 	clamp(theSentMousePos.y, 0, sTargetSize.cy - 1);
 	return theSentMousePos;
-}
-
-
-Hotspot mousePosAsHotspot()
-{
-	Hotspot result;
-	// Get main screen relevant pixel position
-	POINT aMousePos;
-	GetCursorPos(&aMousePos);
-	// Offset to client relative position
-	aMousePos.x -= sScreenTargetRect.left;
-	aMousePos.y -= sScreenTargetRect.top;
-	// Clamp to within client rect range
-	clamp(aMousePos.x, 0, sTargetSize.cx - 1);
-	clamp(aMousePos.y, 0, sTargetSize.cy - 1);
-	// Convert to hotspot position (normalized 0-65535 of target size)
-	result.x.origin = aMousePos.x * 0x10000 / sTargetSize.cx;
-	result.y.origin = aMousePos.y * 0x10000 / sTargetSize.cy;
-	return result;
 }
 
 } // WindowManager

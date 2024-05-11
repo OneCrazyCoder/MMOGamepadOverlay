@@ -48,7 +48,6 @@ const char* kSpecialHotspotNames[] =
 	"MOUSELOOKSTART",		// eSpecialHotspot_MouseLookStart
 	"MOUSEHIDDEN",			// eSpecialHotspot_MouseHidden
 	"~",					// eSpecialHotspot_LastCursorPos
-	"~~",					// eSpecialHotspot_PreJumpPos
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
