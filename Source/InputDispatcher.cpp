@@ -60,9 +60,9 @@ struct Config
 {
 	int maxTaskQueuedTime; // tasks older than this in queue are skipped
 	int chatBoxPostFirstKeyDelay;
-	int baseKeyReleaseLockTime;
-	int mouseButtonReleaseLockTime;
-	int modKeyReleaseLockTime;
+	u32 baseKeyReleaseLockTime;
+	u32 mouseButtonReleaseLockTime;
+	u32 modKeyReleaseLockTime;
 	double cursorDeadzone;
 	double cursorRange;
 	int cursorXSpeed;
@@ -232,7 +232,7 @@ struct DispatchTracker
 	int queuePauseTime;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
-	VectorMap<u8, int> keysLockedDown;
+	VectorMap<u8, u32> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
@@ -656,6 +656,26 @@ static void tryMouseLookZoningFix()
 }
 
 
+static void lockKeyDownFor(u8 theBaseVKey, u32 theLockTime)
+{
+	u32& aLockEndTime = sTracker.keysLockedDown.findOrAdd(theBaseVKey, 0);
+	aLockEndTime = max(aLockEndTime, gAppRunTime + theLockTime);
+}
+
+
+static bool keyIsLockedDown(u8 theBaseVKey)
+{
+	VectorMap<u8, u32>::iterator itr =
+		sTracker.keysLockedDown.find(theBaseVKey);
+	if( itr == sTracker.keysLockedDown.end() )
+		return false;
+	if( gAppRunTime < itr->second )
+		return true;
+	sTracker.keysLockedDown.erase(itr);
+	return false;
+}
+
+
 static EResult setKeyDown(u16 theKey, bool down)
 {
 	// No flags should be set on key (break combo keys into individual keys!)
@@ -668,16 +688,12 @@ static EResult setKeyDown(u16 theKey, bool down)
 	if( down == wasDown )
 		return eResult_Ok;
 
-	if( !down )
-	{// May not be allowed to release the given key yet
-		VectorMap<u8, int>::iterator itr =
-			sTracker.keysLockedDown.find(theKey);
-		if( itr != sTracker.keysLockedDown.end() && itr->second > 0 )
-			return eResult_NotAllowed;
-	}
+	// May not be allowed to release the given key yet
+	if( !down && keyIsLockedDown(u8(theKey)) )
+		return eResult_NotAllowed;
 
 	Input anInput;
-	int aLockDownTime = kConfig.baseKeyReleaseLockTime;
+	u32 aLockDownTime = kConfig.baseKeyReleaseLockTime;
 	switch(theKey)
 	{
 	case kVKeyModKeyOnlyBase:
@@ -718,8 +734,7 @@ static EResult setKeyDown(u16 theKey, bool down)
 
 	sTracker.inputs.push_back(anInput);
 	sTracker.keysHeldDown.set(theKey, down);
-	if( down )
-		sTracker.keysLockedDown.setValue(theKey, aLockDownTime);
+	if( down ) lockKeyDownFor(u8(theKey), aLockDownTime);
 
 	if( anInput.type == INPUT_MOUSE )
 	{
@@ -733,11 +748,11 @@ static EResult setKeyDown(u16 theKey, bool down)
 		else
 			aLockDownTime = kConfig.modKeyReleaseLockTime;
 		if( sTracker.keysHeldDown.test(VK_SHIFT) )
-			sTracker.keysLockedDown.setValue(VK_SHIFT, aLockDownTime);
+			lockKeyDownFor(VK_SHIFT, aLockDownTime);
 		if( sTracker.keysHeldDown.test(VK_CONTROL) )
-			sTracker.keysLockedDown.setValue(VK_CONTROL, aLockDownTime);
+			lockKeyDownFor(VK_CONTROL, aLockDownTime);
 		if( sTracker.keysHeldDown.test(VK_MENU) )
-			sTracker.keysLockedDown.setValue(VK_MENU, aLockDownTime);
+			lockKeyDownFor(VK_MENU, aLockDownTime);
 	}
 
 	return eResult_Ok;
@@ -954,14 +969,6 @@ void update()
 	// -------------
 	if( sTracker.queuePauseTime > 0 )
 		sTracker.queuePauseTime -= gAppFrameTime;
-	for(VectorMap<u8, int>::iterator itr = sTracker.keysLockedDown.begin(),
-		next_itr = itr; itr != sTracker.keysLockedDown.end(); itr = next_itr)
-	{
-		++next_itr;
-		itr->second -= gAppFrameTime;
-		if( itr->second <= 0 )
-			next_itr = sTracker.keysLockedDown.erase(itr);
-	}
 	sTracker.mouseLookZoneFixTimer += gAppFrameTime;
 
 
