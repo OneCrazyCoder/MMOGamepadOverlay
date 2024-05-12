@@ -899,16 +899,7 @@ static void readProfileCallback(
    const std::string& theValue,
    void*)
 {
-	if( theValue.empty() )
-	{
-		// Set value to "" if was previously added, otherwise don't add it
-		if( std::string* aVal = sSettingsMap.find(theKey) )
-			aVal->clear();
-	}
-	else
-	{
-		sSettingsMap.setValue(theKey, theValue);
-	}
+	sSettingsMap.setValue(theKey, theValue);
 }
 
 
@@ -1456,8 +1447,6 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
 	{
-		if( sSettingsMap.values()[anIndexSet[i]].empty() )
-			continue;
 		out.push_back(std::make_pair(
 			sSettingsMap.keys()[anIndexSet[i]].c_str() + aPrefixLength,
 			sSettingsMap.values()[anIndexSet[i]].c_str()));
