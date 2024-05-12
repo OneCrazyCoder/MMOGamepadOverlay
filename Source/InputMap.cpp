@@ -146,6 +146,7 @@ struct ControlsLayer
 struct InputMapBuilder
 {
 	std::vector<std::string> parsedString;
+	Profile::KeyValuePairs keyValueList;
 	VectorMap<ECommandKeyWord, size_t> keyWordMap;
 	StringToValueMap<Command> commandAliases;
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
@@ -1833,12 +1834,12 @@ static void buildGlobalHotspots(InputMapBuilder& theBuilder)
 		theBuilder.hotspotNameToIdxMap.setValue(kSpecialHotspotNames[i], i);
 	}
 
-	Profile::KeyValuePairs aHotspotRequests;
-	Profile::getAllKeys(kGlobalHotspotsPrefix, aHotspotRequests);
-	for(size_t i = 0; i < aHotspotRequests.size(); ++i)
+	DBG_ASSERT(theBuilder.keyValueList.empty());
+	Profile::getAllKeys(kGlobalHotspotsPrefix, theBuilder.keyValueList);
+	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
 	{
-		std::string aHotspotName = aHotspotRequests[i].first;
-		std::string aHotspotDescription = aHotspotRequests[i].second;
+		std::string aHotspotName = theBuilder.keyValueList[i].first;
+		std::string aHotspotDescription = theBuilder.keyValueList[i].second;
 
 		u16& aHotspotIdx = theBuilder.hotspotNameToIdxMap.findOrAdd(
 			aHotspotName, u16(sHotspots.size()));
@@ -1853,6 +1854,7 @@ static void buildGlobalHotspots(InputMapBuilder& theBuilder)
 			sHotspots[aHotspotIdx] = aHotspot;
 		}
 	}
+	theBuilder.keyValueList.clear();
 }
 
 
@@ -1860,21 +1862,23 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 {
 	mapDebugPrint("Assigning KeyBinds...\n");
 
-	Profile::KeyValuePairs aKeyBindRequests;
-	Profile::getAllKeys(kKeybindsPrefix, aKeyBindRequests);
-	for(size_t i = 0; i < aKeyBindRequests.size(); ++i)
+	DBG_ASSERT(theBuilder.keyValueList.empty());
+	Profile::getAllKeys(kKeybindsPrefix, theBuilder.keyValueList);
+	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
 	{
-		std::string anActionName = aKeyBindRequests[i].first;
-		std::string aCommandDescription = aKeyBindRequests[i].second;
-
-		if( aCommandDescription.empty() )
-			continue;
+		std::string anActionName = theBuilder.keyValueList[i].first;
+		std::string aCommandDescription = theBuilder.keyValueList[i].second;
 
 		// Keybinds can only be assigned to direct input
 		Command aCmd;
 		// Check for a slash command or say string, which stores the string
 		// as ASCII text and outputs it by typing it into the chat box
-		if( aCommandDescription[0] == '/' )
+		if( aCommandDescription.empty() )
+		{
+			aCmd.type = eCmdType_DoNothing;
+			aCommandDescription = "<Do Nothing>";
+		}
+		else if( aCommandDescription[0] == '/' )
 		{
 			aCmd.type = eCmdType_SlashCommand;
 			sKeyStrings.push_back(aCommandDescription);
@@ -1951,6 +1955,7 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 				aCommandDescription.c_str());
 		}
 	}
+	theBuilder.keyValueList.clear();
 
 	// Can now also set size of global vectors related to Key Bind Arrays
 	gKeyBindArrayLastIndex.reserve(sKeyBindArrays.size());
@@ -2024,29 +2029,14 @@ static void reportButtonAssignment(
 			kButtonActionPrefx[theBtnAct],
 			kButtonActionPrefx[theBtnAct][0] ? " " : "",
 			kProfileButtonName[theBtnID]);
-		// Now that reported it as <Do Nothing>, change it to just be _Empty.
-		// The point of eCmdType_DoNothing is to make the buttton assigned to
-		// a on-null command list so will override lower layers' assignments,
-		// but it should still come back as just _Empty commands for all the
-		// checks against _Empty in other parts of the code.
-		theCmd.type = eCmdType_Empty;
 		break;
 	case eCmdType_Unassigned:
-		if( theBtnAct != eBtnAct_Down )
-		{
-			logError("[%s]: Can only set entire '%s' button to <unassigned>, "
-				"not individual button actions!",
-				theBuilder.debugItemName.c_str(),
-				kProfileButtonName[theBtnID]);
-			theCmd.type = eCmdType_Empty;
-		}
-		else
-		{
-			mapDebugPrint("[%s]: '%s' left as <unassigned> "
-				"(ignoring Include= layer assignment)\n",
-				theBuilder.debugItemName.c_str(),
-				kProfileButtonName[theBtnID]);
-		}
+		mapDebugPrint("[%s]: '%s%s%s' left as <unassigned> "
+			"(overrides Include= layer)\n",
+			theBuilder.debugItemName.c_str(),
+			kButtonActionPrefx[theBtnAct],
+			kButtonActionPrefx[theBtnAct][0] ? " " : "",
+			kProfileButtonName[theBtnID]);
 		break;
 	case eCmdType_SlashCommand:
 		mapDebugPrint("[%s]: Assigned '%s%s%s' to macro: %s\n",
@@ -2103,7 +2093,7 @@ static void addButtonAction(
 	const std::string& theCmdStr)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
-	if( theBtnName.empty() )
+	if( theBtnName.empty() || theCmdStr.empty() )
 		return;
 
 	// Determine button & action to assign command to
@@ -2257,15 +2247,16 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	}
 
 	// Check each key-value pair for button assignment requests
-	Profile::KeyValuePairs aSettings;
-	Profile::getAllKeys(aLayerPrefix, aSettings);
-	if( aSettings.empty() )
+	DBG_ASSERT(theBuilder.keyValueList.empty());
+	Profile::getAllKeys(aLayerPrefix, theBuilder.keyValueList);
+	if( theBuilder.keyValueList.empty() )
 	{
 		logError("No properties found for Layer [%s]!",
 			theBuilder.debugItemName.c_str());
 	}
-	for(Profile::KeyValuePairs::const_iterator itr = aSettings.begin();
-		itr != aSettings.end(); ++itr)
+	for(Profile::KeyValuePairs::const_iterator itr =
+		theBuilder.keyValueList.begin();
+		itr != theBuilder.keyValueList.end(); ++itr)
 	{
 		const std::string aKey = itr->first;
 		if( aKey == kIncludeKey ||
@@ -2276,32 +2267,72 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		// Parse and add assignment to this layer's commands map
 		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second);
 	}
+	theBuilder.keyValueList.clear();
 
-	// If included another layer, copy commands from include layer into any
-	// empty entries for any buttons that had something assigned (besides
-	// ones specifically set to _Unassigned). Buttons that had no new
-	// assignments at all don't need to be copied over because the include
-	// copy will be directly returned by commandsForButton() later instead.
-	if( anIncludeLayer != 0 )
+	// Do final cleanup and processing of overall commands map
+	ButtonActionsMap& aMap = sLayers[theLayerIdx].map;
+	for(size_t i = 0; i < aMap.size(); ++i)
 	{
-		ButtonActionsMap& myMap = sLayers[theLayerIdx].map;
-		for(size_t i = 0; i < myMap.size(); ++i)
+		ButtonActions& aBtnActions = aMap[i].second;
+
+		// Check for button being overally set as "unassigned"
+		// Buttons configured this way return 'null' even when Include layer
+		// has something assigned, thus allowing lower layers' assignments.
+		// They are identified by a button containing an _Unassigned command
+		// but all other commands set as _Empty (if anything else is assigned
+		// to the button then _Unassigned is treated the same as _DoNothing).
+		bool setAsUnassignedButton = false;
+		for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 		{
-			ButtonActions& myActions = myMap[i].second;
-			if( myActions.cmd[0].type == eCmdType_Unassigned )
+			if( aBtnActions.cmd[aBtnAct].type == eCmdType_Unassigned )
+			{
+				setAsUnassignedButton = true;
 				continue;
+			}
+			if( aBtnActions.cmd[aBtnAct].type != eCmdType_Empty )
+			{
+				setAsUnassignedButton = false;
+				break;
+			}
+		}
+		if( setAsUnassignedButton )
+		{
+			aBtnActions.cmd[0].type = eCmdType_Unassigned;
+			// Rest of the commands don't matter as they will never be returned
+			continue;
+		}
+
+		// If included another layer, copy commands from include layer into any
+		// _Empty actions for any buttons that are in the map (meaning they had
+		// at least one action assigned to something). Buttons that had no new
+		// assignments at all (aren't in the map) don't need to do this because
+		// the include layer's copy will be directly returned instead.
+		if( anIncludeLayer != 0 )
+		{
 			if( const Command* incCommands =
-				commandsForButton(anIncludeLayer, myMap[i].first) )
+				commandsForButton(anIncludeLayer, aMap[i].first) )
 			{
 				for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 				{
-					if( myActions.cmd[aBtnAct].type != eCmdType_Empty )
+					if( aBtnActions.cmd[aBtnAct].type != eCmdType_Empty )
 						continue;
 					if( incCommands[aBtnAct].type == eCmdType_Empty )
 						continue;
-					myActions.cmd[aBtnAct] = incCommands[aBtnAct];
+					aBtnActions.cmd[aBtnAct] = incCommands[aBtnAct];
 				}
 			}
+		}
+
+		// Convert any remaining _Unassigned or _DoNothing to _Empty.
+		// At this point, they have served their purpose of blocking Include
+		// assignments or blocking lower layers' assignments by returning
+		// non-null, but outside code just expects to check for _Empty alone
+		// for a command that does nothing.
+		for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+		{
+			if( aBtnActions.cmd[aBtnAct].type == eCmdType_Unassigned ||
+				aBtnActions.cmd[aBtnAct].type == eCmdType_DoNothing )
+				aBtnActions.cmd[aBtnAct].type = eCmdType_Empty;
 		}
 	}
 
@@ -2663,7 +2694,7 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 		DBG_ASSERT(sSpecialKeys[i] == 0);
 		Command* aKeyBindCommand =
 			theBuilder.commandAliases.find(kSpecialKeyNames[i]);
-		if( !aKeyBindCommand )
+		if( !aKeyBindCommand || aKeyBindCommand->type == eCmdType_DoNothing )
 			continue;
 		if( aKeyBindCommand->type != eCmdType_TapKey )
 		{
