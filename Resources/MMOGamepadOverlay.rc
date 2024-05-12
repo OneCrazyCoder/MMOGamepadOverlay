@@ -60,6 +60,7 @@ IDR_TEXT_INI_BASE_PQ    TEXT                    "Base-PQ.ini"
 IDR_TEXT_INI_DEF_MNM    TEXT                    "Default-MnM.ini"
 IDR_TEXT_INI_DEF_P99    TEXT                    "Default-P99.ini"
 IDR_TEXT_INI_DEF_PQ     TEXT                    "Default-PQ.ini"
+IDR_TEXT_INI_TARON_P99  TEXT                    "Taron-P99.ini"
 
 /////////////////////////////////////////////////////////////////////////////
 //

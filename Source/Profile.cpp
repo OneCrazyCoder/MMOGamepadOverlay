@@ -57,6 +57,7 @@ const ResourceProfile kResTemplateDefault[] =
 	{	"MnM Default",	IDR_TEXT_INI_DEF_MNM	},
 	{	"P99 Default",	IDR_TEXT_INI_DEF_P99	},
 	{	"PQ Default",	IDR_TEXT_INI_DEF_PQ		},
+	{	"Taron's P99",	IDR_TEXT_INI_TARON_P99	},
 };
 
 enum EParseMode
@@ -772,6 +773,20 @@ static void addParentCallback(
 				if( condense(kResTemplateBase[i].name) == aCmpName )
 				{
 					generateResourceProfile(kResTemplateBase[i]);
+					aProfileEntry = profileNameToEntry(aProfileName);
+					sNewBaseProfileIdx = getOrAddProfileIdx(aProfileEntry);
+					break;
+				}
+			}
+		}
+		if( aProfileEntry.id == 0 )
+		{// File still not found - maybe referencing a resource default file?
+			const std::string& aCmpName = condense(aProfileName);
+			for(size_t i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
+			{
+				if( condense(kResTemplateDefault[i].name) == aCmpName )
+				{
+					generateResourceProfile(kResTemplateDefault[i]);
 					aProfileEntry = profileNameToEntry(aProfileName);
 					sNewBaseProfileIdx = getOrAddProfileIdx(aProfileEntry);
 					break;
