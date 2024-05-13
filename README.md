@@ -28,7 +28,7 @@ HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping
 
 ## Profile Setup
 
-**NOTE: The rest of this file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that you don't actually have to do this much, or at all, if the default Profiles provided (or maybe shared by other users) work for your needs!**
+**NOTE: The rest of this file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that you don't actually have to learn all this stuff if the default Profiles provided (or maybe shared by other users) work for your needs! You will likely at least need to adjust the [Icons] and [Hotspots] sections to match your preferred UI layout, however, so skip to the sections "Position and size properties" and "Icons copied from game window" to just learn about those.**
 
 The application generates a *MMOGO_Core.ini* file which contains some default settings and is used to track what other profiles you have created and their names. You can edit this file and any other *.ini* files it generates with any text editor, or create your own, once you know how they work.
 
@@ -230,7 +230,7 @@ When using this for the above example of relative group targeting, a visual indi
 
 ## Position and size properties
 
-**Hotspots** are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Hotspots and HUD Element positions and sizes are specified as X and Y coordinates with Y=0 being the top of the window/screen/bitmap and X=0 being the left side.
+**Hotspots** are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Hotspots and HUD Element positions (and sizes) are specified as X and Y coordinates with Y=0 being the top of the window/screen/bitmap and X=0 being the left side.
 
 Each axis can possibly have a relative and/or an absolute value. The relative value is related to the size of the target game's window/screen size, and the absolute value is in pixels. They can be specified in the format ``relativeValue% +/- absoluteValue`` if specify both. Some relative values can be also be specified by shortcuts like L/T/R/B/C/CX/CY/W/H instead of numbers.
 
@@ -276,6 +276,7 @@ Layers are defined the same as [Scheme], with just the category name [Layer.Laye
     Mouse = Look
     # If don't specify Layer name, removes self
     R3 = Remove Layer
+    
 With the above setup, L2+Triangle will cause the character to jump (via a ``Jump=`` Key Bind), and R3 will act as a toggle button turning MouseLook mode on and off (alternatively could have just assigned ``R3 = Toggle Layer MouseLook`` in [Scheme] instead, but in complex control schemes Toggle may not always be ideal).
 
 *There can only be one of each named Layer active at once, so trying to add a Layer with the same name again will simply move the old one to the top of the stack instead.*
@@ -359,15 +360,42 @@ When a Command adds a new Layer, that new Layer treats the Layer that contained 
 
 In some cases this is not desired, so you can override the new Layer's parent by including extra specifiers to commands like ``=Add Layer``, such as ``Add Layer <LayerName> to Parent`` (causes the new layer to treat the current's parent as its own), ``Add Layer <LayerName> to Grandparent`` or ``Add Layer <LayerName> to Parent +1`` (both do the same thing), or even ``Add Independent Layer <LayerName>`` to prevent it being removed automatically at all (uses [Scheme] as its parent). You can also use these with ``=Remove Layer``, such as a layer removing both itself and its parent with ``=Remove parent layer``.
 
-Note that "held" Layers (layer active only so long as are holding a button such as [Layer.Alt] from the ``L2 = Layer Alt`` example above) are NOT automatically removed when their parent is removed. They are only removed when the button "holding" it active (L2 in this case) is released! *In some special circumstances, they CAN be auto-replaced with an alternate "hold" layer assigned to the same button though, if that button's assignment changes via other layers being added or removed.*
+Note that "held" Layers (layer active only so long as are holding a button such as [Layer.Alt] from the ``L2 = Layer Alt`` example above) are NOT automatically removed when their parent is removed. They are only removed when the button "holding" it active (L2 in this case) is released!
 
 There is also the more advanced Layer command Replace, such as ``Replace Layer with <LayerName>`` or ``Replace Parent/GrandParent/etc Layer with <LayerName>`` or even ``Replace All Layers with <LayerName>`` which can be used to simultaneously Remove and Add in a single Command. *Note that Replace All will **not** remove any "held" Layers!*
 
 In terms of actual Layer order in the stack (which affects the final button assignments, visible HUD, etc), parenting *mostly* doesn't matter, only the order the Layers were added in and what type of Layer it is.
 
-There are 3 types of Layers when it comes to ordering: the root [Scheme], a "normal" Layer (added with Add/Replace/Toggle), and a "held" Layer (held active by a button like). The basic order is [Scheme] at the bottom, followed by normal layers above it in the order added, and then held layers at the top, again in order added.
+There are 4 types of Layers when it comes to ordering: the root [Scheme], a "normal" Layer (added with Add/Replace/Toggle), a "combo" Layer (explained later), and a "held" Layer (held active by a button). The basic order is [Scheme] at the bottom, followed by normal layers above it in the order added, and then held layers at the top, again in order added. Combo layers are always placed immediately above the top-most of their base layers.
 
-*The one special exception to the above ordering is normal layers added as children to a held layer, which will be sorted directly on top of their parent held layer yet beneath any other held layers that were added after their parent was.*
+There is also a special exception to the above ordering for normal layers added as children to a held layer. These will be sorted directly on top of their parent held layer, yet beneath any other held layers above that.
+
+### Combo layers
+
+These special layers can not be manually added, but are instead automatically added and removed whenever a combination of other layers is active. They can be used for more complex button combinations. For example, let's say you want Circle to send a different key for just pressing Circle, L2+Circle, R2+Circle, or L2+R2+Circle. That last one can be done with a combo layer, such as:
+
+    [Scheme]
+    Circle=A
+    L2 = Hold L2 layer
+    R2 = Hold R2 layer
+
+    [Layer.L2]
+    Circle=B
+
+    [Layer.R2]
+    Circle=C
+
+    [Layer.L2+R2]
+    Circle=D
+
+With this setup, when hold both L2 and R2, causing both those layers to be active, the L2+R2 layer is automatically added, causing Circle to press "D". The L2+R2 layer will be removed as soon as let go of either L2 or R2.
+
+Here's some other technical details about combo layers:
+* They are specified by 2 or more layer names separated by '+' after the ``[Layer.`` prefix.
+* They are added as soon as all their base layers are active, and removed as soon as any of their base layers are removed.
+* They can not be directly referenced by name for commands like Add Layer because symbols like '+' are filtered out of command strings.
+* In terms of layer order, they stay immediately on top of the top-most of all of their base layers, but no higher.
+* In terms of parenting for commands that can specify "parent" or "grandparent" layer, etc, they treat the first of their listed base layers to be their parent (so ``[Layer.L2+R2]`` treats ``[Layer.L2]`` as its parent).
 
 ## Menus
 

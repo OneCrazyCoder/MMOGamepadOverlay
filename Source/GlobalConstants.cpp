@@ -205,6 +205,7 @@ std::string virtualKeyToName(u8 theVKey)
 	case VK_NUMLOCK:	return "NumLock";
 	case VK_OEM_COMMA:	return "Comma";
 	case VK_OEM_PERIOD:	return "Period";
+	case kVKeyModKeyOnlyBase : return "Nothing";
 	}
 	LONG aScanCode = MapVirtualKey(theVKey, 0) << 16;
 	char aKeyName[256];
