@@ -88,18 +88,6 @@ struct ButtonState
 		this->isAutoButton = oldIsAutoButton;
 	}
 
-	void swapHeldState(ButtonState& rhs)
-	{
-		std::swap(layerHeld, rhs.layerHeld);
-		std::swap(heldTime, rhs.heldTime);
-		std::swap(repeatDelay, rhs.repeatDelay);
-		std::swap(vKeyHeld, rhs.vKeyHeld);
-		std::swap(heldDown, rhs.heldDown);
-		std::swap(shortHoldDone, rhs.shortHoldDone);
-		std::swap(longHoldDone, rhs.longHoldDone);
-		std::swap(usedInButtonCombo, rhs.usedInButtonCombo);
-	}
-
 	ButtonState() : vKeyHeld() { clear(); }
 };
 
@@ -107,6 +95,7 @@ struct LayerState
 {
 	ButtonState autoButton;
 	u16 parentLayerID;
+	u16 altParentLayerID; // 0 unless is a combo layer
 	bool active;
 	bool newlyActive;
 	bool ownedButtonHit;
@@ -117,6 +106,7 @@ struct LayerState
 		autoButton.clear();
 		autoButton.isAutoButton = true;
 		parentLayerID = 0;
+		altParentLayerID = 0;
 		active = false;
 		newlyActive = false;
 		ownedButtonHit = false;
@@ -225,11 +215,8 @@ static void	loadButtonCommandsForCurrentLayers()
 }
 
 
-static void removeControlsLayer(u16 theLayerID)
+static bool removeControlsLayer(u16 theLayerID)
 {
-	if( !sState.layers[theLayerID].active )
-		return;
-
 	// Layer ID 0 can't be removed, but trying to removes everything else
 	if( theLayerID == 0 )
 		transDebugPrint(
@@ -239,15 +226,17 @@ static void removeControlsLayer(u16 theLayerID)
 	// Child layers that are being held active by a held button are NOT
 	// automatically removed along with their parent layer though!
 	// Use reverse iteration so children are likely to be removed first.
+	bool layerWasRemoved = false;
 	for(std::vector<u16>::reverse_iterator itr =
 		sState.layerOrder.rbegin(), next_itr = itr;
 		itr != sState.layerOrder.rend(); itr = next_itr)
 	{
 		++next_itr;
+		// Never remove root layer directly
 		if( *itr == 0 )
 			continue;
 		LayerState& aLayer = sState.layers[*itr];
-		if( *itr == theLayerID )
+		if( *itr == theLayerID && aLayer.active )
 		{
 			transDebugPrint("Removing Controls Layer: %s\n",
 				InputMap::layerLabel(*itr).c_str());
@@ -258,39 +247,56 @@ static void removeControlsLayer(u16 theLayerID)
 			aLayer.newlyActive = false;
 			aLayer.heldActiveByButton = false;
 			sResults.layerChangeMade = true;
+			// .parentLayerID is intentionally left at last setting
+			// for refernece by commands on buttons that may still
+			// be active due to commandsWhenPressed system
 
 			// Remove from the layer order and recover iterator to continue
 			next_itr = std::vector<u16>::reverse_iterator(
 				sState.layerOrder.erase((itr+1).base()));
+			layerWasRemoved = true;
 		}
-		else if( aLayer.parentLayerID == theLayerID &&
-				 !aLayer.heldActiveByButton &&
-				 sState.layers[theLayerID].active )
+		else if( (aLayer.parentLayerID == theLayerID ||
+				  aLayer.altParentLayerID == theLayerID) &&
+				 !aLayer.heldActiveByButton )
 		{
 			// Need to use recursion so also remove grandchildren, etc
-			DBG_ASSERT(sState.layers[*itr].active);
-			removeControlsLayer(*itr);
 			// Recursion will mess up our iterator beyond reasonable recovery,
-			// so just start at the beginning (end) again
-			next_itr = sState.layerOrder.rbegin();
+			// so just start at the beginning (end) again if removed anything
+			if( removeControlsLayer(*itr) )
+			{
+				next_itr = sState.layerOrder.rbegin();
+				layerWasRemoved = true;
+			}
 		}
 	}
+
+	return layerWasRemoved;
 }
 
 
 static bool layerIsParentOfLayer(u16 theParentLayerID, u16 theCheckLayerID)
 {
-	std::vector<u16> aCheckedIDVec;
-	aCheckedIDVec.reserve(4);
-	while(
-		std::find(aCheckedIDVec.begin(), aCheckedIDVec.end(),
-			theCheckLayerID) == aCheckedIDVec.end() )
-	{
-		if( theCheckLayerID == theParentLayerID )
-			return true;
-		aCheckedIDVec.push_back(theCheckLayerID);
-		theCheckLayerID = sState.layers[theCheckLayerID].parentLayerID;
-	}
+	if( theCheckLayerID == theParentLayerID )
+		return true;
+
+	LayerState& aCheckLayer = sState.layers[theCheckLayerID];
+	if( aCheckLayer.parentLayerID == theParentLayerID )
+		return true;
+
+	if( aCheckLayer.altParentLayerID == theParentLayerID )
+		return true;
+
+	if( aCheckLayer.parentLayerID != 0 &&
+		aCheckLayer.parentLayerID != theCheckLayerID &&
+		layerIsParentOfLayer(theParentLayerID, aCheckLayer.parentLayerID) )
+		return true;
+
+	if( aCheckLayer.altParentLayerID != 0 &&
+		aCheckLayer.altParentLayerID != theCheckLayerID &&
+		layerIsParentOfLayer(theParentLayerID, aCheckLayer.altParentLayerID) )
+		return true;
+
 	return false;
 }
 
@@ -324,12 +330,22 @@ static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
 }
 
 
-static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID)
+static void addComboLayers(u16 theNewLayerID); // forward declare
+
+static void addControlsLayer(
+	u16 theLayerID, u16 theSpawningLayerID, u16 theComboLayerParentID = 0)
 {
 	DBG_ASSERT(theLayerID < sState.layers.size());
 	DBG_ASSERT(theSpawningLayerID < sState.layers.size());
 
-	// Calculate new position in the layer order.
+	if( theSpawningLayerID != 0 && !sState.layers[theSpawningLayerID].active )
+	{
+		transDebugPrint(
+			"Add layer '%s' request ignored - parent '%s' is missing!\n",
+			InputMap::layerLabel(theLayerID).c_str(),
+			InputMap::layerLabel(theSpawningLayerID).c_str());
+		return;
+	}
 	
 	// Check to see if layer is already active
 	if( sState.layers[theLayerID].active )
@@ -380,9 +396,117 @@ static void addControlsLayer(u16 theLayerID, u16 theSpawningLayerID)
 		layerOrderInsertPos(theSpawningLayerID), theLayerID);
 	LayerState& aLayer = sState.layers[theLayerID];
 	aLayer.parentLayerID = theSpawningLayerID;
+	aLayer.altParentLayerID = theComboLayerParentID;
 	aLayer.active = true;
 	aLayer.newlyActive = true;
 	sResults.layerChangeMade = true;
+	addComboLayers(theLayerID);
+}
+
+
+static void addComboLayers(u16 theNewLayerID)
+{
+	// Find and add any combo layers with theNewLayerID as a base and
+	// the other base layer also being active
+	bool aLayerWasAdded = false;
+	for(u16 i = 1; i < sState.layerOrder.size(); ++i)
+	{
+		const u16 aLayerID = sState.layerOrder[i];
+		if( aLayerID == theNewLayerID )
+			continue;
+		u16 aComboLayerID = InputMap::comboLayerID(theNewLayerID, aLayerID);
+		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active )
+		{
+			addControlsLayer(aComboLayerID, theNewLayerID, aLayerID);
+			aLayerWasAdded = true;
+			i = 0; // since sState.layerOrder might have changed
+		}
+		aComboLayerID = InputMap::comboLayerID(aLayerID, theNewLayerID);
+		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active )
+		{
+			addControlsLayer(aComboLayerID, aLayerID, theNewLayerID);
+			aLayerWasAdded = true;
+			i = 0; // since sState.layerOrder might have changed
+		}
+	}
+
+	if( aLayerWasAdded && !sState.layers[theNewLayerID].altParentLayerID )
+	{
+		// Need to re-sort combo layers into proper positions in layer order
+		// General idea is put combo layers directly above their top-most
+		// parent layer, but it gets more complex if that location can
+		// apply to more than one combo layer, at which point they try to
+		// match the relative order of their respective parent layers.
+		// This sorting relies on the fact that all combo layers should have
+		// only a non-combo layer for their parent, with only altParent
+		// having the possibility of being another combo layer.
+		struct LayerPriority
+		{
+			u16 oldPos;
+			LayerPriority *parent, *altParent;
+			u16 get(u16 depth) const
+			{
+				if( parent != null )
+				{
+					switch(depth)
+					{
+					case 0: return max(get(1), get(2));
+					case 1: return parent->get(0);
+					case 2: return altParent->get(0);
+					default: return altParent->get(depth-2);
+					}
+				}
+				else if( depth == 0 )
+				{
+					return oldPos;
+				}
+				return 0;
+			}
+		};
+		struct LayerSorter
+		{
+			u16 id;
+			LayerPriority* priority;
+			bool operator<(const LayerSorter& rhs) const
+			{
+				u16 priorityDepth = 0;
+				u16 priorityA = priority->get(priorityDepth);
+				u16 priorityB = rhs.priority->get(priorityDepth);
+				while(priorityA == priorityB && (priorityA || priorityB))
+				{
+					++priorityDepth;
+					priorityA = priority->get(priorityDepth);
+					priorityB = rhs.priority->get(priorityDepth);
+				}
+				return priorityA < priorityB;
+			}
+		};
+		std::vector<LayerPriority> aLayerPriorities(sState.layerOrder.size());
+		std::vector<LayerSorter> aLayerSorters(sState.layerOrder.size());
+		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+		{
+			const u16 aLayerID = sState.layerOrder[i];
+			LayerState& aLayer = sState.layers[aLayerID];
+			aLayerPriorities[i].oldPos = i;
+			aLayerPriorities[i].parent = null;
+			aLayerPriorities[i].altParent = null;
+			if( aLayer.altParentLayerID )
+			{
+				for(size_t j = 0; j < sState.layerOrder.size(); ++j)
+				{
+					if( sState.layerOrder[j] == aLayer.parentLayerID )
+						aLayerPriorities[i].parent = &aLayerPriorities[j];
+					if( sState.layerOrder[j] == aLayer.altParentLayerID )
+						aLayerPriorities[i].altParent = &aLayerPriorities[j];
+				}
+			}
+			aLayerSorters[i].id = sState.layerOrder[i];
+			aLayerSorters[i].priority = &aLayerPriorities[i];
+		}
+		std::sort(aLayerSorters.begin()+1, aLayerSorters.end());
+		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+			sState.layerOrder[i] = aLayerSorters[i].id;
+	}
 }
 
 
@@ -564,7 +688,7 @@ static void processCommand(
 		{// 0 means to remove relative rather than direct layer ID
 			if( theCmd.relativeLayer == kAllLayers )
 			{
-				removeControlsLayer(0);
+				removeControlsLayer(0); // removes all BUT 0 actually
 			}
 			else
 			{
@@ -1118,34 +1242,6 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 }
 
 
-static void holdLayerByButton(
-	ButtonState& theBtnState,
-	u16 theLayerID,
-	u16 theSpawningLayerID)
-{
-	DBG_ASSERT(theLayerID < sState.layers.size());
-	DBG_ASSERT(theLayerID > 0);
-	DBG_ASSERT(theSpawningLayerID < sState.layers.size());
-	releaseLayerHeldByButton(theBtnState);
-
-	transDebugPrint(
-		"Holding Controls Layer '%s' as child of Layer '%s'\n",
-		InputMap::layerLabel(theLayerID).c_str(),
-		InputMap::layerLabel(theSpawningLayerID).c_str());
-
-	// Held layers are always placed on "top" (back() of the vector)
-	// of all other layers when they are added.
-	sState.layerOrder.push_back(theLayerID);
-	LayerState& aLayer = sState.layers[theLayerID];
-	aLayer.parentLayerID = theSpawningLayerID;
-	aLayer.active = true;
-	aLayer.newlyActive = true;
-	aLayer.heldActiveByButton = true;
-	sResults.layerChangeMade = true;
-	theBtnState.layerHeld = theLayerID;
-}
-
-
 static bool tryAddLayerFromButton(
 	ButtonState& theBtnState, bool isDown, bool wasHit)
 {
@@ -1174,58 +1270,28 @@ static bool tryAddLayerFromButton(
 	const u16 aParentLayer = theBtnState.commandsLayer;
 	if( wasHit )
 	{
-		holdLayerByButton(theBtnState, aLayerID, aParentLayer);
-		return true;
-	}
+		DBG_ASSERT(aLayerID < sState.layers.size());
+		DBG_ASSERT(aLayerID > 0);
+		DBG_ASSERT(aParentLayer < sState.layers.size());
+		releaseLayerHeldByButton(theBtnState);
 
-	// Generally if the button is just being held down and wasn't newly hit,
-	// nothing should change and we're done, but there is a special exception.
+		transDebugPrint(
+			"Holding Controls Layer '%s' as child of Layer '%s'\n",
+			InputMap::layerLabel(aLayerID).c_str(),
+			InputMap::layerLabel(aParentLayer).c_str());
 
-	// Say want different actions for X, L2+X, R2+X, and L2+R2+X, so use
-	// a Profile configuration such as:
-	// [Layer.A]\n X = A\n L2 = Layer B\n R2 = Layer C\n 
-	// [Layer.B]\n X = B\n R2 = Layer D\n 
-	// [Layer.C]\n X = C\n L2 = Layer D\n 
-	// [Layer.D]\n X = D
-
-	// This will make 'X' press A, L2+X=B, R2+X=C, and L2+R2+X=D. However, if
-	// hold L2 (layer B), then hold R2 (layer D), then release L2 but continue
-	// to hold R2, then press X, would get 'D' even though L2 is no longer
-	// held, and pressing L2 again would change X to be 'B' instead! User would
-	// likely expect that letting go of L2 would instead revert to layer C,
-	// then back to D again if press L2 again without ever releasing R2 at all.
-
-	// The below code is exclusively here to handle this specific execption,
-	// by allowing a direct swap of layer being held even when the button has
-	// not been newly pressed, in the case where the button's _Down action was
-	// set to _HoldControlsLayer both before and after configuration change.
-
-	// If this exception is undesired, can avoid it by manually using Add and
-	// Remove Layer on button press & release instead of using Hold layer.
-	if( theBtnState.layerHeld &&
-		theBtnState.layerHeld != aLayerID &&
-		theBtnState.commandsWhenPressed &&
-		theBtnState.commandsWhenPressed[eBtnAct_Down].type ==
-			eCmdType_HoldControlsLayer )
-	{
-		ButtonState& pab = sState.layers[theBtnState.layerHeld].autoButton;
-		ButtonState& nab = sState.layers[aLayerID].autoButton;
-		if( pab.commands == nab.commands ||
-			(pab.commands != null && nab.commands != null &&
-			 pab.commands[eBtnAct_Down] == nab.commands[eBtnAct_Down] &&
-			 pab.commands[eBtnAct_Release] == nab.commands[eBtnAct_Release]) )
-		{
-			// Both new and old layers have matching Auto button
-			// _Down and _Release commands, so can swap them
-			// without affecting anything they are holding active.
-			nab.swapHeldState(pab);
-			holdLayerByButton(theBtnState, aLayerID, aParentLayer);
-			sState.layers[aLayerID].newlyActive = false;
-		}
-		else
-		{
-			holdLayerByButton(theBtnState, aLayerID, aParentLayer);			
-		}
+		// Held layers are always placed on "top" (back() of the vector)
+		// of all other layers when they are added.
+		sState.layerOrder.push_back(aLayerID);
+		LayerState& aLayer = sState.layers[aLayerID];
+		aLayer.parentLayerID = aParentLayer;
+		aLayer.altParentLayerID = 0;
+		aLayer.active = true;
+		aLayer.newlyActive = true;
+		aLayer.heldActiveByButton = true;
+		sResults.layerChangeMade = true;
+		theBtnState.layerHeld = aLayerID;
+		addComboLayers(aLayerID);
 		return true;
 	}
 

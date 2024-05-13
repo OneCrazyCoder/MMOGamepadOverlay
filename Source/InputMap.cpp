@@ -21,6 +21,7 @@ namespace InputMap
 const u16 kInvalidID = 0xFFFF;
 const char* kMainLayerLabel = "Scheme";
 const char* kLayerPrefix = "Layer.";
+const char kComboLayerDeliminator = '+';
 const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kTypeKeys[] = { "Type", "Style" };
@@ -129,16 +130,18 @@ struct ControlsLayer
 {
 	std::string label;
 	ButtonActionsMap map;
-	u16 includeLayer;
 	BitVector<> showHUD;
 	BitVector<> hideHUD;
 	EMouseMode mouseMode;
+	u16 includeLayer;
+	bool isComboLayer;
 
 	ControlsLayer() :
-		includeLayer(),
 		showHUD(),
 		hideHUD(),
-		mouseMode(eMouseMode_Default)
+		mouseMode(eMouseMode_Default),
+		includeLayer(),
+		isComboLayer()
 	{}
 };
 
@@ -152,6 +155,7 @@ struct InputMapBuilder
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<u16> layerNameToIdxMap;
+	StringToValueMap<u16> comboLayerNameToIdxMap;
 	StringToValueMap<u16> hudNameToIdxMap;
 	StringToValueMap<u16> menuPathToIdxMap;
 	BitVector<> elementsProcessed;
@@ -167,6 +171,7 @@ static std::vector<Hotspot> sHotspots;
 static std::vector<std::string> sKeyStrings;
 static std::vector<KeyBindArray> sKeyBindArrays;
 static std::vector<ControlsLayer> sLayers;
+static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
@@ -517,6 +522,56 @@ static u16 getOrCreateLayerID(
 	sLayers.back().includeLayer = anIncludeIdx;
 
 	return u16(sLayers.size() - 1);
+}
+
+
+static u16 getOrCreateComboLayerID(
+	InputMapBuilder& theBuilder,
+	const std::string& theComboName)
+{
+	if( theComboName.empty() )
+		return 0;
+
+	std::string aRemainingName = theComboName;
+	std::string aLayerName = breakOffItemBeforeChar(
+		aRemainingName, kComboLayerDeliminator);
+	if( aLayerName.empty() )
+		swap(aLayerName, aRemainingName);
+	u16* aLayerID = theBuilder.layerNameToIdxMap.find(aLayerName);
+	if( !aLayerID || *aLayerID == 0 )
+		return 0;
+	if( aRemainingName.empty() )
+		return *aLayerID;
+	std::pair<u16, u16> aComboLayerKey;
+	aComboLayerKey.first = *aLayerID;
+	aComboLayerKey.second = getOrCreateComboLayerID(
+		theBuilder, aRemainingName);
+	if( aComboLayerKey.second == 0 )
+		return 0;
+	if( aComboLayerKey.first == aComboLayerKey.second )
+	{
+		logError("Specified same layer twice in combo layer name '%s+%s'!",
+			sLayers[aComboLayerKey.first].label.c_str(),
+			sLayers[aComboLayerKey.second].label.c_str());
+		return 0;
+	}
+	VectorMap<std::pair<u16, u16>, u16>::iterator itr =
+		sComboLayers.find(aComboLayerKey);
+	if( itr != sComboLayers.end() )
+	{
+		theBuilder.comboLayerNameToIdxMap.setValue(
+			theComboName, itr->second);
+		return itr->second;
+	}
+
+	aLayerName =
+		sLayers[aComboLayerKey.first].label +
+		kComboLayerDeliminator +
+		sLayers[aComboLayerKey.second].label;
+	u16 aComboLayerID = getOrCreateLayerID(theBuilder, aLayerName);
+	sLayers[aComboLayerID].isComboLayer = true;
+	sComboLayers.setValue(aComboLayerKey, aComboLayerID);
+	return aComboLayerID;
 }
 
 
@@ -2249,7 +2304,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	// Check each key-value pair for button assignment requests
 	DBG_ASSERT(theBuilder.keyValueList.empty());
 	Profile::getAllKeys(aLayerPrefix, theBuilder.keyValueList);
-	if( theBuilder.keyValueList.empty() )
+	if( theBuilder.keyValueList.empty() && !sLayers[theLayerIdx].isComboLayer )
 	{
 		logError("No properties found for Layer [%s]!",
 			theBuilder.debugItemName.c_str());
@@ -2335,8 +2390,30 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 				aBtnActions.cmd[aBtnAct].type = eCmdType_Empty;
 		}
 	}
-
 	sLayers[theLayerIdx].map.trim();
+
+	// Check for possible combo layers based on this layer
+	if( theLayerIdx > 0 && !sLayers[theLayerIdx].isComboLayer )
+	{
+		// Collect all keys that start with "Layer.aLayerName+", and
+		// strip them down to the strings "LayerName1+LayerName2"
+		std::string aComboLayerPrefix(kLayerPrefix);
+		aComboLayerPrefix += aLayerName;
+		aComboLayerPrefix += kComboLayerDeliminator;
+		DBG_ASSERT(theBuilder.keyValueList.empty());
+		Profile::getAllKeys(aComboLayerPrefix, theBuilder.keyValueList);
+		for(Profile::KeyValuePairs::const_iterator itr =
+			theBuilder.keyValueList.begin();
+			itr != theBuilder.keyValueList.end(); ++itr)
+		{
+			std::string aComboLayerName = itr->first;
+			aComboLayerName = breakOffItemBeforeChar(aComboLayerName, '/');
+			aComboLayerName = condense(aLayerName) +
+				kComboLayerDeliminator + aComboLayerName;
+			theBuilder.comboLayerNameToIdxMap.findOrAdd(aComboLayerName);
+		}
+		theBuilder.keyValueList.clear();
+	}
 }
 
 
@@ -2344,9 +2421,32 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 {
 	mapDebugPrint("Building control scheme layers...\n");
 
+	// Create layer ID 0 for root layer
+	DBG_ASSERT(sLayers.empty());
 	getOrCreateLayerID(theBuilder, kMainLayerLabel);
-	for(u16 idx = 0; idx < sLayers.size(); ++idx)
-		buildControlsLayer(theBuilder, idx);
+
+	// Build layers - sLayers size can expand as each layer adds other layers
+	for(u16 aLayerIdx = 0; aLayerIdx <= sLayers.size(); ++aLayerIdx)
+	{
+		if( !theBuilder.comboLayerNameToIdxMap.empty() &&
+			aLayerIdx >= sLayers.size() )
+		{// Try creating any combo layers that have all bases available
+			for(u16 i = 0; i < theBuilder.comboLayerNameToIdxMap.size(); ++i)
+			{
+				const std::string aComboLayerName =
+					theBuilder.comboLayerNameToIdxMap.keys()[i];
+				u16 aComboLayerID =
+					theBuilder.comboLayerNameToIdxMap.values()[i];
+				if( aComboLayerID == 0 )
+				{// Combo layer not yet generated, see if can do so now
+					getOrCreateComboLayerID(theBuilder, aComboLayerName);
+				}
+			}
+		}
+		if( aLayerIdx >= sLayers.size() )
+			break;
+		buildControlsLayer(theBuilder, aLayerIdx);
+	}
 }
 
 
@@ -2750,6 +2850,7 @@ void loadProfile()
 	sKeyStrings.clear();
 	sKeyBindArrays.clear();
 	sLayers.clear();
+	sComboLayers.clear();
 	sMenus.clear();
 	sHUDElements.clear();
 
@@ -2773,6 +2874,7 @@ void loadProfile()
 		std::vector<std::string>(sKeyStrings).swap(sKeyStrings);
 	if( sLayers.size() < sLayers.capacity() )
 		std::vector<ControlsLayer>(sLayers).swap(sLayers);
+	sComboLayers.trim();
 	if( sHUDElements.size() < sHUDElements.capacity() )
 		std::vector<HUDElement>(sHUDElements).swap(sHUDElements);
 	if( sMenus.size() < sMenus.capacity() )
@@ -2905,6 +3007,17 @@ const BitVector<>& hudElementsToHide(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers[theLayerID].hideHUD;
+}
+
+
+u16 comboLayerID(u16 theLayerID1, u16 theLayerID2)
+{
+	std::pair<u16, u16> aKey(theLayerID1, theLayerID2);
+	VectorMap<std::pair<u16, u16>, u16>::iterator itr =
+		sComboLayers.find(aKey);
+	if( itr != sComboLayers.end() )
+		return itr->second;
+	return 0;
 }
 
 

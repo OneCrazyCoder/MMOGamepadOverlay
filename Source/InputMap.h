@@ -44,6 +44,9 @@ const BitVector<>& hudElementsToShow(u16 theLayerID);
 // (overrides any lower layers wishing to show these HUD elements)
 const BitVector<>& hudElementsToHide(u16 theLayerID);
 
+// Returns a combo layer ID if one exists, otherwise 0
+u16 comboLayerID(u16 theLayerID1, u16 theLayerID2);
+
 // MENUS
 const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
 const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
