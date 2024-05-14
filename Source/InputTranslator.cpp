@@ -606,7 +606,7 @@ static void processCommand(
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID,
 				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
-				-s16(theCmd.count), theCmd.wrap);
+				-theCmd.count, theCmd.wrap);
 		aForwardCmd = InputMap::keyBindArrayCommand(
 			theCmd.keybindArrayID,
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
@@ -710,28 +710,37 @@ static void processCommand(
 		// Special-case, handled elsewhere
 		break;
 	case eCmdType_ReplaceControlsLayer:
-		// Replace can't name the layer to be replaced, only the one
-		// to replace it with, so it uses relative layer for removal
-		// in the same manner as _Remove does when .layerID == 0
-		if( theCmd.relativeLayer == kAllLayers )
-		{
-			theLayerIdx = 0;
-			removeControlsLayer(0);
+		DBG_ASSERT(theCmd.replacementLayer > 0);
+		if( theCmd.layerID == 0 )
+		{// 0 means to remove relative rather than direct layer ID
+			if( theCmd.relativeLayer == kAllLayers )
+			{
+				removeControlsLayer(0); // removes all BUT 0 actually
+				theLayerIdx = 0;
+			}
+			else
+			{
+				// relativeLayer means how many parent layers up from calling
+				for(int i = 0; i < theCmd.relativeLayer &&
+					sState.layers[theLayerIdx].parentLayerID != 0; ++i)
+				{
+					theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
+				}
+				u16 aLayerToRemoveID = theLayerIdx;
+				// Want to add new layer to removed layer's parent
+				theLayerIdx = sState.layers[aLayerToRemoveID].parentLayerID;
+				removeControlsLayer(aLayerToRemoveID);
+			}
 		}
 		else
-		{
-			// relativeLayer means how many parent layers up from calling
-			u16 aParentIdx = sState.layers[theLayerIdx].parentLayerID;
-			for(int i = 0; i < theCmd.relativeLayer && aParentIdx != 0; ++i)
-			{
-				theLayerIdx = aParentIdx;
-				DBG_ASSERT(theLayerIdx < sState.layers.size());
-				aParentIdx = sState.layers[theLayerIdx].parentLayerID;
-			}
-			removeControlsLayer(theLayerIdx);
-			theLayerIdx = aParentIdx;
+		{// Otherwise remove a specific layer ID specified
+			theLayerIdx = sState.layers[theCmd.layerID].parentLayerID;
+			removeControlsLayer(theCmd.layerID);
 		}
-		addControlsLayer(theCmd.layerID, theLayerIdx);
+		// Now add the replacement layer to the removed layer's parent,
+		// if it isn't already active anyway
+		if( !sState.layers[theCmd.replacementLayer].active )
+			addControlsLayer(theCmd.replacementLayer, theLayerIdx);
 		break;
 	case eCmdType_ToggleControlsLayer:
 		aForwardCmd = theCmd;
@@ -786,10 +795,11 @@ static void processCommand(
 		if( const Command* aCmdPtr = Menus::closeLastSubMenu(theCmd.menuID) )
 		{
 			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
+			break;
 		}
-		else
+		// Returning null means at are root, so fall through to close
+	case eCmdType_MenuClose:
 		{
-			// Returning null means at are root, so can close entirely
 			u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID, theLayerIdx);
 			if( aLayerToRemoveID != 0 )
 				removeControlsLayer(aLayerToRemoveID);
