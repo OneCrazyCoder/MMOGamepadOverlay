@@ -818,8 +818,10 @@ static Command wordsToSpecialCommand(
 	// Find all key words that are actually included and their positions
 	theBuilder.keyWordMap.clear();
 	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
+	BitArray<eCmdWord_Num> allowedKeyWords = { 0 };
 	const std::string* anIgnoredWord = null;
 	const std::string* anIntegerWord = null;
+	const std::string* aReplaceWithWord = null;
 	result.wrap = false;
 	result.count = 1;
 	for(size_t i = 0; i < theWords.size(); ++i)
@@ -860,6 +862,16 @@ static Command wordsToSpecialCommand(
 			aKeyWordID = eCmdWord_Down;
 			result.wrap = false;
 			break;
+		case eCmdWord_With:
+			// Special case for "Replace <name> with <name>"
+			if( i < theWords.size() - 1 &&
+				keyWordsFound.test(eCmdWord_Replace) )
+			{
+				aReplaceWithWord = &theWords[i+1];
+				allowedKeyWords = keyWordsFound;
+			}
+			aKeyWordID = eCmdWord_Filler;
+			break;
 		}
 		switch(aKeyWordID)
 		{
@@ -881,12 +893,17 @@ static Command wordsToSpecialCommand(
 			result.count = max(result.count, intFromString(theWords[i]));
 			// fall through
 		case eCmdWord_Unknown:
-			// Not allowed more than once per command
+			// Not allowed more than once per command, since
+			// these might actually be different values
 			if( keyWordsFound.test(aKeyWordID) )
-				return result;
-			keyWordsFound.set(aKeyWordID);
-			theBuilder.keyWordMap.addPair(aKeyWordID, i);
-			break;
+			{
+				// Exception: single allowed duplicate
+				if( allowedKeyWords.test(aKeyWordID) )
+					allowedKeyWords.reset();
+				else
+					return result;
+			}
+			// fall through
 		default:
 			// Don't add duplicate keys to the map
 			if( !keyWordsFound.test(aKeyWordID) )
@@ -913,7 +930,6 @@ static Command wordsToSpecialCommand(
 
 	// Find a command by checking for specific key words + allowed related
 	// words (but no extra words beyond that, besides fillers)
-	BitArray<eCmdWord_Num> allowedKeyWords;
 
 	// "= [Do] Nothing"
 	if( keyWordsFound.test(eCmdWord_Nothing) && keyWordsFound.count() == 1)
@@ -993,27 +1009,60 @@ static Command wordsToSpecialCommand(
 	// The remainng Layer-related commands need one extra word that is
 	// not a key word related to layers, which will be the name of the
 	// layer (likely, but not always, the eCmdWord_Unknown entry).
-	allowedKeyWords = keyWordsFound;
-	allowedKeyWords.reset(eCmdWord_Layer);
-	allowedKeyWords.reset(eCmdWord_Add);
-	allowedKeyWords.reset(eCmdWord_Remove);
-	allowedKeyWords.reset(eCmdWord_Hold);
-	allowedKeyWords.reset(eCmdWord_Replace);
-	allowedKeyWords.reset(eCmdWord_Toggle);
-	allowedKeyWords.reset(eCmdWord_NonChild);
-	allowedKeyWords.reset(eCmdWord_Parent);
-	allowedKeyWords.reset(eCmdWord_Grandparent);
-	allowedKeyWords.reset(eCmdWord_All);
-	allowedKeyWords.reset(eCmdWord_Integer);
+	// Start by defining what key words are related to layer commands
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Layer);
+	allowedKeyWords.set(eCmdWord_Add);
+	allowedKeyWords.set(eCmdWord_Remove);
+	allowedKeyWords.set(eCmdWord_Hold);
+	allowedKeyWords.set(eCmdWord_Replace);
+	allowedKeyWords.set(eCmdWord_Toggle);
+	allowedKeyWords.set(eCmdWord_NonChild);
+	allowedKeyWords.set(eCmdWord_Parent);
+	allowedKeyWords.set(eCmdWord_Grandparent);
+	allowedKeyWords.set(eCmdWord_All);
+	allowedKeyWords.set(eCmdWord_Integer);
+	// If have aReplaceWithWord, make sure it isn't one of the above
+	if( aReplaceWithWord )
+	{
+		allowedKeyWords.set(eCmdWord_Filler);
+		ECommandKeyWord aKeyWordID = commandWordToID(upper(*aReplaceWithWord));
+		while(aReplaceWithWord && allowedKeyWords.test(aKeyWordID))
+		{
+			if( aReplaceWithWord == &theWords.back() )
+			{
+				aReplaceWithWord = null;
+				break;
+			}
+			++aReplaceWithWord;
+			aKeyWordID = commandWordToID(upper(*aReplaceWithWord));
+		}
+		allowedKeyWords.reset(eCmdWord_Filler);
+	}
+	// Convert allowedKeyWords into all non-layer-related words found
+	allowedKeyWords = keyWordsFound & (~allowedKeyWords);
 	// If no extra words found, default to anIgnoredWord
 	const std::string* aLayerName = anIgnoredWord;
 	// If no ignored word either, default to anIntegerWord
 	if( !aLayerName ) aLayerName = anIntegerWord;
-	if( allowedKeyWords.count() == 1 )
+	if( allowedKeyWords.count() == 1 ||
+		(aReplaceWithWord && allowedKeyWords.count() == 2) )
 	{
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
-			theBuilder.keyWordMap.find(
-				ECommandKeyWord(allowedKeyWords.firstSetBit()));
+			theBuilder.keyWordMap.find(ECommandKeyWord(
+				allowedKeyWords.firstSetBit()));
+		if( itr != theBuilder.keyWordMap.end() )
+			aLayerName = &theWords[itr->second];
+	}
+	if( aReplaceWithWord &&
+		aLayerName == aReplaceWithWord &&
+		allowedKeyWords.count() == 2 )
+	{
+		aLayerName = anIgnoredWord;
+		if( !aLayerName ) aLayerName = anIntegerWord;
+		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
+			theBuilder.keyWordMap.find(ECommandKeyWord(
+				allowedKeyWords.nextSetBit(allowedKeyWords.firstSetBit())));
 		if( itr != theBuilder.keyWordMap.end() )
 			aLayerName = &theWords[itr->second];
 	}
@@ -1021,9 +1070,28 @@ static Command wordsToSpecialCommand(
 
 	if( aLayerName )
 	{
-		// "= Add [Layer] <aLayerName> [to parent/etc]"
+		// "= Replace [Layer] <aLayerName> with <aReplacementLayerName>
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Layer);
+		allowedKeyWords.set(eCmdWord_Replace);
+		if( keyWordsFound.test(eCmdWord_Replace) &&
+			aReplaceWithWord && aReplaceWithWord != aLayerName &&
+			aRelativeLayer == 0 &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
+		{
+			result.type = eCmdType_ReplaceControlsLayer;
+			// Since can't remove layer 0 (main scheme), 0 acts as a flag
+			// meaning to remove relative layer instead
+			result.layerID =
+				getOrCreateLayerID(theBuilder, *aLayerName);
+			result.replacementLayer =
+				getOrCreateLayerID(theBuilder, *aReplaceWithWord);
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Replace);
+
+		// "= Add [Layer] <aLayerName> [to parent/etc]"
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Add);
 		allowedKeyWords.set(eCmdWord_Parent);
 		allowedKeyWords.set(eCmdWord_Grandparent);

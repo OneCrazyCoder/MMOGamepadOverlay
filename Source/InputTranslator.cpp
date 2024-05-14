@@ -387,7 +387,7 @@ static void addControlsLayer(
 		else
 		{
 			transDebugPrint(
-				"Adding Controls Layer '%s'\n",
+				"Adding Controls Layer '%s' as independent layer\n",
 				InputMap::layerLabel(theLayerID).c_str());
 		}
 	}
@@ -737,10 +737,10 @@ static void processCommand(
 			theLayerIdx = sState.layers[theCmd.layerID].parentLayerID;
 			removeControlsLayer(theCmd.layerID);
 		}
-		// Now add the replacement layer to the removed layer's parent,
-		// if it isn't already active anyway
-		if( !sState.layers[theCmd.replacementLayer].active )
-			addControlsLayer(theCmd.replacementLayer, theLayerIdx);
+		// If just refreshing existing layer, keep its same parent as well
+		if( sState.layers[theCmd.replacementLayer].active )
+			theLayerIdx = sState.layers[theCmd.replacementLayer].parentLayerID;
+		addControlsLayer(theCmd.replacementLayer, theLayerIdx);
 		break;
 	case eCmdType_ToggleControlsLayer:
 		aForwardCmd = theCmd;
