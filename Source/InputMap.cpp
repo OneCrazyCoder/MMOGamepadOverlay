@@ -821,7 +821,7 @@ static Command wordsToSpecialCommand(
 	BitArray<eCmdWord_Num> allowedKeyWords = { 0 };
 	const std::string* anIgnoredWord = null;
 	const std::string* anIntegerWord = null;
-	const std::string* aReplaceWithWord = null;
+	const std::string* aSecondLayerName = null;
 	result.wrap = false;
 	result.count = 1;
 	for(size_t i = 0; i < theWords.size(); ++i)
@@ -862,12 +862,22 @@ static Command wordsToSpecialCommand(
 			aKeyWordID = eCmdWord_Down;
 			result.wrap = false;
 			break;
+		case eCmdWord_To:
+			// Special case for "Add <name> to <name>"
+			if( i < theWords.size() - 1 &&
+				keyWordsFound.test(eCmdWord_Add) )
+			{
+				aSecondLayerName = &theWords[i+1];
+				allowedKeyWords = keyWordsFound;
+			}
+			aKeyWordID = eCmdWord_Filler;
+			break;
 		case eCmdWord_With:
 			// Special case for "Replace <name> with <name>"
 			if( i < theWords.size() - 1 &&
 				keyWordsFound.test(eCmdWord_Replace) )
 			{
-				aReplaceWithWord = &theWords[i+1];
+				aSecondLayerName = &theWords[i+1];
 				allowedKeyWords = keyWordsFound;
 			}
 			aKeyWordID = eCmdWord_Filler;
@@ -1022,20 +1032,20 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Grandparent);
 	allowedKeyWords.set(eCmdWord_All);
 	allowedKeyWords.set(eCmdWord_Integer);
-	// If have aReplaceWithWord, make sure it isn't one of the above
-	if( aReplaceWithWord )
+	// If have aSecondLayerName, make sure it isn't one of the above
+	if( aSecondLayerName )
 	{
 		allowedKeyWords.set(eCmdWord_Filler);
-		ECommandKeyWord aKeyWordID = commandWordToID(upper(*aReplaceWithWord));
-		while(aReplaceWithWord && allowedKeyWords.test(aKeyWordID))
+		ECommandKeyWord aKeyWordID = commandWordToID(upper(*aSecondLayerName));
+		while(aSecondLayerName && allowedKeyWords.test(aKeyWordID))
 		{
-			if( aReplaceWithWord == &theWords.back() )
+			if( aSecondLayerName == &theWords.back() )
 			{
-				aReplaceWithWord = null;
+				aSecondLayerName = null;
 				break;
 			}
-			++aReplaceWithWord;
-			aKeyWordID = commandWordToID(upper(*aReplaceWithWord));
+			++aSecondLayerName;
+			aKeyWordID = commandWordToID(upper(*aSecondLayerName));
 		}
 		allowedKeyWords.reset(eCmdWord_Filler);
 	}
@@ -1046,7 +1056,7 @@ static Command wordsToSpecialCommand(
 	// If no ignored word either, default to anIntegerWord
 	if( !aLayerName ) aLayerName = anIntegerWord;
 	if( allowedKeyWords.count() == 1 ||
-		(aReplaceWithWord && allowedKeyWords.count() == 2) )
+		(aSecondLayerName && allowedKeyWords.count() == 2) )
 	{
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
 			theBuilder.keyWordMap.find(ECommandKeyWord(
@@ -1054,8 +1064,8 @@ static Command wordsToSpecialCommand(
 		if( itr != theBuilder.keyWordMap.end() )
 			aLayerName = &theWords[itr->second];
 	}
-	if( aReplaceWithWord &&
-		aLayerName == aReplaceWithWord &&
+	if( aSecondLayerName &&
+		aLayerName == aSecondLayerName &&
 		allowedKeyWords.count() == 2 )
 	{
 		aLayerName = anIgnoredWord;
@@ -1070,22 +1080,37 @@ static Command wordsToSpecialCommand(
 
 	if( aLayerName )
 	{
-		// "= Replace [Layer] <aLayerName> with <aReplacementLayerName>
+		// "= Add [Layer] <aLayerName> to <aParentLayerName>"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Layer);
+		allowedKeyWords.set(eCmdWord_Add);
+		if( keyWordsFound.test(eCmdWord_Add) &&
+			aSecondLayerName && aSecondLayerName != aLayerName &&
+			aRelativeLayer == 0 &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
+		{
+			result.type = eCmdType_AddControlsLayer;
+			result.layerID =
+				getOrCreateLayerID(theBuilder, *aLayerName);
+			result.parentLayerID =
+				getOrCreateLayerID(theBuilder, *aSecondLayerName);
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Add);
+
+		// "= Replace [Layer] <aLayerName> with <aNewLayerName>"
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Replace);
 		if( keyWordsFound.test(eCmdWord_Replace) &&
-			aReplaceWithWord && aReplaceWithWord != aLayerName &&
+			aSecondLayerName && aSecondLayerName != aLayerName &&
 			aRelativeLayer == 0 &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
-			// Since can't remove layer 0 (main scheme), 0 acts as a flag
-			// meaning to remove relative layer instead
 			result.layerID =
 				getOrCreateLayerID(theBuilder, *aLayerName);
 			result.replacementLayer =
-				getOrCreateLayerID(theBuilder, *aReplaceWithWord);
+				getOrCreateLayerID(theBuilder, *aSecondLayerName);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Replace);
@@ -1103,6 +1128,7 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_AddControlsLayer;
 			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			result.parentLayerID = 0;
 			result.relativeLayer = aRelativeLayer;
 			return result;
 		}
@@ -1116,6 +1142,7 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_ToggleControlsLayer;
 			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			result.parentLayerID = 0;
 			result.relativeLayer = aRelativeLayer;
 			DBG_ASSERT(result.layerID != 0);
 			return result;

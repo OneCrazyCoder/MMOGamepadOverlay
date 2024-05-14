@@ -262,6 +262,7 @@ enum ECommandKeyWord
 	eCmdWord_Nothing,
 	eCmdWord_Unassigned,
 	eCmdWord_Add,
+	eCmdWord_To,
 	eCmdWord_Remove,
 	eCmdWord_Hold,
 	eCmdWord_Replace,
@@ -366,6 +367,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 			union
 			{
 				u16 replacementLayer;
+				u16 parentLayerID;
 				u16 menuID;
 				u16 keybindArrayID;
 				u16 mouseWheelMotionType;
