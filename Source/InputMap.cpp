@@ -882,6 +882,16 @@ static Command wordsToSpecialCommand(
 			}
 			aKeyWordID = eCmdWord_Filler;
 			break;
+		case eCmdWord_On:
+			// Special case for "Toggle <name> on <name>"
+			if( i < theWords.size() - 1 &&
+				keyWordsFound.test(eCmdWord_Toggle) )
+			{
+				aSecondLayerName = &theWords[i+1];
+				allowedKeyWords = keyWordsFound;
+			}
+			aKeyWordID = eCmdWord_Filler;
+			break;
 		}
 		switch(aKeyWordID)
 		{
@@ -1097,6 +1107,23 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Add);
+
+		// "= Toggle [Layer] <aLayerName> on <aParentLayerName>"
+		// allowedKeyWords = Layer
+		allowedKeyWords.set(eCmdWord_Toggle);
+		if( keyWordsFound.test(eCmdWord_Toggle) &&
+			aSecondLayerName && aSecondLayerName != aLayerName &&
+			aRelativeLayer == 0 &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+		{
+			result.type = eCmdType_ToggleControlsLayer;
+			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			result.parentLayerID =
+				getOrCreateLayerID(theBuilder, *aSecondLayerName);
+			DBG_ASSERT(result.layerID != 0);
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Toggle);
 
 		// "= Replace [Layer] <aLayerName> with <aNewLayerName>"
 		// allowedKeyWords = Layer
