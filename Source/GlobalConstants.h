@@ -265,6 +265,7 @@ enum ECommandKeyWord
 	eCmdWord_Remove,
 	eCmdWord_Hold,
 	eCmdWord_Replace,
+	eCmdWord_With,
 	eCmdWord_Toggle,
 	eCmdWord_Layer,
 	eCmdWord_NonChild,

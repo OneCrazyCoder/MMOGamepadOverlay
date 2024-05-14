@@ -7,7 +7,7 @@
 /*
 	Updates the MenuState of any active menus via InputTranslator, according
 	to the menu configuration set up by InputMap reading current Profile.
-	Each Menu has a Style which determines how the variosu menu-related
+	Each Menu has a Style which determines how the various menu-related
 	commands should be interpreted (as well as how the menu will be displayed
 	as a HUD element).
 */

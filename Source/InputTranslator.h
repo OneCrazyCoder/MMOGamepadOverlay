@@ -6,9 +6,10 @@
 
 /*
 	Translates gamepad input into corresponding keyboard/mouse inputs.
-	Converts gamepad input into keyboard and mouse inputs to be sent to the
-	target game by the InputDispatcher module, based on user configurations
-	and current state like active Controls Layers and Menu States.
+	Uses the Gamepad module to read input, translates that input into desired
+	keyboard and mouse input using the data in InputMap and tracked state of
+	active Controls Layers and Menus, and then passes that along to be sent
+	to the target game by the InputDispatcher module.
 */
 
 #include "Common.h"
