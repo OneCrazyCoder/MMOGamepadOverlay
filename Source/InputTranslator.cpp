@@ -350,6 +350,7 @@ static void addControlsLayer(
 	// Check to see if layer is already active
 	if( sState.layers[theLayerID].active )
 	{
+		DBG_ASSERT(theLayerID != 0);
 		// If request came from a child layer of the layer being added,
 		// meaning could end up with a recursive child/parent relationship,
 		// simply bump this layer to new position in layer order instead,
@@ -678,9 +679,16 @@ static void processCommand(
 		gShutdown = true;
 		break;
 	case eCmdType_AddControlsLayer:
-		// relativeLayer is how many parent layers up from current to attach to
-		for(int i = 0; i < theCmd.relativeLayer && theLayerIdx != 0; ++i)
-			theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
+		if( theCmd.parentLayerID == 0 )
+		{// 0 means to add to relative rather than direct layer ID
+			// relativeLayer is how many parent layers up from current to attach to
+			for(int i = 0; i < theCmd.relativeLayer && theLayerIdx != 0; ++i)
+				theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
+		}
+		else
+		{// Otherwise use a specific layer ID as parent layer
+			theLayerIdx = theCmd.parentLayerID;
+		}
 		addControlsLayer(theCmd.layerID, theLayerIdx);
 		break;
 	case eCmdType_RemoveControlsLayer:
