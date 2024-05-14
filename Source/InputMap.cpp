@@ -1062,7 +1062,11 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
-			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			// Since can't remove layer 0 (main scheme), 0 acts as a flag
+			// meaning to remove relative layer instead
+			result.layerID = 0;
+			result.replacementLayer =
+				getOrCreateLayerID(theBuilder, *aLayerName);
 			result.relativeLayer = aRelativeLayer;
 			return result;
 		}
@@ -2249,7 +2253,8 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			sLayers[anIncludeLayer].mouseMode;
 	}
 
-	const std::string& aLayerName = sLayers[theLayerIdx].label;
+	// Make local copy of name string since sLayers can reallocate memory here
+	const std::string aLayerName = sLayers[theLayerIdx].label;
 	theBuilder.debugItemName.clear();
 	if( theLayerIdx != 0 )
 	{
@@ -2325,6 +2330,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	theBuilder.keyValueList.clear();
 
 	// Do final cleanup and processing of overall commands map
+	// (sLayers shouldn't grow any past this point so safe to use const ref's)
 	ButtonActionsMap& aMap = sLayers[theLayerIdx].map;
 	for(size_t i = 0; i < aMap.size(); ++i)
 	{
@@ -2390,7 +2396,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 				aBtnActions.cmd[aBtnAct].type = eCmdType_Empty;
 		}
 	}
-	sLayers[theLayerIdx].map.trim();
+	aMap.trim();
 
 	// Check for possible combo layers based on this layer
 	if( theLayerIdx > 0 && !sLayers[theLayerIdx].isComboLayer )
@@ -2519,10 +2525,9 @@ static MenuItem stringToMenuItem(
 	}
 
 	if( commandWordToID(condense(theString)) == eCmdWord_Close )
-	{// Close self by removing calling controls Layer
-		aMenuItem.cmd.type = eCmdType_RemoveControlsLayer;
-		aMenuItem.cmd.layerID = 0;
-		aMenuItem.cmd.relativeLayer = 0;
+	{// Close menu
+		aMenuItem.cmd.type = eCmdType_MenuClose;
+		aMenuItem.cmd.menuID = sMenus[theMenuID].rootMenuID;
 		mapDebugPrint("%s: '%s' assigned to close menu\n",
 			theBuilder.debugItemName.c_str(),
 			aLabel.c_str());

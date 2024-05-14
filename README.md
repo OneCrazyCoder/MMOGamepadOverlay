@@ -362,7 +362,7 @@ In some cases this is not desired, so you can override the new Layer's parent by
 
 Note that "held" Layers (layer active only so long as are holding a button such as [Layer.Alt] from the ``L2 = Layer Alt`` example above) are NOT automatically removed when their parent is removed. They are only removed when the button "holding" it active (L2 in this case) is released!
 
-There is also the more advanced Layer command Replace, such as ``Replace Layer with <LayerName>`` or ``Replace Parent/GrandParent/etc Layer with <LayerName>`` or even ``Replace All Layers with <LayerName>`` which can be used to simultaneously Remove and Add in a single Command. *Note that Replace All will **not** remove any "held" Layers!*
+There is also the more advanced Layer command Replace, such as ``Replace Layer with <LayerName>`` or ``Replace Parent/GrandParent/etc Layer with <LayerName>`` which can be used to simultaneously Remove and Add in a single Command. The new layer will be set to the same parent as the layer it replaced in this case.
 
 In terms of actual Layer order in the stack (which affects the final button assignments, visible HUD, etc), parenting *mostly* doesn't matter, only the order the Layers were added in and what type of Layer it is.
 

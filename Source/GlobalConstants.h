@@ -66,6 +66,7 @@ enum ECommandType
 	eCmdType_MenuConfirmAndClose,
 	eCmdType_MenuBack, // close last sub-menu
 	eCmdType_MenuBackOrClose, // close menu if no sub-menus open 
+	eCmdType_MenuClose,
 	eCmdType_MenuEdit,
 
 	// These should have 'dir' set to an ECommandDir
@@ -363,12 +364,16 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 			};
 			union
 			{
-				u16 relativeLayer;
+				u16 replacementLayer;
 				u16 menuID;
 				u16 keybindArrayID;
 				u16 mouseWheelMotionType;
 			};
-			u8 count;
+			union
+			{
+				s16 count;
+				u16 relativeLayer;
+			};
 			bool wrap;
 		};
 		const char* string;
