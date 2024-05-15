@@ -1247,29 +1247,46 @@ static void drawMenuItemLabel(
 	}
 	else if( theCacheEntry.type == eMenuItemLabelType_CopyRect )
 	{
-		// If source rect is smaller than dest rect on either axis,
-		// center it rather than expanding it
 		int aDstL = theRect.left;
 		int aDstT = theRect.top;
 		int aDstW = theRect.right - theRect.left;
 		int aDstH = theRect.bottom - theRect.top;
-		if( theCacheEntry.copyRect.fromSize.cx < aDstW )
-		{
-			aDstL += (aDstW - theCacheEntry.copyRect.fromSize.cx) / 2;
-			aDstW = theCacheEntry.copyRect.fromSize.cx;
+		int aSrcL = theCacheEntry.copyRect.fromPos.x;
+		int aSrcT = theCacheEntry.copyRect.fromPos.y;
+		int aSrcW = theCacheEntry.copyRect.fromSize.cx;
+		int aSrcH = theCacheEntry.copyRect.fromSize.cy;
+
+		if( aDstW >= aSrcW && aDstH >= aSrcH )
+		{// Just draw centered at destination
+			BitBlt(dd.hdc,
+				aDstL + (aDstW - aSrcW) / 2,
+				aDstT + (aDstH - aSrcH) / 2,
+				aSrcW, aSrcH,
+				dd.hTargetDC, aSrcL, aSrcT, SRCCOPY);
 		}
-		if( theCacheEntry.copyRect.fromSize.cy < aDstH )
-		{
-			aDstT += (aDstH - theCacheEntry.copyRect.fromSize.cy) / 2;
-			aDstH = theCacheEntry.copyRect.fromSize.cy;
+		else
+		{// Draw stretched, but maintain aspect ratio
+			const double aSrcAspectRatio = double(aSrcW) / aSrcH;
+			const double aDstAspectRatio = double(aDstW) / aDstH;
+
+			if( aSrcAspectRatio > aDstAspectRatio )
+			{
+				// Fit height and center horizontally
+				const int aPrevDestH = aDstH;
+				aDstH = min(aDstH, int(aDstW / aSrcAspectRatio));
+				aDstT += (aPrevDestH - aDstH) / 2;
+			}
+			else if( aSrcAspectRatio < aDstAspectRatio )
+			{
+				// Fit width and center vertically
+				const int aPrevDestW = aDstW;
+				aDstW = min(aDstW, int(aDstH * aSrcAspectRatio));
+				aDstL += (aPrevDestW - aDstW) / 2;
+			}
+
+			StretchBlt(dd.hdc, aDstL, aDstT, aDstW, aDstH,
+				dd.hTargetDC, aSrcL, aSrcT, aSrcW, aSrcH, SRCCOPY);
 		}
-		StretchBlt(dd.hdc, aDstL, aDstT, aDstW, aDstH,
-				   dd.hTargetDC,
-				   theCacheEntry.copyRect.fromPos.x,
-				   theCacheEntry.copyRect.fromPos.y,
-				   theCacheEntry.copyRect.fromSize.cx,
-				   theCacheEntry.copyRect.fromSize.cy,
-				   SRCCOPY);
 		// Queue auto-refresh of this label later if nothing else draws it
 		sAutoRefreshLabels.push_back(AutoRefreshLabelEntry());
 		sAutoRefreshLabels.back().hudElementID = dd.hudElementID;
