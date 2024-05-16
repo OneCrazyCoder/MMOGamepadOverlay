@@ -18,7 +18,11 @@ namespace InputMap
 // Const Data
 //-----------------------------------------------------------------------------
 
-const u16 kInvalidID = 0xFFFF;
+enum {
+kInvalidID = 0xFFFF,
+kComboParentLayer = 0xFFFF,
+};
+
 const char* kMainLayerLabel = "Scheme";
 const char* kLayerPrefix = "Layer.";
 const char kComboLayerDeliminator = '+';
@@ -36,6 +40,7 @@ DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
 const char* kMouseModeKey = "MOUSE";
+const char* kParentLayerKey = "PARENT";
 const char* kMenuOpenKey = "AUTO";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
@@ -134,14 +139,14 @@ struct ControlsLayer
 	BitVector<> hideHUD;
 	EMouseMode mouseMode;
 	u16 includeLayer;
-	bool isComboLayer;
+	u16 parentLayer;
 
 	ControlsLayer() :
 		showHUD(),
 		hideHUD(),
 		mouseMode(eMouseMode_Default),
 		includeLayer(),
-		isComboLayer()
+		parentLayer()
 	{}
 };
 
@@ -274,7 +279,6 @@ static EResult checkForVKeySeqPause(
 	// Delay of 0 is technically valid but doesn't add to the sequence
 	if( aTime == 0 )
 		return eResult_Ok;
-
 
 	// Encode the special-case VK_PAUSE key and the delay amount as a 14-bit
 	// number using the 2 bytes after it in the string (making sure each byte
@@ -469,7 +473,7 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 static u16 getOrCreateLayerID(
 	InputMapBuilder& theBuilder,
 	const std::string& theLayerName,
-	std::vector<std::string>& theChildList = std::vector<std::string>())
+	std::vector<std::string>& theLoopCheckList = std::vector<std::string>())
 {
 	DBG_ASSERT(!theLayerName.empty());
 
@@ -496,12 +500,12 @@ static u16 getOrCreateLayerID(
 	}
 	else if( !anIncludeName.empty() )
 	{
-		// Check for infinite recursion of include= statements
+		// Check for infinite loop of Include= properties
 		std::vector<std::string>::iterator itr = std::find(
-			theChildList.begin(),
-			theChildList.end(),
+			theLoopCheckList.begin(),
+			theLoopCheckList.end(),
 			upper(anIncludeName));
-		if( itr != theChildList.end() )
+		if( itr != theLoopCheckList.end() )
 		{
 			logError("Infinite include loop with layer [%s%s]"
 				" trying to include layer %s",
@@ -509,9 +513,9 @@ static u16 getOrCreateLayerID(
 		}
 		else
 		{
-			theChildList.push_back(aLayerKeyName);
-			anIncludeIdx =
-				getOrCreateLayerID(theBuilder, anIncludeName, theChildList);
+			theLoopCheckList.push_back(aLayerKeyName);
+			anIncludeIdx = getOrCreateLayerID(
+				theBuilder, anIncludeName, theLoopCheckList);
 		}
 	}
 
@@ -569,7 +573,7 @@ static u16 getOrCreateComboLayerID(
 		kComboLayerDeliminator +
 		sLayers[aComboLayerKey.second].label;
 	u16 aComboLayerID = getOrCreateLayerID(theBuilder, aLayerName);
-	sLayers[aComboLayerID].isComboLayer = true;
+	sLayers[aComboLayerID].parentLayer = kComboParentLayer;
 	sComboLayers.setValue(aComboLayerKey, aComboLayerID);
 	return aComboLayerID;
 }
@@ -862,30 +866,10 @@ static Command wordsToSpecialCommand(
 			aKeyWordID = eCmdWord_Down;
 			result.wrap = false;
 			break;
-		case eCmdWord_To:
-			// Special case for "Add <name> to <name>"
-			if( i < theWords.size() - 1 &&
-				keyWordsFound.test(eCmdWord_Add) )
-			{
-				aSecondLayerName = &theWords[i+1];
-				allowedKeyWords = keyWordsFound;
-			}
-			aKeyWordID = eCmdWord_Filler;
-			break;
 		case eCmdWord_With:
 			// Special case for "Replace <name> with <name>"
 			if( i < theWords.size() - 1 &&
 				keyWordsFound.test(eCmdWord_Replace) )
-			{
-				aSecondLayerName = &theWords[i+1];
-				allowedKeyWords = keyWordsFound;
-			}
-			aKeyWordID = eCmdWord_Filler;
-			break;
-		case eCmdWord_On:
-			// Special case for "Toggle <name> on <name>"
-			if( i < theWords.size() - 1 &&
-				keyWordsFound.test(eCmdWord_Toggle) )
 			{
 				aSecondLayerName = &theWords[i+1];
 				allowedKeyWords = keyWordsFound;
@@ -989,40 +973,16 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	// Calculate relative layer for possible layer-related commands
-	u16 aRelativeLayer = 0; // 0 means current calling layer
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Parent);
-	allowedKeyWords.set(eCmdWord_Grandparent);
-	allowedKeyWords.set(eCmdWord_NonChild);
-	allowedKeyWords.set(eCmdWord_All);
-	if( (keyWordsFound & allowedKeyWords).count() > 1 )
-	{// Invalid to combine more than one of the above specifiers
-		return result;
-	}
-	if( keyWordsFound.test(eCmdWord_All) )
-		aRelativeLayer = kAllLayers;
-	else if( keyWordsFound.test(eCmdWord_NonChild) )
-		aRelativeLayer = kAllLayers;
-	else if( keyWordsFound.test(eCmdWord_Parent) )
-		aRelativeLayer = result.count;
-	else if( keyWordsFound.test(eCmdWord_Grandparent) )
-		aRelativeLayer = 1 + result.count;
-
-	// "= Remove [parent/etc] [Layer]"
-	// OR "Remove All [Layers]"
-	// allowedKeyWords = Parent/etc
+	// "= Remove [this] Layer"
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Remove);
-	allowedKeyWords.set(eCmdWord_Integer);
 	if( keyWordsFound.test(eCmdWord_Remove) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_RemoveControlsLayer;
 		// Since can't remove layer 0 (main scheme), 0 acts as a flag
-		// meaning to remove relative layer instead
+		// meaning to remove calling layer instead
 		result.layerID = 0;
-		result.relativeLayer = aRelativeLayer;
 		return result;
 	}
 
@@ -1037,11 +997,6 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Hold);
 	allowedKeyWords.set(eCmdWord_Replace);
 	allowedKeyWords.set(eCmdWord_Toggle);
-	allowedKeyWords.set(eCmdWord_NonChild);
-	allowedKeyWords.set(eCmdWord_Parent);
-	allowedKeyWords.set(eCmdWord_Grandparent);
-	allowedKeyWords.set(eCmdWord_All);
-	allowedKeyWords.set(eCmdWord_Integer);
 	// If have aSecondLayerName, make sure it isn't one of the above
 	if( aSecondLayerName )
 	{
@@ -1090,47 +1045,12 @@ static Command wordsToSpecialCommand(
 
 	if( aLayerName )
 	{
-		// "= Add [Layer] <aLayerName> to <aParentLayerName>"
+		// "= Replace [Layer] <aLayerName> with <aSecondLayerName>"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Layer);
-		allowedKeyWords.set(eCmdWord_Add);
-		if( keyWordsFound.test(eCmdWord_Add) &&
-			aSecondLayerName && aSecondLayerName != aLayerName &&
-			aRelativeLayer == 0 &&
-			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
-		{
-			result.type = eCmdType_AddControlsLayer;
-			result.layerID =
-				getOrCreateLayerID(theBuilder, *aLayerName);
-			result.parentLayerID =
-				getOrCreateLayerID(theBuilder, *aSecondLayerName);
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Add);
-
-		// "= Toggle [Layer] <aLayerName> on <aParentLayerName>"
-		// allowedKeyWords = Layer
-		allowedKeyWords.set(eCmdWord_Toggle);
-		if( keyWordsFound.test(eCmdWord_Toggle) &&
-			aSecondLayerName && aSecondLayerName != aLayerName &&
-			aRelativeLayer == 0 &&
-			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-		{
-			result.type = eCmdType_ToggleControlsLayer;
-			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-			result.parentLayerID =
-				getOrCreateLayerID(theBuilder, *aSecondLayerName);
-			DBG_ASSERT(result.layerID != 0);
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Toggle);
-
-		// "= Replace [Layer] <aLayerName> with <aNewLayerName>"
-		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Replace);
 		if( keyWordsFound.test(eCmdWord_Replace) &&
 			aSecondLayerName && aSecondLayerName != aLayerName &&
-			aRelativeLayer == 0 &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
@@ -1142,60 +1062,49 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Replace);
 
-		// "= Add [Layer] <aLayerName> [to parent/etc]"
+		// "= Add [Layer] <aLayerName>"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Add);
-		allowedKeyWords.set(eCmdWord_Parent);
-		allowedKeyWords.set(eCmdWord_Grandparent);
-		allowedKeyWords.set(eCmdWord_NonChild);
-		allowedKeyWords.set(eCmdWord_All);
-		allowedKeyWords.set(eCmdWord_Integer);
 		if( keyWordsFound.test(eCmdWord_Add) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_AddControlsLayer;
 			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-			result.parentLayerID = 0;
-			result.relativeLayer = aRelativeLayer;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Add);
 
-		// "= Toggle [Layer] <aLayerName> [on parent/etc] "
-		// allowedKeyWords = Layer & Parent/etc
+		// "= Toggle [Layer] <aLayerName>"
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Toggle);
 		if( keyWordsFound.test(eCmdWord_Toggle) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ToggleControlsLayer;
 			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
-			result.parentLayerID = 0;
-			result.relativeLayer = aRelativeLayer;
 			DBG_ASSERT(result.layerID != 0);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Toggle);
 
-		// "= Replace [parent/etc] [with] [Layer] <aLayerName>"
-		// OR "= Replace All [Layers] [with] <aLayerName>"
-		// allowedKeyWords = Layer & Parent/etc
+		// "= Replace [this layer with] <aLayerName>"
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Replace);
 		if( keyWordsFound.test(eCmdWord_Replace) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
 			// Since can't remove layer 0 (main scheme), 0 acts as a flag
-			// meaning to remove relative layer instead
+			// meaning to remove calling layer instead
 			result.layerID = 0;
 			result.replacementLayer =
 				getOrCreateLayerID(theBuilder, *aLayerName);
-			result.relativeLayer = aRelativeLayer;
 			return result;
 		}
+		allowedKeyWords.reset(eCmdWord_Replace);
 
 		// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
-		allowedKeyWords.reset();
-		allowedKeyWords.set(eCmdWord_Layer);
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Hold);
 		if( allowHoldActions &&
 			(keyWordsFound.test(eCmdWord_Hold) ||
@@ -2366,6 +2275,9 @@ static void addButtonAction(
 static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
+	const bool isComboLayer =
+		sLayers[theLayerIdx].parentLayer == kComboParentLayer;
+	sLayers[theLayerIdx].parentLayer = 0;
 
 	// If has an includeLayer, get default settings from it first
 	const u16 anIncludeLayer = sLayers[theLayerIdx].includeLayer;
@@ -2373,6 +2285,8 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		sLayers[theLayerIdx].mouseMode =
 			sLayers[anIncludeLayer].mouseMode;
+		sLayers[theLayerIdx].parentLayer =
+			sLayers[anIncludeLayer].parentLayer;
 	}
 
 	// Make local copy of name string since sLayers can reallocate memory here
@@ -2428,10 +2342,62 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			/*otherwise*/ "Hidden OR Mouse Look" );
 	}
 
+	{// Get parent layer setting directly
+		const std::string& aParentLayerName =
+			Profile::getStr(aLayerPrefix + kParentLayerKey);
+		if( !aParentLayerName.empty() )
+		{
+			if( isComboLayer )
+			{
+				logError(
+					"\"Parent=%s\" property ignored for Combo Layer [%s]!",
+					aParentLayerName.c_str(),
+					theBuilder.debugItemName.c_str());
+			}
+			else if( theLayerIdx == 0 )
+			{
+				logError(
+					"Root layer [%s] can not have a Parent= layer set!",
+					theBuilder.debugItemName.c_str(),
+					aParentLayerName.c_str());
+			}
+			else
+			{
+				sLayers[theLayerIdx].parentLayer = 
+					getOrCreateLayerID(theBuilder, aParentLayerName);
+				// Check for infinite parent loop
+				theBuilder.elementsProcessed.clearAndResize(sLayers.size());
+				u16 aCheckLayerIdx = theLayerIdx;
+				theBuilder.elementsProcessed.set(aCheckLayerIdx);
+				while(sLayers[aCheckLayerIdx].parentLayer != 0)
+				{
+					aCheckLayerIdx = sLayers[aCheckLayerIdx].parentLayer;
+					if( theBuilder.elementsProcessed.test(aCheckLayerIdx) )
+					{
+						logError("Infinite parent loop with layer [%s]"
+							" trying to set parent layer to %s!",
+							theBuilder.debugItemName.c_str(),
+							aParentLayerName.c_str());
+						sLayers[theLayerIdx].parentLayer = 0;
+						break;
+					}
+					theBuilder.elementsProcessed.set(aCheckLayerIdx);
+				}
+			}
+		}
+	}
+	DBG_ASSERT(sLayers[theLayerIdx].parentLayer < sLayers.size());
+	if( sLayers[theLayerIdx].parentLayer != eMouseMode_Default )
+	{
+		mapDebugPrint("[%s]: Parent layer set to '%s'\n",
+			theBuilder.debugItemName.c_str(),
+			sLayers[sLayers[theLayerIdx].parentLayer].label.c_str());
+	}
+
 	// Check each key-value pair for button assignment requests
 	DBG_ASSERT(theBuilder.keyValueList.empty());
 	Profile::getAllKeys(aLayerPrefix, theBuilder.keyValueList);
-	if( theBuilder.keyValueList.empty() && !sLayers[theLayerIdx].isComboLayer )
+	if( theBuilder.keyValueList.empty() && !isComboLayer )
 	{
 		logError("No properties found for Layer [%s]!",
 			theBuilder.debugItemName.c_str());
@@ -2442,6 +2408,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		const std::string aKey = itr->first;
 		if( aKey == kIncludeKey ||
+			aKey == kParentLayerKey ||
 			aKey == kMouseModeKey ||
 			aKey == kHUDSettingsKey )
 			continue;
@@ -2521,7 +2488,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	aMap.trim();
 
 	// Check for possible combo layers based on this layer
-	if( theLayerIdx > 0 && !sLayers[theLayerIdx].isComboLayer )
+	if( theLayerIdx > 0 && !isComboLayer )
 	{
 		// Collect all keys that start with "Layer.aLayerName+", and
 		// strip them down to the strings "LayerName1+LayerName2"
@@ -3113,6 +3080,13 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 	} while(theLayerID != 0);
 
 	return null;
+}
+
+
+u16 parentLayer(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].parentLayer;
 }
 
 

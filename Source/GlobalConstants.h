@@ -262,18 +262,12 @@ enum ECommandKeyWord
 	eCmdWord_Nothing,
 	eCmdWord_Unassigned,
 	eCmdWord_Add,
-	eCmdWord_To,
 	eCmdWord_Remove,
 	eCmdWord_Hold,
 	eCmdWord_Replace,
 	eCmdWord_With,
 	eCmdWord_Toggle,
-	eCmdWord_On,
 	eCmdWord_Layer,
-	eCmdWord_NonChild,
-	eCmdWord_Parent,
-	eCmdWord_Grandparent,
-	eCmdWord_All,
 	eCmdWord_Mouse,
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
@@ -368,16 +362,11 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 			union
 			{
 				u16 replacementLayer;
-				u16 parentLayerID;
 				u16 menuID;
 				u16 keybindArrayID;
 				u16 mouseWheelMotionType;
 			};
-			union
-			{
-				s16 count;
-				u16 relativeLayer;
-			};
+			u8 count;
 			bool wrap;
 		};
 		const char* string;

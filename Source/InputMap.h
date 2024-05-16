@@ -34,6 +34,9 @@ u16 offsetKeyBindArrayIndex(
 // if no commands have been assigned to given layer & button at all
 const Command* commandsForButton(u16 theLayerID, EButton theButton);
 
+// Gets parent layer for given layer ID
+u16 parentLayer(u16 theLayerID);
+
 // Checks what EMouseMode given controls layer requests be used
 EMouseMode mouseMode(u16 theLayerID);
 
