@@ -541,7 +541,7 @@ static u16 getOrCreateComboLayerID(
 		aRemainingName, kComboLayerDeliminator);
 	if( aLayerName.empty() )
 		swap(aLayerName, aRemainingName);
-	u16* aLayerID = theBuilder.layerNameToIdxMap.find(aLayerName);
+	u16* aLayerID = theBuilder.layerNameToIdxMap.find(upper(aLayerName));
 	if( !aLayerID || *aLayerID == 0 )
 		return 0;
 	if( aRemainingName.empty() )
@@ -2541,6 +2541,35 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 		if( aLayerIdx >= sLayers.size() )
 			break;
 		buildControlsLayer(theBuilder, aLayerIdx);
+	}
+
+	// Link any derived layers (ones using .includeLayer) to also activate
+	// any combo layers that the included layer activates
+	for(u16 aLayerIdx = 2; aLayerIdx < sLayers.size(); ++aLayerIdx)
+	{
+		const u16 anIncludeLayerIdx = sLayers[aLayerIdx].includeLayer;
+		if( anIncludeLayerIdx == 0 )
+			continue;
+		for(u16 aCLI = 0; aCLI < sComboLayers.size(); ++aCLI)
+		{
+			const u16 aComboBase1 = sComboLayers[aCLI].first.first;
+			const u16 aComboBase2 = sComboLayers[aCLI].first.second;
+			const u16 aComboLayer = sComboLayers[aCLI].second;
+			if( aComboBase1 == anIncludeLayerIdx )
+			{
+				std::pair<u16, u16> aComboLayerKey;
+				aComboLayerKey.first = aLayerIdx;
+				aComboLayerKey.second = aComboBase2;
+				sComboLayers.findOrAdd(aComboLayerKey, aComboLayer);
+			}
+			else if( aComboBase2 == anIncludeLayerIdx )
+			{
+				std::pair<u16, u16> aComboLayerKey;
+				aComboLayerKey.first = aComboBase1;
+				aComboLayerKey.second = aLayerIdx;
+				sComboLayers.findOrAdd(aComboLayerKey, aComboLayer);
+			}
+		}
 	}
 }
 

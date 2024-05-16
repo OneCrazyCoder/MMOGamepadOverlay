@@ -471,9 +471,9 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 	}
 }
 
-static u16 menuCloseLayer(u16 theMenuID, u16 theAskingLayerID)
+static u16 menuCloseLayer(u16 theMenuID)
 {
-	u16 result = theAskingLayerID;
+	u16 result = 0;
 	// Find lowest layer that is keeping given menu visible
 	// via HUD= property, which is assumed to be the layer
 	// "holding" the menu open and thus the menu can be
@@ -489,7 +489,7 @@ static u16 menuCloseLayer(u16 theMenuID, u16 theAskingLayerID)
 		if( InputMap::hudElementsToHide(sState.layerOrder[i])
 				.test(theHUDElementID) )
 		{
-			result = theAskingLayerID;
+			result = 0;
 		}
 	}
 
@@ -675,17 +675,17 @@ static void processCommand(
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			// Close menu first if this won't just switch to a sub-menu
-			const u16 aLayerToRemoveID =
-				menuCloseLayer(theCmd.menuID, theLayerIdx);
-			if( aForwardCmd.type != eCmdType_Empty &&
-				aForwardCmd.type < eCmdType_FirstMenuControl &&
-				aLayerToRemoveID > 0 )
+			u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+			while(aLayerToRemoveID > 0 &&
+				  aForwardCmd.type != eCmdType_Empty &&
+				  aForwardCmd.type < eCmdType_FirstMenuControl)
 			{
 				// If closing self, set theLayerIdx to parent layer first,
 				// since this layer will be invalid for aForwardCmd
 				if( aLayerToRemoveID == theLayerIdx )
 					theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
 				removeControlsLayer(aLayerToRemoveID);
+				aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
 			}
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
@@ -703,9 +703,12 @@ static void processCommand(
 		// Returning null means at are root, so fall through to close
 	case eCmdType_MenuClose:
 		{
-			u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID, theLayerIdx);
-			if( aLayerToRemoveID != 0 )
+			u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+			while(aLayerToRemoveID != 0)
+			{
 				removeControlsLayer(aLayerToRemoveID);
+				aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+			}
 		}
 		break;
 	case eCmdType_MenuEdit:
@@ -730,23 +733,25 @@ static void processCommand(
 			if( aForwardCmd.type != eCmdType_Empty )
 			{
 				// Close menu first if this won't just switch to a sub-menu
-				const u16 aLayerToRemoveID =
-					menuCloseLayer(theCmd.menuID, theLayerIdx);
-				if( aForwardCmd.type != eCmdType_Empty &&
-					aLayerToRemoveID > 0 &&
-					(aForwardCmd.type < eCmdType_FirstMenuControl ||
-					 aForwardCmd.type > eCmdType_LastMenuControl) )
+				bool aMenuWasClosed = false;
+				u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+				while(aLayerToRemoveID > 0 &&
+					  aForwardCmd.type != eCmdType_Empty &&
+					  (aForwardCmd.type < eCmdType_FirstMenuControl ||
+					   aForwardCmd.type > eCmdType_LastMenuControl) )
 				{
 					// If closing self, set theLayerIdx to parent layer first,
 					// since this layer will be invalid for aForwardCmd
 					if( aLayerToRemoveID == theLayerIdx )
 						theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
 					removeControlsLayer(aLayerToRemoveID);
-					// Process command and break out of loop
-					processCommand(theBtnState, aForwardCmd, theLayerIdx);
-					break;
+					aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+					aMenuWasClosed = true;
 				}
 				processCommand(theBtnState, aForwardCmd, theLayerIdx);
+				// Break out of selection loop if closed a menu
+				if( aMenuWasClosed )
+					break;
 			}
 		}
 		break;
