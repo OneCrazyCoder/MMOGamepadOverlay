@@ -997,6 +997,11 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Hold);
 	allowedKeyWords.set(eCmdWord_Replace);
 	allowedKeyWords.set(eCmdWord_Toggle);
+	// Directionals aren't layer-related but also not allowed as layer names
+	allowedKeyWords.set(eCmdWord_Left);
+	allowedKeyWords.set(eCmdWord_Right);
+	allowedKeyWords.set(eCmdWord_Up);
+	allowedKeyWords.set(eCmdWord_Down);
 	// If have aSecondLayerName, make sure it isn't one of the above
 	if( aSecondLayerName )
 	{
@@ -1141,7 +1146,6 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Reset);
 		allowedKeyWords.reset(eCmdWord_Select);
 		allowedKeyWords.reset(eCmdWord_Confirm);
-		allowedKeyWords.reset(eCmdWord_Back);
 		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Edit);
 		allowedKeyWords.reset(eCmdWord_Left);
@@ -1151,6 +1155,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Hotspot);
 		allowedKeyWords.reset(eCmdWord_Default);
 		allowedKeyWords.reset(eCmdWord_Integer);
+		allowedKeyWords.reset(eCmdWord_Back);
 		if( allowedKeyWords.count() == 1 )
 		{
 			VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
@@ -1202,17 +1207,6 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Confirm);
-
-		// "= [Menu] <aMenuName> Back
-		// allowedKeyWords = Menu
-		allowedKeyWords.set(eCmdWord_Back);
-		if( keyWordsFound.test(eCmdWord_Back) &&
-			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-		{
-			result.type = eCmdType_MenuBack;
-			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
-			return result;
-		}
 
 		// "= [Menu] <aMenuName> Back or Close
 		// allowedKeyWords = Menu, Back
@@ -1496,6 +1490,24 @@ static Command wordsToSpecialCommand(
 		result.type = eCmdType_MouseWheel;
 		result.mouseWheelMotionType = eMouseWheelMotion_Once;
 		return result;
+	}
+
+	if( allowButtonActions && aMenuName )
+	{
+		// This is all the way down here because "back" could be a direction
+		// for another command, OR mean backing out of a sub-menu, and want
+		// to first make sure <aMenuName> isn't another command's key word
+		// "= Menu <aMenuName> Back"
+		allowedKeyWords.reset();
+		allowedKeyWords.set(eCmdWord_Menu);
+		if( result.dir == eCmdDir_Back &&
+			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
+		{
+			result.type = eCmdType_MenuBack;
+			result.dir = eCmdDir_None;
+			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			return result;
+		}
 	}
 
 	DBG_ASSERT(result.type == eCmdType_Empty);

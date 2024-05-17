@@ -84,11 +84,8 @@ enum ECommandType
 
 	eCmdType_Num,
 
-	eCmdType_LastDirectInput = eCmdType_SayString,
 	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
 	eCmdType_LastMenuControl = eCmdType_MenuEditDir,
-	eCmdType_FirstDirectional = eCmdType_MenuSelect,
-	eCmdType_FirstContinuous = eCmdType_MoveTurn,
 };
 
 enum ECommandDir

@@ -96,8 +96,8 @@ struct LayerState
 	ButtonState autoButton;
 	u16 parentLayerID;
 	u16 altParentLayerID; // 0 unless is a combo layer
-	bool active;
-	bool newlyActive;
+	union{ bool active; bool autoButtonDown; };
+	bool autoButtonHit;
 	bool ownedButtonHit;
 	bool heldActiveByButton;
 
@@ -108,7 +108,7 @@ struct LayerState
 		parentLayerID = 0;
 		altParentLayerID = 0;
 		active = false;
-		newlyActive = false;
+		autoButtonHit = false;
 		ownedButtonHit = false;
 		heldActiveByButton = false;
 	}
@@ -237,7 +237,6 @@ static void removeControlsLayer(u16 theLayerID)
 			// Reset some layer properties
 			aLayer.active = false;
 			aLayer.ownedButtonHit = false;
-			aLayer.newlyActive = false;
 			aLayer.heldActiveByButton = false;
 			sResults.layerChangeMade = true;
 
@@ -343,7 +342,7 @@ static void addControlsLayer(u16 theLayerID)
 	aLayer.parentLayerID = aParentLayerID;
 	aLayer.altParentLayerID = 0;
 	aLayer.active = true;
-	aLayer.newlyActive = true;
+	aLayer.autoButtonHit = true;
 	sResults.layerChangeMade = true;
 	addComboLayers(theLayerID);
 }
@@ -1202,7 +1201,7 @@ static bool tryAddLayerFromButton(
 		aLayer.parentLayerID = 0;
 		aLayer.altParentLayerID = 0;
 		aLayer.active = true;
-		aLayer.newlyActive = true;
+		aLayer.autoButtonHit = true;
 		aLayer.heldActiveByButton = true;
 		sResults.layerChangeMade = true;
 		theBtnState.layerHeld = aLayerID;
@@ -1237,8 +1236,8 @@ static void processLayerHoldButtons()
 				aLayerWasAdded = aLayerWasAdded ||
 					tryAddLayerFromButton(
 						aLayer.autoButton,
-						aLayer.active,
-						aLayer.newlyActive);
+						aLayer.autoButtonDown,
+						aLayer.autoButtonHit);
 			}
 		}
 
@@ -1377,9 +1376,9 @@ void update()
 		LayerState& aLayer = sState.layers[i];
 		processButtonState(
 			aLayer.autoButton,
-			aLayer.active,
-			aLayer.newlyActive);
-		aLayer.newlyActive = false;
+			aLayer.autoButtonDown,
+			aLayer.autoButtonHit);
+		aLayer.autoButtonHit = false;
 	}
 
 	// Process state changes of actual physical Gamepad buttons
@@ -1392,18 +1391,33 @@ void update()
 			Gamepad::buttonAnalogVal(EButton(i)));
 	}
 
-	// Process any virtual "auto" buttons for layers just added by above
-	for(size_t i = 0; i < sState.layers.size(); ++i)
+	if( sResults.layerChangeMade )
 	{
-		LayerState& aLayer = sState.layers[i];
-		if( aLayer.newlyActive )
+		// Process any newly-added layers' autoButtonHit events
+		int aLoopCount = 0;
+		while(sResults.layerChangeMade)
 		{
-			processButtonState(
-				aLayer.autoButton,
-				aLayer.active,
-				aLayer.newlyActive);
-			aLayer.newlyActive = false;
+			sResults.layerChangeMade = false;
+			for(size_t i = 0; i < sState.layers.size(); ++i)
+			{
+				LayerState& aLayer = sState.layers[i];
+				if( aLayer.autoButtonHit )
+				{
+					processButtonState(
+						aLayer.autoButton,
+						aLayer.autoButtonDown,
+						aLayer.autoButtonHit);
+					aLayer.autoButtonHit = false;
+				}
+			}
+			if( ++aLoopCount > kMaxLayerChangesPerUpdate )
+			{
+				logFatalError(
+					"Infinite loop of Controls Layer changes detected!");
+				break;
+			}
 		}
+		sResults.layerChangeMade = true;
 	}
 
 	// Update button commands, mouse mode, HUD, etc for new layer order
