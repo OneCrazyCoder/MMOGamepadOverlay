@@ -52,8 +52,11 @@ const Command* closeLastSubMenu(u16 theMenuID);
 
 // Resets menu to its default state (closes all sub-menus & resets selection),
 // but does NOT trigger this as "activating" the menu in terms of alpha fade.
-// Returns Auto command of the root menu.
-const Command& reset(u16 theMenuID);
+// Returns menu's Auto command if anything changed, otherwise NULL.
+const Command* reset(u16 theMenuID);
+
+// Returns Auto command of menu's currently-active sub-menu
+const Command& autoCommand(u16 theMenuID);
 
 // Prompts user for new label & command for currently selected menu item
 void editMenuItem(u16 theMenuID);

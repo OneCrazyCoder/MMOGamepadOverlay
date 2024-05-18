@@ -205,7 +205,7 @@ A few Key Bind names are specifically checked for by the program and used direct
 
 ``SwapWindowMode=`` is used in the code for attempting to force the target game into full-screen-windowed mode (as opposed to *true* full screen mode which would prevent the overlay from being visible), which can be set in the [System] section with the flag ``ForceFullScreenWindow = Yes`` (and optionally ``StartInFullScreenWindow = Yes``). It is typically set to ``=Alt+Enter``.
 
-The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe`` (or directly ``=Move Left``, ``=MoveBack`` etc). While you could just manually assign the movement keys or use different Key Binds, using these utilizes special extra code that helps improve movement responsiveness, particularly when using analog sticks. If the Strafe versions aren't set, the Turn versions will be used instead automatically (which for many games will automatically convert to being a Strafe motion while in Mouse Look mode).
+The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` et). While you could just manually assign the movement keys or use different Key Binds, setting these and then using the Move commands utilizes special extra code that helps improve movement responsiveness, particularly when assigning it to an analog stick.
 
 ### Key Bind Arrays
 
@@ -488,13 +488,11 @@ If you want to make it so pressing Circle when at the root Main Menu also closes
 
     Circle = Back or Close MainMenu
     
-*Note that root menus are never actually "closed", just hidden by the HUD= property, so what actually happens with this command when you press Circle with no sub-menus, is it uses Remove Layer to remove whatever layer(s) are currently keeping the menu visible with their HUD= property.*
+*Note that root menus are never technically "closed", just hidden by the HUD= property, so what is actually done to "close" a sub-menu is that whichever layer(s) are currently keeping the menu visible with their HUD= property are removed, which should not only hide it but likely disable any buttons that control it.*
 
 ### Menu Auto command
 
-Similar to the "Auto" button for each *Controls Layer*, you can add an ``Auto=`` property to a sub-menu which can be set to a direct input command to be used whenever that sub-menu is opened (including when it is returned to when backing out of another sub-menu).
-
-*Note that since "root" menus aren't really ever "opened" or "closed" (just hidden or shown), the ``Auto=`` command on a root menu will only be run via the ``=Reset <MenuName>`` command or after opening a sub-menu and then backing out to the root menu again.*
+Similar to the "Auto" button for each *Controls Layer*, you can add an ``Auto=`` property to a menu or sub-menu which can be set to a direct input command to be used whenever that sub-menu becomes active. This command will trigger when changing sub-menus (including returning to one from using "Back" or "Reset") or when a menu has just been made visible/enabled when it previously was not.
 
 ### Menu directional commands
 
