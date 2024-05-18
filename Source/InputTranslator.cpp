@@ -135,6 +135,7 @@ struct InputResults
 {
 	std::vector<Command> keys;
 	std::vector<Command> strings;
+	BitVector<> menuAutoCommandRun;
 	s16 charMove;
 	s16 charTurn;
 	s16 charStrafe;
@@ -150,6 +151,7 @@ struct InputResults
 	{
 		keys.clear();
 		strings.clear();
+		menuAutoCommandRun.clearAndResize(InputMap::menuCount());
 		charMove = 0;
 		charTurn = 0;
 		charStrafe = 0;
@@ -458,6 +460,17 @@ static void addComboLayers(u16 theNewLayerID)
 }
 
 
+void flagOwnedButtonHit(u16 theLayerIdx)
+{
+	if( theLayerIdx == 0 )
+		return;
+
+	sState.layers[theLayerIdx].ownedButtonHit = true;
+	flagOwnedButtonHit(sState.layers[theLayerIdx].parentLayerID);
+	flagOwnedButtonHit(sState.layers[theLayerIdx].altParentLayerID);
+}
+
+
 static void releaseKeyHeldByButton(ButtonState& theBtnState)
 {
 	if( theBtnState.vKeyHeld )
@@ -470,13 +483,12 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 	}
 }
 
-static u16 menuCloseLayer(u16 theMenuID)
+static u16 menuOwningLayer(u16 theMenuID)
 {
 	u16 result = 0;
 	// Find lowest layer that is keeping given menu visible
 	// via HUD= property, which is assumed to be the layer
-	// "holding" the menu open and thus the menu can be
-	// "closed" by removing that layer
+	// that "owns" the menu
 	const u16 theHUDElementID = InputMap::hudElementForMenu(theMenuID);
 	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 	{
@@ -497,7 +509,7 @@ static u16 menuCloseLayer(u16 theMenuID)
 
 
 static void processCommand(
-	ButtonState& theBtnState,
+	ButtonState* theBtnState,
 	const Command& theCmd,
 	u16 theLayerIdx,
 	bool repeated = false)
@@ -509,13 +521,14 @@ static void processCommand(
 		// Do nothing
 		break;
 	case eCmdType_PressAndHoldKey:
+		DBG_ASSERT(theBtnState);
 		// Release any previously-held key first!
-		releaseKeyHeldByButton(theBtnState);
+		releaseKeyHeldByButton(*theBtnState);
 		// Send this right away since can often be instantly processed
 		// instead of needing to wait for input queue
 		InputDispatcher::sendKeyCommand(theCmd);
 		// Make note that this button is holding this key
-		theBtnState.vKeyHeld = theCmd.vKey;
+		theBtnState->vKeyHeld = theCmd.vKey;
 		break;
 	case eCmdType_ReleaseKey:
 		// Handled by releaseKeyHeldByButton() instead
@@ -656,14 +669,19 @@ static void processCommand(
 	case eCmdType_OpenSubMenu:
 		aForwardCmd = Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		sResults.menuAutoCommandRun.set(theCmd.menuID);
 		break;
 	case eCmdType_ReplaceMenu:
 		aForwardCmd = Menus::replaceMenu(theCmd.menuID, theCmd.subMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		sResults.menuAutoCommandRun.set(theCmd.menuID);
 		break;
 	case eCmdType_MenuReset:
-		aForwardCmd = Menus::reset(theCmd.menuID);
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		if( const Command* aCmdPtr = Menus::reset(theCmd.menuID) )
+		{
+			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
+			sResults.menuAutoCommandRun.set(theCmd.menuID);
+		}
 		break;
 	case eCmdType_MenuConfirm:
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
@@ -674,7 +692,7 @@ static void processCommand(
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			// Close menu first if this won't just switch to a sub-menu
-			u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+			u16 aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 			while(aLayerToRemoveID > 0 &&
 				  aForwardCmd.type != eCmdType_Empty &&
 				  aForwardCmd.type < eCmdType_FirstMenuControl)
@@ -684,7 +702,7 @@ static void processCommand(
 				if( aLayerToRemoveID == theLayerIdx )
 					theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
 				removeControlsLayer(aLayerToRemoveID);
-				aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+				aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 			}
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
@@ -697,16 +715,17 @@ static void processCommand(
 		if( const Command* aCmdPtr = Menus::closeLastSubMenu(theCmd.menuID) )
 		{
 			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
+			sResults.menuAutoCommandRun.set(theCmd.menuID);
 			break;
 		}
 		// Returning null means at are root, so fall through to close
 	case eCmdType_MenuClose:
 		{
-			u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+			u16 aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 			while(aLayerToRemoveID != 0)
 			{
 				removeControlsLayer(aLayerToRemoveID);
-				aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+				aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 			}
 		}
 		break;
@@ -733,7 +752,7 @@ static void processCommand(
 			{
 				// Close menu first if this won't just switch to a sub-menu
 				bool aMenuWasClosed = false;
-				u16 aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+				u16 aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 				while(aLayerToRemoveID > 0 &&
 					  aForwardCmd.type != eCmdType_Empty &&
 					  (aForwardCmd.type < eCmdType_FirstMenuControl ||
@@ -744,7 +763,7 @@ static void processCommand(
 					if( aLayerToRemoveID == theLayerIdx )
 						theLayerIdx = sState.layers[theLayerIdx].parentLayerID;
 					removeControlsLayer(aLayerToRemoveID);
-					aLayerToRemoveID = menuCloseLayer(theCmd.menuID);
+					aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 					aMenuWasClosed = true;
 				}
 				processCommand(theBtnState, aForwardCmd, theLayerIdx);
@@ -793,15 +812,18 @@ static void processButtonPress(ButtonState& theBtnState)
 
 	// Log that at least one button in the assigned layer has been pressed
 	// (unless it is just the Auto button for the layer, which doesn't count)
-	if( !theBtnState.isAutoButton )
-		sState.layers[theBtnState.commandsLayer].ownedButtonHit = true;
+	if( !theBtnState.isAutoButton &&
+		!sState.layers[theBtnState.commandsLayer].ownedButtonHit )
+	{
+		flagOwnedButtonHit(theBtnState.commandsLayer);
+	}
 
 	if( !theBtnState.commands )
 		return;
 
 	// _Press is processed before _Down since it is specifically called out
 	// and the name implies it should be first action on button press.
-	processCommand(theBtnState,
+	processCommand(&theBtnState,
 		theBtnState.commands[eBtnAct_Press],
 		theBtnState.commandsLayer);
 
@@ -820,7 +842,7 @@ static void processButtonPress(ButtonState& theBtnState)
 			return;
 		break;
 	}
-	processCommand(theBtnState, aCmd, theBtnState.commandsLayer);
+	processCommand(&theBtnState, aCmd, theBtnState.commandsLayer);
 }
 
 
@@ -963,7 +985,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	// Now can start using repeatDelay to re-send command at autoRepeatRate
 	if( theBtnState.repeatDelay <= 0 )
 	{
-		processCommand(theBtnState, aCmd, true);
+		processCommand(&theBtnState, aCmd, true);
 		theBtnState.repeatDelay += kConfig.autoRepeatRate;
 	}
 	theBtnState.repeatDelay -= gAppFrameTime;
@@ -983,7 +1005,7 @@ static void processButtonShortHold(ButtonState& theBtnState)
 	if( !theBtnState.commandsWhenPressed )
 		return;
 
-	processCommand(theBtnState,
+	processCommand(&theBtnState,
 		theBtnState.commandsWhenPressed[eBtnAct_ShortHold],
 		theBtnState.layerWhenPressed);
 }
@@ -1002,7 +1024,7 @@ static void processButtonLongHold(ButtonState& theBtnState)
 	if( !theBtnState.commandsWhenPressed )
 		return;
 
-	processCommand(theBtnState,
+	processCommand(&theBtnState,
 		theBtnState.commandsWhenPressed[eBtnAct_LongHold],
 		theBtnState.layerWhenPressed);
 }
@@ -1032,7 +1054,7 @@ static void processButtonTap(ButtonState& theBtnState)
 		(!hasShortHold && !hasLongHold &&
 			theBtnState.heldTime < kConfig.tapHoldTime) )
 	{
-		processCommand(theBtnState,
+		processCommand(&theBtnState,
 			theBtnState.commandsWhenPressed[eBtnAct_Tap],
 			theBtnState.layerWhenPressed);
 	}
@@ -1075,7 +1097,7 @@ static void processButtonReleased(ButtonState& theBtnState)
 		aCmd = theBtnState.commands[eBtnAct_Release];
 		aCmdLayer = theBtnState.commandsLayer;
 	}
-	processCommand(theBtnState, aCmd, aCmdLayer);
+	processCommand(&theBtnState, aCmd, aCmdLayer);
 
 	// At this point no keys should be held by this button,
 	// but maybe something weird happened with release/tap commands,
@@ -1259,6 +1281,8 @@ static void processLayerHoldButtons()
 
 static void updateHUDStateForCurrentLayers()
 {
+	BitVector<> aPrevVisibleHUD = gVisibleHUD;
+	BitVector<> aPrevDisabledHUD = gDisabledHUD;
 	gVisibleHUD.reset();
 	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 	{
@@ -1306,6 +1330,26 @@ static void updateHUDStateForCurrentLayers()
 				DBG_ASSERT(aHUDIdx < gDisabledHUD.size());
 				gDisabledHUD.reset(aHUDIdx);
 			}
+		}
+	}
+
+	// Run Auto command for any newly-visible or newly-enabled menus
+	for(int i = gVisibleHUD.firstSetBit();
+		i < gVisibleHUD.size();
+		i = gVisibleHUD.nextSetBit(i+1))
+	{
+		if( !InputMap::hudElementIsAMenu(i) )
+			continue;
+		const u16 aMenuID = InputMap::menuForHUDElement(i);
+		if( sResults.menuAutoCommandRun.test(aMenuID) )
+			continue;
+		if( !aPrevVisibleHUD.test(i) ||
+			(!gDisabledHUD.test(i) && aPrevDisabledHUD.test(i)) )
+		{
+			processCommand(null,
+				Menus::autoCommand(aMenuID),
+				menuOwningLayer(aMenuID));
+			sResults.menuAutoCommandRun.set(i);
 		}
 	}
 }

@@ -306,44 +306,6 @@ const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID)
 }
 
 
-const Command* closeLastSubMenu(u16 theMenuID)
-{
-	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
-	DBG_ASSERT(itr != sMenuInfo.end());
-	MenuInfo& aMenuInfo = itr->second;
-
-	// Even if no actual change made, mark menu as having been interacted with
-	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
-	gActiveHUD.set(aMenuInfo.hudElementID);
-
-	if( aMenuInfo.subMenuStack.size() > 1 )
-	{
-		aMenuInfo.subMenuStack.pop_back();
-		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(aMenuInfo.hudElementID);
-		const Command& aCmd =
-			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
-		return &aCmd;
-	}
-	
-	// For Slots-style menus, "side" menus (other slots) can replace
-	// root menu in 0th position, and this can be used to restore it
-	if( aMenuInfo.style == eMenuStyle_Slots &&
-		aMenuInfo.subMenuStack[0].id != theMenuID )
-	{
-		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
-		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(aMenuInfo.hudElementID);
-		const Command& aCmd =
-			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
-		return &aCmd;
-	}
-
-	return null;
-}
-
-
 const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
@@ -418,7 +380,45 @@ const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 }
 
 
-const Command& reset(u16 theMenuID)
+const Command* closeLastSubMenu(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
+
+	// Even if no actual change made, mark menu as having been interacted with
+	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
+	gActiveHUD.set(aMenuInfo.hudElementID);
+
+	if( aMenuInfo.subMenuStack.size() > 1 )
+	{
+		aMenuInfo.subMenuStack.pop_back();
+		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+		gRedrawHUD.set(aMenuInfo.hudElementID);
+		const Command& aCmd =
+			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
+		return &aCmd;
+	}
+	
+	// For Slots-style menus, "side" menus (other slots) can replace
+	// root menu in 0th position, and this can be used to restore it
+	if( aMenuInfo.style == eMenuStyle_Slots &&
+		aMenuInfo.subMenuStack[0].id != theMenuID )
+	{
+		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
+		gRedrawHUD.set(aMenuInfo.hudElementID);
+		const Command& aCmd =
+			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
+		return &aCmd;
+	}
+
+	return null;
+}
+
+
+const Command* reset(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -433,9 +433,24 @@ const Command& reset(u16 theMenuID)
 		aMenuInfo.subMenuStack.push_back(SubMenuInfo(theMenuID));
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
+		const Command& aCmd =
+			InputMap::menuAutoCommand(theMenuID);
+		return &aCmd;
 	}
+	
+	return null;
+}
 
-	return InputMap::menuAutoCommand(theMenuID);
+
+const Command& autoCommand(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
+	return InputMap::menuAutoCommand(aSubMenuID);
 }
 
 
