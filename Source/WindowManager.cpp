@@ -732,7 +732,7 @@ bool overlaysAreHidden()
 }
 
 
-POINT mouseToOverlayPos()
+POINT mouseToOverlayPos(bool clamped)
 {
 	POINT result;
 	//  Get current screen-relative mouse position
@@ -740,9 +740,11 @@ POINT mouseToOverlayPos()
 	// Offset to client relative position
 	result.x -= sScreenTargetRect.left;
 	result.y -= sScreenTargetRect.top;
-	// Clamp to within client rect range
-	clamp(result.x, 0, sTargetSize.cx - 1);
-	clamp(result.y, 0, sTargetSize.cy - 1);
+	if( clamped )
+	{// Clamp to within client rect range
+		clamp(result.x, 0, sTargetSize.cx - 1);
+		clamp(result.y, 0, sTargetSize.cy - 1);
+	}
 	return result;
 }
 
@@ -811,9 +813,6 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 	// Offset to be client relative position
 	theSentMousePos.x -= sDesktopTargetRect.left;
 	theSentMousePos.y -= sDesktopTargetRect.top;
-	// Clamp to within client rect range
-	clamp(theSentMousePos.x, 0, sTargetSize.cx - 1);
-	clamp(theSentMousePos.y, 0, sTargetSize.cy - 1);
 	return theSentMousePos;
 }
 
