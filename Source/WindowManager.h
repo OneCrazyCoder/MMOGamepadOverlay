@@ -61,5 +61,7 @@ Hotspot overlayPosToHotspot(POINT theMousePos);
 POINT overlayPosToNormalizedMousePos(POINT theMousePos);
 // Converts above back to overlay-window-relative mouse position
 POINT normalizedMouseToOverlayPos(POINT theSentMousePos);
+// Calculates center-point pos of a menu item as a hotspot
+Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
 
 } // WindowManager

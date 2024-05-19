@@ -54,6 +54,7 @@ const char* kSpecialHotspotNames[] =
 	"MOUSELOOKSTART",		// eSpecialHotspot_MouseLookStart
 	"MOUSEHIDDEN",			// eSpecialHotspot_MouseHidden
 	"~",					// eSpecialHotspot_LastCursorPos
+	"~~",					// eSpecialHotspot_MenuItemPos
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
@@ -973,7 +974,39 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
+	// "= Move 'Mouse|Cursor' to <aHotspotName>"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Move);
+	allowedKeyWords.set(eCmdWord_Mouse);
+	if( keyWordsFound.test(eCmdWord_Move) &&
+		keyWordsFound.test(eCmdWord_Mouse) &&
+		!keyWordsFound.test(eCmdWord_Left) &&
+		!keyWordsFound.test(eCmdWord_Right) &&
+		!keyWordsFound.test(eCmdWord_Up) &&
+		!keyWordsFound.test(eCmdWord_Down) &&
+		(keyWordsFound & ~allowedKeyWords).count() == 1 )
+	{
+		allowedKeyWords = keyWordsFound;
+		allowedKeyWords.reset(eCmdWord_Move);
+		allowedKeyWords.reset(eCmdWord_Mouse);
+		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
+			theBuilder.keyWordMap.find(ECommandKeyWord(
+				allowedKeyWords.firstSetBit()));
+		if( itr != theBuilder.keyWordMap.end() )
+		{
+			u16* aHotspotIdx = theBuilder.hotspotNameToIdxMap.find(
+				condense(theWords[itr->second]));
+			if( aHotspotIdx )
+			{
+				result.type = eCmdType_MoveMouseToHotspot;
+				result.hotspotID = *aHotspotIdx;
+				return result;
+			}
+		}
+	}
+
 	// "= Remove [this] Layer"
+	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Remove);
 	if( keyWordsFound.test(eCmdWord_Remove) &&
@@ -1156,6 +1189,8 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Default);
 		allowedKeyWords.reset(eCmdWord_Integer);
 		allowedKeyWords.reset(eCmdWord_Back);
+		allowedKeyWords.reset(eCmdWord_Mouse);
+		allowedKeyWords.reset(eCmdWord_Click);
 		if( allowedKeyWords.count() == 1 )
 		{
 			VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
@@ -1168,11 +1203,23 @@ static Command wordsToSpecialCommand(
 
 	if( allowButtonActions && aMenuName )
 	{
-		// "= Reset <aMenuName> [Menu] [to Default]"
+		// If add "[with] mouse" to menu commands, causes actual mouse
+		// cursor to move and point at currently selected item, and
+		// possibly left-click there as well if also use "mouse click".
+		// This is used for menus that directly overlay actual in-game
+		// menus to save on needing a bunch of hotspots and extra
+		// jump/click commands.
+		result.andClick = keyWordsFound.test(eCmdWord_Click);
+		result.withMouse = result.andClick ||
+			keyWordsFound.test(eCmdWord_Mouse);
+
+		// "= Reset <aMenuName> [Menu] [to Default] [with mouse click]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Menu);
 		allowedKeyWords.set(eCmdWord_Default);
+		allowedKeyWords.set(eCmdWord_Mouse);
+		allowedKeyWords.set(eCmdWord_Click);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
@@ -1183,8 +1230,8 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Reset);
 		allowedKeyWords.reset(eCmdWord_Default);
 
-		// "= Confirm <aMenuName> [Menu]
-		// allowedKeyWords = Menu
+		// "= Confirm <aMenuName> [Menu] [with mouse click]"
+		// allowedKeyWords = Menu & Mouse & Click
 		allowedKeyWords.set(eCmdWord_Confirm);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -1194,8 +1241,8 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 
-		// "= Confirm <aMenuName> [Menu] and Close
-		// allowedKeyWords = Menu & Confirm
+		// "= Confirm <aMenuName> [Menu] and Close [with mouse click]"
+		// allowedKeyWords = Menu & Confirm & Mouse & Click
 		allowedKeyWords.set(eCmdWord_Close);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
 			keyWordsFound.test(eCmdWord_Close) &&
@@ -1208,8 +1255,8 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Confirm);
 
-		// "= [Menu] <aMenuName> Back or Close
-		// allowedKeyWords = Menu, Back
+		// "= [Menu] <aMenuName> Back or Close [with mouse click]"
+		// allowedKeyWords = Menu & Back & Mouse & Click
 		allowedKeyWords.set(eCmdWord_Back);
 		allowedKeyWords.set(eCmdWord_Close);
 		if( keyWordsFound.test(eCmdWord_Back) &&
@@ -1222,8 +1269,10 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Back);
 		allowedKeyWords.reset(eCmdWord_Close);
+		allowedKeyWords.reset(eCmdWord_Mouse);
+		allowedKeyWords.reset(eCmdWord_Click);
 
-		// "= Edit <aMenuName> [Menu]
+		// "= Edit <aMenuName> [Menu] [with mouse click]"
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Edit);
 		if( keyWordsFound.test(eCmdWord_Edit) &&
@@ -1311,7 +1360,7 @@ static Command wordsToSpecialCommand(
 			result.keybindArrayID = *aKeyBindArrayID;
 			return result;
 		}
-		// "= <aKeyBindArrayID> Prev [No/Wrap] [#]
+		// "= <aKeyBindArrayID> Prev [No/Wrap] [#]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Prev);
 		allowedKeyWords.set(eCmdWord_Integer);
@@ -1323,7 +1372,7 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Prev);
-		// "= <aKeyBindArrayID> Next [No/Wrap] [#]
+		// "= <aKeyBindArrayID> Next [No/Wrap] [#]"
 		// allowedKeyWords = Integer
 		allowedKeyWords.set(eCmdWord_Next);
 		if( keyWordsFound.test(eCmdWord_Next) &&
@@ -1358,12 +1407,14 @@ static Command wordsToSpecialCommand(
 
 	if( allowButtonActions && aMenuName )
 	{
-		// "= 'Select'|'Menu'|'Select Menu'
-		// <aMenuName> <aCmdDir> [No/Wrap] [#]"
+		// "= 'Select'|'Menu'|'Select Menu' 
+		// <aMenuName> <aCmdDir> [No/Wrap] [#] [with mouse click]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Select);
 		allowedKeyWords.set(eCmdWord_Menu);
 		allowedKeyWords.set(eCmdWord_Integer);
+		allowedKeyWords.set(eCmdWord_Mouse);
+		allowedKeyWords.set(eCmdWord_Click);
 		if( (keyWordsFound.test(eCmdWord_Select) ||
 			 keyWordsFound.test(eCmdWord_Menu)) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -1374,8 +1425,8 @@ static Command wordsToSpecialCommand(
 		}
 
 		// "= 'Select'|'Menu'|'Select Menu' and Close
-		// <aMenuName> <aCmdDir> [No/Wrap] [#]"
-		// allowedKeyWords = Menu & Select
+		// <aMenuName> <aCmdDir> [No/Wrap] [#] [with mouse click]"
+		// allowedKeyWords = Menu & Select & Mouse & Click
 		allowedKeyWords.set(eCmdWord_Close);
 		if( (keyWordsFound.test(eCmdWord_Select) ||
 			 keyWordsFound.test(eCmdWord_Menu)) &&
@@ -1388,6 +1439,8 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Select);
 		allowedKeyWords.reset(eCmdWord_Close);
+		allowedKeyWords.reset(eCmdWord_Mouse);
+		allowedKeyWords.reset(eCmdWord_Click);
 
 		// "= Edit [Menu] <aMenuName> <aCmdDir>"
 		// allowedKeyWords = Menu
@@ -1497,9 +1550,11 @@ static Command wordsToSpecialCommand(
 		// This is all the way down here because "back" could be a direction
 		// for another command, OR mean backing out of a sub-menu, and want
 		// to first make sure <aMenuName> isn't another command's key word
-		// "= Menu <aMenuName> Back"
+		// "= Menu <aMenuName> Back [with mouse click]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Menu);
+		allowedKeyWords.set(eCmdWord_Mouse);
+		allowedKeyWords.set(eCmdWord_Click);
 		if( result.dir == eCmdDir_Back &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{

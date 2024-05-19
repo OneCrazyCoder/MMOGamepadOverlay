@@ -34,6 +34,10 @@ enum ECommandType
 	eCmdType_SlashCommand,
 	eCmdType_SayString,
 
+	// Used for InputDispatcher::moveMouseTo()
+	eCmdType_MoveMouseToHotspot,
+	eCmdType_MoveMouseToMenuItem,
+
 	// These active "keybind arrays" which allow a sequence of different keys
 	// to be pressed by a single buton that changes the key pressed each time.
 	// These first 2 do not actually send any input...
@@ -248,6 +252,7 @@ enum ESpecialHotspot
 	eSpecialHotspot_MouseLookStart,
 	eSpecialHotspot_MouseHidden,
 	eSpecialHotspot_LastCursorPos,
+	eSpecialHotspot_MenuItemPos,
 
 	eSpecialHotspot_Num
 };
@@ -266,6 +271,7 @@ enum ECommandKeyWord
 	eCmdWord_Toggle,
 	eCmdWord_Layer,
 	eCmdWord_Mouse,
+	eCmdWord_Click,
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
 	eCmdWord_Stepped,
@@ -353,8 +359,10 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 				u16 vKey;
 				u16 layerID;
 				u16 subMenuID;
+				u16 hotspotID;
 				u16 keyStringIdx;
 				u16 arrayIdx;
+				u16 menuItemIdx;
 			};
 			union
 			{
@@ -365,6 +373,8 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 			};
 			u8 count;
 			bool wrap;
+			bool withMouse;
+			bool andClick;
 		};
 		const char* string;
 		u64 compare;

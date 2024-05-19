@@ -508,6 +508,20 @@ static u16 menuOwningLayer(u16 theMenuID)
 }
 
 
+static void moveMouseToSelectedMenuItem(const Command& theCmd)
+{
+	if( theCmd.withMouse )
+	{
+		Command aMoveCmd;
+		aMoveCmd.type = eCmdType_MoveMouseToMenuItem;
+		aMoveCmd.menuID = theCmd.menuID;
+		aMoveCmd.menuItemIdx = Menus::selectedItem(theCmd.menuID);
+		aMoveCmd.andClick = theCmd.andClick;
+		InputDispatcher::moveMouseTo(aMoveCmd);
+	}
+}
+
+
 static void processCommand(
 	ButtonState* theBtnState,
 	const Command& theCmd,
@@ -543,6 +557,11 @@ static void processCommand(
 	case eCmdType_SayString:
 		// Queue to send last, since can block other input the longest
 		sResults.strings.push_back(theCmd);
+		break;
+	case eCmdType_MoveMouseToHotspot:
+	case eCmdType_MoveMouseToMenuItem:
+		// Send right away in case to happen before a queued mouse click
+		InputDispatcher::moveMouseTo(theCmd);
 		break;
 	case eCmdType_KeyBindArrayResetLast:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
@@ -670,11 +689,13 @@ static void processCommand(
 		aForwardCmd = Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		sResults.menuAutoCommandRun.set(theCmd.menuID);
+		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_ReplaceMenu:
 		aForwardCmd = Menus::replaceMenu(theCmd.menuID, theCmd.subMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		sResults.menuAutoCommandRun.set(theCmd.menuID);
+		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuReset:
 		if( const Command* aCmdPtr = Menus::reset(theCmd.menuID) )
@@ -682,13 +703,18 @@ static void processCommand(
 			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
 			sResults.menuAutoCommandRun.set(theCmd.menuID);
 		}
+		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuConfirm:
+		moveMouseToSelectedMenuItem(theCmd);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
+		aForwardCmd.withMouse = theCmd.withMouse;
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuConfirmAndClose:
+		moveMouseToSelectedMenuItem(theCmd);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
+		aForwardCmd.withMouse = theCmd.withMouse;
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			// Close menu first if this won't just switch to a sub-menu
@@ -709,13 +735,17 @@ static void processCommand(
 		break;
 	case eCmdType_MenuBack:
 		if( const Command* aCmdPtr = Menus::closeLastSubMenu(theCmd.menuID) )
+		{
 			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
+			moveMouseToSelectedMenuItem(theCmd);
+		}
 		break;
 	case eCmdType_MenuBackOrClose:
 		if( const Command* aCmdPtr = Menus::closeLastSubMenu(theCmd.menuID) )
 		{
 			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
 			sResults.menuAutoCommandRun.set(theCmd.menuID);
+			moveMouseToSelectedMenuItem(theCmd);
 			break;
 		}
 		// Returning null means at are root, so fall through to close
@@ -741,6 +771,7 @@ static void processCommand(
 			if( aForwardCmd.type != eCmdType_Empty )
 				processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
+		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuSelectAndClose:
 		for(int i = 0; i < theCmd.count; ++i)
@@ -767,17 +798,20 @@ static void processCommand(
 					aMenuWasClosed = true;
 				}
 				processCommand(theBtnState, aForwardCmd, theLayerIdx);
-				// Break out of selection loop if closed a menu
+				// Break out of this function entirely if closed a menu
 				if( aMenuWasClosed )
-					break;
+					return;
 			}
 		}
+		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuEditDir:
 		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
-		// TODO
+		aForwardCmd.type = eCmdType_MoveMouseToHotspot;
+		aForwardCmd.hotspotID = 0; // TODO
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:

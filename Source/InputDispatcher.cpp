@@ -247,6 +247,7 @@ struct DispatchTracker
 	u16 mouseJumpToHotspot;
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
+	bool mouseJumpQueued;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
@@ -459,6 +460,7 @@ static bool isSafeAsyncKey(u16 theVKey)
 		(sTracker.mouseMode == eMouseMode_Hide ||
 		 sTracker.mouseMode == eMouseMode_PostJump ||
 		 sTracker.mouseMode == eMouseMode_JumpClicked ||
+		 sTracker.mouseJumpQueued ||
 		 sTracker.mouseJumpToHotspot) )
 		return false;
 
@@ -1111,11 +1113,28 @@ void update()
 			if( !taskIsPastDue )
 				aTaskResult = popNextStringChar(aCmd.string);
 			break;
+		case eCmdType_MoveMouseToHotspot:
+			if( !taskIsPastDue )
+				sTracker.mouseJumpToHotspot = aCmd.hotspotID;
+			break;
+		case eCmdType_MoveMouseToMenuItem:
+			if( !taskIsPastDue )
+			{
+				InputMap::modifyHotspot(eSpecialHotspot_MenuItemPos,
+					WindowManager::hotspotForMenuItem(
+						aCmd.menuID, aCmd.menuItemIdx));
+				sTracker.mouseJumpToHotspot = eSpecialHotspot_MenuItemPos;
+				if( aCmd.andClick )
+					sTracker.nextQueuedKey = VK_LBUTTON;
+			}
+			break;
 		}
 		if( aTaskResult == eResult_TaskCompleted )
 		{
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
+			if( sTracker.queue.empty() )
+				sTracker.mouseJumpQueued = false;
 		}
 	}
 
@@ -1211,8 +1230,9 @@ void update()
 
 	// Prepare for queued event (cursor jump or nextQueuedKey)
 	// -------------------------------------------------------
-	bool readyForQueuedEvent = true;
-	if( sTracker.mouseJumpToHotspot )
+	bool readyForQueuedKey = sTracker.nextQueuedKey != 0;
+	bool readyForMouseJump = sTracker.mouseJumpToHotspot != 0;
+	if( readyForMouseJump )
 	{
 		// No mouse button should be held down during a jump
 		aDesiredKeysDown.reset(VK_LBUTTON);
@@ -1222,10 +1242,13 @@ void update()
 			sTracker.keysHeldDown.test(VK_MBUTTON) ||
 			sTracker.keysHeldDown.test(VK_RBUTTON) )
 		{
-			readyForQueuedEvent = false;
+			readyForMouseJump = false;
 		}
+		// Don't allow mouse clicks until done with mouse movement
+		if( isMouseButton(sTracker.nextQueuedKey) )
+			readyForQueuedKey = false;
 	}
-	else if( sTracker.nextQueuedKey )
+	if( readyForQueuedKey )
 	{
 		const u16 aVKey = sTracker.nextQueuedKey;
 		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
@@ -1238,14 +1261,14 @@ void update()
 		aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
 		// Only send the key if related keys are already in correct state
 		// Otherwise, need to wait until other keys are ready next frame
-		readyForQueuedEvent =
+		readyForQueuedKey =
 			requiredModKeysAreAlreadyHeld(sTracker.nextQueuedKey);
 		// Make sure base key is in opposite of desired pressed state
 		if( !forced )
 		{
 			aDesiredKeysDown.set(aBaseVKey, !press);
 			if( sTracker.keysHeldDown.test(aBaseVKey) == press )
-				readyForQueuedEvent = false;
+				readyForQueuedKey = false;
 		}
 		// Skip mouse clicks entirely while mouse is hidden
 		if( sTracker.mouseMode == eMouseMode_Hide &&
@@ -1309,12 +1332,12 @@ void update()
 
 	// Send queued event (cursor jump OR queued key)
 	// ---------------------------------------------
-	if( readyForQueuedEvent && sTracker.mouseJumpToHotspot )
+	if( readyForMouseJump )
 	{
 		jumpMouseToHotspot(sTracker.mouseJumpToHotspot);
 		// mouseJumpToHotspot will be reset once jump is verified next update
 	}
-	else if( readyForQueuedEvent && sTracker.nextQueuedKey )
+	if( readyForQueuedKey )
 	{
 		u16 aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
 		u8 aVKeyBase = u8(aVKey & kVKeyMask);
@@ -1433,8 +1456,18 @@ void sendKeyCommand(const Command& theCommand)
 				break;
 			}
 		}
-		// fall through
+		sTracker.queue.push_back(theCommand);
+		break;
 	case eCmdType_VKeySequence:
+		for(const char* c = theCommand.string; *c != '\0'; ++c)
+		{
+			if( *c == VK_SELECT )
+			{
+				sTracker.mouseJumpQueued = true;
+				break;
+			}
+		}
+		// fall through
 	case eCmdType_SlashCommand:
 	case eCmdType_SayString:
 		sTracker.queue.push_back(theCommand);
@@ -1522,6 +1555,21 @@ void moveMouse(int dx, int dy, bool digital)
 	else
 		sMouseYSubPixel = dy % kMouseToPixelDivisor;
 	sTracker.mouseVelY +=dy / kMouseToPixelDivisor;
+}
+
+
+void moveMouseTo(const Command& theCommand)
+{
+	switch(theCommand.type)
+	{
+	case eCmdType_MoveMouseToHotspot:
+	case eCmdType_MoveMouseToMenuItem:
+		sTracker.queue.push_back(theCommand);
+		sTracker.mouseJumpQueued = true;
+		break;
+	default:
+		DBG_ASSERT(false && "Invalid command type for moveMouseTo()!");
+	}
 }
 
 

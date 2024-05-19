@@ -1487,7 +1487,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		if( isSelection )
 		{
 			anItemRect.top = hi.titleHeight;
-			anItemRect.bottom = dd.itemSize.cy;
+			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 		}
 		if( shouldRedrawAll ||
 			hi.forcedRedrawItemID == itemIdx ||
@@ -2446,6 +2446,40 @@ void updateWindowLayout(
 	theWindowPos.y = max(0, theWindowPos.y);
 	theWindowSize.cx = min(theWindowSize.cx, theTargetSize.cx - theWindowPos.x);
 	theWindowSize.cy = min(theWindowSize.cy, theTargetSize.cy - theWindowPos.y);
+}
+
+
+POINT componentOffsetPos(
+	u16 theHUDElementID,
+	u16 theComponentIdx,
+	const SIZE& theComponentSize)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
+
+	POINT result = { 0, 0 };
+	switch(hi.type)
+	{
+	case eMenuStyle_List:
+		result.y = (theComponentSize.cy + hi.gapSizeY) * theComponentIdx;
+		break;
+	case eMenuStyle_Bar:
+		result.x = (theComponentSize.cx + hi.gapSizeX) * theComponentIdx;
+		break;
+	case eMenuStyle_Grid:
+		{
+			const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
+			const u16 aGridWidth = Menus::gridWidth(aMenuID);
+			const u16 aXOffset = theComponentIdx % aGridWidth;
+			const u16 aYOffset = theComponentIdx / aGridWidth;
+			result.x = (theComponentSize.cx + hi.gapSizeX) * aXOffset;
+			result.y = (theComponentSize.cy + hi.gapSizeY) * aYOffset;
+		}
+		break;
+	}
+
+	result.y += hi.titleHeight;
+	return result;
 }
 
 
