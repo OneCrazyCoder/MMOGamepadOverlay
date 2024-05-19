@@ -248,6 +248,8 @@ struct DispatchTracker
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
 	bool mouseJumpQueued;
+	bool mouseJumpInterpolate;
+	bool mouseInterpolateRestart;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
@@ -301,6 +303,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			sTracker.mouseJumpToHotspot |= (c & 0x7F);
+			sTracker.mouseJumpInterpolate = false;
 			continue;
 		}
 
@@ -605,6 +608,80 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 }
 
 
+static void trailMouseToHotspot(u16 theHotspotID)
+{
+	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
+		jumpMouseToHotspot(theHotspotID);
+		return;
+	#endif
+
+	// Stop accumulating standard mouse motion during this
+	sTracker.mouseVelX = sTracker.mouseVelY = 0;
+
+	static const int kMinTrailTime = 100;
+	static const int kMaxTrailTime = 300;
+	static int sStartTime = 0, sTrailTime = 0;
+	static int sStartPosX, sStartPosY, sTrailDistX, sTrailDistY;
+
+	if( sTracker.mouseInterpolateRestart )
+	{
+		sTracker.mouseInterpolateRestart = false;
+		sStartTime = gAppRunTime - gAppFrameTime;
+		const POINT& aCurrentPos = WindowManager::mouseToOverlayPos(false);
+		const POINT& aHotspotPos = WindowManager::hotspotToOverlayPos(
+				InputMap::getHotspot(theHotspotID));
+		// Don't auto-restore previous position after using trailing
+		sTracker.mousePreJumpPos = aHotspotPos;
+		if( aCurrentPos.x == aHotspotPos.x &&
+			aCurrentPos.y == aHotspotPos.y )
+		{// Already at destination - treat as verified jump
+			sTracker.mouseJumpInterpolate = false;
+			sTracker.mouseJumpAttempted = true;
+			sTracker.mouseJumpVerified = true;
+			return;
+		}
+		sStartPosX = aCurrentPos.x; sStartPosY = aCurrentPos.y;
+		sTrailDistX = aHotspotPos.x - aCurrentPos.x;
+		sTrailDistY = aHotspotPos.y - aCurrentPos.y;
+		const int aDistance =
+			sqrt(float(sTrailDistX) * sTrailDistX + sTrailDistY * sTrailDistY);
+		sTrailTime = clamp(aDistance, kMinTrailTime, kMaxTrailTime);
+	}
+
+	POINT aNewPos = { sStartPosX, sStartPosY };
+	const int aTrailTimePassed = min(gAppRunTime - sStartTime, sTrailTime);
+	if( aTrailTimePassed >= sTrailTime )
+	{
+		aNewPos.x += sTrailDistX;
+		aNewPos.y += sTrailDistY;
+	}
+	else
+	{
+		float anInterpTime = 1.0 - (float(aTrailTimePassed) / sTrailTime);
+		anInterpTime = 1.0 - (anInterpTime * anInterpTime);
+		aNewPos.x += sTrailDistX * anInterpTime;
+		aNewPos.y += sTrailDistY * anInterpTime;
+	}
+
+	if( aNewPos.x == sStartPosX + sTrailDistX &&
+		aNewPos.y == sStartPosY + sTrailDistY )
+	{// Should end up at destination - treat as attempted jump
+		sTracker.mouseJumpInterpolate = false;
+		sTracker.mouseJumpAttempted = true;
+		sTracker.mouseJumpVerified = false;
+	}
+
+	aNewPos = WindowManager::overlayPosToNormalizedMousePos(aNewPos);
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.dx = aNewPos.x;
+	anInput.mi.dy = aNewPos.y;
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
+	sTracker.inputs.push_back(anInput);
+	sTracker.mouseLookZoneFixTimer = 0;
+}
+
+
 static void tryMouseLookZoningFix()
 {
 	// In the EverQuest Titanium client, if you zone while holding RMB for
@@ -861,12 +938,25 @@ static void debugPrintInputVector()
 				#endif
 				break;
 			case MOUSEEVENTF_MOVEABSOLUTE:
+				if( !sTracker.mouseJumpToHotspot ||
+					!sTracker.mouseJumpInterpolate )
 				{
 					POINT aPos = { anInput.mi.dx, anInput.mi.dy };
 					aPos = WindowManager::normalizedMouseToOverlayPos(aPos);
 					siPrint("Jumped cursor to %dx x %dy\n",
 						aPos.x, aPos.y);
 				}
+				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
+				else
+				{
+					POINT anOldPos = WindowManager::mouseToOverlayPos();
+					POINT aPos = { anInput.mi.dx, anInput.mi.dy };
+					aPos = WindowManager::normalizedMouseToOverlayPos(aPos);
+					siPrint("Mouse shifted by: %dx x %dy to reach %d x %d\n",
+						aPos.x - anOldPos.x, aPos.y - anOldPos.y,
+						aPos.x, aPos.y);
+				}
+				#endif
 				break;
 			}
 		}
@@ -980,6 +1070,7 @@ void update()
 		verifyCursorJumpedTo(sTracker.mouseJumpToHotspot) )
 	{// Can clear .mouseJumpToHotspot now that verified it worked
 		sTracker.mouseJumpToHotspot = 0;
+		sTracker.mouseJumpInterpolate = false;
 	}
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
@@ -1007,6 +1098,7 @@ void update()
 			case eMouseMode_Cursor:
 				// Restore last known normal cursor position
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
+				sTracker.mouseJumpInterpolate = false;
 				break;
 			case eMouseMode_Look:
 				if( sTracker.mouseMode == eMouseMode_JumpClicked )
@@ -1018,6 +1110,7 @@ void update()
 				{// Jump curser to safe spot for initial right-click
 					sTracker.mouseJumpToHotspot =
 						eSpecialHotspot_MouseLookStart;
+					sTracker.mouseJumpInterpolate = false;
 					// Begin holding down right mouse button
 					sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
 					sTracker.mouseLookZoneFixTimer = 0;
@@ -1028,7 +1121,10 @@ void update()
 				// (or using _Look which can affect undesired side effects)
 				// so just move it out of the way (bottom corner usually)
 				if( !WindowManager::overlaysAreHidden() )
+				{
 					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
+					sTracker.mouseJumpInterpolate = false;
+				}
 				break;
 			default:
 				DBG_ASSERT(false && "Invalid sTracker.mouseModeWanted value!");
@@ -1115,14 +1211,33 @@ void update()
 			break;
 		case eCmdType_MoveMouseToHotspot:
 			if( !taskIsPastDue )
+			{
+				sTracker.mouseInterpolateRestart =
+					!sTracker.mouseJumpInterpolate ||
+					aCmd.hotspotID != sTracker.mouseJumpToHotspot;
+				sTracker.mouseJumpInterpolate = true;
 				sTracker.mouseJumpToHotspot = aCmd.hotspotID;
+			}
 			break;
 		case eCmdType_MoveMouseToMenuItem:
 			if( !taskIsPastDue )
 			{
+				sTracker.mouseInterpolateRestart =
+					!sTracker.mouseJumpInterpolate ||
+					aCmd.hotspotID != sTracker.mouseJumpToHotspot;
+				const Hotspot oldMenuHotspot =
+					InputMap::getHotspot(eSpecialHotspot_MenuItemPos);
 				InputMap::modifyHotspot(eSpecialHotspot_MenuItemPos,
 					WindowManager::hotspotForMenuItem(
 						aCmd.menuID, aCmd.menuItemIdx));
+				const Hotspot& newMenuHotspot =
+					InputMap::getHotspot(eSpecialHotspot_MenuItemPos);
+				if( !sTracker.mouseInterpolateRestart &&
+					!(oldMenuHotspot == newMenuHotspot) )
+				{// Same hotspot but it changed location, so restart interp
+					sTracker.mouseInterpolateRestart = true;
+				}
+				sTracker.mouseJumpInterpolate = true;
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_MenuItemPos;
 				if( aCmd.andClick )
 					sTracker.nextQueuedKey = VK_LBUTTON;
@@ -1228,8 +1343,8 @@ void update()
 	}
 
 
-	// Prepare for queued event (cursor jump or nextQueuedKey)
-	// -------------------------------------------------------
+	// Prepare for queued event (mouse jump and/or nextQueuedKey)
+	// ----------------------------------------------------------
 	bool readyForQueuedKey = sTracker.nextQueuedKey != 0;
 	bool readyForMouseJump = sTracker.mouseJumpToHotspot != 0;
 	if( readyForMouseJump )
@@ -1334,7 +1449,10 @@ void update()
 	// ---------------------------------------------
 	if( readyForMouseJump )
 	{
-		jumpMouseToHotspot(sTracker.mouseJumpToHotspot);
+		if( sTracker.mouseJumpInterpolate )
+			trailMouseToHotspot(sTracker.mouseJumpToHotspot);
+		else
+			jumpMouseToHotspot(sTracker.mouseJumpToHotspot);
 		// mouseJumpToHotspot will be reset once jump is verified next update
 	}
 	if( readyForQueuedKey )

@@ -51,7 +51,7 @@ void setOverlaysToTopZ();
 bool overlaysAreHidden();
 
 // Gets overlay-window-relative/clamped mouse position
-POINT mouseToOverlayPos();
+POINT mouseToOverlayPos(bool clamped = true);
 // Converts a hotspot into overlay-window-relative position
 POINT hotspotToOverlayPos(const Hotspot& theHotspot);
 // Converts overlay-window-relative position into a hotspot
