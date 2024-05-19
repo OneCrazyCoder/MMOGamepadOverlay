@@ -817,4 +817,22 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 	return theSentMousePos;
 }
 
+
+Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
+{
+	const u16 aHUDElementID = InputMap::hudElementForMenu(theMenuID);
+	OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+
+	POINT aPos = HUD::componentOffsetPos(
+		aHUDElementID,
+		theMenuItemIdx,
+		aWindow.componentSize);
+	aPos.x += aWindow.componentSize.cx / 2;
+	aPos.y += aWindow.componentSize.cy / 2;
+	aPos.x += aWindow.position.x;
+	aPos.y += aWindow.position.y;
+
+	return overlayPosToHotspot(aPos);
+}
+
 } // WindowManager

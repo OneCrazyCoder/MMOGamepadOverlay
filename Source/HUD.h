@@ -46,6 +46,12 @@ void updateWindowLayout(
 	POINT& theWindowPos,
 	SIZE& theWindowSize);
 
+// Returns position offset of given compenent of the HUD Element
+POINT componentOffsetPos(
+	u16 theHUDElementID,
+	u16 theComponentIdx,
+	const SIZE& theComponentSize);
+
 // Draws contents of main window (version string)
 void drawMainWindowContents(HWND theWindow);
 

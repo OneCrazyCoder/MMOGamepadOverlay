@@ -41,6 +41,9 @@ void setMouseMode(EMouseMode theMouseMode);
 // settings, and expected range of -255 to 255.
 void moveMouse(int dx, int dy, bool digital);
 
+// Move mouse directly to specific location
+void moveMouseTo(const Command& theCommand);
+
 // Send mouse wheel up/down motion. Expected range of -255 to 255.
 // In cases where target app only responds to full "clicks" of the
 // wheel at a time and not smaller movements, set 'stepped' = true,
