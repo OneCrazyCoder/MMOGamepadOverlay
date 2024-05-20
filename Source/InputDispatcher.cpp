@@ -1075,6 +1075,7 @@ void update()
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.mouseJumpToHotspot &&
+		!sTracker.mouseJumpQueued &&
 		(sTracker.currTaskProgress == 0 || sTracker.queuePauseTime > 0) )
 	{// No tasks in progress that mouse mode change could interfere with
 
@@ -1210,7 +1211,13 @@ void update()
 				aTaskResult = popNextStringChar(aCmd.string);
 			break;
 		case eCmdType_MoveMouseToHotspot:
-			if( !taskIsPastDue )
+			if( sTracker.mouseJumpToHotspot &&
+				!sTracker.mouseJumpInterpolate )
+			{// Finish instant jump first
+				sTracker.queuePauseTime = 1; 
+				aTaskResult = eResult_Incomplete;
+			}
+			else if( !taskIsPastDue )
 			{
 				sTracker.mouseInterpolateRestart =
 					!sTracker.mouseJumpInterpolate ||
@@ -1220,7 +1227,13 @@ void update()
 			}
 			break;
 		case eCmdType_MoveMouseToMenuItem:
-			if( !taskIsPastDue )
+			if( sTracker.mouseJumpToHotspot &&
+				!sTracker.mouseJumpInterpolate )
+			{// Finish instant jump first
+				sTracker.queuePauseTime = 1; 
+				aTaskResult = eResult_Incomplete;
+			}
+			else if( !taskIsPastDue )
 			{
 				sTracker.mouseInterpolateRestart =
 					!sTracker.mouseJumpInterpolate ||
