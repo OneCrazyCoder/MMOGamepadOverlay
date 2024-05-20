@@ -175,7 +175,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		{
 		case eFadeState_Hidden:
 			aNewAlpha = 0;
-			if( gActiveHUD.test(id) )
+			if( gActiveHUD.test(id) && gVisibleHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
@@ -188,7 +188,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			}
 			break;
 		case eFadeState_FadeInDelay:
-			if( gActiveHUD.test(id) )
+			if( gActiveHUD.test(id) && gVisibleHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
