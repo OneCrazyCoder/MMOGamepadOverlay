@@ -61,6 +61,7 @@ enum EHUDProperty
 	eHUDProp_Bitmap,
 	eHUDProp_Radius,
 	eHUDProp_TitleHeight,
+	eHUDProp_AltLabelWidth,
 	eHUDProp_FlashTime,
 	eHUDProp_Priority,
 
@@ -122,6 +123,7 @@ const char* kHUDPropStr[] =
 	"Bitmap",			// eHUDProp_Bitmap
 	"Radius",			// eHUDProp_Radius
 	"TitleHeight",		// eHUDProp_TitleHeight
+	"AltLabelWidth",	// eHUDProp_AltLabelWidth
 	"FlashTime",		// eHUDProp_FlashTime
 	"Priority",			// eHUDProp_Priority
 };
@@ -155,10 +157,11 @@ struct HUDElementInfo
 	u16 prevFlashing;
 	u16 fontID;
 	u16 forcedRedrawItemID;
+	u16 titleHeight;
+	u16 altLabelWidth;
 	s8 gapSizeX;
 	s8 gapSizeY;
 	u8 radius;
-	u8 titleHeight;
 	u8 alignmentX;
 	u8 alignmentY;
 	u8 maxAlpha;
@@ -1298,8 +1301,7 @@ static void drawMenuItemLabel(
 static void drawMenuTitle(
 	HUDDrawData& dd,
 	u16 theSubMenuID,
-	StringScaleCacheEntry& theCacheEntry,
-	bool centered = false)
+	StringScaleCacheEntry& theCacheEntry)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
@@ -1309,19 +1311,39 @@ static void drawMenuTitle(
 		dd.destSize.cx - hi.radius / 2,
 		hi.titleHeight };
 
+	EAlignment alignment = EAlignment(hi.alignmentX);
+	if( hi.itemType != eHUDItemType_Rect )
+		alignment = eAlignment_Center;
+
 	if( !dd.firstDraw )
 		eraseRect(dd, aTitleRect);
 	InflateRect(&aTitleRect, -2, -2);
 	const std::wstring& aStr = widen(InputMap::menuLabel(theSubMenuID));
 	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
-	if( centered) aFormat |= DT_CENTER;
+	switch(alignment)
+	{
+	case eAlignment_Min: aFormat |= DT_LEFT; break;
+	case eAlignment_Center: aFormat |= DT_CENTER; break;
+	case eAlignment_Max: aFormat |= DT_RIGHT; break;
+	}
 	if( theCacheEntry.width == 0 )
 		initStringCacheEntry(dd, aTitleRect, aStr, aFormat, theCacheEntry);
 
 	// Fill in 2px margin around text with titleBG (border) color
 	RECT aBGRect;
 	LONG aSize = theCacheEntry.width + 4;
-	aBGRect.left = centered ? ((dd.destSize.cx - aSize) / 2) : 0;
+	switch(alignment)
+	{
+	case eAlignment_Min:
+		aBGRect.left = 0;
+		break;
+	case eAlignment_Center:
+		aBGRect.left = ((dd.destSize.cx - aSize) / 2);
+		break;
+	case eAlignment_Max:
+		aBGRect.left = dd.destSize.cx - aSize;
+		break;
+	}
 	aBGRect.right = aBGRect.left + aSize;
 	aSize = theCacheEntry.height + 4;
 	aBGRect.bottom = hi.titleHeight;
@@ -1397,8 +1419,7 @@ static void drawListMenu(HUDDrawData& dd)
 	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd, hi.subMenuID,
-			sMenuDrawCache[hi.subMenuID][0].str,
-			hi.itemType != eHUDItemType_Rect);
+			sMenuDrawCache[hi.subMenuID][0].str);
 	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
@@ -1457,18 +1478,58 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
+	sMenuDrawCache[hi.subMenuID].resize(
+		anItemCount + hasTitle + (hi.altLabelWidth ? anItemCount : 0));
 
 	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd, hi.subMenuID,
-			sMenuDrawCache[hi.subMenuID][0].str,
-			hi.itemType != eHUDItemType_Rect);
+			sMenuDrawCache[hi.subMenuID][0].str);
 	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll = dd.firstDraw || selectionChanged;
+
+	// Draw alternate label for selected item off to the side
+	if( hi.altLabelWidth > 0 &&
+		(selectionChanged || shouldRedrawAll ||
+		 hi.forcedRedrawItemID == hi.selection) )
+	{
+		const u8 aBorderSize = 
+			sAppearances[hi.appearanceID[eAppearanceMode_Normal]].borderSize;
+		const u8 aSelectedBorderSize = 
+			sAppearances[hi.appearanceID[eAppearanceMode_Selected]].borderSize;
+		RECT anAltLabelRect = { 0 };
+		anAltLabelRect.left = 0;
+		if( hi.alignmentX != eAlignment_Max )
+			anAltLabelRect.left = dd.itemSize.cx - aBorderSize;
+		anAltLabelRect.right =
+			anAltLabelRect.left + hi.altLabelWidth + aBorderSize;
+		anAltLabelRect.top =
+			hi.titleHeight ? hi.titleHeight : aSelectedBorderSize;
+		anAltLabelRect.bottom = anAltLabelRect.top +
+			dd.itemSize.cy - aSelectedBorderSize * 2;
+		const std::string& anAltLabel =
+			InputMap::menuItemAltLabel(hi.subMenuID, hi.selection);
+		const std::string& aPrevAltLabel =
+			InputMap::menuItemAltLabel(hi.subMenuID, aPrevSelection);
+		if( anAltLabel.empty() && !aPrevAltLabel.empty() )
+			eraseRect(dd, anAltLabelRect);
+		if( !anAltLabel.empty() )
+		{
+			dd.appearanceMode = eAppearanceMode_Normal;
+			drawHUDRect(dd, anAltLabelRect);
+			InflateRect(&anAltLabelRect, -aBorderSize-1, -aBorderSize-1);
+			drawMenuItemLabel(
+				dd, anAltLabelRect,
+				hi.selection,
+				anAltLabel,
+				sAppearances[hi.appearanceID[eAppearanceMode_Normal]],
+				sMenuDrawCache[hi.subMenuID]
+					[anItemCount+hi.selection+hasTitle]);
+		}
+	}
 
 	// Make sure only flash top slot even if selection changes during flash
 	if( hi.flashing != kInvalidItem )
@@ -1477,7 +1538,9 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
 	// just below the top slot, and ending when draw hi.selection last at top
 	RECT anItemRect = { 0 };
-	anItemRect.right = dd.itemSize.cx;
+	if( hi.alignmentX == eAlignment_Max )
+		anItemRect.left = dd.destSize.cx - dd.itemSize.cx;
+	anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSizeY;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	for(u16 itemIdx = (hi.selection + 1) % anItemCount;
@@ -1583,8 +1646,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 	{
 		drawMenuTitle(dd,
 			hi.subMenuID,
-			sMenuDrawCache[hi.subMenuID][0].str,
-			true);
+			sMenuDrawCache[hi.subMenuID][0].str);
 	}
 
 	RECT anItemRect = { 0 };
@@ -1643,8 +1705,7 @@ static void drawGridMenu(HUDDrawData& dd)
 	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd, hi.subMenuID,
-			sMenuDrawCache[hi.subMenuID][0].str,
-			hi.itemType != eHUDItemType_Rect);
+			sMenuDrawCache[hi.subMenuID][0].str);
 	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
@@ -2223,6 +2284,12 @@ void updateScaling()
 			hi.radius = gUIScaleY * u32FromString(
 				getHUDPropStr(aHUDName, eHUDProp_Radius));
 		}
+
+		if( hi.type == eMenuStyle_Slots )
+		{
+			hi.altLabelWidth = gUIScaleX * u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_AltLabelWidth));
+		}
 	}
 	for(u16 anAppearanceID = 0;
 		anAppearanceID < sAppearances.size();
@@ -2290,7 +2357,7 @@ void drawElement(
 		if( hi.type == eHUDType_System )
 			aFrameColor = RGB(255, 0, 0);
 	#endif
-	if( aFrameColor != RGB(0, 0, 0) )
+	if( aFrameColor != RGB(0, 0, 0) && needsInitialErase )
 	{
 		HPEN hFramePen = CreatePen(PS_INSIDEFRAME, 3, aFrameColor);
 
@@ -2382,6 +2449,7 @@ void updateWindowLayout(
 			theWindowSize.cy *= aMenuItemCount;
 			if( aMenuItemCount > 1 )
 				theWindowSize.cy += hi.gapSizeY * (aMenuItemCount - 1);
+			theWindowSize.cx += hi.altLabelWidth;
 		}
 		break;
 	case eMenuStyle_Bar:

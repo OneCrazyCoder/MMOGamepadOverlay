@@ -106,7 +106,7 @@ FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
     DEFPUSHBUTTON   "OK",IDOK,238,46,50,12
     EDITTEXT        IDC_EDIT_COMMAND,7,46,229,12,ES_AUTOHSCROLL
-    LTEXT           "Input format ""Label: Command"" (without quotes, include colon) for normal item\nInput just a name without colon (:) to make a sub-menu\nLeave blank to delete this menu item\nAdd + or - as first character to insert as new item before (-) or after (+) current",IDC_STATIC_PROMPT,7,7,281,36
+    LTEXT           "Input format ""Label: Command"" (or ""AltLabel | Label : Command"" for some Menus)\nInput just a name without colon (:) to make a sub-menu\nLeave blank to delete this menu item\nAdd + or - as first character to insert as new item before (-) or after (+) current",IDC_STATIC_PROMPT,7,7,281,36
 END
 
 IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 50

@@ -502,7 +502,7 @@ For example, in a basic list-style menu, normally ``=Select Left`` and ``=Select
 
 Even in a list-style menu, the ``U=`` and ``D=`` menu items can also still be used, but only if use Up while the first menu item is currently selected, or Down when the last item is currently selected. Similar logic applies to other menu styles, but may be slightly different for each one.
 
-One key use of these is allowing for *side menus*, particularly for the "Slots" Menu Style which is designed to emulate EQOA's "ability list" (basically a list-style menu but the current selection is always listed first and the entire menu "rotates" as you select Up or Down, like a slot machine). Using side menus via ``L=`` and ``R=`` allows swapping to a different column of menu items, just like swapping between the "ability list" and the "tool belt" in EQOA. Each column of items is technically a sub-menu configured as a *side menu*. Here is an example of how to set something like that up:
+One key use of these is allowing for *side menus* such as in a List or Slots style menu, by using``L=`` and ``R=`` to instantly swap to a different selection of menu items without needing to add visible sub-menu items. These are still technically a sub-menu, but accessed in a different way. Here is an example of how to use these in an EQOA-like abilities menu:
 
     [Menu.Abilities]
     Style = Slots
@@ -527,6 +527,22 @@ One key use of these is allowing for *side menus*, particularly for the "Slots" 
     ...
 
 Notice how the sub-menus use ``..`` to specify returning to the the base "Abilities" menu. There is also a single ``.`` in front of another sub-menu's name to specify it is actually a "sibling" menu. For example, if ``[Menu.Abilities.Spells]`` had the property ``R=Hotbar``, then that would reference a "child" sub-menu ``[Menu.Abilities.Spells.Hotbar]`` which doesn't exist. Using ``R=.Hotbar`` instead indicates it wants to open its "sibling" sub-menu ``[Menu.Abilities.Hotbar]``.
+
+### Slots Menu Style
+
+This menu style is designed to emulate EQOA's "Ability List" and "Tool Bar" and is a great candidate for "side menus" as explained above. It is basically a list-style menu, but the current selection is always listed first and the entire menu "rotates" as you select Up or Down, like the reels in old slot machines (hence the name).
+
+In order to help better keep track of what item is actually selected when the entire menu is moving, this style of menu allows for an alternate, second label for each item. This alternate label is only displayed for the currently-selected item and is drawn off to one side of the rest of the menu. You can control the size of this alternate label area by adding the property ``AltLabelWidth=`` to this menu's section.
+
+To specify what label should be displayed in the alternate label, when setting the menu item properties, start with the alternate label first, then the pipe (``|``) symbol, then the normal label, then colon (``:``), and then the command. Like this:
+
+    [Menu.Abilities]
+    AltLabelWidth = 108
+    1 = SpellName1 | Spell1: CastSpell1
+    2 = SpellName2 | Spell2: CastSpell2
+    ...
+
+*The alternate label can be replaced with an image, including possibly one copied from the game's window dynamically, just like normal labels, as covered later.*
 
 ### 4Dir Menu Style
 

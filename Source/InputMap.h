@@ -90,6 +90,7 @@ u16 hotspotCount();
 const std::string& layerLabel(u16 theLayerID);
 const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
+const std::string& menuItemAltLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir);
 const std::string& hudElementKeyName(u16 theHUDElementID);
 const std::string& hudElementDisplayName(u16 theHUDElementID);
