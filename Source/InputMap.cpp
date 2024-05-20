@@ -98,6 +98,7 @@ typedef std::vector<KeyBindArrayEntry> KeyBindArray;
 struct MenuItem
 {
 	std::string label;
+	std::string altLabel;
 	Command cmd;
 };
 
@@ -2686,8 +2687,13 @@ static MenuItem stringToMenuItem(
 		aLabel = "<unnamed>";
 	}
 	else
-	{
+	{// Has a label, but may actually be 2 labels separated by '|'
+		aMenuItem.altLabel = breakOffItemBeforeChar(aLabel, '|');
+		if( aLabel[0] == '|' )
+			aLabel = aLabel.substr(1);
 		aMenuItem.label = aLabel;
+		if( !aMenuItem.altLabel.empty() )
+			aLabel += std::string(" (") + aMenuItem.altLabel + ")";
 	}
 
 	if( theString.empty() )
@@ -2852,7 +2858,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 		{
 			const std::string aMenuItemKeyName = k4DirMenuItemLabel[itemIdx];
 			const std::string& aMenuItemString = Profile::getStr(
-				aPrefix + "/" + aMenuItemKeyName);
+				condense(aPrefix + "/" + aMenuItemKeyName));
 			if( !aMenuItemString.empty() || aMenuStyle == eMenuStyle_4Dir )
 			{
 				theBuilder.debugItemName =
@@ -3407,6 +3413,14 @@ const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx)
 	DBG_ASSERT(theMenuID < sMenus.size());
 	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());
 	return sMenus[theMenuID].items[theMenuItemIdx].label;
+}
+
+
+const std::string& menuItemAltLabel(u16 theMenuID, u16 theMenuItemIdx)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());
+	return sMenus[theMenuID].items[theMenuItemIdx].altLabel;
 }
 
 
