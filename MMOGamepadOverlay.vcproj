@@ -439,6 +439,14 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Source\HotspotMap.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\HotspotMap.h"
+			>
+		</File>
+		<File
 			RelativePath=".\Source\HUD.cpp"
 			>
 		</File>

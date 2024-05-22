@@ -49,6 +49,7 @@ void hideOverlays();
 void showOverlays();
 void setOverlaysToTopZ();
 bool overlaysAreHidden();
+SIZE overlayTargetSize();
 
 // Gets overlay-window-relative/clamped mouse position
 POINT mouseToOverlayPos(bool clamped = true);

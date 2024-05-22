@@ -12,6 +12,7 @@
 #include "Common.h"
 
 #include "Gamepad.h"
+#include "HotspotMap.h"
 #include "HUD.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
@@ -147,6 +148,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			sMillisecsPerUpdate = (DWORD)
 				Profile::getInt("System/FrameTime", sMillisecsPerUpdate);
 			InputMap::loadProfile();
+			HotspotMap::init();
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
 			TargetApp::loadProfile();
@@ -169,6 +171,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			if( !gReloadProfile )
 			{
 				Gamepad::update();
+				HotspotMap::update();
 				InputTranslator::update();
 				InputDispatcher::update();
 				TargetApp::update();
@@ -198,6 +201,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		Menus::cleanup();
 		InputDispatcher::cleanup();
 		InputTranslator::cleanup();
+		HotspotMap::cleanup();
 		WindowManager::destroyAll(hInstance);
 	}
 

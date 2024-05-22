@@ -47,6 +47,13 @@ const BitVector<>& hudElementsToShow(u16 theLayerID);
 // (overrides any lower layers wishing to show these HUD elements)
 const BitVector<>& hudElementsToHide(u16 theLayerID);
 
+// Gets what hotspot sets given layer specifically wants to enable
+const BitVector<>& hotspotSetsToEnable(u16 theLayerID);
+
+// Gets what hotspot sets given layer specifically wants to disable
+// (overrides any lower layers wishing to enable these hotspots)
+const BitVector<>& hotspotSetsToDisable(u16 theLayerID);
+
 // Returns a combo layer ID if one exists, otherwise 0
 u16 comboLayerID(u16 theLayerID1, u16 theLayerID2);
 
@@ -62,6 +69,8 @@ std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir);
 
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);
+u16 getFirstHotspotInSet(u16 theHotspotSetID);
+u16 getLastHotspotInSet(u16 theHotspotSetID);
 const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
 void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
 // This function also removes the hotspot from start of string
@@ -84,10 +93,13 @@ u16 controlsLayerCount();
 u16 hudElementCount();
 u16 menuCount();
 u16 menuItemCount(u16 theMenuID);
-u16 hotspotCount();
+u16 namedHotspotCount();
+u16 totalHotspotCount();
+u16 hotspotSetCount();
 
 // LABELS
 const std::string& layerLabel(u16 theLayerID);
+const std::string& hotspotSetLabel(u16 theHotspotSetID);
 const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& menuItemAltLabel(u16 theMenuID, u16 theMenuItemIdx);

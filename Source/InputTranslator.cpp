@@ -5,6 +5,7 @@
 #include "InputTranslator.h"
 
 #include "Gamepad.h"
+#include "HotspotMap.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
 #include "Menus.h"
@@ -68,6 +69,7 @@ struct ButtonState
 	bool shortHoldDone;
 	bool longHoldDone;
 	bool usedInButtonCombo;
+	bool allowHotspotToMouseWheel;
 
 	void clear()
 	{
@@ -560,7 +562,7 @@ static void processCommand(
 		break;
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MoveMouseToMenuItem:
-		// Send right away in case to happen before a queued mouse click
+		// Send right away to happen before a queued mouse click
 		InputDispatcher::moveMouseTo(theCmd);
 		break;
 	case eCmdType_KeyBindArrayResetLast:
@@ -809,9 +811,20 @@ static void processCommand(
 		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
-		aForwardCmd.type = eCmdType_MoveMouseToHotspot;
-		aForwardCmd.hotspotID = 0; // TODO
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		if( u16 aNextHotspot =
+				HotspotMap::getNextHotspotInDir(ECommandDir(theCmd.dir)) )
+		{
+			aForwardCmd.type = eCmdType_MoveMouseToHotspot;
+			aForwardCmd.hotspotID = aNextHotspot;
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+			if( theBtnState )
+				theBtnState->allowHotspotToMouseWheel = false;
+		}
+		else if( theCmd.withMouse )
+		{
+			if( theBtnState )
+				theBtnState->allowHotspotToMouseWheel = true;
+		}
 		break;
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
@@ -908,6 +921,10 @@ static void processContinuousInput(
 		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Once )
 			break;
 		return;
+	case eCmdType_HotspotSelect:
+		// Continue if set to "Select Hotspot or MouseWheel" and no hotspot
+		if( aCmd.withMouse && theBtnState.allowHotspotToMouseWheel )
+			break;
 	default:
 		// Handled elsewhere
 		return;
@@ -959,12 +976,14 @@ static void processContinuousInput(
 		sResults.mouseMoveDigital = isDigitalDown;
 		break;
 	case (eCmdType_MouseWheel << 16) | eCmdDir_Up:
+	case (eCmdType_HotspotSelect << 16) | eCmdDir_Up:
 		if( aCmd.mouseWheelMotionType == eMouseWheelMotion_Stepped )
 			sResults.mouseWheelStepped = true;
 		sResults.mouseWheelY -= theAnalogVal;
 		sResults.mouseWheelDigital = isDigitalDown;
 		break;
 	case (eCmdType_MouseWheel << 16) | eCmdDir_Down:
+	case (eCmdType_HotspotSelect << 16) | eCmdDir_Down:
 		if( aCmd.mouseWheelMotionType == eMouseWheelMotion_Stepped )
 			sResults.mouseWheelStepped = true;
 		sResults.mouseWheelY += theAnalogVal;
@@ -972,6 +991,8 @@ static void processContinuousInput(
 		break;
 	case (eCmdType_MouseWheel << 16) | eCmdDir_Left:
 	case (eCmdType_MouseWheel << 16) | eCmdDir_Right:
+	case (eCmdType_HotspotSelect << 16) | eCmdDir_Left:
+	case (eCmdType_HotspotSelect << 16) | eCmdDir_Right:
 		// Ignore (multi-directional assigned)
 		break;
 	default:
@@ -996,11 +1017,15 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	{
 	case eCmdType_MenuSelect:
 	case eCmdType_MenuSelectAndClose:
-	case eCmdType_HotspotSelect:
 	case eCmdType_KeyBindArrayPrev:
 	case eCmdType_KeyBindArrayNext:
 		// Continue to further checks below
 		break;
+	case eCmdType_HotspotSelect:
+		// Continue to further checks unless are using as a mouse wheel cmd
+		if( !aCmd.withMouse || !theBtnState.allowHotspotToMouseWheel )
+			break;
+		return;
 	default:
 		// Incompatible with this feature
 		return;
@@ -1388,6 +1413,20 @@ static void updateHUDStateForCurrentLayers()
 	}
 }
 
+static void updateHotspotSetsForCurrentLayers()
+{
+	BitVector<> aHotspotSetsEnabled;
+	aHotspotSetsEnabled.clearAndResize(InputMap::hotspotSetCount());
+	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	{
+		aHotspotSetsEnabled |=
+			InputMap::hotspotSetsToEnable(sState.layerOrder[i]);
+		aHotspotSetsEnabled &=
+			~InputMap::hotspotSetsToDisable(sState.layerOrder[i]);
+	}
+	HotspotMap::setEnabledHotspotSets(aHotspotSetsEnabled);
+}
+
 
 static void updateMouseModeForCurrentLayers()
 {
@@ -1437,7 +1476,6 @@ void cleanup()
 		releaseKeyHeldByButton(sState.layers[i].autoButton);
 	sState.clear();
 	sResults.clear();
-	Menus::cleanup();
 }
 
 
@@ -1503,6 +1541,7 @@ void update()
 	{
 		loadButtonCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
+		updateHotspotSetsForCurrentLayers();
 		updateMouseModeForCurrentLayers();
 		#ifndef NDEBUG
 		std::string aNewLayerOrder("Layers: ");
@@ -1540,5 +1579,7 @@ void update()
 	// Clear results for next update
 	sResults.clear();
 }
+
+#undef transDebugPrint
 
 } // InputTranslator

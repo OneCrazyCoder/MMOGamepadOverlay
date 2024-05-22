@@ -371,6 +371,21 @@ Each layer (including [Scheme]) specifies which **HUD Elements** (including **Me
     [Layer.TopMost]
     HUD = Hide MainMenu, Show TargetGroupLast
 
+### Layer Hotspots= property
+
+Very similar to the HUD= property, each layer can enable or disable **Hotspot Sets** that can be used via the ``=Select Hotspot <direction>`` or ``Select Hotspot or MouseWheel`` command (the latter of which scrolls the mouse wheel up and down if there are no hotspots available in that direction - handy for scrolling through a tall loot window!). Just like ``HUD=``, each layer can disable Hotspot Sets enabled in the layers below it, though layers above can override that yet again.
+
+Each Hotspot Set is defined by a [Hotspots.HotspotSetName] section followed by properties with lists of hotspots. The property names don't actually matter in this case, as long as they are each unique, and each property can list several hotspots. For example:
+
+    [Layer.LootMode]
+    Hotspots = LootWindow, Disable Standard
+
+    [Hotspots.LootWindow]
+    1=32x240, 32x281, 32x322, 32x363, 32x404, 32x445, 32x486, 32x527
+    B=74x240, 74x281, 74x322, 74x363, 74x404, 74x445, 74x486, 74x527
+
+
+
 ### Layer Parent= property
 
 A layer can optionally set a *parent layer* with the ``Parent=`` property, followed by the name of another layer. This makes the layer a *child layer* of the specified parent. Parent and child layers have the following properties:

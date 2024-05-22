@@ -28,6 +28,7 @@ const char* kLayerPrefix = "Layer.";
 const char kComboLayerDeliminator = '+';
 const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
+const char* kHotspotSetPrefix = "Hotspots.";
 const char* kTypeKeys[] = { "Type", "Style" };
 const char* kDisplayNameKeys[] = { "Label", "Title", "Name", "String" };
 const char* kKBArrayKeys[] = { "KeyBindArray", "Array", "KeyBinds" };
@@ -39,6 +40,7 @@ DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 // These need to be in all upper case
 const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
+const char* kHotspotSetsKey = "HOTSPOTS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
 const char* kMenuOpenKey = "AUTO";
@@ -139,6 +141,8 @@ struct ControlsLayer
 	ButtonActionsMap map;
 	BitVector<> showHUD;
 	BitVector<> hideHUD;
+	BitVector<> enableHotspots;
+	BitVector<> disableHotspots;
 	EMouseMode mouseMode;
 	u16 includeLayer;
 	u16 parentLayer;
@@ -146,10 +150,18 @@ struct ControlsLayer
 	ControlsLayer() :
 		showHUD(),
 		hideHUD(),
+		enableHotspots(),
+		disableHotspots(),
 		mouseMode(eMouseMode_Default),
 		includeLayer(),
 		parentLayer()
 	{}
+};
+
+struct HotspotSet
+{
+	std::string label;
+	u16 first, last;
 };
 
 // Data used during parsing/building the map but deleted once done
@@ -161,6 +173,7 @@ struct InputMapBuilder
 	StringToValueMap<Command> commandAliases;
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
+	StringToValueMap<u16> hotspotSetNameToIdxMap;
 	StringToValueMap<u16> layerNameToIdxMap;
 	StringToValueMap<u16> comboLayerNameToIdxMap;
 	StringToValueMap<u16> hudNameToIdxMap;
@@ -175,6 +188,7 @@ struct InputMapBuilder
 //-----------------------------------------------------------------------------
 
 static std::vector<Hotspot> sHotspots;
+static std::vector<HotspotSet> sHotspotSets;
 static std::vector<std::string> sKeyStrings;
 static std::vector<KeyBindArray> sKeyBindArrays;
 static std::vector<ControlsLayer> sLayers;
@@ -182,6 +196,7 @@ static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
+static u16 sNamedHotspotCount = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -1457,10 +1472,11 @@ static Command wordsToSpecialCommand(
 
 	if( allowButtonActions )
 	{
-		// "= [Select] Hotspot <aCmdDir> [No/Wrap] [#]"
+		// "= [Select] [Mouse] Hotspot <aCmdDir> [No/Wrap] [#]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Select);
 		allowedKeyWords.set(eCmdWord_Hotspot);
+		allowedKeyWords.set(eCmdWord_Mouse);
 		allowedKeyWords.set(eCmdWord_Integer);
 		if( keyWordsFound.test(eCmdWord_Hotspot) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
@@ -1509,25 +1525,47 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Move & Mouse
 		allowedKeyWords.set(eCmdWord_MouseWheel);
 		allowedKeyWords.set(eCmdWord_Stepped);
+		allowedKeyWords.set(eCmdWord_Select);
+		allowedKeyWords.set(eCmdWord_Hotspot);
 		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.type = eCmdType_MouseWheel;
-			result.mouseWheelMotionType = eMouseWheelMotion_Stepped;
-			return result;
+			if( keyWordsFound.test(eCmdWord_Hotspot) )
+			{
+				result.type = eCmdType_HotspotSelect;
+				result.mouseWheelMotionType = eMouseWheelMotion_Stepped;
+				result.withMouse = true;
+				return result;
+			}
+			else if( !keyWordsFound.test(eCmdWord_Select) )
+			{
+				result.type = eCmdType_MouseWheel;
+				result.mouseWheelMotionType = eMouseWheelMotion_Stepped;
+				return result;
+			}
 		}
 		allowedKeyWords.reset(eCmdWord_Stepped);
 
 		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Smooth <aCmdDir>"
-		// allowedKeyWords = Move & Mouse & Wheel
+		// allowedKeyWords = Move & Mouse & Wheel & Select & Hotspot
 		allowedKeyWords.set(eCmdWord_Smooth);
 		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
 			keyWordsFound.test(eCmdWord_Smooth) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			result.type = eCmdType_MouseWheel;
-			result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
-			return result;
+			if( keyWordsFound.test(eCmdWord_Hotspot) )
+			{
+				result.type = eCmdType_HotspotSelect;
+				result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
+				result.withMouse = true;
+				return result;
+			}
+			else if( !keyWordsFound.test(eCmdWord_Select) )
+			{
+				result.type = eCmdType_MouseWheel;
+				result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
+				return result;
+			}
 		}
 		allowedKeyWords.reset(eCmdWord_Smooth);
 	}
@@ -1966,9 +2004,9 @@ static EResult stringToHotspot(std::string& theString, Hotspot& out)
 }
 
 
-static void buildGlobalHotspots(InputMapBuilder& theBuilder)
+static void buildNamedHotspots(InputMapBuilder& theBuilder)
 {
-	mapDebugPrint("Assigning global hotspots...\n");
+	mapDebugPrint("Assigning named hotspots...\n");
 	sHotspots.resize(eSpecialHotspot_Num);
 	// sHotspots[0] is reserved as eSpecialHotspot_None
 	// The hotspotNameToIdxMap maps to this for "filler" words between
@@ -2013,6 +2051,77 @@ static void buildGlobalHotspots(InputMapBuilder& theBuilder)
 		}
 	}
 	theBuilder.keyValueList.clear();
+	sNamedHotspotCount = u16(sHotspots.size());
+}
+
+
+static u16 getOrCreateHotspotSet(
+	InputMapBuilder& theBuilder,
+	const std::string& theName)
+{
+	DBG_ASSERT(!theName.empty());
+
+	// Check if already exists, and if so return the ID
+	u16 aHotspotSetID = theBuilder.hotspotSetNameToIdxMap.findOrAdd(
+		upper(theName), u16(sHotspotSets.size()));
+	if( aHotspotSetID < sHotspotSets.size() )
+		return aHotspotSetID;
+
+	// Attempt to create the hotspot set
+	mapDebugPrint("Building Hotspot Set: %s\n", theName.c_str());
+
+	HotspotSet aNewSet;
+	aNewSet.label = theName;
+	aNewSet.first = u16(sHotspots.size());
+	aNewSet.last = 0;
+	const std::string& aHotspotSetPath =
+		std::string(kHotspotSetPrefix) + theName + "/";
+	DBG_ASSERT(theBuilder.keyValueList.empty());
+	Profile::getAllKeys(aHotspotSetPath, theBuilder.keyValueList);
+	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
+	{
+		std::string aHotspotList = theBuilder.keyValueList[i].second;
+		Hotspot aHotspot;
+		while(!aHotspotList.empty())
+		{
+			EResult aResult = stringToHotspot(aHotspotList, aHotspot);
+			if( aResult == eResult_Ok )
+			{
+				aNewSet.last = u16(sHotspots.size());
+				sHotspots.push_back(aHotspot);
+			}
+			else if( aResult == eResult_Empty )
+			{
+				aHotspotList.clear();
+			}
+			else
+			{
+				logError(
+					"Malformed hotspot list entry [%s%s]/%s=",
+					kHotspotSetPrefix,
+					theName.c_str(),
+					theBuilder.keyValueList[i].first);
+				aHotspotList.clear();
+			}
+		}
+	}
+	theBuilder.keyValueList.clear();
+
+	if( aNewSet.last > 0 )
+	{
+		sHotspotSets.push_back(aNewSet);
+	}
+	else
+	{
+		logError(
+			"Could not find any valid '[%s%s] hotspots "
+			"for hotspot set referenced by [%s]! ",
+			kHotspotSetPrefix,
+			theName.c_str(),
+			theBuilder.debugItemName.c_str());
+	}
+
+	return aHotspotSetID;
 }
 
 
@@ -2478,7 +2587,8 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		if( aKey == kIncludeKey ||
 			aKey == kParentLayerKey ||
 			aKey == kMouseModeKey ||
-			aKey == kHUDSettingsKey )
+			aKey == kHUDSettingsKey ||
+			aKey == kHotspotSetsKey )
 			continue;
 
 		// Parse and add assignment to this layer's commands map
@@ -2931,12 +3041,12 @@ static void buildHUDElementsForLayer(
 	{
 		const std::string& anElementName = theBuilder.parsedString[i];
 		const std::string& anElementUpperName = upper(anElementName);
-		if( anElementUpperName == "HIDE" )
+		if( anElementUpperName == "HIDE" || anElementUpperName == "DISABLE" )
 		{
 			show = false;
 			continue;
 		}
-		if( anElementUpperName == "SHOW" )
+		if( anElementUpperName == "SHOW" || anElementUpperName == "ENABLE" )
 		{
 			show = true;
 			continue;
@@ -2980,6 +3090,92 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 	gConfirmedMenuItem.resize(sHUDElements.size());
 	for(size_t i = 0; i < gConfirmedMenuItem.size(); ++i)
 		gConfirmedMenuItem[i] = kInvalidItem;
+}
+
+
+static void buildHotspotSetsForLayer(
+	InputMapBuilder& theBuilder,
+	u16 theLayerID)
+{
+	if( theBuilder.elementsProcessed.test(theLayerID) )
+		return;
+	theBuilder.elementsProcessed.set(theLayerID);
+	theBuilder.debugItemName.clear();
+	if( theLayerID != 0 )
+		theBuilder.debugItemName = kLayerPrefix;
+	theBuilder.debugItemName += sLayers[theLayerID].label;
+	sLayers[theLayerID].enableHotspots.clearAndResize(sHUDElements.size());
+	sLayers[theLayerID].disableHotspots.clearAndResize(sHUDElements.size());
+	std::string aLayerHotspotsKey = sLayers[theLayerID].label;
+	if( theLayerID == 0 )
+		aLayerHotspotsKey += "/";
+	else
+		aLayerHotspotsKey = std::string(kLayerPrefix)+aLayerHotspotsKey+"/";
+	aLayerHotspotsKey += kHotspotSetsKey;
+	std::string aLayerHotspotsDesc = Profile::getStr(aLayerHotspotsKey);
+
+	if( aLayerHotspotsDesc.empty() )
+	{// Use include layer's settings, if have one
+		if( sLayers[theLayerID].includeLayer > 0 )
+		{
+			buildHotspotSetsForLayer(
+				theBuilder, sLayers[theLayerID].includeLayer);
+			sLayers[theLayerID].enableHotspots =
+				sLayers[sLayers[theLayerID].includeLayer].enableHotspots;
+			sLayers[theLayerID].disableHotspots =
+				sLayers[sLayers[theLayerID].includeLayer].disableHotspots;
+		}
+		return;
+	}
+
+	// Break the string into individual words
+	theBuilder.parsedString.clear();
+	sanitizeSentence(aLayerHotspotsDesc, theBuilder.parsedString);
+
+	bool enable = true;
+	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+	{
+		const std::string& aSetName = theBuilder.parsedString[i];
+		const std::string& aSetUpperName = upper(aSetName);
+		if( aSetUpperName == "HIDE" || aSetUpperName == "DISABLE" )
+		{
+			enable = false;
+			continue;
+		}
+		if( aSetUpperName == "SHOW" || aSetUpperName == "ENABLE" )
+		{
+			enable = true;
+			continue;
+		}
+		if( commandWordToID(aSetUpperName) == eCmdWord_Filler )
+			continue;
+		u16 aHotspotSetID = getOrCreateHotspotSet(
+			theBuilder, aSetName);
+		if( aHotspotSetID < sHotspotSets.size() )
+		{
+			sLayers[theLayerID].enableHotspots.resize(sHotspotSets.size());
+			sLayers[theLayerID].enableHotspots.set(aHotspotSetID, enable);
+			sLayers[theLayerID].disableHotspots.resize(sHotspotSets.size());
+			sLayers[theLayerID].disableHotspots.set(aHotspotSetID, !enable);
+		}
+	}
+}
+
+
+static void buildHotspotSets(InputMapBuilder& theBuilder)
+{
+	// Process the "Hotspots=" key for each layer
+	theBuilder.elementsProcessed.clearAndResize(sLayers.size());
+	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
+		buildHotspotSetsForLayer(theBuilder, aLayerID);
+
+	// Now that all the hotspot sets are created, can set each
+	// layer's enableHotspots and disableHotspots sizes correctly
+	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
+	{
+		sLayers[aLayerID].enableHotspots.resize(sHotspotSets.size());
+		sLayers[aLayerID].disableHotspots.resize(sHotspotSets.size());
+	}
 }
 
 
@@ -3043,6 +3239,7 @@ void loadProfile()
 {
 	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
 	sHotspots.clear();
+	sHotspotSets.clear();
 	sKeyStrings.clear();
 	sKeyBindArrays.clear();
 	sLayers.clear();
@@ -3053,17 +3250,20 @@ void loadProfile()
 	// Create temp builder object and build everything from the Profile data
 	{
 		InputMapBuilder anInputMapBuilder;
-		buildGlobalHotspots(anInputMapBuilder);
+		buildNamedHotspots(anInputMapBuilder);
 		buildCommandAliases(anInputMapBuilder);
 		buildControlScheme(anInputMapBuilder);
 		buildMenus(anInputMapBuilder);
 		buildHUDElements(anInputMapBuilder);
+		buildHotspotSets(anInputMapBuilder);
 		assignSpecialKeys(anInputMapBuilder);
 	}
 
 	// Trim unused memory
 	if( sHotspots.size() < sHotspots.capacity() )
 		std::vector<Hotspot>(sHotspots).swap(sHotspots);
+	if( sHotspotSets.size() < sHotspotSets.capacity() )
+		std::vector<HotspotSet>(sHotspotSets).swap(sHotspotSets);
 	if( sKeyBindArrays.size() < sKeyBindArrays.capacity() )
 		std::vector<KeyBindArray>(sKeyBindArrays).swap(sKeyBindArrays);
 	if( sKeyStrings.size() < sKeyStrings.capacity() )
@@ -3213,6 +3413,20 @@ const BitVector<>& hudElementsToHide(u16 theLayerID)
 }
 
 
+const BitVector<>& hotspotSetsToEnable(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].enableHotspots;
+}
+
+
+const BitVector<>& hotspotSetsToDisable(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].disableHotspots;
+}
+
+
 u16 comboLayerID(u16 theLayerID1, u16 theLayerID2)
 {
 	std::pair<u16, u16> aKey(theLayerID1, theLayerID2);
@@ -3281,6 +3495,20 @@ const Hotspot& getHotspot(u16 theHotspotID)
 {
 	DBG_ASSERT(theHotspotID < sHotspots.size());
 	return sHotspots[theHotspotID];
+}
+
+
+u16 getFirstHotspotInSet(u16 theHotspotSetID)
+{
+	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
+	return sHotspotSets[theHotspotSetID].first;
+}
+
+
+u16 getLastHotspotInSet(u16 theHotspotSetID)
+{
+	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
+	return sHotspotSets[theHotspotSetID].last;
 }
 
 
@@ -3386,9 +3614,21 @@ u16 menuItemCount(u16 theMenuID)
 }
 
 
-u16 hotspotCount()
+u16 namedHotspotCount()
+{
+	return sNamedHotspotCount;
+}
+
+
+u16 totalHotspotCount()
 {
 	return u16(sHotspots.size());
+}
+
+
+u16 hotspotSetCount()
+{
+	return u16(sHotspotSets.size());
 }
 
 
@@ -3396,6 +3636,13 @@ const std::string& layerLabel(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers[theLayerID].label;
+}
+
+
+const std::string& hotspotSetLabel(u16 theHotspotSetID)
+{
+	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
+	return sHotspotSets[theHotspotSetID].label;
 }
 
 
@@ -3445,5 +3692,7 @@ const std::string& hudElementDisplayName(u16 theHUDElementID)
 		return sHUDElements[theHUDElementID].keyName;
 	return sHUDElements[theHUDElementID].displayName;
 }
+
+#undef mapDebugPrint
 
 } // InputMap
