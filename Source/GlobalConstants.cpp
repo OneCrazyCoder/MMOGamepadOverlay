@@ -114,6 +114,9 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 				{ "INSERT",			VK_INSERT		},
 				{ "DEL",			VK_DELETE		},
 				{ "DELETE",			VK_DELETE		},
+				{ "WIN",			VK_LWIN			},
+				{ "WINDOWS",		VK_LWIN			},
+				{ "LWIN",			VK_LWIN			},
 				{ "NUMMULT",		VK_MULTIPLY		},
 				{ "NUMMULTIPLY",	VK_MULTIPLY		},
 				{ "NUMADD",			VK_ADD			},
@@ -201,6 +204,7 @@ std::string virtualKeyToName(u8 theVKey)
 	case VK_HOME:		return "Home";
 	case VK_INSERT:		return "Insert";
 	case VK_DELETE:		return "Del";
+	case VK_LWIN:		return "Win";
 	case VK_DIVIDE:		return "Num Div";
 	case VK_NUMLOCK:	return "NumLock";
 	case VK_OEM_COMMA:	return "Comma";

@@ -396,6 +396,7 @@ void checkWindowMode()
 		if( aFullVKey & kVKeyShiftFlag ) aModKey |= MOD_SHIFT;
 		if( aFullVKey & kVKeyCtrlFlag ) aModKey |= MOD_CONTROL;
 		if( aFullVKey & kVKeyAltFlag ) aModKey |= MOD_ALT;
+		if( aFullVKey & kVKeyWinFlag ) aModKey |= MOD_WIN;
 		RegisterHotKey(NULL, kSwapWindowModeHotkeyID, aModKey, aVKey);
 		sSwapWindowModeHotkeyRegistered = true;
 	}

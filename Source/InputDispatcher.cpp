@@ -327,6 +327,9 @@ static EResult popNextKey(const u8* theVKeySequence)
 			case VK_MENU:
 				sTracker.nextQueuedKey |= kVKeyAltFlag;
 				break;
+			case VK_LWIN:
+				sTracker.nextQueuedKey |= kVKeyWinFlag;
+				break;
 			default:
 				// Should have exited aleady if it wasn't a modifier key!
 				DBG_ASSERT(false);
@@ -346,7 +349,8 @@ static EResult popNextKey(const u8* theVKeySequence)
 		if( (sTracker.nextQueuedKey & kVKeyMask) != 0 &&
 			(sTracker.nextQueuedKey & kVKeyMask) != VK_SHIFT &&
 			(sTracker.nextQueuedKey & kVKeyMask) != VK_CONTROL &&
-			(sTracker.nextQueuedKey & kVKeyMask) != VK_MENU )
+			(sTracker.nextQueuedKey & kVKeyMask) != VK_MENU &&
+			(sTracker.nextQueuedKey & kVKeyMask) != VK_LWIN )
 		{
 			// Done for now
 			break;
@@ -431,6 +435,8 @@ static u16 modKeysHeldAsFlags()
 		result |= kVKeyCtrlFlag;
 	if( sTracker.keysHeldDown.test(VK_MENU) )
 		result |= kVKeyAltFlag;
+	if( sTracker.keysHeldDown.test(VK_LWIN) )
+		result |= kVKeyWinFlag;
 
 	return result;
 }
@@ -783,6 +789,7 @@ static EResult setKeyDown(u16 theKey, bool down)
 	case VK_SHIFT:
 	case VK_CONTROL:
 	case VK_MENU:
+	case VK_LWIN:
 		if( !sTracker.typingChatBoxString )
 			aLockDownTime = kConfig.modKeyReleaseLockTime;
 		// fall through
@@ -975,6 +982,7 @@ static void flushInputVector()
 					case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
 					case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
 					case VK_INSERT: case VK_DELETE: case VK_DIVIDE:
+					case VK_LWIN: case VK_RWIN:
 						sTracker.inputs[i].ki.wScan |= 0xE000;
 						sTracker.inputs[i].ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
 					}
@@ -1306,6 +1314,7 @@ void update()
 			aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
 			aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
 			aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
+			aDesiredKeysDown.set(VK_LWIN, !!(aVKey & kVKeyWinFlag));
 			aDesiredKeysDown.set(aBaseVKey);
 			hasNonPressedKeyThatWantsHeldDown = true;
 			continue;
@@ -1335,6 +1344,7 @@ void update()
 			!!(aPressedKeysDesiredMods & kVKeyCtrlFlag));
 		aDesiredKeysDown.set(VK_MENU,
 			!!(aPressedKeysDesiredMods& kVKeyAltFlag));
+		// Not for Windows key though since that could bring up Start menu
 	}
 
 
@@ -1369,6 +1379,7 @@ void update()
 		aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
 		aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
 		aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
+		aDesiredKeysDown.set(VK_LWIN, !!(aVKey & kVKeyWinFlag));
 		// Only send the key if related keys are already in correct state
 		// Otherwise, need to wait until other keys are ready next frame
 		readyForQueuedKey =

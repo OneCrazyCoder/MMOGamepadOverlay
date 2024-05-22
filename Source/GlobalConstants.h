@@ -15,6 +15,7 @@ kVKeyModKeyOnlyBase = 0x0F, // unassigned by MS
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,
 kVKeyAltFlag = 0x0400,
+kVKeyWinFlag = 0x1000,
 kVKeyMask = 0x00FF,
 kAllLayers = 0xFFFF,
 kInvalidItem = 0xFFFF,
