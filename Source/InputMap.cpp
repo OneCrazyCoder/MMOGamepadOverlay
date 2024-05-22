@@ -219,6 +219,7 @@ static EResult checkForComboKeyName(
 			(aModKey == VK_SHIFT ||
 			 aModKey == VK_CONTROL ||
 			 aModKey == VK_MENU ||
+			 aModKey == VK_LWIN ||
 			 aModKey == VK_CANCEL) )
 		{// Found a valid modifier key
 			// Is rest of the name a valid key now?
@@ -332,6 +333,7 @@ static EResult checkForVKeyHotspotPos(
 			(out[out.size()-1] == VK_SHIFT ||
 			 out[out.size()-1] == VK_CONTROL ||
 			 out[out.size()-1] == VK_MENU ||
+			 out[out.size()-1] == VK_LWIN ||
 			 out[out.size()-1] == VK_CANCEL))
 		{
 			suffix.insert(suffix.begin(), out[out.size()-1]);
@@ -467,6 +469,9 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 			break;
 		case VK_MENU:
 			result |= kVKeyAltFlag;
+			break;
+		case VK_LWIN:
+			result |= kVKeyWinFlag;
 			break;
 		case VK_SELECT:
 		case VK_CANCEL:
@@ -2331,6 +2336,7 @@ static void reportButtonAssignment(
 			!!(theCmd.vKey & kVKeyShiftFlag) ? "Shift+" : "",
 			!!(theCmd.vKey & kVKeyCtrlFlag) ? "Ctrl+" : "",
 			!!(theCmd.vKey & kVKeyAltFlag) ? "Alt+" : "",
+			!!(theCmd.vKey & kVKeyWinFlag) ? "Win+" : "",
 			virtualKeyToName(theCmd.vKey & kVKeyMask).c_str());
 		break;
 	case eCmdType_VKeySequence:
@@ -2857,6 +2863,7 @@ static MenuItem stringToMenuItem(
 			!!(aMenuItem.cmd.vKey & kVKeyShiftFlag) ? "Shift+" : "",
 			!!(aMenuItem.cmd.vKey & kVKeyCtrlFlag) ? "Ctrl+" : "",
 			!!(aMenuItem.cmd.vKey & kVKeyAltFlag) ? "Alt+" : "",
+			!!(aMenuItem.cmd.vKey & kVKeyWinFlag) ? "Win+" : "",
 			virtualKeyToName(aMenuItem.cmd.vKey & kVKeyMask).c_str());
 		break;
 	case eCmdType_VKeySequence:
