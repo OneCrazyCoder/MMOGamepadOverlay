@@ -646,4 +646,6 @@ bool targetWindowIsTopMost()
 	return false;
 }
 
+#undef targetDebugPrint
+
 } // TargetApp

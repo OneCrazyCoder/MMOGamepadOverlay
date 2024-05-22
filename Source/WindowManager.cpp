@@ -732,6 +732,12 @@ bool overlaysAreHidden()
 }
 
 
+SIZE overlayTargetSize()
+{
+	return sTargetSize;
+}
+
+
 POINT mouseToOverlayPos(bool clamped)
 {
 	POINT result;

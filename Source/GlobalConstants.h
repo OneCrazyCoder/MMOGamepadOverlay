@@ -248,7 +248,8 @@ enum ESpecialKey
 
 enum ESpecialHotspot
 {
-	eSpecialHotspot_None,
+	eSpecialHotspot_None = 0,
+
 	eSpecialHotspot_MouseLookStart,
 	eSpecialHotspot_MouseHidden,
 	eSpecialHotspot_LastCursorPos,

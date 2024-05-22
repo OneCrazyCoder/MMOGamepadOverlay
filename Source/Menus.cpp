@@ -47,6 +47,7 @@ static VectorMap<u16, MenuInfo> sMenuInfo;
 
 void init()
 {
+	DBG_ASSERT(sMenuInfo.empty());
 	for(u16 i = 0; i < InputMap::menuCount(); ++i)
 	{
 		const u16 aRootMenuID = InputMap::rootMenuOfMenu(i);

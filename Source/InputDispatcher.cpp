@@ -240,7 +240,6 @@ struct DispatchTracker
 
 	EMouseMode mouseMode;
 	EMouseMode mouseModeWanted;
-	POINT mousePreJumpPos;
 	int mouseVelX, mouseVelY;
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
@@ -504,18 +503,13 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_RBUTTON));
 
 	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
-	if( !sTracker.mouseJumpAttempted || sTracker.mouseJumpVerified )
+	if( (!sTracker.mouseJumpAttempted || sTracker.mouseJumpVerified) &&
+		(sTracker.mouseMode == eMouseMode_Cursor ||
+		 sTracker.mouseMode == eMouseMode_PostJump) )
 	{// Save pre-jump mouse position to possibly restore later
-		if( sTracker.mouseMode == eMouseMode_Cursor ||
-			sTracker.mouseMode == eMouseMode_PostJump )
-		{// Use actual position mouse is in now
-			sTracker.mousePreJumpPos = aCurrentPos;
-		}
-		else
-		{// Treat last known normal cursor mode position as pre-jump pos
-			sTracker.mousePreJumpPos = WindowManager::hotspotToOverlayPos(
-				InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
-		}
+		InputMap::modifyHotspot(
+			eSpecialHotspot_LastCursorPos,
+			WindowManager::overlayPosToHotspot(aCurrentPos));
 	}
 	sTracker.mouseJumpAttempted = true;
 	sTracker.mouseJumpVerified = false;
@@ -581,24 +575,11 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 	if( (theHotspotID == eSpecialHotspot_MouseLookStart &&
 		 sTracker.mouseModeWanted == eMouseMode_Look) ||
 		(theHotspotID == eSpecialHotspot_MouseHidden &&
-		 sTracker.mouseModeWanted == eMouseMode_Hide) )
-	{// In position to start these alternate mouse modes
-		if( sTracker.mouseMode == eMouseMode_Cursor ||
-			sTracker.mouseMode == eMouseMode_PostJump )
-		{// Save pre-jump position as last known normal cursor position
-			InputMap::modifyHotspot(
-				eSpecialHotspot_LastCursorPos,
-				WindowManager::overlayPosToHotspot(
-					sTracker.mousePreJumpPos));
-		}
+		 sTracker.mouseModeWanted == eMouseMode_Hide) ||
+		(theHotspotID == eSpecialHotspot_LastCursorPos &&
+		 sTracker.mouseModeWanted == eMouseMode_Cursor) )
+	{// In position to start desired mouse mode
 		sTracker.mouseMode = sTracker.mouseModeWanted;
-		return true;
-	}
-
-	if( (theHotspotID == eSpecialHotspot_LastCursorPos &&
-		sTracker.mouseModeWanted == eMouseMode_Cursor) )
-	{// Restored position for normal cursor mode
-		sTracker.mouseMode = eMouseMode_Cursor;
 		return true;
 	}
 	
@@ -627,22 +608,23 @@ static void trailMouseToHotspot(u16 theHotspotID)
 	{
 		sTracker.mouseInterpolateRestart = false;
 		sStartTime = gAppRunTime - gAppFrameTime;
-		const POINT& aCurrentPos = WindowManager::mouseToOverlayPos(false);
-		const POINT& aHotspotPos = WindowManager::hotspotToOverlayPos(
-				InputMap::getHotspot(theHotspotID));
-		// Don't auto-restore previous position after using trailing
-		sTracker.mousePreJumpPos = aHotspotPos;
-		if( aCurrentPos.x == aHotspotPos.x &&
-			aCurrentPos.y == aHotspotPos.y )
+		const Hotspot& aDestHotspot = InputMap::getHotspot(theHotspotID);
+		// Count destination as new valid cursor position
+		InputMap::modifyHotspot(eSpecialHotspot_LastCursorPos, aDestHotspot);
+		const POINT& aDestPos =
+			WindowManager::hotspotToOverlayPos(aDestHotspot);
+		const POINT& aCurrPos = WindowManager::mouseToOverlayPos(false);
+		if( aCurrPos.x == aDestPos.x &&
+			aCurrPos.y == aDestPos.y )
 		{// Already at destination - treat as verified jump
 			sTracker.mouseJumpInterpolate = false;
 			sTracker.mouseJumpAttempted = true;
 			sTracker.mouseJumpVerified = true;
 			return;
 		}
-		sStartPosX = aCurrentPos.x; sStartPosY = aCurrentPos.y;
-		sTrailDistX = aHotspotPos.x - aCurrentPos.x;
-		sTrailDistY = aHotspotPos.y - aCurrentPos.y;
+		sStartPosX = aCurrPos.x; sStartPosY = aCurrPos.y;
+		sTrailDistX = aDestPos.x - aCurrPos.x;
+		sTrailDistY = aDestPos.y - aCurrPos.y;
 		const int aDistance =
 			sqrt(float(sTrailDistX) * sTrailDistX + sTrailDistY * sTrailDistY);
 		sTrailTime = clamp(aDistance, kMinTrailTime, kMaxTrailTime);
@@ -1088,7 +1070,7 @@ void update()
 			sTracker.mouseModeWanted == eMouseMode_Look &&
 			!sTracker.keysHeldDown.test(VK_RBUTTON) )
 		{
-			// Sets next if to true while avoiding updating _LastCursorPos
+			// Should force following code to re-jump and r-click again
 			sTracker.mouseMode = eMouseMode_Default;
 		}
 		if( sTracker.mouseMode != sTracker.mouseModeWanted )
@@ -1420,11 +1402,22 @@ void update()
 
 	// Apply normal mouse motion
 	// -------------------------
-	if( !sTracker.mouseJumpToHotspot &&
-		(sTracker.mouseVelX || sTracker.mouseVelY) )
+	if( !sTracker.mouseJumpToHotspot )
 	{
-		offsetMousePos(sTracker.mouseVelX, sTracker.mouseVelY);
-		sTracker.mouseVelX = sTracker.mouseVelY = 0;
+		if( sTracker.mouseMode == eMouseMode_Cursor )
+		{// Track cursor position changes in cursor mode
+			POINT aCurrPos = WindowManager::mouseToOverlayPos(true);
+			aCurrPos.x += sTracker.mouseVelX;
+			aCurrPos.y += sTracker.mouseVelY;
+			InputMap::modifyHotspot(
+				eSpecialHotspot_LastCursorPos,
+				WindowManager::overlayPosToHotspot(aCurrPos));
+		}
+		if( sTracker.mouseVelX || sTracker.mouseVelY )
+		{
+			offsetMousePos(sTracker.mouseVelX, sTracker.mouseVelY);
+			sTracker.mouseVelX = sTracker.mouseVelY = 0;
+		}
 	}
 	// Return speed from digital mouse acceleration back to 0 over time
 	sTracker.mouseDigitalVel = max(0,
@@ -1504,12 +1497,8 @@ void update()
 				// Should release the mouse button for next queued key action
 				sTracker.nextQueuedKey = aVKey | kVKeyReleaseFlag;
 				if( sTracker.mouseMode == eMouseMode_PostJump )
-				{// If jumped first then clicked, update mode and restore pos
+				{// If jumped first then clicked, next restore previous pos
 					sTracker.mouseMode = eMouseMode_JumpClicked;
-					InputMap::modifyHotspot(
-						eSpecialHotspot_LastCursorPos,
-						WindowManager::overlayPosToHotspot(
-							sTracker.mousePreJumpPos));
 				}
 			}
 		}
