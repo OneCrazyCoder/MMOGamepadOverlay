@@ -2327,7 +2327,7 @@ static void reportButtonAssignment(
 			sKeyStrings[theCmd.keyStringIdx].c_str() + 1);
 	case eCmdType_TapKey:
 	case eCmdType_PressAndHoldKey:
-		mapDebugPrint("[%s]: Assigned '%s%s%s' to: %s (%s%s%s%s)\n",
+		mapDebugPrint("[%s]: Assigned '%s%s%s' to: %s (%s%s%s%s%s)\n",
 			theBuilder.debugItemName.c_str(),
 			kButtonActionPrefx[theBtnAct],
 			kButtonActionPrefx[theBtnAct][0] ? " " : "",
@@ -2856,7 +2856,7 @@ static MenuItem stringToMenuItem(
 			aLabel.c_str(), theString.c_str() + 1);
 		break;
 	case eCmdType_TapKey:
-		mapDebugPrint("%s: '%s' assigned to: %s (%s%s%s%s)\n",
+		mapDebugPrint("%s: '%s' assigned to: %s (%s%s%s%s%s)\n",
 			theBuilder.debugItemName.c_str(),
 			aLabel.c_str(),
 			theString.c_str(),

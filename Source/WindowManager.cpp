@@ -748,8 +748,8 @@ POINT mouseToOverlayPos(bool clamped)
 	result.y -= sScreenTargetRect.top;
 	if( clamped )
 	{// Clamp to within client rect range
-		clamp(result.x, 0, sTargetSize.cx - 1);
-		clamp(result.y, 0, sTargetSize.cy - 1);
+		result.x = clamp(result.x, 0, sTargetSize.cx - 1);
+		result.y = clamp(result.y, 0, sTargetSize.cy - 1);
 	}
 	return result;
 }
@@ -771,8 +771,8 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 	result.x += theHotspot.x.offset * gUIScaleX;
 	result.y += theHotspot.y.offset * gUIScaleY;
 	// Clamp to within client rect range
-	clamp(result.x, 0, sTargetSize.cx - 1);
-	clamp(result.y, 0, sTargetSize.cy - 1);
+	result.x = clamp(result.x, 0, sTargetSize.cx - 1);
+	result.y = clamp(result.y, 0, sTargetSize.cy - 1);
 	return result;
 }
 

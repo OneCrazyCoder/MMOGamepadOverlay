@@ -107,10 +107,11 @@ void processTargetSizeTask()
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
 		if( aScaleFactor > 0 )
 		{
-			sPoints[sTaskProgress].x =
-				(anOverlayPos.x + 1) * kNormalizedTargetSize / aScaleFactor;
-			sPoints[sTaskProgress].y =
-				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor;
+			sPoints[sTaskProgress].x = min(kNormalizedTargetSize, 
+				(anOverlayPos.x + 1) * kNormalizedTargetSize / aScaleFactor);
+			sPoints[sTaskProgress].y = min(kNormalizedTargetSize,
+				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor);
+			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
 		}
 		mapDebugPrint(
 			"Updating Hotspot #%d normalized position to %d x %d\n",
@@ -188,6 +189,8 @@ void processAddToGridTask()
 			continue;
 		const u16 aGridX = sPoints[aPointIdx].x >> kNormalizedToGridShift;
 		const u16 aGridY = sPoints[aPointIdx].y >> kNormalizedToGridShift;
+		DBG_ASSERT(aGridX < kGridSize);
+		DBG_ASSERT(aGridY < kGridSize);
 		mapDebugPrint(
 			"Adding Hotspot #%d to grid cell %d x %d\n",
 			aPointIdx, aGridX, aGridY);
