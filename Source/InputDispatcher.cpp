@@ -58,26 +58,26 @@ typedef VectorMap<u16, KeyWantDownStatus> KeysWantDownMap;
 
 struct Config
 {
-	int maxTaskQueuedTime; // tasks older than this in queue are skipped
-	int chatBoxPostFirstKeyDelay;
-	u32 baseKeyReleaseLockTime;
-	u32 mouseButtonReleaseLockTime;
-	u32 modKeyReleaseLockTime;
+	std::vector<u8> safeAsyncKeys;
 	double cursorDeadzone;
 	double cursorRange;
-	int cursorXSpeed;
-	int cursorYSpeed;
 	double mouseLookDeadzone;
 	double mouseLookRange;
-	int mouseLookXSpeed;
-	int mouseLookYSpeed;
-	u8 mouseDPadAccel;
 	double mouseWheelDeadzone;
 	double mouseWheelRange;
-	int mouseWheelSpeed;
 	double moveDeadzone;
-	std::vector<u8> safeAsyncKeys;
+	int maxTaskQueuedTime; // tasks older than this in queue are skipped
+	int chatBoxPostFirstKeyDelay;
+	int cursorXSpeed;
+	int cursorYSpeed;
+	int mouseLookXSpeed;
+	int mouseLookYSpeed;
+	int mouseWheelSpeed;
 	int mouseLookZoneFixTime;
+	u16 baseKeyReleaseLockTime;
+	u16 mouseClickLockTime;
+	u16 minModKeyChangeTime;
+	u8 mouseDPadAccel;
 	bool useScanCodes;
 
 	void load()
@@ -85,8 +85,8 @@ struct Config
 		maxTaskQueuedTime = Profile::getInt("System/MaxKeyQueueTime", 1000);
 		chatBoxPostFirstKeyDelay = Profile::getInt("System/ChatBoxStartDelay", 0);
 		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 20);
-		modKeyReleaseLockTime = Profile::getInt("System/MinModKeyHoldTime", 20);
-		mouseButtonReleaseLockTime = Profile::getInt("System/MinMouseButtonHoldTime", 25);
+		minModKeyChangeTime = Profile::getInt("System/MinModKeyChangeTime", 50);
+		mouseClickLockTime = Profile::getInt("System/MinMouseButtonClickTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
 		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
@@ -230,6 +230,8 @@ struct DispatchTracker
 	std::vector<Input> inputs;
 	size_t currTaskProgress;
 	int queuePauseTime;
+	u32 nonModKeyPressAllowedTime;
+	u32 modKeyChangeAllowedTime;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
 	VectorMap<u8, u32> keysLockedDown;
@@ -243,6 +245,7 @@ struct DispatchTracker
 	int mouseVelX, mouseVelY;
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
+	u32 mouseJumpAllowedTime;
 	u16 mouseJumpToHotspot;
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
@@ -420,6 +423,20 @@ static bool isMouseButton(u16 theVKey)
 	case VK_LBUTTON:
 	case VK_MBUTTON:
 	case VK_RBUTTON:
+		return true;
+	}
+	return false;
+}
+
+
+static bool isModKey(u8 theBaseVKey)
+{
+	switch(theBaseVKey)
+	{
+	case VK_SHIFT:
+	case VK_CONTROL:
+	case VK_MENU:
+	case VK_LWIN:
 		return true;
 	}
 	return false;
@@ -691,7 +708,8 @@ static void tryMouseLookZoningFix()
 	if( kConfig.mouseLookZoneFixTime == 0 ||
 		sTracker.mouseMode != eMouseMode_Look ||
 		!sTracker.keysHeldDown.test(VK_RBUTTON) ||
-		WindowManager::overlaysAreHidden() )
+		WindowManager::overlaysAreHidden() ||
+		sTracker.mouseJumpQueued )
 		return;
 
 	if( sTracker.mouseLookZoneFixTimer - gAppFrameTime <
@@ -755,6 +773,20 @@ static EResult setKeyDown(u16 theKey, bool down)
 	if( down == wasDown )
 		return eResult_Ok;
 
+	// May not be allowed to press non-mod keys yet
+	if( down && !isModKey(u8(theKey)) &&
+		gAppRunTime < sTracker.nonModKeyPressAllowedTime )
+	{
+		return eResult_NotAllowed;
+	}
+
+	// May not be allowed to press or release any mod keys yet
+	if( isModKey(u8(theKey)) &&
+		gAppRunTime < sTracker.modKeyChangeAllowedTime )
+	{
+		return eResult_NotAllowed;
+	}
+
 	// May not be allowed to release the given key yet
 	if( !down && keyIsLockedDown(u8(theKey)) )
 		return eResult_NotAllowed;
@@ -772,26 +804,30 @@ static EResult setKeyDown(u16 theKey, bool down)
 		anInput.type = INPUT_MOUSE;
 		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
-		aLockDownTime = kConfig.mouseButtonReleaseLockTime;
+		aLockDownTime = kConfig.mouseClickLockTime;
 		break;
 	case VK_RBUTTON:
 		anInput.type = INPUT_MOUSE;
 		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
-		aLockDownTime = kConfig.mouseButtonReleaseLockTime;
+		aLockDownTime = kConfig.mouseClickLockTime;
 		break;
 	case VK_MBUTTON:
 		anInput.type = INPUT_MOUSE;
 		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
-		aLockDownTime = kConfig.mouseButtonReleaseLockTime;
+		aLockDownTime = kConfig.mouseClickLockTime;
 		break;
 	case VK_SHIFT:
 	case VK_CONTROL:
 	case VK_MENU:
 	case VK_LWIN:
 		if( !sTracker.typingChatBoxString )
-			aLockDownTime = kConfig.modKeyReleaseLockTime;
+		{
+			aLockDownTime = kConfig.minModKeyChangeTime;
+			sTracker.nonModKeyPressAllowedTime =
+				gAppRunTime + kConfig.minModKeyChangeTime;
+		}
 		// fall through
 	default:
 		anInput.type = INPUT_KEYBOARD;
@@ -802,25 +838,25 @@ static EResult setKeyDown(u16 theKey, bool down)
 
 	sTracker.inputs.push_back(anInput);
 	sTracker.keysHeldDown.set(theKey, down);
-	if( down ) lockKeyDownFor(u8(theKey), aLockDownTime);
-
-	if( anInput.type == INPUT_MOUSE )
+	if( down )
 	{
-		// For mouse clicks, make sure any mod keys active for the
-		// click stay down until some time after the mouse button
-		// will be released, which is the true "click" time
-		// (unlike keyboard keys which are "clicked" at the moment
-		// pressed rather than when released in most cases).
-		if( down )
-			aLockDownTime += kConfig.modKeyReleaseLockTime;
-		else
-			aLockDownTime = kConfig.modKeyReleaseLockTime;
-		if( sTracker.keysHeldDown.test(VK_SHIFT) )
-			lockKeyDownFor(VK_SHIFT, aLockDownTime);
-		if( sTracker.keysHeldDown.test(VK_CONTROL) )
-			lockKeyDownFor(VK_CONTROL, aLockDownTime);
-		if( sTracker.keysHeldDown.test(VK_MENU) )
-			lockKeyDownFor(VK_MENU, aLockDownTime);
+		lockKeyDownFor(u8(theKey), aLockDownTime);
+		if( !isModKey(u8(theKey)) && !sTracker.typingChatBoxString )
+		{
+			sTracker.modKeyChangeAllowedTime =
+				gAppRunTime + kConfig.minModKeyChangeTime;
+		}
+	}
+
+	// Lock cursor jump and mod key changes after release a mouse button
+	// Mouse buttons are special because the "click" of a mouse is often
+	// on release, unlike a keyboard keys that "click" on initial press
+	if( anInput.type == INPUT_MOUSE && !down )
+	{
+		sTracker.mouseJumpAllowedTime =
+			gAppRunTime + kConfig.mouseClickLockTime;
+		sTracker.modKeyChangeAllowedTime =
+			gAppRunTime + kConfig.minModKeyChangeTime;
 	}
 
 	return eResult_Ok;
@@ -1065,7 +1101,6 @@ void update()
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.mouseJumpToHotspot &&
-		!sTracker.mouseJumpQueued &&
 		(sTracker.currTaskProgress == 0 || sTracker.queuePauseTime > 0) )
 	{// No tasks in progress that mouse mode change could interfere with
 
@@ -1097,7 +1132,8 @@ void update()
 					// (in case have multiple jump-clicks queued in a row)
 					sTracker.mouseMode = eMouseMode_Default;
 				}
-				else if( !WindowManager::overlaysAreHidden() )
+				else if( !WindowManager::overlaysAreHidden() &&
+						 !sTracker.mouseJumpQueued )
 				{// Jump curser to safe spot for initial right-click
 					sTracker.mouseJumpToHotspot =
 						eSpecialHotspot_MouseLookStart;
@@ -1111,7 +1147,8 @@ void update()
 				// Can't actually hide cursor without messing with target app
 				// (or using _Look which can affect undesired side effects)
 				// so just move it out of the way (bottom corner usually)
-				if( !WindowManager::overlaysAreHidden() )
+				if( !WindowManager::overlaysAreHidden() &&
+					!sTracker.mouseJumpQueued )
 				{
 					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
 					sTracker.mouseJumpInterpolate = false;
@@ -1335,8 +1372,11 @@ void update()
 
 	// If nothing queued or needs to be newly pressed, hold down any
 	// modifier keys that any combo-keys wanted held down, as well as
-	// any modifier keys assigned directly using kVKeyModKeyOnlyBase
-	if( !sTracker.nextQueuedKey && !hasNonPressedKeyThatWantsHeldDown )
+	// any modifier keys assigned directly using kVKeyModKeyOnlyBase.
+	// Don't do this while in the middle of a key sequence or string though.
+	if( !sTracker.nextQueuedKey &&
+		!hasNonPressedKeyThatWantsHeldDown &&
+		sTracker.currTaskProgress == 0 )
 	{
 		aDesiredKeysDown.set(VK_SHIFT,
 			!!(aPressedKeysDesiredMods & kVKeyShiftFlag));
@@ -1364,9 +1404,8 @@ void update()
 		{
 			readyForMouseJump = false;
 		}
-		// Don't allow mouse clicks until done with mouse movement
-		if( isMouseButton(sTracker.nextQueuedKey) )
-			readyForQueuedKey = false;
+		if( gAppRunTime < sTracker.mouseJumpAllowedTime )
+			readyForMouseJump = false;
 	}
 	if( readyForQueuedKey )
 	{
@@ -1391,11 +1430,26 @@ void update()
 			if( sTracker.keysHeldDown.test(aBaseVKey) == press )
 				readyForQueuedKey = false;
 		}
-		// Skip mouse clicks entirely while mouse is hidden
-		if( sTracker.mouseMode == eMouseMode_Hide &&
-			isMouseButton(aBaseVKey) && press )
+		// Extra rules may apply for mouse buttons being initially clicked
+		if( isMouseButton(aBaseVKey) && press )
 		{
-			sTracker.nextQueuedKey = 0;
+			if( sTracker.mouseMode == eMouseMode_Hide &&
+				sTracker.mouseModeWanted == eMouseMode_Hide &&
+				sTracker.mouseJumpToHotspot == 0 )
+			{// In hiding spot - need to restore cursor pos first
+				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
+				sTracker.mouseJumpInterpolate = false;
+				readyForQueuedKey = false;
+			}
+			if( sTracker.mouseJumpToHotspot == eSpecialHotspot_MouseHidden )
+			{// Attemptig to hide - abort and let click through first
+				sTracker.mouseJumpToHotspot = 0;
+				readyForMouseJump = false;
+			}
+			if( sTracker.mouseJumpToHotspot != 0 )
+			{// Wait until jump finishes before allowing a mouse click
+				readyForQueuedKey = false;
+			}
 		}
 	}
 	/*

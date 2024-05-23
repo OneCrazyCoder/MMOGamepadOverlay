@@ -15,8 +15,8 @@ namespace InputTranslator
 {
 
 // Whether or not debug messages print depends on which line is commented out
-#define transDebugPrint(...) debugPrint("InputTranslator: " __VA_ARGS__)
-//#define transDebugPrint(...) ((void)0)
+//#define transDebugPrint(...) debugPrint("InputTranslator: " __VA_ARGS__)
+#define transDebugPrint(...) ((void)0)
 
 //-----------------------------------------------------------------------------
 // Const Data
