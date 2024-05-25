@@ -390,10 +390,13 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 {
 	struct Coord
 	{
-		u16 origin; // normalized x/65536 percentage of area
-		s16 offset; // direct pixel offset from .origin
+		u16 anchor; // normalized x/65536 percentage of area
+		s16 offset; // fixed pixel offset from .anchor
+		s16 scaled; // scaled pixel offset from .anchor + .offset
 		bool operator==(const Coord& rhs) const
-		{ return origin == rhs.origin && offset == rhs.offset; }
+		{ return anchor == rhs.anchor &&
+			offset == rhs.offset &&
+			scaled == rhs.scaled; }
 	} x, y;
 
 	bool operator==(const Hotspot& rhs) const

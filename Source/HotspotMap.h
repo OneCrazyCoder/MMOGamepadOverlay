@@ -29,4 +29,10 @@ void setEnabledHotspotSets(const BitVector<>& theHotspotSets);
 // Returns which hotspot to jump to in given direction (or 0)
 u16 getNextHotspotInDir(ECommandDir theDirection);
 
+// Converts a Profile string into a Hotspot (and removes the hotspot
+// from the start of the string in case there are multiple included).
+EResult stringToHotspot(std::string& theString, Hotspot& out);
+// Same thing but for only a single coordinate of a hotspot
+EResult stringToCoord(std::string& theString, Hotspot::Coord& out);
+
 } // HotspotMap
