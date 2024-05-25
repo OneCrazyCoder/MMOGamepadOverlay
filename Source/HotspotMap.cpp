@@ -564,4 +564,285 @@ u16 getNextHotspotInDir(ECommandDir theDirection)
 	return sNextHotspotInDir[theDirection];
 }
 
+
+EResult stringToHotspot(std::string& theString, Hotspot& out)
+{
+	EResult aResult = stringToCoord(theString, out.x);
+	if( aResult != eResult_Ok )
+		return aResult;
+	aResult = stringToCoord(theString, out.y);
+	return aResult;
+}
+
+
+EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
+{
+	// This function also removes the coordinate from start of string
+	out = Hotspot::Coord();
+	if( theString.empty() )
+		return eResult_Empty;
+
+	enum EMode
+	{
+		eMode_Prefix,		// Checking for C/R/B in CX+10, R-8, B - 5, etc
+		eMode_PrefixEnd,	// Checking for X/Y in CX/CY or 'eft' in 'Left', etc
+		eMode_Numerator,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
+		eMode_Denominator,	// Checking for 5 in 0.5, 5% in 10.5%, etc
+		eMode_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
+		eMode_OffsetSpace,	// Optional space between -/+ and offset number
+		eMode_OffsetNumber, // Checking for 10 in 50% + 10, CX+10, R-10, etc
+		eMode_ScaledSign,	// Checking for -/+ in 50%+10-8, etc
+		eMode_ScaledSpace,	// Optional space between -/+ and scaled number
+		eMode_ScaledNumber, // Checking for 8 in 50% + 10 - 8, etc
+	} aMode = eMode_Prefix;
+
+	u32 aNumerator = 0;
+	u32 aDenominator = 0;
+	u32 aScaledOffset = 0;
+	u32 aFixedOffset = 0;
+	bool done = false;
+	bool isScaledNegative  = false;
+	bool isFixedNegative  = false;
+	size_t aCharPos = 0;
+	char c = theString[aCharPos];
+
+	while(!done)
+	{
+		switch(c)
+		{
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+				aMode = eMode_Numerator;
+				// fall through
+			case eMode_Numerator:
+			case eMode_Denominator:
+				aDenominator *= 10;
+				aNumerator *= 10;
+				aNumerator += u32(c - '0');
+				if( aNumerator > 0x7FFF )
+					return eResult_Overflow;
+				if( aDenominator > 0x7FFF )
+					return eResult_Overflow;
+				break;
+			case eMode_OffsetSign:
+			case eMode_ScaledSign:
+				aMode = EMode(aMode + 1);
+				// fall through
+			case eMode_OffsetSpace:
+			case eMode_ScaledSpace:
+				aMode = EMode(aMode + 1);
+				// fall through
+			case eMode_OffsetNumber:
+			case eMode_ScaledNumber:
+				aScaledOffset *= 10;
+				aScaledOffset += u32(c - '0');
+				if( aScaledOffset > 0x7FFF )
+					return eResult_Overflow;
+				break;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case '-':
+		case '+':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+				// Skipping directly to offset
+				aDenominator = 1;
+				// fall through
+			case eMode_PrefixEnd:
+			case eMode_Denominator:
+			case eMode_OffsetSign:
+				isScaledNegative = (c == '-');
+				aMode = eMode_OffsetSpace;
+				break;
+			case eMode_OffsetNumber:
+			case eMode_ScaledSign:
+				// Second offset specified
+				isFixedNegative = isScaledNegative;
+				isScaledNegative = (c == '-');
+				aFixedOffset = aScaledOffset;
+				aScaledOffset = 0;
+				aMode = eMode_ScaledSpace;
+				break;
+			case eMode_Numerator:
+				isScaledNegative = (c == '-');
+				aFixedOffset = aNumerator;
+				aNumerator = 0;
+				aDenominator = 1;
+				aMode = eMode_ScaledSpace;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case '.':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+			case eMode_Numerator:
+				aMode = eMode_Denominator;
+				aDenominator = 1;
+				break;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case '%':
+		case 'p':
+			switch(aMode)
+			{
+			case eMode_PrefixEnd:
+				break;
+			case eMode_Numerator:
+			case eMode_Denominator:
+				if( !aDenominator ) aDenominator = 1;
+				aDenominator *= 100; // Convert 50% to 0.5
+				aMode = eMode_OffsetSign;
+				break;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case 'l': case 'L': // aka "Left"
+		case 't': case 'T': // aka "Top"
+			switch(aMode)
+			{
+			case eMode_PrefixEnd:
+				break;
+			case eMode_Prefix:
+				aNumerator = 0;
+				aDenominator = 1;
+				aMode = eMode_PrefixEnd;
+				break;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case 'r': case 'R': case 'w': case 'W': // aka "Right" or "Width"
+		case 'b': case 'B': case 'h': case 'H':// aka "Bottom" or "Height"
+			switch(aMode)
+			{
+			case eMode_PrefixEnd:
+				break;
+			case eMode_Prefix:
+				aNumerator = 1;
+				aDenominator = 1;
+				aMode = eMode_PrefixEnd;
+				break;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case 'c': case 'C': // aka "Center"
+			switch(aMode)
+			{
+			case eMode_PrefixEnd:
+				break;
+			case eMode_Prefix:
+				aNumerator = 1;
+				aDenominator = 2;
+				aMode = eMode_PrefixEnd;
+				break;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case 'x': case 'X':
+		case 'y': case 'Y':
+		case ',':
+			switch(aMode)
+			{
+			case eMode_PrefixEnd:
+				if( c == ',' )
+					done = true;
+				// Ignore as part of prefix like CX or CY
+				break;
+			case eMode_Numerator:
+				aScaledOffset = aNumerator;
+				aNumerator = 0;
+				aDenominator = 1;
+				done = true;
+				break;
+			case eMode_Denominator:
+			case eMode_OffsetSign:
+			case eMode_OffsetNumber:
+			case eMode_ScaledSign:
+			case eMode_ScaledNumber:
+				// Assume marks end of this coordinate
+				done = true;
+				break;
+			default:
+				return eResult_Malformed;
+			}
+			break;
+		case ' ':
+			switch(aMode)
+			{
+			case eMode_Prefix:
+			case eMode_OffsetSign:
+			case eMode_OffsetSpace:
+			case eMode_ScaledSign:
+			case eMode_ScaledSpace:
+				// Allowed whitespace, ignore
+				break;
+			case eMode_Denominator:
+				aMode = eMode_OffsetSign;
+				break;
+			case eMode_Numerator:
+				aScaledOffset = aNumerator;
+				aNumerator = 0;
+				aDenominator = 1;
+				// fall through
+			case eMode_OffsetNumber:
+				aMode = eMode_ScaledSign;
+				break;
+			case eMode_ScaledNumber:
+				done = true;
+				break;
+			}
+			break;
+		default:
+			if( aMode != eMode_PrefixEnd )
+				return eResult_Malformed;
+			break;
+		}
+
+		++aCharPos;
+		if( !done )
+		{
+			if( aCharPos >= theString.size() )
+				done = true;
+			else
+				c = theString[aCharPos];
+		}
+	}
+
+	if( aDenominator == 0 )
+	{
+		aScaledOffset = aNumerator;
+		aNumerator = 0;
+		aDenominator = 1;
+	}
+
+	if( aNumerator >= aDenominator )
+		out.anchor = 0xFFFF;
+	else
+		out.anchor = u16((aNumerator * 0x10000) / aDenominator);
+	out.offset = s16(aFixedOffset);
+	if( isFixedNegative )
+		out.offset = -out.offset;
+	out.scaled = s16(aScaledOffset);
+	if( isScaledNegative )
+		out.scaled = -out.scaled;
+
+	// Remove processed section from start of string
+	theString = theString.substr(aCharPos);
+
+	return eResult_Ok;
+}
+
 } // HotspotMap

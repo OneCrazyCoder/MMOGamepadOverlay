@@ -679,11 +679,22 @@ void resize(RECT theNewWindowRect)
 		sTargetSize = aNewTargetSize;
 		gUIScaleX = gUIScaleY = Profile::getFloat("System/UIScale", 1.0f);
 		float aScaleResX = Profile::getInt("System/BaseScaleResolutionX");
-		if( aScaleResX > 0 )
-			gUIScaleX *= sTargetSize.cx / aScaleResX;
 		float aScaleResY = Profile::getInt("System/BaseScaleResolutionY");
-		if( aScaleResY > 0 )
+		if( aScaleResX > 0 && aScaleResY > 0 )
+		{
+			gUIScaleX *= sTargetSize.cx / aScaleResX;
 			gUIScaleY *= sTargetSize.cy / aScaleResY;
+		}
+		else if( aScaleResX > 0 )
+		{
+			gUIScaleX *= sTargetSize.cx / aScaleResX;
+			gUIScaleY = gUIScaleX;
+		}
+		else if( aScaleResY > 0 )
+		{
+			gUIScaleY *= sTargetSize.cy / aScaleResY;
+			gUIScaleX = gUIScaleY;
+		}
 		HUD::updateScaling();
 	}
 
@@ -762,14 +773,17 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 		return result;
 
 	// Start with percentage of client rect as u16 (i.e. 65536 == 100%)
-	result.x = theHotspot.x.origin;
-	result.y = theHotspot.y.origin;
+	result.x = theHotspot.x.anchor;
+	result.y = theHotspot.y.anchor;
 	// Convert to client-rect-relative pixel position
 	result.x = result.x * sTargetSize.cx / 0x10000;
 	result.y = result.y * sTargetSize.cy / 0x10000;
+	// Add fixed pixel offset
+	result.x += theHotspot.x.offset;
+	result.y += theHotspot.y.offset;
 	// Add pixel offset w/ position scaling applied
-	result.x += theHotspot.x.offset * gUIScaleX;
-	result.y += theHotspot.y.offset * gUIScaleY;
+	result.x += theHotspot.x.scaled * gUIScaleX;
+	result.y += theHotspot.y.scaled * gUIScaleY;
 	// Clamp to within client rect range
 	result.x = clamp(result.x, 0, sTargetSize.cx - 1);
 	result.y = clamp(result.y, 0, sTargetSize.cy - 1);
@@ -780,8 +794,8 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 Hotspot overlayPosToHotspot(POINT theMousePos)
 {
 	Hotspot result;
-	result.x.origin = theMousePos.x * 0x10000 / sTargetSize.cx;
-	result.y.origin = theMousePos.y * 0x10000 / sTargetSize.cy;
+	result.x.anchor = theMousePos.x * 0x10000 / sTargetSize.cx;
+	result.y.anchor = theMousePos.y * 0x10000 / sTargetSize.cy;
 	return result;
 }
 

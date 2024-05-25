@@ -230,27 +230,38 @@ When using this for the above example of relative group targeting, a visual indi
 
 ## Position and size properties
 
-**Hotspots** are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Hotspots and HUD Element positions (and sizes) are specified as X and Y coordinates with Y=0 being the top of the window/screen/bitmap and X=0 being the left side.
+**Hotspots** are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Positions of Hotspots, HUD Elements, Icons, and so on are specified as X and Y coordinates with Y=0 representing the top and X=0 representing the left side. Some properties use 4 coordinates to represent a rectangle, arranged as X (left edge), Y (top edge), Width, and then Height.
 
-Each axis can possibly have a relative and/or an absolute value. The relative value is related to the size of the target game's window/screen size, and the absolute value is in pixels. They can be specified in the format ``relativeValue% +/- absoluteValue`` if specify both. Some relative values can be also be specified by shortcuts like L/T/R/B/C/CX/CY/W/H instead of numbers.
+Each of the 2-4 coordinates can have up to 3 values - the *Anchor*, the *Fixed Offset*, and the *Scaling Offset*, in that order. *It is NOT required to specify all 3,* or even more than one per coordinate. 
+
+The anchor represents the starting point as a relative position (usually to the target game's window/screen size), and is expressed as either percent (like 50%, or 0.5 if you prefer) or by special shortcuts like L/T/R/B/C/CX/CY/W/H instead of numbers. If no anchor is specified, it is assumed to be 0% (the top-left corner).
+
+After the anchor (if there is one) is the offsets in pixels. If you specify only one offset (or only one number overall) it will be the *scaling offset*, which will be multiplied by the global  [System] property ``UIScale=``. If you specify two offsets, the first will be a *fixed offset* (NOT multiplied by UIScale) and the second will be the scaling offset (which you can just set to 0 if you don't need one).
+
+Each value after the first one within a coordinate should be separated by a '+' or `-' sign, and full coordinates are separated from each other by a comma or 'x' (i.e. "10 x 5" or "10, 5")
 
 Some accepted examples of valid positions for reference:
 
     # Center of the screen/window
     = 50% x 50%
-    = 0.5, 0.5
-    = CX CY
+    = 0.5, CY
+    # Pixel position 200x by 100y, multiplied by UIScale
+    = 200 x 100
+    # Same but ignoring UIScale
+    = 200+0, 100+0
     # 10 pixels to the left of right edge, and
     # 5 pixels down from 30.5% of the game window's height
+    # (10 and 5 will be multiplied by UIScale)
     = R - 10, 30.5% + 5
-    # Pixel position 200 x 100 regardless of target window size
-    = 200 x 100
+    # BR corner offset -50x and -75y (un-scaled)
+    # then another 10 (scaled) up from there
+    = R-50 + 0, B -75 -10
+    # Rectangle with full height but 50%-75% of the width
+    = 50%, 0, 25%, H
 
-In some cases multiple coordinates can be used in a single property, such as when specifying both the position and size of the rectangle to copy from a bitmap image or multiple hotspots in a single line. These just follow the same pattern but continue to alternate between X and Y coordinates. For example:
+In addition to the [System] property ``UIScale=``, the *scaling offset* can also be further affected by different target window sizes by use of ``BaseScaleResolutionX=`` and ``BaseScaleResolutionY=``. Setting these to a non-zero value will cause scaling offsets to be multiplied by the difference between the value set and the actual window size. If both are set to a non-zero value, then only X/Width values will be multiplied by (TargetWindowWidth / BaseScaleResolutionX) and the Y/Height values by (Height / Y). If only one is set then all coordinates will be multiplied by Width / X OR Height / Y, whichever is specified.
 
-    Bitmap = MyImage: 50%, 0, 25%, H
-
-means 50% of the image size for the left edge of the source rectangle to copy, the top of the image for the top edge, 25% of the image width for the width, and the entire height of the image for the height.
+*Properties that only have a single value such as BorderSize, TitleHeight, and FontSize are always considered "scaling" and are thus affected by the above scaling factors!* 
 
 ## Controls Layers
 
@@ -653,9 +664,9 @@ Once a Bitmap is set properly as in the above example, set the HUD element's ``T
     Style = List
     ItemType = Bitmap
     Bitmap = MyImage2: 0, 0, 32, 32
-    SelectedBitap = MyImage2: 32, 0, 32, 32
+    SelectedBitap = MyImage2: 50%, 0, 50%, H
     
-The coordinates listed for using a portion of a bitmap are in the format of LeftX, TopY, Width, Height. *The bitmap or bitmap region will be scaled as needed to fit into the HUD element's Size or menu's ItemSize dimensions if they do not match.*
+*The bitmap or bitmap region will be scaled as needed to fit into the HUD element's Size or menu's ItemSize dimensions if they do not match.*
 
 ### Label Icons
 
@@ -686,10 +697,10 @@ To do this, simply omit the name of a Bitmap in the [Icons] property for the men
     [Icons]
     Spell2 = 500, 250, 32, 32
 
-These copy-from coordinates work like Hotspots and can be expressed relative to the screen size rather than direct pixel values, or even a combination, like this:
+These copy-from coordinates work like Hotspots and can include anchor, fixed offset, and scaled offset, such as:
 
     [Icons]
-    Spell2 = R-20, 20%, 5%, 15
+    Spell2 = R-20, 20%+10-5, 5%, 15
 
 *TIP: This copy technique should work even if the copied-from area of the game's window is being covered up by an overlay menu or HUD element, so you can purposefully hide the portion of the game screen you are copying from to avoid having the same icons shown in two places at once on your screen. This only works when the overlay app has successfully identified the target game window with [System]TargetWindowName= though, and not when running in default "desktop mode."*
 
@@ -712,11 +723,3 @@ These includes commands for controlling the overlay app itself, such as ``=Chang
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD elements can actually show up over top of the game.
 
 There are various other system options you can set like how long a "tap" vs a "short hold" is, analog stick deadzones and mouse cursor/wheel speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since Discord refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.
-
-### Global automatic scaling
-
-The absolute (pixel) position/size values used in hotspots, positions, sizes, etc, can be automatically scaled according to a fixed ``UIScale=`` value and/or according to the current size of the game's window/screen. This can potentially be easier to deal with than using a relative (%) value for every individual position/hotspot/etc. This automatic scaling also applies to some HUD element properties that otherwise do not have a relative value option, like BorderSize, GapSize, TitleHeight, and FontSize.
-
-To set a fixed scaling value, just use the [System] property ``UIScale=`` with a percentage, like 150% (or 1.5 if you prefer). To enable automatic scaling according to game resolution, first set what the base resolution all your positions/sizes/etc is based on, and then they will be scaled up or down automatically as the game window is resized (assuming you've set ``TargetWindowName=`` properly). The base resolution to scale from is set by the [System] properties ``BaseScaleResolutionX=`` and ``BaseScaleResolutionY=``.
-
-*Note that UIScale and resolution scaling are both applied (multiplied by each other), but that neither affects the relative (%) positions directly set in individual hotspots/positions/etc - only absolute pixel values are scaled by these!*

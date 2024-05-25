@@ -73,9 +73,6 @@ u16 getFirstHotspotInSet(u16 theHotspotSetID);
 u16 getLastHotspotInSet(u16 theHotspotSetID);
 const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
 void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
-// This function also removes the hotspot from start of string
-// in case multiple hotspots are specified by the same string
-EResult profileStringToHotspot(std::string& theString, Hotspot& out);
 
 // HUD ELEMENTS
 EHUDType hudElementType(u16 theHUDElementID);

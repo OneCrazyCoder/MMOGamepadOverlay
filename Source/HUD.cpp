@@ -4,7 +4,8 @@
 
 #include "HUD.h"
 
-#include "InputMap.h" // labels, profileStringToHotspot(), menuForHUDElement()
+#include "HotspotMap.h"
+#include "InputMap.h"
 #include "Lookup.h"
 #include "Menus.h" // activeSubMenu(), itemCount()
 #include "Profile.h"
@@ -505,11 +506,13 @@ static inline POINT hotspotToPoint(
 {
 	POINT result;
 	result.x =
-		LONG(theHotspot.x.origin) * theTargetSize.cx / 0x10000 +
-		LONG(theHotspot.x.offset * gUIScaleX);
+		LONG(theHotspot.x.anchor) * theTargetSize.cx / 0x10000 +
+		LONG(theHotspot.x.offset) +
+		LONG(theHotspot.x.scaled * gUIScaleX);
 	result.y =
-		LONG(theHotspot.y.origin) * theTargetSize.cy / 0x10000 +
-		LONG(theHotspot.y.offset * gUIScaleY);
+		LONG(theHotspot.y.anchor) * theTargetSize.cy / 0x10000 +
+		LONG(theHotspot.y.offset) +
+		LONG(theHotspot.y.scaled * gUIScaleY);
 	return result;
 }
 
@@ -526,13 +529,13 @@ static inline SIZE hotspotToSize(
 }
 
 
-static LONG hotspotCoordToValue(
+static LONG hotspotUnscaledValue(
 	Hotspot::Coord& theCoord,
 	const LONG theMaxValue)
 {
 	return
-		LONG(theCoord.origin) * theMaxValue / 0x10000 +
-		LONG(theCoord.offset);
+		LONG(theCoord.anchor) * theMaxValue / 0x10000 +
+		LONG(theCoord.offset) + LONG(theCoord.scaled);
 }
 
 
@@ -578,7 +581,8 @@ static u16 getOrCreateFontID(
 		return result;
 
 	// Create new font
-	const int aFontPointSize = intFromString(theFontSize) * gUIScaleY;
+	const int aFontPointSize = (gUIScaleX + gUIScaleY) * 0.5 *
+		intFromString(theFontSize);
 	HDC hdc = GetDC(NULL);
 	const int aFontHeight =
 		-MulDiv(aFontPointSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
@@ -660,9 +664,9 @@ static size_t getOrCreateBuildIconEntry(
 	EResult aHotspotParseResult = eResult_None;
 	if( !aRectDesc.empty() )
 	{
-		InputMap::profileStringToHotspot(aRectDesc, aBuildEntry.pos);
+		HotspotMap::stringToHotspot(aRectDesc, aBuildEntry.pos);
 		aHotspotParseResult =
-			InputMap::profileStringToHotspot(aRectDesc, aBuildEntry.size);
+			HotspotMap::stringToHotspot(aRectDesc, aBuildEntry.size);
 	}
 
 	// Check for malformed entry
@@ -712,10 +716,10 @@ static void createBitmapIcon(BuildIconEntry& theBuildEntry)
 	if( !(theBuildEntry.size == Hotspot()) )
 	{
 		// Hotspot to pixel conversions are endpoint-exclusive so add +1
-		x = clamp(hotspotCoordToValue(theBuildEntry.pos.x, w+1), 0, w);
-		y = clamp(hotspotCoordToValue(theBuildEntry.pos.y, h+1), 0, h);
-		w = clamp(hotspotCoordToValue(theBuildEntry.size.x, w+1), 0, w-x);
-		h = clamp(hotspotCoordToValue(theBuildEntry.size.y, h+1), 0, h-y);
+		x = clamp(hotspotUnscaledValue(theBuildEntry.pos.x, w+1), 0, w);
+		y = clamp(hotspotUnscaledValue(theBuildEntry.pos.y, h+1), 0, h);
+		w = clamp(hotspotUnscaledValue(theBuildEntry.size.x, w+1), 0, w-x);
+		h = clamp(hotspotUnscaledValue(theBuildEntry.size.y, h+1), 0, h-y);
 	}
 
 	// Copy over to the new bitmap
@@ -1905,7 +1909,7 @@ void init()
 			}
 		}
 		// hi.position = eHUDProp_Position
-		InputMap::profileStringToHotspot(
+		HotspotMap::stringToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Position),
 			hi.position);
 		// hi.itemSize = eHUDProp_ItemSize (Menus) or eHUDProp_Size (HUD)
@@ -1919,19 +1923,19 @@ void init()
 			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
 		if( aStr.empty() )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
-		InputMap::profileStringToHotspot(aStr, hi.itemSize);
+		HotspotMap::stringToHotspot(aStr, hi.itemSize);
 		// hi.alignmentX/Y = eHUDProp_Alignment
 		Hotspot aTempHotspot;
-		InputMap::profileStringToHotspot(
+		HotspotMap::stringToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Alignment),
 			aTempHotspot);
 		hi.alignmentX =
-			aTempHotspot.x.origin < 0x4000	? eAlignment_Min :
-			aTempHotspot.x.origin > 0xC000	? eAlignment_Max :
+			aTempHotspot.x.anchor < 0x4000	? eAlignment_Min :
+			aTempHotspot.x.anchor > 0xC000	? eAlignment_Max :
 			/*otherwise*/					  eAlignment_Center;
 		hi.alignmentY =
-			aTempHotspot.y.origin < 0x4000	? eAlignment_Min :
-			aTempHotspot.y.origin > 0xC000	? eAlignment_Max :
+			aTempHotspot.y.anchor < 0x4000	? eAlignment_Min :
+			aTempHotspot.y.anchor > 0xC000	? eAlignment_Max :
 			/*otherwise*/					  eAlignment_Center;
 		// hi.transColor = eHUDProp_TransColor
 		hi.transColor = strToRGB(aHUDBuilder,
@@ -2281,7 +2285,7 @@ void updateScaling()
 		if( hi.type == eHUDItemType_RndRect ||
 			hi.itemType == eHUDItemType_RndRect )
 		{
-			hi.radius = gUIScaleY * u32FromString(
+			hi.radius = (gUIScaleX + gUIScaleY) * 0.5 * u32FromString(
 				getHUDPropStr(aHUDName, eHUDProp_Radius));
 		}
 
