@@ -36,7 +36,7 @@ kMinJumpDistSquared = kMinJumpDist * kMinJumpDist,
 enum ETask
 {
 	eTask_TargetSize,
-	eTask_ActiveSets,
+	eTask_ActiveArrays,
 	eTask_AddToGrid,
 	eTask_BeginSearch,
 	eTask_FetchGrid0,
@@ -74,8 +74,8 @@ struct GridPos
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static BitVector<> sRequestedSets;
-static BitVector<> sActiveSets;
+static BitVector<> sRequestedArrays;
+static BitVector<> sActiveArrays;
 static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<u16> sCandidates;
@@ -98,10 +98,8 @@ void processTargetSizeTask()
 {
 	if( sTaskProgress < sPoints.size() )
 	{
-		const u16 aHotspotID =
-			u16(sTaskProgress) + InputMap::namedHotspotCount();
-		const Hotspot& aHotspot =
-			InputMap::getHotspot(aHotspotID);
+		const u16 aHotspotID = u16(sTaskProgress);
+		const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
 		const POINT& anOverlayPos =
 			WindowManager::hotspotToOverlayPos(aHotspot);
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
@@ -123,48 +121,46 @@ void processTargetSizeTask()
 }
 
 
-void processActiveSetsTask()
+void processActiveArraysTask()
 {
-	const size_t aHotspotSetCount = InputMap::hotspotSetCount();
-	const size_t aNamedHotspotCount = InputMap::namedHotspotCount();
-	while( sTaskProgress < aHotspotSetCount )
+	const size_t aHotspotArrayCount = InputMap::hotspotArrayCount();
+	while( sTaskProgress < aHotspotArrayCount )
 	{
-		const u16 aSet = sTaskProgress++;
+		const u16 anArray = sTaskProgress++;
 		bool needChangeMade = false;
 		bool enableHotspots = false;
-		if( sRequestedSets.test(aSet) && !sActiveSets.test(aSet) )
+		if( sRequestedArrays.test(anArray) && !sActiveArrays.test(anArray) )
 		{
 			mapDebugPrint(
-				"Enabling hotspots in Hotspot Set '%s'\n",
-				InputMap::hotspotSetLabel(aSet).c_str());
+				"Enabling hotspots in Hotspot Array '%s'\n",
+				InputMap::hotspotArrayLabel(anArray).c_str());
 			needChangeMade = true;
 			enableHotspots = true;
 		}
-		else if( !sRequestedSets.test(aSet) && sActiveSets.test(aSet) )
+		else if( !sRequestedArrays.test(anArray) &&
+				 sActiveArrays.test(anArray) )
 		{
 			mapDebugPrint(
-				"Disabling hotspots in Hotspot Set '%s'\n",
-				InputMap::hotspotSetLabel(aSet).c_str());
+				"Disabling hotspots in Hotspot Array '%s'\n",
+				InputMap::hotspotArrayLabel(anArray).c_str());
 			needChangeMade = true;
 			enableHotspots = false;
 		}
 		if( needChangeMade )
 		{
 			const size_t aFirstHotspot =
-				InputMap::getFirstHotspotInSet(aSet) -
-				aNamedHotspotCount;
+				InputMap::firstHotspotInArray(anArray);
 			const size_t aLastHotspot =
-				InputMap::getLastHotspotInSet(aSet) -
-				aNamedHotspotCount;
+				InputMap::lastHotspotInArray(anArray);
 			for(size_t i = aFirstHotspot; i <= aLastHotspot; ++i)
 				sPoints[i].enabled = enableHotspots;
-			sActiveSets.set(aSet, enableHotspots);
+			sActiveArrays.set(anArray, enableHotspots);
 			sNewTasks.set(eTask_AddToGrid);
 			break;
 		}
 	}
 
-	if( sTaskProgress >= aHotspotSetCount )
+	if( sTaskProgress >= aHotspotArrayCount )
 		sTaskInProgress = eTask_None;
 }
 
@@ -173,7 +169,7 @@ void processAddToGridTask()
 {
 	if( sTaskProgress == 0 )
 	{
-		if( sActiveSets.any() )
+		if( sActiveArrays.any() )
 			mapDebugPrint("Adding enabled hotspots to grid...\n");
 		for(size_t x = 0; x < kGridSize; ++x)
 		{
@@ -288,8 +284,7 @@ void processNextLeftTask()
 		aWeight += anAltWeight / 2;
 		if( aWeight < sBestCandidateWeight )
 		{
-			sNextHotspotInDir[eCmdDir_L] =
-				aPointIdx + InputMap::namedHotspotCount();
+			sNextHotspotInDir[eCmdDir_L] = aPointIdx;
 			sBestCandidateWeight = aWeight;
 		}
 		break;
@@ -301,8 +296,7 @@ void processNextLeftTask()
 		if( sNextHotspotInDir[eCmdDir_L] != 0 )
 		{
 			mapDebugPrint("Left hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_L] -
-				InputMap::namedHotspotCount());
+				sNextHotspotInDir[eCmdDir_L]);
 		}
 	}
 }
@@ -326,8 +320,7 @@ void processNextRightTask()
 		aWeight += anAltWeight / 2;
 		if( aWeight < sBestCandidateWeight )
 		{
-			sNextHotspotInDir[eCmdDir_R] =
-				aPointIdx + InputMap::namedHotspotCount();
+			sNextHotspotInDir[eCmdDir_R] = aPointIdx;
 			sBestCandidateWeight = aWeight;
 		}
 		break;
@@ -339,8 +332,7 @@ void processNextRightTask()
 		if( sNextHotspotInDir[eCmdDir_R] != 0 )
 		{
 			mapDebugPrint("Right hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_R] -
-				InputMap::namedHotspotCount());
+				sNextHotspotInDir[eCmdDir_R]);
 		}
 	}
 }
@@ -364,8 +356,7 @@ void processNextUpTask()
 		aWeight += anAltWeight / 2;
 		if( aWeight < sBestCandidateWeight )
 		{
-			sNextHotspotInDir[eCmdDir_U] =
-				aPointIdx + InputMap::namedHotspotCount();
+			sNextHotspotInDir[eCmdDir_U] = aPointIdx;
 			sBestCandidateWeight = aWeight;
 		}
 		break;
@@ -377,8 +368,7 @@ void processNextUpTask()
 		if( sNextHotspotInDir[eCmdDir_U] != 0 )
 		{
 			mapDebugPrint("Up hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_U] -
-				InputMap::namedHotspotCount());
+				sNextHotspotInDir[eCmdDir_U]);
 		}
 	}
 }
@@ -402,8 +392,7 @@ void processNextDownTask()
 		aWeight += anAltWeight / 2;
 		if( aWeight < sBestCandidateWeight )
 		{
-			sNextHotspotInDir[eCmdDir_D] =
-				aPointIdx + InputMap::namedHotspotCount();
+			sNextHotspotInDir[eCmdDir_D] = aPointIdx;
 			sBestCandidateWeight = aWeight;
 		}
 		break;
@@ -415,8 +404,7 @@ void processNextDownTask()
 		if( sNextHotspotInDir[eCmdDir_D] != 0 )
 		{
 			mapDebugPrint("Down hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_D] -
-				InputMap::namedHotspotCount());
+				sNextHotspotInDir[eCmdDir_D]);
 		}
 	}
 }
@@ -439,7 +427,7 @@ void processTasks()
 	switch(sTaskInProgress)
 	{
 	case eTask_TargetSize:	processTargetSizeTask();	break;
-	case eTask_ActiveSets:	processActiveSetsTask();	break;
+	case eTask_ActiveArrays:	processActiveArraysTask();	break;
 	case eTask_AddToGrid:	processAddToGridTask();		break;
 	case eTask_BeginSearch:	processBeginSearchTask();	break;
 	case eTask_FetchGrid0:	processFetchGridTask(0);	break;
@@ -461,13 +449,12 @@ void processTasks()
 void init()
 {
 	DBG_ASSERT(sPoints.empty());
-	const u16 aNamedHotspotCount = InputMap::namedHotspotCount();
-	const u16 aHotspotsCount =
-		InputMap::totalHotspotCount() - aNamedHotspotCount;
+	const u16 aHotspotsCount = InputMap::hotspotCount();
+	const u16 aHotspotArraysCount = InputMap::hotspotArrayCount();
 	sPoints.reserve(aHotspotsCount);
 	sPoints.resize(aHotspotsCount);
-	sRequestedSets.clearAndResize(InputMap::hotspotSetCount());
-	sActiveSets.clearAndResize(InputMap::hotspotSetCount());
+	sRequestedArrays.clearAndResize(aHotspotArraysCount);
+	sActiveArrays.clearAndResize(aHotspotArraysCount);
 	sLastTargetSize.cx = 0;
 	sLastTargetSize.cy = 0;
 	sNewTasks.set();
@@ -476,7 +463,7 @@ void init()
 
 void cleanup()
 {
-	sActiveSets.clear();
+	sActiveArrays.clear();
 	sPoints.clear();
 }
 
@@ -518,12 +505,12 @@ void update()
 }
 
 
-void setEnabledHotspotSets(const BitVector<>& theHotspotSets)
+void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
 {
-	if( sRequestedSets != theHotspotSets )
+	if( sRequestedArrays != theHotspotArrays )
 	{
-		sRequestedSets = theHotspotSets;
-		sNewTasks.set(eTask_ActiveSets);
+		sRequestedArrays = theHotspotArrays;
+		sNewTasks.set(eTask_ActiveArrays);
 	}
 }
 
