@@ -781,6 +781,28 @@ static void createCopyIcon(BuildIconEntry& theBuildEntry)
 }
 
 
+static IconEntry createOffsetCopyIcon(
+	const std::string& theIconString,
+	u16 aBaseCopyIconID,
+	const Hotspot& anOffsetHotspot)
+{
+	DBG_ASSERT(aBaseCopyIconID < sCopyIcons.size());
+	CopyIcon aCopyIcon = CopyIcon();
+	aCopyIcon.pos = sCopyIcons[aBaseCopyIconID].pos;
+	aCopyIcon.size = sCopyIcons[aBaseCopyIconID].size;
+	aCopyIcon.pos.x.offset += anOffsetHotspot.x.offset;
+	aCopyIcon.pos.y.offset += anOffsetHotspot.y.offset;
+	aCopyIcon.pos.x.scaled += anOffsetHotspot.x.scaled;
+	aCopyIcon.pos.y.scaled += anOffsetHotspot.y.scaled;
+	sCopyIcons.push_back(aCopyIcon);
+	IconEntry anOffsetIcon;
+	anOffsetIcon.copyFromTarget = true;
+	anOffsetIcon.iconID = u16(sCopyIcons.size()-1);
+	sLabelIcons.setValue(theIconString, anOffsetIcon);
+	return anOffsetIcon;
+}
+
+
 static u16 getOrCreateBitmapIconID(
 	HUDBuilder& theBuilder,
 	const std::string& theIconDescription)
@@ -799,29 +821,86 @@ static u16 getOrCreateBitmapIconID(
 }
 
 
-static void createLabelIcon(
+static IconEntry getOrCreateLabelIcon(
 	HUDBuilder& theBuilder,
 	const std::string& theTextLabel,
 	const std::string& theIconDescription)
 {
+	std::string aTextLabel(theTextLabel);
+	std::string anIconDesc(theIconDescription);
+
+	// Check if might just be an offset from another copy icon
+	int anArrayIdx = breakOffIntegerSuffix(aTextLabel);
+	int aStartArrayIdx = anArrayIdx;
+	if( anArrayIdx > 0 )
+	{
+		if( aTextLabel[aTextLabel.size()-1] == '-' )
+		{
+			aTextLabel.resize(aTextLabel.size()-1);
+			aStartArrayIdx =
+				breakOffIntegerSuffix(aTextLabel);
+		}
+		else if( IconEntry* anOldEntry = sLabelIcons.find(theTextLabel) )
+		{
+			return *anOldEntry;
+		}
+		Hotspot anOffset;
+		EResult aResult = HotspotMap::stringToHotspot(
+			anIconDesc, anOffset);
+		if( aResult == eResult_Ok && anIconDesc.empty() &&
+			anOffset.x.anchor == 0 && anOffset.y.anchor == 0 )
+		{// Find icon to use as a base to offset from
+			IconEntry aBaseIcon;
+			if( aStartArrayIdx < anArrayIdx && aStartArrayIdx > 1 )
+			{// Use aStartArrayIdx - 1 as base
+				std::string aBaseLabel =
+					aTextLabel + toString(aStartArrayIdx-1);
+				aBaseIcon = getOrCreateLabelIcon(
+					theBuilder, aBaseLabel,
+					Profile::getStr(kIconsPrefix + aBaseLabel));
+			}
+			else
+			{// Use un-numbered entry as base
+				aBaseIcon = getOrCreateLabelIcon(
+					theBuilder, aTextLabel,
+					Profile::getStr(kIconsPrefix + aTextLabel));
+			}
+			if( aBaseIcon.iconID && aBaseIcon.copyFromTarget )
+			{
+				for(int i = aStartArrayIdx; i <= anArrayIdx; ++i)
+				{
+					createOffsetCopyIcon(
+						aTextLabel + toString(i),
+						aBaseIcon.iconID, anOffset);
+					aBaseIcon.iconID = u16(sCopyIcons.size()-1);
+				}
+				return aBaseIcon;
+			}
+		}
+	}
+
+	IconEntry& anEntry = sLabelIcons.findOrAdd(theTextLabel, IconEntry());
+	if( anEntry.iconID != 0 )
+		return anEntry;
 	size_t anIconBuildID = getOrCreateBuildIconEntry(
 		theBuilder, theIconDescription, true);
 	if( anIconBuildID == 0 )
-		return;
+		return anEntry;
 	BuildIconEntry& aBuildEntry = theBuilder.iconBuilders[anIconBuildID];
 	if( aBuildEntry.result.iconID > 0 )
 	{
-		sLabelIcons.setValue(theTextLabel, aBuildEntry.result);
-		return;
+		anEntry = aBuildEntry.result;
+		return anEntry;
 	}
 	if( aBuildEntry.srcFile )
 	{
 		createBitmapIcon(aBuildEntry);
-		sLabelIcons.setValue(theTextLabel, aBuildEntry.result);
-		return;
+		anEntry = aBuildEntry.result;
+		return anEntry;
 	}
 	createCopyIcon(aBuildEntry);
-	sLabelIcons.setValue(theTextLabel, aBuildEntry.result);	
+	anEntry = aBuildEntry.result;
+	return anEntry;
 }
 
 
@@ -1867,7 +1946,7 @@ void init()
 	{
 		std::string aTextLabel = aKeyValueList[i].first;
 		std::string anIconDesc = aKeyValueList[i].second;
-		createLabelIcon(aHUDBuilder, aTextLabel, anIconDesc);
+		getOrCreateLabelIcon(aHUDBuilder, aTextLabel, anIconDesc);
 	}
 
 	// Get information for each HUD Element from Profile

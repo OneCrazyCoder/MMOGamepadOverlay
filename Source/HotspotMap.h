@@ -23,8 +23,8 @@ void cleanup();
 // Updates hotspot tracking from changes to cursor, target size, etc.
 void update();
 
-// Set which hotspot sets should be active
-void setEnabledHotspotSets(const BitVector<>& theHotspotSets);
+// Set which hotspot arrays should be active
+void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays);
 
 // Returns which hotspot to jump to in given direction (or 0)
 u16 getNextHotspotInDir(ECommandDir theDirection);

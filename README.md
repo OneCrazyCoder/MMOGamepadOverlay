@@ -384,18 +384,19 @@ Each layer (including [Scheme]) specifies which **HUD Elements** (including **Me
 
 ### Layer Hotspots= property
 
-Very similar to the HUD= property, each layer can enable or disable **Hotspot Sets** that can be used via the ``=Select Hotspot <direction>`` or ``Select Hotspot or MouseWheel`` command (the latter of which scrolls the mouse wheel up and down if there are no hotspots available in that direction - handy for scrolling through a tall loot window!). Just like ``HUD=``, each layer can disable Hotspot Sets enabled in the layers below it, though layers above can override that yet again.
+Very similar to the HUD= property, each layer can enable or disable **Hotspot Arrays** that can be used via the ``=Select Hotspot <direction>`` or ``Select Hotspot or MouseWheel`` command (the latter of which scrolls the mouse wheel up and down if there are no hotspots available in that direction - handy for scrolling through a tall loot window!). Just like ``HUD=``, each layer can disable Hotspot Arrays enabled in the layers below it, though layers above can override that yet again.
 
-Each Hotspot Set is defined by a [Hotspots.HotspotSetName] section followed by properties with lists of hotspots. The property names don't actually matter in this case, as long as they are each unique, and each property can list several hotspots. For example:
+Hotspot Arrays are defined much like Key Bind Arrays - a list of Hotspots with the same name but just different number on the end, starting with 1, like so:
 
     [Layer.LootMode]
     Hotspots = LootWindow, Disable Standard
 
-    [Hotspots.LootWindow]
-    1=32x240, 32x281, 32x322, 32x363, 32x404, 32x445, 32x486, 32x527
-    B=74x240, 74x281, 74x322, 74x363, 74x404, 74x445, 74x486, 74x527
-
-
+    [Hotspots]
+    LootWindow1=32x240
+    LootWindow2=32x281
+    LootWindow3=32x322
+    ...
+*Multiple elements of a Hotspot Array can be defined at once to make it easier to add or adjust a whole array quickly. More on this in the later section "Hotspot Array and Copy Icon ranges".*
 
 ### Layer Parent= property
 
@@ -706,19 +707,56 @@ These copy-from coordinates work like Hotspots and can include anchor, fixed off
 
 ### Key Bind Array HUD Elements
 
-Two special HUD element types offset their visual position to named Hotspots with the same name as Key Bind Array elements. These use ``Type = KeyBindArrayLast`` and ``Type = KeyBindArrayDefault`` and must also have a special property to specify which Key Bind Array and hotspots to use, such as ``KeyBindArray = TargetGroup``. 
+Two special HUD element types offset their visual position to match those in a Hotspot Array with the same name as the Key Bind Array. These use ``Type = KeyBindArrayLast`` and ``Type = KeyBindArrayDefault`` and must also have a special property to specify which Key Bind Array / Hotspot Array to use, such as ``KeyBindArray = TargetGroup``. 
 
 ``Type=KeyBindArrayLast`` will change to the position matching the last used key bind from the array. ``Type=KeyBindArrayDefault`` will change to the position of the set *default* key bind of the array (initially the first item in the array, but can be changed with the ``=Set <KeyBindArrayName> Default`` command).
 
-For these to work, make sure to add hotspots in the ``[Hotspots]`` section with the same name as each key bind name. These will specify a position offset this HUD element should jump to when either the *Last* or *Default* key bind array index is changed.
+For these to work, make sure to create a Hotspot Array in ``[Hotspots]`` section with the same name and range of numbers as the key bind array. These will specify a on offset from this HUD element's base position that it should jump to when either the *Last* or *Default* key bind array index is changed.
 
-## Other Commands
+## Other Commands and Features
 
 In addition to keyboard and mouse input and commands for adding/removing layers and managing menus, there are some other special-case commands you can assign to gamepad buttons and menu items.
 
 These includes commands for controlling the overlay app itself, such as ``=Change Profile`` to bring up the Profile selection dialog or ``=Quit App`` to shut down the overlay application.
 
-## Other system features
+### Hotspot Array and Copy Icon ranges
+
+When defining Hotspot Arrays and regions to copy from a game window to use as icons, it can be a pain to change every individual hotspot/icon associated with in-game UI window when you want to move that UI window in the game. To help with this, these elements can use a base *anchor* element with the other elements defined as just *offsets* to the anchor, meaning they can all be moved at once by only moving the anchor.
+
+To create an anchor, define a hotspot or icon with no number after its name. At that point, any hotspots or other copy-from-target icons with the same name but with a number at the end of the name will be treated as an offset (in the case of icons you must also leave off the width and height for the offset versions). For example:
+
+    [Hotspots]
+    LootWindow = 32x240
+    LootWindow1 = +0, +0
+    # Will actually be at 32x281
+    LootWindow2 = +0, +41
+
+    [Icons]
+    Spell = 17, 7, 36, 28
+    Spell1 = +0, +0
+    # Will actually copy from 17, 36, 36, 28
+    Spell2 = +0, +29
+
+In addition, to save on typing you can specify multiple hotspot/icon offsets in a single line by using the format ``Name##-##``, with the first number being the first index in the array and the number after the ``-`` being the last index in the array. When using this format, each element in the range (including the first) will be offset from *the previous element in the array*, and ignore the base anchor position (in fact, you do not need to define a base anchor position at all in this case). For example:
+
+    [Hotspots]
+    LootWindow = 32x240
+    # Define 8-tall left column starting at 32x240 then each 41 apart in Y
+    LootWindow1 = +0 x +0
+    LootWindow2-8 = +0 x +41
+    # Define right column @ 73x240 then 41 each in Y
+    LootWindow9 = +41 x +0
+    LootWindow10-16 = +0 x +41
+
+    [Icons]
+    # Copy from a column of 8 spell icons 29 apart in Y
+    Spell1 = 17, 7, 36, 28
+    Spell2-8 = +0, +29
+
+
+*Note that the + signs in front of each number for the offsets don't do anything, I just put them there to help remind me that these are offsets rather than direct positions.*
+
+### System features
 
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD elements can actually show up over top of the game.
 

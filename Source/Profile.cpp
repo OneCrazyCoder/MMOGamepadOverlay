@@ -307,7 +307,7 @@ static void parseINI(
 				switch(c)
 				{
 				case ']':
-					aNewCategory = trim(aNewCategory);
+					aNewCategory = condense(aNewCategory);
 					if( !aNewCategory.empty() )
 						aCategory.swap(aNewCategory);
 					// fall through
@@ -315,9 +315,9 @@ static void parseINI(
 					aState = ePIState_Whitespace;
 					break;
 				default:
-					// Categories are all upper-case and no spaces/etc
-					if( c > ' ' && c != '-' && c != '_' && c != '/' )
-						aNewCategory.push_back(toupper(c));
+					// Do not allow '/' in category names
+					if( c != '/' )
+						aNewCategory.push_back(c);
 				}
 				break;
 
@@ -325,7 +325,7 @@ static void parseINI(
 				// Look for '=' to end key
 				if( c == '=' )
 				{// Switch from parsing key to value
-					aKey = trim(aKey);
+					aKey = condense(aKey);
 					aState = ePIState_Value;
 					aValue.clear();
 				}
@@ -333,9 +333,9 @@ static void parseINI(
 				{// Abort - invalid key
 					aState = ePIState_Whitespace;
 				}
-				else if( c > ' ' && c != '-' && c != '_' && c != '/' )
-				{// Keys are all upper-case and no spaces/etc
-					aKey.push_back(toupper(c));
+				else if( c != '/' )
+				{// Do not allow '/' in key names
+					aKey.push_back(c);
 				}
 				break;
 

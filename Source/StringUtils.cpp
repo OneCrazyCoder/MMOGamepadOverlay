@@ -130,12 +130,14 @@ std::string condense(const std::string& theString)
 	std::string aString;
 	aString.reserve(theString.size());
 
+	bool allowDash = true;
 	for(size_t i = 0; i < theString.length(); ++i)
 	{
 		if( (unsigned)theString[i] > ' ' && theString[i] != '_' &&
-			(theString[i] != '-' || i == 0) )
+			(theString[i] != '-' || allowDash) )
 		{
 			aString += (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
+			allowDash = theString[i] >= '0' && theString[i] <= '9';
 		}
 	}
 

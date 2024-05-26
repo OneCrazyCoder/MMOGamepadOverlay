@@ -1413,18 +1413,18 @@ static void updateHUDStateForCurrentLayers()
 	}
 }
 
-static void updateHotspotSetsForCurrentLayers()
+static void updateHotspotArraysForCurrentLayers()
 {
-	BitVector<> aHotspotSetsEnabled;
-	aHotspotSetsEnabled.clearAndResize(InputMap::hotspotSetCount());
+	BitVector<> aHotspotArraysEnabled;
+	aHotspotArraysEnabled.clearAndResize(InputMap::hotspotArrayCount());
 	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 	{
-		aHotspotSetsEnabled |=
-			InputMap::hotspotSetsToEnable(sState.layerOrder[i]);
-		aHotspotSetsEnabled &=
-			~InputMap::hotspotSetsToDisable(sState.layerOrder[i]);
+		aHotspotArraysEnabled |=
+			InputMap::hotspotArraysToEnable(sState.layerOrder[i]);
+		aHotspotArraysEnabled &=
+			~InputMap::hotspotArraysToDisable(sState.layerOrder[i]);
 	}
-	HotspotMap::setEnabledHotspotSets(aHotspotSetsEnabled);
+	HotspotMap::setEnabledHotspotArrays(aHotspotArraysEnabled);
 }
 
 
@@ -1541,7 +1541,7 @@ void update()
 	{
 		loadButtonCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
-		updateHotspotSetsForCurrentLayers();
+		updateHotspotArraysForCurrentLayers();
 		updateMouseModeForCurrentLayers();
 		#ifndef NDEBUG
 		std::string aNewLayerOrder("Layers: ");

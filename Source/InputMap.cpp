@@ -29,19 +29,18 @@ const char* kLayerPrefix = "Layer.";
 const char kComboLayerDeliminator = '+';
 const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
-const char* kHotspotSetPrefix = "Hotspots.";
 const char* kTypeKeys[] = { "Type", "Style" };
 const char* kDisplayNameKeys[] = { "Label", "Title", "Name", "String" };
 const char* kKBArrayKeys[] = { "KeyBindArray", "Array", "KeyBinds" };
 const char* kKeybindsPrefix = "KeyBinds/";
-const char* kGlobalHotspotsPrefix = "Hotspots/";
+const char* kHotspotsPrefix = "Hotspots/";
 const char* k4DirMenuItemLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
 DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 
 // These need to be in all upper case
 const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
-const char* kHotspotSetsKey = "HOTSPOTS";
+const char* kHotspotArraysKey = "HOTSPOTS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
 const char* kMenuOpenKey = "AUTO";
@@ -159,7 +158,7 @@ struct ControlsLayer
 	{}
 };
 
-struct HotspotSet
+struct HotspotArray
 {
 	std::string label;
 	u16 first, last;
@@ -174,7 +173,7 @@ struct InputMapBuilder
 	StringToValueMap<Command> commandAliases;
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
-	StringToValueMap<u16> hotspotSetNameToIdxMap;
+	StringToValueMap<u16> hotspotArrayNameToIdxMap;
 	StringToValueMap<u16> layerNameToIdxMap;
 	StringToValueMap<u16> comboLayerNameToIdxMap;
 	StringToValueMap<u16> hudNameToIdxMap;
@@ -189,7 +188,7 @@ struct InputMapBuilder
 //-----------------------------------------------------------------------------
 
 static std::vector<Hotspot> sHotspots;
-static std::vector<HotspotSet> sHotspotSets;
+static std::vector<HotspotArray> sHotspotArrays;
 static std::vector<std::string> sKeyStrings;
 static std::vector<KeyBindArray> sKeyBindArrays;
 static std::vector<ControlsLayer> sLayers;
@@ -197,7 +196,6 @@ static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
-static u16 sNamedHotspotCount = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -1720,9 +1718,9 @@ static Command stringToCommand(
 }
 
 
-static void buildNamedHotspots(InputMapBuilder& theBuilder)
+static void buildHotspots(InputMapBuilder& theBuilder)
 {
-	mapDebugPrint("Assigning named hotspots...\n");
+	mapDebugPrint("Assigning hotspots...\n");
 	sHotspots.resize(eSpecialHotspot_Num);
 	// sHotspots[0] is reserved as eSpecialHotspot_None
 	// The hotspotNameToIdxMap maps to this for "filler" words between
@@ -1746,12 +1744,44 @@ static void buildNamedHotspots(InputMapBuilder& theBuilder)
 		theBuilder.hotspotNameToIdxMap.setValue(kSpecialHotspotNames[i], i);
 	}
 
+	// Parse normal hotspots and pick out any that might be arrays
 	DBG_ASSERT(theBuilder.keyValueList.empty());
-	Profile::getAllKeys(kGlobalHotspotsPrefix, theBuilder.keyValueList);
+	Profile::getAllKeys(kHotspotsPrefix, theBuilder.keyValueList);
 	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
 	{
 		std::string aHotspotName = theBuilder.keyValueList[i].first;
 		std::string aHotspotDescription = theBuilder.keyValueList[i].second;
+
+		// Check if might be part of a hotspot array
+		const int anArrayIdx = breakOffIntegerSuffix(aHotspotName);
+		if( anArrayIdx > 0 )
+		{
+			int aStartArrayIdx = anArrayIdx;
+			std::string aHotspotArrayName = aHotspotName;
+			if( aHotspotArrayName[aHotspotArrayName.size()-1] == '-' )
+			{// Part of a range of hotspots, like HotspotName2-8
+				aHotspotArrayName.resize(aHotspotArrayName.size()-1);
+				aStartArrayIdx = breakOffIntegerSuffix(aHotspotArrayName);
+			}
+			if( anArrayIdx >= aStartArrayIdx && !aHotspotArrayName.empty() )
+			{
+				u16& aHotspotArrayIdx = theBuilder.hotspotArrayNameToIdxMap
+					.findOrAdd(aHotspotArrayName, u16(sHotspotArrays.size()));
+				if( aHotspotArrayIdx >= sHotspotArrays.size() )
+				{
+					HotspotArray anEntry;
+					anEntry.label  = aHotspotArrayName;
+					anEntry.first = anEntry.last = 0;
+					sHotspotArrays.push_back(anEntry);
+				}
+				sHotspotArrays[aHotspotArrayIdx].last = max(
+					sHotspotArrays[aHotspotArrayIdx].last,
+					anArrayIdx);
+				continue;
+			}
+			// Doesn't seem to be part of a valid array, so restore name
+			aHotspotName = theBuilder.keyValueList[i].first;
+		}
 
 		u16& aHotspotIdx = theBuilder.hotspotNameToIdxMap.findOrAdd(
 			aHotspotName, u16(sHotspots.size()));
@@ -1767,78 +1797,173 @@ static void buildNamedHotspots(InputMapBuilder& theBuilder)
 		}
 	}
 	theBuilder.keyValueList.clear();
-	sNamedHotspotCount = u16(sHotspots.size());
-}
 
-
-static u16 getOrCreateHotspotSet(
-	InputMapBuilder& theBuilder,
-	const std::string& theName)
-{
-	DBG_ASSERT(!theName.empty());
-
-	// Check if already exists, and if so return the ID
-	u16 aHotspotSetID = theBuilder.hotspotSetNameToIdxMap.findOrAdd(
-		upper(theName), u16(sHotspotSets.size()));
-	if( aHotspotSetID < sHotspotSets.size() )
-		return aHotspotSetID;
-
-	// Attempt to create the hotspot set
-	mapDebugPrint("Building Hotspot Set: %s\n", theName.c_str());
-
-	HotspotSet aNewSet;
-	aNewSet.label = theName;
-	aNewSet.first = u16(sHotspots.size());
-	aNewSet.last = 0;
-	const std::string& aHotspotSetPath =
-		std::string(kHotspotSetPrefix) + theName + "/";
-	DBG_ASSERT(theBuilder.keyValueList.empty());
-	Profile::getAllKeys(aHotspotSetPath, theBuilder.keyValueList);
-	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
+	// Fill in the hotspot arrays
+	for(size_t aHSA_ID = 0; aHSA_ID < sHotspotArrays.size(); ++aHSA_ID)
 	{
-		std::string aHotspotList = theBuilder.keyValueList[i].second;
-		Hotspot aHotspot;
-		while(!aHotspotList.empty())
+		HotspotArray& aHotspotArray = sHotspotArrays[aHSA_ID];
+		mapDebugPrint("Building Hotspot Array %s\n", aHotspotArray.label);
+		Hotspot anAnchor;
+		u16* anAnchorIdx = theBuilder.hotspotNameToIdxMap.
+			find(aHotspotArray.label);
+		if( anAnchorIdx )
+			anAnchor = sHotspots[*anAnchorIdx];
+		// Allocate enough hotspots for the array
+		const u16 aHotspotArrayCount = aHotspotArray.last;
+		aHotspotArray.first = u16(sHotspots.size());
+		sHotspots.resize(aHotspotArray.first + aHotspotArrayCount);
+		aHotspotArray.last = u16(sHotspots.size()-1);
+		u16 aNextArrayIdx = 1;
+		while(aNextArrayIdx <= aHotspotArrayCount)
 		{
-			EResult aResult =
-				HotspotMap::stringToHotspot(aHotspotList, aHotspot);
-			if( aResult == eResult_Ok )
+			u16 aHotspotID =
+				aHotspotArray.first + aNextArrayIdx - 1;
+			std::string aHotspotName =
+				aHotspotArray.label + toString(aNextArrayIdx);
+			theBuilder.hotspotNameToIdxMap.setValue(
+				aHotspotName, aHotspotID);
+			std::string aHotspotValue = Profile::getStr(
+				std::string(kHotspotsPrefix) + aHotspotName);
+			if( !aHotspotValue.empty() )
 			{
-				aNewSet.last = u16(sHotspots.size());
-				sHotspots.push_back(aHotspot);
-			}
-			else if( aResult == eResult_Empty )
-			{
-				aHotspotList.clear();
+				std::string aHotspotDesc = aHotspotValue;
+				EResult aResult = HotspotMap::stringToHotspot(
+					aHotspotDesc, sHotspots[aHotspotID]);
+				if( aResult == eResult_Malformed )
+				{
+					logError(
+						"Hotspot %s: Could not decipher hotspot position '%s'",
+						aHotspotName.c_str(),
+						aHotspotValue.c_str());
+				}
+				if( sHotspots[aHotspotID].x.anchor == 0 &&
+					sHotspots[aHotspotID].y.anchor == 0 )
+				{// Offset by anchor hotspot
+					sHotspots[aHotspotID].x.anchor += anAnchor.x.anchor;
+					sHotspots[aHotspotID].y.anchor += anAnchor.y.anchor;
+					sHotspots[aHotspotID].x.offset += anAnchor.x.offset;
+					sHotspots[aHotspotID].y.offset += anAnchor.y.offset;
+					sHotspots[aHotspotID].x.scaled += anAnchor.x.scaled;
+					sHotspots[aHotspotID].y.scaled += anAnchor.y.scaled;
+				}
+				++aNextArrayIdx;
 			}
 			else
 			{
-				logError(
-					"Malformed hotspot list entry [%s%s]/%s=",
-					kHotspotSetPrefix,
-					theName.c_str(),
-					theBuilder.keyValueList[i].first);
-				aHotspotList.clear();
+				// Attempt to find as part of a range of hotspots
+				Profile::getAllKeys(
+					std::string(kHotspotsPrefix)+aHotspotName+'-',
+					theBuilder.keyValueList);
+				if( theBuilder.keyValueList.empty() )
+				{
+					logError(
+						"Hotspot Array %s missing hotspot entry #%d",
+						aHotspotArray.label.c_str(),
+						aNextArrayIdx);
+					++aNextArrayIdx;
+				}
+				else if( theBuilder.keyValueList.size() > 1 )
+				{
+					logError(
+						"Hotspot Array %s has overlapping ranges "
+						"starting with %d\n",
+						aHotspotArray.label.c_str(),
+						aNextArrayIdx);
+					++aNextArrayIdx;
+				}
+				else
+				{
+					std::string aHotspotDesc = theBuilder.keyValueList[0].second;
+					Hotspot aDeltaHotspot;
+					EResult aResult = HotspotMap::stringToHotspot(
+						aHotspotDesc, aDeltaHotspot);
+					if( aResult == eResult_Malformed )
+					{
+						logError(
+							"Hotspot %s: Could not decipher offsets '%s'",
+							aHotspotName.c_str(),
+							theBuilder.keyValueList[0].second);
+						aDeltaHotspot = Hotspot();
+					}
+					int aLastIdx =
+						intFromString(theBuilder.keyValueList[0].first);
+					for(; aNextArrayIdx <= aLastIdx; ++aNextArrayIdx )
+					{
+						aHotspotID =
+							aHotspotArray.first + aNextArrayIdx - 1;
+						aHotspotName =
+							aHotspotArray.label + toString(aNextArrayIdx);
+						theBuilder.hotspotNameToIdxMap.setValue(
+							aHotspotName, aHotspotID);
+						Hotspot& aPrevEntry = sHotspots[aHotspotID-1];
+						sHotspots[aHotspotID].x.anchor = aPrevEntry.x.anchor;
+						sHotspots[aHotspotID].y.anchor = aPrevEntry.y.anchor;
+						sHotspots[aHotspotID].x.offset =
+							aPrevEntry.x.offset + aDeltaHotspot.x.offset;
+						sHotspots[aHotspotID].y.offset =
+							aPrevEntry.y.offset + aDeltaHotspot.y.offset;
+						sHotspots[aHotspotID].x.scaled =
+							aPrevEntry.x.scaled + aDeltaHotspot.x.scaled;
+						sHotspots[aHotspotID].y.scaled =
+							aPrevEntry.y.scaled + aDeltaHotspot.y.scaled;
+					}
+				}
+				theBuilder.keyValueList.clear();
 			}
 		}
 	}
-	theBuilder.keyValueList.clear();
+}
 
-	if( aNewSet.last > 0 )
-	{
-		sHotspotSets.push_back(aNewSet);
-	}
-	else
-	{
-		logError(
-			"Could not find any valid '[%s%s] hotspots "
-			"for hotspot set referenced by [%s]! ",
-			kHotspotSetPrefix,
-			theName.c_str(),
-			theBuilder.debugItemName.c_str());
-	}
 
-	return aHotspotSetID;
+static void buildHotspotArraysForLayer(
+	InputMapBuilder& theBuilder,
+	u16 theLayerID,
+	const std::string& theLayerHotspotsDesc)
+{
+	DBG_ASSERT(!theLayerHotspotsDesc.empty());
+
+	sLayers[theLayerID].enableHotspots.clearAndResize(sHotspotArrays.size());
+	sLayers[theLayerID].disableHotspots.clearAndResize(sHotspotArrays.size());
+
+	// Break the string into individual words
+	theBuilder.parsedString.clear();
+	sanitizeSentence(theLayerHotspotsDesc, theBuilder.parsedString);
+
+	bool enable = true;
+	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+	{
+		const std::string& aName = theBuilder.parsedString[i];
+		const std::string& aUpperName = upper(aName);
+		if( aUpperName == "HIDE" || aUpperName == "DISABLE" )
+		{
+			enable = false;
+			continue;
+		}
+		if( aUpperName == "SHOW" || aUpperName == "ENABLE" )
+		{
+			enable = true;
+			continue;
+		}
+		if( commandWordToID(aUpperName) == eCmdWord_Filler )
+			continue;
+		if( u16* aHotspotArrayID =
+				theBuilder.hotspotArrayNameToIdxMap.find(aUpperName) )
+		{
+			sLayers[theLayerID].enableHotspots.set(*aHotspotArrayID, enable);
+			sLayers[theLayerID].disableHotspots.set(*aHotspotArrayID, !enable);
+			// Set better name for the hotspot array than default all-uppercase
+			sHotspotArrays[*aHotspotArrayID].label = aName;
+		}
+		else
+		{
+			logError(
+				"Could not find Hotspot Array '%s' "
+				"referenced by [%s]/Hotspots = %s",
+				aName.c_str(),
+				theBuilder.debugItemName.c_str(),
+				theLayerHotspotsDesc.c_str());
+		}
+	}
 }
 
 
@@ -2180,6 +2305,10 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		sLayers[theLayerIdx].mouseMode =
 			sLayers[anIncludeLayer].mouseMode;
+		sLayers[theLayerIdx].enableHotspots =
+			sLayers[anIncludeLayer].enableHotspots;
+		sLayers[theLayerIdx].disableHotspots =
+			sLayers[anIncludeLayer].disableHotspots;
 		sLayers[theLayerIdx].parentLayer =
 			sLayers[anIncludeLayer].parentLayer;
 	}
@@ -2235,6 +2364,13 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			sLayers[theLayerIdx].mouseMode == eMouseMode_Look ? "Mouse Look" :
 			sLayers[theLayerIdx].mouseMode == eMouseMode_Hide ? "Hidden" :
 			/*otherwise*/ "Hidden OR Mouse Look" );
+	}
+
+	{// Get hotspot arrays setting directly
+		const std::string& aHotspotsStr =
+			Profile::getStr(aLayerPrefix + kHotspotArraysKey);
+		if( !aHotspotsStr.empty() )
+			buildHotspotArraysForLayer(theBuilder, theLayerIdx, aHotspotsStr);
 	}
 
 	{// Get parent layer setting directly
@@ -2306,7 +2442,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			aKey == kParentLayerKey ||
 			aKey == kMouseModeKey ||
 			aKey == kHUDSettingsKey ||
-			aKey == kHotspotSetsKey )
+			aKey == kHotspotArraysKey )
 			continue;
 
 		// Parse and add assignment to this layer's commands map
@@ -2812,92 +2948,6 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 }
 
 
-static void buildHotspotSetsForLayer(
-	InputMapBuilder& theBuilder,
-	u16 theLayerID)
-{
-	if( theBuilder.elementsProcessed.test(theLayerID) )
-		return;
-	theBuilder.elementsProcessed.set(theLayerID);
-	theBuilder.debugItemName.clear();
-	if( theLayerID != 0 )
-		theBuilder.debugItemName = kLayerPrefix;
-	theBuilder.debugItemName += sLayers[theLayerID].label;
-	sLayers[theLayerID].enableHotspots.clearAndResize(sHUDElements.size());
-	sLayers[theLayerID].disableHotspots.clearAndResize(sHUDElements.size());
-	std::string aLayerHotspotsKey = sLayers[theLayerID].label;
-	if( theLayerID == 0 )
-		aLayerHotspotsKey += "/";
-	else
-		aLayerHotspotsKey = std::string(kLayerPrefix)+aLayerHotspotsKey+"/";
-	aLayerHotspotsKey += kHotspotSetsKey;
-	std::string aLayerHotspotsDesc = Profile::getStr(aLayerHotspotsKey);
-
-	if( aLayerHotspotsDesc.empty() )
-	{// Use include layer's settings, if have one
-		if( sLayers[theLayerID].includeLayer > 0 )
-		{
-			buildHotspotSetsForLayer(
-				theBuilder, sLayers[theLayerID].includeLayer);
-			sLayers[theLayerID].enableHotspots =
-				sLayers[sLayers[theLayerID].includeLayer].enableHotspots;
-			sLayers[theLayerID].disableHotspots =
-				sLayers[sLayers[theLayerID].includeLayer].disableHotspots;
-		}
-		return;
-	}
-
-	// Break the string into individual words
-	theBuilder.parsedString.clear();
-	sanitizeSentence(aLayerHotspotsDesc, theBuilder.parsedString);
-
-	bool enable = true;
-	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
-	{
-		const std::string& aSetName = theBuilder.parsedString[i];
-		const std::string& aSetUpperName = upper(aSetName);
-		if( aSetUpperName == "HIDE" || aSetUpperName == "DISABLE" )
-		{
-			enable = false;
-			continue;
-		}
-		if( aSetUpperName == "SHOW" || aSetUpperName == "ENABLE" )
-		{
-			enable = true;
-			continue;
-		}
-		if( commandWordToID(aSetUpperName) == eCmdWord_Filler )
-			continue;
-		u16 aHotspotSetID = getOrCreateHotspotSet(
-			theBuilder, aSetName);
-		if( aHotspotSetID < sHotspotSets.size() )
-		{
-			sLayers[theLayerID].enableHotspots.resize(sHotspotSets.size());
-			sLayers[theLayerID].enableHotspots.set(aHotspotSetID, enable);
-			sLayers[theLayerID].disableHotspots.resize(sHotspotSets.size());
-			sLayers[theLayerID].disableHotspots.set(aHotspotSetID, !enable);
-		}
-	}
-}
-
-
-static void buildHotspotSets(InputMapBuilder& theBuilder)
-{
-	// Process the "Hotspots=" key for each layer
-	theBuilder.elementsProcessed.clearAndResize(sLayers.size());
-	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
-		buildHotspotSetsForLayer(theBuilder, aLayerID);
-
-	// Now that all the hotspot sets are created, can set each
-	// layer's enableHotspots and disableHotspots sizes correctly
-	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
-	{
-		sLayers[aLayerID].enableHotspots.resize(sHotspotSets.size());
-		sLayers[aLayerID].disableHotspots.resize(sHotspotSets.size());
-	}
-}
-
-
 static void assignSpecialKeys(InputMapBuilder& theBuilder)
 {
 	for(size_t i = 0; i < eSpecialKey_Num; ++i)
@@ -2958,7 +3008,7 @@ void loadProfile()
 {
 	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
 	sHotspots.clear();
-	sHotspotSets.clear();
+	sHotspotArrays.clear();
 	sKeyStrings.clear();
 	sKeyBindArrays.clear();
 	sLayers.clear();
@@ -2969,20 +3019,19 @@ void loadProfile()
 	// Create temp builder object and build everything from the Profile data
 	{
 		InputMapBuilder anInputMapBuilder;
-		buildNamedHotspots(anInputMapBuilder);
+		buildHotspots(anInputMapBuilder);
 		buildCommandAliases(anInputMapBuilder);
 		buildControlScheme(anInputMapBuilder);
 		buildMenus(anInputMapBuilder);
 		buildHUDElements(anInputMapBuilder);
-		buildHotspotSets(anInputMapBuilder);
 		assignSpecialKeys(anInputMapBuilder);
 	}
 
 	// Trim unused memory
 	if( sHotspots.size() < sHotspots.capacity() )
 		std::vector<Hotspot>(sHotspots).swap(sHotspots);
-	if( sHotspotSets.size() < sHotspotSets.capacity() )
-		std::vector<HotspotSet>(sHotspotSets).swap(sHotspotSets);
+	if( sHotspotArrays.size() < sHotspotArrays.capacity() )
+		std::vector<HotspotArray>(sHotspotArrays).swap(sHotspotArrays);
 	if( sKeyBindArrays.size() < sKeyBindArrays.capacity() )
 		std::vector<KeyBindArray>(sKeyBindArrays).swap(sKeyBindArrays);
 	if( sKeyStrings.size() < sKeyStrings.capacity() )
@@ -3132,14 +3181,14 @@ const BitVector<>& hudElementsToHide(u16 theLayerID)
 }
 
 
-const BitVector<>& hotspotSetsToEnable(u16 theLayerID)
+const BitVector<>& hotspotArraysToEnable(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers[theLayerID].enableHotspots;
 }
 
 
-const BitVector<>& hotspotSetsToDisable(u16 theLayerID)
+const BitVector<>& hotspotArraysToDisable(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers[theLayerID].disableHotspots;
@@ -3217,17 +3266,17 @@ const Hotspot& getHotspot(u16 theHotspotID)
 }
 
 
-u16 getFirstHotspotInSet(u16 theHotspotSetID)
+u16 firstHotspotInArray(u16 theHotspotArrayID)
 {
-	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
-	return sHotspotSets[theHotspotSetID].first;
+	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
+	return sHotspotArrays[theHotspotArrayID].first;
 }
 
 
-u16 getLastHotspotInSet(u16 theHotspotSetID)
+u16 lastHotspotInArray(u16 theHotspotArrayID)
 {
-	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
-	return sHotspotSets[theHotspotSetID].last;
+	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
+	return sHotspotArrays[theHotspotArrayID].last;
 }
 
 
@@ -3327,21 +3376,15 @@ u16 menuItemCount(u16 theMenuID)
 }
 
 
-u16 namedHotspotCount()
-{
-	return sNamedHotspotCount;
-}
-
-
-u16 totalHotspotCount()
+u16 hotspotCount()
 {
 	return u16(sHotspots.size());
 }
 
 
-u16 hotspotSetCount()
+u16 hotspotArrayCount()
 {
-	return u16(sHotspotSets.size());
+	return u16(sHotspotArrays.size());
 }
 
 
@@ -3352,10 +3395,10 @@ const std::string& layerLabel(u16 theLayerID)
 }
 
 
-const std::string& hotspotSetLabel(u16 theHotspotSetID)
+const std::string& hotspotArrayLabel(u16 theHotspotArrayID)
 {
-	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
-	return sHotspotSets[theHotspotSetID].label;
+	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
+	return sHotspotArrays[theHotspotArrayID].label;
 }
 
 
