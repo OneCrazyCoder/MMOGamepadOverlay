@@ -2979,7 +2979,7 @@ static void assignSpecialKeys(InputMapBuilder& theBuilder)
 }
 
 
-void setCStringPointerFor(Command* theCommand)
+static void setCStringPointerFor(Command* theCommand)
 {
 	// Important that the raw string pointer set here is no longer held
 	// past anything happening to sKeyStrings vector (being resized/etc)

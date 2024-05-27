@@ -948,7 +948,7 @@ static void loadProfile(int theProfilesCanLoadIdx)
 }
 
 
-void setAutoLoadProfile(int theProfilesCanLoadIdx)
+static void setAutoLoadProfile(int theProfilesCanLoadIdx)
 {
 	if( theProfilesCanLoadIdx == sAutoProfileIdx )
 		return;

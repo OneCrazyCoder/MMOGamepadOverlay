@@ -425,7 +425,7 @@ static UINT_PTR CALLBACK targetAppPathProc(
 }
 
 
-INT_PTR CALLBACK licenseDialogProc(
+static INT_PTR CALLBACK licenseDialogProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
 	switch(theMessage)

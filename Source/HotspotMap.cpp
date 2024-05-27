@@ -94,7 +94,7 @@ static u32 sBestCandidateWeight = 0xFFFFFFFF;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-void processTargetSizeTask()
+static void processTargetSizeTask()
 {
 	if( sTaskProgress < sPoints.size() )
 	{
@@ -121,7 +121,7 @@ void processTargetSizeTask()
 }
 
 
-void processActiveArraysTask()
+static void processActiveArraysTask()
 {
 	const size_t aHotspotArrayCount = InputMap::hotspotArrayCount();
 	while( sTaskProgress < aHotspotArrayCount )
@@ -165,7 +165,7 @@ void processActiveArraysTask()
 }
 
 
-void processAddToGridTask()
+static void processAddToGridTask()
 {
 	if( sTaskProgress == 0 )
 	{
@@ -199,7 +199,7 @@ void processAddToGridTask()
 }
 
 
-void processBeginSearchTask()
+static void processBeginSearchTask()
 {
 	if( sTaskProgress == 0 )
 	{
@@ -235,7 +235,7 @@ void processBeginSearchTask()
 }
 
 
-void processFetchGridTask(u8 theFetchGridIdx)
+static void processFetchGridTask(u8 theFetchGridIdx)
 {
 	DBG_ASSERT(theFetchGridIdx < ARRAYSIZE(sFetchGrid));
 	const u32 aGridX = sFetchGrid[theFetchGridIdx].x;
@@ -266,7 +266,7 @@ void processFetchGridTask(u8 theFetchGridIdx)
 }
 
 
-void processNextLeftTask()
+static void processNextLeftTask()
 {
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
@@ -302,7 +302,7 @@ void processNextLeftTask()
 }
 
 
-void processNextRightTask()
+static void processNextRightTask()
 {
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
@@ -338,7 +338,7 @@ void processNextRightTask()
 }
 
 
-void processNextUpTask()
+static void processNextUpTask()
 {
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
@@ -374,7 +374,7 @@ void processNextUpTask()
 }
 
 
-void processNextDownTask()
+static void processNextDownTask()
 {
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
@@ -410,7 +410,7 @@ void processNextDownTask()
 }
 
 
-void processTasks()
+static void processTasks()
 {
 	// Start new task or restart current if needed
 	const int aNewTask = sNewTasks.firstSetBit();
@@ -775,6 +775,9 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			case eMode_ScaledSign:
 			case eMode_ScaledSpace:
 				// Allowed whitespace, ignore
+				break;
+			case eMode_PrefixEnd:
+				aMode = eMode_OffsetSign;
 				break;
 			case eMode_Denominator:
 				aMode = eMode_OffsetSign;

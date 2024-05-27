@@ -21,6 +21,16 @@ namespace WindowManager
 const wchar_t* kMainWindowClassName = L"MMOGO Main";
 const wchar_t* kOverlayWindowClassName = L"MMOGO Overlay";
 
+enum EIconCopyMethod
+{
+	eIconCopyMethod_Desktop,
+	eIconCopyMethod_TargetWindow,
+	eIconCopyMethod_ExcludeFromCapture,
+	//eIconCopyMethod_PaintSingleWindow,
+
+	eIconCopyMethod_Num
+};
+
 enum EFadeState
 {
 	eFadeState_Hidden,
@@ -82,6 +92,7 @@ static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
 static RECT sDesktopTargetRect; // relative to virtual desktop
 static RECT sScreenTargetRect; // relative to main screen
 static SIZE sTargetSize = { 0 };
+static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sUseChildWindows = false;
 static bool sHidden = false;
 
@@ -447,8 +458,9 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.hbrBackground = NULL;
 	aWindowClass.hCursor = NULL;
 	aWindowClass.lpszClassName = kOverlayWindowClassName;
+	aWindowClass.lpszMenuName = NULL;
 	RegisterClassExW(&aWindowClass);
-
+	
 	// Create main app window
 	sMainWindow = CreateWindowExW(
 		isMainWindowHidden ? (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_APPWINDOW) : 0,
@@ -477,6 +489,27 @@ void createMain(HINSTANCE theAppInstanceHandle)
 
 void createOverlays(HINSTANCE theAppInstanceHandle)
 {
+	sIconCopyMethod = EIconCopyMethod(
+		clamp(Profile::getInt("System/IconCopyMethod"),
+			1, eIconCopyMethod_Num)-1);
+
+	#ifndef WDA_EXCLUDEFROMCAPTURE
+	#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+	#endif
+	typedef BOOL(WINAPI* PSetWindowDisplayAffinity)(HWND, DWORD);
+	PSetWindowDisplayAffinity pSetWindowDisplayAffinity = NULL;
+	if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture )
+	{
+		HMODULE hUser32 = LoadLibrary(TEXT("User32.dll"));
+		if( hUser32 )
+		{
+			pSetWindowDisplayAffinity = 
+				(PSetWindowDisplayAffinity)GetProcAddress(
+					hUser32, "SetWindowDisplayAffinity");
+			FreeLibrary(hUser32);
+		}
+	}
+
 	DBG_ASSERT(sOverlayWindows.empty());
 	DBG_ASSERT(sOverlayWindowOrder.empty());
 
@@ -513,6 +546,11 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 
 		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, aHUDElementID);
 		aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
+		if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture &&
+			pSetWindowDisplayAffinity )
+		{
+			pSetWindowDisplayAffinity(aWindow.handle, WDA_EXCLUDEFROMCAPTURE);
+		}
 	}
 }
 
@@ -542,7 +580,19 @@ void update()
 {
 	// Update each overlay window as needed
 	HDC aScreenDC = GetDC(NULL);
-	HDC aTargetDC = GetDC(TargetApp::targetWindowHandle());
+	HDC aCaptureDC = NULL;
+	POINT aCaptureOffset = { 0 };
+	if( sIconCopyMethod == eIconCopyMethod_TargetWindow &&
+		TargetApp::targetWindowHandle() )
+	{
+		aCaptureDC = GetDC(TargetApp::targetWindowHandle());
+	}
+	else
+	{
+		aCaptureDC = GetDC(NULL);
+		aCaptureOffset.x = sScreenTargetRect.left;
+		aCaptureOffset.y = sScreenTargetRect.top;
+	}
 	POINT anOriginPoint = { 0, 0 };
 	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
 	{
@@ -615,8 +665,9 @@ void update()
 		if( gRedrawHUD.test(aHUDElementID) )
 		{
 			HUD::drawElement(
-				aWindowDC, aTargetDC, sTargetSize, aHUDElementID,
-				aWindow.componentSize, aWindow.size, needToEraseBitmap);
+				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
+				aHUDElementID, aWindow.componentSize, aWindow.size,
+				needToEraseBitmap);
 			aWindow.updated = false;
 			gRedrawHUD.reset(aHUDElementID);
 		}
@@ -645,8 +696,8 @@ void update()
 		RestoreDC(aWindowDC, aWindowDCInitialState);
 		DeleteDC(aWindowDC);
 	}
+	ReleaseDC(NULL, aCaptureDC);
 	ReleaseDC(NULL, aScreenDC);
-	ReleaseDC(NULL, aTargetDC);
 }
 
 
