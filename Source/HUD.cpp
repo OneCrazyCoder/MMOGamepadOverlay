@@ -189,7 +189,8 @@ struct HUDElementInfo
 struct HUDDrawData
 {
 	HDC hdc;
-	HDC hTargetDC;
+	HDC hCaptureDC;
+	POINT captureOffset;
 	SIZE targetSize;
 	SIZE itemSize;
 	SIZE destSize;
@@ -455,6 +456,29 @@ static COLORREF strToRGB(HUDBuilder& theBuilder, const std::string& theString)
 	const u8 g = u32FromString(theBuilder.parsedString[1]) & 0xFF;
 	const u8 b = u32FromString(theBuilder.parsedString[2]) & 0xFF;
 	return RGB(r, g, b);
+}
+
+
+static Hotspot strToHotspot(
+	const std::string& theString,
+	const std::string& theHUDElementName,
+	const EHUDProperty theHUDProperty)
+{
+	Hotspot result;
+	if( !theString.empty() )
+	{
+		std::string aStr = theString;
+		if( HotspotMap::stringToHotspot(aStr, result) != eResult_Ok )
+		{
+			logError(
+				"Error parsing HUD Element '%s' %s property: '%s' "
+				"- incorrect format?",
+				theHUDElementName.c_str(),
+				kHUDPropStr[theHUDProperty],
+				theString.c_str());
+		}
+	}
+	return result;
 }
 
 
@@ -747,7 +771,7 @@ static void createBitmapIcon(BuildIconEntry& theBuildEntry)
 }
 
 
-void generateBitmapIconMask(BitmapIcon& theIcon, COLORREF theTransColor)
+static void generateBitmapIconMask(BitmapIcon& theIcon, COLORREF theTransColor)
 {
 	BITMAP bm;
 	GetObject(theIcon.image, sizeof(BITMAP), &bm);
@@ -1337,8 +1361,8 @@ static void drawMenuItemLabel(
 		int aDstT = theRect.top;
 		int aDstW = theRect.right - theRect.left;
 		int aDstH = theRect.bottom - theRect.top;
-		int aSrcL = theCacheEntry.copyRect.fromPos.x;
-		int aSrcT = theCacheEntry.copyRect.fromPos.y;
+		int aSrcL = theCacheEntry.copyRect.fromPos.x + dd.captureOffset.x;
+		int aSrcT = theCacheEntry.copyRect.fromPos.y + dd.captureOffset.y;
 		int aSrcW = theCacheEntry.copyRect.fromSize.cx;
 		int aSrcH = theCacheEntry.copyRect.fromSize.cy;
 
@@ -1348,7 +1372,7 @@ static void drawMenuItemLabel(
 				aDstL + (aDstW - aSrcW) / 2,
 				aDstT + (aDstH - aSrcH) / 2,
 				aSrcW, aSrcH,
-				dd.hTargetDC, aSrcL, aSrcT, SRCCOPY);
+				dd.hCaptureDC, aSrcL, aSrcT, SRCCOPY);
 		}
 		else
 		{// Draw stretched, but maintain aspect ratio
@@ -1371,7 +1395,7 @@ static void drawMenuItemLabel(
 			}
 
 			StretchBlt(dd.hdc, aDstL, aDstT, aDstW, aDstH,
-				dd.hTargetDC, aSrcL, aSrcT, aSrcW, aSrcH, SRCCOPY);
+				dd.hCaptureDC, aSrcL, aSrcT, aSrcW, aSrcH, SRCCOPY);
 		}
 		// Queue auto-refresh of this label later if nothing else draws it
 		sAutoRefreshLabels.push_back(AutoRefreshLabelEntry());
@@ -1988,9 +2012,9 @@ void init()
 			}
 		}
 		// hi.position = eHUDProp_Position
-		HotspotMap::stringToHotspot(
+		hi.position = strToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Position),
-			hi.position);
+			aHUDName, eHUDProp_Position);
 		// hi.itemSize = eHUDProp_ItemSize (Menus) or eHUDProp_Size (HUD)
 		const bool isAMenu =
 			hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
@@ -2002,12 +2026,11 @@ void init()
 			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
 		if( aStr.empty() )
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
-		HotspotMap::stringToHotspot(aStr, hi.itemSize);
+		hi.itemSize = strToHotspot(aStr, aHUDName, eHUDProp_ItemSize);
 		// hi.alignmentX/Y = eHUDProp_Alignment
-		Hotspot aTempHotspot;
-		HotspotMap::stringToHotspot(
+		Hotspot aTempHotspot = strToHotspot(
 			getHUDPropStr(aHUDName, eHUDProp_Alignment),
-			aTempHotspot);
+			aHUDName, eHUDProp_Alignment);
 		hi.alignmentX =
 			aTempHotspot.x.anchor < 0x4000	? eAlignment_Min :
 			aTempHotspot.x.anchor > 0xC000	? eAlignment_Max :
@@ -2128,6 +2151,8 @@ void cleanup()
 	sCopyIcons.clear();
 	sLabelIcons.clear();
 	sHUDElementInfo.clear();
+	sErrorMessage.clear();
+	sErrorMessageTimer = 0;
 
 	DeleteDC(sBitmapDrawSrc);
 	sBitmapDrawSrc = NULL;
@@ -2136,7 +2161,7 @@ void cleanup()
 
 void update()
 {
-	// Hande display of error messages and other notices
+	// Handle display of error messages and other notices
 	// eHUDType_System should always be the last HUD element in the list
 	const u16 aSystemElementID = u16(sHUDElementInfo.size() - 1);
 	DBG_ASSERT(sHUDElementInfo[aSystemElementID].type == eHUDType_System);
@@ -2393,7 +2418,8 @@ void updateScaling()
 
 void drawElement(
 	HDC hdc,
-	HDC hTargetDC,
+	HDC hCaptureDC,
+	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
 	u16 theHUDElementID,
 	const SIZE& theComponentSize,
@@ -2405,7 +2431,8 @@ void drawElement(
 
 	HUDDrawData aDrawData = { 0 };
 	aDrawData.hdc = hdc;
-	aDrawData.hTargetDC = hTargetDC;
+	aDrawData.hCaptureDC = hCaptureDC;
+	aDrawData.captureOffset = theCaptureOffset;
 	aDrawData.targetSize = theTargetSize;
 	aDrawData.itemSize = theComponentSize;
 	aDrawData.destSize = theDestSize;

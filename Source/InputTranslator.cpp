@@ -462,7 +462,7 @@ static void addComboLayers(u16 theNewLayerID)
 }
 
 
-void flagOwnedButtonHit(u16 theLayerIdx)
+static void flagOwnedButtonHit(u16 theLayerIdx)
 {
 	if( theLayerIdx == 0 )
 		return;
@@ -1413,6 +1413,7 @@ static void updateHUDStateForCurrentLayers()
 	}
 }
 
+
 static void updateHotspotArraysForCurrentLayers()
 {
 	BitVector<> aHotspotArraysEnabled;
@@ -1460,6 +1461,8 @@ static void updateMouseModeForCurrentLayers()
 void loadProfile()
 {
 	kConfig.load();
+	sState.clear();
+	sResults.clear();
 	loadLayerData();
 	addControlsLayer(0);
 	loadButtonCommandsForCurrentLayers();

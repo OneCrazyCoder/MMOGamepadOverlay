@@ -703,7 +703,7 @@ These copy-from coordinates work like Hotspots and can include anchor, fixed off
     [Icons]
     Spell2 = R-20, 20%+10-5, 5%, 15
 
-*TIP: This copy technique should work even if the copied-from area of the game's window is being covered up by an overlay menu or HUD element, so you can purposefully hide the portion of the game screen you are copying from to avoid having the same icons shown in two places at once on your screen. This only works when the overlay app has successfully identified the target game window with [System]TargetWindowName= though, and not when running in default "desktop mode."*
+*TIP: When using this feature, it may be desirable to have the copied-from area of the game's window be covered up by a HUD element from the overlay to avoid having the same icons show up in two places at once on your screen (the copy in the overlay + the original icon in the game's built-in UI). This requires an alternate copy method that avoids copying from the overlay itself, getting the icon hidden underneath it instead. Which copy method works may differ from game to game. You can set the method using the [System] property "IconCopyMethod". See the comments in MMOGO_Core.ini for details on possible values for this property.*
 
 ### Key Bind Array HUD Elements
 

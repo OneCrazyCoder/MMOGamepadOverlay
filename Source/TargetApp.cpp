@@ -105,7 +105,7 @@ static bool sSwapWindowModeHotkeyRegistered = false;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-void checkWindowExists()
+static void checkWindowExists()
 {
 	if( kConfig.targetWindowName.empty() )
 		return;
@@ -134,7 +134,7 @@ void checkWindowExists()
 }
 
 
-void checkWindowActive()
+static void checkWindowActive()
 {
 	if( !sTargetWindowHandle )
 		return;
@@ -171,7 +171,7 @@ void checkWindowActive()
 }
 
 
-void checkWindowZOrder()
+static void checkWindowZOrder()
 {
 	if( !sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
@@ -206,7 +206,7 @@ void checkWindowZOrder()
 }
 
 
-void checkWindowClosed()
+static void checkWindowClosed()
 {
 	if( !sTargetWindowHandle )
 		return;
@@ -241,7 +241,7 @@ void checkWindowClosed()
 }
 
 
-void checkWindowPosition()
+static void checkWindowPosition()
 {
 	if( !sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
@@ -267,7 +267,7 @@ void checkWindowPosition()
 }
 
 
-void checkWindowMode()
+static void checkWindowMode()
 {
 	if( !kConfig.forceFullScreenWindow ||
 		!sTargetWindowHandle ||
@@ -465,7 +465,7 @@ void checkWindowMode()
 }
 
 
-void checkAppClosed()
+static void checkAppClosed()
 {
 	if( !sTargetAppProcess )
 		return;
