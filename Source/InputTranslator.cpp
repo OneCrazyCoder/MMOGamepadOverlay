@@ -10,6 +10,7 @@
 #include "InputMap.h"
 #include "Menus.h"
 #include "Profile.h"
+#include "WindowManager.h" // readUIScale()
 
 namespace InputTranslator
 {
@@ -655,6 +656,10 @@ static void processCommand(
 	case eCmdType_ChangeProfile:
 		Profile::queryUserForProfile();
 		gReloadProfile = true;
+		break;
+	case eCmdType_UpdateUIScale:
+		// TODO - more with this
+		WindowManager::readUIScale();
 		break;
 	case eCmdType_QuitApp:
 		gShutdown = true;

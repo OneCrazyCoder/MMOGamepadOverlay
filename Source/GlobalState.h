@@ -42,6 +42,5 @@ extern std::vector<u8> gKeyBindArrayDefaultIndex;
 extern BitVector<> gKeyBindArrayLastIndexChanged;
 extern BitVector<> gKeyBindArrayDefaultIndexChanged;
 
-// All Hotspots/Positions/Sizes will be scaled by these values
-extern float gUIScaleX;
-extern float gUIScaleY;
+// All Hotspots/Positions/Sizes will be scaled by this values
+extern double gUIScale;

@@ -169,6 +169,13 @@ struct HUDElementInfo
 	u8 inactiveAlpha;
 	s8 drawPriority;
 
+	struct Scaled
+	{
+		u16 titleHeight;
+		u8 gapSizeX, gapSizeY;
+		u8 radius;
+	} scaled;
+
 	HUDElementInfo() :
 		itemType(eHUDItemType_Rect),
 		fadeInRate(255),
@@ -532,11 +539,11 @@ static inline POINT hotspotToPoint(
 	result.x =
 		LONG(theHotspot.x.anchor) * theTargetSize.cx / 0x10000 +
 		LONG(theHotspot.x.offset) +
-		LONG(theHotspot.x.scaled * gUIScaleX);
+		LONG(theHotspot.x.scaled * gUIScale);
 	result.y =
 		LONG(theHotspot.y.anchor) * theTargetSize.cy / 0x10000 +
 		LONG(theHotspot.y.offset) +
-		LONG(theHotspot.y.scaled * gUIScaleY);
+		LONG(theHotspot.y.scaled * gUIScale);
 	return result;
 }
 
@@ -554,12 +561,22 @@ static inline SIZE hotspotToSize(
 
 
 static LONG hotspotUnscaledValue(
-	Hotspot::Coord& theCoord,
+	const Hotspot::Coord& theCoord,
 	const LONG theMaxValue)
 {
 	return
 		LONG(theCoord.anchor) * theMaxValue / 0x10000 +
 		LONG(theCoord.offset) + LONG(theCoord.scaled);
+}
+
+
+static LONG hotspotAnchorValue(
+	const Hotspot::Coord& theCoord,
+	const LONG theMaxValue)
+{
+	return
+		LONG(theCoord.anchor) * theMaxValue / 0x10000 +
+		LONG(theCoord.offset);
 }
 
 
@@ -605,7 +622,7 @@ static u16 getOrCreateFontID(
 		return result;
 
 	// Create new font
-	const int aFontPointSize = (gUIScaleX + gUIScaleY) * 0.5 *
+	const int aFontPointSize = gUIScale *
 		intFromString(theFontSize);
 	HDC hdc = GetDC(NULL);
 	const int aFontHeight =
@@ -961,7 +978,7 @@ static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
-	int aRadius = hi.radius;
+	int aRadius = hi.scaled.radius;
 	aRadius = min(aRadius, (theRect.right-theRect.left) * 3 / 4);
 	aRadius = min(aRadius, (theRect.bottom-theRect.top) * 3 / 4);
 
@@ -1414,9 +1431,9 @@ static void drawMenuTitle(
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[eAppearanceMode_Normal]];
 	RECT aTitleRect = {
-		hi.radius / 2, 0,
-		dd.destSize.cx - hi.radius / 2,
-		hi.titleHeight };
+		hi.scaled.radius / 2, 0,
+		dd.destSize.cx - hi.scaled.radius / 2,
+		hi.scaled.titleHeight };
 
 	EAlignment alignment = EAlignment(hi.alignmentX);
 	if( hi.itemType != eHUDItemType_Rect )
@@ -1453,7 +1470,7 @@ static void drawMenuTitle(
 	}
 	aBGRect.right = aBGRect.left + aSize;
 	aSize = theCacheEntry.height + 4;
-	aBGRect.bottom = hi.titleHeight;
+	aBGRect.bottom = hi.scaled.titleHeight;
 	aBGRect.top = aBGRect.bottom - aSize;
 	COLORREF oldColor = SetDCBrushColor(dd.hdc, appearance.borderColor);
 	FillRect(dd.hdc, &aBGRect, (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH));
@@ -1492,13 +1509,14 @@ static void drawMenuItem(
 
 	// Label (usually word-wrapped and centered text)
 	RECT aLabelRect = theRect;
-	int aMaxBorderSize = hi.radius / 4;
+	int aMaxBorderSize = hi.scaled.radius / 4;
 	for(int i = 0; i < eAppearanceMode_Num; ++i)
 	{
 		aMaxBorderSize = max(aMaxBorderSize,
 			sAppearances[hi.appearanceID[i]].borderSize);
 	}
-	InflateRect(&aLabelRect, -aMaxBorderSize - 1, -aMaxBorderSize - 1);
+	if( aMaxBorderSize > 0 )
+		InflateRect(&aLabelRect, -aMaxBorderSize - 1, -aMaxBorderSize - 1);
 	drawMenuItemLabel(
 		dd, aLabelRect,
 		theItemIdx,
@@ -1538,8 +1556,8 @@ static void drawListMenu(HUDDrawData& dd)
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.top = hi.titleHeight;
-	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
+	anItemRect.top = hi.scaled.titleHeight;
+	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
@@ -1560,7 +1578,7 @@ static void drawListMenu(HUDDrawData& dd)
 					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
-		anItemRect.top = anItemRect.bottom + hi.gapSizeY;
+		anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
 		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
 
@@ -1612,9 +1630,9 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		if( hi.alignmentX != eAlignment_Max )
 			anAltLabelRect.left = dd.itemSize.cx - aBorderSize;
 		anAltLabelRect.right =
-			anAltLabelRect.left + hi.altLabelWidth + aBorderSize;
+			anAltLabelRect.left + (hi.altLabelWidth * gUIScale) + aBorderSize;
 		anAltLabelRect.top =
-			hi.titleHeight ? hi.titleHeight : aSelectedBorderSize;
+			hasTitle ? hi.scaled.titleHeight : aSelectedBorderSize;
 		anAltLabelRect.bottom = anAltLabelRect.top +
 			dd.itemSize.cy - aSelectedBorderSize * 2;
 		const std::string& anAltLabel =
@@ -1648,7 +1666,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	if( hi.alignmentX == eAlignment_Max )
 		anItemRect.left = dd.destSize.cx - dd.itemSize.cx;
 	anItemRect.right = anItemRect.left + dd.itemSize.cx;
-	anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSizeY;
+	anItemRect.top = hi.scaled.titleHeight +
+		dd.itemSize.cy + hi.scaled.gapSizeY;
 	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	for(u16 itemIdx = (hi.selection + 1) % anItemCount;
 		true; itemIdx = (itemIdx + 1) % anItemCount)
@@ -1656,7 +1675,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		const bool isSelection = itemIdx == hi.selection;
 		if( isSelection )
 		{
-			anItemRect.top = hi.titleHeight;
+			anItemRect.top = hi.scaled.titleHeight;
 			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 		}
 		if( shouldRedrawAll ||
@@ -1669,7 +1688,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		}
 		if( isSelection )
 			break;
-		anItemRect.top = anItemRect.bottom + hi.gapSizeY;
+		anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
 		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
 
@@ -1703,8 +1722,8 @@ static void drawBarMenu(HUDDrawData& dd)
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.top = hi.titleHeight;
-	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
+	anItemRect.top = hi.scaled.titleHeight;
+	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
@@ -1725,7 +1744,7 @@ static void drawBarMenu(HUDDrawData& dd)
 					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
-		anItemRect.left = anItemRect.right + hi.gapSizeX;
+		anItemRect.left = anItemRect.right + hi.scaled.gapSizeX;
 		anItemRect.right = anItemRect.left + dd.itemSize.cx;
 	}
 
@@ -1769,20 +1788,22 @@ static void draw4DirMenu(HUDDrawData& dd)
 			{
 			case eCmdDir_Left:
 				anItemRect.left = 0;
-				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSizeY;
+				anItemRect.top = hi.scaled.titleHeight +
+					dd.itemSize.cy + hi.scaled.gapSizeY;
 				break;
 			case eCmdDir_Right:
-				anItemRect.left = dd.itemSize.cx + hi.gapSizeX;
-				anItemRect.top = hi.titleHeight + dd.itemSize.cy + hi.gapSizeY;
+				anItemRect.left = dd.itemSize.cx + hi.scaled.gapSizeX;
+				anItemRect.top = hi.scaled.titleHeight +
+					dd.itemSize.cy + hi.scaled.gapSizeY;
 				break;
 			case eCmdDir_Up:
-				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSizeX / 2;
-				anItemRect.top = hi.titleHeight;
+				anItemRect.left = dd.itemSize.cx / 2 + hi.scaled.gapSizeX / 2;
+				anItemRect.top = hi.scaled.titleHeight;
 				break;
 			case eCmdDir_Down:
-				anItemRect.left = dd.itemSize.cx / 2 + hi.gapSizeX / 2;
-				anItemRect.top =
-					hi.titleHeight + dd.itemSize.cy * 2 + hi.gapSizeY * 2;
+				anItemRect.left = dd.itemSize.cx / 2 + hi.scaled.gapSizeX / 2;
+				anItemRect.top = hi.scaled.titleHeight +
+					dd.itemSize.cy * 2 + hi.scaled.gapSizeY * 2;
 				break;
 			}
 			anItemRect.right = anItemRect.left + dd.itemSize.cx;
@@ -1825,8 +1846,8 @@ static void drawGridMenu(HUDDrawData& dd)
 	RECT anItemRect = { 0 };
 	RECT aSelectedItemRect = { 0 };
 	anItemRect.right = dd.itemSize.cx;
-	anItemRect.top = hi.titleHeight;
-	anItemRect.bottom = hi.titleHeight + dd.itemSize.cy;
+	anItemRect.top = hi.scaled.titleHeight;
+	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
@@ -1852,12 +1873,12 @@ static void drawGridMenu(HUDDrawData& dd)
 		{// Next menu item is left edge and one down
 			anItemRect.left = 0;
 			anItemRect.right = dd.itemSize.cx;
-			anItemRect.top = anItemRect.bottom + hi.gapSizeY;
+			anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
 			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 		}
 		else
 		{// Next menu item is to the right
-			anItemRect.left = anItemRect.right + hi.gapSizeX;
+			anItemRect.left = anItemRect.right + hi.scaled.gapSizeX;
 			anItemRect.right = anItemRect.left + dd.itemSize.cx;
 		}
 	}
@@ -2075,6 +2096,23 @@ void init()
 		hi.drawPriority = clamp(intFromString(
 			getNamedHUDPropStr(aHUDName, eHUDProp_Priority)),
 			-100, 100);
+		if( isAMenu )
+		{
+			// hi.gapSizeX/Y = eHUDProp_GapSize
+			aHUDBuilder.parsedString.clear();
+			sanitizeSentence(
+				getHUDPropStr(aHUDName, eHUDProp_GapSize),
+				aHUDBuilder.parsedString);
+			if( !aHUDBuilder.parsedString.empty() )
+				hi.gapSizeX = intFromString(aHUDBuilder.parsedString[0]);
+			if( aHUDBuilder.parsedString.size() > 1 )
+				hi.gapSizeY = intFromString(aHUDBuilder.parsedString[1]);
+			else
+				hi.gapSizeY = hi.gapSizeX;
+			// hi.titleHeight = eHUDProp_TitleHeight
+			hi.titleHeight = u8(u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
+		}
 		
 		// Generate custom appearances if have any custom properties
 		for(u32 i = 0; i < eAppearanceMode_Num; ++i)
@@ -2102,6 +2140,19 @@ void init()
 		{
 			hi.arrayID = InputMap::keyBindArrayForHUDElement(aHUDElementID);
 			DBG_ASSERT(hi.arrayID < InputMap::keyBindArrayCount());
+		}
+
+		if( hi.type == eHUDItemType_RndRect ||
+			hi.itemType == eHUDItemType_RndRect )
+		{
+			hi.radius = u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_Radius));
+		}
+
+		if( hi.type == eMenuStyle_Slots )
+		{
+			hi.altLabelWidth = u32FromString(
+				getHUDPropStr(aHUDName, eHUDProp_AltLabelWidth));
 		}
 	}
 
@@ -2344,7 +2395,7 @@ void updateScaling()
 	sFonts.clear();
 	sPens.clear();
 
-	// Generate fonts, border pens, etc based on current gScale values
+	// Generate fonts, border pens, etc based on current gUIScale values
 	HUDBuilder aHUDBuilder;
 	for(u16 aHUDElementID = 0;
 		aHUDElementID < sHUDElementInfo.size();
@@ -2355,49 +2406,15 @@ void updateScaling()
 			continue;
 		const std::string& aHUDName =
 			InputMap::hudElementKeyName(aHUDElementID);
-		const bool isAMenu =
-			hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
-		// hi.fontID = eHUDProp_FontName & _FontSize & _FontWeight
 		hi.fontID = getOrCreateFontID(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_FontName),
 			getHUDPropStr(aHUDName, eHUDProp_FontSize),
 			getHUDPropStr(aHUDName, eHUDProp_FontWeight));
-		if( isAMenu )
-		{
-			// hi.gapSizeX/Y = eHUDProp_GapSize
-			aHUDBuilder.parsedString.clear();
-			sanitizeSentence(
-				getHUDPropStr(aHUDName, eHUDProp_GapSize),
-				aHUDBuilder.parsedString);
-			hi.gapSizeX = hi.gapSizeY = 0;
-			if( !aHUDBuilder.parsedString.empty() )
-				hi.gapSizeX = intFromString(aHUDBuilder.parsedString[0]);
-			if( aHUDBuilder.parsedString.size() > 1 )
-				hi.gapSizeY = intFromString(aHUDBuilder.parsedString[1]);
-			else
-				hi.gapSizeY = hi.gapSizeX;
-			hi.gapSizeX *= gUIScaleX;
-			hi.gapSizeY *= gUIScaleY;
-			// hi.titleHeight = eHUDProp_TitleHeight
-			hi.titleHeight = u8(u32FromString(
-				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
-			if( hi.titleHeight )
-				hi.titleHeight = max(8, hi.titleHeight * gUIScaleY);
-		}
-
-		// Extra data values for specific types
-		if( hi.type == eHUDItemType_RndRect ||
-			hi.itemType == eHUDItemType_RndRect )
-		{
-			hi.radius = (gUIScaleX + gUIScaleY) * 0.5 * u32FromString(
-				getHUDPropStr(aHUDName, eHUDProp_Radius));
-		}
-
-		if( hi.type == eMenuStyle_Slots )
-		{
-			hi.altLabelWidth = gUIScaleX * u32FromString(
-				getHUDPropStr(aHUDName, eHUDProp_AltLabelWidth));
-		}
+		hi.scaled.gapSizeX = hi.gapSizeX * gUIScale;
+		hi.scaled.gapSizeY = hi.gapSizeY * gUIScale;
+		hi.scaled.titleHeight =
+			hi.titleHeight ? max(8, hi.titleHeight * gUIScale) : 0;
+		hi.scaled.radius = hi.radius * gUIScale;
 	}
 	for(u16 anAppearanceID = 0;
 		anAppearanceID < sAppearances.size();
@@ -2408,7 +2425,7 @@ void updateScaling()
 		if( appearance.baseBorderSize > 0 )
 		{
 			appearance.borderSize =
-				max(1, appearance.baseBorderSize * gUIScaleY);
+				max(1, appearance.baseBorderSize * gUIScale);
 		}
 		appearance.borderPenID = getOrCreatePenID(aHUDBuilder,
 			appearance.borderColor, appearance.borderSize);
@@ -2526,29 +2543,19 @@ void updateWindowLayout(
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
-	// Calculate component size first since it affects other properties
-	theComponentSize = hotspotToSize(hi.itemSize, theTargetSize);
+	// To prevent too many rounding errors, initially calculate everything
+	// as if gUIScale has value 1.0, then apply gUIScale it in a later step.
+	// Start with component size since it affects several other properties
+	int aCompBaseSizeX = hotspotAnchorValue(hi.itemSize.x, theTargetSize.cx);
+	int aCompBaseSizeY = hotspotAnchorValue(hi.itemSize.x, theTargetSize.cx);
+	double aCompScalingSizeX = hi.itemSize.x.scaled;
+	double aCompScalingSizeY = hi.itemSize.y.scaled;
 
-	// Get window position (top-left corner) assuming top-left alignment
-	theWindowPos = hotspotToPoint(hi.position, theTargetSize);
-
-	// Apply special-case position offsets
-	switch(hi.type)
-	{
-	case eHUDType_KBArrayLast:
-	case eHUDType_KBArrayDefault:
-		if( const Hotspot* aHotspot =
-				InputMap::keyBindArrayHotspot(hi.arrayID, hi.selection) )
-		{
-			const POINT& anOffset = hotspotToPoint(*aHotspot, theTargetSize);
-			theWindowPos.x += anOffset.x;
-			theWindowPos.y += anOffset.y;
-		}
-		break;
-	}
-
-	// Calculate total window size needed based on type and component size
-	theWindowSize = theComponentSize;
+	// Calculate window size needed based on type and component size
+	double aWinBaseSizeX = aCompBaseSizeX;
+	double aWinBaseSizeY = aCompBaseSizeY;
+	double aWinScalingSizeX = aCompScalingSizeX;
+	double aWinScalingSizeY = aCompScalingSizeY;
 	const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
 	switch(hi.type)
 	{
@@ -2556,42 +2563,75 @@ void updateWindowLayout(
 	case eMenuStyle_Slots:
 		{
 			const u16 aMenuItemCount = Menus::itemCount(aMenuID);
-			theWindowSize.cy *= aMenuItemCount;
+			aWinBaseSizeY *= aMenuItemCount;
+			aWinScalingSizeY *= aMenuItemCount;
 			if( aMenuItemCount > 1 )
-				theWindowSize.cy += hi.gapSizeY * (aMenuItemCount - 1);
-			theWindowSize.cx += hi.altLabelWidth;
+				aWinScalingSizeY += hi.gapSizeY * (aMenuItemCount - 1);
+			aWinScalingSizeX += hi.altLabelWidth;
+			aWinScalingSizeY += hi.titleHeight;
 		}
 		break;
 	case eMenuStyle_Bar:
 		{
 			const u16 aMenuItemCount = Menus::itemCount(aMenuID);
-			theWindowSize.cx *= aMenuItemCount;
+			aWinBaseSizeX *= aMenuItemCount;
+			aWinScalingSizeX *= aMenuItemCount;
 			if( aMenuItemCount > 1 )
-				theWindowSize.cx += hi.gapSizeX * (aMenuItemCount - 1);
+				aWinScalingSizeX += hi.gapSizeX * (aMenuItemCount - 1);
+			aWinScalingSizeY += hi.titleHeight;
 		}
 		break;
 	case eMenuStyle_4Dir:
-		theWindowSize.cx = theWindowSize.cx * 2 + hi.gapSizeX;
-		theWindowSize.cy = theWindowSize.cy * 3 + hi.gapSizeY * 2;
+		aWinBaseSizeX *= 2;
+		aWinBaseSizeY *= 3;
+		aWinScalingSizeX = aWinScalingSizeX * 2 + hi.gapSizeX;
+		aWinScalingSizeY = aWinScalingSizeY * 3 + hi.gapSizeY * 2;
+		aWinScalingSizeY += hi.titleHeight;
 		break;
 	case eMenuStyle_Grid:
 		{
 			const u8 aMenuItemXCount = Menus::gridWidth(aMenuID);
 			const u8 aMenuItemYCount = Menus::gridHeight(aMenuID);
-			theWindowSize.cx *= aMenuItemXCount;
-			theWindowSize.cy *= aMenuItemYCount;
+			aWinBaseSizeX *= aMenuItemXCount;
+			aWinBaseSizeY *= aMenuItemYCount;
+			aWinScalingSizeX *= aMenuItemXCount;
+			aWinScalingSizeY *= aMenuItemYCount;
 			if( aMenuItemXCount > 1 )
-				theWindowSize.cx += hi.gapSizeX * (aMenuItemXCount-1);
+				aWinScalingSizeX += hi.gapSizeX * (aMenuItemXCount-1);
 			if( aMenuItemYCount > 1 )
-				theWindowSize.cy += hi.gapSizeY * (aMenuItemYCount-1);
+				aWinScalingSizeY += hi.gapSizeY * (aMenuItemYCount-1);
+			aWinScalingSizeY += hi.titleHeight;
 		}
 		break;
 	case eHUDType_System:
-		theWindowSize.cx = theTargetSize.cx;
-		theWindowSize.cy = theTargetSize.cy;
+		aWinBaseSizeX = theTargetSize.cx;
+		aWinBaseSizeY = theTargetSize.cy;
+		aWinScalingSizeX = 0;
+		aWinScalingSizeY = 0;
 		break;
 	}
-	theWindowSize.cy += hi.titleHeight;
+
+	// Get base window position (top-left corner) assuming top-left alignment
+	double aWinBasePosX = hotspotAnchorValue(hi.position.x, theTargetSize.cx);
+	double aWinBasePosY = hotspotAnchorValue(hi.position.y, theTargetSize.cy);
+	double aWinScalingPosX = hi.position.x.scaled;
+	double aWinScalingPosY = hi.position.y.scaled;
+
+	// Apply special-case window position offsets
+	switch(hi.type)
+	{
+	case eHUDType_KBArrayLast:
+	case eHUDType_KBArrayDefault:
+		if( const Hotspot* aHotspot =
+				InputMap::keyBindArrayHotspot(hi.arrayID, hi.selection) )
+		{
+			aWinBasePosX += hotspotAnchorValue(aHotspot->x,theTargetSize.cx);
+			aWinBasePosY += hotspotAnchorValue(aHotspot->y,theTargetSize.cy);
+			aWinScalingPosX += aHotspot->x.scaled;
+			aWinScalingPosY += aHotspot->y.scaled;
+		}
+		break;
+	}
 
 	// Adjust position according to size and alignment settings
 	switch(sHUDElementInfo[theHUDElementID].alignmentX)
@@ -2600,10 +2640,12 @@ void updateWindowLayout(
 		// Do nothing
 		break;
 	case eAlignment_Center:
-		theWindowPos.x -= theWindowSize.cx / 2;
+		aWinBasePosX -= aWinBaseSizeX * 0.5;
+		aWinScalingPosX -= aWinScalingSizeX * 0.5;
 		break;
 	case eAlignment_Max:
-		theWindowPos.x -= theWindowSize.cx;
+		aWinBasePosX -= aWinBaseSizeX;
+		aWinScalingPosX -= aWinScalingSizeX;
 		break;
 	}
 	switch(sHUDElementInfo[theHUDElementID].alignmentY)
@@ -2612,12 +2654,33 @@ void updateWindowLayout(
 		// Do nothing
 		break;
 	case eAlignment_Center:
-		theWindowPos.y -= theWindowSize.cy / 2;
+		aWinBasePosY -= aWinBaseSizeY * 0.5;
+		aWinScalingPosY -= aWinScalingSizeY * 0.5;
 		break;
 	case eAlignment_Max:
-		theWindowPos.y -= theWindowSize.cy;
+		aWinBasePosY -= aWinBaseSizeY;
+		aWinScalingPosY -= aWinScalingSizeY;
 		break;
 	}
+
+	// Apply UI scale to scaling portions of each coordinate
+	if( gUIScale != 1.0 )
+	{
+		aCompScalingSizeX *= gUIScale;
+		aCompScalingSizeY *= gUIScale;
+		aWinScalingSizeX *= gUIScale;
+		aWinScalingSizeY *= gUIScale;
+		aWinScalingPosX *= gUIScale;
+		aWinScalingPosY *= gUIScale;
+	}
+
+	// Add together base and scaling portions and round off
+	theComponentSize.cx = floor(aCompBaseSizeX + aCompScalingSizeX);
+	theComponentSize.cy = floor(aCompBaseSizeY + aCompScalingSizeY);
+	theWindowSize.cx = ceil(aWinBaseSizeX + aWinScalingSizeX);
+	theWindowSize.cy = ceil(aWinBaseSizeY + aWinScalingSizeY);
+	theWindowPos.x = floor(aWinBasePosX + aWinScalingPosX);
+	theWindowPos.y = floor(aWinBasePosY + aWinScalingPosY);
 
 	// Clamp to target area
 	theWindowPos.x = max(0, theWindowPos.x);
@@ -2639,10 +2702,14 @@ POINT componentOffsetPos(
 	switch(hi.type)
 	{
 	case eMenuStyle_List:
-		result.y = (theComponentSize.cy + hi.gapSizeY) * theComponentIdx;
+		result.y = theComponentIdx *
+			(theComponentSize.cy + hi.scaled.gapSizeY);
+		result.y += hi.scaled.titleHeight;
 		break;
 	case eMenuStyle_Bar:
-		result.x = (theComponentSize.cx + hi.gapSizeX) * theComponentIdx;
+		result.x = theComponentIdx *
+			(theComponentSize.cx + hi.scaled.gapSizeX);
+		result.y += hi.scaled.titleHeight;
 		break;
 	case eMenuStyle_Grid:
 		{
@@ -2650,13 +2717,18 @@ POINT componentOffsetPos(
 			const u16 aGridWidth = Menus::gridWidth(aMenuID);
 			const u16 aXOffset = theComponentIdx % aGridWidth;
 			const u16 aYOffset = theComponentIdx / aGridWidth;
-			result.x = (theComponentSize.cx + hi.gapSizeX) * aXOffset;
-			result.y = (theComponentSize.cy + hi.gapSizeY) * aYOffset;
+			result.x = (theComponentSize.cx + hi.scaled.gapSizeX) * aXOffset;
+			result.y = (theComponentSize.cy + hi.scaled.gapSizeY) * aYOffset;
 		}
+		result.y += hi.scaled.titleHeight;
+		break;
+	case eMenuStyle_Slots:
+	case eMenuStyle_4Dir:
+		// TODO
+		result.y += hi.scaled.titleHeight;
 		break;
 	}
 
-	result.y += hi.titleHeight;
 	return result;
 }
 
