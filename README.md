@@ -19,12 +19,12 @@ After that, load up the game and you should be able to use the controller to mov
 
 ## Gamepad conflict for Windows 10+
 
-Some games (notably *Monsters & Memories* pre-alpha tests as of this writing) may actually respond to gamepad input already in Windows 10+, but not in any useful way. In fact, Windows itself can respond to gamepad input such as in the start menu by using this new UWP "feature". This can be problematic because this application can not stop other applications or Windows from detecting gamepad input, causing buttons you press to result in extra actions you did not intend (in M&M's case, pressing "A" on an XBox controller can cause it to click on the last button you clicked with the mouse, for example, in addition to whatever you actually assign "A" to do here).
+Some games (notably *Monsters & Memories* pre-alpha tests as of this writing) may actually respond to gamepad input already in Windows 10+, but not in any useful way. In fact, Windows itself can respond to gamepad input such as in the start menu by using this new UWP "feature". This can be problematic because this gamepad overlay can not stop other applications or Windows from detecting gamepad input, causing buttons you press to result in extra actions you did not intend (in M&M's case, pressing "A" on an XBox controller can cause it to click on the last button you clicked with the mouse, for example, in addition to whatever you actually assign "A" to do here).
 
-One way to stop this is using a utility called HidHide (which, if you are using a PlayStation controller and something like DS4Windows, you may already have installed anyway). Search your computer for "HidHide Configuration" and run that app if you have this installed. There, you can set it to "hide" your gamepads from the game in question, so they will ONLY respond to the mouse and keyboard input sent by this application (and your actual mouse and keyboard). HidHide can't stop Windows itself from responding to gamepad input though.
+One way to stop this is using a utility called [HidHide](https://github.com/nefarius/HidHide) (which, if you are using a PlayStation controller and something like DS4Windows, you may already have installed anyway). Search your computer for "HidHide Configuration" and run that app if you have this installed. There, you can set it to "hide" your gamepads from the game in question, so they will ONLY respond to the mouse and keyboard input sent by this application (and your actual mouse and keyboard). HidHide can't stop Windows itself from responding to gamepad input though.
 
-Another option is to disable this feature altogether, if your Windows is updated enough to allow that, through a Registry edit. [Here](https://github.com/microsoft/microsoft-ui-xaml/issues/1495#issuecomment-745586048) is a description of how to do it. In case that link dies at some point, the brief version is to make a Registry key ``
-HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping`` and add a DWORD to it called ``Enabled`` and set its value to 0. This will only disable Windows and some newer "UWP" apps from using the gamepad for basic functionality - it will not prevent games that natively support gamepads for full game play, or utilities like this application or Steam from remapping a gamepad to keyboard & mouse input.
+For some applications (but sadly not *Monsters & Memories* last time I tried this) it can work to just disable this "feature" in Windows, if your Windows is updated enough to allow that, through a Registry edit. [Here](https://github.com/microsoft/microsoft-ui-xaml/issues/1495#issuecomment-745586048) is a description of how to do it. In case that link dies at some point, the brief version is to make a Registry key ``
+HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping`` and add a DWORD to it called ``Enabled`` and set its value to 0. This will only disable Windows and some "UWP" apps from using the gamepad for basic functionality - it will not prevent games that natively support gamepads for full game play, or utilities like this application or Steam from remapping a gamepad to keyboard & mouse input.
 
 ## Profile Setup
 
@@ -236,7 +236,7 @@ Each of the 2-4 coordinates can have up to 3 values - the *Anchor*, the *Fixed O
 
 The anchor represents the starting point as a relative position (usually to the target game's window/screen size), and is expressed as either percent (like 50%, or 0.5 if you prefer) or by special shortcuts like L/T/R/B/C/CX/CY/W/H instead of numbers. If no anchor is specified, it is assumed to be 0% (the top-left corner).
 
-After the anchor (if there is one) is the offsets in pixels. If you specify only one offset (or only one number overall) it will be the *scaling offset*, which will be multiplied by the global  [System] property ``UIScale=``. If you specify two offsets, the first will be a *fixed offset* (NOT multiplied by UIScale) and the second will be the scaling offset (which you can just set to 0 if you don't need one).
+After the anchor (if there is one) is the offsets in pixels. If you specify only one offset (or only one number overall) it will be the *scaling offset*, which will be multiplied by the global  [System] property ``UIScale=`` (which itself can be automatically set for some games by use of ``UIScaleRegKey=``). If you specify two offsets, the first will be a *fixed offset* (NOT multiplied by UIScale) and the second will be the scaling offset (which you can just set to 0 if you don't need one).
 
 Each value after the first one within a coordinate should be separated by a '+' or `-' sign, and full coordinates are separated from each other by a comma or 'x' (i.e. "10 x 5" or "10, 5")
 
@@ -259,9 +259,7 @@ Some accepted examples of valid positions for reference:
     # Rectangle with full height but 50%-75% of the width
     = 50%, 0, 25%, H
 
-In addition to the [System] property ``UIScale=``, the *scaling offset* can also be further affected by different target window sizes by use of ``BaseScaleResolutionX=`` and ``BaseScaleResolutionY=``. Setting these to a non-zero value will cause scaling offsets to be multiplied by the difference between the value set and the actual window size. If both are set to a non-zero value, then only X/Width values will be multiplied by (TargetWindowWidth / BaseScaleResolutionX) and the Y/Height values by (Height / Y). If only one is set then all coordinates will be multiplied by Width / X OR Height / Y, whichever is specified.
-
-*Properties that only have a single value such as BorderSize, TitleHeight, and FontSize are always considered "scaling" and are thus affected by the above scaling factors!* 
+*Properties that only have a single value such as BorderSize, TitleHeight, and FontSize are always considered "scaling" and are thus affected by UIScale!*
 
 ## Controls Layers
 

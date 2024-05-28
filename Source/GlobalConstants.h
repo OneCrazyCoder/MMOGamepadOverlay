@@ -54,6 +54,7 @@ enum ECommandType
 
 	// These give controller access to basic app features
 	eCmdType_ChangeProfile,
+	eCmdType_UpdateUIScale,
 	eCmdType_QuitApp,
 
 	// These trigger changes in Controls Layers (button configuration)
@@ -309,6 +310,7 @@ enum ECommandKeyWord
 	eCmdWord_Last,
 	eCmdWord_Change,
 	eCmdWord_Profile,
+	eCmdWord_UIScale,
 	eCmdWord_App,
 
 	eCmdWord_Integer,

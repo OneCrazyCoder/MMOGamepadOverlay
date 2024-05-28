@@ -479,6 +479,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	ShowWindow(sMainWindow, SW_SHOW);
 
 	// Set overlay client area to full main screen initially
+	readUIScale();
 	aScreenRect.left = 0;
 	aScreenRect.top = 0;
 	aScreenRect.right = GetSystemMetrics(SM_CXSCREEN);
@@ -728,24 +729,6 @@ void resize(RECT theNewWindowRect)
 		aNewTargetSize.cy != sTargetSize.cy )
 	{
 		sTargetSize = aNewTargetSize;
-		gUIScaleX = gUIScaleY = Profile::getFloat("System/UIScale", 1.0f);
-		float aScaleResX = Profile::getInt("System/BaseScaleResolutionX");
-		float aScaleResY = Profile::getInt("System/BaseScaleResolutionY");
-		if( aScaleResX > 0 && aScaleResY > 0 )
-		{
-			gUIScaleX *= sTargetSize.cx / aScaleResX;
-			gUIScaleY *= sTargetSize.cy / aScaleResY;
-		}
-		else if( aScaleResX > 0 )
-		{
-			gUIScaleX *= sTargetSize.cx / aScaleResX;
-			gUIScaleY = gUIScaleX;
-		}
-		else if( aScaleResY > 0 )
-		{
-			gUIScaleY *= sTargetSize.cy / aScaleResY;
-			gUIScaleX = gUIScaleY;
-		}
 		HUD::updateScaling();
 	}
 
@@ -800,6 +783,53 @@ SIZE overlayTargetSize()
 }
 
 
+void readUIScale()
+{
+	gUIScale = Profile::getFloat("System/UIScale", 1.0f);
+
+	const std::string& aUIScaleRegKey =
+		Profile::getStr("System/UIScaleRegKey");
+	if( !aUIScaleRegKey.empty() )
+	{
+		HKEY hKey;
+		const std::string& aPrefix = upper(getFileName(aUIScaleRegKey));
+		std::string aSubKey = upper(getFileDir(aUIScaleRegKey));
+		const std::string kRootKey = "HKEY_CURRENT_USER";
+		if( aSubKey.substr(0, kRootKey.size()) == kRootKey )
+			aSubKey = aSubKey.substr(kRootKey.size()+1);
+
+		if( RegOpenKeyExA(HKEY_CURRENT_USER, aSubKey.c_str(),
+			0, KEY_READ, &hKey) != ERROR_SUCCESS )
+			return;
+
+		union { u8 buf[sizeof(double)]; double val; } aDoubleValBuffer;
+		LONG aResult = 0;
+		for(DWORD i = 0; aResult != ERROR_NO_MORE_ITEMS; ++i)
+		{
+			DWORD dataSize = sizeof(aDoubleValBuffer);
+			char aValueName[256];
+			DWORD aValueNameSize = ARRAYSIZE(aValueName);
+			DWORD type;
+			aResult = RegEnumValueA(
+				hKey, i, aValueName, &aValueNameSize, NULL, &type,
+				&aDoubleValBuffer.buf[0], &dataSize);			
+			if( aResult != ERROR_SUCCESS )
+				continue;
+
+			if( aValueNameSize > aPrefix.size() &&
+				upper(aValueName).substr(0, aPrefix.size()) == aPrefix )
+			{
+				gUIScale = aDoubleValBuffer.val;
+				break;
+			}
+		}
+		RegCloseKey(hKey);
+	}
+	HUD::updateScaling();
+}
+
+
+
 POINT mouseToOverlayPos(bool clamped)
 {
 	POINT result;
@@ -833,8 +863,8 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 	result.x += theHotspot.x.offset;
 	result.y += theHotspot.y.offset;
 	// Add pixel offset w/ position scaling applied
-	result.x += theHotspot.x.scaled * gUIScaleX;
-	result.y += theHotspot.y.scaled * gUIScaleY;
+	result.x += theHotspot.x.scaled * gUIScale;
+	result.y += theHotspot.y.scaled * gUIScale;
 	// Clamp to within client rect range
 	result.x = clamp(result.x, 0, sTargetSize.cx - 1);
 	result.y = clamp(result.y, 0, sTargetSize.cy - 1);

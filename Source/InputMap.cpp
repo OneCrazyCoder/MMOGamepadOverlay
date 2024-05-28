@@ -982,6 +982,17 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
+	// "= [Update] UIScale"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Change);
+	allowedKeyWords.set(eCmdWord_UIScale);
+	if( keyWordsFound.test(eCmdWord_UIScale) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_UpdateUIScale;
+		return result;
+	}
+
 	// "= Close App"
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Close);

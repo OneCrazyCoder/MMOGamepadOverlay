@@ -51,6 +51,8 @@ void setOverlaysToTopZ();
 bool overlaysAreHidden();
 SIZE overlayTargetSize();
 
+// Updates gUIScale based on Profile and possibly Windows registry
+void readUIScale();
 // Gets overlay-window-relative/clamped mouse position
 POINT mouseToOverlayPos(bool clamped = true);
 // Converts a hotspot into overlay-window-relative position
