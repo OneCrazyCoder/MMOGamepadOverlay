@@ -1567,6 +1567,9 @@ static void drawListMenu(HUDDrawData& dd)
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
+			// Non-rect shapes may not fully overwrite previous drawing
+			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
+				eraseRect(dd, anItemRect);
 			if( itemIdx == hi.selection && hi.gapSizeY < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
@@ -1682,6 +1685,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 			hi.forcedRedrawItemID == itemIdx ||
 			(isSelection && flashingChanged) )
 		{
+			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
+				eraseRect(dd, anItemRect);
 			drawMenuItem(dd, anItemRect, itemIdx,
 				InputMap::menuItemLabel(hi.subMenuID, itemIdx),
 				sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
@@ -1733,6 +1738,8 @@ static void drawBarMenu(HUDDrawData& dd)
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
+			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
+				eraseRect(dd, anItemRect);
 			if( itemIdx == hi.selection && hi.gapSizeX < 0 )
 			{// Make sure selection is drawn on top of other items
 				aSelectedItemRect = anItemRect;
@@ -1808,6 +1815,8 @@ static void draw4DirMenu(HUDDrawData& dd)
 			}
 			anItemRect.right = anItemRect.left + dd.itemSize.cx;
 			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
+			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
+				eraseRect(dd, anItemRect);
 			drawMenuItem(dd, anItemRect, itemIdx,
 				InputMap::menuDirLabel(hi.subMenuID, aDir),
 				sMenuDrawCache[hi.subMenuID][aDir + hasTitle]);
@@ -1857,6 +1866,8 @@ static void drawGridMenu(HUDDrawData& dd)
 			(flashingChanged &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
+			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
+				eraseRect(dd, anItemRect);
 			if( itemIdx == hi.selection &&
 				(hi.gapSizeX < 0 || hi.gapSizeY < 0) )
 			{// Make sure selection is drawn on top of other items
