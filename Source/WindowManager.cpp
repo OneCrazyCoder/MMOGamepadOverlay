@@ -58,7 +58,7 @@ struct OverlayWindow
 	POINT position;
 	SIZE size;
 	SIZE bitmapSize;
-	SIZE componentSize;
+	std::vector<RECT> components;
 	float fadeValue;
 	EFadeState fadeState;
 	u8 alpha;
@@ -530,7 +530,7 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
-			aWindow.componentSize, aWindow.position, aWindow.size);
+			aWindow.components, aWindow.position, aWindow.size);
 
 		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
@@ -621,7 +621,7 @@ void update()
 			gActiveHUD.test(aHUDElementID) )
 		{
 			HUD::updateWindowLayout(aHUDElementID, sTargetSize,
-				aWindow.componentSize, aWindow.position, aWindow.size);
+				aWindow.components, aWindow.position, aWindow.size);
 			aWindow.updated = false;
 			if( aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
 			{
@@ -667,8 +667,7 @@ void update()
 		{
 			HUD::drawElement(
 				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
-				aHUDElementID, aWindow.componentSize, aWindow.size,
-				needToEraseBitmap);
+				aHUDElementID, aWindow.components, needToEraseBitmap);
 			aWindow.updated = false;
 			gRedrawHUD.reset(aHUDElementID);
 		}
@@ -923,12 +922,15 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 	const u16 aHUDElementID = InputMap::hudElementForMenu(theMenuID);
 	OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
-	POINT aPos = HUD::componentOffsetPos(
-		aHUDElementID,
-		theMenuItemIdx,
-		aWindow.componentSize);
-	aPos.x += aWindow.componentSize.cx / 2;
-	aPos.y += aWindow.componentSize.cy / 2;
+	const size_t aCompIndex =
+		min(aWindow.components.size()-1, theMenuItemIdx + 1);
+	POINT aPos;
+	aPos.x = aWindow.components[aCompIndex].left;
+	aPos.y = aWindow.components[aCompIndex].top;
+	aPos.x += aWindow.components[aCompIndex].right;
+	aPos.y += aWindow.components[aCompIndex].bottom;
+	aPos.x /= 2;
+	aPos.y /= 2;
 	aPos.x += aWindow.position.x;
 	aPos.y += aWindow.position.y;
 

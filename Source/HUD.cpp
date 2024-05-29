@@ -194,17 +194,19 @@ struct HUDElementInfo
 //-----------------------------------------------------------------------------
 
 struct HUDDrawData
+	: public ConstructFromZeroInitializedMemory<HUDDrawData>
 {
 	HDC hdc;
 	HDC hCaptureDC;
+	const std::vector<RECT>& components;
 	POINT captureOffset;
 	SIZE targetSize;
-	SIZE itemSize;
-	SIZE destSize;
-	RECT destRect;
 	u16 hudElementID;
 	EAppearanceMode appearanceMode;
 	bool firstDraw;
+
+	HUDDrawData(const std::vector<RECT>& theComponents)
+		: components(theComponents) {}
 };
 
 struct Appearance
@@ -1430,18 +1432,19 @@ static void drawMenuTitle(
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[eAppearanceMode_Normal]];
-	RECT aTitleRect = {
-		hi.scaled.radius / 2, 0,
-		dd.destSize.cx - hi.scaled.radius / 2,
-		hi.scaled.titleHeight };
+	DBG_ASSERT(!dd.components.empty());
+	RECT aTitleRect = dd.components[0];
+	if( hi.radius > 0 )
+	{
+		aTitleRect.left += hi.scaled.radius * 0.75;
+		aTitleRect.right -= hi.scaled.radius * 0.75;
+	}
+	aTitleRect.bottom = aTitleRect.top + hi.scaled.titleHeight;
 
 	EAlignment alignment = EAlignment(hi.alignmentX);
-	if( hi.itemType != eHUDItemType_Rect )
-		alignment = eAlignment_Center;
 
 	if( !dd.firstDraw )
 		eraseRect(dd, aTitleRect);
-	InflateRect(&aTitleRect, -2, -2);
 	const std::wstring& aStr = widen(InputMap::menuLabel(theSubMenuID));
 	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
 	switch(alignment)
@@ -1450,35 +1453,33 @@ static void drawMenuTitle(
 	case eAlignment_Center: aFormat |= DT_CENTER; break;
 	case eAlignment_Max: aFormat |= DT_RIGHT; break;
 	}
+	const int aBorderSize = gUIScale > 1.0 ? 2 * gUIScale : 2;
+	InflateRect(&aTitleRect, -aBorderSize, -aBorderSize);
 	if( theCacheEntry.width == 0 )
 		initStringCacheEntry(dd, aTitleRect, aStr, aFormat, theCacheEntry);
 
 	// Fill in 2px margin around text with titleBG (border) color
-	RECT aBGRect;
-	LONG aSize = theCacheEntry.width + 4;
-	switch(alignment)
+	RECT aBGRect = aTitleRect;
+	InflateRect(&aBGRect, aBorderSize, aBorderSize);
+	if( alignment == eAlignment_Center )
 	{
-	case eAlignment_Min:
-		aBGRect.left = 0;
-		break;
-	case eAlignment_Center:
-		aBGRect.left = ((dd.destSize.cx - aSize) / 2);
-		break;
-	case eAlignment_Max:
-		aBGRect.left = dd.destSize.cx - aSize;
-		break;
+		aBGRect.left =
+			(dd.components[0].right - dd.components[0].left) / 2 -
+			(theCacheEntry.width / 2) - aBorderSize;
 	}
-	aBGRect.right = aBGRect.left + aSize;
-	aSize = theCacheEntry.height + 4;
-	aBGRect.bottom = hi.scaled.titleHeight;
-	aBGRect.top = aBGRect.bottom - aSize;
+	else if( alignment == eAlignment_Max )
+	{
+		aBGRect.left = aTitleRect.right - theCacheEntry.width - aBorderSize;
+	}
+	aBGRect.right = aBGRect.left + theCacheEntry.width + aBorderSize * 2;
+	aBGRect.top = aBGRect.bottom - theCacheEntry.height - aBorderSize * 2;
 	COLORREF oldColor = SetDCBrushColor(dd.hdc, appearance.borderColor);
 	FillRect(dd.hdc, &aBGRect, (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH));
 	SetDCBrushColor(dd.hdc, oldColor);
 
 	SetTextColor(dd.hdc, hi.titleColor);
 	SetBkColor(dd.hdc, appearance.borderColor);
-	drawLabelString(dd, aTitleRect, aStr, aFormat, theCacheEntry);	
+	drawLabelString(dd, aTitleRect, aStr, aFormat, theCacheEntry);
 }
 
 
@@ -1530,13 +1531,14 @@ static void drawMenuItem(
 }
 
 
-static void drawListMenu(HUDDrawData& dd)
+static void drawGridMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	const u16 aPrevSelection = hi.selection;
 	hi.selection = Menus::selectedItem(aMenuID);
-	const u16 anItemCount = Menus::itemCount(aMenuID);
+	const u16 anItemCount = u16(dd.components.size() - 1);
+	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
 	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
@@ -1551,13 +1553,10 @@ static void drawListMenu(HUDDrawData& dd)
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
-		(hi.gapSizeY < 0 && (flashingChanged || selectionChanged));
+		((hi.gapSizeX < 0 || hi.gapSizeY < 0) &&
+			(flashingChanged || selectionChanged));
 
-	RECT anItemRect = { 0 };
-	RECT aSelectedItemRect = { 0 };
-	anItemRect.right = dd.itemSize.cx;
-	anItemRect.top = hi.scaled.titleHeight;
-	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
+	bool redrawSelectedItem = false;
 	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
@@ -1569,26 +1568,25 @@ static void drawListMenu(HUDDrawData& dd)
 		{
 			// Non-rect shapes may not fully overwrite previous drawing
 			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
-				eraseRect(dd, anItemRect);
-			if( itemIdx == hi.selection && hi.gapSizeY < 0 )
+				eraseRect(dd, dd.components[itemIdx+1]);
+			if( itemIdx == hi.selection &&
+				(hi.gapSizeX < 0 || hi.gapSizeY < 0) )
 			{// Make sure selection is drawn on top of other items
-				aSelectedItemRect = anItemRect;
+				redrawSelectedItem = true;
 			}
 			else
 			{
-				drawMenuItem(dd, anItemRect, itemIdx,
+				drawMenuItem(dd, dd.components[itemIdx+1], itemIdx,
 					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
 					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 			}
 		}
-		anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
-		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 	}
 
 	// Draw selected menu item last
-	if( aSelectedItemRect.right > aSelectedItemRect.left )
+	if( redrawSelectedItem )
 	{
-		drawMenuItem(dd, aSelectedItemRect, hi.selection,
+		drawMenuItem(dd, dd.components[hi.selection+1], hi.selection,
 			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
 			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
@@ -1615,6 +1613,13 @@ static void drawSlotsMenu(HUDDrawData& dd)
 			sMenuDrawCache[hi.subMenuID][0].str);
 	}
 
+	SIZE itemSize;
+	itemSize.cx = dd.components[1].right - dd.components[1].left;
+	itemSize.cy = dd.components[1].bottom - dd.components[1].top;
+	POINT tl;
+	tl.x = dd.components[1].left;
+	tl.y = dd.components[1].top;
+
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
 	const bool selectionChanged = hi.selection != aPrevSelection;
 	const bool shouldRedrawAll = dd.firstDraw || selectionChanged;
@@ -1628,16 +1633,20 @@ static void drawSlotsMenu(HUDDrawData& dd)
 			sAppearances[hi.appearanceID[eAppearanceMode_Normal]].borderSize;
 		const u8 aSelectedBorderSize = 
 			sAppearances[hi.appearanceID[eAppearanceMode_Selected]].borderSize;
-		RECT anAltLabelRect = { 0 };
-		anAltLabelRect.left = 0;
-		if( hi.alignmentX != eAlignment_Max )
-			anAltLabelRect.left = dd.itemSize.cx - aBorderSize;
+		int aLabelWidth = floor(hi.altLabelWidth * gUIScale);
+		RECT anAltLabelRect;
+		anAltLabelRect.left = tl.x;
+		if( hi.alignmentX == eAlignment_Max )
+			anAltLabelRect.left -= aLabelWidth;
+		else
+			anAltLabelRect.left += itemSize.cx - aBorderSize;
+		anAltLabelRect.top = tl.y;
 		anAltLabelRect.right =
-			anAltLabelRect.left + (hi.altLabelWidth * gUIScale) + aBorderSize;
-		anAltLabelRect.top =
-			hasTitle ? hi.scaled.titleHeight : aSelectedBorderSize;
+			anAltLabelRect.left + aLabelWidth + aBorderSize;
+		if( !hasTitle )
+			anAltLabelRect.top += aSelectedBorderSize;
 		anAltLabelRect.bottom = anAltLabelRect.top +
-			dd.itemSize.cy - aSelectedBorderSize * 2;
+			itemSize.cy - aSelectedBorderSize * 2;
 		const std::string& anAltLabel =
 			InputMap::menuItemAltLabel(hi.subMenuID, hi.selection);
 		const std::string& aPrevAltLabel =
@@ -1665,21 +1674,18 @@ static void drawSlotsMenu(HUDDrawData& dd)
 
 	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
 	// just below the top slot, and ending when draw hi.selection last at top
-	RECT anItemRect = { 0 };
-	if( hi.alignmentX == eAlignment_Max )
-		anItemRect.left = dd.destSize.cx - dd.itemSize.cx;
-	anItemRect.right = anItemRect.left + dd.itemSize.cx;
-	anItemRect.top = hi.scaled.titleHeight +
-		dd.itemSize.cy + hi.scaled.gapSizeY;
-	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
+	RECT anItemRect = { tl.x, tl.y, tl.x, tl.y };
+	anItemRect.right = anItemRect.left + itemSize.cx;
+	anItemRect.top += itemSize.cy + hi.scaled.gapSizeY;
+	anItemRect.bottom = anItemRect.top + itemSize.cy;
 	for(u16 itemIdx = (hi.selection + 1) % anItemCount;
 		true; itemIdx = (itemIdx + 1) % anItemCount)
 	{
 		const bool isSelection = itemIdx == hi.selection;
 		if( isSelection )
 		{
-			anItemRect.top = hi.scaled.titleHeight;
-			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
+			anItemRect.top = tl.y;
+			anItemRect.bottom = anItemRect.top + itemSize.cy;
 		}
 		if( shouldRedrawAll ||
 			hi.forcedRedrawItemID == itemIdx ||
@@ -1694,73 +1700,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		if( isSelection )
 			break;
 		anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
-		anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-	}
-
-	hi.prevFlashing = hi.flashing;
-}
-
-
-static void drawBarMenu(HUDDrawData& dd)
-{
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aPrevSelection = hi.selection;
-	hi.selection = Menus::selectedItem(aMenuID);
-	const u16 anItemCount = Menus::itemCount(aMenuID);
-	DBG_ASSERT(hi.selection < anItemCount);
-	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
-
-	if( hasTitle && dd.firstDraw )
-	{
-		drawMenuTitle(dd, hi.subMenuID,
-			sMenuDrawCache[hi.subMenuID][0].str);
-	}
-
-	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = hi.selection != aPrevSelection;
-	const bool shouldRedrawAll =
-		dd.firstDraw ||
-		(hi.gapSizeX < 0 && (flashingChanged || selectionChanged));
-
-	RECT anItemRect = { 0 };
-	RECT aSelectedItemRect = { 0 };
-	anItemRect.right = dd.itemSize.cx;
-	anItemRect.top = hi.scaled.titleHeight;
-	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
-	{
-		if( shouldRedrawAll ||
-			hi.forcedRedrawItemID == itemIdx ||
-			(selectionChanged &&
-				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
-			(flashingChanged &&
-				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
-		{
-			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
-				eraseRect(dd, anItemRect);
-			if( itemIdx == hi.selection && hi.gapSizeX < 0 )
-			{// Make sure selection is drawn on top of other items
-				aSelectedItemRect = anItemRect;
-			}
-			else
-			{
-				drawMenuItem(dd, anItemRect, itemIdx,
-					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
-			}
-		}
-		anItemRect.left = anItemRect.right + hi.scaled.gapSizeX;
-		anItemRect.right = anItemRect.left + dd.itemSize.cx;
-	}
-
-	// Draw selected menu item last
-	if( aSelectedItemRect.right > aSelectedItemRect.left )
-	{
-		drawMenuItem(dd, aSelectedItemRect, hi.selection,
-			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
-			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
+		anItemRect.bottom = anItemRect.top + itemSize.cy;
 	}
 
 	hi.prevFlashing = hi.flashing;
@@ -1782,7 +1722,6 @@ static void draw4DirMenu(HUDDrawData& dd)
 			sMenuDrawCache[hi.subMenuID][0].str);
 	}
 
-	RECT anItemRect = { 0 };
 	for(u16 itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
 	{
 		const ECommandDir aDir = ECommandDir(itemIdx);
@@ -1791,115 +1730,12 @@ static void draw4DirMenu(HUDDrawData& dd)
 			(hi.flashing != hi.prevFlashing &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
-			switch(itemIdx)
-			{
-			case eCmdDir_Left:
-				anItemRect.left = 0;
-				anItemRect.top = hi.scaled.titleHeight +
-					dd.itemSize.cy + hi.scaled.gapSizeY;
-				break;
-			case eCmdDir_Right:
-				anItemRect.left = dd.itemSize.cx + hi.scaled.gapSizeX;
-				anItemRect.top = hi.scaled.titleHeight +
-					dd.itemSize.cy + hi.scaled.gapSizeY;
-				break;
-			case eCmdDir_Up:
-				anItemRect.left = dd.itemSize.cx / 2 + hi.scaled.gapSizeX / 2;
-				anItemRect.top = hi.scaled.titleHeight;
-				break;
-			case eCmdDir_Down:
-				anItemRect.left = dd.itemSize.cx / 2 + hi.scaled.gapSizeX / 2;
-				anItemRect.top = hi.scaled.titleHeight +
-					dd.itemSize.cy * 2 + hi.scaled.gapSizeY * 2;
-				break;
-			}
-			anItemRect.right = anItemRect.left + dd.itemSize.cx;
-			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
 			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
-				eraseRect(dd, anItemRect);
-			drawMenuItem(dd, anItemRect, itemIdx,
+				eraseRect(dd, dd.components[itemIdx+1]);
+			drawMenuItem(dd, dd.components[itemIdx+1], itemIdx,
 				InputMap::menuDirLabel(hi.subMenuID, aDir),
 				sMenuDrawCache[hi.subMenuID][aDir + hasTitle]);
 		}
-	}
-
-	hi.prevFlashing = hi.flashing;
-}
-
-
-static void drawGridMenu(HUDDrawData& dd)
-{
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aPrevSelection = hi.selection;
-	hi.selection = Menus::selectedItem(aMenuID);
-	const u16 aGridWidth = Menus::gridWidth(aMenuID);
-	const u16 anItemCount = Menus::itemCount(aMenuID);
-	DBG_ASSERT(hi.selection < anItemCount);
-	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
-
-	if( hasTitle && dd.firstDraw )
-	{
-		drawMenuTitle(dd, hi.subMenuID,
-			sMenuDrawCache[hi.subMenuID][0].str);
-	}
-
-	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = hi.selection != aPrevSelection;
-	const bool shouldRedrawAll =
-		dd.firstDraw ||
-		((hi.gapSizeX < 0 || hi.gapSizeY < 0) &&
-			(flashingChanged || selectionChanged));
-
-	RECT anItemRect = { 0 };
-	RECT aSelectedItemRect = { 0 };
-	anItemRect.right = dd.itemSize.cx;
-	anItemRect.top = hi.scaled.titleHeight;
-	anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
-	{
-		if( shouldRedrawAll ||
-			hi.forcedRedrawItemID == itemIdx ||
-			(selectionChanged &&
-				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
-			(flashingChanged &&
-				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
-		{
-			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
-				eraseRect(dd, anItemRect);
-			if( itemIdx == hi.selection &&
-				(hi.gapSizeX < 0 || hi.gapSizeY < 0) )
-			{// Make sure selection is drawn on top of other items
-				aSelectedItemRect = anItemRect;
-			}
-			else
-			{
-				drawMenuItem(dd, anItemRect, itemIdx,
-					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
-			}
-		}
-		if( itemIdx % aGridWidth == aGridWidth - 1 )
-		{// Next menu item is left edge and one down
-			anItemRect.left = 0;
-			anItemRect.right = dd.itemSize.cx;
-			anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
-			anItemRect.bottom = anItemRect.top + dd.itemSize.cy;
-		}
-		else
-		{// Next menu item is to the right
-			anItemRect.left = anItemRect.right + hi.scaled.gapSizeX;
-			anItemRect.right = anItemRect.left + dd.itemSize.cx;
-		}
-	}
-
-	// Draw selected menu item last
-	if( aSelectedItemRect.right > aSelectedItemRect.left )
-	{
-		drawMenuItem(dd, aSelectedItemRect, hi.selection,
-			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
-			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
 	}
 
 	hi.prevFlashing = hi.flashing;
@@ -1911,9 +1747,9 @@ static void drawBasicHUD(HUDDrawData& dd)
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 
 	if( !dd.firstDraw )
-		eraseRect(dd, dd.destRect);
+		eraseRect(dd, dd.components[0]);
 
-	drawHUDItem(dd, dd.destRect);
+	drawHUDItem(dd, dd.components[0]);
 }
 
 
@@ -1924,9 +1760,9 @@ static void drawSystemHUD(HUDDrawData& dd)
 
 	// Erase any previous strings
 	if( !dd.firstDraw )
-		eraseRect(dd, dd.destRect);
+		eraseRect(dd, dd.components[0]);
 
-	RECT aTextRect = dd.destRect;
+	RECT aTextRect = dd.components[0];
 	InflateRect(&aTextRect, -8, -8);
 
 	if( !sErrorMessage.empty() )
@@ -2450,21 +2286,18 @@ void drawElement(
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
 	u16 theHUDElementID,
-	const SIZE& theComponentSize,
-	const SIZE& theDestSize,
+	const std::vector<RECT>& theComponents,
 	bool needsInitialErase)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
-	HUDDrawData aDrawData = { 0 };
+	DBG_ASSERT(!theComponents.empty());
+	HUDDrawData aDrawData(theComponents);
 	aDrawData.hdc = hdc;
 	aDrawData.hCaptureDC = hCaptureDC;
 	aDrawData.captureOffset = theCaptureOffset;
 	aDrawData.targetSize = theTargetSize;
-	aDrawData.itemSize = theComponentSize;
-	aDrawData.destSize = theDestSize;
-	SetRect(&aDrawData.destRect, 0, 0, theDestSize.cx, theDestSize.cy);
 	aDrawData.hudElementID = theHUDElementID;
 	aDrawData.appearanceMode = eAppearanceMode_Normal;
 	aDrawData.firstDraw = needsInitialErase;
@@ -2500,7 +2333,8 @@ void drawElement(
 		HPEN hFramePen = CreatePen(PS_INSIDEFRAME, 3, aFrameColor);
 
 		HPEN hOldPen = (HPEN)SelectObject(hdc, hFramePen);
-		Rectangle(hdc, 0, 0, theDestSize.cx, theDestSize.cy);
+		Rectangle(hdc, theComponents[0].left, theComponents[0].top,
+			theComponents[0].right, theComponents[0].bottom);
 		SelectObject(hdc, hOldPen);
 
 		DeleteObject(hFramePen);
@@ -2511,20 +2345,16 @@ void drawElement(
 	#endif // _DEBUG
 
 	if( needsInitialErase )
-	{
-		RECT aDestRect;
-		SetRect(&aDestRect, 0, 0, theDestSize.cx, theDestSize.cy);
-		eraseRect(aDrawData, aDestRect);
-	}
+		eraseRect(aDrawData, theComponents[0]);
 
 	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
 	switch(aHUDType)
 	{
-	case eMenuStyle_List:			drawListMenu(aDrawData);	break;
-	case eMenuStyle_Slots:			drawSlotsMenu(aDrawData);	break;
-	case eMenuStyle_Bar:			drawBarMenu(aDrawData);		break;
-	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
+	case eMenuStyle_List:
+	case eMenuStyle_Bar:
 	case eMenuStyle_Grid:			drawGridMenu(aDrawData);	break;
+	case eMenuStyle_Slots:			drawSlotsMenu(aDrawData);	break;
+	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
 	case eMenuStlye_Ring:			/* TODO */					break;
 	case eMenuStyle_Radial:			/* TODO */					break;
 	case eHUDType_KBArrayLast:		drawBasicHUD(aDrawData);	break;
@@ -2532,14 +2362,9 @@ void drawElement(
 	case eHUDType_System:			drawSystemHUD(aDrawData);	break;
 	default:
 		if( aHUDType >= eHUDItemType_Begin && aHUDType < eHUDItemType_End )
-		{
-			RECT r; SetRect(&r, 0, 0, theDestSize.cx, theDestSize.cy);
-			drawHUDItem(aDrawData, r);
-		}
+			drawHUDItem(aDrawData, aDrawData.components[0]);
 		else
-		{
 			DBG_ASSERT(false && "Invaild HUD/Menu Type/Style!");
-		}
 	}
 }
 
@@ -2547,7 +2372,7 @@ void drawElement(
 void updateWindowLayout(
 	u16 theHUDElementID,
 	const SIZE& theTargetSize,
-	SIZE& theComponentSize,
+	std::vector<RECT>& theComponents,
 	POINT& theWindowPos,
 	SIZE& theWindowSize)
 {
@@ -2568,29 +2393,43 @@ void updateWindowLayout(
 	double aWinScalingSizeX = aCompScalingSizeX;
 	double aWinScalingSizeY = aCompScalingSizeY;
 	const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
+	u16 aMenuItemCount = 0;
+	u16 aMenuItemXCount = 1;
+	u16 aMenuItemYCount = 1;
 	switch(hi.type)
 	{
-	case eMenuStyle_List:
 	case eMenuStyle_Slots:
-		{
-			const u16 aMenuItemCount = Menus::itemCount(aMenuID);
-			aWinBaseSizeY *= aMenuItemCount;
-			aWinScalingSizeY *= aMenuItemCount;
-			if( aMenuItemCount > 1 )
-				aWinScalingSizeY += hi.gapSizeY * (aMenuItemCount - 1);
-			aWinScalingSizeX += hi.altLabelWidth;
-			aWinScalingSizeY += hi.titleHeight;
-		}
+		aWinScalingSizeX += hi.altLabelWidth;
+		// fall through
+	case eMenuStyle_List:
+		aMenuItemYCount = aMenuItemCount = Menus::itemCount(aMenuID);
+		aWinBaseSizeY *= aMenuItemYCount;
+		aWinScalingSizeY *= aMenuItemYCount;
+		if( aMenuItemYCount > 1 )
+			aWinScalingSizeY += hi.gapSizeY * (aMenuItemYCount - 1);
+		aWinScalingSizeY += hi.titleHeight;
 		break;
 	case eMenuStyle_Bar:
-		{
-			const u16 aMenuItemCount = Menus::itemCount(aMenuID);
-			aWinBaseSizeX *= aMenuItemCount;
-			aWinScalingSizeX *= aMenuItemCount;
-			if( aMenuItemCount > 1 )
-				aWinScalingSizeX += hi.gapSizeX * (aMenuItemCount - 1);
-			aWinScalingSizeY += hi.titleHeight;
-		}
+		aMenuItemXCount = aMenuItemCount = Menus::itemCount(aMenuID);
+		aWinBaseSizeX *= aMenuItemXCount;
+		aWinScalingSizeX *= aMenuItemXCount;
+		if( aMenuItemXCount > 1 )
+			aWinScalingSizeX += hi.gapSizeX * (aMenuItemXCount - 1);
+		aWinScalingSizeY += hi.titleHeight;
+		break;
+	case eMenuStyle_Grid:
+		aMenuItemCount = Menus::itemCount(aMenuID);
+		aMenuItemXCount = Menus::gridWidth(aMenuID);
+		aMenuItemYCount = Menus::gridHeight(aMenuID);
+		aWinBaseSizeX *= aMenuItemXCount;
+		aWinBaseSizeY *= aMenuItemYCount;
+		aWinScalingSizeX *= aMenuItemXCount;
+		aWinScalingSizeY *= aMenuItemYCount;
+		if( aMenuItemXCount > 1 )
+			aWinScalingSizeX += hi.gapSizeX * (aMenuItemXCount-1);
+		if( aMenuItemYCount > 1 )
+			aWinScalingSizeY += hi.gapSizeY * (aMenuItemYCount-1);
+		aWinScalingSizeY += hi.titleHeight;
 		break;
 	case eMenuStyle_4Dir:
 		aWinBaseSizeX *= 2;
@@ -2598,21 +2437,6 @@ void updateWindowLayout(
 		aWinScalingSizeX = aWinScalingSizeX * 2 + hi.gapSizeX;
 		aWinScalingSizeY = aWinScalingSizeY * 3 + hi.gapSizeY * 2;
 		aWinScalingSizeY += hi.titleHeight;
-		break;
-	case eMenuStyle_Grid:
-		{
-			const u8 aMenuItemXCount = Menus::gridWidth(aMenuID);
-			const u8 aMenuItemYCount = Menus::gridHeight(aMenuID);
-			aWinBaseSizeX *= aMenuItemXCount;
-			aWinBaseSizeY *= aMenuItemYCount;
-			aWinScalingSizeX *= aMenuItemXCount;
-			aWinScalingSizeY *= aMenuItemYCount;
-			if( aMenuItemXCount > 1 )
-				aWinScalingSizeX += hi.gapSizeX * (aMenuItemXCount-1);
-			if( aMenuItemYCount > 1 )
-				aWinScalingSizeY += hi.gapSizeY * (aMenuItemYCount-1);
-			aWinScalingSizeY += hi.titleHeight;
-		}
 		break;
 	case eHUDType_System:
 		aWinBaseSizeX = theTargetSize.cx;
@@ -2645,7 +2469,7 @@ void updateWindowLayout(
 	}
 
 	// Adjust position according to size and alignment settings
-	switch(sHUDElementInfo[theHUDElementID].alignmentX)
+	switch(hi.alignmentX)
 	{
 	case eAlignment_Min:
 		// Do nothing
@@ -2659,7 +2483,7 @@ void updateWindowLayout(
 		aWinScalingPosX -= aWinScalingSizeX;
 		break;
 	}
-	switch(sHUDElementInfo[theHUDElementID].alignmentY)
+	switch(hi.alignmentY)
 	{
 	case eAlignment_Min:
 		// Do nothing
@@ -2686,61 +2510,103 @@ void updateWindowLayout(
 	}
 
 	// Add together base and scaling portions and round off
-	theComponentSize.cx = floor(aCompBaseSizeX + aCompScalingSizeX);
-	theComponentSize.cy = floor(aCompBaseSizeY + aCompScalingSizeY);
-	theWindowSize.cx = ceil(aWinBaseSizeX + aWinScalingSizeX);
-	theWindowSize.cy = ceil(aWinBaseSizeY + aWinScalingSizeY);
-	theWindowPos.x = floor(aWinBasePosX + aWinScalingPosX);
-	theWindowPos.y = floor(aWinBasePosY + aWinScalingPosY);
+	int aCompSizeX = max(0, floor(aCompBaseSizeX + aCompScalingSizeX));
+	int aCompSizeY = max(0, floor(aCompBaseSizeY + aCompScalingSizeY));
+	int aWinSizeX = max(0, ceil(aWinBaseSizeX + aWinScalingSizeX));
+	int aWinSizeY = max(0, ceil(aWinBaseSizeY + aWinScalingSizeY));
+	int aWinPosX = floor(aWinBasePosX + aWinScalingPosX);
+	int aWinPosY = floor(aWinBasePosY + aWinScalingPosY);
 
-	// Clamp to target area
-	theWindowPos.x = max(0, theWindowPos.x);
-	theWindowPos.y = max(0, theWindowPos.y);
-	theWindowSize.cx = min(theWindowSize.cx, theTargetSize.cx - theWindowPos.x);
-	theWindowSize.cy = min(theWindowSize.cy, theTargetSize.cy - theWindowPos.y);
-}
+	// Clip actual window to target area
+	RECT aWinRect =
+		{ aWinPosX, aWinPosY, aWinPosX + aWinSizeX, aWinPosY + aWinSizeY };
+	aWinRect.left = max(aWinRect.left, 0);
+	aWinRect.top = max(aWinRect.top, 0);
+	aWinRect.right = min(aWinRect.right, theTargetSize.cx);
+	aWinRect.bottom = min(aWinRect.bottom, theTargetSize.cy);
+	theWindowPos.x = aWinRect.left;
+	theWindowPos.y = aWinRect.top;
+	theWindowSize.cx = aWinRect.right - aWinRect.left;
+	theWindowSize.cy = aWinRect.bottom - aWinRect.top;
 
+	// Calculate component rect's based on menu type
+	theComponents.clear();
+	POINT aCompTopLeft =
+		{ aWinPosX - theWindowPos.x, aWinPosY - theWindowPos.y };
+	// Component 0 is the entire dest rect (before clipping)
+	RECT anItemRect;
+	anItemRect.left = aCompTopLeft.x;
+	anItemRect.top = aCompTopLeft.y;
+	anItemRect.right = anItemRect.left + aWinSizeX;
+	anItemRect.bottom = anItemRect.top + aWinSizeY;
+	theComponents.push_back(anItemRect);
 
-POINT componentOffsetPos(
-	u16 theHUDElementID,
-	u16 theComponentIdx,
-	const SIZE& theComponentSize)
-{
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
-	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
-
-	POINT result = { 0, 0 };
 	switch(hi.type)
 	{
-	case eMenuStyle_List:
-		result.y = theComponentIdx *
-			(theComponentSize.cy + hi.scaled.gapSizeY);
-		result.y += hi.scaled.titleHeight;
-		break;
-	case eMenuStyle_Bar:
-		result.x = theComponentIdx *
-			(theComponentSize.cx + hi.scaled.gapSizeX);
-		result.y += hi.scaled.titleHeight;
-		break;
-	case eMenuStyle_Grid:
-		{
-			const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
-			const u16 aGridWidth = Menus::gridWidth(aMenuID);
-			const u16 aXOffset = theComponentIdx % aGridWidth;
-			const u16 aYOffset = theComponentIdx / aGridWidth;
-			result.x = (theComponentSize.cx + hi.scaled.gapSizeX) * aXOffset;
-			result.y = (theComponentSize.cy + hi.scaled.gapSizeY) * aYOffset;
-		}
-		result.y += hi.scaled.titleHeight;
-		break;
 	case eMenuStyle_Slots:
+		// Treat only the selected item being a component
+		aMenuItemCount = aMenuItemXCount = aMenuItemYCount = 1;
+		if( hi.alignmentX == eAlignment_Max )
+			aCompTopLeft.x += aWinSizeX - aCompSizeX;
+		// fall through
+	case eMenuStyle_List:
+	case eMenuStyle_Bar:
+	case eMenuStyle_Grid:
+		anItemRect.left = aCompTopLeft.x;
+		anItemRect.right = anItemRect.left + aCompSizeX;
+		anItemRect.top = aCompTopLeft.y + hi.scaled.titleHeight;
+		anItemRect.bottom = anItemRect.top + aCompSizeY;
+		for(u16 i = 0; i < aMenuItemCount; ++i)
+		{
+			theComponents.push_back(anItemRect);
+			if( i % aMenuItemXCount == aMenuItemXCount - 1 )
+			{// Next menu item is left edge and one down
+				anItemRect.left = aWinPosX - theWindowPos.x;
+				anItemRect.right = anItemRect.left + aCompSizeX;
+				anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
+				anItemRect.bottom = anItemRect.top + aCompSizeY;
+			}
+			else
+			{// Next menu item is to the right
+				anItemRect.left = anItemRect.right + hi.scaled.gapSizeX;
+				anItemRect.right = anItemRect.left + aCompSizeX;
+			}
+		}
+		break;
 	case eMenuStyle_4Dir:
-		// TODO
-		result.y += hi.scaled.titleHeight;
+		for(u16 itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
+		{
+			switch(itemIdx)
+			{
+			case eCmdDir_Left:
+				anItemRect.left = aCompTopLeft.x;
+				anItemRect.top = aCompTopLeft.y + hi.scaled.titleHeight +
+					aCompSizeY + hi.scaled.gapSizeY;
+				break;
+			case eCmdDir_Right:
+				anItemRect.left =
+					aCompTopLeft.x + aCompSizeX + hi.scaled.gapSizeX;
+				anItemRect.top = aCompTopLeft.y + hi.scaled.titleHeight +
+					aCompSizeY + hi.scaled.gapSizeY;
+				break;
+			case eCmdDir_Up:
+				anItemRect.left =
+					aCompTopLeft.x + aCompSizeX / 2 + hi.scaled.gapSizeX / 2;
+				anItemRect.top = aCompTopLeft.y + hi.scaled.titleHeight;
+				break;
+			case eCmdDir_Down:
+				anItemRect.left =
+					aCompTopLeft.x + aCompSizeX / 2 + hi.scaled.gapSizeX / 2;
+				anItemRect.top = aCompTopLeft.y + hi.scaled.titleHeight +
+					aCompSizeY * 2 + hi.scaled.gapSizeY * 2;
+				break;
+			}
+			anItemRect.right = anItemRect.left + aCompSizeX;
+			anItemRect.bottom = anItemRect.top + aCompSizeY;
+			theComponents.push_back(anItemRect);
+		}
 		break;
 	}
-
-	return result;
 }
 
 
