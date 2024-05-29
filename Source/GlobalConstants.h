@@ -200,10 +200,10 @@ enum EMouseMode
 enum EHUDType
 {
 	eMenuStyle_List,
-	eMenuStyle_Slots,
 	eMenuStyle_Bar,
-	eMenuStyle_4Dir,
 	eMenuStyle_Grid,
+	eMenuStyle_Slots,
+	eMenuStyle_4Dir,
 	eMenuStlye_Ring,
 	eMenuStyle_Radial,
 

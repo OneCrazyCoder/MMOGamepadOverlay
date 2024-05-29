@@ -35,23 +35,16 @@ void drawElement(
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
 	u16 theHUDElementID,
-	const SIZE& theComponentSize,
-	const SIZE& theDestSize,
+	const std::vector<RECT>& theComponents,
 	bool needsInitialErase);
 
 // Updates layout properties needed for each HUD element's overlay Window
 void updateWindowLayout(
 	u16 theHUDElementID,
 	const SIZE& theTargetSize,
-	SIZE& theComponentSize,
+	std::vector<RECT>& theComponents,
 	POINT& theWindowPos,
 	SIZE& theWindowSize);
-
-// Returns position offset of given compenent of the HUD Element
-POINT componentOffsetPos(
-	u16 theHUDElementID,
-	u16 theComponentIdx,
-	const SIZE& theComponentSize);
 
 // Draws contents of main window (version string)
 void drawMainWindowContents(HWND theWindow);
