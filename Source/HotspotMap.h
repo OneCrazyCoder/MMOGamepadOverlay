@@ -29,6 +29,13 @@ void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays);
 // Returns which hotspot to jump to in given direction (or 0)
 u16 getNextHotspotInDir(ECommandDir theDirection);
 
+// Get a pre-generated map linking hotspots in a specific array
+// (with values relative to first hotspot in that array)
+struct HotspotLinkNode
+{ u16 next[eCmdDir_Num]; bool edge[eCmdDir_Num]; };
+typedef std::vector<HotspotLinkNode> Links;
+const Links& getLinks(u16 theArrayID);
+
 // Converts a Profile string into a Hotspot (and removes the hotspot
 // from the start of the string in case there are multiple included).
 EResult stringToHotspot(std::string& theString, Hotspot& out);

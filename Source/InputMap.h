@@ -63,6 +63,7 @@ const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
 const Command& menuAutoCommand(u16 theMenuID);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
+u16 menuHotspotArray(u16 theMenuID); // for eMenuStyle_Hotspots only
 // Full Profile (.ini file) key for specified menu item's command
 std::string menuItemKey(u16 theMenuID, u16 theMenuItemIdx);
 std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir);

@@ -5,6 +5,7 @@
 #include "Menus.h"
 
 #include "Dialogs.h" // editMenuCommand()
+#include "HotspotMap.h"
 #include "Lookup.h"
 #include "InputMap.h"
 #include "Profile.h"
@@ -78,6 +79,8 @@ void init()
 					u8(u32(ceil(sqrt(double(itemCount(aMenuID))))) & 0xFF);
 			}
 		}
+		if( aMenuInfo.style == eMenuStyle_Hotspots )
+			HotspotMap::getLinks(InputMap::menuHotspotArray(aMenuID));
 	}
 }
 
@@ -178,23 +181,6 @@ const Command& selectMenuItem(
 			break;
 		}
 		break;
-	case eMenuStyle_Slots:
-		switch(theDir)
-		{
-		case eCmdDir_L:
-			pushedPastEdge = !repeat;
-			break;
-		case eCmdDir_R:
-			pushedPastEdge = !repeat;
-			break;
-		case eCmdDir_U:
-			aSelection = decWrap(aSelection, anItemCount);
-			break;
-		case eCmdDir_D:
-			aSelection = incWrap(aSelection, anItemCount);
-			break;
-		}
-		break;
 	case eMenuStyle_Bar:
 		switch(theDir)
 		{
@@ -219,11 +205,6 @@ const Command& selectMenuItem(
 			pushedPastEdge = !repeat;
 			break;
 		}
-		break;
-	case eMenuStyle_4Dir:
-		pushedPastEdge = !repeat;
-		if( pushedPastEdge )
-			gConfirmedMenuItem[aMenuInfo.hudElementID] = theDir;
 		break;
 	case eMenuStyle_Grid:
 		switch(theDir)
@@ -265,6 +246,37 @@ const Command& selectMenuItem(
 			break;
 		}
 		break;
+	case eMenuStyle_Hotspots:
+		{
+			const HotspotMap::Links& aLinkMap = HotspotMap::getLinks(
+				InputMap::menuHotspotArray(theMenuID));
+			pushedPastEdge = aLinkMap[aSelection].edge[theDir];
+			if( !pushedPastEdge || wrap )
+				aSelection = aLinkMap[aSelection].next[theDir];
+		}
+		break;
+	case eMenuStyle_Slots:
+		switch(theDir)
+		{
+		case eCmdDir_L:
+			pushedPastEdge = !repeat;
+			break;
+		case eCmdDir_R:
+			pushedPastEdge = !repeat;
+			break;
+		case eCmdDir_U:
+			aSelection = decWrap(aSelection, anItemCount);
+			break;
+		case eCmdDir_D:
+			aSelection = incWrap(aSelection, anItemCount);
+			break;
+		}
+		break;
+	case eMenuStyle_4Dir:
+		pushedPastEdge = !repeat;
+		if( pushedPastEdge )
+			gConfirmedMenuItem[aMenuInfo.hudElementID] = theDir;
+		break;
 	}
 
 	if( aSelection != aPrevSel )
@@ -286,6 +298,7 @@ const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID)
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
 	DBG_ASSERT(itr != sMenuInfo.end());
 	MenuInfo& aMenuInfo = itr->second;
+	const u16 oldMenuItemCount = itemCount(theMenuID);
 
 	// Even if no actual change made, mark menu as having been interacted with
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
@@ -303,6 +316,11 @@ const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID)
 	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 	gRedrawHUD.set(aMenuInfo.hudElementID);
 
+	// Might need to reshape menu for new menu item count
+	DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
+	if( oldMenuItemCount != itemCount(theMenuID) )
+		gReshapeHUD.set(aMenuInfo.hudElementID);
+
 	return InputMap::menuAutoCommand(theSubMenuID);
 }
 
@@ -313,6 +331,7 @@ const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
 	DBG_ASSERT(itr != sMenuInfo.end());
 	MenuInfo& aMenuInfo = itr->second;
+	const u16 oldMenuItemCount = itemCount(theMenuID);
 
 	if( theMenuID != InputMap::rootMenuOfMenu(theReplacementSubMenuID) )
 	{
@@ -351,6 +370,9 @@ const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 				const SubMenuInfo aSideMenuInfo = *itr;
 				aMenuInfo.subMenuStack.erase(itr);
 				aMenuInfo.subMenuStack.push_back(aSideMenuInfo);
+				DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
+				if( oldMenuItemCount != itemCount(theMenuID) )
+					gReshapeHUD.set(aMenuInfo.hudElementID);
 				return InputMap::menuAutoCommand(aSideMenuInfo.id);
 			}
 		}
@@ -373,9 +395,9 @@ const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 			InputMap::menuItemCount(theReplacementSubMenuID) - 1);
 	}
 
-	// Need to redraw new menu items
-	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-	gRedrawHUD.set(aMenuInfo.hudElementID);
+	DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
+	if( oldMenuItemCount != itemCount(theMenuID) )
+		gReshapeHUD.set(aMenuInfo.hudElementID);
 
 	return InputMap::menuAutoCommand(theReplacementSubMenuID);
 }
@@ -387,6 +409,7 @@ const Command* closeLastSubMenu(u16 theMenuID)
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
 	DBG_ASSERT(itr != sMenuInfo.end());
 	MenuInfo& aMenuInfo = itr->second;
+	const u16 oldMenuItemCount = itemCount(theMenuID);
 
 	// Even if no actual change made, mark menu as having been interacted with
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
@@ -397,6 +420,9 @@ const Command* closeLastSubMenu(u16 theMenuID)
 		aMenuInfo.subMenuStack.pop_back();
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
+		if( oldMenuItemCount != itemCount(theMenuID) )
+			gReshapeHUD.set(aMenuInfo.hudElementID);
 		const Command& aCmd =
 			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
 		return &aCmd;
@@ -410,6 +436,9 @@ const Command* closeLastSubMenu(u16 theMenuID)
 		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
+		if( oldMenuItemCount != itemCount(theMenuID) )
+			gReshapeHUD.set(aMenuInfo.hudElementID);
 		const Command& aCmd =
 			InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
 		return &aCmd;
@@ -425,6 +454,7 @@ const Command* reset(u16 theMenuID)
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
 	DBG_ASSERT(itr != sMenuInfo.end());
 	MenuInfo& aMenuInfo = itr->second;
+	const u16 oldMenuItemCount = itemCount(theMenuID);
 
 	if( aMenuInfo.subMenuStack.size() > 1 ||
 		aMenuInfo.subMenuStack.back().id != theMenuID ||
@@ -434,6 +464,9 @@ const Command* reset(u16 theMenuID)
 		aMenuInfo.subMenuStack.push_back(SubMenuInfo(theMenuID));
 		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
 		gRedrawHUD.set(aMenuInfo.hudElementID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
+		if( oldMenuItemCount != itemCount(theMenuID) )
+			gReshapeHUD.set(aMenuInfo.hudElementID);
 		const Command& aCmd =
 			InputMap::menuAutoCommand(theMenuID);
 		return &aCmd;

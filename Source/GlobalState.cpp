@@ -14,6 +14,7 @@ u32 gAppRunTime = 0;
 int gAppFrameTime = 0;
 BitVector<> gVisibleHUD;
 BitVector<> gRedrawHUD;
+BitVector<> gReshapeHUD;
 BitVector<> gActiveHUD;
 BitVector<> gDisabledHUD;
 std::vector<u16> gConfirmedMenuItem;

@@ -79,6 +79,7 @@ static BitVector<> sActiveArrays;
 static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<u16> sCandidates;
+static std::vector<Links> sLinkMaps;
 static u16 sNextHotspotInDir[eCmdDir_Num] = { 0 };
 static SIZE sLastTargetSize;
 static Hotspot sLastCursorPos;
@@ -88,6 +89,7 @@ static BitArray<eTask_Num> sNewTasks;
 static ETask sTaskInProgress = eTask_None;
 static int sTaskProgress = 0;
 static u32 sBestCandidateWeight = 0xFFFFFFFF;
+static u16 sIgnorePointInSearch = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -195,7 +197,10 @@ static void processAddToGridTask()
 	}
 
 	if( sTaskProgress >= sPoints.size() )
+	{
+		sNewTasks.set(eTask_BeginSearch);
 		sTaskInProgress = eTask_None;
+	}
 }
 
 
@@ -204,10 +209,8 @@ static void processBeginSearchTask()
 	if( sTaskProgress == 0 )
 	{
 		sCandidates.clear();
-		sNextHotspotInDir[eCmdDir_L] = 0;
-		sNextHotspotInDir[eCmdDir_R] = 0;
-		sNextHotspotInDir[eCmdDir_U] = 0;
-		sNextHotspotInDir[eCmdDir_D] = 0;
+		for(int i = 0; i < eCmdDir_Num; ++i)
+			sNextHotspotInDir[i] = 0;
 		++sTaskProgress;
 		return;
 	}
@@ -274,6 +277,8 @@ static void processNextLeftTask()
 	while( sTaskProgress < sCandidates.size() )
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
+		if( aPointIdx == sIgnorePointInSearch )
+			continue;
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
 		if( aPoint.x >= sNormalizedCursorPos.x )
 			continue;
@@ -293,7 +298,7 @@ static void processNextLeftTask()
 	if( sTaskProgress >= sCandidates.size() )
 	{
 		sTaskInProgress = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_L] != 0 )
+		if( sNextHotspotInDir[eCmdDir_L] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Left hotspot chosen - #%d\n",
 				sNextHotspotInDir[eCmdDir_L]);
@@ -310,6 +315,8 @@ static void processNextRightTask()
 	while( sTaskProgress < sCandidates.size() )
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
+		if( aPointIdx == sIgnorePointInSearch )
+			continue;
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
 		if( aPoint.x <= sNormalizedCursorPos.x )
 			continue;
@@ -329,7 +336,7 @@ static void processNextRightTask()
 	if( sTaskProgress >= sCandidates.size() )
 	{
 		sTaskInProgress = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_R] != 0 )
+		if( sNextHotspotInDir[eCmdDir_R] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Right hotspot chosen - #%d\n",
 				sNextHotspotInDir[eCmdDir_R]);
@@ -347,6 +354,8 @@ static void processNextUpTask()
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
+		if( aPointIdx == sIgnorePointInSearch )
+			continue;
 		if( aPoint.y >= sNormalizedCursorPos.y )
 			continue;
 		u32 aWeight = sNormalizedCursorPos.y - aPoint.y;
@@ -365,7 +374,7 @@ static void processNextUpTask()
 	if( sTaskProgress >= sCandidates.size() )
 	{
 		sTaskInProgress = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_U] != 0 )
+		if( sNextHotspotInDir[eCmdDir_U] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Up hotspot chosen - #%d\n",
 				sNextHotspotInDir[eCmdDir_U]);
@@ -382,6 +391,8 @@ static void processNextDownTask()
 	while( sTaskProgress < sCandidates.size() )
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
+		if( aPointIdx == sIgnorePointInSearch )
+			continue;
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
 		if( aPoint.y <= sNormalizedCursorPos.y )
 			continue;
@@ -401,7 +412,7 @@ static void processNextDownTask()
 	if( sTaskProgress >= sCandidates.size() )
 	{
 		sTaskInProgress = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_D] != 0 )
+		if( sNextHotspotInDir[eCmdDir_D] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Down hotspot chosen - #%d\n",
 				sNextHotspotInDir[eCmdDir_D]);
@@ -427,7 +438,7 @@ static void processTasks()
 	switch(sTaskInProgress)
 	{
 	case eTask_TargetSize:	processTargetSizeTask();	break;
-	case eTask_ActiveArrays:	processActiveArraysTask();	break;
+	case eTask_ActiveArrays:processActiveArraysTask();	break;
 	case eTask_AddToGrid:	processAddToGridTask();		break;
 	case eTask_BeginSearch:	processBeginSearchTask();	break;
 	case eTask_FetchGrid0:	processFetchGridTask(0);	break;
@@ -455,16 +466,28 @@ void init()
 	sPoints.resize(aHotspotsCount);
 	sRequestedArrays.clearAndResize(aHotspotArraysCount);
 	sActiveArrays.clearAndResize(aHotspotArraysCount);
-	sLastTargetSize.cx = 0;
-	sLastTargetSize.cy = 0;
+	sLinkMaps.reserve(aHotspotArraysCount);
+	sLinkMaps.resize(aHotspotArraysCount);
+	sLastTargetSize = WindowManager::overlayTargetSize();
 	sNewTasks.set();
 }
 
 
 void cleanup()
 {
+	sRequestedArrays.clear();
 	sActiveArrays.clear();
 	sPoints.clear();
+	sLinkMaps.clear();
+	sCandidates.clear();
+	sNewTasks.reset();
+	sTaskInProgress = eTask_None;
+	sTaskProgress = 0;
+	for(size_t x = 0; x < kGridSize; ++x)
+	{
+		for(size_t y = 0; y < kGridSize; ++y)
+			sActiveGrid[x][y].clear();
+	}
 }
 
 
@@ -483,7 +506,7 @@ void update()
 	}
 	const Hotspot& aCursorPos =
 		InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
-	if( !(sLastCursorPos == aCursorPos) )
+	if( !(sLastCursorPos == aCursorPos) || sNewTasks.test(eTask_TargetSize) )
 	{
 		sLastCursorPos = aCursorPos;
 		sNormalizedCursorPos = WindowManager::hotspotToOverlayPos(aCursorPos);
@@ -517,6 +540,9 @@ void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
 
 u16 getNextHotspotInDir(ECommandDir theDirection)
 {
+	if( sPoints.empty() || sRequestedArrays.none() )
+		return 0;
+
 	// Abort "next hotspot" tasks in all directions besides requested
 	BitArray<eTask_Num> abortedTasks; abortedTasks.reset();
 	if( theDirection != eCmdDir_L && sNewTasks.test(eTask_NextLeft) )
@@ -549,6 +575,112 @@ u16 getNextHotspotInDir(ECommandDir theDirection)
 
 	// Return found result
 	return sNextHotspotInDir[theDirection];
+}
+
+
+const Links& getLinks(u16 theArrayID)
+{
+	DBG_ASSERT(theArrayID < sLinkMaps.size());
+	if( !sLinkMaps[theArrayID].empty() )
+		return sLinkMaps[theArrayID];
+
+	// Generate links
+	mapDebugPrint("Generating links for hotspot array '%s'\n",
+		InputMap::hotspotArrayLabel(theArrayID).c_str());
+	const u16 aFirstHotspot = InputMap::firstHotspotInArray(theArrayID);
+	const u16 aLastHotspot = InputMap::lastHotspotInArray(theArrayID);
+	const u16 aNodeCount = aLastHotspot - aFirstHotspot + 1;
+	sLinkMaps[theArrayID].resize(aNodeCount);
+
+	// Backup some state of normal Hotspot Map search around cursor
+	const BitVector<> oldRequestedArrays = sRequestedArrays;
+	const POINT oldNormalizedCursorPos = sNormalizedCursorPos;
+
+	// Setup overall hotspot map as having just this array active
+	sRequestedArrays.reset(); sRequestedArrays.set(theArrayID);
+	sNewTasks.set(eTask_ActiveArrays);
+	while(sTaskInProgress != eTask_None || sNewTasks.test(eTask_ActiveArrays))
+		processTasks();
+
+	// Don't use the grid since want full range - manually generate candidates
+	sCandidates.clear();
+	sCandidates.reserve(aNodeCount);
+	sNewTasks.reset();
+	for(u16 i = 0; i < sPoints.size(); ++i)
+	{
+		if( sPoints[i].enabled )
+			sCandidates.push_back(i);
+	}
+
+	// Check each hotspot/node for where mouse would go next
+	for(u16 aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
+	{
+		HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
+		// Make sure not to return the origin hotspot itself
+		sIgnorePointInSearch = aFirstHotspot + aNodeIdx;
+		sNormalizedCursorPos.x = sPoints[sIgnorePointInSearch].x;
+		sNormalizedCursorPos.y = sPoints[sIgnorePointInSearch].y;
+		for(int i = 0; i < eCmdDir_Num; ++i)
+			sNextHotspotInDir[i] = 0;
+		sNewTasks.set(eTask_NextLeft);
+		sNewTasks.set(eTask_NextRight);
+		sNewTasks.set(eTask_NextUp);
+		sNewTasks.set(eTask_NextDown);
+		while(sTaskInProgress != eTask_None || sNewTasks.any())
+			processTasks();
+		for(int i = 0; i < eCmdDir_Num; ++i)
+		{
+			aNode.next[i] = aNodeIdx;
+			if( sNextHotspotInDir[i] == 0 )
+				aNode.edge[i] = true;
+			else
+				aNode.next[i] = sNextHotspotInDir[i] - aFirstHotspot;
+		}
+		// Get next positions if use wrapping by searching from edges
+		if( aNode.edge[eCmdDir_Left] )
+		{
+			sNormalizedCursorPos.x = kNormalizedTargetSize;
+			sNewTasks.set(eTask_NextLeft);
+			while(sTaskInProgress != eTask_None || sNewTasks.any())
+				processTasks();
+		}
+		if( aNode.edge[eCmdDir_Right] )
+		{
+			sNormalizedCursorPos.x = 0;
+			sNewTasks.set(eTask_NextRight);
+			while(sTaskInProgress != eTask_None || sNewTasks.any())
+				processTasks();
+		}
+		sNormalizedCursorPos.x = sPoints[sIgnorePointInSearch].x;
+		if( aNode.edge[eCmdDir_Up] )
+		{
+			sNormalizedCursorPos.y = kNormalizedTargetSize;
+			sNewTasks.set(eTask_NextUp);
+			while(sTaskInProgress != eTask_None || sNewTasks.any())
+				processTasks();
+		}
+		if( aNode.edge[eCmdDir_Down] )
+		{
+			sNormalizedCursorPos.y = 0;
+			sNewTasks.set(eTask_NextDown);
+			while(sTaskInProgress != eTask_None || sNewTasks.any())
+				processTasks();
+		}
+		for(int i = 0; i < eCmdDir_Num; ++i)
+		{
+			if( aNode.edge[i] && sNextHotspotInDir[i] )
+				aNode.next[i] = sNextHotspotInDir[i] - aFirstHotspot;
+		}
+	}
+
+	// Restore normal functionality of searching around mouse cursor
+	sRequestedArrays = oldRequestedArrays;
+	sNewTasks.set(eTask_ActiveArrays);
+	sNormalizedCursorPos = oldNormalizedCursorPos;
+	sIgnorePointInSearch = 0;
+	sNewTasks.set(eTask_BeginSearch);
+	
+	return sLinkMaps[theArrayID];
 }
 
 

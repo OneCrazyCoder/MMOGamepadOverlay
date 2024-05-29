@@ -465,7 +465,7 @@ While it is possible to use layers alone to send all the input needed to an MMO,
 
 Each menu also counts as a **HUD Element**, so the Menu must be made visible by the ``HUD=`` property for an active layer to actually see it.
 
-Each menu has a ``Style=`` property that determines its basic structure and appearance, as well as visual properties like colors, shapes, etc of the menu items. Example Menu Styles include List, Slots, Bar, 4Dir, and Grid (which can include a ``GridWidth=`` property to specify the grid shape).
+Each menu has a ``Style=`` property that determines its basic structure and appearance, as well as visual properties like colors, shapes, etc of the menu items. Example Menu Styles include List, Slots, Bar, 4Dir, Grid (which can include a ``GridWidth=`` property to specify the grid shape), and Hotspots (which requires a ``Hotspots=`` property specifying a Hotspot Array to determine the center point of each menu item).
 
 Menus are defined using the section name [Menu.MenuName]. Each *Menu Item* is defined by a *property name* of just the Menu Item number (with some exceptions covered later). The *property value* for each Menu Item contains a name/label to be displayed followed by colon ``:`` followed by a command to execute when that menu item is chosen. Here's an example of a basic menu:
 
@@ -619,7 +619,7 @@ When the ``=Edit`` command is executed, a dialog box pops up that allows changin
 
 All menus are also **HUD Elements**. However, there are also HUD Element types that are *not* menus. These are created with the section name ``[HUD.HUDElementName]``. You can use this to create a reticle in the middle of the screen while in Mouse Look mode (to aim better with a "Use CenterScreen" key, for example), as well as special HUD Elements like Key Bind Array indicators.
 
-Default properties used by all HUD elements and menus can be defined in the base ``[HUD]`` section to save time defining them for every individual HUD element. The exceptions being the ``Position=`` property, which should always be specified per-element, and the optional ``Priority=`` property, which determines draw order (higher priority are drawn on top of lower priority, allowed range is -100 to 100 and default is 0).
+Default properties used by all HUD elements and menus can be defined in the base ``[HUD]`` section to save time defining them for every individual HUD element. The exceptions being the ``Position=`` and ``Priority=`` properties, which should likely be different for each element. Priority determines draw order (higher priority are drawn on top of lower priority, allowed range is -100 to 100 and default is 0).
 
 Like ``Style =`` for a menu, each non-menu HUD element must specify a ``Type =`` entry. Available types include: Rectangle, Rounded Rectangle (needs ``Radius=`` as well), Circle, Bitmap (needs ``Bitmap=`` as well), and ArrowL/R/U/D. These are also used for menus for the ``ItemType=`` property, which determines how the background for each menu item is drawn. There are also some special-case types covered later.
 

@@ -1531,7 +1531,7 @@ static void drawMenuItem(
 }
 
 
-static void drawGridMenu(HUDDrawData& dd)
+static void drawBasicMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
@@ -1779,6 +1779,68 @@ static void drawSystemHUD(HUDDrawData& dd)
 		SetTextColor(dd.hdc, RGB(255, 255, 255));
 		DrawText(dd.hdc, sNoticeMessage.c_str(), -1, &aTextRect,
 			DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
+	}
+}
+
+
+static void updateHotspotsMenuLayout(
+	const HUDElementInfo& hi,
+	const u16 theMenuID,
+	const SIZE& theTargetSize,
+	std::vector<RECT>& theComponents,
+	POINT& theWindowPos,
+	SIZE& theWindowSize)
+{
+	DBG_ASSERT(hi.type == eMenuStyle_Hotspots);
+	const u16 aHotspotArrayID = InputMap::menuHotspotArray(theMenuID);
+	const u16 anItemCount = InputMap::menuItemCount(theMenuID);
+	const u16 aFirstHotspot = InputMap::firstHotspotInArray(aHotspotArrayID);
+	const u16 aLastHotspot = InputMap::lastHotspotInArray(aHotspotArrayID);
+	DBG_ASSERT(anItemCount == aLastHotspot - aFirstHotspot + 1);
+	theComponents.reserve(anItemCount + 1);
+	theComponents.resize(1);
+	RECT aWinRect = { 0 };
+	aWinRect.left = theTargetSize.cx;
+	aWinRect.top = theTargetSize.cy;
+	const SIZE& aCompSize = hotspotToSize(hi.itemSize, theTargetSize);
+	const SIZE aCompHalfSize = { aCompSize.cx / 2, aCompSize.cy / 2 };
+	for(u16 i = aFirstHotspot; i <= aLastHotspot; ++i)
+	{
+		const POINT& anItemPos = hotspotToPoint(
+			InputMap::getHotspot(i), theTargetSize);
+		RECT anItemRect;
+		anItemRect.left = anItemPos.x - aCompHalfSize.cx;
+		anItemRect.top = anItemPos.y - aCompHalfSize.cy;
+		anItemRect.right = anItemRect.left + aCompSize.cx;
+		anItemRect.bottom = anItemRect.top + aCompSize.cy;
+		theComponents.push_back(anItemRect);
+		aWinRect.left = min(aWinRect.left, anItemRect.left);
+		aWinRect.top = min(aWinRect.top, anItemRect.top);
+		aWinRect.right = max(aWinRect.right, anItemRect.right);
+		aWinRect.bottom = max(aWinRect.bottom, anItemRect.bottom);
+	}
+	if( hi.titleHeight > 0 )
+		aWinRect.top -= hi.scaled.titleHeight;
+	theComponents[0] = aWinRect;
+
+	// Clip actual window to target area
+	aWinRect.left = max(aWinRect.left, 0);
+	aWinRect.top = max(aWinRect.top, 0);
+	aWinRect.right = min(aWinRect.right, theTargetSize.cx);
+	aWinRect.bottom = min(aWinRect.bottom, theTargetSize.cy);
+	theWindowPos.x = aWinRect.left;
+	theWindowPos.y = aWinRect.top;
+	theWindowSize.cx = aWinRect.right - aWinRect.left;
+	theWindowSize.cy = aWinRect.bottom - aWinRect.top;
+
+	// Make all components be window-relative instead of target-relative
+	for(std::vector<RECT>::iterator itr = theComponents.begin();
+		itr != theComponents.end(); ++itr)
+	{
+		itr->left -= theWindowPos.x;
+		itr->top -= theWindowPos.y;
+		itr->right -= theWindowPos.x;
+		itr->bottom -= theWindowPos.y;
 	}
 }
 
@@ -2130,6 +2192,7 @@ void update()
 			if( gKeyBindArrayLastIndexChanged.test(hi.arrayID) )
 			{
 				gActiveHUD.set(i);
+				gReshapeHUD.set(i);
 				hi.selection = gKeyBindArrayLastIndex[hi.arrayID];
 			}
 			break;
@@ -2137,6 +2200,7 @@ void update()
 			if( gKeyBindArrayDefaultIndexChanged.test(hi.arrayID) )
 			{
 				gActiveHUD.set(i);
+				gReshapeHUD.set(i);
 				hi.selection = gKeyBindArrayDefaultIndex[hi.arrayID];
 			}
 			break;
@@ -2352,7 +2416,8 @@ void drawElement(
 	{
 	case eMenuStyle_List:
 	case eMenuStyle_Bar:
-	case eMenuStyle_Grid:			drawGridMenu(aDrawData);	break;
+	case eMenuStyle_Grid:
+	case eMenuStyle_Hotspots:		drawBasicMenu(aDrawData);	break;
 	case eMenuStyle_Slots:			drawSlotsMenu(aDrawData);	break;
 	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
 	case eMenuStlye_Ring:			/* TODO */					break;
@@ -2378,6 +2443,17 @@ void updateWindowLayout(
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
+	const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
+	
+	// Some special element types have their own unique calculation method
+	switch(hi.type)
+	{
+	case eMenuStyle_Hotspots:
+		updateHotspotsMenuLayout(
+			hi, aMenuID, theTargetSize, theComponents,
+			theWindowPos, theWindowSize);
+		return;
+	}
 
 	// To prevent too many rounding errors, initially calculate everything
 	// as if gUIScale has value 1.0, then apply gUIScale it in a later step.
@@ -2392,7 +2468,6 @@ void updateWindowLayout(
 	double aWinBaseSizeY = aCompBaseSizeY;
 	double aWinScalingSizeX = aCompScalingSizeX;
 	double aWinScalingSizeY = aCompScalingSizeY;
-	const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
 	u16 aMenuItemCount = 0;
 	u16 aMenuItemXCount = 1;
 	u16 aMenuItemYCount = 1;
@@ -2403,6 +2478,7 @@ void updateWindowLayout(
 		// fall through
 	case eMenuStyle_List:
 		aMenuItemYCount = aMenuItemCount = Menus::itemCount(aMenuID);
+		theComponents.reserve(1 + aMenuItemCount);
 		aWinBaseSizeY *= aMenuItemYCount;
 		aWinScalingSizeY *= aMenuItemYCount;
 		if( aMenuItemYCount > 1 )
@@ -2411,6 +2487,7 @@ void updateWindowLayout(
 		break;
 	case eMenuStyle_Bar:
 		aMenuItemXCount = aMenuItemCount = Menus::itemCount(aMenuID);
+		theComponents.reserve(1 + aMenuItemCount);
 		aWinBaseSizeX *= aMenuItemXCount;
 		aWinScalingSizeX *= aMenuItemXCount;
 		if( aMenuItemXCount > 1 )
@@ -2421,6 +2498,7 @@ void updateWindowLayout(
 		aMenuItemCount = Menus::itemCount(aMenuID);
 		aMenuItemXCount = Menus::gridWidth(aMenuID);
 		aMenuItemYCount = Menus::gridHeight(aMenuID);
+		theComponents.reserve(1 + aMenuItemCount);
 		aWinBaseSizeX *= aMenuItemXCount;
 		aWinBaseSizeY *= aMenuItemYCount;
 		aWinScalingSizeX *= aMenuItemXCount;
@@ -2432,6 +2510,7 @@ void updateWindowLayout(
 		aWinScalingSizeY += hi.titleHeight;
 		break;
 	case eMenuStyle_4Dir:
+		theComponents.reserve(1 + 4);
 		aWinBaseSizeX *= 2;
 		aWinBaseSizeY *= 3;
 		aWinScalingSizeX = aWinScalingSizeX * 2 + hi.gapSizeX;
@@ -2439,10 +2518,14 @@ void updateWindowLayout(
 		aWinScalingSizeY += hi.titleHeight;
 		break;
 	case eHUDType_System:
+		theComponents.reserve(1);
 		aWinBaseSizeX = theTargetSize.cx;
 		aWinBaseSizeY = theTargetSize.cy;
 		aWinScalingSizeX = 0;
 		aWinScalingSizeY = 0;
+		break;
+	default:
+		theComponents.reserve(1);
 		break;
 	}
 
