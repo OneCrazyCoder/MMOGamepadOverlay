@@ -114,7 +114,11 @@ struct Menu
 	u16 rootMenuID;
 	u16 hudElementID;
 
-	Menu() : rootMenuID(kInvalidID), hudElementID(kInvalidID) {}
+	Menu() :
+		parentMenuID(kInvalidID),
+		rootMenuID(kInvalidID),
+		hudElementID(kInvalidID)
+	{}
 };
 
 struct HUDElement
@@ -122,10 +126,14 @@ struct HUDElement
 	std::string keyName;
 	std::string displayName;
 	EHUDType type : 16;
-	union { u16 menuID; u16 keyBindArrayID; };
+	u16 menuID; 
+	union { u16 hotspotArrayID; u16 keyBindArrayID; };
 	// Visual details will be parsed by HUD module
 
-	HUDElement() : menuID(kInvalidID) { type = eHUDItemType_Rect; }
+	HUDElement() :
+		menuID(kInvalidID),
+		hotspotArrayID(kInvalidID)
+	{ type = eHUDItemType_Rect; }
 };
 
 struct ButtonActions
@@ -703,6 +711,39 @@ static u16 getOrCreateHUDElementID(
 			aMenu.hudElementID = aHUDElementID;
 		}
 		aHUDElement.menuID = aMenuID;
+
+		if( aHUDElement.type == eMenuStyle_Hotspots )
+		{
+			std::string aHotspotArrayName =
+				Profile::getStr(aMenuPath + "/" + kHotspotArraysKey);
+			if( aHotspotArrayName.empty() )
+			{
+				logError(
+					"Can't find required '[%s%s]/%s =' property "
+					"for item referenced by [%s]! ",
+					kMenuPrefix,
+					theName.c_str(),
+					kHotspotArraysKey,
+					theBuilder.debugItemName.c_str());
+				aHUDElement.type = eMenuStyle_List;
+			}
+			else if( u16* aHotspotArrayID =
+						theBuilder.hotspotArrayNameToIdxMap.find(
+							condense(aHotspotArrayName)) )
+			{
+				aHUDElement.hotspotArrayID = *aHotspotArrayID;
+			}
+			else
+			{
+				logError(
+					"Hotspot Array '%s' not found for menu [%s%s]! "
+					"Changing it to a Menu of type List instead...",
+					aHotspotArrayName.c_str(),
+					kMenuPrefix,
+					theName.c_str());
+				aHUDElement.type = eMenuStyle_List;
+			}
+		}
 	}
 
 	if( aHUDElement.type == eHUDType_KBArrayLast ||
@@ -1239,7 +1280,7 @@ static Command wordsToSpecialCommand(
 		// possibly left-click there as well if also use "mouse click".
 		// This is used for menus that directly overlay actual in-game
 		// menus to save on needing a bunch of hotspots and extra
-		// jump/click commands.
+		// jump/click commands (or alongside eMenuStyle_Hotspots menus).
 		result.andClick = keyWordsFound.test(eCmdWord_Click);
 		result.withMouse = result.andClick ||
 			keyWordsFound.test(eCmdWord_Mouse);
@@ -2818,6 +2859,15 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			const std::string& aMenuItemString = Profile::getStr(
 				condense(aPrefix + "/" + aMenuItemKeyName));
 			checkForNextMenuItem = !aMenuItemString.empty();
+			if( aMenuStyle == eMenuStyle_Hotspots )
+			{// Guarantee menu item count matches hotspot count
+				const u16 anArrayID =
+					sHUDElements[aHUDElementID].hotspotArrayID;
+				DBG_ASSERT(anArrayID < sHotspotArrays.size());
+				const HotspotArray& anArray = sHotspotArrays[anArrayID];
+				const u16 anArraySize = anArray.last - anArray.first + 1;
+				checkForNextMenuItem = itemIdx < anArraySize;
+			}
 			if( checkForNextMenuItem || itemIdx == 0 )
 			{
 				theBuilder.debugItemName =
@@ -2951,6 +3001,7 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 	// Can now also set size of global sizes related to HUD elements
 	gVisibleHUD.clearAndResize(sHUDElements.size());
 	gRedrawHUD.clearAndResize(sHUDElements.size());
+	gReshapeHUD.clearAndResize(sHUDElements.size());
 	gActiveHUD.clearAndResize(sHUDElements.size());
 	gDisabledHUD.clearAndResize(sHUDElements.size());
 	gConfirmedMenuItem.resize(sHUDElements.size());
@@ -3252,6 +3303,16 @@ u16 rootMenuOfMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	return sMenus[theMenuID].rootMenuID;
+}
+
+
+u16 menuHotspotArray(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	const u16 aHUDElementID = hudElementForMenu(theMenuID);
+	const u16 anArrayID = sHUDElements[aHUDElementID].hotspotArrayID;
+	DBG_ASSERT(anArrayID < sHotspotArrays.size());
+	return anArrayID;
 }
 
 

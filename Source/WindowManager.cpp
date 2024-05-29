@@ -63,7 +63,8 @@ struct OverlayWindow
 	EFadeState fadeState;
 	u8 alpha;
 	bool hideUntilActivated;
-	bool updated;
+	bool bitmapUpdated;
+	bool layoutUpdated;
 };
 
 
@@ -396,7 +397,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 	if( aNewAlpha != theWindow.alpha )
 	{
 		theWindow.alpha = aNewAlpha;
-		theWindow.updated = false;
+		theWindow.bitmapUpdated = false;
 	}
 }
 
@@ -531,6 +532,7 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 			aWindow.components, aWindow.position, aWindow.size);
+		aWindow.layoutUpdated = true;
 
 		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
@@ -616,18 +618,18 @@ void update()
 		aWindow.hideUntilActivated = false;
 
 		// Check for possible update to window layout
-		if( !aWindow.updated ||
-			gRedrawHUD.test(aHUDElementID) ||
-			gActiveHUD.test(aHUDElementID) )
+		if( !aWindow.layoutUpdated || gReshapeHUD.test(aHUDElementID) )
 		{
 			HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 				aWindow.components, aWindow.position, aWindow.size);
-			aWindow.updated = false;
 			if( aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
 			{
 				gActiveHUD.reset(aHUDElementID);
 				continue;
 			}
+			aWindow.layoutUpdated = true;
+			aWindow.bitmapUpdated = false;
+			gReshapeHUD.reset(aHUDElementID);
 		}
 
 		// Delete bitmap if bitmap size doesn't match window size
@@ -668,12 +670,12 @@ void update()
 			HUD::drawElement(
 				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
 				aHUDElementID, aWindow.components, needToEraseBitmap);
-			aWindow.updated = false;
+			aWindow.bitmapUpdated = false;
 			gRedrawHUD.reset(aHUDElementID);
 		}
 
 		// Update window
-		if( !aWindow.updated )
+		if( !aWindow.bitmapUpdated )
 		{
 			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
 			POINT aWindowScreenPos;
@@ -684,7 +686,7 @@ void update()
 				aWindowDC, &anOriginPoint,
 				HUD::transColor(aHUDElementID),
 				&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
-			aWindow.updated = true;
+			aWindow.bitmapUpdated = true;
 		}
 		gActiveHUD.reset(aHUDElementID);
 
@@ -738,7 +740,7 @@ void resize(RECT theNewWindowRect)
 	sDesktopTargetRect.bottom -= GetSystemMetrics(SM_YVIRTUALSCREEN);
 
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
-		sOverlayWindows[i].updated = false;
+		sOverlayWindows[i].layoutUpdated = false;
 }
 
 

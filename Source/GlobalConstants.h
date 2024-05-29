@@ -202,6 +202,7 @@ enum EHUDType
 	eMenuStyle_List,
 	eMenuStyle_Bar,
 	eMenuStyle_Grid,
+	eMenuStyle_Hotspots,
 	eMenuStyle_Slots,
 	eMenuStyle_4Dir,
 	eMenuStlye_Ring,

@@ -27,6 +27,9 @@ extern BitVector<> gVisibleHUD;
 // Which HUD elements need to be re-drawn
 extern BitVector<> gRedrawHUD;
 
+// Which HUD elements need to be moved/resized
+extern BitVector<> gReshapeHUD;
+
 // Which HUD elements have recently been interacted with (for inactive fade)
 extern BitVector<> gActiveHUD;
 
