@@ -5,11 +5,13 @@ Download links for latest built version:
 * [Windows 32-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-x86.zip)
 * [Windows 64-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-a64.zip)
 
-This application translates game controller input (via DirectInput and/or XInput) into keyboard and mouse input (via the SendInput() Win32 API function), possibly with HUD elements (drawn as a transparent overlay windows over top of a game's window) to help visualize what various buttons may do (particularly with the use of customizable on-screen menus).
+This application translates DInput & XInput game controller input into keyboard and mouse input via the SendInput() Win32 API function, possibly with extra HUD elements and menus in a transparent overlay to help visualize what various buttons may do.
 
-Although there are plenty of other applications that can fit this basic description, including Steam, this particular application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and eventually the upcoming *Monsters & Memories*, with a control scheme inspired by the only MMORPG ever exclusively designed for playing with a controller - *EQOA* for the PlayStation 2. It thus has specific features related to these games that are difficult to reproduce with other, more generic options for translating gamepad input for games without native gamepad support.
+Although there are plenty of other applications that can fit this basic description, including Steam, this particular application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and eventually the upcoming *Monsters & Memories*, with a control scheme inspired by the only MMORPG ever exclusively designed for playing with a controller - *EQOA* for the PlayStation 2. It thus has specific features related to these games that are difficult to reproduce with other, more generic options for translating gamepad input for games that don't have native gamepad support.
 
 Nothing says it can't also be used for other games though, as it is customizable.
+
+It's worth noting that this application does **NOT** use code/file/dll injection, require modifying the target game in any way, or directly read memory from the target game. It employs separate, transparent overlay windows for visuals, sends the keyboard/mouse input "blindly" to Windows to process, and simply copies set regions of the game's screen to the overlays for real-time updated icons and such. This limits it in many ways, since it has no way of knowing what's actually going on the game for any context-sensitive controls, but this also means it shouldn't cause issues with cheat detection software and is unlikely to get you banned (provided you don't try using it to automate stuff with the limited macro support).
 
 ## Basic operation
 

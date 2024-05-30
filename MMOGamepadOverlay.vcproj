@@ -543,7 +543,15 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Resources\Taron-MnM.ini"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\Taron-P99.ini"
+			>
+		</File>
+		<File
+			RelativePath=".\Resources\Taron-PQ.ini"
 			>
 		</File>
 		<File

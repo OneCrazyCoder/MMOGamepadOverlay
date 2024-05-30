@@ -57,7 +57,9 @@ const ResourceProfile kResTemplateDefault[] =
 	{	"MnM Default",	IDR_TEXT_INI_DEF_MNM	},
 	{	"P99 Default",	IDR_TEXT_INI_DEF_P99	},
 	{	"PQ Default",	IDR_TEXT_INI_DEF_PQ		},
+	{	"Taron's MnM",	IDR_TEXT_INI_TARON_MNM	},
 	{	"Taron's P99",	IDR_TEXT_INI_TARON_P99	},
+	{	"Taron's PQ",	IDR_TEXT_INI_TARON_PQ	},
 };
 
 enum EParseMode

@@ -826,6 +826,8 @@ void readUIScale()
 		}
 		RegCloseKey(hKey);
 	}
+	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
+		sOverlayWindows[i].layoutUpdated = false;
 	HUD::updateScaling();
 }
 
