@@ -31,7 +31,12 @@ kMaxJumpDistSquared = kMaxJumpDist * kMaxJumpDist,
 // If point is too close, jump FROM it rather than to it
 kMinJumpDist = 0x0100,
 kMinJumpDistSquared = kMinJumpDist * kMinJumpDist,
+// If perpendicular weight exceeds this amount, don't jump to it
+kMaxPerpendicularWeight = 0x0F00,
 };
+
+// Higher number = prioritize straighter lines over raw distance
+const int /*float*/ kPerpendicularWeightMult = 2;
 
 enum ETask
 {
@@ -252,8 +257,8 @@ static void processFetchGridTask(u8 theFetchGridIdx)
 
 	const u16 aPointIdx = sActiveGrid[aGridX][aGridY][sTaskProgress];
 	const TrackedPoint& aPoint = sPoints[aPointIdx];
-	const u32 aDeltaX = aPoint.x - sNormalizedCursorPos.x;
-	const u32 aDeltaY = aPoint.y - sNormalizedCursorPos.y;
+	const int aDeltaX = aPoint.x - sNormalizedCursorPos.x;
+	const int aDeltaY = aPoint.y - sNormalizedCursorPos.y;
 	const u32 aDist = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
 	if( aDist > kMinJumpDistSquared && aDist < kMaxJumpDistSquared )
 	{
@@ -286,7 +291,10 @@ static void processNextLeftTask()
 		u32 anAltWeight = abs(aPoint.y - sNormalizedCursorPos.y);
 		if( anAltWeight >= aWeight )
 			continue;
-		aWeight += anAltWeight / 2;
+		anAltWeight *= kPerpendicularWeightMult;
+		if( anAltWeight > kMaxPerpendicularWeight )
+			continue;
+		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
 			sNextHotspotInDir[eCmdDir_L] = aPointIdx;
@@ -324,7 +332,10 @@ static void processNextRightTask()
 		u32 anAltWeight = abs(aPoint.y - sNormalizedCursorPos.y);
 		if( anAltWeight >= aWeight )
 			continue;
-		aWeight += anAltWeight / 2;
+		anAltWeight *= kPerpendicularWeightMult;
+		if( anAltWeight > kMaxPerpendicularWeight )
+			continue;
+		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
 			sNextHotspotInDir[eCmdDir_R] = aPointIdx;
@@ -362,7 +373,10 @@ static void processNextUpTask()
 		u32 anAltWeight = abs(aPoint.x - sNormalizedCursorPos.x);
 		if( anAltWeight >= aWeight )
 			continue;
-		aWeight += anAltWeight / 2;
+		anAltWeight *= kPerpendicularWeightMult;
+		if( anAltWeight > kMaxPerpendicularWeight )
+			continue;
+		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
 			sNextHotspotInDir[eCmdDir_U] = aPointIdx;
@@ -396,11 +410,14 @@ static void processNextDownTask()
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
 		if( aPoint.y <= sNormalizedCursorPos.y )
 			continue;
-		u32 aWeight = aPoint.y -sNormalizedCursorPos.y;
+		u32 aWeight = aPoint.y - sNormalizedCursorPos.y;
 		u32 anAltWeight = abs(aPoint.x - sNormalizedCursorPos.x);
 		if( anAltWeight >= aWeight )
 			continue;
-		aWeight += anAltWeight / 2;
+		anAltWeight *= kPerpendicularWeightMult;
+		if( anAltWeight > kMaxPerpendicularWeight )
+			continue;
+		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
 			sNextHotspotInDir[eCmdDir_D] = aPointIdx;
@@ -636,40 +653,24 @@ const Links& getLinks(u16 theArrayID)
 			else
 				aNode.next[i] = sNextHotspotInDir[i] - aFirstHotspot;
 		}
-		// Get next positions if use wrapping by searching from edges
-		if( aNode.edge[eCmdDir_Left] )
+	}
+	// Add wrap-around options or edge nodes
+	for(u16 aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
+	{
+		HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
+		for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
 		{
-			sNormalizedCursorPos.x = kNormalizedTargetSize;
-			sNewTasks.set(eTask_NextLeft);
-			while(sTaskInProgress != eTask_None || sNewTasks.any())
-				processTasks();
-		}
-		if( aNode.edge[eCmdDir_Right] )
-		{
-			sNormalizedCursorPos.x = 0;
-			sNewTasks.set(eTask_NextRight);
-			while(sTaskInProgress != eTask_None || sNewTasks.any())
-				processTasks();
-		}
-		sNormalizedCursorPos.x = sPoints[sIgnorePointInSearch].x;
-		if( aNode.edge[eCmdDir_Up] )
-		{
-			sNormalizedCursorPos.y = kNormalizedTargetSize;
-			sNewTasks.set(eTask_NextUp);
-			while(sTaskInProgress != eTask_None || sNewTasks.any())
-				processTasks();
-		}
-		if( aNode.edge[eCmdDir_Down] )
-		{
-			sNormalizedCursorPos.y = 0;
-			sNewTasks.set(eTask_NextDown);
-			while(sTaskInProgress != eTask_None || sNewTasks.any())
-				processTasks();
-		}
-		for(int i = 0; i < eCmdDir_Num; ++i)
-		{
-			if( aNode.edge[i] && sNextHotspotInDir[i] )
-				aNode.next[i] = sNextHotspotInDir[i] - aFirstHotspot;
+			if( !aNode.edge[aDir] )
+				continue;
+			ECommandDir anOppDir =
+				aDir == eCmdDir_L	? eCmdDir_R :
+				aDir == eCmdDir_R	? eCmdDir_L :
+				aDir == eCmdDir_U	? eCmdDir_D :
+				/*aDir == eCmdDir_D*/ eCmdDir_U;
+			u16 aWrapNode = aNode.next[anOppDir];
+			while(!sLinkMaps[theArrayID][aWrapNode].edge[anOppDir])
+				aWrapNode = sLinkMaps[theArrayID][aWrapNode].next[anOppDir];
+			aNode.next[aDir] = aWrapNode;
 		}
 	}
 
