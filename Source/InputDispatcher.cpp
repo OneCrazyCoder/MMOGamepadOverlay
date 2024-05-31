@@ -17,7 +17,7 @@ namespace InputDispatcher
 // Uncomment this along with the above to also print mouse movement
 //#define INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
 // Uncomment this to stop sending actual input (can still print via above)
-#define INPUT_DISPATCHER_SIMULATION_ONLY
+//#define INPUT_DISPATCHER_SIMULATION_ONLY
 
 //-----------------------------------------------------------------------------
 // Const Data

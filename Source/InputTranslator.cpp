@@ -1009,7 +1009,7 @@ static void processContinuousInput(
 
 static void processAutoRepeat(ButtonState& theBtnState)
 {
-	if( kConfig.autoRepeatRate == 0 )
+	if( kConfig.autoRepeatRate == 0 || theBtnState.isAutoButton )
 		return;
 
 	// Auto-repeat only commandsWhenPressed assigned to _Down
