@@ -23,10 +23,9 @@ const wchar_t* kOverlayWindowClassName = L"MMOGO Overlay";
 
 enum EIconCopyMethod
 {
-	eIconCopyMethod_Desktop,
+	eIconCopyMethod_OverlayBlocksCopy,
 	eIconCopyMethod_TargetWindow,
 	eIconCopyMethod_ExcludeFromCapture,
-	//eIconCopyMethod_PaintSingleWindow,
 
 	eIconCopyMethod_Num
 };
@@ -619,6 +618,12 @@ void update()
 				ShowWindow(aWindow.handle, SW_HIDE);
 			aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
 			gActiveHUD.reset(aHUDElementID);
+			if( aWindow.bitmap &&
+				InputMap::hudElementType(aHUDElementID) == eHUDType_System )
+			{// Large bitmap that's rarely needed, so free it from memory
+				DeleteObject(aWindow.bitmap);
+				aWindow.bitmap = null;
+			}
 			continue;
 		}
 		aWindow.hideUntilActivated = false;

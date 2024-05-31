@@ -1536,10 +1536,10 @@ static void drawBasicMenu(HUDDrawData& dd)
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	const u16 aPrevSelection = hi.selection;
-	hi.selection = Menus::selectedItem(aMenuID);
+	hi.selection = gDisabledHUD.test(dd.hudElementID)
+		? kInvalidItem : Menus::selectedItem(aMenuID);
 	const u16 anItemCount = u16(dd.components.size() - 1);
 	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
-	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
 
@@ -1599,7 +1599,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aPrevSelection = hi.selection;
+	u16 aPrevSelection = hi.selection;
 	hi.selection = Menus::selectedItem(aMenuID);
 	const u16 anItemCount = Menus::itemCount(aMenuID);
 	DBG_ASSERT(hi.selection < anItemCount);
@@ -1686,6 +1686,9 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		{
 			anItemRect.top = tl.y;
 			anItemRect.bottom = anItemRect.top + itemSize.cy;
+			aPrevSelection = hi.selection;
+			if( gDisabledHUD.test(dd.hudElementID) )
+				hi.selection = kInvalidItem;
 		}
 		if( shouldRedrawAll ||
 			hi.forcedRedrawItemID == itemIdx ||
@@ -1698,7 +1701,10 @@ static void drawSlotsMenu(HUDDrawData& dd)
 				sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
 		}
 		if( isSelection )
+		{
+			hi.selection = aPrevSelection;
 			break;
+		}
 		anItemRect.top = anItemRect.bottom + hi.scaled.gapSizeY;
 		anItemRect.bottom = anItemRect.top + itemSize.cy;
 	}
