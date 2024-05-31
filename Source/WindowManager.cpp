@@ -179,6 +179,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 	const u8 anInactiveAlpha = HUD::inactiveAlpha(id);
 	const bool startHidden =
 		HUD::shouldStartHidden(id) && !gActiveHUD.test(id);
+	bool allowReCheck = true;
 	do
 	{
 		oldState = theWindow.fadeState;
@@ -187,10 +188,13 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		{
 		case eFadeState_Hidden:
 			aNewAlpha = 0;
-			if( gActiveHUD.test(id) && gVisibleHUD.test(id) )
+			if( gActiveHUD.test(id) )
 			{
+				// Flash on briefly even if fade back out immediately
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
+				aNewAlpha = aMaxAlpha;
+				allowReCheck = false;
 				break;
 			}
 			if( gVisibleHUD.test(id) && !startHidden )
@@ -200,10 +204,12 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			}
 			break;
 		case eFadeState_FadeInDelay:
-			if( gActiveHUD.test(id) && gVisibleHUD.test(id) )
+			if( gActiveHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
+				aNewAlpha = aMaxAlpha;
+				allowReCheck = false;
 				break;
 			}
 			if( !gVisibleHUD.test(id) )
@@ -392,7 +398,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			theWindow.fadeState = eFadeState_Hidden;
 			break;
 		}
-	} while(oldState != theWindow.fadeState);
+	} while(oldState != theWindow.fadeState && allowReCheck);
 
 	if( aNewAlpha != theWindow.alpha )
 	{

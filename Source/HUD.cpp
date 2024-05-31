@@ -2562,8 +2562,8 @@ void updateWindowLayout(
 		aWinScalingPosX -= aWinScalingSizeX * 0.5;
 		break;
 	case eAlignment_Max:
-		aWinBasePosX -= aWinBaseSizeX;
-		aWinScalingPosX -= aWinScalingSizeX;
+		aWinBasePosX -= aWinBaseSizeX - 1;
+		aWinScalingPosX -= aWinScalingSizeX - 1;
 		break;
 	}
 	switch(hi.alignmentY)
@@ -2576,8 +2576,8 @@ void updateWindowLayout(
 		aWinScalingPosY -= aWinScalingSizeY * 0.5;
 		break;
 	case eAlignment_Max:
-		aWinBasePosY -= aWinBaseSizeY;
-		aWinScalingPosY -= aWinScalingSizeY;
+		aWinBasePosY -= aWinBaseSizeY - 1;
+		aWinScalingPosY -= aWinScalingSizeY - 1;
 		break;
 	}
 
