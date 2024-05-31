@@ -1398,6 +1398,8 @@ static void updateHUDStateForCurrentLayers()
 	}
 
 	// Run Auto command for any newly-visible or newly-enabled menus
+	// Also re-draw menus that changed disabled status to change if
+	// selected item is drawn differently or not
 	for(int i = gVisibleHUD.firstSetBit();
 		i < gVisibleHUD.size();
 		i = gVisibleHUD.nextSetBit(i+1))
@@ -1405,10 +1407,13 @@ static void updateHUDStateForCurrentLayers()
 		if( !InputMap::hudElementIsAMenu(i) )
 			continue;
 		const u16 aMenuID = InputMap::menuForHUDElement(i);
+		const bool wasDisabled = aPrevDisabledHUD.test(i);
+		const bool isDisabled = gDisabledHUD.test(i);
+		if( wasDisabled != isDisabled )
+			gRedrawHUD.set(i);
 		if( sResults.menuAutoCommandRun.test(aMenuID) )
 			continue;
-		if( !aPrevVisibleHUD.test(i) ||
-			(!gDisabledHUD.test(i) && aPrevDisabledHUD.test(i)) )
+		if( !wasDisabled || (!isDisabled && wasDisabled) )
 		{
 			processCommand(null,
 				Menus::autoCommand(aMenuID),
