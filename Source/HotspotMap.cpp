@@ -86,6 +86,7 @@ static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<u16> sCandidates;
 static std::vector<Links> sLinkMaps;
 static u16 sNextHotspotInDir[eCmdDir_Num] = { 0 };
+static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
 static Hotspot sLastCursorPos;
 static POINT sNormalizedCursorPos;
@@ -486,6 +487,7 @@ void init()
 	sLinkMaps.reserve(aHotspotArraysCount);
 	sLinkMaps.resize(aHotspotArraysCount);
 	sLastTargetSize = WindowManager::overlayTargetSize();
+	sLastUIScale = gUIScale;
 	sNewTasks.set();
 }
 
@@ -513,10 +515,12 @@ void update()
 	// Check for state changes that could trigger new tasks
 	const SIZE& aTargetSize = WindowManager::overlayTargetSize();
 	if( aTargetSize.cx != sLastTargetSize.cx ||
-		aTargetSize.cy != sLastTargetSize.cy )
+		aTargetSize.cy != sLastTargetSize.cy ||
+		gUIScale != sLastUIScale )
 	{
 		sLastTargetSize.cx = aTargetSize.cx;
 		sLastTargetSize.cy = aTargetSize.cy;
+		sLastUIScale = gUIScale;
 		sNewTasks.set(eTask_TargetSize);
 		sNewTasks.set(eTask_AddToGrid);
 		sNewTasks.set(eTask_BeginSearch);
