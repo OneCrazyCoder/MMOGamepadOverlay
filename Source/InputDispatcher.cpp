@@ -27,7 +27,6 @@ enum {
 kMouseMaxSpeed = 256,
 kMouseToPixelDivisor = 8192,
 kMouseMaxDigitalVel = 32768,
-kMinMouseLookTimeForAltMove = 100,
 kVKeyModsMask = 0x3F00,
 kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
 kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
@@ -77,6 +76,7 @@ struct Config
 	u16 baseKeyReleaseLockTime;
 	u16 mouseClickLockTime;
 	u16 minModKeyChangeTime;
+	u16 mouseJumpPauseTime;
 	u8 mouseDPadAccel;
 	bool useScanCodes;
 
@@ -87,6 +87,7 @@ struct Config
 		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 20);
 		minModKeyChangeTime = Profile::getInt("System/MinModKeyChangeTime", 50);
 		mouseClickLockTime = Profile::getInt("System/MinMouseButtonClickTime", 25);
+		mouseJumpPauseTime = Profile::getInt("System/MouseJumpPauseTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
 		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
@@ -246,6 +247,7 @@ struct DispatchTracker
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
 	u32 mouseJumpAllowedTime;
+	u32 mouseJumpFinishedTime;
 	u16 mouseJumpToHotspot;
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
@@ -525,6 +527,9 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_MBUTTON));
 	DBG_ASSERT(!sTracker.keysHeldDown.test(VK_RBUTTON));
 
+	if( sTracker.mouseJumpAttempted && sTracker.mouseJumpVerified )
+		return;
+
 	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
 	if( (!sTracker.mouseJumpAttempted || sTracker.mouseJumpVerified) &&
 		(sTracker.mouseMode == eMouseMode_Cursor ||
@@ -546,6 +551,7 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 		return;
 	}
 
+	sTracker.mouseJumpFinishedTime = gAppRunTime + kConfig.mouseJumpPauseTime;
 	aDestPos = WindowManager::overlayPosToNormalizedMousePos(aDestPos);
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
@@ -590,7 +596,12 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 	}
 
 	// If reached this point, jump was attempted and verified successful
-	// Clear flags for next jump attempt
+	// Now just need to wait minimum post-jump time
+	sTracker.mouseJumpVerified = true;
+	if( gAppRunTime < sTracker.mouseJumpFinishedTime )
+		return false;
+
+	// Jump process completed! Clear flags for next jump attempt
 	sTracker.mouseJumpAttempted = false;
 	sTracker.mouseJumpVerified = false;
 
@@ -676,6 +687,7 @@ static void trailMouseToHotspot(u16 theHotspotID)
 		sTracker.mouseJumpVerified = false;
 	}
 
+	sTracker.mouseJumpFinishedTime = gAppRunTime + kConfig.mouseJumpPauseTime;
 	aNewPos = WindowManager::overlayPosToNormalizedMousePos(aNewPos);
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
@@ -774,14 +786,15 @@ static EResult setKeyDown(u16 theKey, bool down)
 		return eResult_Ok;
 
 	// May not be allowed to press non-mod keys yet
-	if( down && !isModKey(u8(theKey)) &&
+	if( down && !sTracker.typingChatBoxString &&
+		!isModKey(u8(theKey)) &&
 		gAppRunTime < sTracker.nonModKeyPressAllowedTime )
 	{
 		return eResult_NotAllowed;
 	}
 
 	// May not be allowed to press or release any mod keys yet
-	if( isModKey(u8(theKey)) &&
+	if( isModKey(u8(theKey)) && !sTracker.typingChatBoxString &&
 		gAppRunTime < sTracker.modKeyChangeAllowedTime )
 	{
 		return eResult_NotAllowed;
@@ -789,7 +802,7 @@ static EResult setKeyDown(u16 theKey, bool down)
 
 	// May not be allowed to release the given key yet
 	if( !down && keyIsLockedDown(u8(theKey)) )
-		return eResult_NotAllowed;
+ 		return eResult_NotAllowed;
 
 	Input anInput;
 	u32 aLockDownTime = kConfig.baseKeyReleaseLockTime;
@@ -854,7 +867,7 @@ static EResult setKeyDown(u16 theKey, bool down)
 	if( anInput.type == INPUT_MOUSE && !down )
 	{
 		sTracker.mouseJumpAllowedTime =
-			gAppRunTime + kConfig.mouseClickLockTime;
+			gAppRunTime + kConfig.mouseJumpPauseTime;
 		sTracker.modKeyChangeAllowedTime =
 			gAppRunTime + kConfig.minModKeyChangeTime;
 	}

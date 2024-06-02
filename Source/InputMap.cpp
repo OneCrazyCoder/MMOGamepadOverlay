@@ -2596,16 +2596,11 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 }
 
 
-static void buildControlScheme(InputMapBuilder& theBuilder)
+static void buildRemainingControlsLayers(
+	InputMapBuilder& theBuilder,  u16 aFirstLayer)
 {
-	mapDebugPrint("Building control scheme layers...\n");
-
-	// Create layer ID 0 for root layer
-	DBG_ASSERT(sLayers.empty());
-	getOrCreateLayerID(theBuilder, kMainLayerLabel);
-
 	// Build layers - sLayers size can expand as each layer adds other layers
-	for(u16 aLayerIdx = 0; aLayerIdx <= sLayers.size(); ++aLayerIdx)
+	for(u16 aLayerIdx = aFirstLayer; aLayerIdx <= sLayers.size(); ++aLayerIdx)
 	{
 		if( !theBuilder.comboLayerNameToIdxMap.empty() &&
 			aLayerIdx >= sLayers.size() )
@@ -2626,7 +2621,22 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 			break;
 		buildControlsLayer(theBuilder, aLayerIdx);
 	}
+}
 
+
+static void buildControlScheme(InputMapBuilder& theBuilder)
+{
+	mapDebugPrint("Building control scheme layers...\n");
+
+	// Create layer ID 0 for root layer
+	DBG_ASSERT(sLayers.empty());
+	getOrCreateLayerID(theBuilder, kMainLayerLabel);
+	buildRemainingControlsLayers(theBuilder, 0);
+}
+
+
+static void linkComboControlsLayers()
+{
 	// Link any derived layers (ones using .includeLayer) to also activate
 	// any combo layers that the included layer activates
 	for(u16 aLayerIdx = 2; aLayerIdx < sLayers.size(); ++aLayerIdx)
@@ -2907,8 +2917,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 		}
 
 		// Buld any new controls layers added by this menu
-		for(u16 aLayerID = anOLdLayerCount; aLayerID < sLayers.size(); ++aLayerID)
-			buildControlsLayer(theBuilder, aLayerID);
+		buildRemainingControlsLayers(theBuilder, anOLdLayerCount);
 	}
 }
 
@@ -3086,6 +3095,7 @@ void loadProfile()
 		buildControlScheme(anInputMapBuilder);
 		buildMenus(anInputMapBuilder);
 		buildHUDElements(anInputMapBuilder);
+		linkComboControlsLayers();
 		assignSpecialKeys(anInputMapBuilder);
 	}
 
@@ -3171,6 +3181,8 @@ u16 offsetKeyBindArrayIndex(
 	KeyBindArray& aKeyBindArray = sKeyBindArrays[theArrayID];
 	// The last command in the array should never be empty
 	DBG_ASSERT(aKeyBindArray.back().cmd.type != eCmdType_Empty);
+	while(aKeyBindArray[theIndex].cmd.type == eCmdType_Empty)
+		++theIndex;
 	while(theOffset < 0 && (wrap || theIndex > 0) )
 	{
 		if( theIndex-- == 0 )

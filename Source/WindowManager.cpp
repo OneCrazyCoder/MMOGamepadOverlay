@@ -937,6 +937,14 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 	const u16 aHUDElementID = InputMap::hudElementForMenu(theMenuID);
 	OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
+	switch(InputMap::menuStyle(theMenuID))
+	{
+	case eMenuStyle_Slots:
+		// Only ever allow pointing at the top component (selected item)
+		theMenuItemIdx = 0;
+		break;
+	}
+
 	const size_t aCompIndex =
 		min(aWindow.components.size()-1, theMenuItemIdx + 1);
 	POINT aPos;
