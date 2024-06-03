@@ -77,11 +77,10 @@ EResult selectGamepad(int theGamepadID);
 void setVibration(u16 theLowMotor, u16 theHighMotor);
 void setImpulseTriggersEnabled(bool);
 
-// Sets the amount (0 to 255) that associated EAxis should
-// be pushed in order to register as a digital EButton press.
-// Only used for analog sticks (not the trigger buttons).
-// Does NOT affect axisVal() or buttonAnalogVal()!
-void setDigitalDeadzone(EButton theButton, u8 theDeadzone = 100);
+// Sets the amount (0 to 255) that associated button must be pushed in order
+// to register as a digital EButton press. Means nothing for non-axis buttons,
+// and does NOT affect axisVal() or buttonAnalogVal()!
+void setPressThreshold(EButton theButton, u8 theDeadzone);
 
 // Forces button to be considered released until next time it is pushed,
 // even if it is currently actually down. Doesn't affect axisVal() though.
@@ -95,22 +94,22 @@ bool buttonHit(EButton theButton);
 // Only checks selected gamepad if one is selected (auto or otherwise)
 bool buttonDown(EButton theButton);
 
-// Returns a value between 0 and 255 for given axis.
-// Return value is NOT affected by setDigitalDeadzone()!
+// Returns a value between 0 and 255 for how much given axis is moved.
+// Return value is NOT affected by setPressThreshold()!
 u8 axisVal(EAxis theAxis);
 
 // Returns axisVal() of axis associated with given button, if has one.
 // Returns 0 for buttons with no analog input possible, *even when pressed*!
 u8 buttonAnalogVal(EButton theButton);
 
-// Returns the associated EAxis value for given EButton, or eBtn_None
+// Returns the associated EAxis value for given EButton, or eAxis_None
 EAxis axisForButton(EButton theButton);
 
-// Returns the associated EButton value for given EAxis, or eAxis_None
+// Returns the associated EButton value for given EAxis, or eBtn_None
 EButton buttonForAxis(EAxis theAxis);
 
-// Returns value previously set by setDigitalDeadzone (or default value)
-u8 getDigitalDeadzone(EButton theButton);
+// Returns value previously set by setPressThreshold (or default value)
+u8 getPressThreshhold(EButton theButton);
 
 // Used for setting custom controls, this returns the last new button
 // value change by any gamepads currently active, or eBtn_None

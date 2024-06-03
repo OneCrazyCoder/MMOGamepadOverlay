@@ -756,8 +756,26 @@ In addition, to save on typing you can specify multiple hotspot/icon offsets in 
 
 *Note that the + signs in front of each number for the offsets don't do anything, I just put them there to help remind me that these are offsets rather than direct positions.*
 
+### Analog deadzones and thresholds
+
+For basic commands and key presses, analog sticks and triggers are treated as digital buttons via a "threshold" value, which is how much the stick/trigger must be pressed to count as a button press. The defaults for these can be set via:
+
+    [Gamepad]
+    # Values are from 0 to 100, with 100% being a full press
+    LStickButtonThreshold = 40
+    RStickButtonThreshold = 40
+    TriggerButtonThreshold = 12
+
+These defaults can be overridden for specific commands by specifying the button name and the key word "threshold" in a layer's properties, like so:
+
+    [Layer.MyLayer]
+    L2 = Jump
+    L2 Threshold = 80
+
+Some actions directly support analog control, such as mouse movement. For these actions, the above properties are ignored and instead a circular deadzone and saturation point are applied. The deadzone is a value below which input is ignored, and saturation is a value above which the stick is considered 100% pressed in that direction. These are set per action type, including ones for cursor motion, camera (mouse look) motion, mouse wheel, and character movement. The generated *MMOGO_Core.ini* includes defaults for these, under the [Gamepad] section.
+
 ### System features
 
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD elements can actually show up over top of the game.
 
-There are various other system options you can set like how long a "tap" vs a "short hold" is, analog stick deadzones and mouse cursor/wheel speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since Discord refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.
+There are various other system options you can set like how long a "tap" vs a "short hold" is, mouse cursor/wheel speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since Discord refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.

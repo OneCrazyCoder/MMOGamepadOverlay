@@ -213,6 +213,8 @@ static void	loadButtonCommandsForCurrentLayers()
 			if( aBtnState.commands )
 			{
 				aBtnState.commandsLayer = *itr;
+				Gamepad::setPressThreshold(EButton(aBtnIdx),
+					InputMap::commandThreshold(*itr, EButton(aBtnIdx)));
 				break;
 			}
 		}

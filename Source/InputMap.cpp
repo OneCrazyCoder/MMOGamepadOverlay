@@ -44,6 +44,7 @@ const char* kHotspotArraysKey = "HOTSPOTS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
 const char* kMenuOpenKey = "AUTO";
+const char* kThresholdSuffix = "THRESHOLD";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
@@ -204,6 +205,8 @@ static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
+static VectorMap<std::pair<u16, EButton>, u8> sButtonThresholds;
+static u8 sDefaultThresholds[eBtn_Num];
 
 
 //-----------------------------------------------------------------------------
@@ -2344,6 +2347,65 @@ static void addButtonAction(
 }
 
 
+static void addButtonThreshold(
+	InputMapBuilder& theBuilder,
+	u16 theLayerIdx,
+	std::string theBtnName,
+	const std::string& theThresholdValueStr)
+{
+	EButton aBtnID = buttonNameToID(theBtnName);
+	if( aBtnID >= eBtn_Num )
+	{
+		bool isA4DirMultiAssign = false;
+		for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
+		{
+			if( theBtnName == k4DirButtons[i] )
+			{
+				isA4DirMultiAssign = true;
+				break;
+			}
+		}
+		// If not, must just be a badly-named button
+		if( !isA4DirMultiAssign )
+		{
+			logError("Unable to identify Gamepad Button '%s' requested in [%s]",
+				theBtnName.c_str(),
+				theBuilder.debugItemName.c_str());
+			return;
+		}
+
+		// Attempt to assign to all 4 directional variations of this button
+		// to the same threshold value
+		for(size_t i = 0; i < 4; ++i)
+		{
+			// Get true button ID by adding direction key to button name
+			const std::string& aBtnName = theBtnName + k4DirKeyNames[i];
+			aBtnID = buttonNameToID(aBtnName);
+			DBG_ASSERT(aBtnID < eBtn_Num);
+			// Direct assignment should take priority over multi-assignment,
+			// so if this was already assigned directly then leave it alone.
+			const std::pair<u16, EButton> aKey(theLayerIdx, aBtnID);
+			if( sButtonThresholds.contains(aKey) )
+				continue;
+			// Make individual assignment
+			addButtonThreshold(theBuilder, theLayerIdx, aBtnName,
+				theThresholdValueStr);
+		}
+		return;
+	}
+
+	const std::pair<u16, EButton> aKey(theLayerIdx, aBtnID);
+	const u8 aThreshold = clamp(intFromString(theThresholdValueStr),
+		0, 100) * 255 / 100;
+
+	sButtonThresholds.setValue(aKey, aThreshold);
+	mapDebugPrint("[%s]: '%s' analog-to-digital press threshold set to: %s%%\n",
+		theBuilder.debugItemName.c_str(),
+		kProfileButtonName[aBtnID],
+		theThresholdValueStr.c_str());
+}
+
+
 static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
@@ -2496,6 +2558,18 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			aKey == kHUDSettingsKey ||
 			aKey == kHotspotArraysKey )
 			continue;
+
+		static const size_t kThresholdKeyLen = strlen(kThresholdSuffix);
+		if( aKey.size() > kThresholdKeyLen &&
+			aKey.compare(aKey.size() - kThresholdKeyLen,
+				kThresholdKeyLen, kThresholdSuffix) == 0 )
+		{// Set custom analog-to-digital threshold
+			addButtonThreshold(
+				theBuilder, theLayerIdx,
+				aKey.substr(0, aKey.size()-kThresholdKeyLen),
+				itr->second);
+			continue;
+		}
 
 		// Parse and add assignment to this layer's commands map
 		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second);
@@ -3086,6 +3160,7 @@ void loadProfile()
 	sComboLayers.clear();
 	sMenus.clear();
 	sHUDElements.clear();
+	sButtonThresholds.clear();
 
 	// Create temp builder object and build everything from the Profile data
 	{
@@ -3115,6 +3190,7 @@ void loadProfile()
 		std::vector<HUDElement>(sHUDElements).swap(sHUDElements);
 	if( sMenus.size() < sMenus.capacity() )
 		std::vector<Menu>(sMenus).swap(sMenus);
+	sButtonThresholds.trim();
 
 	// Now that are done messing with resizing vectors which can invalidate
 	// pointers, can convert Commands with temp keyStringIdx field being a
@@ -3155,6 +3231,28 @@ void loadProfile()
 				setCStringPointerFor(&itr2->second.cmd[i]);
 		}
 	}
+
+	// Get default analog-to-digital button press thresholds
+	for(size_t i = 0; i < eBtn_Num; ++i) sDefaultThresholds[i] = 0;
+	u8 aThreshold = 
+		clamp(Profile::getInt("Gamepad/LStickButtonThreshold", 40),
+			0, 100) * 255 / 100;
+	sDefaultThresholds[eBtn_LSLeft] = aThreshold;
+	sDefaultThresholds[eBtn_LSRight] = aThreshold;
+	sDefaultThresholds[eBtn_LSUp] = aThreshold;
+	sDefaultThresholds[eBtn_LSDown] = aThreshold;
+	aThreshold = 
+		clamp(Profile::getInt("Gamepad/RStickButtonThreshold", 40),
+			0, 100) * 255 / 100;
+	sDefaultThresholds[eBtn_RSLeft] = aThreshold;
+	sDefaultThresholds[eBtn_RSRight] = aThreshold;
+	sDefaultThresholds[eBtn_RSUp] = aThreshold;
+	sDefaultThresholds[eBtn_RSDown] = aThreshold;
+	aThreshold = 
+		clamp(Profile::getInt("Gamepad/TriggerButtonThreshold", 12),
+			0, 100) * 255 / 100;
+	sDefaultThresholds[eBtn_L2] = aThreshold;
+	sDefaultThresholds[eBtn_R2] = aThreshold;
 }
 
 
@@ -3224,6 +3322,30 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 	} while(theLayerID != 0);
 
 	return null;
+}
+
+
+u8 commandThreshold(u16 theLayerID, EButton theButton)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	DBG_ASSERT(theButton < eBtn_Num);
+	std::pair<u16, EButton> aKey;
+	aKey.second = theButton;
+	VectorMap<std::pair<u16, EButton>, u8>::const_iterator itr;
+	do {
+		aKey.first = theLayerID;
+		itr = sButtonThresholds.find(aKey);
+		if( itr != sButtonThresholds.end() )
+		{// Button has a custom threshold assigned
+			return itr->second;
+		}
+		else
+		{// Check if included layer has a custom threshold assigned
+			theLayerID = sLayers[theLayerID].includeLayer;
+		}
+	} while(theLayerID != 0);
+
+	return sDefaultThresholds[theButton];
 }
 
 

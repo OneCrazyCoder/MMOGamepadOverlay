@@ -65,6 +65,7 @@ struct Config
 	double mouseWheelDeadzone;
 	double mouseWheelRange;
 	double moveDeadzone;
+	double moveStraightBias;
 	int maxTaskQueuedTime; // tasks older than this in queue are skipped
 	int chatBoxPostFirstKeyDelay;
 	int cursorXSpeed;
@@ -107,6 +108,7 @@ struct Config
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
 		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
 		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
+		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 75), 0, 100) / 100.0;
 		mouseLookZoneFixTime = Profile::getInt("System/MouseLookZoneFix");
 		std::string aString = Profile::getStr("System/safeAsyncKeys");
 		if( !aString.empty() )
@@ -1874,24 +1876,30 @@ void moveCharacter(int move, int turn, int strafe)
 	// Check if MoveStrafe should apply
 	const bool applyMoveStrafe = aMagnitude > kConfig.moveDeadzone;
 
+	// Apply move straight bias setting
+	const double kXRange = M_PI * min(0.375,
+		0.125 + (0.5 * (1.0 - kConfig.moveStraightBias)));
+	const double kYRange = M_PI * min(0.375,
+		0.125 + (0.5 * kConfig.moveStraightBias));
+
 	// Calculate which movement actions, if any, should now apply
 	BitArray<eSpecialKey_MoveNum> moveKeysWantDown;
 	moveKeysWantDown.reset();
 	moveKeysWantDown.set(eSpecialKey_TurnL - eSpecialKey_FirstMove,
 		applyMoveTurn &&
-			(aTurnAngle < M_PI * -0.625 || aTurnAngle > M_PI * 0.625));
+			(aTurnAngle < -(M_PI - kXRange) ||
+			 aTurnAngle > M_PI - kXRange));
 
 	moveKeysWantDown.set(eSpecialKey_TurnR - eSpecialKey_FirstMove,
-		applyMoveTurn &&
-			aTurnAngle > M_PI * -0.375 && aTurnAngle < M_PI * 0.375);
+		applyMoveTurn && aTurnAngle > -kXRange && aTurnAngle < kXRange);
 
 	moveKeysWantDown.set(eSpecialKey_StrafeL - eSpecialKey_FirstMove,
 		applyMoveStrafe &&
-		(aStrafeAngle < M_PI * -0.625 || aStrafeAngle > M_PI * 0.625));
+			(aStrafeAngle < -(M_PI - kXRange) ||
+			 aStrafeAngle > M_PI - kXRange));
 
 	moveKeysWantDown.set(eSpecialKey_StrafeR - eSpecialKey_FirstMove,
-		applyMoveStrafe &&
-			aStrafeAngle > M_PI * -0.375 && aStrafeAngle < M_PI * 0.375);
+		applyMoveStrafe && aStrafeAngle > -kXRange && aStrafeAngle < kXRange);
 
 	// Effects of left/right move keys can change while in Mouse Look mode,
 	// so reset Mouse Look zone fix timer whenever any of them are pressed
@@ -1903,16 +1911,20 @@ void moveCharacter(int move, int turn, int strafe)
 	moveKeysWantDown.set(
 		eSpecialKey_MoveF - eSpecialKey_FirstMove,
 		(applyMoveTurn && abs(turn) >= abs(strafe) &&
-			aTurnAngle > M_PI * 0.125 && aTurnAngle < M_PI * 0.875) ||
+			aTurnAngle > M_PI * 0.5 - kYRange &&
+			aTurnAngle < M_PI * 0.5 + kYRange) ||
 		(applyMoveStrafe && abs(strafe) >= abs(turn) &&
-			aStrafeAngle > M_PI * 0.125 && aStrafeAngle < M_PI * 0.875));
+			aStrafeAngle > M_PI * 0.5 - kYRange &&
+			aStrafeAngle < M_PI * 0.5 + kYRange));
 
 	moveKeysWantDown.set(
 		eSpecialKey_MoveB - eSpecialKey_FirstMove,
 		(applyMoveTurn && abs(turn) >= abs(strafe) &&
-			aTurnAngle < M_PI * -0.125 && aTurnAngle > M_PI * -0.875) ||
+			aTurnAngle < -M_PI * 0.5 + kYRange &&
+			aTurnAngle > -M_PI * 0.5 - kYRange) ||
 		(applyMoveStrafe && abs(strafe) >= abs(turn) &&
-			aStrafeAngle < M_PI * -0.125 && aStrafeAngle > M_PI * -0.875));
+			aStrafeAngle < -M_PI * 0.5 + kYRange &&
+			aStrafeAngle > -M_PI * 0.5 - kYRange));
 
 	// Press new movement keys
 	Command aCmd; aCmd.type = eCmdType_PressAndHoldKey;
