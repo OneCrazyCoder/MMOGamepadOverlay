@@ -108,13 +108,14 @@ struct GamepadData : private ConstructFromZeroInitializedMemory<GamepadData>
 		BitArray<eBtn_Num> initialState;
 		EVendorID vendorID : 8;
 		u8 axisVal[eAxis_Num];
+		u8 releaseThreshold[eAxis_Num];
 		u8 xInputID;
 		bool wasConnected;
 		bool initialStateSet;
 		bool hasReceivedInput;
 	} gamepad[kMaxGamepadsEnumerated];
 
-	u8 digitalDeadzone[eBtn_FirstDigital];
+	u8 pressThreshold[eAxis_Num];
 	bool disconnectDetected;
 	bool doNotAutoSelectDInputDevices;
 	bool initialized;
@@ -329,11 +330,9 @@ static void pollXInputGamepad(int theGamepadID)
 				{
 				case eBtn_L2:
 					aGamepad.axisVal[eAxis_LTrigger] = state.Gamepad.bLeftTrigger;
-					isDown = state.Gamepad.bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
 					break;
 				case eBtn_R2:
 					aGamepad.axisVal[eAxis_RTrigger] = state.Gamepad.bRightTrigger;
-					isDown = state.Gamepad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
 					break;
 				case eBtn_LSRight:
 					aGamepad.axisVal[eAxis_LSRight] = state.Gamepad.sThumbLX > 0
@@ -371,14 +370,22 @@ static void pollXInputGamepad(int theGamepadID)
 					isDown = state.Gamepad.wButtons & kXInputMap[i];
 					break;
 				}
-				if( i < eBtn_FirstDigital )
+				const bool wasDown = aGamepad.buttonsDown.test(i);
+				if( const EAxis anAxis = axisForButton(EButton(i)) )
 				{
-					const EAxis anAxis = axisForButton(EButton(i));
-					isDown = aGamepad.axisVal[anAxis] > sGamepadData.digitalDeadzone[anAxis];
+					const u8 aThreshold = wasDown
+						? aGamepad.releaseThreshold[anAxis]
+						: sGamepadData.pressThreshold[anAxis];
+					isDown = aGamepad.axisVal[anAxis] > aThreshold;
+					if( isDown && !wasDown )
+					{
+						aGamepad.releaseThreshold[anAxis] =
+							sGamepadData.pressThreshold[anAxis];
+					}
 				}
 				if( isDown )
 				{
-					if( !aGamepad.buttonsDown.test(i) )
+					if( !wasDown )
 						aGamepad.buttonsHit.set(i);
 					aGamepad.buttonsDown.set(i);
 				}
@@ -604,7 +611,7 @@ static void pollGamepad(int theGamepadID)
 				anAxis[0] = kDIToEAxis[aGamepad.vendorID][aDIAxisIdx];
 				anAxis[1] = eAxis_None;
 				if( anAxis[0] != eAxis_None )
-				{// Analog stick axis
+				{// Standard axis (analog stick)
 					anAxis[1] = EAxis(anAxis[0] + 1);
 					const int anAxisVal = int(rgdod[i].dwData) - 0x8000;
 					if( anAxisVal >= 0 )
@@ -631,11 +638,20 @@ static void pollGamepad(int theGamepadID)
 				for(int j = 0; j < 2; ++j)
 				{
 					const EButton aButton = buttonForAxis(anAxis[j]);
-					if( aButton &&
-						aGamepad.axisVal[anAxis[j]] > sGamepadData.digitalDeadzone[aButton] )
+					const bool wasDown = aGamepad.buttonsDown.test(aButton);
+					const u8 aThreshold = wasDown
+						? aGamepad.releaseThreshold[anAxis[j]]
+						: sGamepadData.pressThreshold[anAxis[j]];
+					const bool isDown =
+						aGamepad.axisVal[anAxis[j]] > aThreshold;
+					if( aButton && isDown )
 					{
-						if( !aGamepad.buttonsDown.test(aButton) )
+						if( !wasDown )
+						{
+							aGamepad.releaseThreshold[anAxis[j]] =
+								sGamepadData.pressThreshold[anAxis[j]];
 							aGamepad.buttonsHit.set(aButton);
+						}
 						aGamepad.buttonsDown.set(aButton);
 					}
 					else
@@ -900,9 +916,13 @@ void init(bool restartAfterDisconnect)
 		sNotifyWhenSelectGamepad = true;
 	}
 
-	// Set default deadzones for digital button presses
-	for(int i = 0; i < eBtn_FirstDigital; ++i)
-		setDigitalDeadzone(EButton(i));
+	// Set default thresholds for digital button presses
+	for(int i = 0; i < eAxis_Num; ++i)
+		sGamepadData.pressThreshold[i] = 100;
+	sGamepadData.pressThreshold[eAxis_LTrigger] =
+		XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+	sGamepadData.pressThreshold[eAxis_RTrigger] =
+		XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
 }
 
 
@@ -1096,12 +1116,11 @@ void setVibration(u16 theLowMotor, u16 theHighMotor)
 }
 
 
-void setDigitalDeadzone(EButton theButton, u8 theDeadzone)
+void setPressThreshold(EButton theButton, u8 theDeadzone)
 {
 	DBG_ASSERT(sGamepadData.initialized);
-
-	if( (unsigned)theButton < eBtn_FirstDigital )
-		sGamepadData.digitalDeadzone[theButton] = theDeadzone;
+	if( const EAxis anAxis = axisForButton(theButton) )
+		sGamepadData.pressThreshold[anAxis] = theDeadzone;
 }
 
 
@@ -1243,11 +1262,11 @@ EButton buttonForAxis(EAxis theAxis)
 }
 
 
-u8 getDigitalDeadzone(EButton theButton)
+u8 getPressThreshhold(EButton theButton)
 {
-	if( (unsigned)theButton < eBtn_FirstDigital )
-		return sGamepadData.digitalDeadzone[theButton];
-
+	DBG_ASSERT(theButton < eBtn_Num);
+	if( const EAxis anAxis = axisForButton(theButton) )
+		return sGamepadData.pressThreshold[anAxis];
 	return 0;
 }
 

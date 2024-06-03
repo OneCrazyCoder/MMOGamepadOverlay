@@ -179,7 +179,6 @@ enum EButton
 	eBtn_Extra,		// Touchpad on PS, Capture on NSwitch
 
 	eBtn_Num,
-	eBtn_FirstDigital = eBtn_DLeft,
 	eBtn_FirstDInputBtn = eBtn_FLeft,
 	eBtn_DInputBtnNum = eBtn_Num - eBtn_FirstDInputBtn,
 };
