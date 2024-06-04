@@ -207,7 +207,9 @@ A few Key Bind names are specifically checked for by the program and used direct
 
 ``SwapWindowMode=`` is used in the code for attempting to force the target game into full-screen-windowed mode (as opposed to *true* full screen mode which would prevent the overlay from being visible), which can be set in the [System] section with the flag ``ForceFullScreenWindow = Yes`` (and optionally ``StartInFullScreenWindow = Yes``). It is typically set to ``=Alt+Enter``.
 
-The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` et). While you could just manually assign the movement keys or use different Key Binds, setting these and then using the Move commands utilizes special extra code that helps improve movement responsiveness, particularly when assigning it to an analog stick.
+The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` etc.
+
+*Note that a button assigned to ``=MoveForward`` etc (no space) will directly use the key bind like any other key (including the analog-to-digital threshold when assigned to an analog stick), while ``=Move Forward`` (with space) is a special command that indirectly uses the key bind. The command versions make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=`` and ``MoveStraightBias=`` for finer control over movement when assigned to an analog stick. Assigning multiple move directions to a single stick at once with ``=Move``, ``=MoveTurn``, and ``=MoveStrafe`` will use the special command versions.*
 
 ### Key Bind Arrays
 
