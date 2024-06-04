@@ -128,6 +128,19 @@ static INT_PTR CALLBACK profileSelectProc(
 		}
 		return (INT_PTR)TRUE;
 
+	case WM_ACTIVATE:
+		if( LOWORD(wParam) == WA_INACTIVE &&
+			TargetApp::targetWindowIsFullScreen() )
+		{// Deactivating the window should be same as clicking Cancel
+			theData = (ProfileSelectDialogData*)(UINT_PTR)
+				GetWindowLongPtr(theDialog, GWLP_USERDATA);
+			if( theData )
+				theData->result.cancelled = true;
+			sDialogDone = true;
+			return (INT_PTR)TRUE;
+		}
+		break;
+
 	case WM_COMMAND:
 		// Process control commands
 		theData = (ProfileSelectDialogData*)(UINT_PTR)
@@ -497,6 +510,15 @@ static INT_PTR CALLBACK editMenuCommandProc(
 		}
 		return (INT_PTR)TRUE;
 
+	case WM_ACTIVATE:
+		if( LOWORD(wParam) == WA_INACTIVE &&
+			TargetApp::targetWindowIsFullScreen() )
+		{// Deactivating the window cancels change being made
+			sDialogDone = true;
+			return (INT_PTR)TRUE;
+		}
+		break;
+
 	case WM_COMMAND:
 		// Process control commands
 		theString = (std::string*)(UINT_PTR)
@@ -567,8 +589,7 @@ ProfileSelectResult profileSelect(
 		profileSelectProc,
 		reinterpret_cast<LPARAM>(&aDataStruct));
 	ShowWindow(hWnd, SW_SHOW);
-	if( TargetApp::targetWindowIsTopMost() )
-		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetForegroundWindow(hWnd);
 
 	// Loop until dialog signals it is done
