@@ -2613,20 +2613,31 @@ void updateWindowLayout(
 			anItemRect.top = max(aCompTopLeft.y,
 				aCompTopLeft.y + (aCompBaseSizeY * y) + gUIScale *
 				(hi.titleHeight + y * (aCompScalingSizeY + hi.gapSizeY)));
-			anItemRect.bottom = min(aCompBotRight.y,
-				aCompTopLeft.y + (aCompBaseSizeY * (y+1)) + gUIScale *
-				(hi.titleHeight +
-					aCompScalingSizeY * (y+1) + hi.gapSizeY * y));
+			anItemRect.bottom = aCompBotRight.y;
+			if( y < aMenuItemYCount - 1 )
+			{
+				anItemRect.bottom = aCompTopLeft.y +
+					(aCompBaseSizeY * (y+1)) + gUIScale *
+					(hi.titleHeight +
+						aCompScalingSizeY * (y+1) + hi.gapSizeY * y);
+			}
 			for(int x = 0; x < aMenuItemXCount; ++x)
 			{
 				if( theComponents.size() == aMenuItemCount + 1 )
 					break;
-				anItemRect.left = max(aCompTopLeft.x,
-					aCompTopLeft.x + (aCompBaseSizeX * x) + gUIScale *
-					(aCompScalingSizeX + hi.gapSizeX) * x);
-				anItemRect.right = min(aCompBotRight.x,
-					aCompTopLeft.x + (aCompBaseSizeX * (x+1)) + gUIScale *
-					(aCompScalingSizeX * (x+1) + hi.gapSizeX * x));
+				anItemRect.left = aCompTopLeft.x;
+				anItemRect.right = aCompBotRight.x;
+				if( x > 0 )
+				{
+					anItemRect.left += (aCompBaseSizeX * x) + gUIScale *
+						(aCompScalingSizeX + hi.gapSizeX) * x;
+				}
+				if( x < aMenuItemXCount - 1 )
+				{
+					anItemRect.right = aCompTopLeft.x +
+						(aCompBaseSizeX * (x+1)) + gUIScale *
+						(aCompScalingSizeX * (x+1) + hi.gapSizeX * x);
+				}
 				theComponents.push_back(anItemRect);
 			}
 		}
