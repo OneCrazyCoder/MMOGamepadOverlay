@@ -31,6 +31,9 @@ void update();
 // Call when get WM_HOTKEY with kSwapWindowModeHotkeyID
 void swapWindowMode();
 
+// Call when start a dialog to restore target window after
+void prepareForDialog();
+
 // Get target window handle
 HWND targetWindowHandle();
 

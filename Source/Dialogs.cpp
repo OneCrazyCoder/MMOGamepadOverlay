@@ -5,9 +5,9 @@
 #include "Dialogs.h"
 
 #include "Gamepad.h"
-#include "InputDispatcher.h" // prepareForDialog()
+#include "InputDispatcher.h" // forceReleaseHeldKeys()
 #include "Resources/resource.h"
-#include "TargetApp.h" // targetAppActive(), targetWindowIsTopMost()
+#include "TargetApp.h"
 #include "WindowManager.h"
 
 // Enable support for Edit_SetCueBannerText
@@ -548,6 +548,7 @@ ProfileSelectResult profileSelect(
 		result);
 
 	// Hide main window and overlays until dialog is done
+	TargetApp::prepareForDialog();
 	if( WindowManager::mainHandle() )
 	{
 		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
@@ -675,6 +676,7 @@ std::string targetAppPath(std::string& theCommandLineParams)
 
 EResult showLicenseAgreement(HWND theParentWindow)
 {
+	TargetApp::prepareForDialog();
 	InputDispatcher::forceReleaseHeldKeys();
 
 	if( DialogBoxParam(
@@ -698,6 +700,7 @@ EResult editMenuCommand(std::string& theString, bool directional)
 	const std::string anOriginalString = theString;
 
 	// Hide main window and overlays until dialog is done
+	TargetApp::prepareForDialog();
 	if( WindowManager::mainHandle() )
 	{
 		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
