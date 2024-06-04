@@ -99,11 +99,50 @@ static bool sHaveTriedAutoLaunch = false;
 static EWindowMode sDesiredTargetMode = eWindowMode_Unknown;
 static EWindowMode sLastKnownTargetMode = eWindowMode_Unknown;
 static bool sSwapWindowModeHotkeyRegistered = false;
+static bool sRestoreTargetWindow = false;
 
 
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
+
+static void dropTargetWindow()
+{
+	if( !sTargetWindowHandle )
+		return;
+
+	sTargetWindowHandle = NULL;
+	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
+	SetRect(&sTargetWindowRestoreRect, 0, 0, 0, 0);
+	sTargetWindowRestoreStyle = 0;
+	sTargetWindowRestoreExStyle = 0;
+	sTargetWindowRestoreMenu = NULL;
+	sLastKnownTargetMode = eWindowMode_Unknown;
+	if( sSwapWindowModeHotkeyRegistered )
+	{
+		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
+		sSwapWindowModeHotkeyRegistered = false;
+	}
+}
+
+
+static void restoreTargetWindow()
+{
+	sRestoreTargetWindow = false;
+	if( !sTargetWindowHandle )
+		return;
+	// Make sure target window still matches name in current profile
+	wchar_t wczTitle[256];
+	GetWindowText(sTargetWindowHandle, wczTitle, sizeof(wczTitle));
+	if( kConfig.targetWindowName != wczTitle )
+	{
+		dropTargetWindow();
+		return;
+	}
+
+	SetForegroundWindow(sTargetWindowHandle);
+}
+
 
 static void checkWindowExists()
 {
@@ -215,7 +254,6 @@ static void checkWindowClosed()
 		return;
 
 	// Target window found but then closed
-	sTargetWindowHandle = NULL;
 	if( kConfig.autoCloseWithTargetWindow )
 	{
 		gShutdown = true;
@@ -227,17 +265,7 @@ static void checkWindowClosed()
 		InputDispatcher::forceReleaseHeldKeys();
 		targetDebugPrint("Target window closed! Hiding overlays!\n");
 	}
-	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
-	SetRect(&sTargetWindowRestoreRect, 0, 0, 0, 0);
-	sTargetWindowRestoreStyle = 0;
-	sTargetWindowRestoreExStyle = 0;
-	sTargetWindowRestoreMenu = NULL;
-	sLastKnownTargetMode = eWindowMode_Unknown;
-	if( sSwapWindowModeHotkeyRegistered )
-	{
-		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
-		sSwapWindowModeHotkeyRegistered = false;
-	}
+	dropTargetWindow();
 }
 
 
@@ -496,6 +524,8 @@ void loadProfile()
 		sDesiredTargetMode = eWindowMode_FullScreenWindow;
 	else
 		sDesiredTargetMode = eWindowMode_Unknown;
+	if( sTargetWindowHandle && !sRestoreTargetWindow )
+		dropTargetWindow();
 }
 
 
@@ -575,6 +605,9 @@ void cleanup()
 
 void update()
 {
+	if( sRestoreTargetWindow )
+		restoreTargetWindow();
+
 	if( sNextCheckDelay > 0 )
 	{
 		sNextCheckDelay -= gAppFrameTime;
@@ -621,6 +654,12 @@ void swapWindowMode()
 	}
 	sNextCheck = eCheck_WindowMode;
 	sRepeatCheckTime = 0;
+}
+
+
+void prepareForDialog()
+{
+	sRestoreTargetWindow = (GetForegroundWindow() == sTargetWindowHandle);
 }
 
 
