@@ -43,4 +43,7 @@ bool targetAppActive();
 // Check if have a target window that is in TOPMOST style
 bool targetWindowIsTopMost();
 
+// Check if have a target window that is a full-screen window
+bool targetWindowIsFullScreen();
+
 } // TargetApp

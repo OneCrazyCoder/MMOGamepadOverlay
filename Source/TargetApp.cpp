@@ -660,6 +660,11 @@ void swapWindowMode()
 void prepareForDialog()
 {
 	sRestoreTargetWindow = (GetForegroundWindow() == sTargetWindowHandle);
+	if( sSwapWindowModeHotkeyRegistered )
+	{
+		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
+		sSwapWindowModeHotkeyRegistered = false;
+	}
 }
 
 
@@ -684,6 +689,47 @@ bool targetWindowIsTopMost()
 		return true;
 	
 	return false;
+}
+
+
+bool targetWindowIsFullScreen()
+{
+	if (!sTargetWindowHandle)
+		return false;
+
+	// Check if the window style indicates it is a borderless window
+	const LONG aWStyle = GetWindowLong(sTargetWindowHandle, GWL_STYLE);
+	if( (aWStyle & WS_POPUP) != WS_POPUP && 
+		(aWStyle & (WS_CAPTION | WS_THICKFRAME)) != 0 )
+	{
+		return false;
+	}
+
+	// Gather info about the window's current mode
+	RECT aMonRect = { 0 };
+	{
+		HMONITOR hMonitor = MonitorFromWindow(
+			sTargetWindowHandle, MONITOR_DEFAULTTONEAREST);
+		MONITORINFO aMonitor = { sizeof(MONITORINFO) };
+		GetMonitorInfo(hMonitor, &aMonitor);
+		aMonRect = aMonitor.rcMonitor;
+	};
+	const LONG aMonRectWidth = aMonRect.right - aMonRect.left;
+	const LONG aMonRectHeight = aMonRect.bottom - aMonRect.top;
+	const LONG anEpsilon = aMonRectWidth >> 7;
+
+	RECT aWRect;
+	GetClientRect(sTargetWindowHandle, &aWRect);
+	const LONG aWRectWidth = aWRect.right - aWRect.left;
+	const LONG aWRectHeight = aWRect.bottom - aWRect.top;
+	ClientToScreen(sTargetWindowHandle, (LPPOINT)&aWRect.left);
+	ClientToScreen(sTargetWindowHandle, (LPPOINT)&aWRect.right);
+
+	return
+		abs(aWRect.left - aMonRect.left) <= anEpsilon &&
+		abs(aWRect.top - aMonRect.top) <= anEpsilon &&
+		abs(aWRectWidth - aMonRectWidth) <= anEpsilon &&
+		abs(aWRectHeight - aMonRectHeight) <= anEpsilon;
 }
 
 #undef targetDebugPrint
