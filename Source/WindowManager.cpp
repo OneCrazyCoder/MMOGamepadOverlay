@@ -886,11 +886,13 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 }
 
 
-Hotspot overlayPosToHotspot(POINT theMousePos)
+Hotspot overlayPosToHotspot(POINT thePos)
 {
 	Hotspot result;
-	result.x.anchor = theMousePos.x * 0x10000 / sTargetSize.cx;
-	result.y.anchor = theMousePos.y * 0x10000 / sTargetSize.cy;
+	thePos.x = clamp(thePos.x, 0, sTargetSize.cx-1);
+	thePos.y = clamp(thePos.y, 0, sTargetSize.cy-1);
+	result.x.anchor = (thePos.x + 1) * 0xFFFF / sTargetSize.cx;
+	result.y.anchor = (thePos.y + 1) * 0xFFFF / sTargetSize.cy;
 	return result;
 }
 

@@ -58,7 +58,7 @@ POINT mouseToOverlayPos(bool clamped = true);
 // Converts a hotspot into overlay-window-relative position
 POINT hotspotToOverlayPos(const Hotspot& theHotspot);
 // Converts overlay-window-relative position into a hotspot
-Hotspot overlayPosToHotspot(POINT theMousePos);
+Hotspot overlayPosToHotspot(POINT thePos);
 // Converts overlay-window-relative mouse position into a
 // virtual-desktop-relative 0-65535 normalized pos for SendInput
 POINT overlayPosToNormalizedMousePos(POINT theMousePos);
