@@ -5,9 +5,13 @@ Download links for latest built version:
 * [Windows 32-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-x86.zip)
 * [Windows 64-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-a64.zip)
 
+Demonstration video (click to play):
+
+[![MMOGO in M&M Stress Test](http://img.youtube.com/vi/8KuRl_igD4g/0.jpg)](http://www.youtube.com/watch?v=8KuRl_igD4g "MMO Gamepad Overlay example play in Monsters & Memories stress test")
+
 This application translates DInput & XInput game controller input into keyboard and mouse input via the SendInput() Win32 API function, possibly with extra HUD elements and menus in a transparent overlay to help visualize what various buttons may do.
 
-Although there are plenty of other applications that can fit this basic description, including Steam, this particular application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and eventually the upcoming *Monsters & Memories*, with a control scheme inspired by the only MMORPG ever exclusively designed for playing with a controller - *EQOA* for the PlayStation 2. It thus has specific features related to these games that are difficult to reproduce with other, more generic options for translating gamepad input for games that don't have native gamepad support.
+Although there are plenty of other applications that can fit this basic description, including Steam, this particular application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and eventually the upcoming *Monsters & Memories* and *EverCraft*, with a control scheme inspired by the only MMORPG ever exclusively designed for playing with a controller - *EQOA* for the PlayStation 2. It thus has specific features related to these games that are difficult to reproduce with other, more generic options for translating gamepad input for games that don't have native gamepad support.
 
 Nothing says it can't also be used for other games though, as it is customizable.
 
