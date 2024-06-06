@@ -110,7 +110,7 @@ struct Config
 		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
 		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 75), 0, 100) / 100.0;
 		mouseLookZoneFixTime = Profile::getInt("System/MouseLookZoneFix");
-		std::string aString = Profile::getStr("System/safeAsyncKeys");
+		std::string aString = Profile::getStr("System/SafeAsyncKeys");
 		if( !aString.empty() )
 		{
 			std::vector<std::string> aParsedString;
@@ -179,11 +179,11 @@ public:
 		{// Buffer is full, resize by doubling to keep power-of-2 size
 			std::vector<DispatchTask> newBuffer(mBuffer.size() * 2);
 
-			for(std::size_t i = 0; i < mBuffer.size(); ++i)
+			for(std::size_t i = 0; i < mBuffer.size() - 1; ++i)
 				newBuffer[i] = mBuffer[(mHead + i) & (mBuffer.size() - 1)];
 
 			mHead = 0;
-			mTail = mBuffer.size();
+			mTail = mBuffer.size() - 1;
 			swap(mBuffer, newBuffer);
 		}
 
@@ -245,6 +245,7 @@ struct DispatchTracker
 
 	EMouseMode mouseMode;
 	EMouseMode mouseModeWanted;
+	EMouseMode mouseJumpToMode;
 	int mouseVelX, mouseVelY;
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
@@ -259,7 +260,8 @@ struct DispatchTracker
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
-		mouseModeWanted(eMouseMode_Cursor)
+		mouseModeWanted(eMouseMode_Cursor),
+		mouseJumpToMode(eMouseMode_Cursor)
 	{}
 };
 
@@ -310,6 +312,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			DBG_ASSERT(c != '\0');
 			sTracker.mouseJumpToHotspot |= (c & 0x7F);
 			sTracker.mouseJumpInterpolate = false;
+			sTracker.mouseJumpToMode = eMouseMode_PostJump;
 			continue;
 		}
 
@@ -472,9 +475,12 @@ static bool requiredModKeysAreAlreadyHeld(u16 theVKey)
 
 static bool isSafeAsyncKey(u16 theVKey)
 {
-	// These are keys that can be pressed while typing
-	// in a macro into the chat box without interfering
-	// with the macro or being interfered with by it.
+	// These are keys that can be pressed while typing in a macro into the
+	// chat box, without interfering with the typing, and with the given key
+	// still having its intended in-game effect even while the chat box is
+	// being actively typed into.
+	if( kConfig.safeAsyncKeys.empty() )
+		return false;
 
 	// Only keys that don't need modifier keys are safe
 	if( (theVKey & ~kVKeyMask) != 0 )
@@ -493,9 +499,8 @@ static bool isSafeAsyncKey(u16 theVKey)
 		 sTracker.mouseJumpToHotspot) )
 		return false;
 
+	// Which are safe async keys depend on the game, so use Profile data
 	const u8 aBaseVkey = u8(theVKey & kVKeyMask);
-
-	// Remaining safe async keys depend on target, so use Profile data
 	return
 		std::binary_search(
 			kConfig.safeAsyncKeys.begin(),
@@ -608,19 +613,7 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 	sTracker.mouseJumpVerified = false;
 
 	// Reached jump destination and can update mouse mode accordingly
-	if( (theHotspotID == eSpecialHotspot_MouseLookStart &&
-		 sTracker.mouseModeWanted == eMouseMode_Look) ||
-		(theHotspotID == eSpecialHotspot_MouseHidden &&
-		 sTracker.mouseModeWanted == eMouseMode_Hide) ||
-		(theHotspotID == eSpecialHotspot_LastCursorPos &&
-		 sTracker.mouseModeWanted == eMouseMode_Cursor) )
-	{// In position to start desired mouse mode
-		sTracker.mouseMode = sTracker.mouseModeWanted;
-		return true;
-	}
-	
-	// Prevent motion and wait to see if just a basic jump or a jump-click
-	sTracker.mouseMode = eMouseMode_PostJump;
+	sTracker.mouseMode = sTracker.mouseJumpToMode;
 	return true;
 }
 
@@ -909,7 +902,7 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 	if( isMouseButton(aVKey) && !requiredModKeysAreAlreadyHeld(aVKey) )
 		return false;
 
-	// Make sure no other keysWantDown use this same base key
+	// Make sure no other keysWantDown uses this same base key
 	for(KeysWantDownMap::iterator itr = sTracker.keysWantDown.begin();
 		itr != sTracker.keysWantDown.end(); ++itr)
 	{
@@ -1076,7 +1069,10 @@ void cleanup()
 	sTracker.moveKeysHeld.reset();
 	sTracker.mouseModeWanted = eMouseMode_Cursor;
 	if( sTracker.mouseMode != eMouseMode_Cursor )
+	{
+		sTracker.mouseJumpToMode = eMouseMode_Cursor;
 		jumpMouseToHotspot(eSpecialHotspot_LastCursorPos);
+	}
 	flushInputVector();
 }
 
@@ -1091,7 +1087,10 @@ void forceReleaseHeldKeys()
 		setKeyDown(u16(aVKey), false);
 	}
 	if( sTracker.mouseMode != eMouseMode_Cursor )
+	{
+		sTracker.mouseJumpToMode = eMouseMode_Cursor;
 		jumpMouseToHotspot(eSpecialHotspot_LastCursorPos);
+	}
 	flushInputVector();
 }
 
@@ -1139,6 +1138,7 @@ void update()
 			case eMouseMode_Cursor:
 				// Restore last known normal cursor position
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
+				sTracker.mouseJumpToMode = eMouseMode_Cursor;
 				sTracker.mouseJumpInterpolate = false;
 				break;
 			case eMouseMode_Look:
@@ -1152,6 +1152,7 @@ void update()
 				{// Jump curser to safe spot for initial right-click
 					sTracker.mouseJumpToHotspot =
 						eSpecialHotspot_MouseLookStart;
+					sTracker.mouseJumpToMode = eMouseMode_Look;
 					sTracker.mouseJumpInterpolate = false;
 					// Begin holding down right mouse button
 					sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
@@ -1166,6 +1167,7 @@ void update()
 					!sTracker.mouseJumpQueued )
 				{
 					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
+					sTracker.mouseJumpToMode = eMouseMode_Hide;
 					sTracker.mouseJumpInterpolate = false;
 				}
 				break;
@@ -1205,10 +1207,10 @@ void update()
 			sTracker.keysWantDown.findOrAdd(aCmd.vKey).depth += 1;
 			break;
 		case eCmdType_ReleaseKey:
-			// Do nothing if key was never requested down anyway
-			// (or was already force-released by kVKeyForceReleaseFlag)
 			DBG_ASSERT(aCmd.vKey != 0);
 			DBG_ASSERT((aCmd.vKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
+			// Do nothing if key was never requested down anyway
+			// (or was already force-released by kVKeyForceReleaseFlag)
 			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.vKey);
 			if( aKeyWantDownItr == sTracker.keysWantDown.end() )
 				break;
@@ -1222,9 +1224,9 @@ void update()
 					sTracker.queuePauseTime = 1; 
 					aTaskResult = eResult_Incomplete;
 				}
-				else if( --aKeyWantDownItr->second.depth <= 0 )
+				else
 				{
-					sTracker.keysWantDown.erase(aKeyWantDownItr);
+					--aKeyWantDownItr->second.depth;
 				}
 			}
 			else
@@ -1234,7 +1236,7 @@ void update()
 				// If can't, set releasing it as the queued key event
 				if( !tryQuickReleaseHeldKey(aKeyWantDownItr) )
 				{
-					--aKeyWantDownItr->second.depth;
+					aKeyWantDownItr->second.depth = 0;
 					sTracker.nextQueuedKey = aCmd.vKey | kVKeyReleaseFlag;
 				}
 			}
@@ -1266,6 +1268,7 @@ void update()
 					aCmd.hotspotID != sTracker.mouseJumpToHotspot;
 				sTracker.mouseJumpInterpolate = true;
 				sTracker.mouseJumpToHotspot = aCmd.hotspotID;
+				sTracker.mouseJumpToMode = eMouseMode_PostJump;
 			}
 			break;
 		case eCmdType_MoveMouseToMenuItem:
@@ -1294,6 +1297,7 @@ void update()
 				}
 				sTracker.mouseJumpInterpolate = true;
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_MenuItemPos;
+				sTracker.mouseJumpToMode = eMouseMode_PostJump;
 				if( aCmd.andClick )
 					sTracker.nextQueuedKey = VK_LBUTTON;
 			}
@@ -1328,10 +1332,9 @@ void update()
 		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
 		const u16 aVKeyModFlags = aVKey & kVKeyModsMask;
 		const bool pressed = itr->second.pressed;
-		const bool wantPressed = itr->second.depth > 0;
 
-		if( pressed && !wantPressed )
-		{// Been pressed and no longer needs to be
+		if( itr->second.depth <= 0 )
+		{// Doesn't want to be pressed any more, so stop tracking it
 			next_itr = sTracker.keysWantDown.erase(itr);
 			continue;
 		}
@@ -1453,6 +1456,7 @@ void update()
 				sTracker.mouseJumpToHotspot == 0 )
 			{// In hiding spot - need to restore cursor pos first
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
+				sTracker.mouseJumpToMode = eMouseMode_Cursor;
 				sTracker.mouseJumpInterpolate = false;
 				readyForQueuedKey = false;
 			}
