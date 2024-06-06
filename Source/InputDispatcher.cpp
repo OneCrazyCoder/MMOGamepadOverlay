@@ -239,6 +239,7 @@ struct DispatchTracker
 	KeysWantDownMap keysWantDown;
 	VectorMap<u8, u32> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
+	BitArray<eSpecialKey_MoveNum> stickyMoveKeys;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
 	bool typingChatBoxString;
@@ -401,17 +402,21 @@ static EResult popNextStringChar(const char* theString)
 
 	if( idx == 0 ) // the initial key to switch to chat bar (/ or Enter)
 	{
-		// Add a pause to make sure async key checking switches to
+		// Add a pause to make sure game-side async key checking switches to
 		// direct text input in chat box before 'typing' at full speed
 		sTracker.queuePauseTime =
 			max(sTracker.queuePauseTime,
 				kConfig.chatBoxPostFirstKeyDelay);
+		// Flag any movement keys now held down as possibly being "sticky"
+		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
 	}
 	else
 	{
 		// Allow releasing shift quickly to continue typing characters
 		// when are using chatbox (shouldn't have the same need for a delay
-		// as a key sequence since target likely uses keyboard events instead).
+		// as a key sequence since target game likely uses keyboard events
+		// instead of direct keyboard polling for chat box typing).
+		// This is also checked for "sticky movement keys" while typing.
 		sTracker.typingChatBoxString = true;
 	}
 
@@ -1067,12 +1072,14 @@ void cleanup()
 	sTracker.keysHeldDown.reset();
 	sTracker.keysWantDown.clear();
 	sTracker.moveKeysHeld.reset();
+	sTracker.stickyMoveKeys.reset();
 	sTracker.mouseModeWanted = eMouseMode_Cursor;
 	if( sTracker.mouseMode != eMouseMode_Cursor )
 	{
 		sTracker.mouseJumpToMode = eMouseMode_Cursor;
 		jumpMouseToHotspot(eSpecialHotspot_LastCursorPos);
 	}
+	sTracker.typingChatBoxString = false;
 	flushInputVector();
 }
 
@@ -1307,6 +1314,7 @@ void update()
 		{
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
+			sTracker.typingChatBoxString = false;
 			if( sTracker.queue.empty() )
 				sTracker.mouseJumpQueued = false;
 		}
@@ -1587,7 +1595,6 @@ void update()
 			}
 		}
 	}
-	sTracker.typingChatBoxString = false;
 
 
 	// Dispatch input to system
@@ -1930,6 +1937,25 @@ void moveCharacter(int move, int turn, int strafe)
 			aStrafeAngle < -M_PI * 0.5 + kYRange &&
 			aStrafeAngle > -M_PI * 0.5 - kYRange));
 
+	// Release movement keys while typing so can re-press them when done
+	// (otherwise if continuously held down they might not cause actual
+	// movement if the same key was used during the chat box message).
+	if( sTracker.typingChatBoxString )
+	{
+		for(int aWantedKey = moveKeysWantDown.firstSetBit();
+			aWantedKey < moveKeysWantDown.size();
+			aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
+		{
+			u16 aVKey = InputMap::keyForSpecialAction(
+				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
+			if( !isSafeAsyncKey(aVKey) && !isMouseButton(aVKey) )
+				moveKeysWantDown.reset(aWantedKey);
+		}
+		// Any movement keys held during chat box typing can become "sticky"
+		// in some games, requiring an extra tap to actually stop moving
+		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
+	}
+
 	// Press new movement keys
 	Command aCmd; aCmd.type = eCmdType_PressAndHoldKey;
 	for(int aWantedKey = moveKeysWantDown.firstSetBit();
@@ -1957,7 +1983,17 @@ void moveCharacter(int move, int turn, int strafe)
 			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
 			if( aCmd.vKey != 0 )
+			{
 				sendKeyCommand(aCmd);
+				if( sTracker.stickyMoveKeys.test(aHeldKey) )
+				{// Give the key an extra tap to un-stick it
+					aCmd.type = eCmdType_TapKey;
+					if( !isMouseButton(aCmd.vKey) )
+						sendKeyCommand(aCmd);
+					aCmd.type = eCmdType_ReleaseKey;
+					sTracker.stickyMoveKeys.reset(aHeldKey);
+				}
+			}
 			sTracker.moveKeysHeld.reset(aHeldKey);
 		}
 	}
