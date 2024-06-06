@@ -9,13 +9,21 @@ Demonstration video (click to play):
 
 [![MMOGO in M&M Stress Test](http://img.youtube.com/vi/8KuRl_igD4g/0.jpg)](http://www.youtube.com/watch?v=8KuRl_igD4g "MMO Gamepad Overlay example play in Monsters & Memories stress test")
 
-This application translates DInput & XInput game controller input into keyboard and mouse input via the SendInput() Win32 API function, possibly with extra HUD elements and menus in a transparent overlay to help visualize what various buttons may do.
+This application translates DInput & XInput game controller input into keyboard and mouse input, possibly with extra HUD elements and menus (displayed in a separate transparent window overlaying the game window) to help keep track of what various buttons may do.
 
-Although there are plenty of other applications that can fit this basic description, including Steam, this particular application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and eventually the upcoming *Monsters & Memories* and *EverCraft*, with a control scheme inspired by the only MMORPG ever exclusively designed for playing with a controller - *EQOA* for the PlayStation 2. It thus has specific features related to these games that are difficult to reproduce with other, more generic options for translating gamepad input for games that don't have native gamepad support.
+This application does ***NOT***:
+* Require (or even include) an installation process
+* Modify game files in any way
+* Modify, or even directly read, game memory
+* Inject any code into other processes
+* Use any libraries beyond the basic Windows API
+* Contain any art assets (besides the app icon)
+* Expect or solicit payments/donations
+* Use any proprietary or hidden source code
+
+Although there are plenty of other methods to translate gamepad input into KB/M input, including Steam, this particular application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and eventually the upcoming *Monsters & Memories* and *EverCraft*, with a control scheme inspired by the only MMORPG ever exclusively designed for playing with a controller - *EQOA* for the PlayStation 2. It thus has specific features related to these games that are difficult to reproduce with other, more general-purpose options..
 
 Nothing says it can't also be used for other games though, as it is customizable.
-
-It's worth noting that this application does **NOT** use code/file/dll injection, require modifying the target game in any way, or directly read memory from the target game. It employs separate, transparent overlay windows for visuals, sends the keyboard/mouse input "blindly" to Windows to process, and simply copies set regions of the game's screen to the overlays for real-time updated icons and such. This limits it in many ways, since it has no way of knowing what's actually going on the game for any context-sensitive controls, but this also means it shouldn't cause issues with cheat detection software and is unlikely to get you banned (provided you don't try using it to automate stuff with the limited macro support).
 
 ## Basic operation
 
@@ -101,7 +109,7 @@ You can assign 4 buttons at once in the case of the D-pad, analog sticks, and th
     # Below treats face buttons like a D-pad
     FPad = Move
 
-Each of these (including the analog sticks) are otherwise treated as 4 separate buttons like "LStickUp" or "DPadDown", etc. when want to assign each direction to a separate function.
+Each of these (including the analog sticks) are otherwise treated as 4 separate buttons like "LStickUp" or "DPadDown", etc. when want to assign each direction to a separate command.
 
 ### Button actions
 
