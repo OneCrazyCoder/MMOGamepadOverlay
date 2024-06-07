@@ -731,7 +731,9 @@ HWND mainHandle()
 
 void resize(RECT theNewWindowRect)
 {
-	if( !sMainWindow )
+	if( !sMainWindow ||
+		theNewWindowRect.right <= theNewWindowRect.left ||
+		theNewWindowRect.bottom <= theNewWindowRect.top )
 		return;
 
 	SIZE aNewTargetSize;

@@ -280,7 +280,9 @@ static void checkWindowPosition()
 	GetClientRect(sTargetWindowHandle, &aWRect);
 	ClientToScreen(sTargetWindowHandle, (LPPOINT)&aWRect.left);
 	ClientToScreen(sTargetWindowHandle, (LPPOINT)&aWRect.right);
-	if( !EqualRect(&aWRect, &sTargetWindowRect) )
+	if( !EqualRect(&aWRect, &sTargetWindowRect) &&
+		aWRect.bottom > aWRect.top &&
+		aWRect.right > aWRect.left )
 	{// Target window has been moved/resized/activated
 		targetDebugPrint(
 			"Repositioning Overlay to Target (%d x %d -> %d x %d)\n",
