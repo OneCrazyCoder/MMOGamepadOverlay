@@ -854,6 +854,25 @@ static void processCommand(
 }
 
 
+static bool isTapOnlyCommand(const Command& theCommand)
+{
+	switch(theCommand.type)
+	{
+	case eCmdType_Empty:
+	case eCmdType_PressAndHoldKey:
+	case eCmdType_KeyBindArrayHoldIndex:
+	case eCmdType_HoldControlsLayer:
+	case eCmdType_MoveTurn:
+	case eCmdType_MoveStrafe:
+	case eCmdType_MoveMouse:
+	case eCmdType_MouseWheel:
+		return false;
+	}
+
+	return true;
+}
+
+
 static void processButtonPress(ButtonState& theBtnState)
 {
 	// When first pressed, back up copy of current commands to be referenced
@@ -910,8 +929,9 @@ static void processContinuousInput(
 	Command aCmd;
 	if( theBtnState.commandsWhenPressed )
 		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Down];
-	if( aCmd.type == eCmdType_Empty && theBtnState.commands &&
-		theBtnState.commands != theBtnState.commandsWhenPressed )
+	if( theBtnState.commands &&
+		theBtnState.commands != theBtnState.commandsWhenPressed &&
+		(aCmd.type == eCmdType_Empty || isTapOnlyCommand(aCmd)) )
 	{
 		aCmd = theBtnState.commands[eBtnAct_Down];
 	}

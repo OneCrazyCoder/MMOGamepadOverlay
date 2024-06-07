@@ -221,7 +221,7 @@ A few Key Bind names are specifically checked for by the program and used direct
 
 The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` etc.
 
-*Note that a button assigned to ``=MoveForward`` etc (no space) will directly use the key bind like any other key (including the analog-to-digital threshold when assigned to an analog stick), while ``=Move Forward`` (with space) is a special command that indirectly uses the key bind. The command versions make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=`` and ``MoveStraightBias=`` for finer control over movement when assigned to an analog stick. Assigning multiple move directions to a single stick at once with ``=Move``, ``=MoveTurn``, and ``=MoveStrafe`` will use the special command versions.*
+*Note that assigning a button to a Move command or one of the above Key Binds is different than just assigning it directly to the actual keyboard key the game uses for movement, besides just the ability to assign 4 directions at once. These commands make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=`` and ``MoveStraightBias=`` for finer control when assigned to an analog stick, plus specialized code for interactions between movement and other actions like chat box macros.*
 
 ### Key Bind Arrays
 

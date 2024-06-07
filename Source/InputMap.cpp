@@ -180,6 +180,7 @@ struct InputMapBuilder
 	Profile::KeyValuePairs keyValueList;
 	VectorMap<ECommandKeyWord, size_t> keyWordMap;
 	StringToValueMap<Command> commandAliases;
+	StringToValueMap<Command> specialKeyNameToCommandMap;
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<u16> hotspotArrayNameToIdxMap;
@@ -1709,8 +1710,13 @@ static Command stringToCommand(
 	if( result.type == eCmdType_Empty )
 	{
 		std::string aKeyBindName = condense(theString);
-		if( Command* aKeyBindCommand =
-				theBuilder.commandAliases.find(aKeyBindName) )
+		if( Command* aSpecialKeyCommand =
+				theBuilder.specialKeyNameToCommandMap.find(aKeyBindName) )
+		{
+			result = *aSpecialKeyCommand;
+		}
+		else if( Command* aKeyBindCommand =
+					theBuilder.commandAliases.find(aKeyBindName) )
 		{
 			result = *aKeyBindCommand;
 			// Check if this keybind is part of an array, and if so, use
@@ -2128,6 +2134,29 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 	gKeyBindArrayDefaultIndex.resize(sKeyBindArrays.size());
 	gKeyBindArrayLastIndexChanged.clearAndResize(sKeyBindArrays.size());
 	gKeyBindArrayDefaultIndexChanged.clearAndResize(sKeyBindArrays.size());
+
+	// Generate special key to command map while here
+	Command aCmd;
+	aCmd.type = eCmdType_MoveTurn;
+	aCmd.dir = eCmdDir_Forward;
+	theBuilder.specialKeyNameToCommandMap.setValue(
+		kSpecialKeyNames[eSpecialKey_MoveF], aCmd);
+	aCmd.dir = eCmdDir_Back;
+	theBuilder.specialKeyNameToCommandMap.setValue(
+		kSpecialKeyNames[eSpecialKey_MoveB], aCmd);
+	aCmd.dir = eCmdDir_Left;
+	theBuilder.specialKeyNameToCommandMap.setValue(
+		kSpecialKeyNames[eSpecialKey_TurnL], aCmd);
+	aCmd.dir = eCmdDir_Right;
+	theBuilder.specialKeyNameToCommandMap.setValue(
+		kSpecialKeyNames[eSpecialKey_TurnR], aCmd);
+	aCmd.type = eCmdType_MoveStrafe;
+	aCmd.dir = eCmdDir_Left;
+	theBuilder.specialKeyNameToCommandMap.setValue(
+		kSpecialKeyNames[eSpecialKey_StrafeL], aCmd);
+	aCmd.dir = eCmdDir_Right;
+	theBuilder.specialKeyNameToCommandMap.setValue(
+		kSpecialKeyNames[eSpecialKey_StrafeR], aCmd);
 }
 
 
