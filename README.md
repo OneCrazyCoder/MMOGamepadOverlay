@@ -1,9 +1,6 @@
 # MMO Gamepad Overlay
 
-Download links for latest built version:
-
-* [Windows 32-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-x86.zip)
-* [Windows 64-bit](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/MMOGamepadOverlay-a64.zip)
+Check the [Downloads](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/) section for latest built versions!
 
 Demonstration video (click to play):
 
