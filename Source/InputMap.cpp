@@ -2938,7 +2938,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 
 		// Check for command to execute automatically on menu open
 		const std::string anOnOpenCmd =
-			Profile::getStr(condense(aPrefix + "/" + kMenuOpenKey));
+			Profile::getStr(aPrefix + "/" + kMenuOpenKey);
 		if( !anOnOpenCmd.empty() )
 		{
 			theBuilder.debugItemName =
@@ -2970,7 +2970,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			checkForNextMenuItem = false;
 			const std::string& aMenuItemKeyName = toString(itemIdx+1);
 			const std::string& aMenuItemString = Profile::getStr(
-				condense(aPrefix + "/" + aMenuItemKeyName));
+				aPrefix + "/" + aMenuItemKeyName);
 			checkForNextMenuItem = !aMenuItemString.empty();
 			if( aMenuStyle == eMenuStyle_Hotspots )
 			{// Guarantee menu item count matches hotspot count
@@ -2997,7 +2997,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 		{
 			const std::string aMenuItemKeyName = k4DirMenuItemLabel[itemIdx];
 			const std::string& aMenuItemString = Profile::getStr(
-				condense(aPrefix + "/" + aMenuItemKeyName));
+				aPrefix + "/" + aMenuItemKeyName);
 			if( !aMenuItemString.empty() || aMenuStyle == eMenuStyle_4Dir )
 			{
 				theBuilder.debugItemName =
@@ -3479,18 +3479,23 @@ u16 menuHotspotArray(u16 theMenuID)
 }
 
 
-std::string menuItemKey(u16 theMenuID, u16 theMenuItemIdx)
+std::string menuSectionName(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
-	return menuPathOf(theMenuID) + "/" + toString(theMenuItemIdx+1);
+	return menuPathOf(theMenuID);
 }
 
 
-std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir)
+std::string menuItemKeyName(u16 theMenuItemIdx)
 {
-	DBG_ASSERT(theMenuID < sMenus.size());
+	return toString(theMenuItemIdx+1);
+}
+
+
+std::string menuItemDirKeyName(ECommandDir theDir)
+{
 	DBG_ASSERT(theDir < eCmdDir_Num);
-	return menuPathOf(theMenuID) + "/" + k4DirMenuItemLabel[theDir];
+	return k4DirMenuItemLabel[theDir];
 }
 
 

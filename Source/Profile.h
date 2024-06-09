@@ -9,9 +9,9 @@
 	Data is read in all at once and cached, but changes are written out to
 	disk immediately if they are different than cached data!
 
-	Each setting can have a category name associated with it, separated by
+	Each setting can have a section name associated with it, separated by
 	a forward slash character. For example: "System/FrameTime" would get the
-	value for "FrameTime=" from the category [System] in the .ini file.
+	value for "FrameTime=" from the [System] section in the .ini file.
 */
 
 #include "Common.h"
@@ -34,7 +34,7 @@ std::string getStr(const std::string& theKey, const std::string& theDefaultValue
 int getInt(const std::string& theKey, int theDefaultValue = 0);
 bool getBool(const std::string& theKey, bool theDefaultValue = false);
 float getFloat(const std::string& theKey, float theDefaultValue = 0);
-// Directly returns all key/value pairs whose keys start with given prefix (category).
+// Directly returns all key/value pairs whose keys start with given prefix (section).
 // Returned key names will be in all-caps, no spaces, and with given prefix removed,
 // and will be appended to any data already contained in passed-in KeyValuePairs.
 // WARNING: Returned pointers may be invalidated with any modifications to profile!
@@ -42,8 +42,9 @@ typedef std::vector<std::pair<const char*, const char*> > KeyValuePairs;
 void getAllKeys(const std::string& thePrefix, KeyValuePairs& out);
 
 // Add or modify profile settings
-void setStr(const std::string& theKey, const std::string& theString);
-void setInt(const std::string& theKey, int theValue);
-void setBoolean(const std::string& theKey, bool theValue);
-
+// This requires section name be specified directly, in case there are any
+// forward slash characters in the section or value name.
+void setStr(const std::string& theSection,
+			const std::string& theValueName,
+			const std::string& theValue);
 } // Profile

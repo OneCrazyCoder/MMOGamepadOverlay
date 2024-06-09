@@ -498,9 +498,10 @@ void editMenuItem(u16 theMenuID)
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
 	const u16 anItemIdx = selectedItem(theMenuID);
-	const std::string& aMenuItemKey =
-		InputMap::menuItemKey(aSubMenuID, anItemIdx);
-	std::string aMenuItemCmd = Profile::getStr(aMenuItemKey);
+	const std::string& aMenuProfileName =
+		InputMap::menuSectionName(aSubMenuID);
+	std::string aMenuItemCmd = Profile::getStr(
+		aMenuProfileName + "/" + InputMap::menuItemKeyName(anItemIdx));
 	if( Dialogs::editMenuCommand(aMenuItemCmd) == eResult_Ok )
 	{
 		gReloadProfile = true;
@@ -512,12 +513,14 @@ void editMenuItem(u16 theMenuID)
 			for(u16 i = aMenuItemCount; i > anItemIdx+1; --i)
 			{
 				Profile::setStr(
-					InputMap::menuItemKey(aSubMenuID, i),
-					Profile::getStr(
-						InputMap::menuItemKey(aSubMenuID, i-1)));
+					aMenuProfileName,
+					InputMap::menuItemKeyName(i),
+					Profile::getStr(aMenuProfileName + "/" +
+						InputMap::menuItemKeyName(i-1)));
 			}
 			Profile::setStr(
-				InputMap::menuItemKey(aSubMenuID, anItemIdx+1),
+				aMenuProfileName,
+				InputMap::menuItemKeyName(anItemIdx+1),
 				aMenuItemCmd);
 		}
 		else if( aMenuItemCmd[0] == '-' )
@@ -528,12 +531,14 @@ void editMenuItem(u16 theMenuID)
 			for(u16 i = aMenuItemCount; i > anItemIdx; --i)
 			{
 				Profile::setStr(
-					InputMap::menuItemKey(aSubMenuID, i),
-					Profile::getStr(
-						InputMap::menuItemKey(aSubMenuID, i-1)));
+					aMenuProfileName,
+					InputMap::menuItemKeyName(i),
+					Profile::getStr(aMenuProfileName + "/" +
+						InputMap::menuItemKeyName(i-1)));
 			}
 			Profile::setStr(
-				InputMap::menuItemKey(aSubMenuID, anItemIdx),
+				aMenuProfileName,
+				InputMap::menuItemKeyName(anItemIdx),
 				aMenuItemCmd);
 		}
 		else if( aMenuItemCmd.empty() )
@@ -542,17 +547,20 @@ void editMenuItem(u16 theMenuID)
 			for(u16 i = anItemIdx+1; i < aMenuItemCount; ++i)
 			{
 				Profile::setStr(
-					InputMap::menuItemKey(aSubMenuID, i-1),
-					Profile::getStr(
-						InputMap::menuItemKey(aSubMenuID, i)));
+					aMenuProfileName,
+					InputMap::menuItemKeyName(i-1),
+					Profile::getStr(aMenuProfileName + "/" +
+						InputMap::menuItemKeyName(i)));
 			}
 			Profile::setStr(
-				InputMap::menuItemKey(aSubMenuID, aMenuItemCount-1),
+				aMenuProfileName,
+				InputMap::menuItemKeyName(aMenuItemCount-1),
 				"");
 		}
 		else
 		{// Modify menu item
-			Profile::setStr(aMenuItemKey, aMenuItemCmd);
+			Profile::setStr(aMenuProfileName,
+				InputMap::menuItemKeyName(anItemIdx), aMenuItemCmd);
 		}
 	}
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
@@ -569,9 +577,10 @@ void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
-	const std::string& aMenuItemKey =
-		InputMap::menuItemDirKey(aSubMenuID, theDir);
-	std::string aMenuItemCmd = Profile::getStr(aMenuItemKey);
+	const std::string& aMenuProfileName =
+		InputMap::menuSectionName(aSubMenuID);
+	std::string aMenuItemCmd = Profile::getStr(
+		aMenuProfileName + "/" + InputMap::menuItemDirKeyName(theDir));
 	if( Dialogs::editMenuCommand(aMenuItemCmd, true) == eResult_Ok )
 	{
 		if( !aMenuItemCmd.empty() &&
@@ -580,7 +589,8 @@ void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 			aMenuItemCmd = trim(&aMenuItemCmd[1]);
 		}
 		gReloadProfile = true;
-		Profile::setStr(aMenuItemKey, aMenuItemCmd);
+		Profile::setStr(aMenuProfileName,
+			InputMap::menuItemDirKeyName(theDir), aMenuItemCmd);
 	}
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
 	gActiveHUD.set(aMenuInfo.hudElementID);

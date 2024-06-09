@@ -557,6 +557,7 @@ void autoLaunch()
 		GetModuleFileName(NULL, aFinalPath, MAX_PATH);
 		aPath = getFileDir(narrow(aFinalPath), true) + aPath;
 	}
+	const std::string aDirPath = getFileDir(aPath);
 	if( !aParams.empty() )
 		aPath = "\"" + aPath + "\" " + aParams;
 	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH);
@@ -568,7 +569,7 @@ void autoLaunch()
 	si.cb = sizeof(STARTUPINFO);
 	if( CreateProcess(NULL, aFinalPath,
 			NULL, NULL, FALSE, 0, NULL,
-			widen(getFileDir(aPath)).c_str(),
+			widen(aDirPath).c_str(),
 			&si, &pi))
 	{
 		CloseHandle(pi.hThread);
@@ -579,8 +580,17 @@ void autoLaunch()
 	}
 	else
 	{
-		logFatalError("Failed to auto-launch target application: %s",
-			narrow(aFinalPath).c_str());
+		LPVOID anErrorMessage;
+		FormatMessage(
+			FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+			FORMAT_MESSAGE_IGNORE_INSERTS,
+			NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+			(LPWSTR)&anErrorMessage, 0, NULL);
+		logFatalError("Failed to auto-launch target application: %s\n"
+			"Error given: %s",
+			narrow(aFinalPath).c_str(),
+			narrow((LPWSTR)anErrorMessage).c_str());
+		LocalFree(anErrorMessage);
 	}
 }
 
