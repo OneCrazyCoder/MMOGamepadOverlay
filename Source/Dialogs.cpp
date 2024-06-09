@@ -458,10 +458,18 @@ static INT_PTR CALLBACK licenseDialogProc(
 			{
 				if( LPVOID pTextResource = LockResource(hGlobal) )
 				{
+					DWORD aSize = SizeofResource(NULL, hTextRes);
+					std::string aString; aString.reserve(aSize);
+					for(size_t i = 0; i < aSize; ++i)
+					{
+						if( ((char*)pTextResource)[i] == '\0' )
+							break;
+						aString.push_back(((char*)pTextResource)[i]);
+					}
 					SetDlgItemText(
 						theDialog,
 						IDC_EDIT_LICENSE_TEXT,
-						widen((char*)pTextResource).c_str());
+						widen(aString).c_str());
 				}
 			}
 		}

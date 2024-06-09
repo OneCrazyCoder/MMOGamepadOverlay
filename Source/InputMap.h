@@ -67,9 +67,10 @@ const Command& menuAutoCommand(u16 theMenuID);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
 u16 menuHotspotArray(u16 theMenuID); // for eMenuStyle_Hotspots only
-// Full Profile (.ini file) key for specified menu item's command
-std::string menuItemKey(u16 theMenuID, u16 theMenuItemIdx);
-std::string menuItemDirKey(u16 theMenuID, ECommandDir theDir);
+// Strings used for Profile getStr()/setStr() functions
+std::string menuSectionName(u16 theMenuID);
+std::string menuItemKeyName(u16 theMenuItemIdx);
+std::string menuItemDirKeyName(ECommandDir theDir);
 
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);

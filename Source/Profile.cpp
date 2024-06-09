@@ -65,7 +65,7 @@ const ResourceProfile kResTemplateDefault[] =
 enum EParseMode
 {
 	eParseMode_Header,
-	eParseMode_Categories,
+	eParseMode_Sections,
 };
 
 typedef void (*ParseINICallback)(
@@ -234,15 +234,15 @@ static void parseINI(
 	// reach end of file
 	char aBuffer[kINIFileBufferSize+1];
 	std::streamsize aBufferSize = kINIFileBufferSize;
-	std::string aNewCategory;
-	std::string aCategory;
+	std::string aNewSection;
+	std::string aSection;
 	std::string aKey;
 	std::string aValue;
 
 	enum
 	{
 		ePIState_Whitespace,
-		ePIState_Category,
+		ePIState_Section,
 		ePIState_Key,
 		ePIState_Value,
 		ePIState_Comment,
@@ -271,7 +271,7 @@ static void parseINI(
 			switch(aState)
 			{
 			case ePIState_Whitespace:
-				// Look for a category, key, or comment
+				// Look for a section, key, or comment
 				if( c == '[' )
 				{
 					if( theParseMode == eParseMode_Header )
@@ -279,47 +279,47 @@ static void parseINI(
 						aFile.close();
 						return;
 					}
-					aState = ePIState_Category;
-					aNewCategory.clear();
+					aState = ePIState_Section;
+					aNewSection.clear();
 				}
 				else if( c == '#' || c == ';' )
 				{
 					aState = ePIState_Comment;
 				}
-				else if( isalnum(c) )
+				else if( !isspace(c) )
 				{
-					if( theParseMode == eParseMode_Categories &&
-						aCategory.empty() )
-					{// Treat anything before first category as a comment
+					if( theParseMode == eParseMode_Sections &&
+						aSection.empty() )
+					{// Treat anything before first section as a comment
 						aState = ePIState_Comment;
 					}
 					else
 					{
 						aState = ePIState_Key;
-						aKey = aCategory;
+						aKey = aSection;
 						if( !aKey.empty() )
 							aKey.push_back('/');
-						aKey.push_back(toupper(c));
+						aKey.push_back(c);
 					}
 				}
 				break;
 
-			case ePIState_Category:
-				// Look for ']' to end category
+			case ePIState_Section:
+				// Look for end of line after ']' to end section
 				switch(c)
 				{
-				case ']':
-					aNewCategory = condense(aNewCategory);
-					if( !aNewCategory.empty() )
-						aCategory.swap(aNewCategory);
-					// fall through
 				case '\r': case '\n': case '\0':
+					aNewSection = condense(aNewSection);
+					if( aNewSection.size() > 1 &&
+						aNewSection[aNewSection.size()-1] == ']' )
+					{
+						aNewSection.resize(aNewSection.size()-1);
+						aSection.swap(aNewSection);
+					}
 					aState = ePIState_Whitespace;
 					break;
 				default:
-					// Do not allow '/' in category names
-					if( c != '/' )
-						aNewCategory.push_back(c);
+					aNewSection.push_back(c);
 				}
 				break;
 
@@ -335,8 +335,8 @@ static void parseINI(
 				{// Abort - invalid key
 					aState = ePIState_Whitespace;
 				}
-				else if( c != '/' )
-				{// Do not allow '/' in key names
+				else
+				{
 					aKey.push_back(c);
 				}
 				break;
@@ -391,7 +391,7 @@ static bool areOnSameVolume(
 
 static void setKeyValueInINI(
 	const std::string& theFilePath,
-	const std::string& theCategory,
+	const std::string& theSection,
 	const std::string& theKey,
 	const std::string& theValue)
 {
@@ -431,28 +431,28 @@ static void setKeyValueInINI(
 	char aBuffer[kINIFileBufferSize+1];
 	std::streamsize aBufferSize = kINIFileBufferSize;
 	std::string aCheckStr;
-	const std::string& aCmpCategory = condense(theCategory);
+	const std::string& aCmpSection = condense(theSection);
 	const std::string& aCmpKey = condense(theKey);
 
 	enum
 	{
-		eSKVState_FindCategory,
-		eSKVState_CheckCategory,
-		eSKVState_SkipCategoryLine,
+		eSKVState_FindSection,
+		eSKVState_CheckSection,
+		eSKVState_SkipSectionLine,
 		eSKVState_FindKey,
 		eSKVState_CheckKey,
 		eSKVState_SkipKeyLine,
 		eSKVState_ValueLine,
 		eSKVState_Finished,
-	} aState = eSKVState_FindCategory;
-	if( theCategory.empty() )
+	} aState = eSKVState_FindSection;
+	if( theSection.empty() )
 		aState = eSKVState_FindKey;
 
 	// Parse the INI file to find start and end of segment to replace
 	const std::fstream::pos_type kInvalidFilePos = -1;
 	std::fstream::pos_type aReplaceStartPos = kInvalidFilePos;
 	std::fstream::pos_type aReplaceEndPos = kInvalidFilePos;
-	std::fstream::pos_type anEndOfValidCategory = kInvalidFilePos;
+	std::fstream::pos_type anEndOfValidSection = kInvalidFilePos;
 	std::fstream::pos_type aCurrFilePos = aFile.tellg();
 	std::fstream::pos_type aLastNonWhitespace = aCurrFilePos;
 
@@ -480,65 +480,64 @@ static void setKeyValueInINI(
 				aLastNonWhitespace = aCurrFilePos;
 			switch(aState)
 			{
-			case eSKVState_FindCategory:
-				// Look for a category
+			case eSKVState_FindSection:
+				// Look for a section
 				if( c == '[' )
 				{
-					aState = eSKVState_CheckCategory;
+					aState = eSKVState_CheckSection;
 					aCheckStr.clear();
 				}
-				else if( isalnum(c) )
+				else if( !isspace(c) )
 				{
-					aState = eSKVState_SkipCategoryLine;
+					aState = eSKVState_SkipSectionLine;
 				}
 				break;
 
-			case eSKVState_CheckCategory:
-				// Look for ']' to end category
+			case eSKVState_CheckSection:
+				// Look for endline after ']' to end section
 				switch(c)
 				{
-				case ']':
-					aCheckStr = trim(aCheckStr);
-					if( aCheckStr == aCmpCategory )
-						aState = eSKVState_FindKey;
-					else if( aCmpCategory.empty() )
-						aState = eSKVState_Finished;
-					else
-						aState = eSKVState_FindCategory;
-					break;
 				case '\r': case '\n': case '\0':
-					aState = eSKVState_FindCategory;
+					aState = eSKVState_FindSection;
+					aCheckStr = condense(aCheckStr);
+					if( aCheckStr.size() > 1 &&
+						aCheckStr[aCheckStr.size()-1] == ']' )
+					{
+						aCheckStr.resize(aCheckStr.size()-1);
+						if( aCheckStr == aCmpSection )
+							aState = eSKVState_FindKey;
+						else if( aCmpSection.empty() )
+							aState = eSKVState_Finished;
+					}
 					break;
 				default:
-					// Categories are all upper-case and no spaces/etc
-					if( c > ' ' && c != '-' && c != '_' && c != '/' )
-						aCheckStr.push_back(toupper(c));
+					aCheckStr.push_back(c);
 					break;
 				}
 				break;
 
-			case eSKVState_SkipCategoryLine:
-				// Look for end of line than resume category search
+			case eSKVState_SkipSectionLine:
+				// Look for end of line than resume section search
 				if( c == '\r' || c == '\n' || c == '\0' )
-					aState = eSKVState_FindCategory;
+					aState = eSKVState_FindSection;
 				break;
 
 			case eSKVState_FindKey:
 				// Look for start of a key
 				if( c == '[' )
 				{
-					aState = eSKVState_CheckCategory;
+					aState = eSKVState_CheckSection;
 					aCheckStr.clear();
 				}
 				else if( c == '#' || c == ';' )
 				{
 					aState = eSKVState_SkipKeyLine;
 				}
-				else if( isalnum(c) )
+				else if( !isspace(c) )
 				{
 					aState = eSKVState_CheckKey;
 					aCheckStr.clear();
-					aCheckStr.push_back(toupper(c));
+					aCheckStr.push_back(c);
 				}
 				break;
 
@@ -546,7 +545,7 @@ static void setKeyValueInINI(
 				// Look for '=' to end key
 				if( c == '=' )
 				{// End of the key - check if this is the one being looked for
-					if( trim(aCheckStr) == aCmpKey )
+					if( condense(aCheckStr) == aCmpKey )
 					{// Found starting position to replace with new characters!
 						aReplaceStartPos = aCurrFilePos;
 						aReplaceStartPos += std::fstream::off_type(1);
@@ -561,9 +560,9 @@ static void setKeyValueInINI(
 				{// Abort - invalid key
 					aState = eSKVState_FindKey;
 				}
-				else if( c > ' ' && c != '-' && c != '_' && c != '/' )
-				{// Keys are all upper-case and no spaces/etc
-					aCheckStr.push_back(toupper(c));
+				else
+				{
+					aCheckStr.push_back(c);
 				}
 				break;
 
@@ -572,7 +571,7 @@ static void setKeyValueInINI(
 				if( c == '\r' || c == '\n' || c == '\0' )
 				{
 					aState = eSKVState_FindKey;
-					anEndOfValidCategory = aCurrFilePos;
+					anEndOfValidSection = aCurrFilePos;
 				}
 				break;
 
@@ -600,21 +599,21 @@ static void setKeyValueInINI(
 		DBG_ASSERT(aReplaceEndPos != kInvalidFilePos);
 		aWriteString = std::string(" ") + trim(theValue);
 	}
-	else if( anEndOfValidCategory != kInvalidFilePos )
+	else if( anEndOfValidSection != kInvalidFilePos )
 	{
-		// Found category, write key and value
-		aReplaceStartPos = aReplaceEndPos = anEndOfValidCategory;
+		// Found section, write key and value
+		aReplaceStartPos = aReplaceEndPos = anEndOfValidSection;
 		aWriteString = kEndOfLine + trim(theKey) + " = " + trim(theValue);
 	}
 	else
 	{
-		// Found nothing, write category, key, and value
+		// Found nothing, write section, key, and value
 		aReplaceStartPos = aLastNonWhitespace;
 		aReplaceStartPos += std::fstream::off_type(1);
 		aFile.seekg(0, std::ios::end);
 		aReplaceEndPos = aFile.tellg();
 		aWriteString = kEndOfLine + kEndOfLine + "[";
-		aWriteString += trim(theCategory) + "]" + kEndOfLine;
+		aWriteString += trim(theSection) + "]" + kEndOfLine;
 		aWriteString += trim(theKey) + " = " + trim(theValue);
 		aWriteString += kEndOfLine;
 	}
@@ -928,7 +927,7 @@ static void loadProfile(int theProfilesCanLoadIdx)
 		parseINI(
 			readProfileCallback,
 			anEntry.path,
-			eParseMode_Categories);
+			eParseMode_Sections);
 	}
 
 	if( sNewBaseProfileIdx >= 0 )
@@ -1008,7 +1007,7 @@ void loadCore()
 	parseINI(
 		readProfileCallback,
 		aCoreProfile.path,
-		eParseMode_Categories);
+		eParseMode_Sections);
 }
 
 
@@ -1387,7 +1386,7 @@ bool queryUserForProfile()
 
 std::string getStr(const std::string& theKey, const std::string& theDefaultValue)
 {
-	if( std::string* aString = sSettingsMap.find(upper(theKey)) )
+	if( std::string* aString = sSettingsMap.find(condense(theKey)) )
 	{
 		if( !aString->empty() )
 			return *aString;
@@ -1440,7 +1439,7 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 {
 	const size_t aPrefixLength = thePrefix.length();
 	StringsMap::IndexVector anIndexSet;
-	sSettingsMap.findAllWithPrefix(upper(thePrefix), &anIndexSet);
+	sSettingsMap.findAllWithPrefix(condense(thePrefix), &anIndexSet);
 
 	#ifndef NDEBUG
 	// Unnecessary but nice for debug output - sort to match order added to map
@@ -1456,38 +1455,25 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 }
 
 
-void setStr(const std::string& theKey, const std::string& theString)
+void setStr(const std::string& theSection,
+			const std::string& theValueName,
+			const std::string& theValue)
 {
-	std::string& aString =
-		sSettingsMap.findOrAdd(upper(theKey), std::string(""));
+	std::string& aStringRef =
+		sSettingsMap.findOrAdd(condense(theSection + theValueName),
+		std::string(""));
 
 	// Only change map and write to file if new string is actually different
-	if( aString == theString )
+	if( aStringRef == theValue )
 		return;
-	aString = theString;
-
-	const std::string& aSectionName = getFileDir(theKey, false);
-	const std::string& aKeyOnly = getFileName(theKey);
+	aStringRef = theValue;
 
 	if( !sLoadedProfileName.empty() )
 	{
 		setKeyValueInINI(
 			profileNameToFilePath(sLoadedProfileName),
-			aSectionName, aKeyOnly, theString);
+			theSection, theValueName, theValue);
 	}
-}
-
-
-void setInt(const std::string& theKey, int theValue)
-{
-	setStr(theKey, toString(theValue));
-}
-
-
-void setBool(const std::string& theKey, bool theValue)
-{
-	if( getBool(theKey) != theValue )
-		setStr(theKey, theValue ? "Yes" : "No");
 }
 
 } // Profile
