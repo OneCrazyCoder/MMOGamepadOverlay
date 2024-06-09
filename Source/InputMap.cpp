@@ -1710,13 +1710,18 @@ static Command stringToCommand(
 	if( result.type == eCmdType_Empty )
 	{
 		std::string aKeyBindName = condense(theString);
-		if( Command* aSpecialKeyCommand =
-				theBuilder.specialKeyNameToCommandMap.find(aKeyBindName) )
+		if( allowHoldActions )
 		{
-			result = *aSpecialKeyCommand;
+			if( Command* aSpecialKeyCommand =
+					theBuilder.specialKeyNameToCommandMap.find(aKeyBindName) )
+			{
+				result = *aSpecialKeyCommand;
+				return result;
+			}
 		}
-		else if( Command* aKeyBindCommand =
-					theBuilder.commandAliases.find(aKeyBindName) )
+
+		if( Command* aKeyBindCommand =
+				theBuilder.commandAliases.find(aKeyBindName) )
 		{
 			result = *aKeyBindCommand;
 			// Check if this keybind is part of an array, and if so, use
