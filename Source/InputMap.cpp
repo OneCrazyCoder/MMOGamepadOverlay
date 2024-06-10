@@ -68,6 +68,7 @@ const char* kButtonActionPrefx[] =
 	"Hold",					// eBtnAct_Hold
 	"Tap",					// eBtnAct_Tap
 	"Release",				// eBtnAct_Release
+	"With",					// eBtnAct_With
 };
 DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
 
@@ -208,7 +209,6 @@ static u16 sSpecialKeys[eSpecialKey_Num];
 static VectorMap<std::pair<u16, EButton>, u16> sButtonHoldTimes;
 static VectorMap<std::pair<u16, EButton>, u8> sButtonThresholds;
 static u16 sDefaultButtonHoldTime = 400;
-static u8 sDefaultThresholds[eBtn_Num];
 
 
 //-----------------------------------------------------------------------------
@@ -2047,28 +2047,25 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 
 		// Keybinds can only be assigned to direct input
 		Command aCmd;
-		// Check for a slash command or say string, which stores the string
-		// as ASCII text and outputs it by typing it into the chat box
 		if( aCommandDescription.empty() )
-		{
+		{// Do nothing
 			aCmd.type = eCmdType_DoNothing;
 			aCommandDescription = "<Do Nothing>";
 		}
 		else if( aCommandDescription[0] == '/' )
-		{
+		{// Slash command (types into chat box)
 			aCmd.type = eCmdType_SlashCommand;
 			sKeyStrings.push_back(aCommandDescription);
 			aCmd.keyStringIdx = u16(sKeyStrings.size()-1);
 		}
 		else if( aCommandDescription[0] == '>' )
-		{
+		{// Say string (types into chat box - '>' becomes Enter to start)
 			aCmd.type = eCmdType_SayString;
 			sKeyStrings.push_back(aCommandDescription);
 			aCmd.keyStringIdx = u16(sKeyStrings.size()-1);
 		}
 		else
-		{
-			// VKey Sequence
+		{// VKey Sequence
 			theBuilder.parsedString.clear();
 			sanitizeSentence(aCommandDescription, theBuilder.parsedString);
 			const std::string& aVKeySeq = namesToVKeySequence(
@@ -2635,31 +2632,16 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		ButtonActions& aBtnActions = aMap[i].second;
 
-		// Check for button being overally set as "unassigned"
-		// Buttons configured this way return 'null' even when Include layer
-		// has something assigned, thus allowing lower layers' assignments.
-		// They are identified by a button containing an _Unassigned command
-		// but all other commands set as _Empty (if anything else is assigned
-		// to the button then _Unassigned is treated the same as _DoNothing).
-		bool setAsUnassignedButton = false;
-		for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+		// If base "Down" action is set to "unassigned", treat all actions
+		// set to _Empty as also "unassigned", meaning they will not copy over
+		// commands from their include layer.
+		if( aBtnActions.cmd[eBtnAct_Down].type == eCmdType_Unassigned )
 		{
-			if( aBtnActions.cmd[aBtnAct].type == eCmdType_Unassigned )
+			for(int aBtnAct = 1; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
-				setAsUnassignedButton = true;
-				continue;
+				if( aBtnActions.cmd[aBtnAct].type == eCmdType_Empty )
+					aBtnActions.cmd[aBtnAct].type = eCmdType_Unassigned;
 			}
-			if( aBtnActions.cmd[aBtnAct].type != eCmdType_Empty )
-			{
-				setAsUnassignedButton = false;
-				break;
-			}
-		}
-		if( setAsUnassignedButton )
-		{
-			aBtnActions.cmd[0].type = eCmdType_Unassigned;
-			// Rest of the commands don't matter as they will never be returned
-			continue;
 		}
 
 		// If included another layer, copy commands from include layer into any
@@ -2681,18 +2663,6 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 					aBtnActions.cmd[aBtnAct] = incCommands[aBtnAct];
 				}
 			}
-		}
-
-		// Convert any remaining _Unassigned or _DoNothing to _Empty.
-		// At this point, they have served their purpose of blocking Include
-		// assignments or blocking lower layers' assignments by returning
-		// non-null, but outside code just expects to check for _Empty alone
-		// for a command that does nothing.
-		for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
-		{
-			if( aBtnActions.cmd[aBtnAct].type == eCmdType_Unassigned ||
-				aBtnActions.cmd[aBtnAct].type == eCmdType_DoNothing )
-				aBtnActions.cmd[aBtnAct].type = eCmdType_Empty;
 		}
 	}
 	aMap.trim();
@@ -2912,7 +2882,6 @@ static MenuItem stringToMenuItem(
 		mapDebugPrint("%s: '%s' left <unassigned>!\n",
 			theBuilder.debugItemName.c_str(),
 			aLabel.c_str());
-		aMenuItem.cmd.type = eCmdType_Empty;
 		break;
 	case eCmdType_Empty:
 		// Probably just forgot the > at front of a plain string
@@ -3290,28 +3259,6 @@ void loadProfile()
 				setCStringPointerFor(&itr2->second.cmd[i]);
 		}
 	}
-
-	// Get default analog-to-digital button press thresholds
-	for(size_t i = 0; i < eBtn_Num; ++i) sDefaultThresholds[i] = 0;
-	u8 aThreshold = 
-		clamp(Profile::getInt("Gamepad/LStickButtonThreshold", 40),
-			0, 100) * 255 / 100;
-	sDefaultThresholds[eBtn_LSLeft] = aThreshold;
-	sDefaultThresholds[eBtn_LSRight] = aThreshold;
-	sDefaultThresholds[eBtn_LSUp] = aThreshold;
-	sDefaultThresholds[eBtn_LSDown] = aThreshold;
-	aThreshold = 
-		clamp(Profile::getInt("Gamepad/RStickButtonThreshold", 40),
-			0, 100) * 255 / 100;
-	sDefaultThresholds[eBtn_RSLeft] = aThreshold;
-	sDefaultThresholds[eBtn_RSRight] = aThreshold;
-	sDefaultThresholds[eBtn_RSUp] = aThreshold;
-	sDefaultThresholds[eBtn_RSDown] = aThreshold;
-	aThreshold = 
-		clamp(Profile::getInt("Gamepad/TriggerButtonThreshold", 12),
-			0, 100) * 255 / 100;
-	sDefaultThresholds[eBtn_L2] = aThreshold;
-	sDefaultThresholds[eBtn_R2] = aThreshold;
 }
 
 
@@ -3370,8 +3317,6 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 		itr = sLayers[theLayerID].map.find(theButton);
 		if( itr != sLayers[theLayerID].map.end() )
 		{// Button has something assigned
-			if( itr->second.cmd[0].type == eCmdType_Unassigned )
-				return null;
 			return &itr->second.cmd[0];
 		}
 		else
@@ -3408,7 +3353,7 @@ u16 commandHoldTime(u16 theLayerID, EButton theButton)
 }
 
 
-u8 commandThreshold(u16 theLayerID, EButton theButton)
+const u8* commandThreshold(u16 theLayerID, EButton theButton)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	DBG_ASSERT(theButton < eBtn_Num);
@@ -3420,7 +3365,7 @@ u8 commandThreshold(u16 theLayerID, EButton theButton)
 		itr = sButtonThresholds.find(aKey);
 		if( itr != sButtonThresholds.end() )
 		{// Button has a custom threshold assigned
-			return itr->second;
+			return &itr->second;
 		}
 		else
 		{// Check if included layer has a custom threshold assigned
@@ -3428,7 +3373,7 @@ u8 commandThreshold(u16 theLayerID, EButton theButton)
 		}
 	} while(theLayerID != 0);
 
-	return sDefaultThresholds[theButton];
+	return null;
 }
 
 
