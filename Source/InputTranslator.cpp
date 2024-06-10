@@ -265,6 +265,24 @@ static void removeControlsLayer(u16 theLayerID)
 }
 
 
+static bool layerIsDescendant(const LayerState& theLayer, u16 theParentLayerID)
+{
+	if( theLayer.parentLayerID == theParentLayerID )
+		return true;
+
+	if( theLayer.parentLayerID == 0 )
+		return false;
+
+	return
+		layerIsDescendant(
+			sState.layers[theLayer.parentLayerID],
+			theParentLayerID) ||
+		layerIsDescendant(
+			sState.layers[theLayer.altParentLayerID],
+			theParentLayerID);
+}
+
+
 static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
 {
 	// The order for this function only applies to normal or child layers.
@@ -285,7 +303,11 @@ static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
 	{
 		result = itr.base();
 		if( *itr == theParentLayerID )
+		{
+			if( result != sState.layerOrder.end() )
+				++result;
 			break;
+		}
 	}
 
 	if( theParentLayerID == 0 )
@@ -299,10 +321,9 @@ static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
 	}
 	else
 	{
-		// Continue to move forward until hit end() or non-parent/sibling
+		// Continue to move forward until hit end() or one unrelated to parent
 		while( result != sState.layerOrder.end() &&
-			   (*result == 0 && *result == theParentLayerID ||
-				sState.layers[*result].parentLayerID == theParentLayerID) )
+			   layerIsDescendant(sState.layers[*result], theParentLayerID) )
 		{
 			++result;
 		}
