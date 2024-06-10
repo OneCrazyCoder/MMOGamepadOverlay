@@ -46,7 +46,7 @@ void logToErrorFile(const std::string& theErrorString)
 		WCHAR aPathW[MAX_PATH];
 		GetModuleFileName(NULL, aPathW, MAX_PATH);
 		sErrorLogFilePath =
-			widen(getFileDir(narrow(aPathW), true) + "ErrorLog.txt");
+			widen(getFileDir(narrow(aPathW), true) + "MMOGO_ErrorLog.txt");
 	}
 
 	time_t now = time(0);

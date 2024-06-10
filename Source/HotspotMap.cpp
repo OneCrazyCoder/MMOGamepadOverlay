@@ -21,18 +21,23 @@ namespace HotspotMap
 enum {
 // This value won't overload a u32 when used with dist formula
 kNormalizedTargetSize = 0x7FFF,
-// Grid cells per axis, must be a power of 2
-kGridSize = 4,
 // >> amount to convert kNormalizedTargetSize to kGridSize
-kNormalizedToGridShift = 13, 
-// Must be <= kNormalizedTargetSize / kGridSize
-kMaxJumpDist = 0x1FFF, 
+kNormalizedToGridShift = 12, // 0x7FFF >> 12 = 7 = 8x8 grid
+// Grid cells per axis
+kGridSize = (kNormalizedTargetSize >> kNormalizedToGridShift) + 1,
+// Size of each grid cell
+kGridCellSize = (kNormalizedTargetSize + 1) / kGridSize,
+// Maximum (normalized) distance cursor can jump from current position
+kMaxJumpDist = 0x1400,
 kMaxJumpDistSquared = kMaxJumpDist * kMaxJumpDist,
+// Maximum grid squares in each axis to check
+kMaxCheckGridCellsPerAxis = ((kMaxJumpDist * 2 - 1) / kGridCellSize) + 2,
+kMaxCheckGridCells = kMaxCheckGridCellsPerAxis * kMaxCheckGridCellsPerAxis,
 // If point is too close, jump FROM it rather than to it
 kMinJumpDist = 0x0100,
 kMinJumpDistSquared = kMinJumpDist * kMinJumpDist,
 // If perpendicular weight exceeds this amount, don't jump to it
-kMaxPerpendicularWeight = 0x0F00,
+kMaxPerpendicularWeight = 0x07FF,
 };
 
 // Higher number = prioritize straighter lines over raw distance
@@ -44,10 +49,7 @@ enum ETask
 	eTask_ActiveArrays,
 	eTask_AddToGrid,
 	eTask_BeginSearch,
-	eTask_FetchGrid0,
-	eTask_FetchGrid1,
-	eTask_FetchGrid2,
-	eTask_FetchGrid3,
+	eTask_FetchFromGrid,
 	eTask_NextLeft,
 	eTask_NextRight,
 	eTask_NextUp,
@@ -83,6 +85,7 @@ static BitVector<> sRequestedArrays;
 static BitVector<> sActiveArrays;
 static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
+static std::vector<GridPos> sFetchGrid(kMaxCheckGridCells);
 static std::vector<u16> sCandidates;
 static std::vector<Links> sLinkMaps;
 static u16 sNextHotspotInDir[eCmdDir_Num] = { 0 };
@@ -90,9 +93,8 @@ static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
 static Hotspot sLastCursorPos;
 static POINT sNormalizedCursorPos;
-static GridPos sFetchGrid[4];
 static BitArray<eTask_Num> sNewTasks;
-static ETask sTaskInProgress = eTask_None;
+static ETask sCurrentTask = eTask_None;
 static int sTaskProgress = 0;
 static u32 sBestCandidateWeight = 0xFFFFFFFF;
 static u16 sIgnorePointInSearch = 0;
@@ -125,7 +127,7 @@ static void processTargetSizeTask()
 	}
 
 	if( ++sTaskProgress >= sPoints.size() )
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 }
 
 
@@ -169,7 +171,7 @@ static void processActiveArraysTask()
 	}
 
 	if( sTaskProgress >= aHotspotArrayCount )
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 }
 
 
@@ -205,7 +207,7 @@ static void processAddToGridTask()
 	if( sTaskProgress >= sPoints.size() )
 	{
 		sNewTasks.set(eTask_BeginSearch);
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 	}
 }
 
@@ -214,64 +216,71 @@ static void processBeginSearchTask()
 {
 	if( sTaskProgress == 0 )
 	{
+		// This task will restart every time the cursor moves at all,
+		// meaning could be repeated every frame for a while, so do the
+		// bare minimum in this first step.
 		sCandidates.clear();
+		sFetchGrid.clear();
 		for(int i = 0; i < eCmdDir_Num; ++i)
 			sNextHotspotInDir[i] = 0;
 		++sTaskProgress;
 		return;
 	}
 
-	const u32 kGridCellSize = kNormalizedTargetSize / kGridSize;
-	const u32 aGridX = sNormalizedCursorPos.x - kGridCellSize / 2;
-	const u32 aGridY = sNormalizedCursorPos.y - kGridCellSize / 2;
-	sFetchGrid[0].x = aGridX >> kNormalizedToGridShift;
-	sFetchGrid[0].y = aGridY >> kNormalizedToGridShift;
-	sFetchGrid[1].x = (aGridX+kGridCellSize) >> kNormalizedToGridShift;
-	sFetchGrid[1].y = aGridY >> kNormalizedToGridShift;
-	sFetchGrid[2].x = aGridX >> kNormalizedToGridShift;
-	sFetchGrid[2].y = (aGridY+kGridCellSize) >> kNormalizedToGridShift;
-	sFetchGrid[3].x = (aGridX+kGridCellSize) >> kNormalizedToGridShift;
-	sFetchGrid[3].y = (aGridY+kGridCellSize) >> kNormalizedToGridShift;
-	if( sFetchGrid[0].x < kGridSize && sFetchGrid[0].y < kGridSize )
-		sNewTasks.set(eTask_FetchGrid0);
-	if( sFetchGrid[1].x < kGridSize && sFetchGrid[1].y < kGridSize )
-		sNewTasks.set(eTask_FetchGrid1);
-	if( sFetchGrid[2].x < kGridSize && sFetchGrid[2].y < kGridSize )
-		sNewTasks.set(eTask_FetchGrid2);
-	if( sFetchGrid[3].x < kGridSize && sFetchGrid[3].y < kGridSize )
-		sNewTasks.set(eTask_FetchGrid3);
-	sTaskInProgress = eTask_None;
+	const u32 aMinGridX = u32(clamp(sNormalizedCursorPos.x - kMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
+	const u32 aMinGridY = u32(clamp(sNormalizedCursorPos.y - kMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
+	const u32 aMaxGridX = u32(clamp(sNormalizedCursorPos.x + kMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
+	const u32 aMaxGridY = u32(clamp(sNormalizedCursorPos.y + kMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
+	GridPos aGridPos = GridPos();
+	for(aGridPos.x = aMinGridX; aGridPos.x <= aMaxGridX; ++aGridPos.x)
+	{
+		for(aGridPos.y = aMinGridY; aGridPos.y <= aMaxGridY; ++aGridPos.y)
+			sFetchGrid.push_back(aGridPos);
+	}
+	if( !sFetchGrid.empty() )
+		sNewTasks.set(eTask_FetchFromGrid);
+	sCurrentTask = eTask_None;
 }
 
 
-static void processFetchGridTask(u8 theFetchGridIdx)
+static void processFetchFromGridTask()
 {
-	DBG_ASSERT(theFetchGridIdx < ARRAYSIZE(sFetchGrid));
-	const u32 aGridX = sFetchGrid[theFetchGridIdx].x;
-	const u32 aGridY = sFetchGrid[theFetchGridIdx].y;
-	if( aGridX >= kGridSize || aGridY >= kGridSize ||
-		sActiveGrid[aGridX][aGridY].empty() )
+	if( sTaskProgress >= sFetchGrid.size() )
 	{
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 		return;
 	}
+	const u32 aGridX = sFetchGrid[sTaskProgress].x;
+	const u32 aGridY = sFetchGrid[sTaskProgress].y;
+	DBG_ASSERT(aGridX < kGridSize);
+	DBG_ASSERT(aGridY < kGridSize);
+	mapDebugPrint(
+		"Searching grid cell %d x %d for candidates\n",
+		aGridX, aGridY);	
 
-	const u16 aPointIdx = sActiveGrid[aGridX][aGridY][sTaskProgress];
-	const TrackedPoint& aPoint = sPoints[aPointIdx];
-	const int aDeltaX = aPoint.x - sNormalizedCursorPos.x;
-	const int aDeltaY = aPoint.y - sNormalizedCursorPos.y;
-	const u32 aDist = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
-	if( aDist > kMinJumpDistSquared && aDist < kMaxJumpDistSquared )
+	for(size_t i = 0; i < sActiveGrid[aGridX][aGridY].size(); ++i)
 	{
-		sCandidates.push_back(aPointIdx);
-		sNewTasks.set(eTask_NextLeft);
-		sNewTasks.set(eTask_NextRight);
-		sNewTasks.set(eTask_NextUp);
-		sNewTasks.set(eTask_NextDown);
+		const u16 aPointIdx = sActiveGrid[aGridX][aGridY][i];
+		const TrackedPoint& aPoint = sPoints[aPointIdx];
+		const int aDeltaX = aPoint.x - sNormalizedCursorPos.x;
+		const int aDeltaY = aPoint.y - sNormalizedCursorPos.y;
+		const u32 aDist = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
+		if( aDist > kMinJumpDistSquared && aDist < kMaxJumpDistSquared )
+		{
+			sCandidates.push_back(aPointIdx);
+			sNewTasks.set(eTask_NextLeft);
+			sNewTasks.set(eTask_NextRight);
+			sNewTasks.set(eTask_NextUp);
+			sNewTasks.set(eTask_NextDown);
+		}
 	}
 
-	if( ++sTaskProgress >= sActiveGrid[aGridX][aGridY].size() )
-		sTaskInProgress = eTask_None;
+	if( ++sTaskProgress >= sFetchGrid.size() )
+		sCurrentTask = eTask_None;
 }
 
 
@@ -290,11 +299,10 @@ static void processNextLeftTask()
 			continue;
 		u32 aWeight = sNormalizedCursorPos.x - aPoint.x;
 		u32 anAltWeight = abs(aPoint.y - sNormalizedCursorPos.y);
-		if( anAltWeight >= aWeight )
+		if( anAltWeight >= aWeight * 2 ||
+			anAltWeight > kMaxPerpendicularWeight )
 			continue;
 		anAltWeight *= kPerpendicularWeightMult;
-		if( anAltWeight > kMaxPerpendicularWeight )
-			continue;
 		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
@@ -306,7 +314,7 @@ static void processNextLeftTask()
 
 	if( sTaskProgress >= sCandidates.size() )
 	{
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 		if( sNextHotspotInDir[eCmdDir_L] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Left hotspot chosen - #%d\n",
@@ -331,11 +339,10 @@ static void processNextRightTask()
 			continue;
 		u32 aWeight = aPoint.x - sNormalizedCursorPos.x;
 		u32 anAltWeight = abs(aPoint.y - sNormalizedCursorPos.y);
-		if( anAltWeight >= aWeight )
+		if( anAltWeight >= aWeight * 2 ||
+			anAltWeight > kMaxPerpendicularWeight )
 			continue;
 		anAltWeight *= kPerpendicularWeightMult;
-		if( anAltWeight > kMaxPerpendicularWeight )
-			continue;
 		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
@@ -347,7 +354,7 @@ static void processNextRightTask()
 
 	if( sTaskProgress >= sCandidates.size() )
 	{
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 		if( sNextHotspotInDir[eCmdDir_R] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Right hotspot chosen - #%d\n",
@@ -372,11 +379,10 @@ static void processNextUpTask()
 			continue;
 		u32 aWeight = sNormalizedCursorPos.y - aPoint.y;
 		u32 anAltWeight = abs(aPoint.x - sNormalizedCursorPos.x);
-		if( anAltWeight >= aWeight )
+		if( anAltWeight >= aWeight * 2 ||
+			anAltWeight > kMaxPerpendicularWeight )
 			continue;
 		anAltWeight *= kPerpendicularWeightMult;
-		if( anAltWeight > kMaxPerpendicularWeight )
-			continue;
 		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
@@ -388,7 +394,7 @@ static void processNextUpTask()
 
 	if( sTaskProgress >= sCandidates.size() )
 	{
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 		if( sNextHotspotInDir[eCmdDir_U] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Up hotspot chosen - #%d\n",
@@ -413,11 +419,10 @@ static void processNextDownTask()
 			continue;
 		u32 aWeight = aPoint.y - sNormalizedCursorPos.y;
 		u32 anAltWeight = abs(aPoint.x - sNormalizedCursorPos.x);
-		if( anAltWeight >= aWeight )
+		if( anAltWeight >= aWeight * 2 ||
+			anAltWeight > kMaxPerpendicularWeight )
 			continue;
 		anAltWeight *= kPerpendicularWeightMult;
-		if( anAltWeight > kMaxPerpendicularWeight )
-			continue;
 		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
@@ -429,7 +434,7 @@ static void processNextDownTask()
 
 	if( sTaskProgress >= sCandidates.size() )
 	{
-		sTaskInProgress = eTask_None;
+		sCurrentTask = eTask_None;
 		if( sNextHotspotInDir[eCmdDir_D] != 0 && !sIgnorePointInSearch )
 		{
 			mapDebugPrint("Down hotspot chosen - #%d\n",
@@ -443,30 +448,27 @@ static void processTasks()
 {
 	// Start new task or restart current if needed
 	const int aNewTask = sNewTasks.firstSetBit();
-	if( aNewTask <= sTaskInProgress && aNewTask < eTask_Num )
+	if( aNewTask <= sCurrentTask && aNewTask < eTask_Num )
 	{
 		// Save incomplete task for later
-		if( sTaskInProgress < eTask_Num )
-			sNewTasks.set(sTaskInProgress);
-		sTaskInProgress = ETask(aNewTask);
+		if( sCurrentTask < eTask_Num )
+			sNewTasks.set(sCurrentTask);
+		sCurrentTask = ETask(aNewTask);
 		sTaskProgress = 0;
 		sNewTasks.reset(aNewTask);
 	}
 
-	switch(sTaskInProgress)
+	switch(sCurrentTask)
 	{
-	case eTask_TargetSize:	processTargetSizeTask();	break;
-	case eTask_ActiveArrays:processActiveArraysTask();	break;
-	case eTask_AddToGrid:	processAddToGridTask();		break;
-	case eTask_BeginSearch:	processBeginSearchTask();	break;
-	case eTask_FetchGrid0:	processFetchGridTask(0);	break;
-	case eTask_FetchGrid1:	processFetchGridTask(1);	break;
-	case eTask_FetchGrid2:	processFetchGridTask(2);	break;
-	case eTask_FetchGrid3:	processFetchGridTask(3);	break;
-	case eTask_NextLeft:	processNextLeftTask();		break;
-	case eTask_NextRight:	processNextRightTask();		break;
-	case eTask_NextUp:		processNextUpTask();		break;
-	case eTask_NextDown:	processNextDownTask();		break;
+	case eTask_TargetSize:		processTargetSizeTask();	break;
+	case eTask_ActiveArrays:	processActiveArraysTask();	break;
+	case eTask_AddToGrid:		processAddToGridTask();		break;
+	case eTask_BeginSearch:		processBeginSearchTask();	break;
+	case eTask_FetchFromGrid:	processFetchFromGridTask();	break;
+	case eTask_NextLeft:		processNextLeftTask();		break;
+	case eTask_NextRight:		processNextRightTask();		break;
+	case eTask_NextUp:			processNextUpTask();		break;
+	case eTask_NextDown:		processNextDownTask();		break;
 	}
 }
 
@@ -500,7 +502,7 @@ void cleanup()
 	sLinkMaps.clear();
 	sCandidates.clear();
 	sNewTasks.reset();
-	sTaskInProgress = eTask_None;
+	sCurrentTask = eTask_None;
 	sTaskProgress = 0;
 	for(size_t x = 0; x < kGridSize; ++x)
 	{
@@ -588,7 +590,7 @@ u16 getNextHotspotInDir(ECommandDir theDirection)
 	}
 
 	// Complete all other tasks to get desired answer
-	while(sTaskInProgress != eTask_None || sNewTasks.any())
+	while(sCurrentTask != eTask_None || sNewTasks.any())
 		processTasks();
 
 	// Restore aborted tasks
@@ -620,7 +622,7 @@ const Links& getLinks(u16 theArrayID)
 	// Setup overall hotspot map as having just this array active
 	sRequestedArrays.reset(); sRequestedArrays.set(theArrayID);
 	sNewTasks.set(eTask_ActiveArrays);
-	while(sTaskInProgress != eTask_None || sNewTasks.test(eTask_ActiveArrays))
+	while(sCurrentTask != eTask_None || sNewTasks.test(eTask_ActiveArrays))
 		processTasks();
 
 	// Don't use the grid since want full range - manually generate candidates
@@ -647,7 +649,7 @@ const Links& getLinks(u16 theArrayID)
 		sNewTasks.set(eTask_NextRight);
 		sNewTasks.set(eTask_NextUp);
 		sNewTasks.set(eTask_NextDown);
-		while(sTaskInProgress != eTask_None || sNewTasks.any())
+		while(sCurrentTask != eTask_None || sNewTasks.any())
 			processTasks();
 		for(int i = 0; i < eCmdDir_Num; ++i)
 		{
