@@ -128,8 +128,7 @@ enum EButtonAction
 {
 	eBtnAct_Down,		// Action (key) held as long as button is held (if can)
 	eBtnAct_Press,		// First pushed (assigned action is just 'tapped')
-	eBtnAct_ShortHold,	// Held a short time (action tapped once)
-	eBtnAct_LongHold,	// Held a long time (action tapped once)
+	eBtnAct_Hold,		// Held a short time (action tapped once)
 	eBtnAct_Tap,		// Released before _S/LHold triggers (action tapped once)
 	eBtnAct_Release,	// Released (any hold time, action tapped once)
 

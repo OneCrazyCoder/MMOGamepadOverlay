@@ -65,8 +65,7 @@ const char* kButtonActionPrefx[] =
 {
 	"",						// eBtnAct_Down
 	"Press",				// eBtnAct_Press
-	"Hold",					// eBtnAct_ShortHold
-	"LongHold",				// eBtnAct_LongHold
+	"Hold",					// eBtnAct_Hold
 	"Tap",					// eBtnAct_Tap
 	"Release",				// eBtnAct_Release
 };
@@ -206,7 +205,9 @@ static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
+static VectorMap<std::pair<u16, EButton>, u16> sButtonHoldTimes;
 static VectorMap<std::pair<u16, EButton>, u8> sButtonThresholds;
+static u16 sDefaultButtonHoldTime = 400;
 static u8 sDefaultThresholds[eBtn_Num];
 
 
@@ -2297,6 +2298,7 @@ static void addButtonAction(
 
 	// Determine button & action to assign command to
 	EButtonAction aBtnAct = breakOffButtonAction(theBtnName);
+	int aBtnTime = breakOffIntegerSuffix(theBtnName);
 	EButton aBtnID = buttonNameToID(theBtnName);
 
 	if( aBtnID >= eBtn_Num )
@@ -2361,6 +2363,14 @@ static void addButtonAction(
 				continue;
 			// Make and report assignment
 			aDestCmd = aCmd;
+			if( aBtnAct == eBtnAct_Hold )
+			{// Assign time to hold button for this action
+				sButtonHoldTimes.setValue(
+					std::pair<u16, EButton>(theLayerIdx, aBtnID),
+					aBtnTime < 0
+						? sDefaultButtonHoldTime
+						: u16(aBtnTime));
+			}
 			reportButtonAssignment(
 				theBuilder, aBtnAct, aBtnID, aDestCmd, aCmdStr);
 		}
@@ -2375,6 +2385,14 @@ static void addButtonAction(
 	Command& aDestCmd =
 		sLayers[theLayerIdx].map.findOrAdd(aBtnID).cmd[aBtnAct];
 	aDestCmd = aCmd;
+	if( aBtnAct == eBtnAct_Hold )
+	{// Assign time to hold button for this action
+		sButtonHoldTimes.setValue(
+			std::pair<u16, EButton>(theLayerIdx, aBtnID),
+			aBtnTime < 0
+				? sDefaultButtonHoldTime
+				: u16(aBtnTime));
+	}
 
 	// Report the results of the assignment
 	reportButtonAssignment(theBuilder, aBtnAct, aBtnID, aDestCmd, theCmdStr);
@@ -3195,6 +3213,12 @@ void loadProfile()
 	sMenus.clear();
 	sHUDElements.clear();
 	sButtonThresholds.clear();
+	sButtonHoldTimes.clear();
+
+	// Get default button hold time to execute eBtnAct_Hold command
+	sDefaultButtonHoldTime =
+		clamp(Profile::getInt("System/ButtonHoldTime",
+			sDefaultButtonHoldTime), 0, 0xFFFF);
 
 	// Create temp builder object and build everything from the Profile data
 	{
@@ -3225,6 +3249,7 @@ void loadProfile()
 	if( sMenus.size() < sMenus.capacity() )
 		std::vector<Menu>(sMenus).swap(sMenus);
 	sButtonThresholds.trim();
+	sButtonHoldTimes.trim();
 
 	// Now that are done messing with resizing vectors which can invalidate
 	// pointers, can convert Commands with temp keyStringIdx field being a
@@ -3356,6 +3381,30 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 	} while(theLayerID != 0);
 
 	return null;
+}
+
+
+u16 commandHoldTime(u16 theLayerID, EButton theButton)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	DBG_ASSERT(theButton < eBtn_Num);
+	std::pair<u16, EButton> aKey;
+	aKey.second = theButton;
+	VectorMap<std::pair<u16, EButton>, u16>::const_iterator itr;
+	do {
+		aKey.first = theLayerID;
+		itr = sButtonHoldTimes.find(aKey);
+		if( itr != sButtonHoldTimes.end() )
+		{// Button has a custom hold time assigned
+			return itr->second;
+		}
+		else
+		{// Check if included layer has a custom hold time assigned
+			theLayerID = sLayers[theLayerID].includeLayer;
+		}
+	} while(theLayerID != 0);
+
+	return sDefaultButtonHoldTime;
 }
 
 
