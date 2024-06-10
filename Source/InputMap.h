@@ -34,6 +34,9 @@ u16 offsetKeyBindArrayIndex(
 // if no commands have been assigned to given layer & button at all
 const Command* commandsForButton(u16 theLayerID, EButton theButton);
 
+// Returns how long given button needs to be held to trigger eBtnAct_Hold
+u16 commandHoldTime(u16 theLayerID, EButton theButton);
+
 // Returns analog threshold for digital commands for given button in layer
 u8 commandThreshold(u16 theLayerID, EButton theButton);
 

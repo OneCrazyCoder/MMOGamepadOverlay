@@ -110,7 +110,7 @@ Each of these (including the analog sticks) are otherwise treated as 4 separate 
 
 ### Button actions
 
-When the *property name* is simply the button name by itself like in the above examples, it is treated as the action "press and hold". So in the earlier ``R2 = RMB`` example, the right mouse button will be pressed when R2 is, held for an long as R2 is held, and released when R2 is released.
+When the *property name* is simply the button name by itself like in the above examples, it is treated as the action "press and hold". So in the earlier ``R2 = RMB`` example, the right mouse button will be pressed when R2 is, held for as long as R2 is held, and released when R2 is released.
 
 Other "button actions" can be specified instead, and each button can have multiple commands assigned to it at once such as for a "tap" vs a "hold." For example:
 
@@ -119,12 +119,18 @@ Other "button actions" can be specified instead, and each button can have multip
     Press R2 = B
     Tap R2 = C
     Release R2 = D
-    Hold R2 = E
-    Long Hold R2 = F
+    Hold R2 400 = E
+    With R2 = F
 
-This example demonstrates the maximum number of commands that could be assigned to a single button. When R2 is first pressed, 'A' and 'B' keyboard keys would be sent to the game ('A' would be held down but 'B' would just be tapped and immediately released). If R2 was quickly released, a single tap of the 'C' key would be sent. If R2 was held for a short time, an 'E' tap would be sent once. If R2 was still held for a while after that, a single 'F' tap would be sent as well. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of 'D' would be sent to the game, as well as finally releasing 'A'.
+This example demonstrates the maximum number of commands that could be assigned to a single button. The *With*, *Press*, and base button name actions all trigger when the button is first pressed, in that order. This means could have 3 keys pressed when first press the button, but *With* and the base button name (aka *press and hold*) have special properties.
 
-Notice how only the base ``R2=`` property can actually hold a key down for more than a split second. All other button actions can only "tap" a key (press and then immediately release it). Certain commands can't be "held" anyway, so assigning one of these to just ``R2=`` will make it act the same as assigning it to ``Press R2=`` (meaning can essentially have two ``Press R2=`` commands on the same button in these cases).
+In the above example, when R2 is first pressed the 'F', 'B', and 'A' keyboard keys would be sent to the game in that order ('A' would be held down but 'B' and 'F' would just be tapped and immediately released). If R2 was quickly released, a single tap of the 'C' key would be sent. If R2 was held for at least 400 milliseconds, an 'E' tap would be sent once. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of 'D' would be sent to the game, as well as finally releasing 'A'.
+
+You can only have one "Hold" action assigned per button, but how long it must be held to trigger can be set by adding a number at the end of the property name. If the number isn't specified, the value ``[System]/ButtonHoldTime`` will be used.
+
+Notice how only the base ``R2=`` property can actually hold a key down for more than a split second. That is the special property of this base 'press and hold' button action. All other button actions can only "tap" a key (press and then immediately release it). Many special commands can't be "held" anyway, so assigning one of these to just ``R2=`` will make it act the same as assigning it to ``Press R2=``, and some are can *only* be assigned to the base button action because they relate to "holding" for a duration.
+
+``With R2`` is mostly the same as ``Press R2`` and both can be assigned something, but "with" has special properties related to **Controls Layers** that will be covered later, so prefer *press* if don't need those special properties.
 
 ## Commands
 
@@ -134,11 +140,12 @@ Not mentioned yet is mouse wheel movement, which can be set with commands such a
 
 ### Combination keys
 
-A command can also be a keyboard key or mouse button combined with a *modifier* key - Shift, Ctrl, or Alt - such as:
+A command can also be a keyboard key or mouse button combined with a *modifier* key - Shift, Ctrl, Alt, or the Windows key - such as:
 
     R2 = Shift+A
     L2 = Ctrl X
     L1 = Ctrl-Alt-R
+    R1 = Win-Plus
 These can still be "held" as if they are single keys.
 
 *WARNING: Modifier keys should be used sparingly, as they can interfere with or delay other keys. For example, if you are holding Shift+A and then want to press just 'X', since the Shift key is still being held down, the game would normally interpret it as you pressing 'Shift+X', which may be totally different command. This application specifically avoids this by briefly releasing Shift before pressing X and then re-pressing Shift again as needed, but this can make the controls seem less responsive due to the delays needed to make sure each release and re-press are processed in the correct order. Consider re-mapping controls for the game to use Shift/Ctrl/Alt as little as possible for best results!*
@@ -151,7 +158,7 @@ You can also specify a sequence of keys to be pressed. For example, you could ha
 
 Key sequences can NOT be "held", so holding R2 vs just tapping it will give the same result in the above example.
 
-You can also add delays (specified in milliseconds) into the sequence if needed, such as this sequence to automatically "consider" a target when changing targets:
+You can also add pauses (specified in milliseconds) into the sequence if needed, such as this sequence to automatically "consider" a target when changing targets:
 
     # 'Delay' or 'Wait' also work
     R1 = F8, pause 100, C
@@ -180,7 +187,7 @@ Slash Commands start with ``/`` and Say Strings (chat messages) start with ``>``
     Hold R2 = /g Roll for loot please!
     Hold L1 = >Would you like to group?
 
-This will lock out most other inputs while typing though, so in general it is better to instead create macros using the in-game interface and activate them via key sequences that activate macros or hotbar buttons set up in-game instead.
+This will lock out most other inputs while typing though, so in general it is better to instead create macros using the in-game interface and activate them via key sequences, such as the earlier example of triggering hotbar buttons.
 
 ## Key Binds (aliases)
 
@@ -471,6 +478,18 @@ To demonstrate how these rules shake out, here's a potential layer order from to
       Child of B (1)
     LayerB
     [Scheme]
+
+### "With" button action
+
+Now that layers and the importance of their order is covered, it is time for the exception to the rule - the "With" button action, as in something like ``With R2 = Remove this layer``.
+
+"With" mostly acts the same as Press in that it triggers a single action (can't be held) the moment the button is first pressed down. The difference is that:
+
+1) "With" button action execute **even when higher layers have other actions assigned for the same button.**
+
+2) "With" button actions being assigned **do *not* block lower layers' assignments to other actions for the same button.**
+
+Essentially, it breaks the rules of how layering works for button assignments. The primary use case for this action is for the example given above - having a layer remove itself when a button is pressed, without interfering with (or being interfered with by) whatever other layers are assigned to do with that button.
 
 ## Menus
 

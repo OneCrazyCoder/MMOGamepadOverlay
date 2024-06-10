@@ -34,16 +34,12 @@ kMaxLayerChangesPerUpdate = 32,
 
 struct Config
 {
-	u16 shortHoldTime;
-	u16 longHoldTime;
 	u16 tapHoldTime;
 	u16 autoRepeatDelay;
 	u16 autoRepeatRate;
 
 	void load()
 	{
-		shortHoldTime = Profile::getInt("System/ButtonShortHoldTime", 400);
-		longHoldTime = Profile::getInt("System/ButtonLongHoldTime", 800);
 		tapHoldTime = Profile::getInt("System/ButtonTapTime", 500);
 		autoRepeatDelay = Profile::getInt("System/AutoRepeatDelay", 400);
 		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
@@ -63,12 +59,12 @@ struct ButtonState
 	u16 layerWhenPressed;
 	u16 layerHeld;
 	u16 heldTime;
+	u16 holdTimeForAction;
 	s16 repeatDelay;
 	u16 vKeyHeld;
 	bool isAutoButton;
 	bool heldDown;
-	bool shortHoldDone;
-	bool longHoldDone;
+	bool holdActionDone;
 	bool usedInButtonCombo;
 	bool allowHotspotToMouseWheel;
 
@@ -83,11 +79,13 @@ struct ButtonState
 		const Command* oldCommands = this->commands;
 		const u16 oldParentLayer = this->commandsLayer;
 		const u16 oldChildLayer = this->layerHeld;
+		const u16 oldMinHoldTime = this->holdTimeForAction;
 		const bool oldIsAutoButton = this->isAutoButton;
 		clear();
 		this->commands = oldCommands;
 		this->commandsLayer = oldParentLayer;
 		this->layerHeld = oldChildLayer;
+		this->holdTimeForAction = oldMinHoldTime;
 		this->isAutoButton = oldIsAutoButton;
 	}
 
@@ -194,6 +192,8 @@ static void loadLayerData()
 		sState.layers[i].autoButton.commandsLayer = i;
 		sState.layers[i].autoButton.commands =
 			InputMap::commandsForButton(i, eBtn_None);
+		sState.layers[i].autoButton.holdTimeForAction =
+			InputMap::commandHoldTime(i, eBtn_None);	
 	}
 }
 
@@ -213,6 +213,8 @@ static void	loadButtonCommandsForCurrentLayers()
 			if( aBtnState.commands )
 			{
 				aBtnState.commandsLayer = *itr;
+				aBtnState.holdTimeForAction =
+					InputMap::commandHoldTime(*itr, EButton(aBtnIdx));
 				Gamepad::setPressThreshold(EButton(aBtnIdx),
 					InputMap::commandThreshold(*itr, EButton(aBtnIdx)));
 				break;
@@ -1081,8 +1083,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	
 	// Don't auto-repeat when button has other conflicting actions assigned
 	if( theBtnState.commandsWhenPressed[eBtnAct_Tap].type ||
-		theBtnState.commandsWhenPressed[eBtnAct_ShortHold].type ||
-		theBtnState.commandsWhenPressed[eBtnAct_LongHold].type )
+		theBtnState.commandsWhenPressed[eBtnAct_Hold].type )
 		return;
 
 	// Needs to be held for initial held time first before start repeating
@@ -1099,9 +1100,9 @@ static void processAutoRepeat(ButtonState& theBtnState)
 }
 
 
-static void processButtonShortHold(ButtonState& theBtnState)
+static void processButtonHold(ButtonState& theBtnState)
 {
-	theBtnState.shortHoldDone = true;
+	theBtnState.holdActionDone = true;
 
 	// Skip if this button was used as a modifier to execute a button
 	// combination command (i.e. is L2 for the combo L2+X).
@@ -1113,26 +1114,7 @@ static void processButtonShortHold(ButtonState& theBtnState)
 		return;
 
 	processCommand(&theBtnState,
-		theBtnState.commandsWhenPressed[eBtnAct_ShortHold],
-		theBtnState.layerWhenPressed);
-}
-
-
-static void processButtonLongHold(ButtonState& theBtnState)
-{
-	theBtnState.longHoldDone = true;
-
-	// Skip if this button was used as a modifier to execute a button
-	// combination command (i.e. is L2 for the combo L2+X).
-	if( theBtnState.usedInButtonCombo )
-		return;
-
-	// Only ever use commandsWhenPressed for long hold action
-	if( !theBtnState.commandsWhenPressed )
-		return;
-
-	processCommand(&theBtnState,
-		theBtnState.commandsWhenPressed[eBtnAct_LongHold],
+		theBtnState.commandsWhenPressed[eBtnAct_Hold],
 		theBtnState.layerWhenPressed);
 }
 
@@ -1146,20 +1128,15 @@ static void processButtonTap(ButtonState& theBtnState)
 	if( !theBtnState.commandsWhenPressed )
 		return;
 
-	// If has a short or long hold command, then a "tap" is just releasing
-	// before said command had a chance to execute. Otherwise it is based
-	// on holding less than tapHoldTime before releasing.
-	const bool hasShortHold =
-		theBtnState.commandsWhenPressed[eBtnAct_ShortHold]
-			.type != eCmdType_Empty;
-	const bool hasLongHold =
-		theBtnState.commandsWhenPressed[eBtnAct_LongHold]
+	// If has a hold command, then a "tap" is just releasing before said
+	// command had a chance to execute. Otherwise it is based on holding
+	// less than tapHoldTime before releasing.
+	const bool hasHold =
+		theBtnState.commandsWhenPressed[eBtnAct_Hold]
 			.type != eCmdType_Empty;
 
-	if( (hasShortHold && !theBtnState.shortHoldDone) ||
-		(!hasShortHold && hasLongHold && !theBtnState.longHoldDone) ||
-		(!hasShortHold && !hasLongHold &&
-			theBtnState.heldTime < kConfig.tapHoldTime) )
+	if( (hasHold && !theBtnState.holdActionDone) ||
+		(!hasHold && theBtnState.heldTime < kConfig.tapHoldTime) )
 	{
 		processCommand(&theBtnState,
 			theBtnState.commandsWhenPressed[eBtnAct_Tap],
@@ -1258,15 +1235,10 @@ static void processButtonState(
 
 		if( wasDown && theBtnState.heldTime < (0xFFFF - gAppFrameTime) )
 			theBtnState.heldTime += gAppFrameTime;
-		if( theBtnState.heldTime >= kConfig.shortHoldTime &&
-			!theBtnState.shortHoldDone )
+		if( theBtnState.heldTime >= theBtnState.holdTimeForAction &&
+			!theBtnState.holdActionDone )
 		{
-			processButtonShortHold(theBtnState);
-		}
-		if( theBtnState.heldTime >= kConfig.longHoldTime &&
-			!theBtnState.longHoldDone )
-		{
-			processButtonLongHold(theBtnState);
+			processButtonHold(theBtnState);
 		}
 
 		// Process auto-repeat feature for certain commands
