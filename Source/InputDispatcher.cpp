@@ -1613,6 +1613,7 @@ void sendKeyCommand(const Command& theCommand)
 	{
 	case eCmdType_Empty:
 	case eCmdType_DoNothing:
+	case eCmdType_Unassigned:
 		// Do nothing, but don't assert either
 		break;
 	case eCmdType_PressAndHoldKey:

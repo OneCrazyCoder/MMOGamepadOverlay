@@ -126,7 +126,7 @@ This example demonstrates the maximum number of commands that could be assigned 
 
 In the above example, when R2 is first pressed the 'F', 'B', and 'A' keyboard keys would be sent to the game in that order ('A' would be held down but 'B' and 'F' would just be tapped and immediately released). If R2 was quickly released, a single tap of the 'C' key would be sent. If R2 was held for at least 400 milliseconds, an 'E' tap would be sent once. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of 'D' would be sent to the game, as well as finally releasing 'A'.
 
-You can only have one "Hold" action assigned per button, but how long it must be held to trigger can be set by adding a number at the end of the property name. If the number isn't specified, the value ``[System]/ButtonHoldTime`` will be used.
+You can only have one "Hold" action assigned per button, but how long it must be held to trigger can be optionally set by adding a number at the end of the property name. If no number is added, the value ``[System]/ButtonHoldTime`` will be used.
 
 Notice how only the base ``R2=`` property can actually hold a key down for more than a split second. That is the special property of this base 'press and hold' button action. All other button actions can only "tap" a key (press and then immediately release it). Many special commands can't be "held" anyway, so assigning one of these to just ``R2=`` will make it act the same as assigning it to ``Press R2=``, and some are can *only* be assigned to the base button action because they relate to "holding" for a duration.
 
@@ -347,7 +347,7 @@ For example, let's say you wanted to make pressing and holding Circle on a PS co
 
 With this setup, pressing Circle will add the MouseDrag layer, which will click and hold the left mouse button for as long as the layer is active via Auto, while also changing the D-Pad to control the mouse. Releasing Circle will remove the layer, restoring the D-Pad to character movement instead and releasing the left mouse button (since Auto is "released" when the Layer is removed).
 
-You can even assign commands to ``Press Auto=``, ``Release Auto=``,  ``Tap Auto =`` and so on, like any real button.
+You can even assign commands to ``Press Auto=``, ``Release Auto=``,  ``Tap Auto =`` and so on, like any real button. Even ``Hold Auto ### =`` triggers once the layer has been active for ### milliseconds. ``With Auto=`` just acts an extra version of "Press" with no special properties, but allows up to 3 commands to trigger when a layer is first added ("With Auto", then "Press Auto", then just "Auto").
 
 ### Layer Include= property
 

@@ -37,12 +37,34 @@ struct Config
 	u16 tapHoldTime;
 	u16 autoRepeatDelay;
 	u16 autoRepeatRate;
+	u8 defaultThreshold[eBtn_Num];
 
 	void load()
 	{
 		tapHoldTime = Profile::getInt("System/ButtonTapTime", 500);
 		autoRepeatDelay = Profile::getInt("System/AutoRepeatDelay", 400);
 		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
+		for(size_t i = 0; i < eBtn_Num; ++i)
+			defaultThreshold[i] = 0;
+		u8 aThreshold = 
+			clamp(Profile::getInt("Gamepad/LStickButtonThreshold", 40),
+				0, 100) * 255 / 100;
+		defaultThreshold[eBtn_LSLeft] = aThreshold;
+		defaultThreshold[eBtn_LSRight] = aThreshold;
+		defaultThreshold[eBtn_LSUp] = aThreshold;
+		defaultThreshold[eBtn_LSDown] = aThreshold;
+		aThreshold = 
+			clamp(Profile::getInt("Gamepad/RStickButtonThreshold", 40),
+				0, 100) * 255 / 100;
+		defaultThreshold[eBtn_RSLeft] = aThreshold;
+		defaultThreshold[eBtn_RSRight] = aThreshold;
+		defaultThreshold[eBtn_RSUp] = aThreshold;
+		defaultThreshold[eBtn_RSDown] = aThreshold;
+		aThreshold = 
+			clamp(Profile::getInt("Gamepad/TriggerButtonThreshold", 12),
+				0, 100) * 255 / 100;
+		defaultThreshold[eBtn_L2] = aThreshold;
+		defaultThreshold[eBtn_R2] = aThreshold;
 	}
 };
 
@@ -51,10 +73,17 @@ struct Config
 // Local Structures
 //-----------------------------------------------------------------------------
 
+struct WithActionCommand
+{
+	const Command* cmd;
+	u16 layerID;
+};
+
 struct ButtonState
 {
 	const Command* commands;
 	const Command* commandsWhenPressed;
+	std::vector<WithActionCommand> withCommands;
 	u16 commandsLayer;
 	u16 layerWhenPressed;
 	u16 layerHeld;
@@ -71,25 +100,38 @@ struct ButtonState
 	void clear()
 	{
 		DBG_ASSERT(vKeyHeld == 0);
-		ZeroMemory(this, sizeof(ButtonState));
+		DBG_ASSERT(layerHeld == 0);
+		commands = null;
+		commandsWhenPressed = null;
+		withCommands.clear();
+		commandsLayer = 0;
+		layerWhenPressed = 0;
+		layerHeld = 0;
+		heldTime = 0;
+		holdTimeForAction = 0;
+		repeatDelay = 0;
+		isAutoButton = false;
+		heldDown = false;
+		holdActionDone = false;
+		usedInButtonCombo = false;
+		allowHotspotToMouseWheel = false;
 	}
 
 	void resetWhenReleased()
 	{
-		const Command* oldCommands = this->commands;
-		const u16 oldParentLayer = this->commandsLayer;
-		const u16 oldChildLayer = this->layerHeld;
-		const u16 oldMinHoldTime = this->holdTimeForAction;
-		const bool oldIsAutoButton = this->isAutoButton;
-		clear();
-		this->commands = oldCommands;
-		this->commandsLayer = oldParentLayer;
-		this->layerHeld = oldChildLayer;
-		this->holdTimeForAction = oldMinHoldTime;
-		this->isAutoButton = oldIsAutoButton;
+		DBG_ASSERT(vKeyHeld == 0);
+		DBG_ASSERT(layerHeld == 0);
+		commandsWhenPressed = null;
+		layerWhenPressed = 0;
+		heldTime = 0;
+		repeatDelay = 0;
+		heldDown = false;
+		holdActionDone = false;
+		usedInButtonCombo = false;
+		allowHotspotToMouseWheel = false;
 	}
 
-	ButtonState() : vKeyHeld() { clear(); }
+	ButtonState() : vKeyHeld(), layerHeld() { clear(); }
 };
 
 struct LayerState
@@ -189,11 +231,21 @@ static void loadLayerData()
 	for(u16 i = 0; i < sState.layers.size(); ++i)
 	{
 		sState.layers[i].clear();
-		sState.layers[i].autoButton.commandsLayer = i;
-		sState.layers[i].autoButton.commands =
-			InputMap::commandsForButton(i, eBtn_None);
-		sState.layers[i].autoButton.holdTimeForAction =
-			InputMap::commandHoldTime(i, eBtn_None);	
+		ButtonState& anAutoButton = sState.layers[i].autoButton;
+		anAutoButton.commandsLayer = i;
+		anAutoButton.commands = InputMap::commandsForButton(i, eBtn_None);
+		if( !anAutoButton.commands )
+			continue;
+		anAutoButton.holdTimeForAction =
+			InputMap::commandHoldTime(i, eBtn_None);
+		if( anAutoButton.commands[eBtnAct_With].type >= eCmdType_FirstValid )
+		{
+			WithActionCommand aWithActCmd;
+			aWithActCmd.cmd = &anAutoButton.commands[eBtnAct_With];
+			aWithActCmd.layerID = i;
+			anAutoButton.withCommands.reserve(1);
+			anAutoButton.withCommands.push_back(aWithActCmd);
+		}
 	}
 }
 
@@ -203,22 +255,61 @@ static void	loadButtonCommandsForCurrentLayers()
 	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
-		// Start with the front-most layer, and stop once get a non-null
-		for(std::vector<u16>::const_reverse_iterator itr =
-			sState.layerOrder.rbegin();
-			itr != sState.layerOrder.rend(); ++itr)
+		u8 analogToDigitalThreshold = kConfig.defaultThreshold[aBtnIdx];
+		const bool isAnalog =
+			Gamepad::axisForButton(EButton(aBtnIdx)) != Gamepad::eAxis_None;
+		aBtnState.commandsLayer = 0;
+		aBtnState.commands = null;
+		aBtnState.withCommands.clear();
+		// Assign commands to the button for each layer,
+		// with later layers overriding earlier ones
+		for(std::vector<u16>::const_iterator itr =
+			sState.layerOrder.begin();
+			itr != sState.layerOrder.end(); ++itr)
 		{
-			aBtnState.commands =
+			const Command* aCommandsArray = 
 				InputMap::commandsForButton(*itr, EButton(aBtnIdx));
-			if( aBtnState.commands )
-			{
-				aBtnState.commandsLayer = *itr;
-				aBtnState.holdTimeForAction =
-					InputMap::commandHoldTime(*itr, EButton(aBtnIdx));
-				Gamepad::setPressThreshold(EButton(aBtnIdx),
-					InputMap::commandThreshold(*itr, EButton(aBtnIdx)));
-				break;
+			if( !aCommandsArray )
+				continue;
+			const bool hasWithCommand =
+				aCommandsArray[eBtnAct_With].type >= eCmdType_FirstValid;
+			if( hasWithCommand )
+			{// Add to the list of tack-on commands for this button
+				WithActionCommand aWithActCmd;
+				aWithActCmd.cmd = &aCommandsArray[eBtnAct_With];
+				aWithActCmd.layerID = *itr;
+				aBtnState.withCommands.push_back(aWithActCmd);
 			}
+			// Must have a non-empty, non-unassigned command on an action
+			// other than the "With" action to control this button
+			bool shouldControlButton = false;
+			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_With; ++aBtnAct)
+			{
+				if( aCommandsArray[aBtnAct].type != eCmdType_Empty &&
+					aCommandsArray[aBtnAct].type != eCmdType_Unassigned )
+				{
+					shouldControlButton = true;
+					break;
+				}
+			}
+			if( isAnalog && (shouldControlButton || hasWithCommand) )
+			{
+				const u8* aThreshold =
+					InputMap::commandThreshold(*itr, EButton(aBtnIdx));
+				if( aThreshold )
+					analogToDigitalThreshold = *aThreshold;
+			}
+			if( !shouldControlButton )
+				continue;
+			aBtnState.commands = aCommandsArray;
+			aBtnState.commandsLayer = *itr;
+		}
+		aBtnState.holdTimeForAction = InputMap::commandHoldTime(
+			aBtnState.commandsLayer, EButton(aBtnIdx));
+		if( isAnalog )
+		{
+			Gamepad::setPressThreshold(
+				EButton(aBtnIdx), analogToDigitalThreshold);
 		}
 	}
 }
@@ -560,6 +651,8 @@ static void processCommand(
 	switch(theCmd.type)
 	{
 	case eCmdType_Empty:
+	case eCmdType_DoNothing:
+	case eCmdType_Unassigned:
 		// Do nothing
 		break;
 	case eCmdType_PressAndHoldKey:
@@ -747,12 +840,12 @@ static void processCommand(
 		moveMouseToSelectedMenuItem(theCmd);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
 		aForwardCmd.withMouse = theCmd.withMouse;
-		if( aForwardCmd.type != eCmdType_Empty )
+		if( aForwardCmd.type >= eCmdType_FirstValid )
 		{
 			// Close menu first if this won't just switch to a sub-menu
 			u16 aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 			while(aLayerToRemoveID > 0 &&
-				  aForwardCmd.type != eCmdType_Empty &&
+				  aForwardCmd.type >= eCmdType_FirstValid &&
 				  aForwardCmd.type < eCmdType_FirstMenuControl)
 			{
 				// If closing self, set theLayerIdx to parent layer first,
@@ -800,7 +893,7 @@ static void processCommand(
 			aForwardCmd = Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
-			if( aForwardCmd.type != eCmdType_Empty )
+			if( aForwardCmd.type >= eCmdType_FirstValid )
 				processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		moveMouseToSelectedMenuItem(theCmd);
@@ -811,13 +904,13 @@ static void processCommand(
 			aForwardCmd = Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
-			if( aForwardCmd.type != eCmdType_Empty )
+			if( aForwardCmd.type >= eCmdType_FirstValid )
 			{
 				// Close menu first if this won't just switch to a sub-menu
 				bool aMenuWasClosed = false;
 				u16 aLayerToRemoveID = menuOwningLayer(theCmd.menuID);
 				while(aLayerToRemoveID > 0 &&
-					  aForwardCmd.type != eCmdType_Empty &&
+					  aForwardCmd.type >= eCmdType_FirstValid &&
 					  (aForwardCmd.type < eCmdType_FirstMenuControl ||
 					   aForwardCmd.type > eCmdType_LastMenuControl) )
 				{
@@ -881,7 +974,6 @@ static bool isTapOnlyCommand(const Command& theCommand)
 {
 	switch(theCommand.type)
 	{
-	case eCmdType_Empty:
 	case eCmdType_PressAndHoldKey:
 	case eCmdType_KeyBindArrayHoldIndex:
 	case eCmdType_HoldControlsLayer:
@@ -898,6 +990,15 @@ static bool isTapOnlyCommand(const Command& theCommand)
 
 static void processButtonPress(ButtonState& theBtnState)
 {
+	// Process the rule-breaking "With" actions before anything else
+	for(size_t i = 0; i < theBtnState.withCommands.size(); ++i)
+	{
+		DBG_ASSERT(theBtnState.withCommands[i].cmd);
+		processCommand(&theBtnState,
+			*theBtnState.withCommands[i].cmd,
+			theBtnState.withCommands[i].layerID);
+	}
+
 	// When first pressed, back up copy of current commands to be referenced
 	// by other button actions later. This makes sure if layers change
 	// before the button is released, it will still behave as it would
@@ -954,7 +1055,7 @@ static void processContinuousInput(
 		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Down];
 	if( theBtnState.commands &&
 		theBtnState.commands != theBtnState.commandsWhenPressed &&
-		(aCmd.type == eCmdType_Empty || isTapOnlyCommand(aCmd)) )
+		(aCmd.type < eCmdType_FirstValid || isTapOnlyCommand(aCmd)) )
 	{
 		aCmd = theBtnState.commands[eBtnAct_Down];
 	}
@@ -1133,7 +1234,7 @@ static void processButtonTap(ButtonState& theBtnState)
 	// less than tapHoldTime before releasing.
 	const bool hasHold =
 		theBtnState.commandsWhenPressed[eBtnAct_Hold]
-			.type != eCmdType_Empty;
+			.type >= eCmdType_FirstValid;
 
 	if( (hasHold && !theBtnState.holdActionDone) ||
 		(!hasHold && theBtnState.heldTime < kConfig.tapHoldTime) )
@@ -1173,10 +1274,10 @@ static void processButtonReleased(ButtonState& theBtnState)
 	u16 aCmdLayer = theBtnState.layerWhenPressed;
 	if( theBtnState.commandsWhenPressed )
 		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Release];
-	if( aCmd.type == eCmdType_Empty &&
+	if( aCmd.type < eCmdType_FirstValid &&
 		theBtnState.commands &&
 		theBtnState.commands != theBtnState.commandsWhenPressed &&
-		theBtnState.commands[eBtnAct_Press].type == eCmdType_Empty )
+		theBtnState.commands[eBtnAct_Press].type < eCmdType_FirstValid )
 	{
 		aCmd = theBtnState.commands[eBtnAct_Release];
 		aCmdLayer = theBtnState.commandsLayer;

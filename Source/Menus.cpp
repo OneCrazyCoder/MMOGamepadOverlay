@@ -285,7 +285,7 @@ const Command& selectMenuItem(
 		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
 
-	if( pushedPastEdge && aDirCmd.type != eCmdType_Empty )
+	if( pushedPastEdge && aDirCmd.type >= eCmdType_FirstValid )
 		return aDirCmd;
 	return kEmptyMenuCommand;
 }

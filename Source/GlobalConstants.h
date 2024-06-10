@@ -90,6 +90,7 @@ enum ECommandType
 
 	eCmdType_Num,
 
+	eCmdType_FirstValid = eCmdType_PressAndHoldKey,
 	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
 	eCmdType_LastMenuControl = eCmdType_MenuEditDir,
 };
@@ -131,6 +132,8 @@ enum EButtonAction
 	eBtnAct_Hold,		// Held a short time (action tapped once)
 	eBtnAct_Tap,		// Released before _S/LHold triggers (action tapped once)
 	eBtnAct_Release,	// Released (any hold time, action tapped once)
+
+	eBtnAct_With,		// MUST BE LAST! Same as _Press but ignores layer order
 
 	eBtnAct_Num
 };
