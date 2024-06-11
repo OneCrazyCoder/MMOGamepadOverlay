@@ -845,6 +845,11 @@ void readUIScale()
 }
 
 
+void showTargetWindowFound()
+{
+	HUD::flashSystemWindowBorder();
+}
+
 
 POINT mouseToOverlayPos(bool clamped)
 {

@@ -26,6 +26,8 @@ enum {
 kMinFontPixelHeight = 6,
 kNoticeStringDisplayTimePerChar = 50,
 kNoticeStringMinTime = 3000,
+kSystemHUDFlashFreq = 150,
+kSystemHUDFlashTime = kSystemHUDFlashFreq * 10,
 };
 
 const char* kMenuPrefix = "Menu";
@@ -307,6 +309,7 @@ static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
 static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
+static int sSystemBorderFlashTimer = 0;
 static u32 sCopyIconUpdateRate = 100;
 static u32 sNextAutoRefreshTime = 0;
 
@@ -1732,6 +1735,22 @@ static void drawSystemHUD(HUDDrawData& dd)
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	DBG_ASSERT(hi.type == eHUDType_System);
 
+	if( ((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0 )
+	{
+		COLORREF aFrameColor = RGB(0, 180, 0);
+		HPEN hFramePen = CreatePen(PS_INSIDEFRAME, 4, aFrameColor);
+
+		HPEN hOldPen = (HPEN)SelectObject(dd.hdc, hFramePen);
+		Rectangle(dd.hdc, dd.components[0].left, dd.components[0].top,
+			dd.components[0].right, dd.components[0].bottom);
+		SelectObject(dd.hdc, hOldPen);
+
+		DeleteObject(hFramePen);
+
+		// This effectively also erased the dest region
+		dd.firstDraw = true;
+	}
+
 	// Erase any previous strings
 	if( !dd.firstDraw )
 		eraseRect(dd, dd.components[0]);
@@ -2145,13 +2164,24 @@ void update()
 		gRedrawHUD.set(aSystemElementID);
 	}
 
-	gVisibleHUD.set(aSystemElementID,
-		!sNoticeMessage.empty() ||
-		!sErrorMessage.empty());
+	bool showSystemBorder = false;
+	if( sSystemBorderFlashTimer > 0 )
+	{
+		showSystemBorder =
+			((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0;
+		sSystemBorderFlashTimer = max(0, sSystemBorderFlashTimer - gAppFrameTime);
+		if( gVisibleHUD.test(aSystemElementID) != showSystemBorder )
+			gRedrawHUD.set(aSystemElementID);
+	}
 
 	#ifdef DEBUG_DRAW_OVERLAY_FRAME
-		gVisibleHUD.set(aSystemElementID);
+		showSystemBorder = true;
 	#endif
+
+	gVisibleHUD.set(aSystemElementID,
+		!sNoticeMessage.empty() ||
+		!sErrorMessage.empty() ||
+		showSystemBorder);
 
 	if( gVisibleHUD.test(aSystemElementID) )
 		gActiveHUD.set(aSystemElementID);
@@ -2759,6 +2789,12 @@ void drawMainWindowContents(HWND theWindow)
 	DeleteObject(SelectObject(hdc, hOldFont));
 
 	EndPaint(theWindow, &ps);
+}
+
+
+void flashSystemWindowBorder()
+{
+	sSystemBorderFlashTimer = kSystemHUDFlashTime;
 }
 
 

@@ -53,6 +53,9 @@ SIZE overlayTargetSize();
 
 // Updates gUIScale based on Profile and possibly Windows registry
 void readUIScale();
+// Displays a visual indicater that are tracking a target window now
+void showTargetWindowFound();
+
 // Gets overlay-window-relative/clamped mouse position
 POINT mouseToOverlayPos(bool clamped = true);
 // Converts a hotspot into overlay-window-relative position
