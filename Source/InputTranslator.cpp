@@ -952,9 +952,11 @@ static void processCommand(
 		DBG_ASSERT(false && "Invalid command sent to processCommand()");
 		break;
 	case eCmdType_MouseWheel:
-		if( theCmd.mouseWheelMotionType == eMouseWheelMotion_Once )
+		if( theCmd.mouseWheelMotionType == eMouseWheelMotion_Jump )
 		{
-			InputDispatcher::scrollMouseWheelOnce(ECommandDir(theCmd.dir));
+			InputDispatcher::jumpMouseWheel(
+				ECommandDir(theCmd.dir),
+				theCmd.count);
 			break;
 		}
 		// fall through
@@ -1030,8 +1032,8 @@ static void processButtonPress(ButtonState& theBtnState)
 		// Handled in processContinuousInput instead
 		return;
 	case eCmdType_MouseWheel:
-		// Handled in processContinuousInput instead unless set to _Once
-		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Once )
+		// Handled in processContinuousInput instead unless set to _Jump
+		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Jump )
 			return;
 		break;
 	}
@@ -1064,8 +1066,8 @@ static void processContinuousInput(
 		// Continue to analog checks below
 		break;
 	case eCmdType_MouseWheel:
-		// Continue to analog checks below unless set to _Once
-		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Once )
+		// Continue to analog checks below unless set to _Jump
+		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Jump )
 			break;
 		return;
 	case eCmdType_HotspotSelect:

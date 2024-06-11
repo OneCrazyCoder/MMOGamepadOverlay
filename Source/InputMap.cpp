@@ -1631,17 +1631,17 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Smooth);
 	}
 
-	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' [Once] <aCmdDir>"
+	// "= [Move] [Mouse] 'Wheel'|'MouseWheel' # <aCmdDir>"
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Move);
 	allowedKeyWords.set(eCmdWord_Mouse);
 	allowedKeyWords.set(eCmdWord_MouseWheel);
-	allowedKeyWords.set(eCmdWord_Once);
+	allowedKeyWords.set(eCmdWord_Integer);
 	if( keyWordsFound.test(eCmdWord_MouseWheel) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_MouseWheel;
-		result.mouseWheelMotionType = eMouseWheelMotion_Once;
+		result.mouseWheelMotionType = eMouseWheelMotion_Jump;
 		return result;
 	}
 

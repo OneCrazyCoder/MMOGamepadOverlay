@@ -50,8 +50,8 @@ void moveMouseTo(const Command& theCommand);
 // though it means the scroll motion will be much less smooth.
 void scrollMouseWheel(int dy, bool digital, bool stepped = false);
 
-// Sends a single mouse wheel "click" of up/down movement
-void scrollMouseWheelOnce(ECommandDir);
+// Instantly moves mouse wheel up/down theCount number of "clicks"
+void jumpMouseWheel(ECommandDir theDir, u8 theCount);
 
 // Move character forward, back, left, right, and turning.
 // Amount specified for each movement type is -255 to 255 range.
