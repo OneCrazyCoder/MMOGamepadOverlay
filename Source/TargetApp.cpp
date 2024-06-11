@@ -111,6 +111,7 @@ static void dropTargetWindow()
 	if( !sTargetWindowHandle )
 		return;
 
+	targetDebugPrint("Dropping tracking of former target window\n");
 	sTargetWindowHandle = NULL;
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	SetRect(&sTargetWindowRestoreRect, 0, 0, 0, 0);
@@ -128,6 +129,8 @@ static void dropTargetWindow()
 
 static void restoreTargetWindow()
 {
+	if( gShutdown || gReloadProfile )
+		return;
 	sRestoreTargetWindow = false;
 	if( !sTargetWindowHandle )
 		return;
@@ -140,6 +143,7 @@ static void restoreTargetWindow()
 		return;
 	}
 
+	targetDebugPrint("Restoring target window to active window\n");
 	SetForegroundWindow(sTargetWindowHandle);
 }
 
@@ -170,6 +174,7 @@ static void checkWindowExists()
 	sTargetWindowHandle = aForegroundWindow;
 	sNextCheck = eCheck_WindowPosition;
 	sRepeatCheckTime = 0;
+	WindowManager::showTargetWindowFound();
 }
 
 
@@ -187,7 +192,7 @@ static void checkWindowActive()
 	if( aForegroundWindow == WindowManager::mainHandle() &&
 		targetWindowIsTopMost() )
 	{// Switch focus from own main window to target if target is topmost
-		targetDebugPrint("Switching focus to target window!\n");
+		targetDebugPrint("Switching focus to target window\n");
 		SetForegroundWindow(sTargetWindowHandle);
 	}
 
@@ -240,7 +245,7 @@ static void checkWindowZOrder()
 	}
 
 	// Did not find any overlay windows above target!
-	targetDebugPrint("Moving overlays back over top of target window!\n");
+	targetDebugPrint("Moving overlays back over top of target window\n");
 	WindowManager::setOverlaysToTopZ();
 }
 
@@ -521,13 +526,17 @@ static void checkAppClosed()
 
 void loadProfile()
 {
+	targetDebugPrint("Loading new profile data\n");
 	kConfig.load();
-	if( kConfig.startInFullScreenWindow )
-		sDesiredTargetMode = eWindowMode_FullScreenWindow;
-	else
-		sDesiredTargetMode = eWindowMode_Unknown;
 	if( sTargetWindowHandle && !sRestoreTargetWindow )
 		dropTargetWindow();
+	if( !sTargetWindowHandle )
+	{
+		if( kConfig.startInFullScreenWindow )
+			sDesiredTargetMode = eWindowMode_FullScreenWindow;
+		else
+			sDesiredTargetMode = eWindowMode_Unknown;
+	}
 }
 
 
@@ -672,6 +681,8 @@ void swapWindowMode()
 void prepareForDialog()
 {
 	sRestoreTargetWindow = (GetForegroundWindow() == sTargetWindowHandle);
+	targetDebugPrint("Preparing for dialog box - will%srestore target window\n",
+		sRestoreTargetWindow ? " " : " NOT ");
 	if( sSwapWindowModeHotkeyRegistered )
 	{
 		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
