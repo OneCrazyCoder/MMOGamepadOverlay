@@ -26,8 +26,8 @@ enum {
 kMinFontPixelHeight = 6,
 kNoticeStringDisplayTimePerChar = 50,
 kNoticeStringMinTime = 3000,
-kSystemHUDFlashFreq = 150,
-kSystemHUDFlashTime = kSystemHUDFlashFreq * 10,
+kSystemHUDFlashFreq = 125,
+kSystemHUDFlashTime = kSystemHUDFlashFreq * 8,
 };
 
 const char* kMenuPrefix = "Menu";

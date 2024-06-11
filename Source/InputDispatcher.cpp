@@ -258,6 +258,7 @@ struct DispatchTracker
 	bool mouseJumpQueued;
 	bool mouseJumpInterpolate;
 	bool mouseInterpolateRestart;
+	bool mouseAllowJumpDrag;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
@@ -313,6 +314,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			DBG_ASSERT(c != '\0');
 			sTracker.mouseJumpToHotspot |= (c & 0x7F);
 			sTracker.mouseJumpInterpolate = false;
+			sTracker.mouseAllowJumpDrag = false;
 			sTracker.mouseJumpToMode = eMouseMode_PostJump;
 			continue;
 		}
@@ -616,6 +618,8 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 	// Jump process completed! Clear flags for next jump attempt
 	sTracker.mouseJumpAttempted = false;
 	sTracker.mouseJumpVerified = false;
+	sTracker.mouseJumpInterpolate = false;
+	sTracker.mouseAllowJumpDrag = false;
 
 	// Reached jump destination and can update mouse mode accordingly
 	sTracker.mouseMode = sTracker.mouseJumpToMode;
@@ -626,9 +630,13 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 static void trailMouseToHotspot(u16 theHotspotID)
 {
 	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
-		jumpMouseToHotspot(theHotspotID);
+		sTracker.mouseJumpAttempted = true;
+		sTracker.mouseJumpVerified = true;
 		return;
 	#endif
+
+	if( sTracker.mouseJumpAttempted && sTracker.mouseJumpVerified )
+		return;
 
 	// Stop accumulating standard mouse motion during this
 	sTracker.mouseVelX = sTracker.mouseVelY = 0;
@@ -651,7 +659,6 @@ static void trailMouseToHotspot(u16 theHotspotID)
 		if( aCurrPos.x == aDestPos.x &&
 			aCurrPos.y == aDestPos.y )
 		{// Already at destination - treat as verified jump
-			sTracker.mouseJumpInterpolate = false;
 			sTracker.mouseJumpAttempted = true;
 			sTracker.mouseJumpVerified = true;
 			return;
@@ -665,7 +672,7 @@ static void trailMouseToHotspot(u16 theHotspotID)
 	}
 
 	POINT aNewPos = { sStartPosX, sStartPosY };
-	const int aTrailTimePassed = min(gAppRunTime - sStartTime, sTrailTime);
+	const int aTrailTimePassed = gAppRunTime - sStartTime;
 	if( aTrailTimePassed >= sTrailTime )
 	{
 		aNewPos.x += sTrailDistX;
@@ -681,8 +688,7 @@ static void trailMouseToHotspot(u16 theHotspotID)
 
 	if( aNewPos.x == sStartPosX + sTrailDistX &&
 		aNewPos.y == sStartPosY + sTrailDistY )
-	{// Should end up at destination - treat as attempted jump
-		sTracker.mouseJumpInterpolate = false;
+	{// Should end up at destination - flag as attempted jump
 		sTracker.mouseJumpAttempted = true;
 		sTracker.mouseJumpVerified = false;
 	}
@@ -1117,7 +1123,6 @@ void update()
 		verifyCursorJumpedTo(sTracker.mouseJumpToHotspot) )
 	{// Can clear .mouseJumpToHotspot now that verified it worked
 		sTracker.mouseJumpToHotspot = 0;
-		sTracker.mouseJumpInterpolate = false;
 	}
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
@@ -1132,12 +1137,15 @@ void update()
 		// If not holding RMB in _Look mode, it must have been force-released
 		if( sTracker.mouseMode == eMouseMode_Look &&
 			sTracker.mouseModeWanted == eMouseMode_Look &&
-			!sTracker.keysHeldDown.test(VK_RBUTTON) )
-		{
-			// Should force following code to re-jump and r-click again
+			!sTracker.keysHeldDown.test(VK_RBUTTON) &&
+			!sTracker.keysHeldDown.test(VK_LBUTTON) )
+		{// Should force following code to re-jump and r-click again
 			sTracker.mouseMode = eMouseMode_Default;
 		}
-		if( sTracker.mouseMode != sTracker.mouseModeWanted )
+		if( sTracker.mouseMode != sTracker.mouseModeWanted &&
+			!sTracker.keysHeldDown.test(VK_LBUTTON) &&
+			(!sTracker.keysHeldDown.test(VK_RBUTTON) ||
+			 sTracker.mouseMode == eMouseMode_Look) )
 		{
 			// Not in the middle of another task, so transition mouse mode
 			switch(sTracker.mouseModeWanted)
@@ -1147,6 +1155,7 @@ void update()
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
 				sTracker.mouseJumpToMode = eMouseMode_Cursor;
 				sTracker.mouseJumpInterpolate = false;
+				sTracker.mouseAllowJumpDrag = false;
 				break;
 			case eMouseMode_Look:
 				if( sTracker.mouseMode == eMouseMode_JumpClicked )
@@ -1161,6 +1170,7 @@ void update()
 						eSpecialHotspot_MouseLookStart;
 					sTracker.mouseJumpToMode = eMouseMode_Look;
 					sTracker.mouseJumpInterpolate = false;
+					sTracker.mouseAllowJumpDrag = false;
 					// Begin holding down right mouse button
 					sTracker.nextQueuedKey = VK_RBUTTON | kVKeyHoldFlag;
 					sTracker.mouseLookZoneFixTimer = 0;
@@ -1176,6 +1186,7 @@ void update()
 					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
 					sTracker.mouseJumpToMode = eMouseMode_Hide;
 					sTracker.mouseJumpInterpolate = false;
+					sTracker.mouseAllowJumpDrag = false;
 				}
 				break;
 			default:
@@ -1262,8 +1273,7 @@ void update()
 				aTaskResult = popNextStringChar(aCmd.string);
 			break;
 		case eCmdType_MoveMouseToHotspot:
-			if( sTracker.mouseJumpToHotspot &&
-				!sTracker.mouseJumpInterpolate )
+			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
 			{// Finish instant jump first
 				sTracker.queuePauseTime = 1; 
 				aTaskResult = eResult_Incomplete;
@@ -1274,13 +1284,15 @@ void update()
 					!sTracker.mouseJumpInterpolate ||
 					aCmd.hotspotID != sTracker.mouseJumpToHotspot;
 				sTracker.mouseJumpInterpolate = true;
+				sTracker.mouseAllowJumpDrag =
+					sTracker.mouseMode == eMouseMode_Cursor ||
+					sTracker.mouseMode == eMouseMode_PostJump;
 				sTracker.mouseJumpToHotspot = aCmd.hotspotID;
 				sTracker.mouseJumpToMode = eMouseMode_PostJump;
 			}
 			break;
 		case eCmdType_MoveMouseToMenuItem:
-			if( sTracker.mouseJumpToHotspot &&
-				!sTracker.mouseJumpInterpolate )
+			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
 			{// Finish instant jump first
 				sTracker.queuePauseTime = 1; 
 				aTaskResult = eResult_Incomplete;
@@ -1303,6 +1315,7 @@ void update()
 					sTracker.mouseInterpolateRestart = true;
 				}
 				sTracker.mouseJumpInterpolate = true;
+				sTracker.mouseAllowJumpDrag = false;
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_MenuItemPos;
 				sTracker.mouseJumpToMode = eMouseMode_PostJump;
 				if( aCmd.andClick )
@@ -1347,7 +1360,7 @@ void update()
 			continue;
 		}
 
-		if( isMouseButton(aVKey) &&
+		if( isMouseButton(aVKey) && !sTracker.mouseAllowJumpDrag &&
 			(sTracker.mouseMode == eMouseMode_Hide ||
 			 sTracker.mouseMode == eMouseMode_PostJump ||
 			 sTracker.mouseMode == eMouseMode_JumpClicked ||
@@ -1420,15 +1433,17 @@ void update()
 	bool readyForMouseJump = sTracker.mouseJumpToHotspot != 0;
 	if( readyForMouseJump )
 	{
-		// No mouse button should be held down during a jump
-		aDesiredKeysDown.reset(VK_LBUTTON);
-		aDesiredKeysDown.reset(VK_MBUTTON);
-		aDesiredKeysDown.reset(VK_RBUTTON);
-		if( sTracker.keysHeldDown.test(VK_LBUTTON) ||
-			sTracker.keysHeldDown.test(VK_MBUTTON) ||
-			sTracker.keysHeldDown.test(VK_RBUTTON) )
+		if( !sTracker.mouseAllowJumpDrag )
 		{
-			readyForMouseJump = false;
+			aDesiredKeysDown.reset(VK_LBUTTON);
+			aDesiredKeysDown.reset(VK_MBUTTON);
+			aDesiredKeysDown.reset(VK_RBUTTON);
+			if( sTracker.keysHeldDown.test(VK_LBUTTON) ||
+				sTracker.keysHeldDown.test(VK_MBUTTON) ||
+				sTracker.keysHeldDown.test(VK_RBUTTON) )
+			{
+				readyForMouseJump = false;
+			}
 		}
 		if( gAppRunTime < sTracker.mouseJumpAllowedTime )
 			readyForMouseJump = false;
@@ -1466,6 +1481,7 @@ void update()
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
 				sTracker.mouseJumpToMode = eMouseMode_Cursor;
 				sTracker.mouseJumpInterpolate = false;
+				sTracker.mouseAllowJumpDrag = false;
 				readyForQueuedKey = false;
 			}
 			if( sTracker.mouseJumpToHotspot == eSpecialHotspot_MouseHidden )

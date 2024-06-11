@@ -46,21 +46,21 @@ struct Config
 		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
 		for(size_t i = 0; i < eBtn_Num; ++i)
 			defaultThreshold[i] = 0;
-		u8 aThreshold = 
+		u8 aThreshold =
 			clamp(Profile::getInt("Gamepad/LStickButtonThreshold", 40),
 				0, 100) * 255 / 100;
 		defaultThreshold[eBtn_LSLeft] = aThreshold;
 		defaultThreshold[eBtn_LSRight] = aThreshold;
 		defaultThreshold[eBtn_LSUp] = aThreshold;
 		defaultThreshold[eBtn_LSDown] = aThreshold;
-		aThreshold = 
+		aThreshold =
 			clamp(Profile::getInt("Gamepad/RStickButtonThreshold", 40),
 				0, 100) * 255 / 100;
 		defaultThreshold[eBtn_RSLeft] = aThreshold;
 		defaultThreshold[eBtn_RSRight] = aThreshold;
 		defaultThreshold[eBtn_RSUp] = aThreshold;
 		defaultThreshold[eBtn_RSDown] = aThreshold;
-		aThreshold = 
+		aThreshold =
 			clamp(Profile::getInt("Gamepad/TriggerButtonThreshold", 12),
 				0, 100) * 255 / 100;
 		defaultThreshold[eBtn_L2] = aThreshold;
@@ -394,13 +394,9 @@ static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
 		sState.layerOrder.rbegin();
 		itr != sState.layerOrder.rend(); ++itr)
 	{
-		result = itr.base();
+		result = itr.base(); // gets position AFTER itr (in normal direction)
 		if( *itr == theParentLayerID )
-		{
-			if( result != sState.layerOrder.end() )
-				++result;
 			break;
-		}
 	}
 
 	if( theParentLayerID == 0 )
