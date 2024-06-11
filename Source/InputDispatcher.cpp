@@ -1864,13 +1864,13 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 }
 
 
-void scrollMouseWheelOnce(ECommandDir theDir)
+void jumpMouseWheel(ECommandDir theDir, u8 theCount)
 {
 	if( theDir == eCmdDir_Up )
 	{
 		Input anInput;
 		anInput.type = INPUT_MOUSE;
-		anInput.mi.mouseData = WHEEL_DELTA;
+		anInput.mi.mouseData = WHEEL_DELTA * theCount;
 		anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
 		sTracker.inputs.push_back(anInput);
 	}
@@ -1878,7 +1878,7 @@ void scrollMouseWheelOnce(ECommandDir theDir)
 	{
 		Input anInput;
 		anInput.type = INPUT_MOUSE;
-		anInput.mi.mouseData = -WHEEL_DELTA;
+		anInput.mi.mouseData = -WHEEL_DELTA * theCount;
 		anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
 		sTracker.inputs.push_back(anInput);
 	}

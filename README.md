@@ -136,7 +136,7 @@ Notice how only the base ``R2=`` property can actually hold a key down for more 
 
 As mentioned above, commands assigned to buttons can be as simple as the name of a keyboard key or mouse button, as well as mouse movement (such as ``=Mouse Up`` or ``=Mouse Left``).
 
-Not mentioned yet is mouse wheel movement, which can be set with commands such as ``=MouseWheel Up Smooth`` or ``=MouseWheel Down Stepped`` or ``MouseWheel Down Once``. "Smooth" vs "Stepped" affects whether or not movement of less than one 'notch' at a time is sent to the application (stepped is the default if unspecified), and "Once" can be used if only want the wheel to only move one 'notch' even when the button assigned to the command is held continuously.
+Not mentioned yet is mouse wheel movement, which can be set with commands such as ``=MouseWheel Up Smooth`` or ``=MouseWheel Down Stepped`` or ``MouseWheel Down 1``. "Smooth" vs "Stepped" affects whether or not movement of less than one 'notch' at a time is sent to the application (stepped is the default if unspecified). Specifying a number instead means only want the wheel to move one time (by the number of "notches" specified) even when the button assigned to the command is held continuously.
 
 ### Combination keys
 
@@ -461,7 +461,7 @@ Layers follow these rules when determining order, with each rule taking preceden
 1. Added layers are placed on top of older layers of the same type
 2. Held Layers are remain on top of basic added layers
 3. Combo Layers are directly on top of the top-most of all of their base layers, but no higher than that
-4. Child layers are directly on top of their parent layer (and any preexisting children of the same parent) but no higher than that.
+4. Child layers are directly on top of their parent layer (and any preexisting children/grandchildren/etc of the same parent) but no higher than that.
 5. [Scheme] always exists as the lowest layer
 
 To demonstrate how these rules shake out, here's a potential layer order from top to bottom:

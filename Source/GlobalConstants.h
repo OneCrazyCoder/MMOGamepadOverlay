@@ -122,7 +122,7 @@ enum EMouseWheelMotion
 {
 	eMouseWheelMotion_Smooth,
 	eMouseWheelMotion_Stepped,
-	eMouseWheelMotion_Once,
+	eMouseWheelMotion_Jump,
 };
 
 enum EButtonAction
@@ -280,7 +280,6 @@ enum ECommandKeyWord
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
 	eCmdWord_Stepped,
-	eCmdWord_Once,
 	eCmdWord_Move,
 	eCmdWord_Turn,
 	eCmdWord_Strafe,

@@ -483,8 +483,6 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "SMOOTH",			eCmdWord_Smooth		},
 				{ "STEP",			eCmdWord_Stepped	},
 				{ "STEPPED",		eCmdWord_Stepped	},
-				{ "ONCE",			eCmdWord_Once		},
-				{ "SINGLE",			eCmdWord_Once		},
 				{ "MOVE",			eCmdWord_Move		},
 				{ "SLIDE",			eCmdWord_Move		},
 				{ "TURN",			eCmdWord_Turn		},
