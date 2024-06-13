@@ -1527,7 +1527,7 @@ static void updateHUDStateForCurrentLayers()
 			gRedrawHUD.set(i);
 		if( sResults.menuAutoCommandRun.test(aMenuID) )
 			continue;
-		if( !wasDisabled || (!isDisabled && wasDisabled) )
+		if( !aPrevVisibleHUD.test(i) || (wasDisabled && !isDisabled) )
 		{
 			processCommand(null,
 				Menus::autoCommand(aMenuID),
