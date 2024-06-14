@@ -2298,12 +2298,12 @@ static void addButtonAction(
 	int aBtnTime = breakOffIntegerSuffix(theBtnName);
 	EButton aBtnID = buttonNameToID(theBtnName);
 
+	bool isA4DirMultiAssign = false;
 	if( aBtnID >= eBtn_Num )
 	{
 		// Button ID not identified from key string
 		// Could be an attempt to assign multiple buttons at once as
 		// a single 4-directional input (D-pad, analog sticks, etc).
-		bool isA4DirMultiAssign = false;
 		for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
 		{
 			if( theBtnName == k4DirButtons[i] )
@@ -2312,15 +2312,10 @@ static void addButtonAction(
 				break;
 			}
 		}
-		// If not, must just be a badly-named action + button key
-		if( !isA4DirMultiAssign )
-		{
-			logError("Unable to identify Gamepad Button '%s' requested in [%s]",
-				theBtnName.c_str(),
-				theBuilder.debugItemName.c_str());
-			return;
-		}
+	}
 
+	if( isA4DirMultiAssign )
+	{
 		// Attempt to assign to all 4 directional variations of this button
 		// to the same command (or directional variations of it).
 		const Command& aBaseCmd = stringToCommand(
@@ -2371,6 +2366,28 @@ static void addButtonAction(
 			reportButtonAssignment(
 				theBuilder, aBtnAct, aBtnID, aDestCmd, aCmdStr);
 		}
+		return;
+	}
+
+	if( aBtnTime >= 0 && aBtnID >= eBtn_Num )
+	{// Part of the button's name might have been absorbed into aBtnTime
+		std::string aTimeAsString = toString(aBtnTime);
+		aBtnTime = -1;
+		theBtnName.push_back(aTimeAsString[0]);
+		aTimeAsString.erase(0, 1);
+		aBtnID = buttonNameToID(theBtnName);
+		if( aBtnID >= eBtn_Num )
+			theBtnName += aTimeAsString; // to restore for below error
+		else if( !aTimeAsString.empty() )
+			aBtnTime = intFromString(aTimeAsString);
+	}
+
+	// If still no valid button ID, must just be a badly-named action + button key
+	if( aBtnID >= eBtn_Num )
+	{
+		logError("Unable to identify Gamepad Button '%s' requested in [%s]",
+			theBtnName.c_str(),
+			theBuilder.debugItemName.c_str());
 		return;
 	}
 
