@@ -446,9 +446,9 @@ int breakOffIntegerSuffix(std::string& theString)
 {
 	int result = 0;
 	int multiplier = 1;
-	size_t aStrPos = theString.size()-1;
+	int aStrPos = int(theString.size()-1);
 	while(
-		aStrPos > 0 &&
+		aStrPos >= 0 &&
 		theString[aStrPos] >= '0' &&
 		theString[aStrPos] <= '9' )
 	{
@@ -459,7 +459,7 @@ int breakOffIntegerSuffix(std::string& theString)
 
 	// If stayed at end of string or got all the way to start, invalid as a
 	// string ending in (but not entirely being) an integer
-	if( aStrPos >= theString.size()-1 || aStrPos <= 0 )
+	if( aStrPos >= theString.size()-1 || aStrPos < 0 )
 		result = -1;
 	else
 		theString.resize(aStrPos+1);
