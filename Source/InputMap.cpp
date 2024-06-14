@@ -616,7 +616,7 @@ static u16 getOrCreateComboLayerID(
 static u16 getOrCreateHUDElementID(
 	InputMapBuilder& theBuilder,
 	const std::string& theName,
-	bool hasInputAssigned = false)
+	bool hasInputAssigned)
 {
 	DBG_ASSERT(!theName.empty());
 
@@ -682,6 +682,18 @@ static u16 getOrCreateHUDElementID(
 				"Changing it to a Menu of type List instead...",
 				theName.c_str(), aHUDTypeName.c_str());
 			aHUDElement.type = eMenuStyle_List;
+		}
+		else if( !hasInputAssigned &&
+				 aHUDElement.type >= eMenuStyle_Begin &&
+				 aHUDElement.type < eMenuStyle_End )
+		{
+			logError(
+				"Menu '%s' referenced by [%s] "
+				"has no buttons assigned to control it! "
+				"The menu will appear as only a basic rectangle!",
+				theName.c_str(),
+				theBuilder.debugItemName.c_str());
+			aHUDElement.type = eHUDItemType_Rect;
 		}
 	}
 

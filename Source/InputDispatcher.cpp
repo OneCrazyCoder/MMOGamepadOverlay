@@ -1283,6 +1283,8 @@ void update()
 				sTracker.mouseInterpolateRestart =
 					!sTracker.mouseJumpInterpolate ||
 					aCmd.hotspotID != sTracker.mouseJumpToHotspot;
+				sTracker.mouseJumpAttempted = false;
+				sTracker.mouseJumpVerified = false;
 				sTracker.mouseJumpInterpolate = true;
 				sTracker.mouseAllowJumpDrag =
 					sTracker.mouseMode == eMouseMode_Cursor ||
@@ -1314,6 +1316,8 @@ void update()
 				{// Same hotspot but it changed location, so restart interp
 					sTracker.mouseInterpolateRestart = true;
 				}
+				sTracker.mouseJumpAttempted = false;
+				sTracker.mouseJumpVerified = false;
 				sTracker.mouseJumpInterpolate = true;
 				sTracker.mouseAllowJumpDrag = false;
 				sTracker.mouseJumpToHotspot = eSpecialHotspot_MenuItemPos;

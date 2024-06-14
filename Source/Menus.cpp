@@ -652,7 +652,7 @@ u8 gridWidth(u16 theMenuID)
 u8 gridHeight(u16 theMenuID)
 {
 	const u16 anItemCount = InputMap::menuItemCount(theMenuID);
-	const u16 aGridWidth = gridWidth(theMenuID);
+	const u16 aGridWidth = max(1, gridWidth(theMenuID));
 	return (anItemCount + aGridWidth - 1) / aGridWidth;
 }
 
