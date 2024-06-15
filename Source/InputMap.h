@@ -88,6 +88,8 @@ bool hudElementIsAMenu(u16 theHUDElementID);
 // Not all HUD elements are menus, so may return invalid menu ID
 u16 menuForHUDElement(u16 theHUDElementID);
 u16 hudElementForMenu(u16 theMenuID);
+// Only valid for the Hotspot HUD element type
+u16 hotspotForHUDElement(u16 theHUDElementID);
 // Only valid for HUD element types that are tied to Key Bind Arrays
 u16 keyBindArrayForHUDElement(u16 theHUDElementID);
 

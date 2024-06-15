@@ -649,7 +649,7 @@ When the ``=Edit`` command is executed, a dialog box pops up that allows changin
 
 ## HUD Elements (Menu graphics)
 
-All menus are also **HUD Elements**. However, there are also HUD Element types that are *not* menus. These are created with the section name ``[HUD.HUDElementName]``. You can use this to create a reticle in the middle of the screen while in Mouse Look mode (to aim better with a "Use CenterScreen" key, for example), as well as special HUD Elements like Key Bind Array indicators.
+All menus are also **HUD Elements**. However, there are also HUD Element types that are *not* menus. These are created with the section name ``[HUD.HUDElementName]``. You can use this to create a reticle in the middle of the screen while in Mouse Look mode (to aim better with a "Use Center Screen" key, for example), as well as special HUD Elements like Key Bind Array indicators.
 
 Default properties used by all HUD elements and menus can be defined in the base ``[HUD]`` section to save time defining them for every individual HUD element. The exceptions being the ``Position=`` and ``Priority=`` properties, which should likely be different for each element. Priority determines draw order (higher priority are drawn on top of lower priority, allowed range is -100 to 100 and default is 0).
 
@@ -735,13 +735,13 @@ These copy-from coordinates work like Hotspots and can include anchor, fixed off
 
 *TIP: When using this feature, it may be desirable to have the copied-from area of the game's window be covered up by a HUD element from the overlay to avoid having the same icons show up in two places at once on your screen (the copy in the overlay + the original icon in the game's built-in UI). This requires an alternate copy method that avoids copying from the overlay itself, getting the icon hidden underneath it instead. Which copy method works may differ from game to game. You can set the method using the [System] property "IconCopyMethod". See the comments in MMOGO_Core.ini for details on possible values for this property.*
 
-### Key Bind Array HUD Elements
+### Hotspot & KeyBind HUD Elements
 
-Two special HUD element types offset their visual position to match those in a Hotspot Array with the same name as the Key Bind Array. These use ``Type = KeyBindArrayLast`` and ``Type = KeyBindArrayDefault`` and must also have a special property to specify which Key Bind Array / Hotspot Array to use, such as ``KeyBindArray = TargetGroup``. 
+Some special HUD element types offset their visual position to match a hotspot, or a Hotspot Array with the same name as the Key Bind Array. These use ``Type = Hotspot``, ``Type = KeyBindArrayLast`` and ``Type = KeyBindArrayDefault``. They must also have a special property to specify which Hotspot / Key Bind Array / Hotspot Array to use, such as ``Hotspots = TargetGroup`` (``Hotspot=``, ``Array=``, and ``KeyBindArray=`` also work and mean the same thing here).
 
-``Type=KeyBindArrayLast`` will change to the position matching the last used key bind from the array. ``Type=KeyBindArrayDefault`` will change to the position of the set *default* key bind of the array (initially the first item in the array, but can be changed with the ``=Set <KeyBindArrayName> Default`` command).
+``Type=Hotspot`` just initially offsets itself by the given hotspot and stays there. ``Type=KeyBindArrayLast`` will change to the position matching the last used key bind from the array. ``Type=KeyBindArrayDefault`` will change to the position of the set *default* key bind of the array (initially the first item in the array, but can be changed with the ``=Set <KeyBindArrayName> Default`` command).
 
-For these to work, make sure to create a Hotspot Array in ``[Hotspots]`` section with the same name and range of numbers as the key bind array. These will specify a on offset from this HUD element's base position that it should jump to when either the *Last* or *Default* key bind array index is changed.
+For the key bind array types to work, make sure to create both a hotspot array in a  ``[Hotspots]`` section and a key bind array in a ``[KeyBinds]`` section with matching names and ranges of numbers.
 
 ## Other Commands and Features
 
