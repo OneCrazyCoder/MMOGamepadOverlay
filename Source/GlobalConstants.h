@@ -218,6 +218,7 @@ enum EHUDType
 	eHUDItemType_ArrowU,
 	eHUDItemType_ArrowD,
 
+	eHUDType_Hotspot,
 	eHUDType_KBArrayLast,
 	eHUDType_KBArrayDefault,
 	eHUDType_System, // Internal use only
@@ -227,9 +228,7 @@ enum EHUDType
 	eMenuStyle_Begin = 0,
 	eMenuStyle_End = eHUDItemType_Rect,
 	eHUDItemType_Begin = eHUDItemType_Rect,
-	eHUDItemType_End = eHUDType_KBArrayLast,
-	eHUDType_Begin = eHUDType_KBArrayLast,
-	eHUDType_End = eHUDType_Num,
+	eHUDItemType_End = eHUDType_Hotspot,
 };
 
 enum ESpecialKey

@@ -68,6 +68,7 @@ struct Config
 	double moveStraightBias;
 	int maxTaskQueuedTime; // tasks older than this in queue are skipped
 	int chatBoxPostFirstKeyDelay;
+	int chatBoxPostEnterDelay;
 	int cursorXSpeed;
 	int cursorYSpeed;
 	int mouseLookXSpeed;
@@ -76,6 +77,7 @@ struct Config
 	int mouseLookZoneFixTime;
 	u16 baseKeyReleaseLockTime;
 	u16 mouseClickLockTime;
+	u16 mouseReClickLockTime;
 	u16 minModKeyChangeTime;
 	u16 mouseJumpPauseTime;
 	u8 mouseDPadAccel;
@@ -85,9 +87,11 @@ struct Config
 	{
 		maxTaskQueuedTime = Profile::getInt("System/MaxKeyQueueTime", 1000);
 		chatBoxPostFirstKeyDelay = Profile::getInt("System/ChatBoxStartDelay", 0);
+		chatBoxPostEnterDelay = Profile::getInt("System/ChatBoxEndDelay", 0);
 		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 20);
 		minModKeyChangeTime = Profile::getInt("System/MinModKeyChangeTime", 50);
 		mouseClickLockTime = Profile::getInt("System/MinMouseButtonClickTime", 25);
+		mouseReClickLockTime = Profile::getInt("System/MinMouseReClickTime", 0);
 		mouseJumpPauseTime = Profile::getInt("System/MouseJumpPauseTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
@@ -235,6 +239,7 @@ struct DispatchTracker
 	int queuePauseTime;
 	u32 nonModKeyPressAllowedTime;
 	u32 modKeyChangeAllowedTime;
+	u32 chatBoxEndAllowedTime;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
 	VectorMap<u8, u32> keysLockedDown;
@@ -250,6 +255,7 @@ struct DispatchTracker
 	int mouseVelX, mouseVelY;
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
+	u32 mouseClickAllowedTime;
 	u32 mouseJumpAllowedTime;
 	u32 mouseJumpFinishedTime;
 	u16 mouseJumpToHotspot;
@@ -388,15 +394,15 @@ static EResult popNextStringChar(const char* theString)
 	DBG_ASSERT(theString && (theString[0] == '/' || theString[0] == '>'));
 	DBG_ASSERT(sTracker.currTaskProgress <= strlen(theString));
 
-	const size_t idx = sTracker.currTaskProgress++;
-	// End with carriage return, and start with it for say strings
-	const char c =
-		(idx == 0 && theString[0] == '>') || theString[idx] == '\0'
-			? '\r'
-			: theString[idx];
+	if( theString[sTracker.currTaskProgress] == '\0' )
+		return eResult_TaskCompleted;
 
-	// Skip non-printable or non-ASCII characters
-	if( idx > 0 && theString[idx] != '\0' && (c < ' ' || c > '~') )
+	const size_t idx = sTracker.currTaskProgress++;
+	// Convert initial '>' into carriage return for say strings
+	const char c = (idx == 0 && theString[0] == '>') ? '\r' : theString[idx];
+
+	// Skip non-printable or non-ASCII characters (besides enter at end)
+	if( idx > 0 && c != '\r' && (c < ' ' || c > '~') )
 		return popNextStringChar(theString);
 
 	// Queue the key + modifiers (shift key)
@@ -422,8 +428,17 @@ static EResult popNextStringChar(const char* theString)
 		sTracker.typingChatBoxString = true;
 	}
 
-	if( theString[idx] == '\0' )
-		return eResult_TaskCompleted;
+	if( theString[idx] == '\r' )
+	{
+		// Add delay after press enter before calling this task complete and
+		// allowing other key presses. This prevents the chat box interface
+		// from "absorbing" gameplay-related key presses, which can happen in
+		// some games for a time after the carriage return but before the chat
+		// box closes out completely.
+		sTracker.queuePauseTime =
+			max(sTracker.queuePauseTime,
+				kConfig.chatBoxPostEnterDelay);
+	}
 
 	return eResult_Incomplete;
 }
@@ -806,6 +821,11 @@ static EResult setKeyDown(u16 theKey, bool down)
 		return eResult_NotAllowed;
 	}
 
+	// May not be allowed to click a mouse button yet
+	if( down && isMouseButton(theKey) &&
+		gAppRunTime < sTracker.mouseClickAllowedTime )
+ 		return eResult_NotAllowed;
+
 	// May not be allowed to release the given key yet
 	if( !down && keyIsLockedDown(u8(theKey)) )
  		return eResult_NotAllowed;
@@ -867,7 +887,8 @@ static EResult setKeyDown(u16 theKey, bool down)
 		}
 	}
 
-	// Lock cursor jump and mod key changes after release a mouse button
+	// Lock cursor jump and mod key changes after release a mouse button,
+	// as well as re-clicking a mouse button immediately after.
 	// Mouse buttons are special because the "click" of a mouse is often
 	// on release, unlike a keyboard keys that "click" on initial press
 	if( anInput.type == INPUT_MOUSE && !down )
@@ -876,6 +897,8 @@ static EResult setKeyDown(u16 theKey, bool down)
 			gAppRunTime + kConfig.mouseJumpPauseTime;
 		sTracker.modKeyChangeAllowedTime =
 			gAppRunTime + kConfig.minModKeyChangeTime;
+		sTracker.mouseClickAllowedTime =
+			gAppRunTime + kConfig.mouseReClickLockTime;
 	}
 
 	return eResult_Ok;

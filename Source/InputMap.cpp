@@ -31,11 +31,12 @@ const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kTypeKeys[] = { "Type", "Style" };
 const char* kDisplayNameKeys[] = { "Label", "Title", "Name", "String" };
-const char* kKBArrayKeys[] = { "KeyBindArray", "Array", "KeyBinds" };
 const char* kKeybindsPrefix = "KeyBinds/";
 const char* kHotspotsPrefix = "Hotspots/";
 const char* k4DirMenuItemLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
 DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
+const char* kHotspotsKeys[] =
+	{ "Hotspots", "Hotspot", "KeyBindArray", "Array", "KeyBinds" };
 
 // These need to be in all upper case
 const char* kIncludeKey = "INCLUDE";
@@ -128,7 +129,7 @@ struct HUDElement
 	std::string displayName;
 	EHUDType type : 16;
 	u16 menuID; 
-	union { u16 hotspotArrayID; u16 keyBindArrayID; };
+	union { u16 hotspotArrayID; u16 keyBindArrayID; u16 hotspotID; };
 	// Visual details will be parsed by HUD module
 
 	HUDElement() :
@@ -657,6 +658,9 @@ static u16 getOrCreateHUDElementID(
 	else
 	{
 		aHUDElement.type = hudTypeNameToID(upper(aHUDTypeName));
+		// Special-case - for "hotspot" type/style, have to infer Menu vs HUD
+		if( aHUDElement.type == eMenuStyle_Hotspots && !hasInputAssigned )
+			aHUDElement.type = eHUDType_Hotspot;
 		if( aHUDElement.type >= eHUDType_Num )
 		{
 			logError(
@@ -728,76 +732,85 @@ static u16 getOrCreateHUDElementID(
 			aMenu.hudElementID = aHUDElementID;
 		}
 		aHUDElement.menuID = aMenuID;
-
-		if( aHUDElement.type == eMenuStyle_Hotspots )
-		{
-			std::string aHotspotArrayName =
-				Profile::getStr(aMenuPath + "/" + kHotspotArraysKey);
-			if( aHotspotArrayName.empty() )
-			{
-				logError(
-					"Can't find required '[%s%s]/%s =' property "
-					"for item referenced by [%s]! ",
-					kMenuPrefix,
-					theName.c_str(),
-					kHotspotArraysKey,
-					theBuilder.debugItemName.c_str());
-				aHUDElement.type = eMenuStyle_List;
-			}
-			else if( u16* aHotspotArrayID =
-						theBuilder.hotspotArrayNameToIdxMap.find(
-							condense(aHotspotArrayName)) )
-			{
-				aHUDElement.hotspotArrayID = *aHotspotArrayID;
-			}
-			else
-			{
-				logError(
-					"Hotspot Array '%s' not found for menu [%s%s]! "
-					"Changing it to a Menu of type List instead...",
-					aHotspotArrayName.c_str(),
-					kMenuPrefix,
-					theName.c_str());
-				aHUDElement.type = eMenuStyle_List;
-			}
-		}
 	}
 
-	if( aHUDElement.type == eHUDType_KBArrayLast ||
-		aHUDElement.type == eHUDType_KBArrayDefault )
+	if( aHUDElement.type == eMenuStyle_Hotspots ||
+		aHUDElement.type == eHUDType_KBArrayLast ||
+		aHUDElement.type == eHUDType_KBArrayDefault ||
+		aHUDElement.type == eHUDType_Hotspot )
 	{
-		std::string aKBArrayName;
+		std::string aLinkedName;
 		int i = 0;
-		for(; aKBArrayName.empty() && i < ARRAYSIZE(kKBArrayKeys); ++i)
-			aKBArrayName = Profile::getStr(aHUDPath + "/" + kKBArrayKeys[i]);
-		if( aKBArrayName.empty() )
+		if( aHUDElement.type == eMenuStyle_Hotspots )
+		{
+			for(; aLinkedName.empty() && i < ARRAYSIZE(kHotspotsKeys); ++i)
+				aLinkedName = Profile::getStr(aMenuPath + "/" + kHotspotsKeys[i]);
+		}
+		else
+		{
+			for(; aLinkedName.empty() && i < ARRAYSIZE(kHotspotsKeys); ++i)
+				aLinkedName = Profile::getStr(aHUDPath + "/" + kHotspotsKeys[i]);
+		}
+		if( aLinkedName.empty() )
 		{
 			logError(
 				"Can't find required '[%s%s]/%s =' property "
 				"for item referenced by [%s]! ",
-				kHUDPrefix,
+				aHUDElement.type == eMenuStyle_Hotspots
+					? kMenuPrefix : kHUDPrefix,
 				theName.c_str(),
-				kKBArrayKeys[0],
+				kHotspotsKeys[0],
 				theBuilder.debugItemName.c_str());
-			aHUDElement.type = eHUDItemType_Rect;
+			aHUDElement.type = aHUDElement.type == eMenuStyle_Hotspots
+				? eMenuStyle_List : eHUDItemType_Rect;
+			return aHUDElementID;
 		}
-		else if( u16* aKeyBindArrayID =
-					theBuilder.keyBindArrayNameToIdxMap.find(
-						condense(aKBArrayName)) )
+
+		bool foundLinkedItem = false;
+		switch(aHUDElement.type)
 		{
-			aHUDElement.keyBindArrayID = *aKeyBindArrayID;
+		case eMenuStyle_Hotspots:
+			if( u16* aHotspotArrayID =
+					theBuilder.hotspotArrayNameToIdxMap.find(
+						condense(aLinkedName)) )
+			{
+				aHUDElement.hotspotArrayID = *aHotspotArrayID;
+				foundLinkedItem = true;
+			}
+			break;
+		case eHUDType_Hotspot:
+			if( u16* aHotspotID =
+					theBuilder.hotspotNameToIdxMap.find(
+						condense(aLinkedName)) )
+			{
+				aHUDElement.hotspotID = *aHotspotID;
+				foundLinkedItem = true;
+			}
+			break;
+		case eHUDType_KBArrayLast:
+		case eHUDType_KBArrayDefault:
+			if( u16* aKeyBindArrayID =
+					theBuilder.keyBindArrayNameToIdxMap.find(
+						condense(aLinkedName)) )
+			{
+				aHUDElement.keyBindArrayID = *aKeyBindArrayID;
+				foundLinkedItem = true;
+			}
+			break;
 		}
-		else
+		if( !foundLinkedItem )
 		{
 			logError(
 				"Unrecognized '%s' specified for '[%s%s]/%s =' property "
 				"for item referenced by [%s]! ",
-				aKBArrayName.c_str(),
-				kHUDPrefix,
+				aLinkedName.c_str(),
+				aHUDElement.type == eMenuStyle_Hotspots
+					? kMenuPrefix : kHUDPrefix,
 				theName.c_str(),
-				kKBArrayKeys[i-1],
+				kHotspotsKeys[i-1],
 				theBuilder.debugItemName.c_str());
-			aHUDElement.type = eHUDItemType_Rect;
+			aHUDElement.type = aHUDElement.type == eMenuStyle_Hotspots
+				? eMenuStyle_List : eHUDItemType_Rect;
 		}
 	}
 
@@ -1697,14 +1710,14 @@ static Command stringToCommand(
 	// as ASCII text and outputs it by typing it into the chat box
 	if( theString[0] == '/' )
 	{
-		sKeyStrings.push_back(theString);
+		sKeyStrings.push_back(theString + "\r");
 		result.type = eCmdType_SlashCommand;
 		result.keyStringIdx = u16(sKeyStrings.size()-1);
 		return result;
 	}
 	if( theString[0] == '>' )
 	{
-		sKeyStrings.push_back(theString);
+		sKeyStrings.push_back(theString + "\r");
 		result.type = eCmdType_SayString;
 		result.keyStringIdx = u16(sKeyStrings.size()-1);
 		return result;
@@ -1813,15 +1826,8 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 	theBuilder.hotspotNameToIdxMap.setValue("HOT", 0);
 	theBuilder.hotspotNameToIdxMap.setValue("SPOT", 0);
 
-	// Special hotspots default to center if not specified
-	Hotspot aHotspot;
-	aHotspot.x.anchor = 32768;
-	aHotspot.y.anchor = 32768;
 	for(u16 i = 0; i < eSpecialHotspot_Num; ++i)
-	{
-		sHotspots[i] = aHotspot;
 		theBuilder.hotspotNameToIdxMap.setValue(kSpecialHotspotNames[i], i);
-	}
 
 	// Parse normal hotspots and pick out any that might be arrays
 	DBG_ASSERT(theBuilder.keyValueList.empty());
@@ -1872,7 +1878,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 		{
 			logError("Hotspot %s: Could not decipher hotspot position '%s'",
 				aHotspotName.c_str(), theBuilder.keyValueList[i].second);
-			sHotspots[aHotspotIdx] = aHotspot;
+			sHotspots[aHotspotIdx] = Hotspot();
 		}
 	}
 	theBuilder.keyValueList.clear();
@@ -2067,13 +2073,13 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 		else if( aCommandDescription[0] == '/' )
 		{// Slash command (types into chat box)
 			aCmd.type = eCmdType_SlashCommand;
-			sKeyStrings.push_back(aCommandDescription);
+			sKeyStrings.push_back(aCommandDescription + "\r");
 			aCmd.keyStringIdx = u16(sKeyStrings.size()-1);
 		}
 		else if( aCommandDescription[0] == '>' )
 		{// Say string (types into chat box - '>' becomes Enter to start)
 			aCmd.type = eCmdType_SayString;
-			sKeyStrings.push_back(aCommandDescription);
+			sKeyStrings.push_back(aCommandDescription + "\r");
 			aCmd.keyStringIdx = u16(sKeyStrings.size()-1);
 		}
 		else
@@ -2914,7 +2920,7 @@ static MenuItem stringToMenuItem(
 		break;
 	case eCmdType_Empty:
 		// Probably just forgot the > at front of a plain string
-		sKeyStrings.push_back(std::string(">") + theString);
+		sKeyStrings.push_back(std::string(">") + theString + "\r");
 		aMenuItem.cmd.type = eCmdType_SayString;
 		aMenuItem.cmd.keyStringIdx = u16(sKeyStrings.size()-1);
 		logError("%s: '%s' unsure of meaning of '%s'. "
@@ -3501,6 +3507,7 @@ u16 menuHotspotArray(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	const u16 aHUDElementID = hudElementForMenu(theMenuID);
+	DBG_ASSERT(sHUDElements[aHUDElementID].type == eMenuStyle_Hotspots);
 	const u16 anArrayID = sHUDElements[aHUDElementID].hotspotArrayID;
 	DBG_ASSERT(anArrayID < sHotspotArrays.size());
 	return anArrayID;
@@ -3599,9 +3606,20 @@ u16 hudElementForMenu(u16 theMenuID)
 }
 
 
+u16 hotspotForHUDElement(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElements.size());
+	DBG_ASSERT(sHUDElements[theHUDElementID].type == eHUDType_Hotspot);
+	return sHUDElements[theHUDElementID].hotspotID;	
+}
+
+
 u16 keyBindArrayForHUDElement(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
+	DBG_ASSERT(
+		sHUDElements[theHUDElementID].type == eHUDType_KBArrayLast ||
+		sHUDElements[theHUDElementID].type == eHUDType_KBArrayDefault);
 	return sHUDElements[theHUDElementID].keyBindArrayID;
 }
 

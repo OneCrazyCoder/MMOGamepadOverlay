@@ -154,7 +154,7 @@ struct HUDElementInfo
 	u32 flashMaxTime;
 	u32 flashStartTime;
 	u16 appearanceID[eAppearanceMode_Num];
-	union { u16 subMenuID; u16 arrayID; };
+	union { u16 subMenuID; u16 kbArrayID; u16 hotspotID; };
 	u16 selection;
 	u16 flashing;
 	u16 prevFlashing;
@@ -2037,11 +2037,16 @@ void init()
 			hi.appearanceID[i] = getOrCreateAppearanceID(anAppearance);
 		}
 
-		if( hi.type == eHUDType_KBArrayLast ||
+		if(	hi.type == eHUDType_KBArrayLast ||
 			hi.type == eHUDType_KBArrayDefault )
 		{
-			hi.arrayID = InputMap::keyBindArrayForHUDElement(aHUDElementID);
-			DBG_ASSERT(hi.arrayID < InputMap::keyBindArrayCount());
+			hi.kbArrayID = InputMap::keyBindArrayForHUDElement(aHUDElementID);
+			DBG_ASSERT(hi.kbArrayID < InputMap::keyBindArrayCount());
+		}
+		else if( hi.type == eHUDType_Hotspot )
+		{
+			hi.hotspotID = InputMap::hotspotForHUDElement(aHUDElementID);
+			DBG_ASSERT(hi.hotspotID < InputMap::hotspotCount());
 		}
 
 		if( hi.type == eHUDItemType_RndRect ||
@@ -2193,19 +2198,19 @@ void update()
 		switch(hi.type)
 		{
 		case eHUDType_KBArrayLast:
-			if( gKeyBindArrayLastIndexChanged.test(hi.arrayID) )
+			if( gKeyBindArrayLastIndexChanged.test(hi.kbArrayID) )
 			{
 				gActiveHUD.set(i);
 				gReshapeHUD.set(i);
-				hi.selection = gKeyBindArrayLastIndex[hi.arrayID];
+				hi.selection = gKeyBindArrayLastIndex[hi.kbArrayID];
 			}
 			break;
 		case eHUDType_KBArrayDefault:
-			if( gKeyBindArrayDefaultIndexChanged.test(hi.arrayID) )
+			if( gKeyBindArrayDefaultIndexChanged.test(hi.kbArrayID) )
 			{
 				gActiveHUD.set(i);
 				gReshapeHUD.set(i);
-				hi.selection = gKeyBindArrayDefaultIndex[hi.arrayID];
+				hi.selection = gKeyBindArrayDefaultIndex[hi.kbArrayID];
 			}
 			break;
 		}
@@ -2422,7 +2427,8 @@ void drawElement(
 	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
 	case eMenuStlye_Ring:			/* TODO */					break;
 	case eMenuStyle_Radial:			/* TODO */					break;
-	case eHUDType_KBArrayLast:		drawBasicHUD(aDrawData);	break;
+	case eHUDType_Hotspot:
+	case eHUDType_KBArrayLast:
 	case eHUDType_KBArrayDefault:	drawBasicHUD(aDrawData);	break;
 	case eHUDType_System:			drawSystemHUD(aDrawData);	break;
 	default:
@@ -2538,10 +2544,19 @@ void updateWindowLayout(
 	// Apply special-case window position offsets
 	switch(hi.type)
 	{
+	case eHUDType_Hotspot:
+		{
+			const Hotspot& aHotspot = InputMap::getHotspot(hi.hotspotID);
+			aWinBasePosX += hotspotAnchorValue(aHotspot.x,theTargetSize.cx);
+			aWinBasePosY += hotspotAnchorValue(aHotspot.y,theTargetSize.cy);
+			aWinScalingPosX += aHotspot.x.scaled;
+			aWinScalingPosY += aHotspot.y.scaled;
+		}
+		break;
 	case eHUDType_KBArrayLast:
 	case eHUDType_KBArrayDefault:
 		if( const Hotspot* aHotspot =
-				InputMap::keyBindArrayHotspot(hi.arrayID, hi.selection) )
+				InputMap::keyBindArrayHotspot(hi.kbArrayID, hi.selection) )
 		{
 			aWinBasePosX += hotspotAnchorValue(aHotspot->x,theTargetSize.cx);
 			aWinBasePosY += hotspotAnchorValue(aHotspot->y,theTargetSize.cy);
