@@ -35,8 +35,8 @@ enum ECommandType
 	eCmdType_SlashCommand,
 	eCmdType_SayString,
 
-	// Used for InputDispatcher::moveMouseTo()
-	eCmdType_MoveMouseToHotspot,
+	// Valid for InputDispatcher::moveMouseTo()
+	eCmdType_MoveMouseToHotspot, 
 	eCmdType_MoveMouseToMenuItem,
 
 	// These active "keybind arrays" which allow a sequence of different keys
@@ -52,7 +52,8 @@ enum ECommandType
 	eCmdType_KeyBindArrayIndex, // Skip to pressing key at specified index
 	eCmdType_KeyBindArrayHoldIndex, // PressAndHold version of above
 
-	// These give controller access to basic app features
+	// These are just a mix of special-case one-off commands
+	eCmdType_StartAutoRun,
 	eCmdType_ChangeProfile,
 	eCmdType_UpdateUIScale,
 	eCmdType_QuitApp,
@@ -93,6 +94,7 @@ enum ECommandType
 	eCmdType_FirstValid = eCmdType_PressAndHoldKey,
 	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
 	eCmdType_LastMenuControl = eCmdType_MenuEditDir,
+	eCmdType_FirstContinuous = eCmdType_MoveTurn,
 };
 
 enum ECommandDir
@@ -234,6 +236,7 @@ enum EHUDType
 enum ESpecialKey
 {
 	eSpecialKey_SwapWindowMode,
+	eSpecialKey_AutoRun,
 	eSpecialKey_MoveF,
 	eSpecialKey_MoveB,
 	eSpecialKey_TurnL,

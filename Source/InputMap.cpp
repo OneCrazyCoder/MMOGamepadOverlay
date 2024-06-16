@@ -76,6 +76,7 @@ DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
 const char* kSpecialKeyNames[] =
 {
 	"SWAPWINDOWMODE",		// eSpecialKey_SwapWindowMode
+	"AUTORUN",				// eSpecialKey_AutoRun
 	"MOVEFORWARD",			// eSpecialKey_MoveF
 	"MOVEBACK",				// eSpecialKey_MoveB
 	"TURNLEFT",				// eSpecialKey_TurnL
@@ -1736,10 +1737,11 @@ static Command stringToCommand(
 	if( result.type == eCmdType_Empty )
 	{
 		std::string aKeyBindName = condense(theString);
-		if( allowHoldActions )
+		if( Command* aSpecialKeyCommand =
+				theBuilder.specialKeyNameToCommandMap.find(aKeyBindName) )
 		{
-			if( Command* aSpecialKeyCommand =
-					theBuilder.specialKeyNameToCommandMap.find(aKeyBindName) )
+			if( allowHoldActions ||
+				aSpecialKeyCommand->type < eCmdType_FirstContinuous )
 			{
 				result = *aSpecialKeyCommand;
 				return result;
@@ -2158,6 +2160,9 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 
 	// Generate special key to command map while here
 	Command aCmd;
+	aCmd.type = eCmdType_StartAutoRun;
+	theBuilder.specialKeyNameToCommandMap.setValue(
+		kSpecialKeyNames[eSpecialKey_AutoRun], aCmd);
 	aCmd.type = eCmdType_MoveTurn;
 	aCmd.dir = eCmdDir_Forward;
 	theBuilder.specialKeyNameToCommandMap.setValue(
