@@ -214,6 +214,7 @@ In this example it may not seem worth the effort, but it can be convenient when 
 A few Key Bind names are specifically checked for by the program and used directly as more than just aliases. These include:
 
     SwapWindowMode =
+    AutoRun =
     MoveForward =
     MoveBack =
     TurnLeft =
@@ -223,9 +224,9 @@ A few Key Bind names are specifically checked for by the program and used direct
 
 ``SwapWindowMode=`` is used in the code for attempting to force the target game into full-screen-windowed mode (as opposed to *true* full screen mode which would prevent the overlay from being visible), which can be set in the [System] section with the flag ``ForceFullScreenWindow = Yes`` (and optionally ``StartInFullScreenWindow = Yes``). It is typically set to ``=Alt+Enter``.
 
-The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` etc.
+The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` etc. AutoRun is used alongside these to fix issues like accidentally immediately cancelling auto-run when it is assigned to L3 due to small stick wiggles while release the stick.
 
-*Note that assigning a button to a Move command or one of the above Key Binds is different than just assigning it directly to the actual keyboard key the game uses for movement, besides just the ability to assign 4 directions at once. These commands make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=`` and ``MoveStraightBias=`` for finer control when assigned to an analog stick, plus specialized code for interactions between movement and other actions like chat box macros.*
+*Note that assigning a button to a Move command or one of the above Key Binds is different than just assigning it directly to the actual keyboard key the game uses for movement (besides just the ability to assign 4 directions at once). These commands make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=``, ``MoveStraightBias=``, and ``CancelAutoRunDeadzone=`` for finer control when assigned to an analog stick, plus specialized code for fixing issues with interactions between movement and other actions such as chat box macros. It is recommended you avoid directly assigning buttons to the movement keys or auto-run key and use the above commands/key binds instead.*
 
 ### Key Bind Arrays
 

@@ -35,6 +35,14 @@ MOUSEEVENTF_MOVEABSOLUTE =
 	MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
 };
 
+enum EAutoRunMode
+{
+	eAutoRunMode_Off,
+	eAutoRunMode_Queued,
+	eAutoRunMode_Forced,
+	eAutoRunMode_Active,
+};
+
 
 //-----------------------------------------------------------------------------
 // Local Structures
@@ -80,6 +88,7 @@ struct Config
 	u16 mouseReClickLockTime;
 	u16 minModKeyChangeTime;
 	u16 mouseJumpPauseTime;
+	u8 cancelAutoRunDeadzone;
 	u8 mouseDPadAccel;
 	bool useScanCodes;
 
@@ -112,7 +121,8 @@ struct Config
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
 		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
 		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
-		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 75), 0, 100) / 100.0;
+		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 50), 0, 100) / 100.0;
+		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad/CancelAutoRunDeadzone", 80) / 100.0 * 255.0, 0, 255);
 		mouseLookZoneFixTime = Profile::getInt("System/MouseLookZoneFix");
 		std::string aString = Profile::getStr("System/SafeAsyncKeys");
 		if( !aString.empty() )
@@ -245,6 +255,7 @@ struct DispatchTracker
 	VectorMap<u8, u32> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	BitArray<eSpecialKey_MoveNum> stickyMoveKeys;
+	EAutoRunMode autoRunMode;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
 	bool typingChatBoxString;
@@ -1912,7 +1923,7 @@ void jumpMouseWheel(ECommandDir theDir, u8 theCount)
 }
 
 
-void moveCharacter(int move, int turn, int strafe)
+void moveCharacter(int move, int turn, int strafe, bool autoRun)
 {
 	// Treat as 2 virtual analog sticks initially,
 	// one for MoveTurn and one for MoveStrafe
@@ -1981,6 +1992,51 @@ void moveCharacter(int move, int turn, int strafe)
 			aStrafeAngle < -M_PI * 0.5 + kYRange &&
 			aStrafeAngle > -M_PI * 0.5 - kYRange));
 
+	if( autoRun )
+	{
+		// Use forced mode when try starting it while holding 'back'
+		sTracker.autoRunMode =
+			moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove)
+				? eAutoRunMode_Forced : eAutoRunMode_Queued;
+	}
+
+	switch(sTracker.autoRunMode)
+	{
+	case eAutoRunMode_Queued:
+		// Wait until release forward to begin auto-run
+		autoRun = false;
+		if( !moveKeysWantDown.test(eSpecialKey_MoveF - eSpecialKey_FirstMove) )
+		{
+			autoRun = true;
+			sTracker.autoRunMode = eAutoRunMode_Active;
+		}
+		break;
+	case eAutoRunMode_Forced:
+		// Prevent back movement while forcing auto-run until
+		// release pressing back and then press it again
+		if( !moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove) )
+			sTracker.autoRunMode = eAutoRunMode_Active;
+		else
+			moveKeysWantDown.reset(eSpecialKey_MoveB - eSpecialKey_FirstMove);
+		break;
+	case eAutoRunMode_Active:
+		// Apply an extra deadzone to back/forward to prevent early cancel
+		if( abs(move) < kConfig.cancelAutoRunDeadzone )
+		{
+			moveKeysWantDown.reset(
+				eSpecialKey_MoveF - eSpecialKey_FirstMove);
+			moveKeysWantDown.reset(
+				eSpecialKey_MoveB - eSpecialKey_FirstMove);
+		}
+		// Cancel auto-run once press forward or back past extra deadzone
+		if( moveKeysWantDown.test(eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
+			moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove) )
+		{
+			sTracker.autoRunMode = eAutoRunMode_Off;
+		}
+		break;
+	}
+
 	// Release movement keys while typing so can re-press them when done
 	// (otherwise if continuously held down they might not cause actual
 	// movement if the same key was used during the chat box message).
@@ -2040,6 +2096,14 @@ void moveCharacter(int move, int turn, int strafe)
 			}
 			sTracker.moveKeysHeld.reset(aHeldKey);
 		}
+	}
+
+	if( autoRun )
+	{
+		aCmd.type = eCmdType_TapKey;
+		aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_AutoRun);
+		if( aCmd.vKey != 0 )
+			sendKeyCommand(aCmd);
 	}
 }
 

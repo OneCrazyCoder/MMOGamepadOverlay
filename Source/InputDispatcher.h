@@ -55,6 +55,6 @@ void jumpMouseWheel(ECommandDir theDir, u8 theCount);
 
 // Move character forward, back, left, right, and turning.
 // Amount specified for each movement type is -255 to 255 range.
-void moveCharacter(int move, int turn, int strafe);
+void moveCharacter(int move, int turn, int strafe, bool autoRun);
 
 } // InputDispatcher
