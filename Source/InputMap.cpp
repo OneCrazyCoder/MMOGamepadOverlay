@@ -407,6 +407,34 @@ static std::string namesToVKeySequence(
 			aVKeySeq.clear();
 			return aVKeySeq;
 		}
+		if( Command* aCommandAlias = theBuilder.commandAliases.find(aName) )
+		{
+			if( aCommandAlias->type < eCmdType_FirstValid )
+				continue;
+			if( aCommandAlias->type == eCmdType_TapKey )
+			{
+				const u16 aVKey = aCommandAlias->vKey;
+				if( aVKey & kVKeyShiftFlag ) aVKeySeq += VK_SHIFT;
+				if( aVKey & kVKeyCtrlFlag ) aVKeySeq += VK_CONTROL;
+				if( aVKey & kVKeyAltFlag ) aVKeySeq += VK_MENU;
+				if( aVKey & kVKeyWinFlag ) aVKeySeq += VK_LWIN;
+				if( aVKey & kVKeyMask ) aVKeySeq += u8(aVKey & kVKeyMask);
+				continue;
+			}
+			if( aCommandAlias->type == eCmdType_VKeySequence )
+			{
+				DBG_ASSERT(aCommandAlias->keyStringIdx < sKeyStrings.size());
+				aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
+				continue;
+			}
+			if( aCommandAlias->type == eCmdType_SayString ||
+				aCommandAlias->type == eCmdType_SlashCommand )
+			{
+				aVKeySeq += VK_EXECUTE;
+				aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
+				continue;
+			}
+		}
 		const u8 aVKey = keyNameToVirtualKey(aName);
 		if( aVKey == 0 )
 		{
@@ -1889,7 +1917,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 	for(size_t aHSA_ID = 0; aHSA_ID < sHotspotArrays.size(); ++aHSA_ID)
 	{
 		HotspotArray& aHotspotArray = sHotspotArrays[aHSA_ID];
-		mapDebugPrint("Building Hotspot Array %s\n", aHotspotArray.label);
+		mapDebugPrint("Building Hotspot Array %s\n", aHotspotArray.label.c_str());
 		Hotspot anAnchor;
 		u16* anAnchorIdx = theBuilder.hotspotNameToIdxMap.
 			find(aHotspotArray.label);
@@ -2054,14 +2082,27 @@ static void buildHotspotArraysForLayer(
 }
 
 
-static void buildCommandAliases(InputMapBuilder& theBuilder)
+static void buildCommandAliases(InputMapBuilder& theBuilder, int mode = 0)
 {
-	mapDebugPrint("Assigning KeyBinds...\n");
+	// Mode:
+	// 0 = initial pass
+	// 1 = try again for key sequences that might reference other aliases
+	// 2 = just give error for any that still don't parse correctly
+	if( mode == 0 )
+	{
+		mapDebugPrint("Assigning KeyBinds...\n");
 
-	DBG_ASSERT(theBuilder.keyValueList.empty());
-	Profile::getAllKeys(kKeybindsPrefix, theBuilder.keyValueList);
+		DBG_ASSERT(theBuilder.keyValueList.empty());
+		Profile::getAllKeys(kKeybindsPrefix, theBuilder.keyValueList);
+		theBuilder.elementsProcessed.clearAndResize(theBuilder.keyValueList.size());
+	}
+
+	bool newReferenceKeyBindAdded = false;
 	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
 	{
+		if( theBuilder.elementsProcessed.test(i) )
+			continue;
+
 		std::string anActionName = theBuilder.keyValueList[i].first;
 		std::string aCommandDescription = theBuilder.keyValueList[i].second;
 
@@ -2071,6 +2112,11 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 		{// Do nothing
 			aCmd.type = eCmdType_DoNothing;
 			aCommandDescription = "<Do Nothing>";
+		}
+		if( Command* aCommandAlias =
+				theBuilder.commandAliases.find(condense(aCommandDescription)) )
+		{// Alias to an alias
+			aCmd = *aCommandAlias;
 		}
 		else if( aCommandDescription[0] == '/' )
 		{// Slash command (types into chat box)
@@ -2092,7 +2138,8 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 				theBuilder, theBuilder.parsedString);
 			if( !aVKeySeq.empty() )
 			{
-				if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+				if( u16 aVKey = vKeySeqToSingleKey(
+						(const u8*)aVKeySeq.c_str()) )
 				{
 					aCmd.type = eCmdType_TapKey;
 					aCmd.vKey = aVKey;
@@ -2109,6 +2156,8 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 		if( aCmd.type != eCmdType_Empty )
 		{
 			theBuilder.commandAliases.setValue(anActionName, aCmd);
+			theBuilder.elementsProcessed.set(i);
+			newReferenceKeyBindAdded = true;
 
 			mapDebugPrint("Assigned to alias '%s': '%s'\n",
 				anActionName.c_str(),
@@ -2139,8 +2188,9 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 					aHotspotID ? " (+ hotspot)" : "");
 			}
 		}
-		else
+		else if( mode >= 2 )
 		{
+			theBuilder.elementsProcessed.set(i);
 			logError(
 				"%s%s: Unable to decipher and assign '%s'",
 				kKeybindsPrefix,
@@ -2148,6 +2198,16 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 				aCommandDescription.c_str());
 		}
 	}
+
+	if( !theBuilder.elementsProcessed.all() )
+	{
+		if( newReferenceKeyBindAdded )
+			buildCommandAliases(theBuilder, 1);
+		else
+			buildCommandAliases(theBuilder, 2);
+		return;
+	}
+
 	theBuilder.keyValueList.clear();
 
 	// Can now also set size of global vectors related to Key Bind Arrays
