@@ -187,27 +187,47 @@ Slash Commands start with ``/`` and Say Strings (chat messages) start with ``>``
     Hold R2 = /g Roll for loot please!
     Hold L1 = >Would you like to group?
 
-This will lock out most other inputs while typing though, so in general it is better to instead create macros using the in-game interface and activate them via key sequences, such as the earlier example of triggering hotbar buttons.
+This will lock out most other inputs while typing though, so in general it is better to instead create macros using the in-game interface and activate them via key sequences, such as the earlier example for activating hotbar buttons.
 
 ## Key Binds (aliases)
 
-Key Binds are basically just aliases or shortcuts for sent input. Using Key Binds, instead of saying:
+Key Binds are basically just aliases or shortcuts for any of the above commands. Using Key Binds, instead of using:
 
     [Scheme]
     XB_A = Space
-    R2 = LClick at CenterScreen->RClick
+    Hold R1 = /who
+    Hold R2 = /g Roll for loot please!
+    XB_X = LClick at CenterScreen->RClick
 
-You would instead say:
+You would instead use:
 
     [KeyBinds]
     Jump = Space
+    Who = /who
+    RollForLootPls = /g Roll for loot please!
     UseCenterScreen = LClick at CenterScreen->RClick
 
     [Scheme]
     XB_A = Jump
-    R2 = UseCenterScreen
+    Hold R1 = Who
+    Hold R2 = RollForLootPls
+    XB_X = UseCenterScreen
 
-In this example it may not seem worth the effort, but it can be convenient when using the same input in multiple places, or for just making your [Scheme] easier to read.
+Key binds can also be used within key sequences, including in other key bind assignments (as long as they don't reference each other in an infinite loop). For instance, instead of the earlier example of the key sequence assignment ``R1 = F8, pause 100, C`` you could use:
+
+    R1 = TargetCycleNPC, pause 100, Consider
+
+or even:
+
+    [KeyBinds]
+    TargetNPC = TargetCycleNPC, pause 100, Consider
+
+    [Scheme]
+    R1 = TargetNPC
+
+*TIP: Using multiple key binds in a sequence is the only way to have multiple chat box strings within a single command - otherwise any '/' or '>' characters after the first are just considered part of the same single string rather than a separate Slash Command or Say String.*
+
+These examples may not seem worth the effort just for added readability, but there are multiple other uses for key binds over just directly assigning things to keyboard keys. If nothing else, it can be convenient when using the same input in multiple places to only have to change the one Key Bind if you change your in-game bindings.
 
 ### Special Key Binds
 
@@ -226,7 +246,7 @@ A few Key Bind names are specifically checked for by the program and used direct
 
 The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` etc. AutoRun is used alongside these to fix issues like accidentally immediately cancelling auto-run when it is assigned to L3 due to small stick wiggles while release the stick.
 
-*Note that assigning a button to a Move command or one of the above Key Binds is different than just assigning it directly to the actual keyboard key the game uses for movement (besides just the ability to assign 4 directions at once). These commands make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=``, ``MoveStraightBias=``, and ``CancelAutoRunDeadzone=`` for finer control when assigned to an analog stick, plus specialized code for fixing issues with interactions between movement and other actions such as chat box macros. It is recommended you avoid directly assigning buttons to the movement keys or auto-run key and use the above commands/key binds instead.*
+*Note that assigning a button to a Move command or one of the above key binds is different than just assigning it directly to the actual keyboard key the game uses for movement (besides just the ability to assign 4 directions at once). These commands make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=``, ``MoveStraightBias=``, and ``CancelAutoRunDeadzone=`` for finer control when assigned to an analog stick, plus specialized code for fixing issues with interactions between movement and other actions such as chat box macros. It is recommended you avoid directly assigning buttons to the movement keys or auto-run key and use the above commands/key binds instead.*
 
 ### Key Bind Arrays
 

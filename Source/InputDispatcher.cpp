@@ -246,6 +246,7 @@ struct DispatchTracker
 	DispatchQueue queue;
 	std::vector<Input> inputs;
 	size_t currTaskProgress;
+	size_t embeddedChatBoxStringPos;
 	int queuePauseTime;
 	u32 nonModKeyPressAllowedTime;
 	u32 modKeyChangeAllowedTime;
@@ -297,13 +298,90 @@ static DispatchTracker sTracker;
 // Local Functions
 //-----------------------------------------------------------------------------
 
+static EResult popNextStringChar(const char* theString)
+{
+	// Strings should start with '/' or '>'
+	DBG_ASSERT(theString && (theString[0] == '/' || theString[0] == '>'));
+	DBG_ASSERT(sTracker.currTaskProgress <= strlen(theString));
+
+	if( theString[sTracker.currTaskProgress] == '\0' )
+		return eResult_TaskCompleted;
+
+	const size_t idx = sTracker.currTaskProgress++;
+	// Convert initial '>' into carriage return for say strings
+	const char c = (idx == 0 && theString[0] == '>') ? '\r' : theString[idx];
+
+	// Skip non-printable or non-ASCII characters (besides enter at end)
+	if( idx > 0 && c != '\r' && (c < ' ' || c > '~') )
+		return popNextStringChar(theString);
+
+	// Queue the key + modifiers (shift key)
+	sTracker.nextQueuedKey = VkKeyScan(c);
+
+	if( idx == 0 ) // the initial key to switch to chat bar (/ or Enter)
+	{
+		// Add a pause to make sure game-side async key checking switches to
+		// direct text input in chat box before 'typing' at full speed
+		sTracker.queuePauseTime =
+			max(sTracker.queuePauseTime,
+				kConfig.chatBoxPostFirstKeyDelay);
+		// Flag any movement keys now held down as possibly being "sticky"
+		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
+	}
+	else
+	{
+		// Allow releasing shift quickly to continue typing characters
+		// when are using chatbox (shouldn't have the same need for a delay
+		// as a key sequence since target game likely uses keyboard events
+		// instead of direct keyboard polling for chat box typing).
+		// This is also checked for "sticky movement keys" while typing.
+		sTracker.typingChatBoxString = true;
+	}
+
+	if( theString[idx] == '\r' )
+	{
+		// Add delay after press enter before calling this task complete and
+		// allowing other key presses. This prevents the chat box interface
+		// from "absorbing" gameplay-related key presses, which can happen in
+		// some games for a time after the carriage return but before the chat
+		// box closes out completely.
+		sTracker.queuePauseTime =
+			max(sTracker.queuePauseTime,
+				kConfig.chatBoxPostEnterDelay);
+	}
+
+	return eResult_Incomplete;
+}
+
+
 static EResult popNextKey(const u8* theVKeySequence)
 {
 	DBG_ASSERT(sTracker.nextQueuedKey == 0);
+	if( sTracker.embeddedChatBoxStringPos )
+	{
+		DBG_ASSERT(theVKeySequence[sTracker.currTaskProgress] != '\0');
+		const bool reachedEmbeddedStringEnd =
+			theVKeySequence[sTracker.currTaskProgress] == '\r';
+		sTracker.currTaskProgress -= sTracker.embeddedChatBoxStringPos;
+		popNextStringChar((const char*)
+			&theVKeySequence[sTracker.embeddedChatBoxStringPos]);
+		sTracker.currTaskProgress += sTracker.embeddedChatBoxStringPos;
+		if( reachedEmbeddedStringEnd )
+			sTracker.embeddedChatBoxStringPos = 0;
+		return eResult_Incomplete;
+	}
+
 	while( theVKeySequence[sTracker.currTaskProgress] != '\0' )
 	{
 		const size_t idx = sTracker.currTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];
+
+		if( aVKey == VK_EXECUTE )
+		{
+			// Flag to execute an embedded chat box string
+			sTracker.embeddedChatBoxStringPos = sTracker.currTaskProgress;
+			return eResult_Incomplete;
+		}
 
 		if( aVKey == VK_PAUSE )
 		{
@@ -393,62 +471,6 @@ static EResult popNextKey(const u8* theVKeySequence)
 		if( sTracker.nextQueuedKey && !(sTracker.nextQueuedKey & kVKeyMask) )
 			sTracker.nextQueuedKey = 0;
 		return eResult_TaskCompleted;
-	}
-
-	return eResult_Incomplete;
-}
-
-
-static EResult popNextStringChar(const char* theString)
-{
-	// Strings should start with '/' or '>'
-	DBG_ASSERT(theString && (theString[0] == '/' || theString[0] == '>'));
-	DBG_ASSERT(sTracker.currTaskProgress <= strlen(theString));
-
-	if( theString[sTracker.currTaskProgress] == '\0' )
-		return eResult_TaskCompleted;
-
-	const size_t idx = sTracker.currTaskProgress++;
-	// Convert initial '>' into carriage return for say strings
-	const char c = (idx == 0 && theString[0] == '>') ? '\r' : theString[idx];
-
-	// Skip non-printable or non-ASCII characters (besides enter at end)
-	if( idx > 0 && c != '\r' && (c < ' ' || c > '~') )
-		return popNextStringChar(theString);
-
-	// Queue the key + modifiers (shift key)
-	sTracker.nextQueuedKey = VkKeyScan(c);
-
-	if( idx == 0 ) // the initial key to switch to chat bar (/ or Enter)
-	{
-		// Add a pause to make sure game-side async key checking switches to
-		// direct text input in chat box before 'typing' at full speed
-		sTracker.queuePauseTime =
-			max(sTracker.queuePauseTime,
-				kConfig.chatBoxPostFirstKeyDelay);
-		// Flag any movement keys now held down as possibly being "sticky"
-		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
-	}
-	else
-	{
-		// Allow releasing shift quickly to continue typing characters
-		// when are using chatbox (shouldn't have the same need for a delay
-		// as a key sequence since target game likely uses keyboard events
-		// instead of direct keyboard polling for chat box typing).
-		// This is also checked for "sticky movement keys" while typing.
-		sTracker.typingChatBoxString = true;
-	}
-
-	if( theString[idx] == '\r' )
-	{
-		// Add delay after press enter before calling this task complete and
-		// allowing other key presses. This prevents the chat box interface
-		// from "absorbing" gameplay-related key presses, which can happen in
-		// some games for a time after the carriage return but before the chat
-		// box closes out completely.
-		sTracker.queuePauseTime =
-			max(sTracker.queuePauseTime,
-				kConfig.chatBoxPostEnterDelay);
 	}
 
 	return eResult_Incomplete;
@@ -1366,6 +1388,7 @@ void update()
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
 			sTracker.typingChatBoxString = false;
+			sTracker.embeddedChatBoxStringPos = false;
 			if( sTracker.queue.empty() )
 				sTracker.mouseJumpQueued = false;
 		}
