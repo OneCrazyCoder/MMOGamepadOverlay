@@ -120,17 +120,12 @@ Other "button actions" can be specified instead, and each button can have multip
     Tap R2 = C
     Release R2 = D
     Hold R2 400 = E
-    With R2 = F
 
-This example demonstrates the maximum number of commands that could be assigned to a single button. The *With*, *Press*, and base button name actions all trigger when the button is first pressed, in that order. This means could have 3 keys pressed when first press the button, but *With* and the base button name (aka *press and hold*) have special properties.
-
-In the above example, when R2 is first pressed the 'F', 'B', and 'A' keyboard keys would be sent to the game in that order ('A' would be held down but 'B' and 'F' would just be tapped and immediately released). If R2 was quickly released, a single tap of the 'C' key would be sent. If R2 was held for at least 400 milliseconds, an 'E' tap would be sent once. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of 'D' would be sent to the game, as well as finally releasing 'A'.
+This example demonstrates the maximum number of commands that could be assigned to a single button. When R2 is first pressed the 'B', and 'A' keyboard keys would be sent to the game in that order ('A' would be held down but 'B' would just be tapped and immediately released). If R2 was quickly released, a single tap of the 'C' key would be sent. If R2 was held for at least 400 milliseconds, an 'E' tap would be sent once. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of 'D' would be sent to the game, as well as finally releasing 'A'.
 
 You can only have one "Hold" action assigned per button, but how long it must be held to trigger can be optionally set by adding a number at the end of the property name. If no number is added, the value ``[System]/ButtonHoldTime`` will be used.
 
 Notice how only the base ``R2=`` property can actually hold a key down for more than a split second. That is the special property of this base 'press and hold' button action. All other button actions can only "tap" a key (press and then immediately release it). Many special commands can't be "held" anyway, so assigning one of these to just ``R2=`` will make it act the same as assigning it to ``Press R2=``, and some are can *only* be assigned to the base button action because they relate to "holding" for a duration.
-
-``With R2`` is mostly the same as ``Press R2`` and both can be assigned something, but "with" has special properties related to **Controls Layers** that will be covered later, so prefer *press* if don't need those special properties.
 
 ## Commands
 
@@ -500,17 +495,29 @@ To demonstrate how these rules shake out, here's a potential layer order from to
     LayerB
     [Scheme]
 
-### "With" button action
+### "When Signal" commands
 
-Now that layers and the importance of their order is covered, it is time for the exception to the rule - the "With" button action, as in something like ``With R2 = Remove this layer``.
+Now that layers and the importance of their order is covered, it is time for the exception to the rule - Signal Commands. These commands run whenever a "signal" is sent out, and **ignore layer order.** The layer containing the command must still be actively added to the stack though, of course.
 
-"With" mostly acts the same as Press in that it triggers a single action (can't be held) the moment the button is first pressed down. The difference is that:
+To add a Signal Command to a layer (or the root [Scheme]), use the syntax ``When Signal = Command``. Most commands can be used, though not ones that must be held like "Hold Layer".
 
-1) "With" button action execute **even when higher layers have other actions assigned for the same button.**
+There are two types of signals that are sent out for these commands to use - initially pressing a Gamepad button, or using a Key Bind by name (including as part of a Key Sequence) - yet another useful aspect of using Key Binds instead of referencing keys directly.
 
-2) "With" button actions being assigned **do *not* block lower layers' assignments to other actions for the same button.**
+To run a command when a button is pressed, even when another, higher layer has something assigned to that button, use the syntax ``When Press ButtonName = Command``. Example: ``When press L2 = Remove this layer``.
 
-Essentially, it breaks the rules of how layering works for button assignments. The primary use case for this action is for the example given above - having a layer remove itself when a button is pressed, without interfering with (or being interfered with by) whatever other layers are assigned to do with that button.
+To run a command when a Key Bind is used, use the syntax ``When KeyBindName = Command``. Examples: ``When Sit = Remove this layer`` or ``When MoveForward = Remove this layer``.
+
+As should be obvious from the examples, the main use case for this feature is a layer removing itself when certain other game actions are used or buttons are pressed, without having to be the front-most layer with a button assignment that removes itself and performs an action with the same button. This can save on having to make a bunch of utility layers with lots of Press Auto and Auto commands to handle this.
+
+Some other things to note:
+
+* Signal Commands are lower priority than other command assignments and may slightly delayed depending on how many other actions may take priority. They should not be depended on when order of execution is important.
+
+* You can actually make a Key Bind that does nothing other than act as a signal for other commands by setting it to be ``=Signal Only`` (or just leaving it blank).
+
+* A key bind only sends out a signal when it is referenced by its name, not by anything it is assigned to. For example, if you have the key bind "Jump = Space", any command assigned to  "When Jump=" will run when you press a button assigned to "= Jump", but will NOT run when you press a button assigned directly to "= Space"!
+
+* The app will not check and warn you if you set up an infinite loop of Key Binds signalling each other. For example, if you added both "When Camp = Sit" and "When Sit = Camp", then using either Sit or Camp could lead to an infinite loop alternating between sitting and camping (at least until a layer owning one of those commands is removed). So watch out for that!
 
 ## Menus
 
@@ -807,26 +814,8 @@ In addition, to save on typing you can specify multiple hotspot/icon offsets in 
 
 *Note that the + signs in front of each number for the offsets don't do anything, I just put them there to help remind me that these are offsets rather than direct positions.*
 
-### Analog deadzones and thresholds
-
-For basic commands and key presses, analog sticks and triggers are treated as digital buttons via a "threshold" value, which is how much the stick/trigger must be pressed to count as a button press. The defaults for these can be set via:
-
-    [Gamepad]
-    # Values are from 0 to 100, with 100% being a full press
-    LStickButtonThreshold = 40
-    RStickButtonThreshold = 40
-    TriggerButtonThreshold = 12
-
-These defaults can be overridden for specific commands by specifying the button name and the key word "threshold" in a layer's properties, like so:
-
-    [Layer.MyLayer]
-    L2 = Jump
-    L2 Threshold = 80
-
-Some actions directly support analog control, such as mouse movement. For these actions, the above properties are ignored and instead a circular deadzone and saturation point are applied. The deadzone is a value below which input is ignored, and saturation is a value above which the stick is considered 100% pressed in that direction. These are set per action type, including ones for cursor motion, camera (mouse look) motion, mouse wheel, and character movement. The generated *MMOGO_Core.ini* includes defaults for these, under the [Gamepad] section.
-
 ### System features
 
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD elements can actually show up over top of the game.
 
-There are various other system options you can set like how long a "tap" vs a "short hold" is, mouse cursor/wheel speed, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, since Discord refuses to recognize old EQ clients as one, which is nice if you want to let people know you are playing EQ). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.
+There are various other system options you can set like how long a "tap" vs a "short hold" is, mouse cursor/wheel speed, gamepad deadzones and thresholds, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, which is nice if you want to let people know you are playing EQ since Discord doesn't recognize old EQ clients for some reason). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.

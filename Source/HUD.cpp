@@ -6,7 +6,6 @@
 
 #include "HotspotMap.h"
 #include "InputMap.h"
-#include "Lookup.h"
 #include "Menus.h" // activeSubMenu(), itemCount()
 #include "Profile.h"
 

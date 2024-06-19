@@ -80,7 +80,7 @@ void setImpulseTriggersEnabled(bool);
 // Sets the amount (0 to 255) that associated button must be pushed in order
 // to register as a digital EButton press. Means nothing for non-axis buttons,
 // and does NOT affect axisVal() or buttonAnalogVal()!
-void setPressThreshold(EButton theButton, u8 theDeadzone);
+void setPressThreshold(EButton theButton, u8 theThreshold);
 
 // Forces button to be considered released until next time it is pushed,
 // even if it is currently actually down. Doesn't affect axisVal() though.

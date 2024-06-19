@@ -22,6 +22,7 @@ void loadProfile();
 // KEYBINDS
 u16 keyForSpecialAction(ESpecialKey theAction);
 const Command& keyBindArrayCommand(u16 theArrayID, u16 theIndex);
+u16 keyBindArraySignalID(u16 theArrayID);
 // Adjust index by theOffset but skipping over any _Empty commands
 // Offset of 0 may still adjust by +1 or more if array[theIndex] is _Empty
 u16 offsetKeyBindArrayIndex(
@@ -34,11 +35,11 @@ u16 offsetKeyBindArrayIndex(
 // if no commands have been assigned to given layer & button at all
 const Command* commandsForButton(u16 theLayerID, EButton theButton);
 
-// Returns how long given button needs to be held to trigger eBtnAct_Hold
-u16 commandHoldTime(u16 theLayerID, EButton theButton);
+// Get commands to execute in response to bits set in gFiredSignals
+const VectorMap<u16, Command>& signalCommandsForLayer(u16 theLayerID);
 
-// Returns analog threshold for digital commands for layer+button, or null
-const u8* commandThreshold(u16 theLayerID, EButton theButton);
+// Returns how long given button needs to be held to trigger eBtnAct_Hold
+u32 commandHoldTime(u16 theLayerID, EButton theButton);
 
 // Gets parent layer for given layer ID
 u16 parentLayer(u16 theLayerID);

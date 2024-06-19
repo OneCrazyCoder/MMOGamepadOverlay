@@ -6,7 +6,6 @@
 
 #include "Dialogs.h" // editMenuCommand()
 #include "HotspotMap.h"
-#include "Lookup.h"
 #include "InputMap.h"
 #include "Profile.h"
 

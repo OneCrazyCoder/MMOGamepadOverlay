@@ -11,6 +11,7 @@
 
 enum {
 kSwapWindowModeHotkeyID = 0x01,
+kVKeyFireSignal = 0x07, // "reserved" by MS
 kVKeyModKeyOnlyBase = 0x0F, // unassigned by MS
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,
@@ -26,14 +27,14 @@ enum ECommandType
 	eCmdType_Empty, // Does nothing but also means 'not set to anything'
 	eCmdType_DoNothing, // _Empty but overrides lower Layers' assignments
 	eCmdType_Unassigned, // _Empty but overrides Include= Layer's assignment
+	eCmdType_SignalOnly, // _DoNothing but fires .signalID signal
 
 	// First group are valid for InputDispatcher::sendKeyCommand()
 	eCmdType_PressAndHoldKey,
 	eCmdType_ReleaseKey,
 	eCmdType_TapKey,
 	eCmdType_VKeySequence,
-	eCmdType_SlashCommand,
-	eCmdType_SayString,
+	eCmdType_ChatBoxString,
 
 	// Valid for InputDispatcher::moveMouseTo()
 	eCmdType_MoveMouseToHotspot, 
@@ -91,7 +92,7 @@ enum ECommandType
 
 	eCmdType_Num,
 
-	eCmdType_FirstValid = eCmdType_PressAndHoldKey,
+	eCmdType_FirstValid = eCmdType_SignalOnly,
 	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
 	eCmdType_LastMenuControl = eCmdType_MenuEditDir,
 	eCmdType_FirstContinuous = eCmdType_MoveTurn,
@@ -134,8 +135,6 @@ enum EButtonAction
 	eBtnAct_Hold,		// Held a short time (action tapped once)
 	eBtnAct_Tap,		// Released before _S/LHold triggers (action tapped once)
 	eBtnAct_Release,	// Released (any hold time, action tapped once)
-
-	eBtnAct_With,		// MUST BE LAST! Same as _Press but ignores layer order
 
 	eBtnAct_Num
 };
@@ -377,6 +376,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 				u16 menuID;
 				u16 keybindArrayID;
 				u16 mouseWheelMotionType;
+				u16 signalID;
 			};
 			u8 count;
 			bool wrap;

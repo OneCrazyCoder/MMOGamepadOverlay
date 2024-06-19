@@ -12,9 +12,8 @@
 namespace TargetApp
 {
 
-// Whether or not debug messages print depends on which line is commented out
-//#define targetDebugPrint(...) debugPrint("TargetApp: " __VA_ARGS__)
-#define targetDebugPrint(...) ((void)0)
+// Uncomment this to print status of target app/window tracking to debug window
+//#define TARGET_APP_DEBUG_PRINT
 
 //-----------------------------------------------------------------------------
 // Const Data
@@ -105,6 +104,12 @@ static bool sRestoreTargetWindow = false;
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
+
+#ifdef TARGET_APP_DEBUG_PRINT
+#define targetDebugPrint(...) debugPrint("TargetApp: " __VA_ARGS__)
+#else
+#define targetDebugPrint(...) ((void)0)
+#endif
 
 static void dropTargetWindow()
 {
@@ -411,6 +416,7 @@ static void checkWindowMode()
 		Command aCmd;
 		aCmd.type = eCmdType_TapKey;
 		aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
+		aCmd.signalID = eBtn_Num + eSpecialKey_SwapWindowMode;
 		InputDispatcher::sendKeyCommand(aCmd);
 		// Give some time for the target app to respond to the request
 		sNextCheckDelay = 1000;
@@ -755,6 +761,7 @@ bool targetWindowIsFullScreen()
 		abs(aWRectHeight - aMonRectHeight) <= anEpsilon;
 }
 
+#undef TARGET_APP_DEBUG_PRINT
 #undef targetDebugPrint
 
 } // TargetApp

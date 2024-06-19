@@ -3,7 +3,6 @@
 //-----------------------------------------------------------------------------
 
 #include "Common.h"
-#include "Lookup.h"
 
 //-----------------------------------------------------------------------------
 // Data Tables
@@ -457,9 +456,13 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		{
 			struct { const char* str; ECommandKeyWord val; } kEntries[] = {
 				{ "NOTHING",		eCmdWord_Nothing	},
+				{ "DONOTHING",		eCmdWord_Nothing	},
 				{ "BLANK",			eCmdWord_Nothing	},
 				{ "EMPTY",			eCmdWord_Nothing	},
 				{ "RESERVED",		eCmdWord_Nothing	},
+				{ "SIGNAL",			eCmdWord_Nothing	},
+				{ "SIGNALONLY",		eCmdWord_Nothing	},
+				{ "ONLYSIGNAL",		eCmdWord_Nothing	},
 				{ "UNUSED",			eCmdWord_Unassigned	},
 				{ "UNASSIGNED",		eCmdWord_Unassigned	},
 				{ "TBD",			eCmdWord_Unassigned	},
