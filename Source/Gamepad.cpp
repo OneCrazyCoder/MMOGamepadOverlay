@@ -11,9 +11,9 @@
 namespace Gamepad
 {
 
-// Whether or not debug messages print depends on which line is commented out
-//#define gamepadDebugPrint(...) debugPrint("Gamepad: " __VA_ARGS__)
-#define gamepadDebugPrint(...) ((void)0)
+
+// Uncomment this to print details about detecting gamepads to debug window
+//#define GAMEPAD_DEBUG_PRINT
 
 //-----------------------------------------------------------------------------
 // Const Data
@@ -133,6 +133,12 @@ static bool sNotifyWhenSelectGamepad = false;
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
+
+#ifdef GAMEPAD_DEBUG_PRINT
+#define gamepadDebugPrint(...) debugPrint("Gamepad: " __VA_ARGS__)
+#else
+#define gamepadDebugPrint(...) ((void)0)
+#endif
 
 // Forward declares
 static EResult activateGamepad(int);
@@ -968,7 +974,7 @@ void update()
 
 	if( sGamepadData.disconnectDetected )
 	{// Controller we were polling got disconnected - restart everything!
-		logNotice("WARNING: Gamepad was disconnected, or its battery died!");
+		logNotice("WARNING: Lost connection to Gamepad!");
 		gamepadDebugPrint("Restarting DInput after controller disconnect!\n");
 		sNotifyWhenSelectGamepad = true;
 		cleanup();
@@ -1116,11 +1122,11 @@ void setVibration(u16 theLowMotor, u16 theHighMotor)
 }
 
 
-void setPressThreshold(EButton theButton, u8 theDeadzone)
+void setPressThreshold(EButton theButton, u8 theThreshold)
 {
 	DBG_ASSERT(sGamepadData.initialized);
 	if( const EAxis anAxis = axisForButton(theButton) )
-		sGamepadData.pressThreshold[anAxis] = theDeadzone;
+		sGamepadData.pressThreshold[anAxis] = theThreshold;
 }
 
 
@@ -1482,6 +1488,7 @@ EVendorID vendorID(int theGamepadID)
 	return eVendorID_Unknown;
 }
 
+#undef GAMEPAD_DEBUG_PRINT
 #undef gamepadDebugPrint
 
 } // Gamepad

@@ -15,9 +15,8 @@
 namespace InputTranslator
 {
 
-// Whether or not debug messages print depends on which line is commented out
-//#define transDebugPrint(...) debugPrint("InputTranslator: " __VA_ARGS__)
-#define transDebugPrint(...) ((void)0)
+// Uncomment this to print layer order changes and such to debug window
+//#define INPUT_TRANSLATOR_DEBUG_PRINT
 
 //-----------------------------------------------------------------------------
 // Const Data
@@ -34,37 +33,34 @@ kMaxLayerChangesPerUpdate = 32,
 
 struct Config
 {
-	u16 tapHoldTime;
-	u16 autoRepeatDelay;
-	u16 autoRepeatRate;
-	u8 defaultThreshold[eBtn_Num];
+	u32 tapHoldTime;
+	u32 autoRepeatDelay;
+	u32 autoRepeatRate;
 
 	void load()
 	{
 		tapHoldTime = Profile::getInt("System/ButtonTapTime", 500);
 		autoRepeatDelay = Profile::getInt("System/AutoRepeatDelay", 400);
 		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
-		for(size_t i = 0; i < eBtn_Num; ++i)
-			defaultThreshold[i] = 0;
 		u8 aThreshold =
 			clamp(Profile::getInt("Gamepad/LStickButtonThreshold", 40),
 				0, 100) * 255 / 100;
-		defaultThreshold[eBtn_LSLeft] = aThreshold;
-		defaultThreshold[eBtn_LSRight] = aThreshold;
-		defaultThreshold[eBtn_LSUp] = aThreshold;
-		defaultThreshold[eBtn_LSDown] = aThreshold;
+		Gamepad::setPressThreshold(eBtn_LSLeft, aThreshold);
+		Gamepad::setPressThreshold(eBtn_LSRight, aThreshold);
+		Gamepad::setPressThreshold(eBtn_LSUp, aThreshold);
+		Gamepad::setPressThreshold(eBtn_LSDown, aThreshold);
 		aThreshold =
 			clamp(Profile::getInt("Gamepad/RStickButtonThreshold", 40),
 				0, 100) * 255 / 100;
-		defaultThreshold[eBtn_RSLeft] = aThreshold;
-		defaultThreshold[eBtn_RSRight] = aThreshold;
-		defaultThreshold[eBtn_RSUp] = aThreshold;
-		defaultThreshold[eBtn_RSDown] = aThreshold;
+		Gamepad::setPressThreshold(eBtn_RSLeft, aThreshold);
+		Gamepad::setPressThreshold(eBtn_RSRight, aThreshold);
+		Gamepad::setPressThreshold(eBtn_RSUp, aThreshold);
+		Gamepad::setPressThreshold(eBtn_RSDown, aThreshold);
 		aThreshold =
 			clamp(Profile::getInt("Gamepad/TriggerButtonThreshold", 12),
 				0, 100) * 255 / 100;
-		defaultThreshold[eBtn_L2] = aThreshold;
-		defaultThreshold[eBtn_R2] = aThreshold;
+		Gamepad::setPressThreshold(eBtn_L2, aThreshold);
+		Gamepad::setPressThreshold(eBtn_R2, aThreshold);
 	}
 };
 
@@ -73,25 +69,18 @@ struct Config
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct WithActionCommand
-{
-	const Command* cmd;
-	u16 layerID;
-};
-
 struct ButtonState
 {
 	const Command* commands;
 	const Command* commandsWhenPressed;
-	std::vector<WithActionCommand> withCommands;
+	u32 heldTime;
+	u32 holdTimeForAction;
 	u16 commandsLayer;
 	u16 layerWhenPressed;
 	u16 layerHeld;
-	u16 heldTime;
-	u16 holdTimeForAction;
 	s16 repeatDelay;
 	u16 vKeyHeld;
-	bool isAutoButton;
+	u16 buttonID;
 	bool heldDown;
 	bool holdActionDone;
 	bool usedInButtonCombo;
@@ -103,14 +92,13 @@ struct ButtonState
 		DBG_ASSERT(layerHeld == 0);
 		commands = null;
 		commandsWhenPressed = null;
-		withCommands.clear();
 		commandsLayer = 0;
 		layerWhenPressed = 0;
 		layerHeld = 0;
 		heldTime = 0;
 		holdTimeForAction = 0;
 		repeatDelay = 0;
-		isAutoButton = false;
+		buttonID = eBtn_None;
 		heldDown = false;
 		holdActionDone = false;
 		usedInButtonCombo = false;
@@ -147,7 +135,7 @@ struct LayerState
 	void clear()
 	{
 		autoButton.clear();
-		autoButton.isAutoButton = true;
+		autoButton.buttonID = eBtn_None;
 		parentLayerID = 0;
 		altParentLayerID = 0;
 		active = false;
@@ -166,7 +154,10 @@ struct TranslatorState
 	void clear()
 	{
 		for(size_t i = 0; i < ARRAYSIZE(gamepadButtons); ++i)
+		{
 			gamepadButtons[i].clear();
+			gamepadButtons[i].buttonID = u16(i);
+		}
 		for(size_t i = 0; i < layers.size(); ++i)
 			layers[i].autoButton.clear();
 		layers.clear();
@@ -177,6 +168,7 @@ struct TranslatorState
 struct InputResults
 {
 	std::vector<Command> keys;
+	std::vector<Command> sequences;
 	std::vector<Command> strings;
 	BitVector<> menuAutoCommandRun;
 	s16 charMove;
@@ -194,6 +186,7 @@ struct InputResults
 	void clear()
 	{
 		keys.clear();
+		sequences.clear();
 		strings.clear();
 		menuAutoCommandRun.clearAndResize(InputMap::menuCount());
 		charMove = 0;
@@ -224,6 +217,12 @@ static InputResults sResults;
 // Local Functions
 //-----------------------------------------------------------------------------
 
+#ifdef INPUT_TRANSLATOR_DEBUG_PRINT
+#define transDebugPrint(...) debugPrint("InputTranslator: " __VA_ARGS__)
+#else
+#define transDebugPrint(...) ((void)0)
+#endif
+
 static void loadLayerData()
 {
 	DBG_ASSERT(sState.layers.empty());
@@ -233,21 +232,11 @@ static void loadLayerData()
 	for(u16 i = 0; i < sState.layers.size(); ++i)
 	{
 		sState.layers[i].clear();
-		ButtonState& anAutoButton = sState.layers[i].autoButton;
-		anAutoButton.commandsLayer = i;
-		anAutoButton.commands = InputMap::commandsForButton(i, eBtn_None);
-		if( !anAutoButton.commands )
-			continue;
-		anAutoButton.holdTimeForAction =
+		sState.layers[i].autoButton.commandsLayer = i;
+		sState.layers[i].autoButton.commands =
+			InputMap::commandsForButton(i, eBtn_None);
+		sState.layers[i].autoButton.holdTimeForAction =
 			InputMap::commandHoldTime(i, eBtn_None);
-		if( anAutoButton.commands[eBtnAct_With].type >= eCmdType_FirstValid )
-		{
-			WithActionCommand aWithActCmd;
-			aWithActCmd.cmd = &anAutoButton.commands[eBtnAct_With];
-			aWithActCmd.layerID = i;
-			anAutoButton.withCommands.reserve(1);
-			anAutoButton.withCommands.push_back(aWithActCmd);
-		}
 	}
 }
 
@@ -257,62 +246,38 @@ static void	loadButtonCommandsForCurrentLayers()
 	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
-		u8 analogToDigitalThreshold = kConfig.defaultThreshold[aBtnIdx];
-		const bool isAnalog =
-			Gamepad::axisForButton(EButton(aBtnIdx)) != Gamepad::eAxis_None;
 		aBtnState.commandsLayer = 0;
 		aBtnState.commands = null;
-		aBtnState.withCommands.clear();
-		// Assign commands to the button for each layer,
-		// with later layers overriding earlier ones
-		for(std::vector<u16>::const_iterator itr =
-			sState.layerOrder.begin();
-			itr != sState.layerOrder.end(); ++itr)
+		// Start with the front-most layer, and stop once get assigned
+		for(std::vector<u16>::const_reverse_iterator itr =
+			sState.layerOrder.rbegin();
+			itr != sState.layerOrder.rend(); ++itr)
 		{
 			const Command* aCommandsArray = 
 				InputMap::commandsForButton(*itr, EButton(aBtnIdx));
 			if( !aCommandsArray )
 				continue;
-			const bool hasWithCommand =
-				aCommandsArray[eBtnAct_With].type >= eCmdType_FirstValid;
-			if( hasWithCommand )
-			{// Add to the list of tack-on commands for this button
-				WithActionCommand aWithActCmd;
-				aWithActCmd.cmd = &aCommandsArray[eBtnAct_With];
-				aWithActCmd.layerID = *itr;
-				aBtnState.withCommands.push_back(aWithActCmd);
-			}
 			// Must have a non-empty, non-unassigned command on an action
-			// other than the "With" action to control this button
-			bool shouldControlButton = false;
-			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_With; ++aBtnAct)
+			// in order to be the layer that responds to this button
+			bool shouldAssignButton = false;
+			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
 				if( aCommandsArray[aBtnAct].type != eCmdType_Empty &&
 					aCommandsArray[aBtnAct].type != eCmdType_Unassigned )
 				{
-					shouldControlButton = true;
+					shouldAssignButton = true;
 					break;
 				}
 			}
-			if( isAnalog && (shouldControlButton || hasWithCommand) )
+			if( shouldAssignButton )
 			{
-				const u8* aThreshold =
-					InputMap::commandThreshold(*itr, EButton(aBtnIdx));
-				if( aThreshold )
-					analogToDigitalThreshold = *aThreshold;
+				aBtnState.commands = aCommandsArray;
+				aBtnState.commandsLayer = *itr;
+				break;
 			}
-			if( !shouldControlButton )
-				continue;
-			aBtnState.commands = aCommandsArray;
-			aBtnState.commandsLayer = *itr;
 		}
 		aBtnState.holdTimeForAction = InputMap::commandHoldTime(
 			aBtnState.commandsLayer, EButton(aBtnIdx));
-		if( isAnalog )
-		{
-			Gamepad::setPressThreshold(
-				EButton(aBtnIdx), analogToDigitalThreshold);
-		}
 	}
 }
 
@@ -423,6 +388,49 @@ static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
 	return result;
 }
 
+static void moveControlsLayerToTop(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID > 0);
+	DBG_ASSERT(theLayerID < sState.layers.size());
+	DBG_ASSERT(sState.layers[theLayerID].active);
+	DBG_ASSERT(sState.layers[theLayerID].altParentLayerID == 0);
+	transDebugPrint(
+		"Moving Controls Layer '%s' to highest allowed position\n",
+		InputMap::layerLabel(theLayerID).c_str());
+
+	std::vector<u16>::iterator anOldPos = std::find(
+		sState.layerOrder.begin(),
+		sState.layerOrder.end(),
+		theLayerID);
+	DBG_ASSERT(anOldPos != sState.layerOrder.end());
+	// Make sure to move any descendants along with it
+	std::vector<u16>::iterator anOldPosEnd = anOldPos;
+	for(++anOldPosEnd; anOldPosEnd != sState.layerOrder.end() &&
+		layerIsDescendant(sState.layers[*anOldPosEnd], theLayerID);
+		++anOldPosEnd) {}
+	const std::vector<u16> aTempOrder(anOldPos, anOldPosEnd);
+	sState.layerOrder.erase(anOldPos, anOldPosEnd);
+
+	// Reset "Hold Auto ### =" held times for any moved layer that have
+	// not yet executed their hold action (these are usually used for
+	// some kind of delayed action after the layer has been left alone
+	// for a while, like hiding a HUD element by removing themselves).
+	for(size_t i = 0; i < aTempOrder.size(); ++i)
+	{
+		if( !sState.layers[aTempOrder[i]].autoButton.holdActionDone )
+			sState.layers[aTempOrder[i]].autoButton.heldTime = 0;
+	}
+
+	// Find new position to add the layers back to
+	std::vector<u16>::iterator aNewPos = sState.layerOrder.end();
+	if( !sState.layers[theLayerID].heldActiveByButton )
+	{
+		aNewPos = layerOrderInsertPos(
+			sState.layers[theLayerID].parentLayerID);
+	}
+	sState.layerOrder.insert(aNewPos, aTempOrder.begin(), aTempOrder.end());
+	sResults.layerChangeMade = true;
+}
 
 static void addComboLayers(u16 theNewLayerID); // forward declare
 
@@ -430,13 +438,17 @@ static void addControlsLayer(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sState.layers.size());
 
+	if( sState.layers[theLayerID].active )
+	{
+		moveControlsLayerToTop(theLayerID);
+		return;
+	}
+	DBG_ASSERT(!sState.layers[theLayerID].active);
+
 	const u16 aParentLayerID = InputMap::parentLayer(theLayerID);
 	DBG_ASSERT(aParentLayerID < sState.layers.size());
 	if( aParentLayerID && !sState.layers[aParentLayerID].active )
 		addControlsLayer(aParentLayerID);
-	if( theLayerID > 0 )
-		removeControlsLayer(theLayerID);
-	DBG_ASSERT(!sState.layers[theLayerID].active);
 
 	if( theLayerID > 0 )
 	{
@@ -653,6 +665,10 @@ static void processCommand(
 	case eCmdType_Unassigned:
 		// Do nothing
 		break;
+	case eCmdType_SignalOnly:
+		// Do nothing but fire off signal
+		gFiredSignals.set(theCmd.signalID);
+		break;
 	case eCmdType_PressAndHoldKey:
 		DBG_ASSERT(theBtnState);
 		// Release any previously-held key first!
@@ -668,12 +684,14 @@ static void processCommand(
 		DBG_ASSERT(false && "_ReleaseKey should not be directly assigned!");
 		break;
 	case eCmdType_TapKey:
-	case eCmdType_VKeySequence:
 		// Queue to send after press/release commands but before strings
 		sResults.keys.push_back(theCmd);
 		break;
-	case eCmdType_SlashCommand:
-	case eCmdType_SayString:
+	case eCmdType_VKeySequence:
+		// Queue to send after key taps, since can block other input longer
+		sResults.sequences.push_back(theCmd);
+		break;
+	case eCmdType_ChatBoxString:
 		// Queue to send last, since can block other input the longest
 		sResults.strings.push_back(theCmd);
 		break;
@@ -711,6 +729,8 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_KeyBindArrayNext:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
@@ -724,6 +744,8 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_KeyBindArrayDefault:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
@@ -737,6 +759,8 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_KeyBindArrayLast:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
@@ -750,6 +774,8 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_KeyBindArrayIndex:
 	case eCmdType_KeyBindArrayHoldIndex:
@@ -768,6 +794,8 @@ static void processCommand(
 		}
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_StartAutoRun:
 		sResults.charMoveStartAutoRun = true;
@@ -993,14 +1021,8 @@ static bool isTapOnlyCommand(const Command& theCommand)
 
 static void processButtonPress(ButtonState& theBtnState)
 {
-	// Process the rule-breaking "With" actions before anything else
-	for(size_t i = 0; i < theBtnState.withCommands.size(); ++i)
-	{
-		DBG_ASSERT(theBtnState.withCommands[i].cmd);
-		processCommand(&theBtnState,
-			*theBtnState.withCommands[i].cmd,
-			theBtnState.withCommands[i].layerID);
-	}
+	// Pressing a button fires one of the first set of signal bits
+	gFiredSignals.set(theBtnState.buttonID);
 
 	// When first pressed, back up copy of current commands to be referenced
 	// by other button actions later. This makes sure if layers change
@@ -1012,7 +1034,7 @@ static void processButtonPress(ButtonState& theBtnState)
 
 	// Log that at least one button in the assigned layer has been pressed
 	// (unless it is just the Auto button for the layer, which doesn't count)
-	if( !theBtnState.isAutoButton &&
+	if( theBtnState.buttonID != eBtn_None &&
 		!sState.layers[theBtnState.commandsLayer].ownedButtonHit )
 	{
 		flagOwnedButtonHit(theBtnState.commandsLayer);
@@ -1158,7 +1180,7 @@ static void processContinuousInput(
 
 static void processAutoRepeat(ButtonState& theBtnState)
 {
-	if( kConfig.autoRepeatRate == 0 || theBtnState.isAutoButton )
+	if( kConfig.autoRepeatRate == 0 || theBtnState.buttonID == eBtn_None )
 		return;
 
 	// Auto-repeat only commandsWhenPressed assigned to _Down
@@ -1337,7 +1359,7 @@ static void processButtonState(
 			theBtnState.usedInButtonCombo = true;
 		}
 
-		if( wasDown && theBtnState.heldTime < (0xFFFF - gAppFrameTime) )
+		if( wasDown )
 			theBtnState.heldTime += gAppFrameTime;
 		if( theBtnState.heldTime >= theBtnState.holdTimeForAction &&
 			!theBtnState.holdActionDone )
@@ -1639,6 +1661,28 @@ void update()
 			Gamepad::buttonAnalogVal(EButton(i)));
 	}
 
+	// Execute commands by active layers in response to fired signals
+	BitVector<> aFiredSignals(gFiredSignals);
+	gFiredSignals.reset();
+	aFiredSignals.reset(eBtn_None);
+	if( aFiredSignals.any() )
+	{
+		for(size_t i = 0; i < sState.layerOrder.size(); ++i)
+		{
+			const u16 aLayerID = sState.layerOrder[i];
+			const VectorMap<u16, Command>& aSignalsList =
+				InputMap::signalCommandsForLayer(aLayerID);
+			for(VectorMap<u16, Command>::const_iterator
+				itr = aSignalsList.begin();
+				itr != aSignalsList.end(); ++itr)
+			{
+				DBG_ASSERT(itr->first < aFiredSignals.size());
+				if( aFiredSignals.test(itr->first) )
+					processCommand(null, itr->second, aLayerID);
+			}
+		}
+	}
+
 	if( sResults.layerChangeMade )
 	{
 		// Process any newly-added layers' autoButtonHit events
@@ -1706,6 +1750,8 @@ void update()
 		sResults.mouseWheelStepped);
 	for(size_t i = 0; i < sResults.keys.size(); ++i)
 		InputDispatcher::sendKeyCommand(sResults.keys[i]);
+	for(size_t i = 0; i < sResults.sequences.size(); ++i)
+		InputDispatcher::sendKeyCommand(sResults.sequences[i]);
 	for(size_t i = 0; i < sResults.strings.size(); ++i)
 		InputDispatcher::sendKeyCommand(sResults.strings[i]);
 
@@ -1714,5 +1760,6 @@ void update()
 }
 
 #undef transDebugPrint
+#undef INPUT_TRANSLATOR_DEBUG_PRINT
 
 } // InputTranslator

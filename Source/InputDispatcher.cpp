@@ -5,7 +5,6 @@
 #include "InputDispatcher.h"
 
 #include "InputMap.h"
-#include "Lookup.h"
 #include "Profile.h"
 #include "WindowManager.h"
 
@@ -39,7 +38,7 @@ enum EAutoRunMode
 {
 	eAutoRunMode_Off,
 	eAutoRunMode_Queued,
-	eAutoRunMode_Forced,
+	eAutoRunMode_Started,
 	eAutoRunMode_Active,
 };
 
@@ -298,6 +297,37 @@ static DispatchTracker sTracker;
 // Local Functions
 //-----------------------------------------------------------------------------
 
+static void fireSignal(u16 aSignalID)
+{
+	gFiredSignals.set(aSignalID);
+	switch(aSignalID - eBtn_Num)
+	{
+	case eSpecialKey_AutoRun:
+		sTracker.autoRunMode = eAutoRunMode_Started;
+		break;
+	case eSpecialKey_MoveF:
+	case eSpecialKey_MoveB:
+		if( sTracker.autoRunMode != eAutoRunMode_Queued )
+			sTracker.autoRunMode = eAutoRunMode_Off;
+		break;
+	}
+}
+
+
+static void fireSignalFromString(const u8* theString)
+{
+	DBG_ASSERT(theString && theString[0] == kVKeyFireSignal);
+	u16 aSignalID = 0;
+	++theString;
+	DBG_ASSERT(*theString != '\0');
+	aSignalID = (*theString & 0x7F) << 7;
+	++theString;
+	DBG_ASSERT(*theString != '\0');
+	aSignalID |= (*theString & 0x7F);
+	fireSignal(aSignalID);
+}
+
+
 static EResult popNextStringChar(const char* theString)
 {
 	// Strings should start with '/' or '>'
@@ -376,9 +406,22 @@ static EResult popNextKey(const u8* theVKeySequence)
 		const size_t idx = sTracker.currTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];
 
+		if( aVKey == kVKeyFireSignal )
+		{
+			fireSignalFromString(&theVKeySequence[idx]);
+			sTracker.currTaskProgress += 2;
+			continue;
+		}
+
 		if( aVKey == VK_EXECUTE )
 		{
 			// Flag to execute an embedded chat box string
+			if( theVKeySequence[sTracker.currTaskProgress] == kVKeyFireSignal )
+			{
+				fireSignalFromString(
+					&theVKeySequence[sTracker.currTaskProgress]);
+				sTracker.currTaskProgress += 3;
+			}
 			sTracker.embeddedChatBoxStringPos = sTracker.currTaskProgress;
 			return eResult_Incomplete;
 		}
@@ -1279,6 +1322,8 @@ void update()
 			DBG_ASSERT(aCmd.vKey != 0);
 			DBG_ASSERT((aCmd.vKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
 			sTracker.keysWantDown.findOrAdd(aCmd.vKey).depth += 1;
+			if( !taskIsPastDue )
+				fireSignal(aCmd.signalID);
 			break;
 		case eCmdType_ReleaseKey:
 			DBG_ASSERT(aCmd.vKey != 0);
@@ -1317,16 +1362,27 @@ void update()
 			break;
 		case eCmdType_TapKey:
 			if( !taskIsPastDue )
+			{
 				sTracker.nextQueuedKey = aCmd.vKey;
+				fireSignal(aCmd.signalID);
+			}
 			break;
 		case eCmdType_VKeySequence:
 			if( !taskIsPastDue )
 				aTaskResult = popNextKey((const u8*)aCmd.string);
 			break;
-		case eCmdType_SlashCommand:
-		case eCmdType_SayString:
+		case eCmdType_ChatBoxString:
 			if( !taskIsPastDue )
-				aTaskResult = popNextStringChar(aCmd.string);
+			{
+				if( aCmd.string[0] == kVKeyFireSignal )
+				{
+					if( sTracker.currTaskProgress == 0 )
+						fireSignalFromString((const u8*)aCmd.string);
+					aTaskResult = popNextStringChar(aCmd.string + 3);
+				}
+				else
+					aTaskResult = popNextStringChar(aCmd.string);
+			}
 			break;
 		case eCmdType_MoveMouseToHotspot:
 			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
@@ -1691,7 +1747,11 @@ void sendKeyCommand(const Command& theCommand)
 	case eCmdType_Empty:
 	case eCmdType_DoNothing:
 	case eCmdType_Unassigned:
-		// Do nothing, but don't assert either
+		// Do nothing
+		break;
+	case eCmdType_SignalOnly:
+		// Do nothing but fire off signal
+		fireSignal(theCommand.signalID);
 		break;
 	case eCmdType_PressAndHoldKey:
 		DBG_ASSERT(aBaseVKey != 0);
@@ -1704,6 +1764,7 @@ void sendKeyCommand(const Command& theCommand)
 				// Already requested hold this key...
 				// Just increment counter of simultaneous hold requests
 				++sTracker.keysWantDown[aPos].second.depth;
+				fireSignal(theCommand.signalID);
 				break;
 			}
 			if( isSafeAsyncKey(aVKey) &&
@@ -1715,6 +1776,7 @@ void sendKeyCommand(const Command& theCommand)
 				sTracker.keysWantDown.insert(
 					sTracker.keysWantDown.begin() + aPos,
 					std::make_pair(aVKey, aStatus));
+				fireSignal(theCommand.signalID);
 				break;
 			}
 		}
@@ -1742,6 +1804,7 @@ void sendKeyCommand(const Command& theCommand)
 				!sTracker.keysHeldDown.test(aBaseVKey) &&
 				setKeyDown(aBaseVKey, true) == eResult_Ok )
 			{// Was able to press the key now, don't need to queue it!
+				fireSignal(theCommand.signalID);
 				break;
 			}
 		}
@@ -1757,8 +1820,7 @@ void sendKeyCommand(const Command& theCommand)
 			}
 		}
 		// fall through
-	case eCmdType_SlashCommand:
-	case eCmdType_SayString:
+	case eCmdType_ChatBoxString:
 		sTracker.queue.push_back(theCommand);
 		break;
 	default:
@@ -2016,31 +2078,33 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 			aStrafeAngle > -M_PI * 0.5 - kYRange));
 
 	if( autoRun )
-	{
-		// Use forced mode when try starting it while holding 'back'
-		sTracker.autoRunMode =
-			moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove)
-				? eAutoRunMode_Forced : eAutoRunMode_Queued;
+	{// Don't necessarily send the auto run key right away...
+		sTracker.autoRunMode = eAutoRunMode_Queued;
+		autoRun = false;
 	}
-
 	switch(sTracker.autoRunMode)
 	{
 	case eAutoRunMode_Queued:
 		// Wait until release forward to begin auto-run
-		autoRun = false;
 		if( !moveKeysWantDown.test(eSpecialKey_MoveF - eSpecialKey_FirstMove) )
 		{
 			autoRun = true;
-			sTracker.autoRunMode = eAutoRunMode_Active;
+			// Stop holding back so don't cancel it immediately
+			moveKeysWantDown.reset(eSpecialKey_MoveB - eSpecialKey_FirstMove);
 		}
 		break;
-	case eAutoRunMode_Forced:
-		// Prevent back movement while forcing auto-run until
-		// release pressing back and then press it again
-		if( !moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove) )
+	case eAutoRunMode_Started:
+		// Prevent forward or back movement until release and press again
+		if( !moveKeysWantDown.test(eSpecialKey_MoveF - eSpecialKey_FirstMove) &&
+			!moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove) )
+		{
 			sTracker.autoRunMode = eAutoRunMode_Active;
+		}
 		else
+		{
+			moveKeysWantDown.reset(eSpecialKey_MoveF - eSpecialKey_FirstMove);
 			moveKeysWantDown.reset(eSpecialKey_MoveB - eSpecialKey_FirstMove);
+		}
 		break;
 	case eAutoRunMode_Active:
 		// Apply an extra deadzone to back/forward to prevent early cancel
@@ -2050,12 +2114,6 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 				eSpecialKey_MoveF - eSpecialKey_FirstMove);
 			moveKeysWantDown.reset(
 				eSpecialKey_MoveB - eSpecialKey_FirstMove);
-		}
-		// Cancel auto-run once press forward or back past extra deadzone
-		if( moveKeysWantDown.test(eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
-			moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove) )
-		{
-			sTracker.autoRunMode = eAutoRunMode_Off;
 		}
 		break;
 	}
@@ -2069,7 +2127,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 			aWantedKey < moveKeysWantDown.size();
 			aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
 		{
-			u16 aVKey = InputMap::keyForSpecialAction(
+			const u16 aVKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
 			if( !isSafeAsyncKey(aVKey) && !isMouseButton(aVKey) )
 				moveKeysWantDown.reset(aWantedKey);
@@ -2080,7 +2138,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 	}
 
 	// Press new movement keys
-	Command aCmd; aCmd.type = eCmdType_PressAndHoldKey;
+	Command aCmd;
 	for(int aWantedKey = moveKeysWantDown.firstSetBit();
 		aWantedKey < moveKeysWantDown.size();
 		aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
@@ -2089,14 +2147,17 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 		{
 			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
-			if( aCmd.vKey != 0 )
-				sendKeyCommand(aCmd);
+			if( aCmd.vKey )
+				aCmd.type = eCmdType_PressAndHoldKey;
+			else
+				aCmd.type = eCmdType_SignalOnly;
+			aCmd.signalID = eBtn_Num + aWantedKey + eSpecialKey_FirstMove;
+			sendKeyCommand(aCmd);
 			sTracker.moveKeysHeld.set(aWantedKey);
 		}
 	}
 
 	// Release movement keys that aren't needed any more
-	aCmd.type = eCmdType_ReleaseKey;
 	for(int aHeldKey = sTracker.moveKeysHeld.firstSetBit();
 		aHeldKey < sTracker.moveKeysHeld.size();
 		aHeldKey = sTracker.moveKeysHeld.nextSetBit(aHeldKey+1))
@@ -2105,15 +2166,15 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 		{
 			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
-			if( aCmd.vKey != 0 )
+			if( aCmd.vKey )
 			{
+				aCmd.type = eCmdType_ReleaseKey;
 				sendKeyCommand(aCmd);
 				if( sTracker.stickyMoveKeys.test(aHeldKey) )
 				{// Give the key an extra tap to un-stick it
 					aCmd.type = eCmdType_TapKey;
 					if( !isMouseButton(aCmd.vKey) )
 						sendKeyCommand(aCmd);
-					aCmd.type = eCmdType_ReleaseKey;
 					sTracker.stickyMoveKeys.reset(aHeldKey);
 				}
 			}
@@ -2123,11 +2184,18 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 
 	if( autoRun )
 	{
-		aCmd.type = eCmdType_TapKey;
 		aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_AutoRun);
-		if( aCmd.vKey != 0 )
+		if( aCmd.vKey )
+		{
+			aCmd.type = eCmdType_TapKey;
+			aCmd.signalID = eBtn_Num + eSpecialKey_AutoRun;
 			sendKeyCommand(aCmd);
+		}
 	}
 }
+
+#undef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+#undef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
+#undef INPUT_DISPATCHER_SIMULATION_ONLY
 
 } // InputDispatcher

@@ -21,6 +21,9 @@ extern u32 gAppRunTime;
 // Milliseconds that have passed since last update of main loop
 extern int gAppFrameTime;
 
+// Signals sent out to trigger signal commands
+extern BitVector<> gFiredSignals;
+
 // Which HUD elements should be visible
 extern BitVector<> gVisibleHUD;
 

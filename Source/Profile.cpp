@@ -5,9 +5,7 @@
 #include "Profile.h"
 
 #include "Dialogs.h"
-#include "Lookup.h"
 #include "Resources/resource.h"
-#include "StringUtils.h"
 
 #include <fstream>
 

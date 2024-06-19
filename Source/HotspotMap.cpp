@@ -10,9 +10,8 @@
 namespace HotspotMap
 {
 
-// Whether or not debug messages print depends on which line is commented out
-//#define mapDebugPrint(...) debugPrint("HotspotMap: " __VA_ARGS__)
-#define mapDebugPrint(...) ((void)0)
+// Uncomment this to print details hotspot searches to debug window
+//#define HOTSPOT_MAP_DEBUG_PRINT
 
 //-----------------------------------------------------------------------------
 // Const Data
@@ -103,6 +102,12 @@ static u16 sIgnorePointInSearch = 0;
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
+
+#ifdef HOTSPOT_MAP_DEBUG_PRINT
+#define mapDebugPrint(...) debugPrint("HotspotMap: " __VA_ARGS__)
+#else
+#define mapDebugPrint(...) ((void)0)
+#endif
 
 static void processTargetSizeTask()
 {
@@ -973,5 +978,8 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 
 	return eResult_Ok;
 }
+
+#undef mapDebugPrint
+#undef HOTSPOT_MAP_DEBUG_PRINT
 
 } // HotspotMap
