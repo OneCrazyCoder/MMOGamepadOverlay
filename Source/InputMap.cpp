@@ -1126,14 +1126,21 @@ static Command wordsToSpecialCommand(
 	}
 
 	// "= Close App"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Close);
-	allowedKeyWords.set(eCmdWord_App);
 	if( keyWordsFound.test(eCmdWord_Close) &&
 		keyWordsFound.test(eCmdWord_App) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
+		keyWordsFound.count() == 2 )
 	{
 		result.type = eCmdType_QuitApp;
+		return result;
+	}
+
+	// "= Lock Movement"
+	if( keyWordsFound.test(eCmdWord_Lock) &&
+		keyWordsFound.test(eCmdWord_Move) &&
+		keyWordsFound.count() == 2 )
+	{
+		result.type = eCmdType_StartAutoRun;
+		result.multiDirAutoRun = true;
 		return result;
 	}
 

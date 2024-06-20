@@ -181,6 +181,7 @@ struct InputResults
 	bool mouseWheelDigital;
 	bool mouseWheelStepped;
 	bool charMoveStartAutoRun;
+	bool charMoveLockMovement;
 	bool layerChangeMade;
 
 	void clear()
@@ -199,6 +200,7 @@ struct InputResults
 		mouseWheelDigital = false;
 		mouseWheelStepped = false;
 		charMoveStartAutoRun = false;
+		charMoveLockMovement = false;
 		layerChangeMade = false;
 	}
 };
@@ -799,6 +801,8 @@ static void processCommand(
 		break;
 	case eCmdType_StartAutoRun:
 		sResults.charMoveStartAutoRun = true;
+		if( theCmd.multiDirAutoRun )
+			sResults.charMoveLockMovement = true;
 		break;
 	case eCmdType_ChangeProfile:
 		Profile::queryUserForProfile();
@@ -1739,7 +1743,8 @@ void update()
 		sResults.charMove,
 		sResults.charTurn,
 		sResults.charStrafe,
-		sResults.charMoveStartAutoRun);
+		sResults.charMoveStartAutoRun,
+		sResults.charMoveLockMovement);
 	InputDispatcher::moveMouse(
 		sResults.mouseMoveX,
 		sResults.mouseMoveY,
