@@ -40,6 +40,12 @@ enum EAutoRunMode
 	eAutoRunMode_Queued,
 	eAutoRunMode_Started,
 	eAutoRunMode_Active,
+	eAutoRunMode_StartLockX,
+	eAutoRunMode_StartLockY,
+	eAutoRunMode_StartLockXY,
+	eAutoRunMode_LockedX,
+	eAutoRunMode_LockedY,
+	eAutoRunMode_LockedXY,
 };
 
 
@@ -303,12 +309,27 @@ static void fireSignal(u16 aSignalID)
 	switch(aSignalID - eBtn_Num)
 	{
 	case eSpecialKey_AutoRun:
-		sTracker.autoRunMode = eAutoRunMode_Started;
+		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
+			sTracker.autoRunMode = eAutoRunMode_Started;
 		break;
 	case eSpecialKey_MoveF:
 	case eSpecialKey_MoveB:
-		if( sTracker.autoRunMode != eAutoRunMode_Queued )
+		if( sTracker.autoRunMode != eAutoRunMode_Queued &&
+			sTracker.autoRunMode != eAutoRunMode_StartLockX &&
+			sTracker.autoRunMode != eAutoRunMode_LockedX )
+		{
 			sTracker.autoRunMode = eAutoRunMode_Off;
+		}
+		break;
+	case eSpecialKey_TurnL:
+	case eSpecialKey_TurnR:
+	case eSpecialKey_StrafeL:
+	case eSpecialKey_StrafeR:
+		if( sTracker.autoRunMode == eAutoRunMode_StartLockX ||
+			sTracker.autoRunMode == eAutoRunMode_LockedX )
+		{
+			sTracker.autoRunMode = eAutoRunMode_Off;
+		}
 		break;
 	}
 }
@@ -2008,7 +2029,7 @@ void jumpMouseWheel(ECommandDir theDir, u8 theCount)
 }
 
 
-void moveCharacter(int move, int turn, int strafe, bool autoRun)
+void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 {
 	// Treat as 2 virtual analog sticks initially,
 	// one for MoveTurn and one for MoveStrafe
@@ -2034,22 +2055,32 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 		0.125 + (0.5 * kConfig.moveStraightBias));
 
 	// Calculate which movement actions, if any, should now apply
-	BitArray<eSpecialKey_MoveNum> moveKeysWantDown;
+	enum EMoveKey
+	{
+		eMoveKey_F = eSpecialKey_MoveF - eSpecialKey_FirstMove,
+		eMoveKey_B = eSpecialKey_MoveB - eSpecialKey_FirstMove,
+		eMoveKey_TL = eSpecialKey_TurnL - eSpecialKey_FirstMove,
+		eMoveKey_TR = eSpecialKey_TurnR - eSpecialKey_FirstMove,
+		eMoveKey_SL = eSpecialKey_StrafeL - eSpecialKey_FirstMove,
+		eMoveKey_SR = eSpecialKey_StrafeR - eSpecialKey_FirstMove,
+		eMoveKey_Num = eSpecialKey_MoveNum,
+	};
+	BitArray<eMoveKey_Num> moveKeysWantDown;
 	moveKeysWantDown.reset();
-	moveKeysWantDown.set(eSpecialKey_TurnL - eSpecialKey_FirstMove,
+	moveKeysWantDown.set(eMoveKey_TL,
 		applyMoveTurn &&
 			(aTurnAngle < -(M_PI - kXRange) ||
 			 aTurnAngle > M_PI - kXRange));
 
-	moveKeysWantDown.set(eSpecialKey_TurnR - eSpecialKey_FirstMove,
+	moveKeysWantDown.set(eMoveKey_TR,
 		applyMoveTurn && aTurnAngle > -kXRange && aTurnAngle < kXRange);
 
-	moveKeysWantDown.set(eSpecialKey_StrafeL - eSpecialKey_FirstMove,
+	moveKeysWantDown.set(eMoveKey_SL,
 		applyMoveStrafe &&
 			(aStrafeAngle < -(M_PI - kXRange) ||
 			 aStrafeAngle > M_PI - kXRange));
 
-	moveKeysWantDown.set(eSpecialKey_StrafeR - eSpecialKey_FirstMove,
+	moveKeysWantDown.set(eMoveKey_SR,
 		applyMoveStrafe && aStrafeAngle > -kXRange && aStrafeAngle < kXRange);
 
 	// Effects of left/right move keys can change while in Mouse Look mode,
@@ -2060,7 +2091,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 	// For move forward/back, use the virtual stick that had the greatest X
 	// motion in order to make sure a proper circular deadzone is used.
 	moveKeysWantDown.set(
-		eSpecialKey_MoveF - eSpecialKey_FirstMove,
+		eMoveKey_F,
 		(applyMoveTurn && abs(turn) >= abs(strafe) &&
 			aTurnAngle > M_PI * 0.5 - kYRange &&
 			aTurnAngle < M_PI * 0.5 + kYRange) ||
@@ -2069,7 +2100,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 			aStrafeAngle < M_PI * 0.5 + kYRange));
 
 	moveKeysWantDown.set(
-		eSpecialKey_MoveB - eSpecialKey_FirstMove,
+		eMoveKey_B,
 		(applyMoveTurn && abs(turn) >= abs(strafe) &&
 			aTurnAngle < -M_PI * 0.5 + kYRange &&
 			aTurnAngle > -M_PI * 0.5 - kYRange) ||
@@ -2077,6 +2108,11 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 			aStrafeAngle < -M_PI * 0.5 + kYRange &&
 			aStrafeAngle > -M_PI * 0.5 - kYRange));
 
+	if( lock )
+	{// Send desired movement first, then lock it at end of this function
+		sTracker.autoRunMode = eAutoRunMode_Off;
+		autoRun = moveKeysWantDown.none();
+	}
 	if( autoRun )
 	{// Don't necessarily send the auto run key right away...
 		sTracker.autoRunMode = eAutoRunMode_Queued;
@@ -2086,42 +2122,110 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 	{
 	case eAutoRunMode_Queued:
 		// Wait until release forward to begin auto-run
-		if( !moveKeysWantDown.test(eSpecialKey_MoveF - eSpecialKey_FirstMove) )
+		if( !moveKeysWantDown.test(eMoveKey_F) )
 		{
 			autoRun = true;
 			// Stop holding back so don't cancel it immediately
-			moveKeysWantDown.reset(eSpecialKey_MoveB - eSpecialKey_FirstMove);
+			moveKeysWantDown.reset(eMoveKey_B);
 		}
 		break;
 	case eAutoRunMode_Started:
 		// Prevent forward or back movement until release and press again
-		if( !moveKeysWantDown.test(eSpecialKey_MoveF - eSpecialKey_FirstMove) &&
-			!moveKeysWantDown.test(eSpecialKey_MoveB - eSpecialKey_FirstMove) )
+		if( !moveKeysWantDown.test(eMoveKey_F) &&
+			!moveKeysWantDown.test(eMoveKey_B) )
 		{
 			sTracker.autoRunMode = eAutoRunMode_Active;
 		}
 		else
 		{
-			moveKeysWantDown.reset(eSpecialKey_MoveF - eSpecialKey_FirstMove);
-			moveKeysWantDown.reset(eSpecialKey_MoveB - eSpecialKey_FirstMove);
+			moveKeysWantDown.reset(eMoveKey_F);
+			moveKeysWantDown.reset(eMoveKey_B);
 		}
 		break;
 	case eAutoRunMode_Active:
 		// Apply an extra deadzone to back/forward to prevent early cancel
 		if( abs(move) < kConfig.cancelAutoRunDeadzone )
 		{
-			moveKeysWantDown.reset(
-				eSpecialKey_MoveF - eSpecialKey_FirstMove);
-			moveKeysWantDown.reset(
-				eSpecialKey_MoveB - eSpecialKey_FirstMove);
+			moveKeysWantDown.reset(eMoveKey_F);
+			moveKeysWantDown.reset(eMoveKey_B);
 		}
 		break;
+	case eAutoRunMode_StartLockX:
+		// Wait until release X axis so can cancel by re-press
+		if( !moveKeysWantDown.test(eMoveKey_TL) &&
+			!moveKeysWantDown.test(eMoveKey_TR) &&
+			!moveKeysWantDown.test(eMoveKey_SL) &&
+			!moveKeysWantDown.test(eMoveKey_SR) )
+		{
+			sTracker.autoRunMode = eAutoRunMode_LockedX;
+		}
+		break;
+	case eAutoRunMode_StartLockY:
+		// Wait until release Y axis so can cancel by re-press
+		if( !moveKeysWantDown.test(eMoveKey_F) &&
+			!moveKeysWantDown.test(eMoveKey_B) )
+		{
+			sTracker.autoRunMode = eAutoRunMode_LockedY;
+			if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) &&
+				!sTracker.moveKeysHeld.test(eMoveKey_B) )
+			{// Switch to auto-run mode for better compatibility w/ chat box
+				sTracker.autoRunMode = eAutoRunMode_Active;
+				autoRun = true;
+			}
+		}
+		break;
+	case eAutoRunMode_StartLockXY:
+		// Wait until release all movement so can cancel by re-press
+		if( moveKeysWantDown.none() )
+			sTracker.autoRunMode = eAutoRunMode_LockedXY;
+		break;
+	case eAutoRunMode_LockedX:
+		// Once push X past increased deadzone, stop locked movement
+		if( max(abs(turn), abs(strafe)) >= kConfig.cancelAutoRunDeadzone )
+			sTracker.autoRunMode = eAutoRunMode_Off;
+		break;
+	case eAutoRunMode_LockedY:
+		// Once push Y past increased deadzone, stop locked movement
+		if( abs(move) >= kConfig.cancelAutoRunDeadzone )
+			sTracker.autoRunMode = eAutoRunMode_Off;
+		break;
+	case eAutoRunMode_LockedXY:
+		// Once push X or Y past increased deadzone, stop locked movement
+		if( max(abs(turn), abs(strafe)) >= kConfig.cancelAutoRunDeadzone )
+			sTracker.autoRunMode = eAutoRunMode_Off;
+		else if( abs(move) >= kConfig.cancelAutoRunDeadzone )
+			sTracker.autoRunMode = eAutoRunMode_Off;
+		break;
+	}
+
+	if( sTracker.autoRunMode == eAutoRunMode_StartLockX ||
+		sTracker.autoRunMode == eAutoRunMode_StartLockXY ||
+		sTracker.autoRunMode == eAutoRunMode_LockedX ||
+		sTracker.autoRunMode == eAutoRunMode_LockedXY )
+	{// Continue using already-held keys for x axis
+		moveKeysWantDown.set(eMoveKey_TL, sTracker.moveKeysHeld.test(eMoveKey_TL));
+		moveKeysWantDown.set(eMoveKey_TR, sTracker.moveKeysHeld.test(eMoveKey_TR));
+		moveKeysWantDown.set(eMoveKey_SL, sTracker.moveKeysHeld.test(eMoveKey_SL));
+		moveKeysWantDown.set(eMoveKey_SR, sTracker.moveKeysHeld.test(eMoveKey_SR));
+	}
+	if( sTracker.autoRunMode == eAutoRunMode_StartLockY ||
+		sTracker.autoRunMode == eAutoRunMode_StartLockXY ||
+		sTracker.autoRunMode == eAutoRunMode_LockedY ||
+		sTracker.autoRunMode == eAutoRunMode_LockedXY )
+	{// Continue using already-held keys for y axis
+		moveKeysWantDown.set(eMoveKey_F, sTracker.moveKeysHeld.test(eMoveKey_F));
+		moveKeysWantDown.set(eMoveKey_B, sTracker.moveKeysHeld.test(eMoveKey_B));
+	}
+	if( autoRun && !InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
+	{// Force push forward when try auto run without an auto run key
+		moveKeysWantDown.set(eMoveKey_F);
+		moveKeysWantDown.reset(eMoveKey_B);
 	}
 
 	// Release movement keys while typing so can re-press them when done
 	// (otherwise if continuously held down they might not cause actual
 	// movement if the same key was used during the chat box message).
-	if( sTracker.typingChatBoxString )
+	if( sTracker.typingChatBoxString && !lock && !autoRun )
 	{
 		for(int aWantedKey = moveKeysWantDown.firstSetBit();
 			aWantedKey < moveKeysWantDown.size();
@@ -2129,7 +2233,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 		{
 			const u16 aVKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
-			if( !isSafeAsyncKey(aVKey) && !isMouseButton(aVKey) )
+			if( aVKey && !isSafeAsyncKey(aVKey) && !isMouseButton(aVKey) )
 				moveKeysWantDown.reset(aWantedKey);
 		}
 		// Any movement keys held during chat box typing can become "sticky"
@@ -2182,7 +2286,24 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 		}
 	}
 
-	if( autoRun )
+	if( lock )
+	{
+		const bool lockY =
+			sTracker.moveKeysHeld.test(eMoveKey_F) ||
+			sTracker.moveKeysHeld.test(eMoveKey_B);
+		const bool lockX =
+			sTracker.moveKeysHeld.test(eMoveKey_TL) ||
+			sTracker.moveKeysHeld.test(eMoveKey_TR) ||
+			sTracker.moveKeysHeld.test(eMoveKey_SL) ||
+			sTracker.moveKeysHeld.test(eMoveKey_SR);
+		if( lockX && lockY )
+			sTracker.autoRunMode = eAutoRunMode_StartLockXY;
+		else if( lockX )
+			sTracker.autoRunMode = eAutoRunMode_StartLockX;
+		else if( lockY )
+			sTracker.autoRunMode = eAutoRunMode_StartLockY;
+	}
+	else if( autoRun )
 	{
 		aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_AutoRun);
 		if( aCmd.vKey )
@@ -2190,6 +2311,10 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun)
 			aCmd.type = eCmdType_TapKey;
 			aCmd.signalID = eBtn_Num + eSpecialKey_AutoRun;
 			sendKeyCommand(aCmd);
+		}
+		else
+		{
+			sTracker.autoRunMode = eAutoRunMode_StartLockY;
 		}
 	}
 }

@@ -773,9 +773,11 @@ For the key bind array types to work, make sure to create both a hotspot array i
 
 ## Other Commands and Features
 
-In addition to keyboard and mouse input and commands for adding/removing layers and managing menus, there are some other special-case commands you can assign to gamepad buttons and menu items.
+In addition to keyboard and mouse input and commands for adding/removing layers and managing menus, there are some other special-case commands you can assign to gamepad buttons and menu items:
 
-These includes commands for controlling the overlay app itself, such as ``=Change Profile`` to bring up the Profile selection dialog or ``=Quit App`` to shut down the overlay application.
+* ``=Lock Movement`` - Alternate version of AutoRun command that, if holding any direction other than straight forward (via Move/Turn/Strafe), it "locks" holding that direction (otherwise just uses normal AutoRun). Basically a multi-directional version of auto-run, or an auto-strafe-run if you will (and works even for games that have no AutoRun Key Bind set). Stops once release and re-press any direction on the same axis as any of locked direction (WARNING: or could stop unexpectedly when press one of the movement keys on your keyboard while typing a chat message if movement is assigned to WASD!).
+* ``=Change Profile`` - brings up profile select dialog
+* ``=Quit App`` - closes the overlay application
 
 ### Hotspot Array and Copy Icon ranges
 

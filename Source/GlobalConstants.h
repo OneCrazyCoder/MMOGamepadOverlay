@@ -281,6 +281,7 @@ enum ECommandKeyWord
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
 	eCmdWord_Stepped,
+	eCmdWord_Lock,
 	eCmdWord_Move,
 	eCmdWord_Turn,
 	eCmdWord_Strafe,
@@ -372,11 +373,12 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 			};
 			union
 			{
-				u16 replacementLayer;
+				u16 signalID;
 				u16 menuID;
 				u16 keybindArrayID;
+				u16 replacementLayer;
 				u16 mouseWheelMotionType;
-				u16 signalID;
+				bool multiDirAutoRun;
 			};
 			u8 count;
 			bool wrap;

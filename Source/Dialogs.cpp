@@ -470,6 +470,10 @@ static INT_PTR CALLBACK licenseDialogProc(
 						theDialog,
 						IDC_EDIT_LICENSE_TEXT,
 						widen(aString).c_str());
+					HWND hEditControl =
+						GetDlgItem(theDialog, IDC_EDIT_LICENSE_TEXT);
+					InvalidateRect(hEditControl, NULL, TRUE);
+					UpdateWindow(hEditControl);
 				}
 			}
 		}
