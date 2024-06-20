@@ -135,10 +135,22 @@ static LRESULT CALLBACK mainWindowProc(
 		return 0;
 
 	case WM_DEVICECHANGE:
- 	case WM_SYSCOLORCHANGE:
-	case WM_DISPLAYCHANGE:
         // Forward this message to app's main message handler
 		PostMessage(NULL, theMessage, wParam, lParam);
+		break;
+
+ 	case WM_SYSCOLORCHANGE:
+	case WM_DISPLAYCHANGE:
+		InvalidateRect(theWindow, NULL, false);
+		for(size_t i = 0; i < sOverlayWindows.size(); ++i)
+		{
+			if( sOverlayWindows[i].bitmap )
+			{
+				DeleteObject(sOverlayWindows[i].bitmap);
+				sOverlayWindows[i].bitmap = NULL;
+			}
+		}
+		HUD::init();
 		break;
 	}
 
@@ -154,15 +166,6 @@ static LRESULT CALLBACK overlayWindowProc(
 	{
 	case WM_PAINT:
 		gRedrawHUD.set(aHUDElementID);
-		break;
-	case WM_SYSCOLORCHANGE:
-	case WM_DISPLAYCHANGE:
-		if( sOverlayWindows.size() > aHUDElementID &&
-			sOverlayWindows[aHUDElementID].bitmap )
-		{
-			DeleteObject(sOverlayWindows[aHUDElementID].bitmap);
-			sOverlayWindows[aHUDElementID].bitmap = NULL;
-		}
 		break;
 	}
 
@@ -654,7 +657,7 @@ void update()
 
 		// Create bitmap if doesn't exist
 		const bool needToEraseBitmap = !aWindow.bitmap;
-		if( !aWindow.bitmap )
+		if( needToEraseBitmap )
 		{
 			aWindow.bitmapSize = aWindow.size;
 			aWindow.bitmap = CreateCompatibleBitmap(

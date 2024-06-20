@@ -148,8 +148,11 @@ static void restoreTargetWindow()
 		return;
 	}
 
-	targetDebugPrint("Restoring target window to active window\n");
-	SetForegroundWindow(sTargetWindowHandle);
+	if( sTargetWindowHandle != GetForegroundWindow() )
+	{
+		targetDebugPrint("Restoring target window to active window\n");
+		SetForegroundWindow(sTargetWindowHandle);
+	}
 }
 
 
@@ -171,6 +174,13 @@ static void checkWindowExists()
 	wchar_t wczTitle[256];
 	GetWindowText(aForegroundWindow, wczTitle, sizeof(wczTitle));
 	if( kConfig.targetWindowName != wczTitle )
+		return;
+
+	// Make sure the window is a normal window size (not minimized etc)
+	RECT aWRect;
+	GetClientRect(aForegroundWindow, &aWRect);
+	if( aWRect.right - aWRect.left < 640 ||
+		aWRect.bottom - aWRect.top < 480 )
 		return;
 
 	// Target window found!
@@ -355,14 +365,16 @@ static void checkWindowMode()
 	EWindowMode aCurrMode = eWindowMode_Unknown;
 	if( (aWStyle & kNormalOnlyStyleFlags) || aMenu != NULL )
 	{
-		aCurrMode = eWindowMode_Normal;
-		// Save info about normal window mode for restoring it later
-		GetWindowRect(sTargetWindowHandle, &sTargetWindowRestoreRect);
-		sTargetWindowRestoreStyle =
-			aWStyle & ~(WS_POPUP | WS_MINIMIZE | WS_MAXIMIZE);
-		sTargetWindowRestoreExStyle =
-			aWStyleEx & ~WS_EX_TOPMOST;
-		sTargetWindowRestoreMenu = aMenu;
+		if( aWRectWidth >= 640 && aWRectHeight >= 480 )
+		{// Save info about normal window mode for restoring it later
+			aCurrMode = eWindowMode_Normal;
+			GetWindowRect(sTargetWindowHandle, &sTargetWindowRestoreRect);
+			sTargetWindowRestoreStyle =
+				aWStyle & ~(WS_POPUP | WS_MINIMIZE | WS_MAXIMIZE);
+			sTargetWindowRestoreExStyle =
+				aWStyleEx & ~WS_EX_TOPMOST;
+			sTargetWindowRestoreMenu = aMenu;
+		}
 	}
 	else if( abs(aWRect.left - aMonRect.left) > anEpsilon ||
 			 abs(aWRect.top - aMonRect.top) > anEpsilon ||

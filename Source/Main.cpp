@@ -64,10 +64,6 @@ void mainLoopUpdate(HWND theDialog)
 		case WM_DEVICECHANGE:
 			Gamepad::checkDeviceChange();
 			break;
-		case WM_SYSCOLORCHANGE:
-		case WM_DISPLAYCHANGE:
-			gReloadProfile = true;
-			break;
 		case WM_HOTKEY:
 			if( aWindowsMessage.wParam == kSwapWindowModeHotkeyID )
 				TargetApp::swapWindowMode();
