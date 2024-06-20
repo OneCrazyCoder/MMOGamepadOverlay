@@ -2706,6 +2706,70 @@ static void addSignalCommand(
 	if( breakOffButtonAction(theSignalKey) == eBtnAct_Press )
 	{
 		u16 aBtnID = buttonNameToID(theSignalKey);
+		bool isA4DirMultiAssign = false;
+		if( aBtnID >= eBtn_Num )
+		{
+			for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
+			{
+				if( theSignalKey == k4DirButtons[i] )
+				{
+					isA4DirMultiAssign = true;
+					break;
+				}
+			}
+		}
+
+		if( isA4DirMultiAssign )
+		{
+			// Attempt to assign to all 4 directional variations of this button
+			// to the same command (or directional variations of it).
+			const Command& aBaseCmd = stringToCommand(
+				theBuilder, theCmdStr, true);
+			bool dirCommandFailed = false;
+			for(size_t i = 0; i < 4; ++i)
+			{
+				aBtnID = buttonNameToID(theSignalKey + k4DirKeyNames[i]);
+				DBG_ASSERT(aBtnID < eBtn_Num);
+				std::string aCmdStr = theCmdStr;
+				Command aCmd;
+				if( !dirCommandFailed )
+				{
+					aCmdStr += k4DirCmdSuffix[i];
+					aCmd = stringToCommand(theBuilder, aCmdStr, true);
+				}
+				if( aCmd.type == eCmdType_Empty )
+				{
+					aCmdStr = theCmdStr;
+					aCmd = aBaseCmd;
+					dirCommandFailed = true;
+				}
+				Command& aDestCmd =
+					sLayers[theLayerIdx].signalCommands.findOrAdd(aBtnID);
+				if( aDestCmd.type != eCmdType_Empty )
+					continue;
+				aDestCmd = aCmd;
+				#ifndef INPUT_MAP_DEBUG_PRINT
+				if( aCmd.type == eCmdType_Empty )
+				#endif
+				{
+					std::string aSection = "[";
+					aSection += theBuilder.debugItemName.c_str();
+					aSection += "]";
+					std::string anItemName = kSignalCommandPrefix;
+					anItemName += " ";
+					anItemName += kButtonActionPrefx[eBtnAct_Press];
+					anItemName += " ";
+					anItemName += kProfileButtonName[aBtnID];
+					anItemName += " (signal #";
+					anItemName += toString(aBtnID);
+					anItemName += ")";
+					reportCommandAssignment(
+						aSection, anItemName, aCmd, theCmdStr);
+				}
+			}
+			return;
+		}
+
 		if( aBtnID != eBtn_None && aBtnID < eBtn_Num )
 		{
 			Command aCmd = stringToCommand(theBuilder, theCmdStr, true);
@@ -2730,10 +2794,17 @@ static void addSignalCommand(
 				anItemName += " (signal #";
 				anItemName += toString(aBtnID);
 				anItemName += ")";
-				reportCommandAssignment(aSection, anItemName, aCmd, theCmdStr);
+				reportCommandAssignment(
+					aSection, anItemName, aCmd, theCmdStr);
 			}
+			return;
 		}
 	}
+
+	logError("Unrecognized signal name for '%s %s' requested in [%s]",
+		kSignalCommandPrefix.c_str(),
+		theSignalKey.c_str(),
+		theBuilder.debugItemName.c_str());
 }
 
 
