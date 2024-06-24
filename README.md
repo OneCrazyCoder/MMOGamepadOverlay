@@ -4,7 +4,7 @@ Check the [Downloads](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/)
 
 Demonstration video (click to play):
 
-[![MMOGO in M&M Stress Test](http://img.youtube.com/vi/8KuRl_igD4g/0.jpg)](http://www.youtube.com/watch?v=8KuRl_igD4g "MMO Gamepad Overlay example play in Monsters & Memories stress test")
+[![MMOGO in M&M Stress Test](http://img.youtube.com/vi/SBlLWR59GGk/0.jpg)](http://www.youtube.com/watch?v=SBlLWR59GGk "MMO Gamepad Overlay app demo")
 
 This application translates DInput & XInput game controller input into keyboard and mouse input, possibly with extra HUD elements and menus (displayed in a separate transparent window overlaying the game window) to help keep track of what various buttons may do.
 
@@ -821,3 +821,7 @@ In addition, to save on typing you can specify multiple hotspot/icon offsets in 
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD elements can actually show up over top of the game.
 
 There are various other system options you can set like how long a "tap" vs a "short hold" is, mouse cursor/wheel speed, gamepad deadzones and thresholds, whether this app should automatically quit when done playing the game, and what the name of this application's window should be (so you could set Discord to believe it is a game, which is nice if you want to let people know you are playing EQ since Discord doesn't recognize old EQ clients for some reason). Check the comments in the generated *MMOGO_Core.ini* for more information on these and other settings.
+
+## Contact
+
+Questions? Comments? Concerns? Best bet is the [Discord server](https://discord.gg/btRzWQ4N3N).

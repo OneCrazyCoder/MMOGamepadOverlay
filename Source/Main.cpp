@@ -119,6 +119,16 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	_CrtSetDbgFlag (_CRTDBG_ALLOC_MEM_DF|_CRTDBG_LEAK_CHECK_DF);
 	#endif
 
+	HANDLE hMutex = CreateMutex(NULL, TRUE, L"MMOGamepadOverlay");
+	if( GetLastError() == ERROR_ALREADY_EXISTS )
+	{
+		MessageBox(NULL,
+			L"Another instance of this application is already running.",
+			L"Application Already Running",
+			MB_OK | MB_ICONEXCLAMATION);
+		return 0;
+	}
+
 	// Initialize gamepad module so can use it in initial dialogs
 	Gamepad::init();
 
@@ -211,6 +221,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	// Final cleanup
 	Gamepad::cleanup();
 	TargetApp::cleanup();
+	ReleaseMutex(hMutex);
+	CloseHandle(hMutex);
 
 	return hadFatalError() ? EXIT_FAILURE : EXIT_SUCCESS;
 }
