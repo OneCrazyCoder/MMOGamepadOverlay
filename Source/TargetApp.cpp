@@ -124,6 +124,7 @@ static void dropTargetWindow()
 	sTargetWindowRestoreExStyle = 0;
 	sTargetWindowRestoreMenu = NULL;
 	sLastKnownTargetMode = eWindowMode_Unknown;
+	WindowManager::resetOverlays();
 	if( sSwapWindowModeHotkeyRegistered )
 	{
 		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
@@ -281,9 +282,9 @@ static void checkWindowClosed()
 	}
 	else
 	{
-		WindowManager::hideOverlays();
 		InputDispatcher::forceReleaseHeldKeys();
-		targetDebugPrint("Target window closed! Hiding overlays!\n");
+		WindowManager::resetOverlays();
+		targetDebugPrint("Target window closed! Resetting overlays!\n");
 	}
 	dropTargetWindow();
 }
