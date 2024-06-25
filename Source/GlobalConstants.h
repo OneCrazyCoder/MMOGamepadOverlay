@@ -190,9 +190,10 @@ enum EMouseMode
 {
 	eMouseMode_Default,		// Use whatever previous layers specified
 	eMouseMode_Cursor,		// Normal mouse cursor (default if none specified)
-	eMouseMode_Look,		// Mouse Look (holding right mouse button)
+	eMouseMode_LookTurn,	// Mouse Look (holding right mouse button)
+	eMouseMode_LookOnly,	// Alternate Mouse Look (holding left mouse button)
 	eMouseMode_Hide,		// Hide cursor without using MouseLook
-	eMouseMode_HideOrLook,	// Hide unless below layer is _Look, then _Look
+	eMouseMode_HideOrLook,	// _Default, unless it is _Cursor, then _Hide
 	eMouseMode_PostJump,	// Cursor mode just after a jump
 	eMouseMode_JumpClicked,	// Cursor mode just after jump-then-click event
 
