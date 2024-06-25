@@ -489,10 +489,6 @@ void createMain(HINSTANCE theAppInstanceHandle)
 
 	// Set overlay client area to full main screen initially
 	readUIScale();
-	aScreenRect.left = 0;
-	aScreenRect.top = 0;
-	aScreenRect.right = GetSystemMetrics(SM_CXSCREEN);
-	aScreenRect.bottom = GetSystemMetrics(SM_CYSCREEN);
 	resize(aScreenRect);
 }
 
@@ -757,6 +753,15 @@ void resize(RECT theNewWindowRect)
 
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
 		sOverlayWindows[i].layoutUpdated = false;
+}
+
+
+void resetOverlays()
+{
+	sHidden = false;
+	RECT aScreenRect;
+	SystemParametersInfo(SPI_GETWORKAREA, 0, &aScreenRect, 0);
+	resize(aScreenRect);
 }
 
 

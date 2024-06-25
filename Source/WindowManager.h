@@ -45,6 +45,7 @@ HWND mainHandle();
 
 // Move/resize/hide/restore the overlay windows
 void resize(RECT theNewTargetRect);
+void resetOverlays();
 void hideOverlays();
 void showOverlays();
 void setOverlaysToTopZ();

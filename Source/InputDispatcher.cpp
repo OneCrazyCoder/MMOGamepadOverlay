@@ -91,8 +91,9 @@ struct Config
 	u16 baseKeyReleaseLockTime;
 	u16 mouseClickLockTime;
 	u16 mouseReClickLockTime;
+	u16 mouseLookMoveLockTime;
 	u16 minModKeyChangeTime;
-	u16 mouseJumpPauseTime;
+	u16 mouseJumpDelayTime;
 	u8 cancelAutoRunDeadzone;
 	u8 mouseDPadAccel;
 	bool useScanCodes;
@@ -106,7 +107,8 @@ struct Config
 		minModKeyChangeTime = Profile::getInt("System/MinModKeyChangeTime", 50);
 		mouseClickLockTime = Profile::getInt("System/MinMouseButtonClickTime", 25);
 		mouseReClickLockTime = Profile::getInt("System/MinMouseReClickTime", 0);
-		mouseJumpPauseTime = Profile::getInt("System/MouseJumpPauseTime", 25);
+		mouseJumpDelayTime = Profile::getInt("System/MouseJumpDelayTime", 25);
+		mouseLookMoveLockTime = Profile::getInt("System/MouseLookMoveStartTime", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
 		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
@@ -273,6 +275,7 @@ struct DispatchTracker
 	int mouseDigitalVel;
 	int mouseLookZoneFixTimer;
 	u32 mouseClickAllowedTime;
+	u32 mouseMoveAllowedTime;
 	u32 mouseJumpAllowedTime;
 	u32 mouseJumpFinishedTime;
 	u16 mouseJumpToHotspot;
@@ -630,20 +633,42 @@ static bool isSafeAsyncKey(u16 theVKey)
 
 static void offsetMousePos(int x, int y)
 {
+	if( !sTracker.mouseVelX && !sTracker.mouseVelY )
+		return;
+
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.dx = sTracker.mouseVelX;
+	anInput.mi.dy = sTracker.mouseVelY;
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
+	sTracker.mouseVelX = sTracker.mouseVelY = 0;
+
+	// Whether movement is allowed depends on mode
 	switch(sTracker.mouseMode)
 	{
 	case eMouseMode_Cursor:
-	case eMouseMode_LookTurn:
-	case eMouseMode_LookOnly:
-		Input anInput;
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.dx = sTracker.mouseVelX;
-		anInput.mi.dy = sTracker.mouseVelY;
-		anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
-		sTracker.inputs.push_back(anInput);
-		sTracker.mouseLookZoneFixTimer = 0;
+		// Always allow
 		break;
+	case eMouseMode_LookTurn:
+		// Allow once right mouse button is held down
+		if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
+			return;
+		break;
+	case eMouseMode_LookOnly:
+		// Allow once left mouse button is held down
+		if( !sTracker.keysHeldDown.test(VK_LBUTTON) )
+			return;
+		break;
+	default:
+		// Never allow
+		return;
 	}
+
+	if( gAppRunTime < sTracker.mouseMoveAllowedTime )
+		return;
+
+	sTracker.inputs.push_back(anInput);
+	sTracker.mouseLookZoneFixTimer = 0;
 }
 
 
@@ -678,7 +703,7 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 		return;
 	}
 
-	sTracker.mouseJumpFinishedTime = gAppRunTime + kConfig.mouseJumpPauseTime;
+	sTracker.mouseJumpFinishedTime = gAppRunTime + kConfig.mouseJumpDelayTime;
 	aDestPos = WindowManager::overlayPosToNormalizedMousePos(aDestPos);
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
@@ -806,7 +831,7 @@ static void trailMouseToHotspot(u16 theHotspotID)
 		sTracker.mouseJumpVerified = false;
 	}
 
-	sTracker.mouseJumpFinishedTime = gAppRunTime + kConfig.mouseJumpPauseTime;
+	sTracker.mouseJumpFinishedTime = gAppRunTime + kConfig.mouseJumpDelayTime;
 	aNewPos = WindowManager::overlayPosToNormalizedMousePos(aNewPos);
 	Input anInput;
 	anInput.type = INPUT_MOUSE;
@@ -985,18 +1010,37 @@ static EResult setKeyDown(u16 theKey, bool down)
 		}
 	}
 
-	// Lock cursor jump and mod key changes after release a mouse button,
-	// as well as re-clicking a mouse button immediately after.
-	// Mouse buttons are special because the "click" of a mouse is often
-	// on release, unlike a keyboard keys that "click" on initial press
-	if( anInput.type == INPUT_MOUSE && !down )
+	if( anInput.type == INPUT_MOUSE )
 	{
-		sTracker.mouseJumpAllowedTime =
-			gAppRunTime + kConfig.mouseJumpPauseTime;
-		sTracker.modKeyChangeAllowedTime =
-			gAppRunTime + kConfig.minModKeyChangeTime;
-		sTracker.mouseClickAllowedTime =
-			gAppRunTime + kConfig.mouseReClickLockTime;
+		if( down )
+		{
+			// Don't allow movement immediately after start holding the
+			// mouse button for a mouse look mode, or it may actually move
+			// the cursor instead in some modes and cause the mouse look
+			// to not start properly, clicking on a UI window intsead
+			if( (theKey == VK_LBUTTON &&
+				 sTracker.mouseMode == eMouseMode_LookOnly) ||
+				(theKey == VK_RBUTTON &&
+				 sTracker.mouseMode == eMouseMode_LookTurn) )
+			{
+				sTracker.mouseMoveAllowedTime =
+					gAppRunTime + kConfig.mouseLookMoveLockTime;
+			}
+		}
+		else
+		{
+			// Lock cursor jump and mod key changes after release a mouse
+			// button, as well as re-clicking a mouse button immediately after.
+			// Mouse buttons are special because the "click" of a mouse is
+			// often on release, unlike a keyboard keys that "click" on initial
+			// press, which is why the release time matters for them
+			sTracker.mouseJumpAllowedTime =
+				gAppRunTime + kConfig.mouseJumpDelayTime;
+			sTracker.modKeyChangeAllowedTime =
+				gAppRunTime + kConfig.minModKeyChangeTime;
+			sTracker.mouseClickAllowedTime =
+				gAppRunTime + kConfig.mouseReClickLockTime;
+		}
 	}
 
 	return eResult_Ok;
@@ -1295,17 +1339,6 @@ void update()
 					// (in case have multiple jump-clicks queued in a row)
 					sTracker.mouseMode = eMouseMode_Default;
 				}
-				else if( sTracker.mouseMode == eMouseMode_LookTurn ||
-						 sTracker.mouseMode == eMouseMode_LookOnly )
-				{// Just immediately swap which mouse button is being held
-					sTracker.mouseClickAllowedTime = 0;
-					sTracker.nextQueuedKey =
-						(sTracker.mouseModeWanted == eMouseMode_LookTurn)
-							? (VK_RBUTTON | kVKeyHoldFlag)
-							: (VK_LBUTTON | kVKeyHoldFlag);
-					sTracker.mouseLookZoneFixTimer = 0;
-					sTracker.mouseMode = sTracker.mouseModeWanted;
-				}
 				else if( !WindowManager::overlaysAreHidden() &&
 						 !sTracker.mouseJumpQueued )
 				{// Jump cursor to safe spot for initial click
@@ -1314,6 +1347,11 @@ void update()
 					sTracker.mouseJumpToMode = sTracker.mouseModeWanted;
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowJumpDrag = false;
+					if( sTracker.mouseMode == eMouseMode_LookTurn ||
+						 sTracker.mouseMode == eMouseMode_LookOnly )
+					{// Allow instant re-click if just switching ML modes
+						sTracker.mouseClickAllowedTime = 0;
+					}
 					// Begin holding down the appropriate mouse button
 					sTracker.nextQueuedKey =
 						(sTracker.mouseModeWanted == eMouseMode_LookTurn)
@@ -1690,11 +1728,7 @@ void update()
 				eSpecialHotspot_LastCursorPos,
 				WindowManager::overlayPosToHotspot(aCurrPos));
 		}
-		if( sTracker.mouseVelX || sTracker.mouseVelY )
-		{
-			offsetMousePos(sTracker.mouseVelX, sTracker.mouseVelY);
-			sTracker.mouseVelX = sTracker.mouseVelY = 0;
-		}
+		offsetMousePos(sTracker.mouseVelX, sTracker.mouseVelY);
 	}
 	// Return speed from digital mouse acceleration back to 0 over time
 	sTracker.mouseDigitalVel = max(0,
