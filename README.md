@@ -400,7 +400,7 @@ Would be the same as typing out this:
 
 ### Layer Mouse= property
 
-Layers (and the root [Scheme]) can change how the mouse is treated by using ``Mouse=Cursor`` (normal), ``Mouse=Look`` (holding the right-mouse button down to keep MouseLook mode active), or ``Mouse=Hide`` ("hide" the cursor by jumping it to the corner of the screen). The top-most layer with a ``Mouse=`` property specified dictates the mouse mode used, with the special exception of ``Mouse=HideOrLook`` which changes what it does based on the layers beneath it.
+Layers (and the root [Scheme]) can change how the mouse is treated by using ``Mouse=Cursor`` (normal), ``Mouse=LookTurn`` (holding the right-mouse button down to keep standard MouseLook mode active), ``Mouse=LookOnly`` (holding the left-mouse button down for alternate MouseLook in games that support it), or ``Mouse=Hide`` ("hide" the cursor by jumping it to the corner of the screen). The top-most layer with a ``Mouse=`` property specified dictates the mouse mode used, with the special exception of ``Mouse=HideOrLook`` which changes what it does based on the layers beneath it.
 
 ### Layer HUD= property
 
