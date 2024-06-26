@@ -775,7 +775,7 @@ For the key bind array types to work, make sure to create both a hotspot array i
 
 In addition to keyboard and mouse input and commands for adding/removing layers and managing menus, there are some other special-case commands you can assign to gamepad buttons and menu items:
 
-* ``=Lock Movement`` - Alternate version of AutoRun command that, if holding any direction other than straight forward (via Move/Turn/Strafe), it "locks" holding that direction (otherwise just uses normal AutoRun). Basically a multi-directional version of auto-run, or an auto-strafe-run if you will (and works even for games that have no AutoRun Key Bind set). Stops once release and re-press any direction on the same axis as any of locked direction (WARNING: or could stop unexpectedly when press one of the movement keys on your keyboard while typing a chat message if movement is assigned to WASD!).
+* ``=Lock Movement`` - Advanced version of AutoRun command that "locks" holding the current direction being held. For forward or not pressing any direction, it will use the standard auto-run key (unless there is none defined, then will hold down the MoveForward key). For turning left/right, it will NOT lock them (so as not to just spin in circles) unless are also in right-click Mouse Look mode at the time (so assumes they will strafe instead). Stops once release and re-press any direction on the same axis as any of locked direction (WARNING: or could stop unexpectedly when press one of the movement keys on your keyboard while typing a chat message if movement is assigned to WASD!).
 * ``=Change Profile`` - brings up profile select dialog
 * ``=Quit App`` - closes the overlay application
 

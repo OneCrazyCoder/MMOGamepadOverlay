@@ -2310,20 +2310,6 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 	{
 		const std::string anAlias = kSpecialKeyNames[i];
 		std::string aCmdStr = Profile::getStr(kKeybindsPrefix + anAlias);
-		if( aCmdStr.empty() )
-		{// Some keys can borrow assignment from other keys if empty
-			switch(i)
-			{
-			case eSpecialKey_StrafeL:
-				aCmdStr = Profile::getStr(std::string(kKeybindsPrefix) +
-					kSpecialKeyNames[eSpecialKey_TurnL]);
-				break;
-			case eSpecialKey_StrafeR:
-				aCmdStr = Profile::getStr(std::string(kKeybindsPrefix) +
-					kSpecialKeyNames[eSpecialKey_TurnR]);
-				break;
-			}
-		}
 		aNextSignalID = eBtn_Num + i;
 		Command aCmd = createKeyBindEntry(
 			theBuilder, anAlias, aCmdStr, aNextSignalID);
