@@ -31,6 +31,7 @@ const char* kTypeKeys[] = { "Type", "Style" };
 const char* kDisplayNameKeys[] = { "Label", "Title", "Name", "String" };
 const char* kKeybindsPrefix = "KeyBinds/";
 const char* kHotspotsPrefix = "Hotspots/";
+const char* kButtonRebindsPrefix = "Gamepad";
 const char* k4DirMenuItemLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
 DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 const char* kHotspotsKeys[] =
@@ -210,6 +211,7 @@ static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
+static EButton sButtonRemap[eBtn_Num];
 static VectorMap<std::pair<u16, EButton>, u32> sButtonHoldTimes;
 static u32 sDefaultButtonHoldTime = 400;
 
@@ -2865,7 +2867,8 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		mapDebugPrint("[%s]: Mouse set to '%s' mode\n",
 			theBuilder.debugItemName.c_str(),
 			sLayers[theLayerIdx].mouseMode == eMouseMode_Cursor ? "Cursor" :
-			sLayers[theLayerIdx].mouseMode == eMouseMode_Look ? "Mouse Look" :
+			sLayers[theLayerIdx].mouseMode == eMouseMode_LookTurn ? "RMB Mouse Look" :
+			sLayers[theLayerIdx].mouseMode == eMouseMode_LookOnly ? "LMB Mouse Look" :
 			sLayers[theLayerIdx].mouseMode == eMouseMode_Hide ? "Hidden" :
 			/*otherwise*/ "Hidden OR Mouse Look" );
 	}
@@ -3422,6 +3425,61 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 }
 
 
+static void buildGamepadButtonRemaps(InputMapBuilder& theBuilder)
+{
+	for(size_t i= 0; i < eBtn_Num; ++i)
+		sButtonRemap[i] = EButton(i);
+
+	DBG_ASSERT(theBuilder.keyValueList.empty());
+	StringToValueMap<bool> kOtherGamepadProperties;
+	kOtherGamepadProperties.setValue("MOUSECURSORDEADZONE", true);
+	kOtherGamepadProperties.setValue("MOUSECURSORSATURATION", true);
+	kOtherGamepadProperties.setValue("MOUSELOOKDEADZONE", true);
+	kOtherGamepadProperties.setValue("MOUSELOOKSATURATION", true);
+	kOtherGamepadProperties.setValue("MOUSEWHEELDEADZONE", true);
+	kOtherGamepadProperties.setValue("MOUSEWHEELSATURATION", true);
+	kOtherGamepadProperties.setValue("MOUSEDPADACCEL", true);
+	kOtherGamepadProperties.setValue("MOVEDEADZONE", true);
+	kOtherGamepadProperties.setValue("CANCELAUTORUNDEADZONE", true);
+	kOtherGamepadProperties.setValue("MOVESTRAIGHTBIAS", true);
+	kOtherGamepadProperties.setValue("LSTICKBUTTONTHRESHOLD", true);
+	kOtherGamepadProperties.setValue("RSTICKBUTTONTHRESHOLD", true);
+	kOtherGamepadProperties.setValue("TRIGGERBUTTONTHRESHOLD", true);
+
+	Profile::getAllKeys(std::string(kButtonRebindsPrefix) + "/",
+		theBuilder.keyValueList);
+	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
+	{
+		const std::string& aPropName = theBuilder.keyValueList[i].first;
+		const std::string& aPropVal = theBuilder.keyValueList[i].second;
+		if( kOtherGamepadProperties.contains(aPropName) )
+			continue;
+		EButton aPressedBtnID = buttonNameToID(aPropName);
+		if( aPressedBtnID != eBtn_None && aPressedBtnID < eBtn_Num )
+		{
+			EButton aResultBtnID = buttonNameToID(condense(aPropVal));
+			if( aResultBtnID != eBtn_None && aResultBtnID < eBtn_Num )
+			{
+				sButtonRemap[aPressedBtnID] = aResultBtnID;
+				mapDebugPrint("Remapping '%s' button to activate commands "
+					"originally assigned to '%s' instead!\n",
+					aPropName.c_str(),
+					aPropVal.c_str());
+			}
+			else
+				logError("Unrecognized gamepad button name '%s' to map %s to",
+					aPropVal.c_str(), aPropName.c_str());
+		}
+		else
+		{
+			logError("Unrecognized [%s] property name (button name?) '%s'",
+				kButtonRebindsPrefix, aPropName.c_str());
+		}
+	}
+	theBuilder.keyValueList.clear();
+}
+
+
 static void setCStringPointerFor(Command* theCommand)
 {
 	// Important that the raw string pointer set here is no longer held
@@ -3470,6 +3528,7 @@ void loadProfile()
 		buildControlScheme(anInputMapBuilder);
 		buildMenus(anInputMapBuilder);
 		buildHUDElements(anInputMapBuilder);
+		buildGamepadButtonRemaps(anInputMapBuilder);
 		linkComboControlsLayers();
 	}
 
@@ -3598,6 +3657,7 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	DBG_ASSERT(theButton < eBtn_Num);
+	theButton = sButtonRemap[theButton];
 
 	ButtonActionsMap::const_iterator itr;
 	do {
@@ -3627,6 +3687,7 @@ u32 commandHoldTime(u16 theLayerID, EButton theButton)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	DBG_ASSERT(theButton < eBtn_Num);
+	theButton = sButtonRemap[theButton];
 	std::pair<u16, EButton> aKey;
 	aKey.second = theButton;
 	VectorMap<std::pair<u16, EButton>, u32>::const_iterator itr;
