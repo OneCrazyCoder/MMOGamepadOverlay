@@ -655,6 +655,7 @@ static void offsetMousePos(int x, int y)
 			return;
 		break;
 	case eMouseMode_LookOnly:
+	case eMouseMode_LookTrans:
 		// Allow once left mouse button is held down
 		if( !sTracker.keysHeldDown.test(VK_LBUTTON) )
 			return;
@@ -1017,7 +1018,7 @@ static EResult setKeyDown(u16 theKey, bool down)
 			// Don't allow movement immediately after start holding the
 			// mouse button for a mouse look mode, or it may actually move
 			// the cursor instead in some modes and cause the mouse look
-			// to not start properly, clicking on a UI window intsead
+			// to not start properly by accidentally clicking on a UI window
 			if( (theKey == VK_LBUTTON &&
 				 sTracker.mouseMode == eMouseMode_LookOnly) ||
 				(theKey == VK_RBUTTON &&
@@ -1304,6 +1305,8 @@ void update()
 			break;
 		case eMouseMode_LookTurn:
 		case eMouseMode_LookOnly:
+		case eMouseMode_LookTrans:
+		case eMouseMode_LookTrans2:
 			// If not holding a mouse button in a _Look mode, it must have been
 			// force-released, so re-click it now by changing mode to 'default'
 			// to trigger mouse mode changing below
@@ -1319,20 +1322,43 @@ void update()
 		if( sTracker.mouseMode != sTracker.mouseModeWanted &&
 			sTracker.mouseVelX == 0 && sTracker.mouseVelY == 0 &&
 			(!sTracker.keysHeldDown.test(VK_LBUTTON) ||
-			 sTracker.mouseMode == eMouseMode_LookOnly) &&
+			 sTracker.mouseMode == eMouseMode_LookOnly ||
+			 sTracker.mouseMode == eMouseMode_LookTrans ||
+			 sTracker.mouseMode == eMouseMode_LookTrans2) &&
 			(!sTracker.keysHeldDown.test(VK_RBUTTON) ||
-			 sTracker.mouseMode == eMouseMode_LookTurn) )
+			 sTracker.mouseMode == eMouseMode_LookTurn) ) 
 		{// Mouse mode wants changing and mouse isn't otherwise busy
+
+			// Don't swap in or out of right-click mouse look mode while
+			// holding turn keys since they also will (likely) change between
+			// being turn keys and being strafe keys from doing so
+			const bool holdingTurnKey =
+				 sTracker.keysHeldDown.test(
+					InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
+				 sTracker.keysHeldDown.test(
+					InputMap::keyForSpecialAction(eSpecialKey_TurnR));
+
 			switch(sTracker.mouseModeWanted)
 			{
 			case eMouseMode_Cursor:
-				// Restore last known normal cursor position
-				sTracker.mouseJumpToHotspot = eSpecialHotspot_LastCursorPos;
-				sTracker.mouseJumpToMode = sTracker.mouseModeWanted;
-				sTracker.mouseJumpInterpolate = false;
-				sTracker.mouseAllowJumpDrag = false;
+				if( !holdingTurnKey ||
+					sTracker.mouseMode != eMouseMode_LookTurn )
+				{// Restore last known normal cursor position
+					sTracker.mouseJumpToHotspot =
+						eSpecialHotspot_LastCursorPos;
+					sTracker.mouseJumpToMode = sTracker.mouseModeWanted;
+					sTracker.mouseJumpInterpolate = false;
+					sTracker.mouseAllowJumpDrag = false;
+				}
 				break;
 			case eMouseMode_LookTurn:
+				if( sTracker.mouseMode == eMouseMode_LookOnly ||
+					sTracker.mouseMode == eMouseMode_LookTrans )
+				{
+					sTracker.mouseMode = eMouseMode_LookTrans;
+					break;
+				}
+				// fall through
 			case eMouseMode_LookOnly:
 				if( sTracker.mouseMode == eMouseMode_JumpClicked )
 				{// Give one more update to process queue before resuming
@@ -1340,7 +1366,8 @@ void update()
 					sTracker.mouseMode = eMouseMode_Default;
 				}
 				else if( !WindowManager::overlaysAreHidden() &&
-						 !sTracker.mouseJumpQueued )
+						 !sTracker.mouseJumpQueued &&
+						 !holdingTurnKey )
 				{// Jump cursor to safe spot for initial click
 					sTracker.mouseJumpToHotspot =
 						eSpecialHotspot_MouseLookStart;
@@ -1348,7 +1375,9 @@ void update()
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowJumpDrag = false;
 					if( sTracker.mouseMode == eMouseMode_LookTurn ||
-						 sTracker.mouseMode == eMouseMode_LookOnly )
+						sTracker.mouseMode == eMouseMode_LookOnly ||
+						sTracker.mouseMode == eMouseMode_LookTrans ||
+						sTracker.mouseMode == eMouseMode_LookTrans2 )
 					{// Allow instant re-click if just switching ML modes
 						sTracker.mouseClickAllowedTime = 0;
 					}
@@ -1544,7 +1573,8 @@ void update()
 	{// Keep holding right mouse button while eMouseMode_LookTurn is active
 		aDesiredKeysDown.set(VK_RBUTTON);
 	}
-	if( sTracker.mouseMode == eMouseMode_LookOnly &&
+	if( (sTracker.mouseMode == eMouseMode_LookOnly ||
+		 sTracker.mouseMode == eMouseMode_LookTrans) &&
 		sTracker.keysHeldDown.test(VK_LBUTTON) )
 	{// Keep holding left mouse button while eMouseMode_LookOnly is active
 		aDesiredKeysDown.set(VK_LBUTTON);
@@ -1929,6 +1959,7 @@ void moveMouse(int dx, int dy, bool digital)
 	const bool kMouseLookSpeed =
 		sTracker.mouseMode == eMouseMode_LookOnly ||
 		sTracker.mouseMode == eMouseMode_LookTurn ||
+		sTracker.mouseMode == eMouseMode_LookTrans ||
 		sTracker.keysHeldDown.test(VK_RBUTTON);
 
 	// Get magnitude of desired mouse motion in 0 to 1.0 range
@@ -2269,8 +2300,8 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		sTracker.autoRunMode == eAutoRunMode_LockedX ||
 		sTracker.autoRunMode == eAutoRunMode_LockedXY )
 	{// Continue using already-held keys for x axis
-		moveKeysWantDown.set(eMoveKey_TL, sTracker.moveKeysHeld.test(eMoveKey_TL));
-		moveKeysWantDown.set(eMoveKey_TR, sTracker.moveKeysHeld.test(eMoveKey_TR));
+		//moveKeysWantDown.set(eMoveKey_TL, sTracker.moveKeysHeld.test(eMoveKey_TL));
+		//moveKeysWantDown.set(eMoveKey_TR, sTracker.moveKeysHeld.test(eMoveKey_TR));
 		moveKeysWantDown.set(eMoveKey_SL, sTracker.moveKeysHeld.test(eMoveKey_SL));
 		moveKeysWantDown.set(eMoveKey_SR, sTracker.moveKeysHeld.test(eMoveKey_SR));
 	}
@@ -2315,12 +2346,32 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	{
 		if( !sTracker.moveKeysHeld.test(aWantedKey) )
 		{
+			if( sTracker.mouseMode == eMouseMode_LookTrans ||
+				sTracker.mouseMode == eMouseMode_LookTrans2 )
+			{// Flag that want to change mouse mode before actually moving
+				sTracker.mouseMode = eMouseMode_LookTrans2;
+				break;
+			}
+			aCmd.type = eCmdType_PressAndHoldKey;
 			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
-			if( aCmd.vKey )
-				aCmd.type = eCmdType_PressAndHoldKey;
-			else
-				aCmd.type = eCmdType_SignalOnly;
+			if( !aCmd.vKey )
+			{
+				// Use turn instead of doing nothing if no strafe defined
+				switch(aWantedKey + eSpecialKey_FirstMove)
+				{
+				case eSpecialKey_StrafeL:
+					aCmd.vKey = InputMap::keyForSpecialAction(
+						eSpecialKey_TurnL);
+					break;
+				case eSpecialKey_StrafeR:
+					aCmd.vKey = InputMap::keyForSpecialAction(
+						eSpecialKey_TurnR);
+					break;
+				}
+				if( !aCmd.vKey )
+					aCmd.type = eCmdType_SignalOnly;
+			}
 			aCmd.signalID = eBtn_Num + aWantedKey + eSpecialKey_FirstMove;
 			sendKeyCommand(aCmd);
 			sTracker.moveKeysHeld.set(aWantedKey);
@@ -2336,6 +2387,20 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		{
 			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
+			if( !aCmd.vKey )
+			{
+				switch(aHeldKey + eSpecialKey_FirstMove)
+				{
+				case eSpecialKey_StrafeL:
+					aCmd.vKey = InputMap::keyForSpecialAction(
+						eSpecialKey_TurnL);
+					break;
+				case eSpecialKey_StrafeR:
+					aCmd.vKey = InputMap::keyForSpecialAction(
+						eSpecialKey_TurnR);
+					break;
+				}
+			}
 			if( aCmd.vKey )
 			{
 				aCmd.type = eCmdType_ReleaseKey;
@@ -2358,8 +2423,8 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			sTracker.moveKeysHeld.test(eMoveKey_F) ||
 			sTracker.moveKeysHeld.test(eMoveKey_B);
 		const bool lockX =
-			sTracker.moveKeysHeld.test(eMoveKey_TL) ||
-			sTracker.moveKeysHeld.test(eMoveKey_TR) ||
+			//sTracker.moveKeysHeld.test(eMoveKey_TL) ||
+			//sTracker.moveKeysHeld.test(eMoveKey_TR) ||
 			sTracker.moveKeysHeld.test(eMoveKey_SL) ||
 			sTracker.moveKeysHeld.test(eMoveKey_SR);
 		if( lockX && lockY )

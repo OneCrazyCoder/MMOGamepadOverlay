@@ -153,6 +153,7 @@ static void restoreTargetWindow()
 	{
 		targetDebugPrint("Restoring target window to active window\n");
 		SetForegroundWindow(sTargetWindowHandle);
+		SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	}
 }
 
