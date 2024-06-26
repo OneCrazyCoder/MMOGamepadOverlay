@@ -816,6 +816,16 @@ In addition, to save on typing you can specify multiple hotspot/icon offsets in 
 
 *Note that the + signs in front of each number for the offsets don't do anything, I just put them there to help remind me that these are offsets rather than direct positions.*
 
+### Quick remap of gamepad buttons
+
+If you want to completely swap some button assignments in your profile, but not go through every layer/etc to change each button's command assignments one-by-one, you can swap them quickly using the following syntax:
+
+    [Gamepad]
+    Triangle = Circle
+    Circle = Triangle
+
+The above would swap everything the Circle button and Triangle button do throughout the rest of the profile. The name on the left of the = sign is which button you will actually press, and the name on the right is which button you want pressed instead of it.
+
 ### System features
 
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD elements can actually show up over top of the game.
