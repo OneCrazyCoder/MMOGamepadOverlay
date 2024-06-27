@@ -11,6 +11,10 @@
 #include "Resources/resource.h"
 #include "TargetApp.h" // targetWindowHandle()
 
+// Forward declares of functions defined in Main.cpp for updating in modal mode
+void mainTimerUpdate();
+void mainModulesUpdate();
+
 namespace WindowManager
 {
 
@@ -87,6 +91,9 @@ struct OverlayWindowPriority
 //-----------------------------------------------------------------------------
 
 static HWND sMainWindow = NULL;
+static HANDLE sModalModeTimer = NULL;
+static HANDLE sModalModeThread = NULL;
+static HANDLE sModalModeExit = NULL;
 static std::vector<OverlayWindow> sOverlayWindows;
 static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
 static RECT sDesktopTargetRect; // relative to virtual desktop
@@ -95,11 +102,74 @@ static SIZE sTargetSize = { 0 };
 static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sUseChildWindows = false;
 static bool sHidden = false;
+static bool sMainWindowInModalMode = false;
 
 
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
+
+DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
+{
+	HANDLE hTimer = *(HANDLE*)lpParam;
+	HANDLE handles[] = { hTimer, sModalModeExit };
+
+	while(true)
+	{
+		// Wait for the timer to be signaled
+		switch(WaitForMultipleObjects(2, handles, FALSE, INFINITE))
+		{
+		case WAIT_OBJECT_0:
+			// Timer update
+			if( sMainWindowInModalMode )
+			{
+				mainTimerUpdate();
+				mainModulesUpdate();
+			}
+			break;
+		case WAIT_OBJECT_0 + 1:
+			// Exit thread event
+			return 0;
+		}
+	}
+
+	return 0;
+}
+
+
+static void startModalModeUpdates()
+{
+	if( sMainWindowInModalMode )
+		return;
+
+	// This is used to make sure gamepad input still has an effect when
+	// click in main window's title bar, close button, menu, etc. just in
+	// case it was our own gamepad-to-mouse translations that started it.
+	// Without this, would be stuck in a modal update loop and never get
+	// any further updates from the gamepad to release the mouse button,
+	// requiring using the actual mouse to break out of the modal loop!
+	if( !sModalModeTimer )
+	{
+		sModalModeTimer = CreateWaitableTimer(NULL, FALSE, NULL);
+		sModalModeExit = CreateEvent(NULL, TRUE, FALSE, NULL);
+		if( sModalModeTimer && sModalModeExit )
+		{
+			sModalModeThread = CreateThread(
+				NULL, 0, modalModeTimerThread, &sModalModeTimer, 0, NULL);
+		}
+	}
+	if( sModalModeTimer )
+	{
+		LARGE_INTEGER liDueTime;
+		liDueTime.QuadPart = -LONGLONG(gAppTargetFrameTime) * 10000LL;
+		SetWaitableTimer(
+			sModalModeTimer, &liDueTime,
+			gAppTargetFrameTime, NULL, NULL, FALSE);
+	}
+
+	sMainWindowInModalMode = true;
+}
+
 
 static LRESULT CALLBACK mainWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
@@ -131,6 +201,23 @@ static LRESULT CALLBACK mainWindowProc(
 		return 0;
 
 	case WM_DESTROY:
+		if( sModalModeExit )
+		{
+			SetEvent(sModalModeExit);
+			WaitForSingleObject(sModalModeThread, INFINITE);
+			CloseHandle(sModalModeExit);
+			sModalModeExit = NULL;
+		}
+		if( sModalModeTimer )
+		{
+			CloseHandle(sModalModeTimer);
+			sModalModeTimer = NULL;
+		}
+		if( sModalModeThread )
+		{
+			CloseHandle(sModalModeThread);
+			sModalModeThread = NULL;
+		}
 		sMainWindow = NULL;
 		return 0;
 
@@ -151,6 +238,16 @@ static LRESULT CALLBACK mainWindowProc(
 			}
 		}
 		HUD::init();
+		break;
+
+	case WM_NCLBUTTONDOWN:
+	case WM_NCLBUTTONDBLCLK:
+	case WM_ENTERSIZEMOVE:
+		startModalModeUpdates();
+		break;
+	case WM_SYSCOMMAND:
+		if( wParam == SC_MOVE || wParam == SC_SIZE )
+			startModalModeUpdates();
 		break;
 	}
 
@@ -585,6 +682,9 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void update()
 {
+	if( sMainWindowInModalMode )
+		return;
+
 	// Update each overlay window as needed
 	HDC aScreenDC = GetDC(NULL);
 	HDC aCaptureDC = NULL;
@@ -710,6 +810,15 @@ void update()
 	}
 	ReleaseDC(NULL, aCaptureDC);
 	ReleaseDC(NULL, aScreenDC);
+}
+
+
+void stopModalModeUpdates()
+{
+	if( !sMainWindowInModalMode || !sMainWindow || !sModalModeTimer )
+		return;
+	CancelWaitableTimer(sModalModeTimer);
+	sMainWindowInModalMode = false;
 }
 
 

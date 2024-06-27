@@ -37,6 +37,9 @@ void destroyAll(HINSTANCE);
 // Update window contents as needed
 void update();
 
+// Stops main window manually updating modules in modal mode (resizing window)
+void stopModalModeUpdates();
+
 // Checks if given window handle is owned by this app or not
 bool isOwnedByThisApp(HWND theWindow);
 

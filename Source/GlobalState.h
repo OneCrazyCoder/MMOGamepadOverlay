@@ -21,6 +21,9 @@ extern u32 gAppRunTime;
 // Milliseconds that have passed since last update of main loop
 extern int gAppFrameTime;
 
+// Target value of gAppFrameTime (determines sleep() time)
+extern int gAppTargetFrameTime;
+
 // Signals sent out to trigger signal commands
 extern BitVector<> gFiredSignals;
 
