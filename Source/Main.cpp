@@ -33,7 +33,6 @@
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static DWORD sMillisecsPerUpdate = 14; // allows >= 60 fps without taxing CPU
 static DWORD sLastUpdateTime = 0;
 static DWORD sUpdateStartTime = 0;
 static u32 sUpdateLoopCount = 0;
@@ -41,8 +40,17 @@ static bool sUpdateLoopStarted = false;
 
 
 //-----------------------------------------------------------------------------
-// Global Main Loop Functions (also used in Dialogs.cpp)
+// Global Main Loop Functions (also used in Dialogs.cpp and WindowManager.cpp)
 //-----------------------------------------------------------------------------
+
+void mainTimerUpdate()
+{
+	sUpdateStartTime = timeGetTime();
+	gAppFrameTime = sUpdateStartTime - sLastUpdateTime;
+	gAppRunTime += gAppFrameTime;
+	sLastUpdateTime = sUpdateStartTime;
+}
+
 
 void mainLoopUpdate(HWND theDialog)
 {
@@ -50,11 +58,7 @@ void mainLoopUpdate(HWND theDialog)
 	if( sUpdateLoopStarted )
 		return;
 	sUpdateLoopStarted = true;
-
-	sUpdateStartTime = timeGetTime();
-	gAppFrameTime = sUpdateStartTime - sLastUpdateTime;
-	gAppRunTime += gAppFrameTime;
-	sLastUpdateTime = sUpdateStartTime;
+	mainTimerUpdate();
 
 	MSG aWindowsMessage = MSG();
 	while(PeekMessage(&aWindowsMessage, NULL, 0, 0, PM_REMOVE))
@@ -81,6 +85,23 @@ void mainLoopUpdate(HWND theDialog)
 			break;
 		}
 	}
+
+	WindowManager::stopModalModeUpdates();
+}
+
+
+void mainModulesUpdate()
+{
+	if( gReloadProfile )
+		return;
+
+	Gamepad::update();
+	HotspotMap::update();
+	InputTranslator::update();
+	InputDispatcher::update();
+	TargetApp::update();
+	HUD::update();
+	WindowManager::update();
 }
 
 
@@ -92,8 +113,8 @@ void mainLoopSleep()
 	sUpdateLoopStarted = false;
 
 	const DWORD aTimeTakenByUpdate = timeGetTime() - sUpdateStartTime;
-	if( aTimeTakenByUpdate < sMillisecsPerUpdate )
-		Sleep(sMillisecsPerUpdate - aTimeTakenByUpdate);
+	if( aTimeTakenByUpdate < DWORD(gAppTargetFrameTime) )
+		Sleep(DWORD(gAppTargetFrameTime) - aTimeTakenByUpdate);
 	else
 		Sleep(1);
 
@@ -134,8 +155,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 
 	// Load core profile to get system settings
 	Profile::loadCore();
-	sMillisecsPerUpdate = (DWORD)
-		Profile::getInt("System/FrameTime", sMillisecsPerUpdate);
+	gAppTargetFrameTime = max(1,
+		Profile::getInt("System/FrameTime", gAppTargetFrameTime));
 
 	sLastUpdateTime = timeGetTime();
 	while(gReloadProfile && !gShutdown && !hadFatalError())
@@ -151,8 +172,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		// Load configuration settings for each module from profile
 		if( !gShutdown && !hadFatalError() )
 		{
-			sMillisecsPerUpdate = (DWORD)
-				Profile::getInt("System/FrameTime", sMillisecsPerUpdate);
+			gAppTargetFrameTime = max(1,
+				Profile::getInt("System/FrameTime", gAppTargetFrameTime));
 			InputMap::loadProfile();
 			HotspotMap::init();
 			InputTranslator::loadProfile();
@@ -174,16 +195,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			mainLoopUpdate(NULL);
 
 			// Update modules
-			if( !gReloadProfile )
-			{
-				Gamepad::update();
-				HotspotMap::update();
-				InputTranslator::update();
-				InputDispatcher::update();
-				TargetApp::update();
-				HUD::update();
-				WindowManager::update();
-			}
+			mainModulesUpdate();
 
 			// Yield via Sleep() so sent input can be processed by target
 			mainLoopSleep();
