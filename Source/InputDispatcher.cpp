@@ -279,6 +279,7 @@ struct DispatchTracker
 	u32 mouseJumpAllowedTime;
 	u32 mouseJumpFinishedTime;
 	u16 mouseJumpToHotspot;
+	bool mouseMovedSinceModeChange;
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
 	bool mouseJumpQueued;
@@ -670,6 +671,7 @@ static void offsetMousePos(int x, int y)
 
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseLookZoneFixTimer = 0;
+	sTracker.mouseMovedSinceModeChange = true;
 }
 
 
@@ -762,6 +764,7 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 
 	// Reached jump destination and can update mouse mode accordingly
 	sTracker.mouseMode = sTracker.mouseJumpToMode;
+	sTracker.mouseMovedSinceModeChange = false;
 	return true;
 }
 
@@ -1352,8 +1355,9 @@ void update()
 				}
 				break;
 			case eMouseMode_LookTurn:
-				if( sTracker.mouseMode == eMouseMode_LookOnly ||
-					sTracker.mouseMode == eMouseMode_LookTrans )
+				if( sTracker.mouseMovedSinceModeChange &&
+					(sTracker.mouseMode == eMouseMode_LookOnly ||
+					 sTracker.mouseMode == eMouseMode_LookTrans) )
 				{
 					sTracker.mouseMode = eMouseMode_LookTrans;
 					break;
