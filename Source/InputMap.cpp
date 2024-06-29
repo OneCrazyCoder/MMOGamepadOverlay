@@ -3427,9 +3427,6 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 
 static void buildGamepadButtonRemaps(InputMapBuilder& theBuilder)
 {
-	for(size_t i= 0; i < eBtn_Num; ++i)
-		sButtonRemap[i] = EButton(i);
-
 	DBG_ASSERT(theBuilder.keyValueList.empty());
 	StringToValueMap<bool> kOtherGamepadProperties;
 	kOtherGamepadProperties.setValue("MOUSECURSORDEADZONE", true);
@@ -3516,6 +3513,8 @@ void loadProfile()
 	sMenus.clear();
 	sHUDElements.clear();
 	sButtonHoldTimes.clear();
+	for(size_t i= 0; i < eBtn_Num; ++i)
+		sButtonRemap[i] = EButton(i);
 
 	// Get default button hold time to execute eBtnAct_Hold command
 	sDefaultButtonHoldTime = max(0, Profile::getInt("System/ButtonHoldTime"));
