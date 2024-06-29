@@ -315,6 +315,8 @@ static void fireSignal(u16 aSignalID)
 	case eSpecialKey_AutoRun:
 		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
 			sTracker.autoRunMode = eAutoRunMode_Started;
+		if( sTracker.mouseMode == eMouseMode_LookTrans )
+			sTracker.mouseMode = eMouseMode_LookTrans2;
 		break;
 	case eSpecialKey_MoveF:
 	case eSpecialKey_MoveB:
