@@ -1073,6 +1073,11 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 
 	const size_t aCompIndex =
 		min(aWindow.components.size()-1, theMenuItemIdx + 1);
+	if( !aWindow.layoutUpdated || gReshapeHUD.test(aHUDElementID) )
+	{
+		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
+			aWindow.components, aWindow.position, aWindow.size);
+	}
 	POINT aPos;
 	aPos.x = aWindow.components[aCompIndex].left;
 	aPos.y = aWindow.components[aCompIndex].top;
