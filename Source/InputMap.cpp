@@ -2689,6 +2689,37 @@ static void addSignalCommand(
 		return;
 	}
 
+	// Check for responding to use of of "Move", "MoveTurn", and "MoveStrafe"
+	switch(commandWordToID(condense(theSignalKey)))
+	{
+	case eCmdWord_Move:
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_StrafeL], theCmdStr);
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_StrafeR], theCmdStr);
+		// fall through
+	case eCmdWord_Turn:
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_MoveF], theCmdStr);
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_MoveB], theCmdStr);
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_TurnL], theCmdStr);
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_TurnR], theCmdStr);
+		return;
+	case eCmdWord_Strafe:
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_MoveF], theCmdStr);
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_MoveB], theCmdStr);
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_StrafeL], theCmdStr);
+		addSignalCommand(theBuilder, theLayerIdx,
+			kSpecialKeyNames[eSpecialKey_StrafeR], theCmdStr);
+		return;
+	}
+
 	// For button press signals, need to actually use the word "press"
 	// Other button actions (tap, hold, release) are not supported as signals
 	if( breakOffButtonAction(theSignalKey) == eBtnAct_Press )
