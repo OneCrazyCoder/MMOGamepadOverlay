@@ -145,11 +145,19 @@ struct LayerState
 	}
 };
 
+struct ActiveSignal
+{
+	u16 signalID;
+	u16 layerID;
+	Command cmd;
+};
+
 struct TranslatorState
 {
 	ButtonState gamepadButtons[eBtn_Num];
 	std::vector<LayerState> layers;
 	std::vector<u16> layerOrder;
+	std::vector<ActiveSignal> signalCommands;
 
 	void clear()
 	{
@@ -162,6 +170,7 @@ struct TranslatorState
 			layers[i].autoButton.clear();
 		layers.clear();
 		layerOrder.clear();
+		signalCommands.clear();
 	}
 };
 
@@ -243,7 +252,7 @@ static void loadLayerData()
 }
 
 
-static void	loadButtonCommandsForCurrentLayers()
+static void	loadCommandsForCurrentLayers()
 {
 	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
@@ -280,6 +289,24 @@ static void	loadButtonCommandsForCurrentLayers()
 		}
 		aBtnState.holdTimeForAction = InputMap::commandHoldTime(
 			aBtnState.commandsLayer, EButton(aBtnIdx));
+	}
+
+	sState.signalCommands.clear();
+	for(size_t i = 0; i < sState.layerOrder.size(); ++i)
+	{
+		const u16 aLayerID = sState.layerOrder[i];
+		const VectorMap<u16, Command>& aSignalsList =
+			InputMap::signalCommandsForLayer(aLayerID);
+		for(VectorMap<u16, Command>::const_iterator
+			itr = aSignalsList.begin();
+			itr != aSignalsList.end(); ++itr)
+		{
+			ActiveSignal aSignalCmd;
+			aSignalCmd.signalID = itr->first;
+			aSignalCmd.layerID = aLayerID;
+			aSignalCmd.cmd = itr->second;
+			sState.signalCommands.push_back(aSignalCmd);
+		}
 	}
 }
 
@@ -1476,7 +1503,7 @@ static void processLayerHoldButtons()
 		// (removed layers & HUD will be handled later in main update)
 		if( aLayerWasAdded )
 		{
-			loadButtonCommandsForCurrentLayers();
+			loadCommandsForCurrentLayers();
 			if( ++aLoopCount > kMaxLayerChangesPerUpdate )
 			{
 				logFatalError(
@@ -1620,7 +1647,7 @@ void loadProfile()
 	sResults.clear();
 	loadLayerData();
 	addControlsLayer(0);
-	loadButtonCommandsForCurrentLayers();
+	loadCommandsForCurrentLayers();
 	updateHUDStateForCurrentLayers();
 	updateMouseModeForCurrentLayers();
 }
@@ -1671,19 +1698,12 @@ void update()
 	aFiredSignals.reset(eBtn_None);
 	if( aFiredSignals.any() )
 	{
-		for(size_t i = 0; i < sState.layerOrder.size(); ++i)
+		for(size_t i = 0; i < sState.signalCommands.size(); ++i)
 		{
-			const u16 aLayerID = sState.layerOrder[i];
-			const VectorMap<u16, Command>& aSignalsList =
-				InputMap::signalCommandsForLayer(aLayerID);
-			for(VectorMap<u16, Command>::const_iterator
-				itr = aSignalsList.begin();
-				itr != aSignalsList.end(); ++itr)
-			{
-				DBG_ASSERT(itr->first < aFiredSignals.size());
-				if( aFiredSignals.test(itr->first) )
-					processCommand(null, itr->second, aLayerID);
-			}
+			ActiveSignal& aSignalCmd = sState.signalCommands[i];
+			DBG_ASSERT(aSignalCmd.signalID < aFiredSignals.size());
+			if( aFiredSignals.test(aSignalCmd.signalID) )
+				processCommand(null, aSignalCmd.cmd, aSignalCmd.layerID);
 		}
 	}
 
@@ -1719,7 +1739,7 @@ void update()
 	// Update button commands, mouse mode, HUD, etc for new layer order
 	if( sResults.layerChangeMade )
 	{
-		loadButtonCommandsForCurrentLayers();
+		loadCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();
 		updateMouseModeForCurrentLayers();
