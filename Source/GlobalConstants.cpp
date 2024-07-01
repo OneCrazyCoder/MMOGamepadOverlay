@@ -599,7 +599,6 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "PRESSED",		eCmdWord_Ignored	},
 				{ "ARRAY",			eCmdWord_Ignored	},
 				{ "KEY",			eCmdWord_Ignored	},
-				{ "LEAVE",			eCmdWord_Ignored	},
 				{ "A",				eCmdWord_Filler		},
 				{ "AND",			eCmdWord_Filler		},
 				{ "BY",				eCmdWord_Filler		},

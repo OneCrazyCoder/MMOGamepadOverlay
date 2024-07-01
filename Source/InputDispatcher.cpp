@@ -1867,8 +1867,8 @@ void sendKeyCommand(const Command& theCommand)
 	switch(theCommand.type)
 	{
 	case eCmdType_Empty:
-	case eCmdType_DoNothing:
 	case eCmdType_Unassigned:
+	case eCmdType_DoNothing:
 		// Do nothing
 		break;
 	case eCmdType_SignalOnly:

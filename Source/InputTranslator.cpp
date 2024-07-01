@@ -69,14 +69,28 @@ struct Config
 // Local Structures
 //-----------------------------------------------------------------------------
 
+struct ButtonCommandSet
+{
+	Command cmd[eBtnAct_Num];
+	u16 layer[eBtnAct_Num];
+	u32 holdTimeForAction;
+
+	void clear()
+	{
+		for(size_t i = 0; i < eBtnAct_Num; ++i)
+		{
+			cmd[i] = Command();
+			layer[i] = 0;
+		}
+		holdTimeForAction = 500;
+	}
+};
+
 struct ButtonState
 {
-	const Command* commands;
-	const Command* commandsWhenPressed;
+	ButtonCommandSet commands;
+	ButtonCommandSet commandsWhenPressed;
 	u32 heldTime;
-	u32 holdTimeForAction;
-	u16 commandsLayer;
-	u16 layerWhenPressed;
 	u16 layerHeld;
 	s16 repeatDelay;
 	u16 vKeyHeld;
@@ -90,13 +104,10 @@ struct ButtonState
 	{
 		DBG_ASSERT(vKeyHeld == 0);
 		DBG_ASSERT(layerHeld == 0);
-		commands = null;
-		commandsWhenPressed = null;
-		commandsLayer = 0;
-		layerWhenPressed = 0;
+		commands.clear();
+		commandsWhenPressed.clear();
 		layerHeld = 0;
 		heldTime = 0;
-		holdTimeForAction = 0;
 		repeatDelay = 0;
 		buttonID = eBtn_None;
 		heldDown = false;
@@ -109,8 +120,7 @@ struct ButtonState
 	{
 		DBG_ASSERT(vKeyHeld == 0);
 		DBG_ASSERT(layerHeld == 0);
-		commandsWhenPressed = null;
-		layerWhenPressed = 0;
+		commandsWhenPressed.clear();
 		heldTime = 0;
 		repeatDelay = 0;
 		heldDown = false;
@@ -129,7 +139,7 @@ struct LayerState
 	u16 altParentLayerID; // 0 unless is a combo layer
 	union{ bool active; bool autoButtonDown; };
 	bool autoButtonHit;
-	bool ownedButtonHit;
+	bool buttonCommandUsed;
 	bool heldActiveByButton;
 
 	void clear()
@@ -140,7 +150,7 @@ struct LayerState
 		altParentLayerID = 0;
 		active = false;
 		autoButtonHit = false;
-		ownedButtonHit = false;
+		buttonCommandUsed = false;
 		heldActiveByButton = false;
 	}
 };
@@ -243,10 +253,18 @@ static void loadLayerData()
 	for(u16 i = 0; i < sState.layers.size(); ++i)
 	{
 		sState.layers[i].clear();
-		sState.layers[i].autoButton.commandsLayer = i;
-		sState.layers[i].autoButton.commands =
+		const Command* autoButtonCommands =
 			InputMap::commandsForButton(i, eBtn_None);
-		sState.layers[i].autoButton.holdTimeForAction =
+		if( autoButtonCommands )
+		{
+			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+			{
+				sState.layers[i].autoButton.commands.cmd[aBtnAct] =
+					autoButtonCommands[aBtnAct];
+				sState.layers[i].autoButton.commands.layer[aBtnAct] = i;
+			}
+		}
+		sState.layers[i].autoButton.commands.holdTimeForAction =
 			InputMap::commandHoldTime(i, eBtn_None);
 	}
 }
@@ -257,38 +275,32 @@ static void	loadCommandsForCurrentLayers()
 	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
-		aBtnState.commandsLayer = 0;
-		aBtnState.commands = null;
-		// Start with the front-most layer, and stop once get assigned
-		for(std::vector<u16>::const_reverse_iterator itr =
-			sState.layerOrder.rbegin();
-			itr != sState.layerOrder.rend(); ++itr)
+		aBtnState.commands.clear();
+		for(std::vector<u16>::const_iterator itr =
+			sState.layerOrder.begin();
+			itr != sState.layerOrder.end(); ++itr)
 		{
+			const u16 aLayerID = *itr;
 			const Command* aCommandsArray = 
-				InputMap::commandsForButton(*itr, EButton(aBtnIdx));
+				InputMap::commandsForButton(aLayerID, EButton(aBtnIdx));
 			if( !aCommandsArray )
 				continue;
-			// Must have a non-empty, non-unassigned command on an action
-			// in order to be the layer that responds to this button
-			bool shouldAssignButton = false;
 			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
-				if( aCommandsArray[aBtnAct].type != eCmdType_Empty &&
-					aCommandsArray[aBtnAct].type != eCmdType_Unassigned )
-				{
-					shouldAssignButton = true;
-					break;
-				}
+				if( aCommandsArray[aBtnAct].type == eCmdType_Empty )
+					continue;
+				aBtnState.commands.cmd[aBtnAct] = aCommandsArray[aBtnAct];
+				aBtnState.commands.layer[aBtnAct] = aLayerID;
 			}
-			if( shouldAssignButton )
+			if( aCommandsArray[eBtnAct_Hold].type != eCmdType_Empty &&
+				aCommandsArray[eBtnAct_Hold].type != eCmdType_Unassigned &&
+				(aCommandsArray[eBtnAct_Hold].type != eCmdType_DoNothing ||
+				 aCommandsArray[eBtnAct_Tap].type >= eCmdType_FirstValid) )
 			{
-				aBtnState.commands = aCommandsArray;
-				aBtnState.commandsLayer = *itr;
-				break;
+				aBtnState.commands.holdTimeForAction =
+					InputMap::commandHoldTime(aLayerID, EButton(aBtnIdx));
 			}
 		}
-		aBtnState.holdTimeForAction = InputMap::commandHoldTime(
-			aBtnState.commandsLayer, EButton(aBtnIdx));
 	}
 
 	sState.signalCommands.clear();
@@ -332,7 +344,7 @@ static void removeControlsLayer(u16 theLayerID)
 
 			// Reset some layer properties
 			aLayer.active = false;
-			aLayer.ownedButtonHit = false;
+			aLayer.buttonCommandUsed = false;
 			aLayer.heldActiveByButton = false;
 			sResults.layerChangeMade = true;
 
@@ -618,14 +630,14 @@ static void addComboLayers(u16 theNewLayerID)
 }
 
 
-static void flagOwnedButtonHit(u16 theLayerIdx)
+static void flagLayerButtonCommandUsed(u16 theLayerIdx)
 {
 	if( theLayerIdx == 0 )
 		return;
 
-	sState.layers[theLayerIdx].ownedButtonHit = true;
-	flagOwnedButtonHit(sState.layers[theLayerIdx].parentLayerID);
-	flagOwnedButtonHit(sState.layers[theLayerIdx].altParentLayerID);
+	sState.layers[theLayerIdx].buttonCommandUsed = true;
+	flagLayerButtonCommandUsed(sState.layers[theLayerIdx].parentLayerID);
+	flagLayerButtonCommandUsed(sState.layers[theLayerIdx].altParentLayerID);
 }
 
 
@@ -690,8 +702,8 @@ static void processCommand(
 	switch(theCmd.type)
 	{
 	case eCmdType_Empty:
-	case eCmdType_DoNothing:
 	case eCmdType_Unassigned:
+	case eCmdType_DoNothing:
 		// Do nothing
 		break;
 	case eCmdType_SignalOnly:
@@ -1061,27 +1073,23 @@ static void processButtonPress(ButtonState& theBtnState)
 	// previously, which could be important - especially for cases like
 	// _Release matching up with a particular _Press.
 	theBtnState.commandsWhenPressed = theBtnState.commands;
-	theBtnState.layerWhenPressed = theBtnState.commandsLayer;
 
 	// Log that at least one button in the assigned layer has been pressed
 	// (unless it is just the Auto button for the layer, which doesn't count)
-	if( theBtnState.buttonID != eBtn_None &&
-		!sState.layers[theBtnState.commandsLayer].ownedButtonHit )
-	{
-		flagOwnedButtonHit(theBtnState.commandsLayer);
-	}
-
-	if( !theBtnState.commands )
-		return;
+	//if( theBtnState.buttonID != eBtn_None &&
+	//	!sState.layers[theBtnState.commandsLayer].ownedButtonHit )
+	//{
+	//	flagOwnedButtonHit(theBtnState.commandsLayer);
+	//}
 
 	// _Press is processed before _Down since it is specifically called out
 	// and the name implies it should be first action on button press.
 	processCommand(&theBtnState,
-		theBtnState.commands[eBtnAct_Press],
-		theBtnState.commandsLayer);
+		theBtnState.commands.cmd[eBtnAct_Press],
+		theBtnState.commands.layer[eBtnAct_Press]);
 
 	// Get _Down command for this button (default when no action specified)
-	const Command& aCmd = theBtnState.commands[eBtnAct_Down];
+	const Command& aCmd = theBtnState.commands.cmd[eBtnAct_Down];
 	switch(aCmd.type)
 	{
 	case eCmdType_MoveTurn:
@@ -1095,7 +1103,8 @@ static void processButtonPress(ButtonState& theBtnState)
 			return;
 		break;
 	}
-	processCommand(&theBtnState, aCmd, theBtnState.commandsLayer);
+	processCommand(&theBtnState, aCmd,
+		theBtnState.commands.layer[eBtnAct_Down]);
 }
 
 
@@ -1106,15 +1115,9 @@ static void processContinuousInput(
 {
 	// Use commandsWhenPressed if has a continuous action, otherwise current
 	// These inputs should always be assigned to the _Down button action
-	Command aCmd;
-	if( theBtnState.commandsWhenPressed )
-		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Down];
-	if( theBtnState.commands &&
-		theBtnState.commands != theBtnState.commandsWhenPressed &&
-		(aCmd.type < eCmdType_FirstValid || isTapOnlyCommand(aCmd)) )
-	{
-		aCmd = theBtnState.commands[eBtnAct_Down];
-	}
+	Command aCmd = theBtnState.commandsWhenPressed.cmd[eBtnAct_Down];
+	if( aCmd.type < eCmdType_FirstValid || isTapOnlyCommand(aCmd) )
+		aCmd = theBtnState.commands.cmd[eBtnAct_Down];
 
 	switch(aCmd.type)
 	{
@@ -1215,9 +1218,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 		return;
 
 	// Auto-repeat only commandsWhenPressed assigned to _Down
-	Command aCmd;
-	if( theBtnState.commandsWhenPressed )
-		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Down];
+	Command aCmd = theBtnState.commandsWhenPressed.cmd[eBtnAct_Down];
 
 	// Filter out which commands can use auto-repeat safely
 	switch(aCmd.type)
@@ -1239,8 +1240,8 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	}
 	
 	// Don't auto-repeat when button has other conflicting actions assigned
-	if( theBtnState.commandsWhenPressed[eBtnAct_Tap].type ||
-		theBtnState.commandsWhenPressed[eBtnAct_Hold].type )
+	if( theBtnState.commandsWhenPressed.cmd[eBtnAct_Tap].type ||
+		theBtnState.commandsWhenPressed.cmd[eBtnAct_Hold].type )
 		return;
 
 	// Needs to be held for initial held time first before start repeating
@@ -1250,7 +1251,9 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	// Now can start using repeatDelay to re-send command at autoRepeatRate
 	if( theBtnState.repeatDelay <= 0 )
 	{
-		processCommand(&theBtnState, aCmd, true);
+		processCommand(&theBtnState, aCmd,
+			theBtnState.commandsWhenPressed.layer[eBtnAct_Down],
+			true);
 		theBtnState.repeatDelay += kConfig.autoRepeatRate;
 	}
 	theBtnState.repeatDelay -= gAppFrameTime;
@@ -1259,6 +1262,14 @@ static void processAutoRepeat(ButtonState& theBtnState)
 
 static void processButtonHold(ButtonState& theBtnState)
 {
+	if( theBtnState.holdActionDone )
+		return;
+
+	// Only ever use commandsWhenPressed for hold action
+	if( theBtnState.heldTime <
+			theBtnState.commandsWhenPressed.holdTimeForAction )
+		return;
+
 	theBtnState.holdActionDone = true;
 
 	// Skip if this button was used as a modifier to execute a button
@@ -1266,13 +1277,9 @@ static void processButtonHold(ButtonState& theBtnState)
 	if( theBtnState.usedInButtonCombo )
 		return;
 
-	// Only ever use commandsWhenPressed for short hold action
-	if( !theBtnState.commandsWhenPressed )
-		return;
-
 	processCommand(&theBtnState,
-		theBtnState.commandsWhenPressed[eBtnAct_Hold],
-		theBtnState.layerWhenPressed);
+		theBtnState.commandsWhenPressed.cmd[eBtnAct_Hold],
+		theBtnState.commandsWhenPressed.layer[eBtnAct_Hold]);
 }
 
 
@@ -1281,23 +1288,20 @@ static void processButtonTap(ButtonState& theBtnState)
 	// Should not even call this if button was used in a button combo
 	DBG_ASSERT(!theBtnState.usedInButtonCombo);
 
-	// Only ever use commandsWhenPressed for tap action
-	if( !theBtnState.commandsWhenPressed )
-		return;
-
 	// If has a hold command, then a "tap" is just releasing before said
 	// command had a chance to execute. Otherwise it is based on holding
 	// less than tapHoldTime before releasing.
 	const bool hasHold =
-		theBtnState.commandsWhenPressed[eBtnAct_Hold]
+		theBtnState.commandsWhenPressed.cmd[eBtnAct_Hold]
 			.type >= eCmdType_FirstValid;
 
+	// Only ever use commandsWhenPressed for tap action
 	if( (hasHold && !theBtnState.holdActionDone) ||
 		(!hasHold && theBtnState.heldTime < kConfig.tapHoldTime) )
 	{
 		processCommand(&theBtnState,
-			theBtnState.commandsWhenPressed[eBtnAct_Tap],
-			theBtnState.layerWhenPressed);
+			theBtnState.commandsWhenPressed.cmd[eBtnAct_Tap],
+			theBtnState.commandsWhenPressed.layer[eBtnAct_Tap]);
 	}
 }
 
@@ -1325,18 +1329,15 @@ static void processButtonReleased(ButtonState& theBtnState)
 	// action along with the _Release. This exception is to handle a
 	// case where a layer was added that intends to be removed by
 	// releasing a held button, but for some reason didn't use the
-	// standard _HoldControlsLayer method that does it automatically.
-	Command aCmd;
-	u16 aCmdLayer = theBtnState.layerWhenPressed;
-	if( theBtnState.commandsWhenPressed )
-		aCmd = theBtnState.commandsWhenPressed[eBtnAct_Release];
+	// standard _HoldControlsLayer method that does it automatically
+	// or just assign the _Release on the same layer that added it.
+	Command aCmd = theBtnState.commandsWhenPressed.cmd[eBtnAct_Release];
+	u16 aCmdLayer = theBtnState.commandsWhenPressed.layer[eBtnAct_Release];
 	if( aCmd.type < eCmdType_FirstValid &&
-		theBtnState.commands &&
-		theBtnState.commands != theBtnState.commandsWhenPressed &&
-		theBtnState.commands[eBtnAct_Press].type < eCmdType_FirstValid )
+		theBtnState.commands.cmd[eBtnAct_Press].type < eCmdType_FirstValid )
 	{
-		aCmd = theBtnState.commands[eBtnAct_Release];
-		aCmdLayer = theBtnState.commandsLayer;
+		aCmd = theBtnState.commands.cmd[eBtnAct_Release];
+		aCmdLayer = theBtnState.commands.layer[eBtnAct_Release];
 	}
 	processCommand(&theBtnState, aCmd, aCmdLayer);
 
@@ -1385,16 +1386,14 @@ static void processButtonState(
 		// is assigned a command from that layer was pressed, then flag
 		// this button as being used as the modifier key in a button combo.
 		if( theBtnState.layerHeld &&
-			sState.layers[theBtnState.layerHeld].ownedButtonHit )
+			sState.layers[theBtnState.layerHeld].buttonCommandUsed )
 		{
 			theBtnState.usedInButtonCombo = true;
 		}
 
 		if( wasDown )
-			theBtnState.heldTime += gAppFrameTime;
-		if( theBtnState.heldTime >= theBtnState.holdTimeForAction &&
-			!theBtnState.holdActionDone )
 		{
+			theBtnState.heldTime += gAppFrameTime;
 			processButtonHold(theBtnState);
 		}
 
@@ -1409,7 +1408,7 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 	if( theBtnState.layerHeld )
 	{
 		// Flag if used in a button combo, like L2 in L2+X
-		if( sState.layers[theBtnState.layerHeld].ownedButtonHit )
+		if( sState.layers[theBtnState.layerHeld].buttonCommandUsed )
 			theBtnState.usedInButtonCombo = true;
 		removeControlsLayer(theBtnState.layerHeld);
 		theBtnState.layerHeld = 0;
@@ -1430,9 +1429,7 @@ static bool tryAddLayerFromButton(
 
 	// Only concerned with buttons that have _HoldControlsLayer for _Down
 	// (in current 'commands', not necessarily 'commandsWhenPressed'!)
-	if( !theBtnState.commands )
-		return false;
-	const Command& aDownCmd = theBtnState.commands[eBtnAct_Down];
+	const Command& aDownCmd = theBtnState.commands.cmd[eBtnAct_Down];
 	if( aDownCmd.type != eCmdType_HoldControlsLayer )
 		return false;
 
@@ -1541,31 +1538,28 @@ static void updateHUDStateForCurrentLayers()
 	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx)
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
-		if( aBtnState.commands )
+		for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 		{
-			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+			u16 aHUDIdx = 0xFFFF;
+			switch(aBtnState.commands.cmd[aBtnAct].type)
 			{
-				u16 aHUDIdx = 0xFFFF;
-				switch(aBtnState.commands[aBtnAct].type)
-				{
-				case eCmdType_MenuReset:
-				case eCmdType_MenuConfirm:
-				case eCmdType_MenuConfirmAndClose:
-				case eCmdType_MenuBack:
-				case eCmdType_MenuBackOrClose:
-				case eCmdType_MenuEdit:
-				case eCmdType_MenuSelect:
-				case eCmdType_MenuSelectAndClose:
-				case eCmdType_MenuEditDir:
-					aHUDIdx = InputMap::hudElementForMenu(
-						aBtnState.commands[aBtnAct].menuID);
-					break;
-				default:
-					continue;
-				}
-				DBG_ASSERT(aHUDIdx < gDisabledHUD.size());
-				gDisabledHUD.reset(aHUDIdx);
+			case eCmdType_MenuReset:
+			case eCmdType_MenuConfirm:
+			case eCmdType_MenuConfirmAndClose:
+			case eCmdType_MenuBack:
+			case eCmdType_MenuBackOrClose:
+			case eCmdType_MenuEdit:
+			case eCmdType_MenuSelect:
+			case eCmdType_MenuSelectAndClose:
+			case eCmdType_MenuEditDir:
+				aHUDIdx = InputMap::hudElementForMenu(
+					aBtnState.commands.cmd[aBtnAct].menuID);
+				break;
+			default:
+				continue;
 			}
+			DBG_ASSERT(aHUDIdx < gDisabledHUD.size());
+			gDisabledHUD.reset(aHUDIdx);
 		}
 	}
 
