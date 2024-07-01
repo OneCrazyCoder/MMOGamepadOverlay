@@ -43,6 +43,7 @@ const char* kHotspotArraysKey = "HOTSPOTS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
 const char* kMenuOpenKey = "AUTO";
+const std::string kActionOnlyPrefix = "JUST";
 const std::string kSignalCommandPrefix = "WHEN";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
@@ -144,6 +145,14 @@ struct ButtonActions
 {
 	//std::string label[eBtnAct_Num]; // TODO
 	Command cmd[eBtnAct_Num];
+	void initIfEmpty()
+	{
+		for(size_t i = 0; i < eBtnAct_Num; ++i)
+		{
+			if( cmd[i].type == eCmdType_Empty )
+				cmd[i].type = eCmdType_Unassigned;
+		}
+	}
 };
 typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
 
@@ -1050,13 +1059,6 @@ static Command wordsToSpecialCommand(
 	if( keyWordsFound.test(eCmdWord_Nothing) && keyWordsFound.count() == 1)
 	{
 		result.type = eCmdType_DoNothing;
-		return result;
-	}
-
-	// "= [Leave] Unassigned"
-	if( keyWordsFound.test(eCmdType_Unassigned) && keyWordsFound.count() == 1)
-	{
-		result.type = eCmdType_Unassigned;
 		return result;
 	}
 
@@ -2087,14 +2089,9 @@ static void reportCommandAssignment(
 			theItemName.c_str(),
 			theCmdStr.c_str());
 		break;
+	case eCmdType_Unassigned:
 	case eCmdType_DoNothing:
 		mapDebugPrint("%s: Assigned '%s' to <Do Nothing>\n",
-			theSection.c_str(),
-			theItemName.c_str());
-		break;
-	case eCmdType_Unassigned:
-		mapDebugPrint("%s: '%s' left as <unassigned> "
-			"(overrides Include= layer)\n",
 			theSection.c_str(),
 			theItemName.c_str());
 		break;
@@ -2427,7 +2424,8 @@ static void reportButtonAssignment(
 	EButtonAction theBtnAct,
 	EButton theBtnID,
 	const Command& theCmd,
-	const std::string& theCmdStr)
+	const std::string& theCmdStr,
+	bool onlySpecificAction)
 {
 	#ifndef INPUT_MAP_DEBUG_PRINT
 	if( theCmd.type == eCmdType_Empty )
@@ -2437,6 +2435,13 @@ static void reportButtonAssignment(
 		aSection += theBuilder.debugItemName.c_str();
 		aSection += "]";
 		std::string anItemName = kButtonActionPrefx[theBtnAct];
+		if( onlySpecificAction )
+		{
+			if( anItemName.empty() )
+				anItemName = "(Just press-and-hold)";
+			else
+				anItemName = std::string("(Just ") + anItemName + ")";
+		}
 		if( !anItemName.empty() )
 			anItemName += " ";
 		anItemName += kProfileButtonName[theBtnID];
@@ -2449,7 +2454,8 @@ static void addButtonAction(
 	InputMapBuilder& theBuilder,
 	u16 theLayerIdx,
 	std::string theBtnName,
-	const std::string& theCmdStr)
+	const std::string& theCmdStr,
+	bool onlySpecificAction)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
 	if( theBtnName.empty() || theCmdStr.empty() )
@@ -2509,11 +2515,13 @@ static void addButtonAction(
 			// Get destination of command. Note that we do this AFTER
 			// parsing the command because stringToCommand() can lead to
 			// resizing sLayers and thus make this reference invalid!
-			Command& aDestCmd =
-				sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID).cmd[aBtnAct];
+			ButtonActions& aDestBtn =
+				sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID);
+			if( !onlySpecificAction ) aDestBtn.initIfEmpty();
+			Command& aDestCmd = aDestBtn.cmd[aBtnAct];
 			// Direct assignment should take priority over multi-assignment,
 			// so if this was already assigned directly then leave it alone.
-			if( aDestCmd.type != eCmdType_Empty )
+			if( aDestCmd.type > eCmdType_Unassigned )
 				continue;
 			// Make and report assignment
 			aDestCmd = aCmd;
@@ -2526,7 +2534,8 @@ static void addButtonAction(
 						: aBtnTime);
 			}
 			reportButtonAssignment(
-				theBuilder, aBtnAct, aBtnID, aDestCmd, aCmdStr);
+				theBuilder, aBtnAct, aBtnID, aDestCmd, aCmdStr,
+				onlySpecificAction);
 		}
 		return;
 	}
@@ -2558,8 +2567,10 @@ static void addButtonAction(
 		theBuilder, theCmdStr, true, aBtnAct == eBtnAct_Down);
 
 	// Make the assignment
-	Command& aDestCmd =
-		sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID).cmd[aBtnAct];
+	ButtonActions& aDestBtn =
+		sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID);
+	if( !onlySpecificAction ) aDestBtn.initIfEmpty();
+	Command& aDestCmd = aDestBtn.cmd[aBtnAct]; 
 	aDestCmd = aCmd;
 	if( aBtnAct == eBtnAct_Hold )
 	{// Assign time to hold button for this action
@@ -2571,7 +2582,9 @@ static void addButtonAction(
 	}
 
 	// Report the results of the assignment
-	reportButtonAssignment(theBuilder, aBtnAct, aBtnID, aDestCmd, theCmdStr);
+	reportButtonAssignment(
+		theBuilder, aBtnAct, aBtnID, aDestCmd, theCmdStr,
+		onlySpecificAction);
 }
 
 
@@ -2926,30 +2939,20 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		}
 
 		// Parse and add assignment to this layer's commands map
-		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second);
+		if( aKey.compare(0,
+				kActionOnlyPrefix.length(),
+				kActionOnlyPrefix) == 0 )
+		{
+			addButtonAction(theBuilder, theLayerIdx,
+				aKey.substr(kActionOnlyPrefix.length()),
+				itr->second, true);
+			continue;
+		}
+
+		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second, false);
 	}
 	theBuilder.keyValueList.clear();
-
-	// Do final cleanup and processing of overall commands map
-	// (sLayers shouldn't grow any past this point so safe to use const ref's)
-	ButtonActionsMap& aMap = sLayers[theLayerIdx].buttonMap;
-	for(size_t i = 0; i < aMap.size(); ++i)
-	{
-		ButtonActions& aBtnActions = aMap[i].second;
-
-		// If base "Down" action is set to "unassigned", treat all actions
-		// set to _Empty as also "unassigned", meaning they will not copy over
-		// commands from their include layer.
-		if( aBtnActions.cmd[eBtnAct_Down].type == eCmdType_Unassigned )
-		{
-			for(int aBtnAct = 1; aBtnAct < eBtnAct_Num; ++aBtnAct)
-			{
-				if( aBtnActions.cmd[aBtnAct].type == eCmdType_Empty )
-					aBtnActions.cmd[aBtnAct].type = eCmdType_Unassigned;
-			}
-		}
-	}
-	aMap.trim();
+	sLayers[theLayerIdx].buttonMap.trim();
 
 	// Check for possible combo layers based on this layer
 	if( theLayerIdx > 0 && !isComboLayer )
@@ -3099,9 +3102,6 @@ static MenuItem stringToMenuItem(
 	}
 
 	aMenuItem.cmd = stringToCommand(theBuilder, theString);
-	if( aMenuItem.cmd.type == eCmdType_Unassigned )
-		aMenuItem.cmd.type = eCmdType_DoNothing;
-
 	if( aMenuItem.cmd.type == eCmdType_Empty )
 	{
 		// Probably just forgot the > at front of a plain string
