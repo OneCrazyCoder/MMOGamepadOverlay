@@ -271,7 +271,6 @@ enum ECommandKeyWord
 	eCmdWord_Unknown,
 
 	eCmdWord_Nothing,
-	eCmdWord_Unassigned,
 	eCmdWord_Add,
 	eCmdWord_Remove,
 	eCmdWord_Hold,

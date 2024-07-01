@@ -38,7 +38,6 @@ const char* kHotspotsKeys[] =
 	{ "Hotspots", "Hotspot", "KeyBindArray", "Array", "KeyBinds" };
 
 // These need to be in all upper case
-const char* kIncludeKey = "INCLUDE";
 const char* kHUDSettingsKey = "HUD";
 const char* kHotspotArraysKey = "HOTSPOTS";
 const char* kMouseModeKey = "MOUSE";
@@ -158,7 +157,6 @@ struct ControlsLayer
 	BitVector<> enableHotspots;
 	BitVector<> disableHotspots;
 	EMouseMode mouseMode;
-	u16 includeLayer;
 	u16 parentLayer;
 
 	ControlsLayer() :
@@ -167,7 +165,6 @@ struct ControlsLayer
 		enableHotspots(),
 		disableHotspots(),
 		mouseMode(eMouseMode_Default),
-		includeLayer(),
 		parentLayer()
 	{}
 };
@@ -580,48 +577,10 @@ static u16 getOrCreateLayerID(
 	if( u16* idx = theBuilder.layerNameToIdxMap.find(aLayerKeyName) )
 		return *idx;
 
-	// Check if has an "include=" layer specified that needs adding first
-	std::string aLayerPrefix;
-	if( sLayers.empty() )
-		aLayerPrefix = aLayerKeyName+"/";
-	else
-		aLayerPrefix = upper(kLayerPrefix)+aLayerKeyName+"/";
-	const std::string& anIncludeName =
-		Profile::getStr(aLayerPrefix + kIncludeKey);
-	u16 anIncludeIdx = 0;
-	if( sLayers.empty() && !anIncludeName.empty() )
-	{
-		logError("Root layer [%s] can not Include= another layer. "
-			"Consider using 'Auto = Layer %s' as only entry instead",
-			theLayerName.c_str(),
-			anIncludeName.c_str());
-	}
-	else if( !anIncludeName.empty() )
-	{
-		// Check for infinite loop of Include= properties
-		std::vector<std::string>::iterator itr = std::find(
-			theLoopCheckList.begin(),
-			theLoopCheckList.end(),
-			upper(anIncludeName));
-		if( itr != theLoopCheckList.end() )
-		{
-			logError("Infinite include loop with layer [%s%s]"
-				" trying to include layer %s",
-				kLayerPrefix, theLayerName.c_str(), itr->c_str());
-		}
-		else
-		{
-			theLoopCheckList.push_back(aLayerKeyName);
-			anIncludeIdx = getOrCreateLayerID(
-				theBuilder, anIncludeName, theLoopCheckList);
-		}
-	}
-
 	// Add new layer to sLayers and the name-to-index map
 	theBuilder.layerNameToIdxMap.setValue(aLayerKeyName, u16(sLayers.size()));
 	sLayers.push_back(ControlsLayer());
 	sLayers.back().label = theLayerName;
-	sLayers.back().includeLayer = anIncludeIdx;
 
 	return u16(sLayers.size() - 1);
 }
@@ -967,11 +926,8 @@ static Command wordsToSpecialCommand(
 	if( theWords.size() <= 1 )
 	{
 		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[0]));
-		if( aKeyWordID != eCmdWord_Nothing &&
-			aKeyWordID != eCmdWord_Unassigned )
-		{
+		if( aKeyWordID != eCmdWord_Nothing )
 			return result;
-		}
 	}
 
 	// Find all key words that are actually included and their positions
@@ -2226,8 +2182,7 @@ static Command stringToAliasCommand(
 	}
 
 	ECommandKeyWord aKeyWord = commandWordToID(condense(theCmdStr));
-	if( aKeyWord == eCmdWord_Nothing ||
-		aKeyWord == eCmdWord_Unassigned )
+	if( aKeyWord == eCmdWord_Nothing )
 	{// Specifically requested signal only
 		aCmd.type = eCmdType_SignalOnly;
 		aCmd.signalID = theSignalID++;
@@ -2834,22 +2789,6 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		sLayers[theLayerIdx].parentLayer == kComboParentLayer;
 	sLayers[theLayerIdx].parentLayer = 0;
 
-	// If has an includeLayer, get default settings from it first
-	const u16 anIncludeLayer = sLayers[theLayerIdx].includeLayer;
-	if( anIncludeLayer != 0 )
-	{
-		sLayers[theLayerIdx].mouseMode =
-			sLayers[anIncludeLayer].mouseMode;
-		sLayers[theLayerIdx].enableHotspots =
-			sLayers[anIncludeLayer].enableHotspots;
-		sLayers[theLayerIdx].disableHotspots =
-			sLayers[anIncludeLayer].disableHotspots;
-		sLayers[theLayerIdx].parentLayer =
-			sLayers[anIncludeLayer].parentLayer;
-		sLayers[theLayerIdx].signalCommands =
-			sLayers[anIncludeLayer].signalCommands;
-	}
-
 	// Make local copy of name string since sLayers can reallocate memory here
 	const std::string aLayerName = sLayers[theLayerIdx].label;
 	theBuilder.debugItemName.clear();
@@ -2857,13 +2796,6 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		theBuilder.debugItemName = kLayerPrefix;
 		mapDebugPrint("Building controls layer: %s\n", aLayerName.c_str());
-		if( anIncludeLayer != 0 )
-		{
-			mapDebugPrint("[%s%s]: Including all data from layer '%s'\n",
-				kLayerPrefix,
-				aLayerName.c_str(),
-				sLayers[anIncludeLayer].label.c_str());
-		}
 	}
 	theBuilder.debugItemName += aLayerName;
 
@@ -2976,8 +2908,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		itr != theBuilder.keyValueList.end(); ++itr)
 	{
 		const std::string aKey = itr->first;
-		if( aKey == kIncludeKey ||
-			aKey == kParentLayerKey ||
+		if( aKey == kParentLayerKey ||
 			aKey == kMouseModeKey ||
 			aKey == kHUDSettingsKey ||
 			aKey == kHotspotArraysKey )
@@ -3015,27 +2946,6 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			{
 				if( aBtnActions.cmd[aBtnAct].type == eCmdType_Empty )
 					aBtnActions.cmd[aBtnAct].type = eCmdType_Unassigned;
-			}
-		}
-
-		// If included another layer, copy commands from include layer into any
-		// _Empty actions for any buttons that are in the map (meaning they had
-		// at least one action assigned to something). Buttons that had no new
-		// assignments at all (aren't in the map) don't need to do this because
-		// the include layer's copy will be directly returned instead.
-		if( anIncludeLayer != 0 )
-		{
-			if( const Command* incCommands =
-				commandsForButton(anIncludeLayer, aMap[i].first) )
-			{
-				for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
-				{
-					if( aBtnActions.cmd[aBtnAct].type != eCmdType_Empty )
-						continue;
-					if( incCommands[aBtnAct].type == eCmdType_Empty )
-						continue;
-					aBtnActions.cmd[aBtnAct] = incCommands[aBtnAct];
-				}
 			}
 		}
 	}
@@ -3102,39 +3012,6 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 	DBG_ASSERT(sLayers.empty());
 	getOrCreateLayerID(theBuilder, kMainLayerLabel);
 	buildRemainingControlsLayers(theBuilder, 0);
-}
-
-
-static void linkComboControlsLayers()
-{
-	// Link any derived layers (ones using .includeLayer) to also activate
-	// any combo layers that the included layer activates
-	for(u16 aLayerIdx = 2; aLayerIdx < sLayers.size(); ++aLayerIdx)
-	{
-		const u16 anIncludeLayerIdx = sLayers[aLayerIdx].includeLayer;
-		if( anIncludeLayerIdx == 0 )
-			continue;
-		for(u16 aCLI = 0; aCLI < sComboLayers.size(); ++aCLI)
-		{
-			const u16 aComboBase1 = sComboLayers[aCLI].first.first;
-			const u16 aComboBase2 = sComboLayers[aCLI].first.second;
-			const u16 aComboLayer = sComboLayers[aCLI].second;
-			if( aComboBase1 == anIncludeLayerIdx )
-			{
-				std::pair<u16, u16> aComboLayerKey;
-				aComboLayerKey.first = aLayerIdx;
-				aComboLayerKey.second = aComboBase2;
-				sComboLayers.findOrAdd(aComboLayerKey, aComboLayer);
-			}
-			else if( aComboBase2 == anIncludeLayerIdx )
-			{
-				std::pair<u16, u16> aComboLayerKey;
-				aComboLayerKey.first = aComboBase1;
-				aComboLayerKey.second = aLayerIdx;
-				sComboLayers.findOrAdd(aComboLayerKey, aComboLayer);
-			}
-		}
-	}
 }
 
 
@@ -3381,18 +3258,7 @@ static void buildHUDElementsForLayer(
 	std::string aLayerHUDDescription = Profile::getStr(aLayerHUDKey);
 
 	if( aLayerHUDDescription.empty() )
-	{// Use include layer's settings, if have one
-		if( sLayers[theLayerID].includeLayer > 0 )
-		{
-			buildHUDElementsForLayer(
-				theBuilder, sLayers[theLayerID].includeLayer);
-			sLayers[theLayerID].showHUD =
-				sLayers[sLayers[theLayerID].includeLayer].showHUD;
-			sLayers[theLayerID].hideHUD =
-				sLayers[sLayers[theLayerID].includeLayer].hideHUD;
-		}
 		return;
-	}
 
 	// Break the string into individual words
 	theBuilder.parsedString.clear();
@@ -3559,7 +3425,6 @@ void loadProfile()
 		buildMenus(anInputMapBuilder);
 		buildHUDElements(anInputMapBuilder);
 		buildGamepadButtonRemaps(anInputMapBuilder);
-		linkComboControlsLayers();
 	}
 
 	// Trim unused memory
@@ -3689,18 +3554,10 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 	DBG_ASSERT(theButton < eBtn_Num);
 	theButton = sButtonRemap[theButton];
 
-	ButtonActionsMap::const_iterator itr;
-	do {
-		itr = sLayers[theLayerID].buttonMap.find(theButton);
-		if( itr != sLayers[theLayerID].buttonMap.end() )
-		{// Button has something assigned
-			return &itr->second.cmd[0];
-		}
-		else
-		{// Check if included layer has this button assigned
-			theLayerID = sLayers[theLayerID].includeLayer;
-		}
-	} while(theLayerID != 0);
+	ButtonActionsMap::const_iterator itr =
+		sLayers[theLayerID].buttonMap.find(theButton);
+	if( itr != sLayers[theLayerID].buttonMap.end() )
+		return &itr->second.cmd[0];
 
 	return null;
 }
@@ -3718,21 +3575,12 @@ u32 commandHoldTime(u16 theLayerID, EButton theButton)
 	DBG_ASSERT(theLayerID < sLayers.size());
 	DBG_ASSERT(theButton < eBtn_Num);
 	theButton = sButtonRemap[theButton];
-	std::pair<u16, EButton> aKey;
-	aKey.second = theButton;
-	VectorMap<std::pair<u16, EButton>, u32>::const_iterator itr;
-	do {
-		aKey.first = theLayerID;
-		itr = sButtonHoldTimes.find(aKey);
-		if( itr != sButtonHoldTimes.end() )
-		{// Button has a custom hold time assigned
-			return itr->second;
-		}
-		else
-		{// Check if included layer has a custom hold time assigned
-			theLayerID = sLayers[theLayerID].includeLayer;
-		}
-	} while(theLayerID != 0);
+
+	std::pair<u16, EButton> aKey(theLayerID, theButton);
+	VectorMap<std::pair<u16, EButton>, u32>::const_iterator itr =
+		sButtonHoldTimes.find(aKey);
+	if( itr != sButtonHoldTimes.end() )
+		return itr->second;
 
 	return sDefaultButtonHoldTime;
 }
