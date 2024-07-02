@@ -195,8 +195,6 @@ enum EMouseMode
 	eMouseMode_HideOrLook,	// _Default, unless it is _Cursor, then _Hide
 	eMouseMode_PostJump,	// Cursor mode just after a jump
 	eMouseMode_JumpClicked,	// Cursor mode just after jump-then-click event
-	eMouseMode_LookTrans,	// Waiting to transition from LookOnly to LookTurn
-	eMouseMode_LookTrans2,	// Ready to to transition from LookOnly to LookTurn
 
 	eMouseMode_Num
 };
