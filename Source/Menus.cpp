@@ -117,7 +117,6 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 	case eCmdType_ReplaceMenu:
 	case eCmdType_MenuReset:
 	case eCmdType_MenuBack:
-	case eCmdType_MenuBackOrClose:
 		break;
 	default:
 		gConfirmedMenuItem[aMenuInfo.hudElementID] = aSelection;
@@ -484,6 +483,25 @@ const Command& autoCommand(u16 theMenuID)
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
 	return InputMap::menuAutoCommand(aSubMenuID);
+}
+
+
+const Command& backCommand(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
+	DBG_ASSERT(itr != sMenuInfo.end());
+	MenuInfo& aMenuInfo = itr->second;
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
+	return InputMap::menuBackCommand(aSubMenuID);
+}
+
+
+const Command& closeCommand(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
+	return InputMap::menuBackCommand(theMenuID);
 }
 
 

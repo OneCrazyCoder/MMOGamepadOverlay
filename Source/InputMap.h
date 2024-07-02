@@ -68,6 +68,7 @@ u16 comboLayerID(u16 theLayerID1, u16 theLayerID2);
 const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
 const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
 const Command& menuAutoCommand(u16 theMenuID);
+const Command& menuBackCommand(u16 theMenuID);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
 u16 menuHotspotArray(u16 theMenuID); // for eMenuStyle_Hotspots only
