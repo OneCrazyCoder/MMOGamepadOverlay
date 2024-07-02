@@ -315,8 +315,6 @@ static void fireSignal(u16 aSignalID)
 	case eSpecialKey_AutoRun:
 		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
 			sTracker.autoRunMode = eAutoRunMode_Started;
-		if( sTracker.mouseMode == eMouseMode_LookTrans )
-			sTracker.mouseMode = eMouseMode_LookTrans2;
 		break;
 	case eSpecialKey_MoveF:
 	case eSpecialKey_MoveB:
@@ -658,7 +656,6 @@ static void offsetMousePos(int x, int y)
 			return;
 		break;
 	case eMouseMode_LookOnly:
-	case eMouseMode_LookTrans:
 		// Allow once left mouse button is held down
 		if( !sTracker.keysHeldDown.test(VK_LBUTTON) )
 			return;
@@ -1310,8 +1307,6 @@ void update()
 			break;
 		case eMouseMode_LookTurn:
 		case eMouseMode_LookOnly:
-		case eMouseMode_LookTrans:
-		case eMouseMode_LookTrans2:
 			// If not holding a mouse button in a _Look mode, it must have been
 			// force-released, so re-click it now by changing mode to 'default'
 			// to trigger mouse mode changing below
@@ -1327,9 +1322,7 @@ void update()
 		if( sTracker.mouseMode != sTracker.mouseModeWanted &&
 			sTracker.mouseVelX == 0 && sTracker.mouseVelY == 0 &&
 			(!sTracker.keysHeldDown.test(VK_LBUTTON) ||
-			 sTracker.mouseMode == eMouseMode_LookOnly ||
-			 sTracker.mouseMode == eMouseMode_LookTrans ||
-			 sTracker.mouseMode == eMouseMode_LookTrans2) &&
+			 sTracker.mouseMode == eMouseMode_LookOnly) &&
 			(!sTracker.keysHeldDown.test(VK_RBUTTON) ||
 			 sTracker.mouseMode == eMouseMode_LookTurn) ) 
 		{// Mouse mode wants changing and mouse isn't otherwise busy
@@ -1357,14 +1350,6 @@ void update()
 				}
 				break;
 			case eMouseMode_LookTurn:
-				if( sTracker.mouseMovedSinceModeChange &&
-					(sTracker.mouseMode == eMouseMode_LookOnly ||
-					 sTracker.mouseMode == eMouseMode_LookTrans) )
-				{
-					sTracker.mouseMode = eMouseMode_LookTrans;
-					break;
-				}
-				// fall through
 			case eMouseMode_LookOnly:
 				if( sTracker.mouseMode == eMouseMode_JumpClicked )
 				{// Give one more update to process queue before resuming
@@ -1381,9 +1366,7 @@ void update()
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowJumpDrag = false;
 					if( sTracker.mouseMode == eMouseMode_LookTurn ||
-						sTracker.mouseMode == eMouseMode_LookOnly ||
-						sTracker.mouseMode == eMouseMode_LookTrans ||
-						sTracker.mouseMode == eMouseMode_LookTrans2 )
+						sTracker.mouseMode == eMouseMode_LookOnly )
 					{// Allow instant re-click if just switching ML modes
 						sTracker.mouseClickAllowedTime = 0;
 					}
@@ -1579,8 +1562,7 @@ void update()
 	{// Keep holding right mouse button while eMouseMode_LookTurn is active
 		aDesiredKeysDown.set(VK_RBUTTON);
 	}
-	if( (sTracker.mouseMode == eMouseMode_LookOnly ||
-		 sTracker.mouseMode == eMouseMode_LookTrans) &&
+	if( sTracker.mouseMode == eMouseMode_LookOnly &&
 		sTracker.keysHeldDown.test(VK_LBUTTON) )
 	{// Keep holding left mouse button while eMouseMode_LookOnly is active
 		aDesiredKeysDown.set(VK_LBUTTON);
@@ -1965,7 +1947,6 @@ void moveMouse(int dx, int dy, bool digital)
 	const bool kMouseLookSpeed =
 		sTracker.mouseMode == eMouseMode_LookOnly ||
 		sTracker.mouseMode == eMouseMode_LookTurn ||
-		sTracker.mouseMode == eMouseMode_LookTrans ||
 		sTracker.keysHeldDown.test(VK_RBUTTON);
 
 	// Get magnitude of desired mouse motion in 0 to 1.0 range
@@ -2352,12 +2333,6 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	{
 		if( !sTracker.moveKeysHeld.test(aWantedKey) )
 		{
-			if( sTracker.mouseMode == eMouseMode_LookTrans ||
-				sTracker.mouseMode == eMouseMode_LookTrans2 )
-			{// Flag that want to change mouse mode before actually moving
-				sTracker.mouseMode = eMouseMode_LookTrans2;
-				break;
-			}
 			aCmd.type = eCmdType_PressAndHoldKey;
 			aCmd.vKey = InputMap::keyForSpecialAction(
 				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
