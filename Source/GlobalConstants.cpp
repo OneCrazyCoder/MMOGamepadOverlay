@@ -616,6 +616,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "TO",				eCmdWord_Filler		},
 				{ "ON",				eCmdWord_Filler		},
 				{ "AT",				eCmdWord_Filler		},
+				{ "GO",				eCmdWord_Filler		},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)

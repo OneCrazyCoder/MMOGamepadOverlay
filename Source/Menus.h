@@ -42,6 +42,7 @@ const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID);
 
 // Similar result to openSubMenu but replaces current menu entirely instead
 // of adding it to menu stack, changing how closeLastSubMenu() below behaves.
+// Note that this does NOT trigger the "Back" command of replaced menu!
 const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID);
 
 // Removes the most recently-added sub-menu (via openSubMenu), returning to
@@ -57,6 +58,13 @@ const Command* reset(u16 theMenuID);
 
 // Returns Auto command of menu's currently-active sub-menu
 const Command& autoCommand(u16 theMenuID);
+
+// Returns Back command of menu's currently-active sub-menu
+const Command& backCommand(u16 theMenuID);
+
+// Returns Back command of root menu, which should "close" the menu by
+// removing whatever layer controls it (that's the intent anyway)
+const Command& closeCommand(u16 theMenuID);
 
 // Prompts user for new label & command for currently selected menu item
 void editMenuItem(u16 theMenuID);

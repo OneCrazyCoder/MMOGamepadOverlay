@@ -73,7 +73,6 @@ enum ECommandType
 	eCmdType_MenuConfirm,
 	eCmdType_MenuConfirmAndClose,
 	eCmdType_MenuBack, // close last sub-menu
-	eCmdType_MenuBackOrClose, // close menu if no sub-menus open 
 	eCmdType_MenuClose,
 	eCmdType_MenuEdit,
 

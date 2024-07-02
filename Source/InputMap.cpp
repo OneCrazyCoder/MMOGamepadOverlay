@@ -43,6 +43,7 @@ const char* kHotspotArraysKey = "HOTSPOTS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
 const char* kMenuOpenKey = "AUTO";
+const char* kMenuCloseKey = "BACK";
 const std::string kActionOnlyPrefix = "JUST";
 const std::string kSignalCommandPrefix = "WHEN";
 const std::string k4DirButtons[] =
@@ -115,6 +116,7 @@ struct Menu
 	std::vector<MenuItem> items;
 	MenuItem dirItems[eCmdDir_Num];
 	Command autoCommand;
+	Command backCommand;
 	u16 parentMenuID;
 	u16 rootMenuID;
 	u16 hudElementID;
@@ -1139,7 +1141,8 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Remove);
-	if( keyWordsFound.test(eCmdWord_Remove) &&
+	if( allowButtonActions &&
+		keyWordsFound.test(eCmdWord_Remove) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_RemoveControlsLayer;
@@ -1258,7 +1261,8 @@ static Command wordsToSpecialCommand(
 		// "= Replace [this layer with] <aLayerName>"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Replace);
-		if( keyWordsFound.test(eCmdWord_Replace) &&
+		if( allowButtonActions &&
+			keyWordsFound.test(eCmdWord_Replace) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
@@ -1384,25 +1388,10 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Confirm);
-
-		// "= [Menu] <aMenuName> Back or Close [with mouse click]"
-		// allowedKeyWords = Menu & Back & Mouse & Click
-		allowedKeyWords.set(eCmdWord_Back);
-		allowedKeyWords.set(eCmdWord_Close);
-		if( keyWordsFound.test(eCmdWord_Back) &&
-			keyWordsFound.test(eCmdWord_Close) &&
-			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-		{
-			result.type = eCmdType_MenuBackOrClose;
-			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Back);
-		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Mouse);
 		allowedKeyWords.reset(eCmdWord_Click);
 
-		// "= Edit <aMenuName> [Menu] [with mouse click]"
+		// "= Edit <aMenuName> [Menu]"
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Edit);
 		if( keyWordsFound.test(eCmdWord_Edit) &&
@@ -1530,12 +1519,12 @@ static Command wordsToSpecialCommand(
 	else if( keyWordsFound.test(eCmdWord_Down) ) aCmdDir = eCmdDir_Down;
 	else if( keyWordsFound.test(eCmdWord_Left) ) aCmdDir = eCmdDir_Left;
 	else if( keyWordsFound.test(eCmdWord_Right) ) aCmdDir = eCmdDir_Right;
-	else if( keyWordsFound.test(eCmdWord_Back) ) aCmdDir = eCmdDir_Back;
 	result.dir = aCmdDir;
 	// Remove direction-related bits from keyWordsFound
+	allowedKeyWords.reset(eCmdWord_Back);
 	keyWordsFound &= ~allowedKeyWords;
 
-	if( allowButtonActions && aMenuName )
+	if( allowButtonActions && aMenuName && result.dir != eCmdDir_None )
 	{
 		// "= 'Select'|'Menu'|'Select Menu' 
 		// <aMenuName> <aCmdDir> [No/Wrap] [#] [with mouse click]"
@@ -1582,6 +1571,12 @@ static Command wordsToSpecialCommand(
 			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
 			return result;
 		}
+	}
+
+	if( keyWordsFound.test(eCmdWord_Back) )
+	{
+		result.dir = eCmdDir_Back;
+		keyWordsFound.reset(eCmdWord_Back);
 	}
 
 	if( allowButtonActions )
@@ -1973,7 +1968,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 				{
 					logError(
 						"Hotspot Array %s has overlapping ranges "
-						"starting with %d\n",
+						"starting with %d",
 						aHotspotArray.label.c_str(),
 						aNextArrayIdx);
 					++aNextArrayIdx;
@@ -3082,8 +3077,8 @@ static MenuItem stringToMenuItem(
 
 	if( theString == ".." ||
 		commandWordToID(condense(theString)) == eCmdWord_Back )
-	{// Go back one sub-menu or close menu
-		aMenuItem.cmd.type = eCmdType_MenuBackOrClose;
+	{// Go back one sub-menu
+		aMenuItem.cmd.type = eCmdType_MenuBack;
 		aMenuItem.cmd.menuID = sMenus[theMenuID].rootMenuID;
 		mapDebugPrint("%s: '%s' assigned to back out of menu\n",
 			theBuilder.debugItemName.c_str(),
@@ -3148,21 +3143,21 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			std::string("[") + aPrefix + "] (";
 
 		// Check for command to execute automatically on menu open
-		const std::string anOnOpenCmd =
+		std::string aSpecialMenuCommandStr =
 			Profile::getStr(aPrefix + "/" + kMenuOpenKey);
-		if( !anOnOpenCmd.empty() )
+		if( !aSpecialMenuCommandStr.empty() )
 		{
 			theBuilder.debugItemName =
 				aDebugNamePrefix + kMenuOpenKey + ")";
 			const Command& aCmd =
-				stringToCommand(theBuilder, anOnOpenCmd);
+				stringToCommand(theBuilder, aSpecialMenuCommandStr);
 			if( aCmd.type == eCmdType_Empty ||
 				(aCmd.type >= eCmdType_FirstMenuControl &&
 				 aCmd.type <= eCmdType_LastMenuControl) )
 			{
-				logError("%s: Invalid command '%s'!\n",
+				logError("%s: Invalid command '%s'!",
 					theBuilder.debugItemName.c_str(),
-					anOnOpenCmd.c_str());
+					aSpecialMenuCommandStr.c_str());
 				sMenus[aMenuID].autoCommand = Command();
 			}
 			else
@@ -3170,7 +3165,34 @@ static void buildMenus(InputMapBuilder& theBuilder)
 				sMenus[aMenuID].autoCommand = aCmd;
 				mapDebugPrint("%s: Assigned to command: %s\n",
 					theBuilder.debugItemName.c_str(),
-					anOnOpenCmd.c_str());
+					aSpecialMenuCommandStr.c_str());
+			}
+		}
+
+		// Check for command to execute automatically when back out of menu
+		aSpecialMenuCommandStr =
+			Profile::getStr(aPrefix + "/" + kMenuCloseKey);
+		if( !aSpecialMenuCommandStr.empty() )
+		{
+			theBuilder.debugItemName =
+				aDebugNamePrefix + kMenuCloseKey + ")";
+			const Command& aCmd =
+				stringToCommand(theBuilder, aSpecialMenuCommandStr);
+			if( aCmd.type == eCmdType_Empty ||
+				(aCmd.type >= eCmdType_FirstMenuControl &&
+				 aCmd.type <= eCmdType_LastMenuControl) )
+			{
+				logError("%s: Invalid command '%s'!",
+					theBuilder.debugItemName.c_str(),
+					aSpecialMenuCommandStr.c_str());
+				sMenus[aMenuID].backCommand = Command();
+			}
+			else
+			{
+				sMenus[aMenuID].backCommand = aCmd;
+				mapDebugPrint("%s: Assigned to command: %s\n",
+					theBuilder.debugItemName.c_str(),
+					aSpecialMenuCommandStr.c_str());
 			}
 		}
 
@@ -3462,6 +3484,7 @@ void loadProfile()
 		itr != sMenus.end(); ++itr)
 	{
 		setCStringPointerFor(&itr->autoCommand);
+		setCStringPointerFor(&itr->backCommand);
 		// Trim unused memory while here anyway
 		if( itr->items.size() < itr->items.capacity() )
 			std::vector<MenuItem>(itr->items).swap(itr->items);
@@ -3659,6 +3682,13 @@ const Command& menuAutoCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	return sMenus[theMenuID].autoCommand;
+}
+
+
+const Command& menuBackCommand(u16 theMenuID)
+{
+	DBG_ASSERT(theMenuID < sMenus.size());
+	return sMenus[theMenuID].backCommand;
 }
 
 
