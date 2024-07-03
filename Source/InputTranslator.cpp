@@ -384,15 +384,11 @@ static bool layerIsDescendant(const LayerState& theLayer, u16 theParentLayerID)
 }
 
 
-static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
+static std::vector<u16>::iterator layerOrderInsertPos(
+	u16 theParentLayerID, s8 thePriority, bool isHeldLayer = false)
 {
-	// The order for this function only applies to normal or child layers.
-	// Held layers are always placed directly on top of all (back()),
-	// and combo layers have their own special sort function. So this is
-	// really only concerned with making sure normal layers are kept
-	// below held layers, unless they are a child layer, in which case
-	// they are placed directly above their parent & siblings regardless
-	// of what kind of layer the parent is.
+	// The order for this function only applies to normal, child, or
+	// held layers -combo layers have their own special sort function.
 	std::vector<u16>::iterator result = sState.layerOrder.begin();
 
 	// First, work backwards until find theParentLayerID's position in the
@@ -407,27 +403,39 @@ static std::vector<u16>::iterator layerOrderInsertPos(u16 theParentLayerID)
 			break;
 	}
 
-	if( theParentLayerID == 0 )
+	// Move forward until find a layer that should be higher priority
+	// (whether due to type, parent hierarchy, or thePriority) and
+	// insert just before it.
+	while(result != sState.layerOrder.end())
 	{
-		// Continue to move forward until hit end() or a held layer
-		while( result != sState.layerOrder.end() &&
-			   !sState.layers[*result].heldActiveByButton )
+		// Held layers have higher priority over non-held layers
+		if( sState.layers[*result].heldActiveByButton && !isHeldLayer )
+			break;
+		if( !sState.layers[*result].heldActiveByButton && isHeldLayer )
 		{
 			++result;
+			continue;
 		}
-	}
-	else
-	{
-		// Continue to move forward until hit end() or one unrelated to parent
-		while( result != sState.layerOrder.end() &&
-			   layerIsDescendant(sState.layers[*result], theParentLayerID) )
+		// Anything not descended from same parent layer is higher priority
+		if( !layerIsDescendant(sState.layers[*result], theParentLayerID) )
+			break;
+		// Layers descended from same parent but not direct siblings are
+		// lower priority than direct children of theParentLayerID
+		if( sState.layers[*result].parentLayerID != theParentLayerID )
 		{
 			++result;
+			continue;
 		}
+		// Layer must be a direct sibling - check its actual priority value
+		if( InputMap::layerPriority(*result) > thePriority )
+			break;
+		// Must be a direct sibling but same or lower priority - move on
+		++result;
 	}
 
 	return result;
 }
+
 
 static void moveControlsLayerToTop(u16 theLayerID)
 {
@@ -436,7 +444,7 @@ static void moveControlsLayerToTop(u16 theLayerID)
 	DBG_ASSERT(sState.layers[theLayerID].active);
 	DBG_ASSERT(sState.layers[theLayerID].altParentLayerID == 0);
 	transDebugPrint(
-		"Moving Controls Layer '%s' to highest allowed position\n",
+		"Re-sorting Controls Layer '%s' as if it had been newly added\n",
 		InputMap::layerLabel(theLayerID).c_str());
 
 	std::vector<u16>::iterator anOldPos = std::find(
@@ -467,7 +475,8 @@ static void moveControlsLayerToTop(u16 theLayerID)
 	if( !sState.layers[theLayerID].heldActiveByButton )
 	{
 		aNewPos = layerOrderInsertPos(
-			sState.layers[theLayerID].parentLayerID);
+			sState.layers[theLayerID].parentLayerID,
+			InputMap::layerPriority(theLayerID));
 	}
 	sState.layerOrder.insert(aNewPos, aTempOrder.begin(), aTempOrder.end());
 	sResults.layerChangeMade = true;
@@ -508,8 +517,9 @@ static void addControlsLayer(u16 theLayerID)
 		}
 	}
 
-	sState.layerOrder.insert(
-		layerOrderInsertPos(aParentLayerID), theLayerID);
+	sState.layerOrder.insert(layerOrderInsertPos(
+		aParentLayerID, InputMap::layerPriority(theLayerID)),
+		theLayerID);
 	LayerState& aLayer = sState.layers[theLayerID];
 	aLayer.parentLayerID = aParentLayerID;
 	aLayer.altParentLayerID = 0;
@@ -1392,9 +1402,9 @@ static bool tryAddLayerFromButton(
 			"Holding Controls Layer '%s'\n",
 			InputMap::layerLabel(aLayerID).c_str());
 
-		// Held layers are always placed on "top" (back() of the vector)
-		// of all other layers at the time they are added.
-		sState.layerOrder.push_back(aLayerID);
+		sState.layerOrder.insert(layerOrderInsertPos(
+			0, InputMap::layerPriority(aLayerID), true),
+			aLayerID);
 		LayerState& aLayer = sState.layers[aLayerID];
 		aLayer.parentLayerID = 0;
 		aLayer.altParentLayerID = 0;

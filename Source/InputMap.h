@@ -44,6 +44,9 @@ u32 commandHoldTime(u16 theLayerID, EButton theButton);
 // Gets parent layer for given layer ID
 u16 parentLayer(u16 theLayerID);
 
+// Gets sort priority for given layer ID
+s8 layerPriority(u16 theLayerID);
+
 // Checks what EMouseMode given controls layer requests be used
 EMouseMode mouseMode(u16 theLayerID);
 
