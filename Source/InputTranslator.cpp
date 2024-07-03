@@ -655,7 +655,7 @@ static void sortComboLayers()
 
 static void flagLayerButtonCommandUsed(u16 theLayerIdx)
 {
-	if( theLayerIdx == 0 )
+	if( theLayerIdx == 0 || sState.layers[theLayerIdx].buttonCommandUsed )
 		return;
 
 	sState.layers[theLayerIdx].buttonCommandUsed = true;
@@ -697,6 +697,10 @@ static void processCommand(
 	u16 theLayerIdx,
 	bool repeated = false)
 {
+	// Flag when used a command assigned to a layer button (besides Auto)
+	if( theBtnState && theLayerIdx && theBtnState->buttonID != eBtn_None )
+		flagLayerButtonCommandUsed(theLayerIdx);
+		
 	Command aForwardCmd;
 	switch(theCmd.type)
 	{
@@ -1039,14 +1043,6 @@ static void processButtonPress(ButtonState& theBtnState)
 	// previously, which could be important - especially for cases like
 	// _Release matching up with a particular _Press.
 	theBtnState.commandsWhenPressed = theBtnState.commands;
-
-	// Log that at least one button in the assigned layer has been pressed
-	// (unless it is just the Auto button for the layer, which doesn't count)
-	//if( theBtnState.buttonID != eBtn_None &&
-	//	!sState.layers[theBtnState.commandsLayer].ownedButtonHit )
-	//{
-	//	flagOwnedButtonHit(theBtnState.commandsLayer);
-	//}
 
 	// _Press is processed before _Down since it is specifically called out
 	// and the name implies it should be first action on button press.
