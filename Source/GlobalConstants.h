@@ -191,10 +191,17 @@ enum EMouseMode
 	eMouseMode_Cursor,		// Normal mouse cursor (default if none specified)
 	eMouseMode_LookTurn,	// Mouse Look (holding right mouse button)
 	eMouseMode_LookOnly,	// Alternate Mouse Look (holding left mouse button)
+	eMouseMode_AutoLook,	// LookOnly or LookTurn based on if moving or not
+	eMouseMode_AutoRunLook,	// _AutoLook but doesn't count auto-run as "moving"
 	eMouseMode_Hide,		// Hide cursor without using MouseLook
+
+	// Below are not valid to send to InputDispatcher::setMouseMode()
 	eMouseMode_HideOrLook,	// _Default, unless it is _Cursor, then _Hide
 	eMouseMode_PostJump,	// Cursor mode just after a jump
 	eMouseMode_JumpClicked,	// Cursor mode just after jump-then-click event
+	eMouseMode_LookTrans,	// Transitioning from AutoLook to LookTurn
+	eMouseMode_LookTrans2,	// Transitioning from AutoRunLook to LookTurn
+	eMouseMode_LookTrans3,	// Transitioning from AutoRUnLook to AutoLook
 
 	eMouseMode_Num
 };
