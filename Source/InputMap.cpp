@@ -42,6 +42,7 @@ const char* kHUDSettingsKey = "HUD";
 const char* kHotspotArraysKey = "HOTSPOTS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
+const char* kPriorityKey = "PRIORITY";
 const char* kMenuOpenKey = "AUTO";
 const char* kMenuCloseKey = "BACK";
 const std::string kActionOnlyPrefix = "JUST";
@@ -169,12 +170,14 @@ struct ControlsLayer
 	BitVector<> disableHotspots;
 	EMouseMode mouseMode;
 	u16 parentLayer;
+	s8 priority;
 
 	ControlsLayer() :
 		showHUD(),
 		hideHUD(),
 		enableHotspots(),
 		disableHotspots(),
+		priority(),
 		mouseMode(eMouseMode_Default),
 		parentLayer()
 	{}
@@ -2851,6 +2854,30 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			buildHotspotArraysForLayer(theBuilder, theLayerIdx, aHotspotsStr);
 	}
 
+	{// Get priority setting directly
+		sLayers[theLayerIdx].priority = Profile::getInt(
+			aLayerPrefix + kPriorityKey);
+		if( sLayers[theLayerIdx].priority )
+		{
+			if( theLayerIdx == 0 )
+			{
+				logError(
+					"Root layer [%s] is always lowest priority. "
+					"Priority=%d property ignored!",
+					theBuilder.debugItemName.c_str(),
+					sLayers[theLayerIdx].priority);
+			}
+			else if( isComboLayer )
+			{
+				logError(
+					"Combo Layer [%s] ordering is derived automatically "
+					"from base layers, so Priority=%d property is ignored!",
+					theBuilder.debugItemName.c_str(),
+					sLayers[theLayerIdx].priority);
+			}
+		}
+	}
+
 	{// Get parent layer setting directly
 		const std::string& aParentLayerName =
 			Profile::getStr(aLayerPrefix + kParentLayerKey);
@@ -2919,7 +2946,8 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 		if( aKey == kParentLayerKey ||
 			aKey == kMouseModeKey ||
 			aKey == kHUDSettingsKey ||
-			aKey == kHotspotArraysKey )
+			aKey == kHotspotArraysKey ||
+			aKey == kPriorityKey )
 			continue;
 
 		// Check for a signal command
@@ -3613,6 +3641,13 @@ u16 parentLayer(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers[theLayerID].parentLayer;
+}
+
+
+s8 layerPriority(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].priority;	
 }
 
 
