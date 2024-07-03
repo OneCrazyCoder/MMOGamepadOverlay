@@ -318,13 +318,34 @@ Layers are defined the same as [Scheme], with just the section name [Layer.Layer
 
 In this example, Square will jump by default. Pressing L2 will add the "Alternate" layer. At that point, Square will Duck instead, but since it doesn't assign anything to Triangle, Triangle will continue to Consider. Pressing R2 will remove the Layer, meaning Square will once again jump.
 
-You can remove one layer while adding another in a single command using ``Replace with <LayerName>`` (for replacing the layer containing the command) or ``Replace <LayerName> with <LayerName>``. You can also both add or remove a layer in a single command, depending on if it is already active or not, with the single command ``=Toggle Layer <LayerName>``.
+You can remove one layer while adding another in a single command using ``Replace this layer with <LayerName>`` or ``Replace <LayerName> with <LayerName>``. You can also both add or remove a layer in a single command, depending on if it is already active or not, with the single command ``=Toggle <LayerName> layer``.
 
-*If you want a button to literally do nothing, including blocking lower layers' assignments for that button, set that specific button to do nothing. Above you could set ``Triangle = Do Nothing`` in the Alternate layer to prevent Triangle from using Consider while that layer is active. Leaving the button assignment blank (just ``Triangle=``) is the same as not mentioning the button at all and would still just allow Triangle to use Consider.*
+*If you want a button to literally do nothing, including blocking lower layers' assignments for that button, set it to ``= Do nothing``. Above you could set ``Triangle = Do Nothing`` in the Alternate layer to prevent Triangle from using Consider while that layer is active. Leaving the button assignment blank (just ``Triangle=``) is the same as not mentioning the button at all and would still just allow Triangle to use Consider.*
 
-*There can only be one of each named layer active at once, so trying to add a layer with the same name again will simply move the old one to the top of the stack instead. Thus pressing L2 multiple times in the above example will NOT add multiple copies of the Alternate layer!*
+*There can only be one of each named layer active at once, so trying to add a layer with the same name again will simply update its position as if it was newly added, but not actually remove or re-add it or add another copy of it!*
 
-*Assigning something to **any** action for a button blocks **all** commands assigned to that button from lower layers. For example, a command assigned to ``Press Square=`` on a lower layer will never execute if a higher layer has ``Square=`` or ``Tap Square=`` assigned to something, even though those are different actions*.
+### Overriding buttons and the "Just" prefix
+
+By default, assigning something to **any** action for a button blocks **all** commands assigned to that button from lower layers. For example, with this setup:
+
+    [Scheme]
+    Tap R1 = TargetNPC
+    Hold R1 = Consider
+    L2 = Add Alternate layer
+
+    [Layer.Alternate]
+    Tap R1 = TargetPC
+    R2 = Remove this layer
+
+Once you had added the Alternate layer with L2, briefly holding R1 will no longer Consider a target. R1 is now exclusively set to "TargetPC" when tapped because that is the only command assigned to R1 on that layer.
+
+You could of course manually add ``Hold R1 = Consider`` to the Alternate layer, but you could also specify that you only want to override the Tap action and let other actions, like Hold, still defer to lower layers' settings by adding the key word **Just** in front of the property name, like this:
+
+    [Layer.Alternate]
+    Just Tap R1 = TargetPC
+    R2 = Remove this layer
+
+Now when tap R1 "TargetPC" will be used instead of "TargetNPC", but holding R1 will still use "Consider" from [Scheme].
 
 ### Held Layers
 
@@ -364,39 +385,6 @@ For example, let's say you wanted to make pressing and holding Circle on a PS co
 With this setup, pressing Circle will add the MouseDrag layer, which will click and hold the left mouse button for as long as the layer is active via Auto, while also changing the D-Pad to control the mouse. Releasing Circle will remove the layer, restoring the D-Pad to character movement instead and releasing the left mouse button (since Auto is "released" when the Layer is removed).
 
 You can even assign commands to ``Press Auto=``, ``Release Auto=``,  ``Tap Auto =`` and so on, like any real button. Even ``Hold Auto ### =`` triggers once the layer has been active for ### milliseconds. ``With Auto=`` just acts an extra version of "Press" with no special properties, but allows up to 3 commands to trigger when a layer is first added ("With Auto", then "Press Auto", then just "Auto").
-
-### Layer Include= property
-
-To save on copying and pasting a lot when editing the .ini file, each layer can "include" the contents of another layer, if they are mostly the same anyway. For example, this:
-
-    [Layer.MyLayer]
-    Tap R1 = Target NPC
-    Hold R1 = Target PC
-    PS_X = Attack
-    R2 = RMB
-    ...
-
-    [Layer.AnotherLayer]
-    Include = MyLayer
-    Tap R1 = Hail
-
-Would be the same as typing out this:
-
-    [Layer.MyLayer]
-    Tap R1 = Target NPC
-    Hold R1 = Target PC
-    PS_X = Attack
-    R2 = RMB
-    ...
-
-    [Layer.AnotherLayer]
-    Tap R1 = Hail
-    Hold R1 = Target PC
-    PS_X = Attack
-    R2 = RMB
-    ...
-
-*If you want to include a layer but change one of the buttons from the included layer to be unassigned (thus allowing whatever is assigned to lower layers to be used for that button instead), set that specific button to be unassigned (``R1 = Unassigned``). Leaving the button assignment blank (just ``R1=``) defers to whatever the included layer had set for it.*
 
 ### Layer Mouse= property
 
@@ -464,35 +452,39 @@ With this setup, when hold both L2 and R2, causing both those layers to be activ
 Here's some other technical details about combo layers:
 * They are specified by 2 or more layer names separated by '+' after the ``[Layer.`` prefix.
 * They are added as soon as all their base layers are active, and removed as soon as any of their base layers are removed.
-* They can not be directly referenced by name for commands like Add Layer because symbols like '+' are filtered out of command strings. However, they can be named in other layers' ``Include=`` and ``Parent=`` properties.
+* They can not be directly referenced by name for commands like Add Layer because symbols like '+' are filtered out of command strings. However, they can be named in other layers' and ``Parent=`` property.
 * They have their own special layer ordering rule (see below).
-* For any layer that includes (with ``Include=``) the base layer of a combo layer, the combo layer will also treat that layer as a valid base. For example, if created ``[Layer.AltL2]/Include=L2`` along with above, the L2+R2 layer would be activated when both AltL2 and R2 are active, even if the base L2 layer is not.
 
-### Layer ordering
+### Layer ordering and the Priority= property
 
 As mentioned before, layers can be thought of as being stacked on top of each other in a specific order. This order determines what button assignments are active as well as other properties like Mouse and HUD. with higher layer properties and button assignments taking priority. The order of layers in the stack is thus very important for determining behavior of the overlay.
 
-Layers follow these rules when determining order, with each rule taking precedence over previous rules:
+While mostly based on factors like type of layer (normal added layer, held layer, or combo layer) and parenting, one additional sorting factor you can add is a ``Priority=#`` property for any layer, with a value from -100 to 100. If this property is not set, a layer has a default priority value of 0.
 
-1. Added layers are placed on top of older layers of the same type
-2. Held Layers are remain on top of basic added layers
-3. Combo Layers are directly on top of the top-most of all of their base layers, but no higher than that
-4. Child layers are directly on top of their parent layer (and any preexisting children/grandchildren/etc of the same parent) but no higher than that.
-5. [Scheme] always exists as the lowest layer
+Layers follow these rules when determining order:
+
+* [Scheme] always exists as the lowest layer
+* Held Layers are placed on top of normal added layers (and all of their children and combo layers)
+* Child layers are placed on top of their parent layer, regardless of the parent layer type, but below any layers that are not descended from that same parent
+* If 2 layers would have the same position after the above, then the layer with the higher ``Priority=`` property will be placed above any with a lower priority set, and below any with a higher priority set
+* If 2 layers still have the same position (same priority), then newly-added layers will be placed on top of older layers
+* Combo Layers act like a child layer, except they select the top-most of their base layers as their parent when it comes to ordering
+* Combo layers ignore the priority property and timing of being added, so in the case they would otherwise end up in the same position they will be sorted according to the relative order of their other (non-top-most) base layer(s).
 
 To demonstrate how these rules shake out, here's a potential layer order from top to bottom:
 
-      Combo (B+C)
-    Held LayerC
-      Child of A
-    Held LayerA
-    LayerE
-        Child of B+D Combo
-      Combo (B+D)
-    LayerD
-      Child of B (2)
-      Child of B (1)
-    LayerB
+      Combo Layer (B+E)
+      Combo Layer (A+E)
+    Held LayerE
+      Child of D
+    Held LayerD
+    Added LayerC
+        Child of A+B Combo
+      Combo Layer (A+B)
+    Added LayerB
+      Child of A (Priority=2)
+      Child of A (Priority=1)
+    Added LayerA
     [Scheme]
 
 ### "When Signal" commands
@@ -533,8 +525,8 @@ Menus are defined using the section name [Menu.MenuName]. Each *Menu Item* is de
     Style = List
     Position = L+10, 25%
     Alignment = L, T
-    1=Inventory: Toggle Inventory layer
-    2=Book: Toggle Book layer
+    1=Inventory: Inventory
+    2=Book: Book
     3=TBD:
     4=Settings
 
@@ -569,15 +561,29 @@ To actually use a menu, you will need to assign menu-controlling commands to gam
     PS_X = Confirm MainMenu
     Circle = Back MainMenu
 
-If you want to make it so pressing Circle when at the root Main Menu also closes the menu entirely (like pressing Start would), you can use this instead:
+### Closing a menu and the Back= command
 
-    Circle = Back or Close MainMenu
-    
-*Note that root menus are never technically "closed", just hidden by the HUD= property, so what is actually done to "close" a sub-menu is that whichever layer(s) are currently keeping the menu visible with their HUD= property are removed, which should not only hide it but likely disable any buttons that control it.*
+Technically, menus are never actually opened, closed, or disabled. They are always there, it is just a matter of whether or not they are visible (via the ``HUD=`` command on an active layer) and whether any buttons currently are assigned to control them. This is why when you want to "open" a menu, it makes sense to use ``=Reset <MenuName>`` as the first command on it, as it will otherwise still be in whatever state it was last left in.
+
+You can give the appearance of a menu being closed or disabled by hiding the menu and/or making sure no buttons are assigned to control it (in fact, a menu will automatically fade to its "inactive" transparency if it detects no buttons are currently assigned to control it, to help indicate it currently disabled).
+
+In order to essentially close a menu when trying to back out of one via the ``=Back <MenuName>`` command, you can take advantage of a special command property you can add to any menu or sub-menu named "Back". This command is run whenever the Back command is used on that menu.
+
+For the earlier example of MainMenu being controlled by Layer.MainMenu, when the user presses Circle from the root menu, the menu could essentially close by removing the MainMenu layer, which will hide the menu (because the ``HUD=`` property making it visible will be gone) and stop controlling it (because the various button assignments related to it will be gone). Here's how:
+
+    [Menu.MainMenu]
+    Style = List
+    Position = L+10, 25%
+    Alignment = L, T
+    Back = Remove MainMenu layer
+    1=Inventory: Inventory
+    2=Book: Book
+    3=TBD:
+    4=Settings
 
 ### Menu Auto command
 
-Similar to the "Auto" button for each *Controls Layer*, you can add an ``Auto=`` property to a menu or sub-menu which can be set to a direct input command to be used whenever that sub-menu becomes active. This command will trigger when changing sub-menus (including returning to one from using "Back" or "Reset") or when a menu has just been made visible/enabled when it previously was not.
+Similar to the "Auto" button for each *Controls Layer* and a counterpoint to the Back property above, you can add an ``Auto=`` property to a menu or sub-menu which can be set to a direct input command to be used whenever that sub-menu becomes active. This command will trigger when changing sub-menus (including returning to one from using "Back" or "Reset") or when a menu has just been made visible/enabled when it previously was not.
 
 ### Menu directional commands
 
@@ -773,9 +779,12 @@ For the key bind array types to work, make sure to create both a hotspot array i
 
 ## Other Commands and Features
 
-In addition to keyboard and mouse input and commands for adding/removing layers and managing menus, there are some other special-case commands you can assign to gamepad buttons and menu items:
+This final section covers various extra features that don't fit into the main categories above. 
 
-* ``=Lock Movement`` - Advanced version of AutoRun command that "locks" holding the current direction being held. For forward or not pressing any direction, it will use the standard auto-run key (unless there is none defined, then will hold down the MoveForward key). For turning left/right, it will NOT lock them (so as not to just spin in circles) unless are also in right-click Mouse Look mode at the time (so assumes they will strafe instead). Stops once release and re-press any direction on the same axis as any of locked direction (WARNING: or could stop unexpectedly when press one of the movement keys on your keyboard while typing a chat message if movement is assigned to WASD!).
+### System commands
+
+These commands affect the overlay app directly rather than the game you are using it with, and can be assigned to menu items or gamepad buttons like any other command.
+
 * ``=Change Profile`` - brings up profile select dialog
 * ``=Quit App`` - closes the overlay application
 
@@ -824,9 +833,29 @@ If you want to completely swap some button assignments in your profile, but not 
     Triangle = Circle
     Circle = Triangle
 
-The above would swap everything the Circle button and Triangle button do throughout the rest of the profile. The name on the left of the = sign is which button you will actually press, and the name on the right is which button you want pressed instead of it.
+The above would swap everything the Circle button and Triangle button do throughout the rest of the profile. The name on the left of the = sign is which button you will actually physically press, and the name on the right is which button you want to act as if it was pressed instead.
 
-### System features
+### Experimental command: Lock Movement
+
+This acts a potential alternative to ``=AutoRun`` that allows continuous movement in other directions - namely strafing or walking backwards. You could think of it as Auto-Strafe-Run. It looks at what movement commands are currently being held active by other buttons (analog sticks) at the same time the command is executed to "lock" the same movement direction to be automatically held after that point, until cancelled.
+
+For MoveForward, or when not holding any directions, it will use the standard auto-run key (unless there is none defined, then it will hold down the MoveForward key continuously). For turning left/right, it will NOT lock them (so as not to just spin in circles) unless are also in right-click Mouse Look mode at the time (where it assumes the turn keys will cause strafing instead).
+
+This locked movement mode will cancel once release and re-press any direction on the same axis as any locked direction. In other words, if you lock walking backwards, you can press left or right to strafe while continuing to move back automatically, but pressing forward or back again will cancel it. If you lock moving slant, re-pressing any direction will cancel it entirely.
+
+*WARNING: For directions that can't just use the AutoRun key, the game itself may stop you from continuing to move in the direction desired while using the chat message box - particularly if type one of the movement keys (i.e. WASD) as part of your message. To help avoid this, consider re-mapping your movement keys to ones you aren't likely to use while typing.*
+
+### Experimental Mouse Mode: AutoLook
+
+This mouse mode can be used by setting ``Mouse = AutoLook`` in a layer (and no higher layers having a different Mouse mode set). It attempts to emulate modern console game camera control by combining ``=LookTurn`` and ``=LookOnly``. It only works for games that support rotating camera+character by holding the right mouse button on an empty part of the screen, as well as just rotating camera (without affecting character) by holding the left mouse button. It is targeted for use with a 3rd-person camera mode and may not function as expected in some games while in 1st-person.
+
+With this mode the left mouse button will be held while no movement commands are being sent, and the right mouse button will be held while movement commands are also being sent. This allows panning the camera around and viewing your own character from different angles while stationary, yet steering your character while moving, just like in most modern 3rd-person action games on consoles.
+
+The tricky part is while using AutoRun, which the app has no way of knowing for sure your character is still doing or not (there are multiple ways to cancel AutoRun that the app won't necessarily know about). Therefore it assumes that any time you send the AutoRun key that your character begins moving forward, and that your character will continue moving forward until you send MoveBack or release and re-send MoveForward commands, and use the right mouse button during this to allow for steering.
+
+If you prefer, you can use ``Mouse=AutoRunLook`` which instead treats AutoRun (and Lock Movement) the same as being stationary and always uses the LookOnly camera mode whenever you are not actively moving your character. This allows freely looking around for threats while auto-running without changing your direction of movement, but removes the ability to steer your character via mouse movement while auto-running. You could assign each option to different layers and switch between them by holding a button.
+
+### Other system features
 
 As mentioned for first starting up, you can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of "true" full screen if needed so the HUD elements can actually show up over top of the game.
 

@@ -436,6 +436,8 @@ static std::vector<u16>::iterator layerOrderInsertPos(
 	return result;
 }
 
+static void addComboLayers(u16 theNewLayerID); // forward declare
+static void sortComboLayers(); // forward declare
 
 static void moveControlsLayerToTop(u16 theLayerID)
 {
@@ -480,9 +482,11 @@ static void moveControlsLayerToTop(u16 theLayerID)
 	}
 	sState.layerOrder.insert(aNewPos, aTempOrder.begin(), aTempOrder.end());
 	sResults.layerChangeMade = true;
+
+	// Re-sort any possibly affected combo layers
+	sortComboLayers();
 }
 
-static void addComboLayers(u16 theNewLayerID); // forward declare
 
 static void addControlsLayer(u16 theLayerID)
 {
@@ -560,83 +564,92 @@ static void addComboLayers(u16 theNewLayerID)
 		}
 	}
 
+	// May need to re-sort combo layers into proper positions in layer order
+	// Don't waste time doing this unless both a layer was added, and the
+	// layer being checked (theNewLayerID) is a normal (non-combo) layer,
+	// since could be recursively adding combo layers of combo layers.
+	// This will only trigger once get back to done with the original, normal
+	// layer and therefore will only do a single full sort at the end.
 	if( aLayerWasAdded && !sState.layers[theNewLayerID].altParentLayerID )
+		sortComboLayers();
+}
+
+
+static void sortComboLayers()
+{
+	// General idea is put combo layers directly above their top-most
+	// parent layer, but it gets more complex if that location can
+	// apply to more than one combo layer, at which point they try to
+	// match the relative order of their respective parent layers.
+	// This sorting relies on the fact that all combo layers should have
+	// only a non-combo layer for their parent, with only altParent
+	// having the possibility of being itself another combo layer.
+	struct LayerPriority
 	{
-		// Need to re-sort combo layers into proper positions in layer order
-		// General idea is put combo layers directly above their top-most
-		// parent layer, but it gets more complex if that location can
-		// apply to more than one combo layer, at which point they try to
-		// match the relative order of their respective parent layers.
-		// This sorting relies on the fact that all combo layers should have
-		// only a non-combo layer for their parent, with only altParent
-		// having the possibility of being another combo layer.
-		struct LayerPriority
+		u16 oldPos;
+		LayerPriority *parent, *altParent;
+		u16 get(u16 depth) const
 		{
-			u16 oldPos;
-			LayerPriority *parent, *altParent;
-			u16 get(u16 depth) const
+			if( parent != null )
 			{
-				if( parent != null )
+				switch(depth)
 				{
-					switch(depth)
-					{
-					case 0: return max(get(1), get(2));
-					case 1: return parent->get(0);
-					case 2: return altParent->get(0);
-					default: return altParent->get(depth-2);
-					}
-				}
-				else if( depth == 0 )
-				{
-					return oldPos;
-				}
-				return 0;
-			}
-		};
-		struct LayerSorter
-		{
-			u16 id;
-			LayerPriority* priority;
-			bool operator<(const LayerSorter& rhs) const
-			{
-				u16 priorityDepth = 0;
-				u16 priorityA = priority->get(priorityDepth);
-				u16 priorityB = rhs.priority->get(priorityDepth);
-				while(priorityA == priorityB && (priorityA || priorityB))
-				{
-					++priorityDepth;
-					priorityA = priority->get(priorityDepth);
-					priorityB = rhs.priority->get(priorityDepth);
-				}
-				return priorityA < priorityB;
-			}
-		};
-		std::vector<LayerPriority> aLayerPriorities(sState.layerOrder.size());
-		std::vector<LayerSorter> aLayerSorters(sState.layerOrder.size());
-		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
-		{
-			const u16 aLayerID = sState.layerOrder[i];
-			LayerState& aLayer = sState.layers[aLayerID];
-			aLayerPriorities[i].oldPos = i;
-			aLayerPriorities[i].parent = null;
-			aLayerPriorities[i].altParent = null;
-			if( aLayer.altParentLayerID )
-			{
-				for(size_t j = 0; j < sState.layerOrder.size(); ++j)
-				{
-					if( sState.layerOrder[j] == aLayer.parentLayerID )
-						aLayerPriorities[i].parent = &aLayerPriorities[j];
-					if( sState.layerOrder[j] == aLayer.altParentLayerID )
-						aLayerPriorities[i].altParent = &aLayerPriorities[j];
+				case 0: return max(get(1), get(2));
+				case 1: return parent->get(0);
+				case 2: return altParent->get(0);
+				default: return altParent->get(depth-2);
 				}
 			}
-			aLayerSorters[i].id = sState.layerOrder[i];
-			aLayerSorters[i].priority = &aLayerPriorities[i];
+			else if( depth == 0 )
+			{
+				return oldPos;
+			}
+			return 0;
 		}
-		std::sort(aLayerSorters.begin()+1, aLayerSorters.end());
-		for(u16 i = 0; i < sState.layerOrder.size(); ++i)
-			sState.layerOrder[i] = aLayerSorters[i].id;
+	};
+	struct LayerSorter
+	{
+		u16 id;
+		LayerPriority* priority;
+		bool operator<(const LayerSorter& rhs) const
+		{
+			u16 priorityDepth = 0;
+			u16 priorityA = priority->get(priorityDepth);
+			u16 priorityB = rhs.priority->get(priorityDepth);
+			while(priorityA == priorityB && (priorityA || priorityB))
+			{
+				++priorityDepth;
+				priorityA = priority->get(priorityDepth);
+				priorityB = rhs.priority->get(priorityDepth);
+			}
+			return priorityA < priorityB;
+		}
+	};
+	std::vector<LayerPriority> aLayerPriorities(sState.layerOrder.size());
+	std::vector<LayerSorter> aLayerSorters(sState.layerOrder.size());
+	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	{
+		const u16 aLayerID = sState.layerOrder[i];
+		LayerState& aLayer = sState.layers[aLayerID];
+		aLayerPriorities[i].oldPos = i;
+		aLayerPriorities[i].parent = null;
+		aLayerPriorities[i].altParent = null;
+		if( aLayer.altParentLayerID )
+		{
+			for(size_t j = 0; j < sState.layerOrder.size(); ++j)
+			{
+				if( sState.layerOrder[j] == aLayer.parentLayerID )
+					aLayerPriorities[i].parent = &aLayerPriorities[j];
+				if( sState.layerOrder[j] == aLayer.altParentLayerID )
+					aLayerPriorities[i].altParent = &aLayerPriorities[j];
+			}
+		}
+		aLayerSorters[i].id = sState.layerOrder[i];
+		aLayerSorters[i].priority = &aLayerPriorities[i];
 	}
+	std::sort(aLayerSorters.begin()+1, aLayerSorters.end());
+	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+		sState.layerOrder[i] = aLayerSorters[i].id;
 }
 
 
