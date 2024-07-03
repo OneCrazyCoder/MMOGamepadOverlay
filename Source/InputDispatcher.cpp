@@ -279,7 +279,6 @@ struct DispatchTracker
 	u32 mouseJumpAllowedTime;
 	u32 mouseJumpFinishedTime;
 	u16 mouseJumpToHotspot;
-	bool mouseMovedSinceModeChange;
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
 	bool mouseJumpQueued;
@@ -670,7 +669,6 @@ static void offsetMousePos(int x, int y)
 
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseLookZoneFixTimer = 0;
-	sTracker.mouseMovedSinceModeChange = true;
 }
 
 
@@ -763,7 +761,6 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 
 	// Reached jump destination and can update mouse mode accordingly
 	sTracker.mouseMode = sTracker.mouseJumpToMode;
-	sTracker.mouseMovedSinceModeChange = false;
 	return true;
 }
 
@@ -843,6 +840,142 @@ static void trailMouseToHotspot(u16 theHotspotID)
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
 	sTracker.mouseLookZoneFixTimer = 0;
+}
+
+
+static bool manualCharacterMoveInUse()
+{
+	switch(sTracker.autoRunMode)
+	{
+	case eAutoRunMode_Started:
+		return true;
+	case eAutoRunMode_LockedX:
+		return
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_MoveF - eSpecialKey_FirstMove);
+	case eAutoRunMode_LockedY:
+		return
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_TurnL - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_TurnR - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_StrafeL - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_StrafeR - eSpecialKey_FirstMove);
+	case eAutoRunMode_LockedXY:
+		return false;
+	default:
+		return sTracker.moveKeysHeld.any();
+	}
+}
+
+
+static EMouseMode getMouseModeWanted()
+{
+	// This is to with the "auto" mouse modes that swap between
+	// other modes depending on the current situation
+	switch(sTracker.mouseModeWanted)
+	{
+	case eMouseMode_AutoLook:
+		if( sTracker.mouseVelX != 0 &&
+			sTracker.autoRunMode == eAutoRunMode_Off &&
+			sTracker.moveKeysHeld.none() )
+		{
+			return eMouseMode_LookOnly;
+		}
+
+		if( sTracker.moveKeysHeld.any() ||
+			sTracker.autoRunMode != eAutoRunMode_Off )
+		{
+			return eMouseMode_LookTurn;
+		}
+
+		if( sTracker.mouseMode != eMouseMode_LookTurn &&
+			sTracker.mouseMode != eMouseMode_LookOnly )
+		{
+			return eMouseMode_LookOnly;
+		}
+		return sTracker.mouseMode;
+
+	case eMouseMode_AutoRunLook:
+		if( manualCharacterMoveInUse() )
+			return eMouseMode_LookTurn;
+
+		if( sTracker.mouseVelX != 0 )
+			return eMouseMode_LookOnly;
+
+		if( sTracker.mouseMode != eMouseMode_LookTurn &&
+			sTracker.mouseMode != eMouseMode_LookOnly )
+		{
+			return eMouseMode_LookOnly;
+		}
+		return sTracker.mouseMode;
+
+	case eMouseMode_LookTrans:
+		if( sTracker.mouseMode == eMouseMode_LookTurn ||
+			sTracker.moveKeysHeld.any() ||
+			sTracker.autoRunMode != eAutoRunMode_Off )
+		{
+			sTracker.mouseModeWanted = eMouseMode_LookTurn;
+			return eMouseMode_LookTurn;
+		}
+
+		if( sTracker.mouseMode == eMouseMode_LookOnly &&
+			sTracker.mouseVelX != 0 )
+		{
+			return eMouseMode_LookOnly;
+		}
+
+		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
+			return eMouseMode_LookTurn;
+		return eMouseMode_Hide;
+
+	case eMouseMode_LookTrans2:
+		if( sTracker.mouseMode == eMouseMode_LookTurn ||
+			manualCharacterMoveInUse() )
+		{
+			sTracker.mouseModeWanted = eMouseMode_LookTurn;
+			return eMouseMode_LookTurn;
+		}
+
+		if( sTracker.mouseMode == eMouseMode_LookOnly &&
+			sTracker.mouseVelX != 0 )
+		{
+			return eMouseMode_LookOnly;
+		}
+
+		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
+			return eMouseMode_LookTurn;
+		return eMouseMode_Hide;
+	
+	case eMouseMode_LookTrans3:
+		if( sTracker.mouseMode == eMouseMode_LookTurn ||
+			manualCharacterMoveInUse() )
+		{
+			sTracker.mouseModeWanted = eMouseMode_AutoLook;
+			return eMouseMode_LookTurn;
+		}
+
+		if( sTracker.mouseMode == eMouseMode_LookOnly &&
+			sTracker.mouseVelX != 0 )
+		{
+			return eMouseMode_LookOnly;
+		}
+
+		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
+		{
+			sTracker.mouseModeWanted = eMouseMode_AutoLook;
+			if( sTracker.autoRunMode != eAutoRunMode_Off )
+				return eMouseMode_LookTurn;
+			return eMouseMode_LookOnly;
+		}
+		return eMouseMode_Hide;
+	}
+
+	return sTracker.mouseModeWanted;
 }
 
 
@@ -1298,81 +1431,112 @@ void update()
 		(sTracker.currTaskProgress == 0 || sTracker.queuePauseTime > 0) )
 	{// No tasks in progress that mouse mode change could interfere with
 
+		EMouseMode aMouseModeWanted = getMouseModeWanted();
+		bool wantDifferentMode = aMouseModeWanted != sTracker.mouseMode;
+		bool mouseMoving = sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0;
+		bool holdingLMB = sTracker.keysHeldDown.test(VK_LBUTTON);
+		bool holdingRMB = sTracker.keysHeldDown.test(VK_RBUTTON);
+
 		switch(sTracker.mouseMode)
 		{
+		case eMouseMode_Hide:
+			// Mouse is never considered actually moving
+			mouseMoving = false;
+			break;
 		case eMouseMode_PostJump:
 			// If mouse was jumped but didn't click after the jump, no need for
 			// any further action - just treat as new cursor mode position
 			sTracker.mouseMode = eMouseMode_Cursor;
 			break;
 		case eMouseMode_LookTurn:
+			// Don't exit LookTurn mode while holding a turn key,
+			// or it may change from strafing to turning
+			if( sTracker.keysHeldDown.test(
+					InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
+				sTracker.keysHeldDown.test(
+					InputMap::keyForSpecialAction(eSpecialKey_TurnR)) )
+			{
+				wantDifferentMode = false;
+				break;
+			}
+			// fall through
 		case eMouseMode_LookOnly:
 			// If not holding a mouse button in a _Look mode, it must have been
-			// force-released, so re-click it now by changing mode to 'default'
-			// to trigger mouse mode changing below
-			if( sTracker.mouseMode == sTracker.mouseModeWanted &&
-				!sTracker.keysHeldDown.test(VK_RBUTTON) &&
-				!sTracker.keysHeldDown.test(VK_LBUTTON) )
+			// force-released, so re-activate the mode
+			if( sTracker.mouseMode == aMouseModeWanted &&
+				!holdingLMB && !holdingRMB )
 			{
-				sTracker.mouseMode = eMouseMode_Default;
+				wantDifferentMode = true;
 			}
+			// Allow transitioning between look modes even while holding mouse
+			if( aMouseModeWanted == eMouseMode_LookOnly ||
+				aMouseModeWanted == eMouseMode_LookTurn )
+			{
+				mouseMoving = false;
+			}
+			// Don't prevent changing modes from holding a button if that
+			// mode is always supposed to be holding that button anyway
+			if( sTracker.mouseMode == eMouseMode_LookTurn )
+				holdingRMB = false;
+			if( sTracker.mouseMode == eMouseMode_LookOnly )
+				holdingLMB = false;
 			break;
 		}
 
-		if( sTracker.mouseMode != sTracker.mouseModeWanted &&
-			sTracker.mouseVelX == 0 && sTracker.mouseVelY == 0 &&
-			(!sTracker.keysHeldDown.test(VK_LBUTTON) ||
-			 sTracker.mouseMode == eMouseMode_LookOnly) &&
-			(!sTracker.keysHeldDown.test(VK_RBUTTON) ||
-			 sTracker.mouseMode == eMouseMode_LookTurn) ) 
+		if( wantDifferentMode && !mouseMoving && !holdingLMB && !holdingRMB )
 		{// Mouse mode wants changing and mouse isn't otherwise busy
-
-			// Don't swap in or out of right-click mouse look mode while
-			// holding turn keys since they also will (likely) change between
-			// being turn keys and being strafe keys from doing so
-			const bool holdingTurnKey =
-				 sTracker.keysHeldDown.test(
-					InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
-				 sTracker.keysHeldDown.test(
-					InputMap::keyForSpecialAction(eSpecialKey_TurnR));
-
-			switch(sTracker.mouseModeWanted)
+			switch(aMouseModeWanted)
 			{
 			case eMouseMode_Cursor:
-				if( !holdingTurnKey ||
-					sTracker.mouseMode != eMouseMode_LookTurn )
-				{// Restore last known normal cursor position
-					sTracker.mouseJumpToHotspot =
-						eSpecialHotspot_LastCursorPos;
-					sTracker.mouseJumpToMode = sTracker.mouseModeWanted;
-					sTracker.mouseJumpInterpolate = false;
-					sTracker.mouseAllowJumpDrag = false;
-				}
+				sTracker.mouseJumpToHotspot =
+					eSpecialHotspot_LastCursorPos;
+				sTracker.mouseJumpToMode = aMouseModeWanted;
+				sTracker.mouseJumpInterpolate = false;
+				sTracker.mouseAllowJumpDrag = false;
 				break;
 			case eMouseMode_LookTurn:
+				if( sTracker.mouseMode != eMouseMode_JumpClicked )
+				{
+					// Don't start look turn mode while holding a turn key,
+					// or turning may suddenly become strafing
+					if( sTracker.keysHeldDown.test(
+							InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
+						sTracker.keysHeldDown.test(
+							InputMap::keyForSpecialAction(eSpecialKey_TurnR)) )
+					{
+						break;
+					}
+				}
+				// fall through
 			case eMouseMode_LookOnly:
 				if( sTracker.mouseMode == eMouseMode_JumpClicked )
 				{// Give one more update to process queue before resuming
 					// (in case have multiple jump-clicks queued in a row)
 					sTracker.mouseMode = eMouseMode_Default;
 				}
+				else if( (sTracker.mouseMode == eMouseMode_LookTurn &&
+						  sTracker.keysHeldDown.test(VK_RBUTTON)) ||
+						 (sTracker.mouseMode == eMouseMode_LookOnly &&
+						  sTracker.keysHeldDown.test(VK_LBUTTON)) )
+				{// Just swap which button is held immediately
+					sTracker.mouseClickAllowedTime = 0;
+					setKeyDown(
+						(aMouseModeWanted == eMouseMode_LookTurn)
+							? VK_RBUTTON : VK_LBUTTON, true);
+					sTracker.mouseLookZoneFixTimer = 0;
+					sTracker.mouseMode = aMouseModeWanted;
+				}
 				else if( !WindowManager::overlaysAreHidden() &&
-						 !sTracker.mouseJumpQueued &&
-						 !holdingTurnKey )
+						 !sTracker.mouseJumpQueued )
 				{// Jump cursor to safe spot for initial click
 					sTracker.mouseJumpToHotspot =
 						eSpecialHotspot_MouseLookStart;
-					sTracker.mouseJumpToMode = sTracker.mouseModeWanted;
+					sTracker.mouseJumpToMode = aMouseModeWanted;
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowJumpDrag = false;
-					if( sTracker.mouseMode == eMouseMode_LookTurn ||
-						sTracker.mouseMode == eMouseMode_LookOnly )
-					{// Allow instant re-click if just switching ML modes
-						sTracker.mouseClickAllowedTime = 0;
-					}
 					// Begin holding down the appropriate mouse button
 					sTracker.nextQueuedKey =
-						(sTracker.mouseModeWanted == eMouseMode_LookTurn)
+						(aMouseModeWanted == eMouseMode_LookTurn)
 							? (VK_RBUTTON | kVKeyHoldFlag)
 							: (VK_LBUTTON | kVKeyHoldFlag);
 					sTracker.mouseLookZoneFixTimer = 0;
@@ -1386,13 +1550,13 @@ void update()
 					!sTracker.mouseJumpQueued )
 				{
 					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
-					sTracker.mouseJumpToMode = sTracker.mouseModeWanted;
+					sTracker.mouseJumpToMode = aMouseModeWanted;
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowJumpDrag = false;
 				}
 				break;
 			default:
-				DBG_ASSERT(false && "Invalid sTracker.mouseModeWanted value!");
+				DBG_ASSERT(false && "Invalid mouse mode wanted value!");
 			}
 		}
 		tryMouseLookZoningFix();
@@ -1710,7 +1874,7 @@ void update()
 				readyForQueuedKey = false;
 			}
 			if( sTracker.mouseJumpToHotspot == eSpecialHotspot_MouseHidden )
-			{// Attemptig to hide - abort and let click through first
+			{// Attempting to hide - abort and let click through first
 				sTracker.mouseJumpToHotspot = 0;
 				readyForMouseJump = false;
 			}
@@ -1937,8 +2101,27 @@ void setMouseMode(EMouseMode theMouseMode)
 {
 	DBG_ASSERT(theMouseMode <= eMouseMode_Hide);
 	if( theMouseMode == eMouseMode_Default )
-		theMouseMode = eMouseMode_Cursor;
-	sTracker.mouseModeWanted = theMouseMode;
+	{
+		sTracker.mouseModeWanted = eMouseMode_Cursor;
+	}
+	else if( theMouseMode == eMouseMode_LookTurn )
+	{
+		if( sTracker.mouseModeWanted == eMouseMode_AutoLook )
+			sTracker.mouseModeWanted = eMouseMode_LookTrans;
+		else if( sTracker.mouseModeWanted == eMouseMode_AutoRunLook )
+			sTracker.mouseModeWanted = eMouseMode_LookTrans2;
+		else
+			sTracker.mouseModeWanted = theMouseMode;
+	}
+	else if( theMouseMode == eMouseMode_AutoLook &&
+			 sTracker.mouseModeWanted == eMouseMode_AutoRunLook )
+	{
+		sTracker.mouseModeWanted = eMouseMode_LookTrans3;
+	}
+	else
+	{
+		sTracker.mouseModeWanted = theMouseMode;
+	}
 }
 
 
@@ -2423,6 +2606,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			aCmd.type = eCmdType_TapKey;
 			aCmd.signalID = eBtn_Num + eSpecialKey_AutoRun;
 			sendKeyCommand(aCmd);
+			sTracker.autoRunMode = eAutoRunMode_Started;
 		}
 		else
 		{
