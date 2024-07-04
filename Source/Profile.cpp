@@ -1121,6 +1121,7 @@ bool queryUserForProfile()
 		eType_CopyFile,			// index into sKnownProfiles
 		eType_CopyResDefault,	// index into kResTemplateDefault
 		eType_ParentResBase,	// index into kResTemplateBase
+		eType_ParentResDefault,	// index into kResTemplateDefault
 		eType_ParentFile,		// index into sKnownProfiles
 	};
 	std::vector<std::string> aLoadableProfileNames;
@@ -1193,6 +1194,30 @@ bool queryUserForProfile()
 			kParentPrefix + kResTemplateBase[i].name + '"');
 		aTemplateProfileIndex.push_back(i);
 		aTemplateProfileType.push_back(eType_ParentResBase);
+	}
+
+	for(int i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
+	{
+		bool alreadyExists = false;
+		const ProfileEntry& aTestEntry =
+			profileNameToEntry(kResTemplateDefault[i].name);
+		if( aTestEntry.id != 0 )
+		{
+			for(int j = 0; j < sKnownProfiles.size(); ++j)
+			{
+				if( sKnownProfiles[j].id == aTestEntry.id )
+				{
+					alreadyExists = true;
+					break;
+				}
+			}
+		}
+		if( alreadyExists )
+			continue;
+		aTemplateProfileNames.push_back(
+			kParentPrefix + kResTemplateDefault[i].name + '"');
+		aTemplateProfileIndex.push_back(i);
+		aTemplateProfileType.push_back(eType_ParentResDefault);
 	}
 
 	// Use Dialog to ask the user what they want to do
@@ -1280,7 +1305,8 @@ bool queryUserForProfile()
 		sProfilesCanLoad.resize(aProfileCanLoadIdx+1);
 
 	DBG_ASSERT(aDialogResult.selectedIndex < aTemplateProfileType.size());
-	switch(aTemplateProfileType[aDialogResult.selectedIndex])
+	EType aProfileType = aTemplateProfileType[aDialogResult.selectedIndex];
+	switch(aProfileType)
 	{
 	case eType_CopyFile:
 		{// Create copy of source file
@@ -1307,13 +1333,25 @@ bool queryUserForProfile()
 		}
 		break;
 	case eType_ParentResBase:
+	case eType_ParentResDefault:
 		{// Generate resource profile to act as parent
 			const size_t aResBaseIdx = aTemplateProfileIndex[aSrcIdx];
-			DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateBase));
-			generateResourceProfile(kResTemplateBase[aResBaseIdx]);
+			const char* aProfileName = null;
+			if( aProfileType == eType_ParentResDefault )
+			{
+				DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateDefault));
+				generateResourceProfile(kResTemplateDefault[aResBaseIdx]);
+				aProfileName = kResTemplateDefault[aResBaseIdx].name;
+			}
+			else
+			{
+				DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateBase));
+				generateResourceProfile(kResTemplateBase[aResBaseIdx]);
+				aProfileName = kResTemplateBase[aResBaseIdx].name;
+			}
 			sNewBaseProfileIdx = -1;
 			sNewBaseProfileIdx = getOrAddProfileIdx(
-				profileNameToEntry(kResTemplateBase[aResBaseIdx].name));
+				profileNameToEntry(aProfileName));
 			if( sNewBaseProfileIdx < 0 )
 				break;
 			// Treat as _ParentFile type now that resource exists as a file
@@ -1341,7 +1379,6 @@ bool queryUserForProfile()
 						aFile << "ParentProfile = ";
 						aFile << aSrcEntry.name << std::endl << std::endl;
 					}
-					aFile << "[Scheme]" << std::endl;
 					aFile.close();
 				}
 				else
