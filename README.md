@@ -37,9 +37,11 @@ One way to stop this is using a utility called [HidHide](https://github.com/nefa
 For some applications (but sadly not *Monsters & Memories* last time I tried this) it can work to just disable this "feature" in Windows, if your Windows is updated enough to allow that, through a Registry edit. [Here](https://github.com/microsoft/microsoft-ui-xaml/issues/1495#issuecomment-745586048) is a description of how to do it. In case that link dies at some point, the brief version is to make a Registry key ``
 HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping`` and add a DWORD to it called ``Enabled`` and set its value to 0. This will only disable Windows and some "UWP" apps from using the gamepad for basic functionality - it will not prevent games that natively support gamepads for full game play, or utilities like this application or Steam from remapping a gamepad to keyboard & mouse input.
 
-## Profile Setup
+## Basic use and default control scheme
 
-**NOTE: The rest of this file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that you don't actually have to learn all this stuff if the default profiles provided (or maybe shared by other users) work for your needs! You will likely at least need to adjust the [Icons] and [Hotspots] sections to match your preferred UI layout, however, so skip to the sections "Position and size properties" and "Icons copied from game window" to just learn about those.**
+The rest of this Readme file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that **you don't actually have to learn any of the rest of this stuff if the default profiles provided (or maybe shared by other users) work for your needs!** If you'd like a simpler user guide for just playing a supported MMO with the app using a default included control scheme, try this video (click the image to play): [![MMOGO in M&M Stress Test](http://img.youtube.com/vi/JnFxxoTKDME/0.jpg)](http://www.youtube.com/watch?v=JnFxxoTKDME "MMO Gamepad Overlay User Guide")**
+
+## Profile Setup
 
 The application generates a *MMOGO_Core.ini* file which contains some default settings and is used to track what other profiles you have created and their names. You can edit this file and any other *.ini* files it generates with any text editor, or create your own, once you know how they work.
 
