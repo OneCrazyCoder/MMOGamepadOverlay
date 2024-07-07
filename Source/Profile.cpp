@@ -33,11 +33,14 @@ struct ProfileEntry
 	DWORD id;
 };
 
-const char* kProfilePrefix = "MMOGO_";
-const char* kProfileSuffix = ".ini";
+const char* kProfileFileNamePrefix = "MMOGO_";
+const char* kProfileFileNameSuffix = ".ini";
+const char* kProfileKeyPrefix = "Profile";
 const char* kCoreProfileName = "MMOGO_Core.ini";
-const char* kAutoLaunchAppKey = "SYSTEM/AUTOLAUNCHAPP";
-const char* kAutoLaunchAppParamsKey = "SYSTEM/AUTOLAUNCHAPPPARAMS";
+const char* kAutoLaunchAppKeySection = "System";
+const char* kAutoLaunchAppKey = "AutoLaunchApp";
+const char* kAutoLaunchAppParamsKey = "AutoLaunchAppParams";
+const char* kAutoLoadProfileKey = "AutoLoadProfile";
 const std::string kEndOfLine = "\r\n";
 
 const ResourceProfile kResTemplateCore =
@@ -70,15 +73,23 @@ typedef void (*ParseINICallback)(
 	const std::string& theKey,
 	const std::string& theValue,
 	void* theUserData);
-typedef StringToValueMap<std::string> StringsMap;
-typedef std::vector<std::string> StringsVec;
+struct ProfileProperty
+{
+	std::string name;
+	std::string val;
+
+	ProfileProperty() {}
+	ProfileProperty(const std::string& name, const std::string& val) :
+		name(name), val(val) {}
+};
+typedef StringToValueMap<ProfileProperty> PropertyMap;
 
 
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static StringsMap sSettingsMap;
+static PropertyMap sPropertyMap;
 static std::vector<ProfileEntry> sKnownProfiles;
 static std::vector< std::vector<int> > sProfilesCanLoad;
 static std::string sLoadedProfileName;
@@ -128,7 +139,7 @@ static const std::string& iniFolderPath()
 static std::string extractProfileName(const std::string& theString)
 {
 	std::string result = removeExtension(getFileName(theString));
-	const std::string prefix = kProfilePrefix;
+	const std::string& prefix = upper(kProfileFileNamePrefix);
 	if( upper(result).compare(0, prefix.length(), upper(prefix)) == 0 )
 		result = result.substr(prefix.length());
 	return replaceChar(result, '_', ' ');
@@ -139,9 +150,9 @@ static std::string profileNameToFilePath(const std::string& theName)
 {
 	DBG_ASSERT(theName == extractProfileName(theName));
 	std::string result = iniFolderPath();
-	result += kProfilePrefix;
+	result += kProfileFileNamePrefix;
 	result += replaceChar(theName, ' ', '_');
-	result += kProfileSuffix;
+	result += kProfileFileNameSuffix;
 	return result;
 }
 
@@ -307,7 +318,7 @@ static void parseINI(
 				switch(c)
 				{
 				case '\r': case '\n': case '\0':
-					aNewSection = condense(aNewSection);
+					aNewSection = trim(aNewSection);
 					if( aNewSection.size() > 1 &&
 						aNewSection[aNewSection.size()-1] == ']' )
 					{
@@ -325,7 +336,7 @@ static void parseINI(
 				// Look for '=' to end key
 				if( c == '=' )
 				{// Switch from parsing key to value
-					aKey = condense(aKey);
+					aKey = trim(aKey);
 					aState = ePIState_Value;
 					aValue.clear();
 				}
@@ -695,11 +706,13 @@ static void getProfileListCallback(
 {
 	if( theValue.empty() )
 		return;
-	const std::string kProfilePrefix = "PROFILE";
-	if( theKey.compare(0, kProfilePrefix.length(), kProfilePrefix) == 0 )
-	{
+	const std::string& aProfileNameKey = condense(theKey);
+	const std::string& aProfileKeyPrefix = condense(kProfileKeyPrefix);
+	if( aProfileNameKey.compare(0,
+			aProfileKeyPrefix.length(), aProfileKeyPrefix) == 0 )
+	{// Profile name entry
 		const int aProfileNum =
-			intFromString(theKey.substr(kProfilePrefix.length()));
+			intFromString(aProfileNameKey.substr(aProfileKeyPrefix.length()));
 		if( aProfileNum > 0 && !theValue.empty() )
 		{
 			const ProfileEntry& aProfileEntry = profileNameToEntry(theValue);
@@ -719,8 +732,8 @@ static void getProfileListCallback(
 			}
 		}
 	}
-	else if( theKey == "AUTOLOADPROFILE" )
-	{
+	else if( aProfileNameKey == condense(kAutoLoadProfileKey) )
+	{// Auto-load profile entry
 		if( theValue.empty() )
 			return;
 
@@ -760,7 +773,7 @@ static void addParentCallback(
 
 	std::vector<int>* aLoadPriorityList = (std::vector<int>*)(theLoadList);
 
-	if( theKey == "PARENTPROFILE" || theKey == "PARENT" )
+	if( condense(theKey) == "PARENTPROFILE" || condense(theKey) == "PARENT" )
 	{
 		const std::string& aProfileName = extractProfileName(theValue);
 		ProfileEntry aProfileEntry = profileNameToEntry(aProfileName);
@@ -882,12 +895,18 @@ static void tryAddAutoLaunchApp(
 	{
 		setKeyValueInINI(
 			sKnownProfiles[theKnownProfileIdx].path,
-			"System", "AutoLaunchApp",
+			kAutoLaunchAppKeySection, kAutoLaunchAppKey,
 			aPath);
-		sSettingsMap.setValue(kAutoLaunchAppKey, aPath);
+		sPropertyMap.setValue(
+			condense(kAutoLaunchAppKeySection) + "/" +
+				condense(kAutoLaunchAppKey),
+			ProfileProperty(
+				std::string(kAutoLaunchAppKeySection) +
+					"/" + std::string(kAutoLaunchAppKey),
+				aPath));
 		setKeyValueInINI(
 			sKnownProfiles[theKnownProfileIdx].path,
-			"System", "AutoLaunchAppParams",
+			kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
 			theDefaultParams);
 	}
 }
@@ -898,14 +917,14 @@ static void readProfileCallback(
    const std::string& theValue,
    void*)
 {
-	sSettingsMap.setValue(theKey, theValue);
+	sPropertyMap.setValue(condense(theKey), ProfileProperty(theKey, theValue));
 }
 
 
 static void loadProfile(int theProfilesCanLoadIdx)
 {
-	sSettingsMap.clear();
-	sSettingsMap.trim();
+	sPropertyMap.clear();
+	sPropertyMap.trim();
 
 	DBG_ASSERT(theProfilesCanLoadIdx >= 0);
 	DBG_ASSERT(theProfilesCanLoadIdx < sProfilesCanLoad.size());
@@ -932,7 +951,9 @@ static void loadProfile(int theProfilesCanLoadIdx)
 	{// Generated a new kResTemplateBase profile
 		// Prompt if want to have it set to Auto-launch target app
 		std::string& aDefaultParams =
-			sSettingsMap.findOrAdd(kAutoLaunchAppParamsKey);
+			sPropertyMap.findOrAdd(
+				std::string(kAutoLaunchAppKeySection) + "/" +
+					std::string(kAutoLaunchAppParamsKey)).val;
 		tryAddAutoLaunchApp(sNewBaseProfileIdx, aDefaultParams);
 		sNewBaseProfileIdx = -1;
 	}
@@ -958,14 +979,14 @@ static void setAutoLoadProfile(int theProfilesCanLoadIdx)
 	{
 		setKeyValueInINI(
 			sKnownProfiles[0].path,
-			"", "AutoLoadProfile",
+			"", kAutoLoadProfileKey,
 			toString(theProfilesCanLoadIdx));
 	}
 	else
 	{
 		setKeyValueInINI(
 			sKnownProfiles[0].path,
-			"", "AutoLoadProfile", "");
+			"", kAutoLoadProfileKey, "");
 	}
 }
 
@@ -978,7 +999,7 @@ void loadCore()
 {
 	// Should only be run once at app startup, otherwise core will be
 	// loaded alongside normal ::load()
-	DBG_ASSERT(sSettingsMap.empty());
+	DBG_ASSERT(sPropertyMap.empty());
 
 	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
 	if( aCoreProfile.id == 0 )
@@ -1421,10 +1442,10 @@ bool queryUserForProfile()
 
 std::string getStr(const std::string& theKey, const std::string& theDefaultValue)
 {
-	if( std::string* aString = sSettingsMap.find(condense(theKey)) )
+	if( ProfileProperty* aProperty = sPropertyMap.find(condense(theKey)) )
 	{
-		if( !aString->empty() )
-			return *aString;
+		if( !aProperty->val.empty() )
+			return aProperty->val;
 	}
 
 	return theDefaultValue;
@@ -1472,9 +1493,8 @@ float getFloat(const std::string& theKey, float theDefaultValue)
 
 void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 {
-	const size_t aPrefixLength = thePrefix.length();
-	StringsMap::IndexVector anIndexSet;
-	sSettingsMap.findAllWithPrefix(condense(thePrefix), &anIndexSet);
+	PropertyMap::IndexVector anIndexSet;
+	sPropertyMap.findAllWithPrefix(condense(thePrefix), &anIndexSet);
 
 	#ifndef NDEBUG
 	// Unnecessary but nice for debug output - sort to match order added to map
@@ -1484,8 +1504,11 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
 	{
 		out.push_back(std::make_pair(
-			sSettingsMap.keys()[anIndexSet[i]].c_str() + aPrefixLength,
-			sSettingsMap.values()[anIndexSet[i]].c_str()));
+			sPropertyMap.values()[anIndexSet[i]].name.c_str() +
+				posAfterPrefix(
+					sPropertyMap.values()[anIndexSet[i]].name,
+					thePrefix),
+			sPropertyMap.values()[anIndexSet[i]].val.c_str()));
 	}
 }
 
@@ -1494,14 +1517,15 @@ void setStr(const std::string& theSection,
 			const std::string& theValueName,
 			const std::string& theValue)
 {
-	std::string& aStringRef =
-		sSettingsMap.findOrAdd(condense(theSection + theValueName),
-		std::string(""));
+	const std::string& aPropertyName = theSection + "/" + theValueName;
+	ProfileProperty& aPropertyRef = sPropertyMap.findOrAdd(
+		condense(aPropertyName),
+		ProfileProperty(aPropertyName, ""));
 
 	// Only change map and write to file if new string is actually different
-	if( aStringRef == theValue )
+	if( aPropertyRef.val == theValue )
 		return;
-	aStringRef = theValue;
+	aPropertyRef.val = theValue;
 
 	if( !sLoadedProfileName.empty() )
 	{

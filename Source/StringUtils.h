@@ -54,6 +54,9 @@ int breakOffIntegerSuffix(std::string& theString);
 // stripped and act as separators for each "word" except for hyphenated or under-
 // scored words which are conjoined (Left-Click or Left_Click becomes LeftClick).
 void sanitizeSentence(const std::string& theString, std::vector<std::string>& out);
+// Finds first character in theString that is after thePrefix, even if upper/lower
+// case doesn't match or string has whitespace in its copy of the prefix
+size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix);
 
 // Conversion between numbers and (pure ASCII) strings
 std::string commaSeparate(u32 theValue);

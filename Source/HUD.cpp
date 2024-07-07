@@ -525,7 +525,7 @@ static void loadBitmapFile(
 	}
 
 	theBuilder.bitmapNameToHandleMap.setValue(
-		theBitmapName, aBitmapHandle);
+		condense(theBitmapName), aBitmapHandle);
 }
 
 
@@ -865,7 +865,7 @@ static IconEntry getOrCreateLabelIcon(
 	const std::string& theTextLabel,
 	const std::string& theIconDescription)
 {
-	std::string aTextLabel(theTextLabel);
+	std::string aTextLabel = condense(theTextLabel);
 	std::string anIconDesc(theIconDescription);
 
 	// Check if might just be an offset from another copy icon
