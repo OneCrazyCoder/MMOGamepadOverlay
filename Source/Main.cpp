@@ -201,26 +201,14 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			mainLoopSleep();
 		}
 
-		// Note that MessageBox self-closes immediately if WM_QUIT has been
-		// posted, meaning this will fail to report any fatal errors that
-		// happen after user manually closes the main window. Will instead
-		// need to check errorlog.txt for those (if it matters by then).
-		if( hadFatalError() )
-		{
-			MessageBox(
-				WindowManager::mainHandle(),
-				gErrorString.c_str(),
-				L"MMO Gamepad Overlay Error",
-				MB_OK | MB_ICONERROR);
-		}
-
 		// Cleanup
 		HUD::cleanup();
 		Menus::cleanup();
 		InputDispatcher::cleanup();
 		InputTranslator::cleanup();
 		HotspotMap::cleanup();
-		WindowManager::destroyAll(hInstance);
+		if( !hadFatalError() )
+			WindowManager::destroyAll(hInstance);
 	}
 
 	// Report performance
@@ -230,6 +218,20 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		debugPrint("Average FPS: %.2f\n", averageFPS);
 	}
 
+	// Note that MessageBox self-closes immediately if WM_QUIT has been
+	// posted, meaning this will fail to report any fatal errors that
+	// happen after user manually closes the main window. Will instead
+	// need to check errorlog.txt for those (if it matters by then).
+	if( hadFatalError() )
+	{
+		MessageBox(
+			WindowManager::mainHandle(),
+			gErrorString.c_str(),
+			L"MMO Gamepad Overlay Error",
+			MB_OK | MB_ICONERROR);
+		WindowManager::destroyAll(hInstance);
+	}
+		
 	// Final cleanup
 	Gamepad::cleanup();
 	TargetApp::cleanup();

@@ -39,7 +39,9 @@ HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping
 
 ## Basic use and default control scheme
 
-The rest of this Readme file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that **you don't actually have to learn any of the rest of this stuff if the default profiles provided (or maybe shared by other users) work for your needs!** If you'd like a simpler user guide for just playing a supported MMO with the app using a default included control scheme, try this video (click the image to play): [![MMOGO in M&M Stress Test](http://img.youtube.com/vi/JnFxxoTKDME/0.jpg)](http://www.youtube.com/watch?v=JnFxxoTKDME "MMO Gamepad Overlay User Guide")**
+The rest of this Readme file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that **you don't actually have to learn any of the rest of this stuff if the default profiles provided (or maybe shared by other users) work for your needs!** If you'd like a simpler user guide for just playing a supported MMO with the app using a default included control scheme, try this video (click the image to play):
+
+[![MMOGO in M&M Stress Test](http://img.youtube.com/vi/JnFxxoTKDME/0.jpg)](http://www.youtube.com/watch?v=JnFxxoTKDME "MMO Gamepad Overlay User Guide")
 
 ## Profile Setup
 

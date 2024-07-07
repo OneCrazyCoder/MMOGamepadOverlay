@@ -501,6 +501,30 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 }
 
 
+size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix)
+{
+	const std::string& aPrefix = condense(thePrefix);
+	size_t aPrefixIdx = 0;
+	// Use the same logic as condense() while searching the string
+	bool allowDash = true;
+	for(size_t i = 0; i < theString.length(); ++i)
+	{
+		if( (unsigned)theString[i] > ' ' && theString[i] != '_' &&
+			(theString[i] != '-' || allowDash) )
+		{
+			char c = (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
+			if( aPrefixIdx == aPrefix.length() )
+				return i;
+			if( aPrefix[aPrefixIdx++] != c )
+				return 0; // not a matching prefix!
+			allowDash = c >= '0' && c <= '9';
+		}
+	}
+	
+	return theString.length();
+}
+
+
 std::string commaSeparate(u32 theValue)
 {
 	std::string aResult;
