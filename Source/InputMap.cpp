@@ -1092,18 +1092,6 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	// "= [Edit] Layout"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Change);
-	allowedKeyWords.set(eCmdWord_Edit);
-	allowedKeyWords.set(eCmdWord_Layout);
-	if( keyWordsFound.test(eCmdWord_Layout) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_EditLayout;
-		return result;
-	}
-
 	// "= Close App"
 	if( keyWordsFound.test(eCmdWord_Close) &&
 		keyWordsFound.test(eCmdWord_App) &&
@@ -1868,7 +1856,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 	Profile::getAllKeys(kHotspotsPrefix, theBuilder.keyValueList);
 	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
 	{
-		std::string aHotspotName = theBuilder.keyValueList[i].first;
+		std::string aHotspotName = condense(theBuilder.keyValueList[i].first);
 		std::string aHotspotDescription = theBuilder.keyValueList[i].second;
 
 		// Check if might be part of a hotspot array
@@ -1890,7 +1878,9 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 				if( aHotspotArrayIdx >= sHotspotArrays.size() )
 				{
 					HotspotArray anEntry;
-					anEntry.label  = aHotspotArrayName;
+					anEntry.label = theBuilder.keyValueList[i].first;
+					anEntry.label.resize(
+						posAfterPrefix(anEntry.label, aHotspotArrayName));
 					anEntry.first = anEntry.last = 0;
 					sHotspotArrays.push_back(anEntry);
 				}
@@ -1900,11 +1890,11 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 				continue;
 			}
 			// Doesn't seem to be part of a valid array, so restore name
-			aHotspotName = theBuilder.keyValueList[i].first;
+			aHotspotName = condense(theBuilder.keyValueList[i].first);
 		}
 
 		u16& aHotspotIdx = theBuilder.hotspotNameToIdxMap.findOrAdd(
-			condense(aHotspotName), u16(sHotspots.size()));
+			aHotspotName, u16(sHotspots.size()));
 		if( aHotspotIdx >= sHotspots.size() )
 			sHotspots.resize(aHotspotIdx+1);
 		EResult aResult = HotspotMap::stringToHotspot(
@@ -1912,7 +1902,8 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 		if( aResult == eResult_Malformed )
 		{
 			logError("Hotspot %s: Could not decipher hotspot position '%s'",
-				aHotspotName.c_str(), theBuilder.keyValueList[i].second);
+				theBuilder.keyValueList[i].first,
+				theBuilder.keyValueList[i].second);
 			sHotspots[aHotspotIdx] = Hotspot();
 		}
 	}
@@ -1925,7 +1916,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 		mapDebugPrint("Building Hotspot Array %s\n", aHotspotArray.label.c_str());
 		Hotspot anAnchor;
 		u16* anAnchorIdx = theBuilder.hotspotNameToIdxMap.
-			find(aHotspotArray.label);
+			find(condense(aHotspotArray.label));
 		if( anAnchorIdx )
 			anAnchor = sHotspots[*anAnchorIdx];
 		// Allocate enough hotspots for the array
