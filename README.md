@@ -4,7 +4,7 @@ Check the [Downloads](https://bitbucket.org/TaronM/mmogamepadoverlay/downloads/)
 
 Demonstration video (click to play):
 
-[![MMOGO in M&M Stress Test](http://img.youtube.com/vi/SBlLWR59GGk/0.jpg)](http://www.youtube.com/watch?v=SBlLWR59GGk "MMO Gamepad Overlay app demo")
+[![MMOGO Demo](http://img.youtube.com/vi/SBlLWR59GGk/0.jpg)](http://www.youtube.com/watch?v=SBlLWR59GGk "MMO Gamepad Overlay app demo")
 
 This application translates DInput & XInput game controller input into keyboard and mouse input, possibly with extra HUD elements and menus (displayed in a separate transparent window overlaying the game window) to help keep track of what various buttons may do.
 
@@ -39,7 +39,11 @@ HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping
 
 ## Basic use and default control scheme
 
-The rest of this Readme file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that **you don't actually have to learn any of the rest of this stuff if the default profiles provided (or maybe shared by other users) work for your needs!** If you'd like a simpler user guide for just playing a supported MMO with the app using a default included control scheme, try this video (click the image to play): [![MMOGO in M&M Stress Test](http://img.youtube.com/vi/dGfhbFy53Rk/0.jpg)](http://www.youtube.com/watch?v=dGfhbFy53Rk "MMO Gamepad Overlay User Guide")**
+The rest of this Readme file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that **you don't actually have to learn any of the rest of this stuff if the default profiles provided (or maybe shared by other users) work for your needs!**
+
+If you'd like a simpler user guide for just playing a supported MMO with the app using a default included control scheme, try this video (click the image to play):
+
+[![MMOGO Video User Guide](http://img.youtube.com/vi/dGfhbFy53Rk/0.jpg)](http://www.youtube.com/watch?v=dGfhbFy53Rk "MMO Gamepad Overlay User Guide")
 
 ## Profile Setup
 

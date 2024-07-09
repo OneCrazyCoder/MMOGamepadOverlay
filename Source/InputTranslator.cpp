@@ -187,7 +187,6 @@ struct TranslatorState
 struct InputResults
 {
 	std::vector<Command> keys;
-	std::vector<Command> sequences;
 	std::vector<Command> strings;
 	BitVector<> menuAutoCommandRun;
 	s16 charMove;
@@ -206,7 +205,6 @@ struct InputResults
 	void clear()
 	{
 		keys.clear();
-		sequences.clear();
 		strings.clear();
 		menuAutoCommandRun.clearAndResize(InputMap::menuCount());
 		charMove = 0;
@@ -728,20 +726,17 @@ static void processCommand(
 		DBG_ASSERT(false && "_ReleaseKey should not be directly assigned!");
 		break;
 	case eCmdType_TapKey:
+	case eCmdType_VKeySequence:
 		// Queue to send after press/release commands but before strings
 		sResults.keys.push_back(theCmd);
 		break;
-	case eCmdType_VKeySequence:
-		// Queue to send after key taps, since can block other input longer
-		sResults.sequences.push_back(theCmd);
-		break;
 	case eCmdType_ChatBoxString:
-		// Queue to send last, since can block other input the longest
+		// Queue to send last, since can block other input for a while
 		sResults.strings.push_back(theCmd);
 		break;
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MoveMouseToMenuItem:
-		// Send right away to happen before a queued mouse click
+		// Send right away, to happen before a queued mouse click
 		InputDispatcher::moveMouseTo(theCmd);
 		break;
 	case eCmdType_KeyBindArrayResetLast:
@@ -917,14 +912,14 @@ static void processCommand(
 		aForwardCmd.withMouse = theCmd.withMouse;
 		if( aForwardCmd.type >= eCmdType_FirstValid )
 		{
-			// Close menu first if this won't just switch to a sub-menu
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+			// Close menu first if didn't just switch to a sub-menu
 			if( aForwardCmd.type < eCmdType_FirstMenuControl ||
 				aForwardCmd.type > eCmdType_LastMenuControl )
 			{
 				processCommand(theBtnState,
 					Menus::closeCommand(theCmd.menuID), theLayerIdx);
 			}
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		break;
 	case eCmdType_MenuBack:
@@ -959,16 +954,15 @@ static void processCommand(
 			aForwardCmd = Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
-			// Close menu first if this won't just switch to a sub-menu
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+			// Close menu if didn't just switch to a sub-menu
 			if( aForwardCmd.type < eCmdType_FirstMenuControl ||
 				aForwardCmd.type > eCmdType_LastMenuControl )
 			{
 				processCommand(theBtnState,
 					Menus::closeCommand(theCmd.menuID), theLayerIdx);
-				processCommand(theBtnState, aForwardCmd, theLayerIdx);
 				return;
 			}
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
@@ -1689,27 +1683,9 @@ void update()
 		sResults.layerChangeMade = true;
 	}
 
-	// Update button commands, mouse mode, HUD, etc for new layer order
+	// Update mouse mode to reflect new layer layout
 	if( sResults.layerChangeMade )
-	{
-		loadCommandsForCurrentLayers();
-		updateHUDStateForCurrentLayers();
-		updateHotspotArraysForCurrentLayers();
 		updateMouseModeForCurrentLayers();
-		#ifndef NDEBUG
-		std::string aNewLayerOrder("Layers: ");
-		for(std::vector<u16>::iterator itr =
-			sState.layerOrder.begin();
-			itr != sState.layerOrder.end(); ++itr)
-		{
-			aNewLayerOrder += InputMap::layerLabel(*itr);
-			if( itr + 1 != sState.layerOrder.end() )
-				aNewLayerOrder += " < ";
-		}
-		aNewLayerOrder += "\n";
-		transDebugPrint("%s", aNewLayerOrder.c_str());
-		#endif
-	}
 
 	// Send input that was queued up by any of the above
 	InputDispatcher::moveCharacter(
@@ -1728,13 +1704,33 @@ void update()
 		sResults.mouseWheelStepped);
 	for(size_t i = 0; i < sResults.keys.size(); ++i)
 		InputDispatcher::sendKeyCommand(sResults.keys[i]);
-	for(size_t i = 0; i < sResults.sequences.size(); ++i)
-		InputDispatcher::sendKeyCommand(sResults.sequences[i]);
 	for(size_t i = 0; i < sResults.strings.size(); ++i)
 		InputDispatcher::sendKeyCommand(sResults.strings[i]);
 
 	// Clear results for next update
+	const bool aLayerOrderChanged = sResults.layerChangeMade;
 	sResults.clear();
+
+	// Update settings for new layer order to use during next update
+	if( aLayerOrderChanged )
+	{
+		loadCommandsForCurrentLayers();
+		updateHUDStateForCurrentLayers();
+		updateHotspotArraysForCurrentLayers();
+		#ifndef NDEBUG
+		std::string aNewLayerOrder("Layers: ");
+		for(std::vector<u16>::iterator itr =
+			sState.layerOrder.begin();
+			itr != sState.layerOrder.end(); ++itr)
+		{
+			aNewLayerOrder += InputMap::layerLabel(*itr);
+			if( itr + 1 != sState.layerOrder.end() )
+				aNewLayerOrder += " < ";
+		}
+		aNewLayerOrder += "\n";
+		transDebugPrint("%s", aNewLayerOrder.c_str());
+		#endif
+	}
 }
 
 #undef transDebugPrint
