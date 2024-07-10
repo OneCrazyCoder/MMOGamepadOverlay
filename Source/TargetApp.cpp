@@ -153,7 +153,6 @@ static void restoreTargetWindow()
 	{
 		targetDebugPrint("Restoring target window to active window\n");
 		SetForegroundWindow(sTargetWindowHandle);
-		SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	}
 }
 
@@ -701,6 +700,8 @@ void swapWindowMode()
 void prepareForDialog()
 {
 	sRestoreTargetWindow = (GetForegroundWindow() == sTargetWindowHandle);
+	// Overlays may get resized while in dialog, so prepare to restore them
+	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	targetDebugPrint("Preparing for dialog box - will%srestore target window\n",
 		sRestoreTargetWindow ? " " : " NOT ");
 	if( sSwapWindowModeHotkeyRegistered )

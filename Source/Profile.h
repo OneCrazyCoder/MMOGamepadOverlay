@@ -47,4 +47,9 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out);
 void setStr(const std::string& theSection,
 			const std::string& theValueName,
 			const std::string& theValue);
+
+// Open the .ini file for load-able profile index specified
+// Uses whatever Windows wants to open the file with (likely Notepad)
+void openProfileForUser(int theProfileID);
+
 } // Profile

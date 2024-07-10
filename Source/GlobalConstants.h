@@ -345,6 +345,7 @@ enum EResult
 	eResult_Ok,
 	eResult_TaskCompleted = eResult_Ok,
 	eResult_Accepted = eResult_Ok,
+	eResult_Yes = eResult_Ok,
 
 	eResult_Fail,
 	eResult_Cancel,

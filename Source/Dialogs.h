@@ -26,12 +26,12 @@ struct ProfileSelectResult
 ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles,
-	int theDefaultSelection, bool wantsAutoLoad);
+	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
 
 std::string targetAppPath(std::string& theCommandLineParams);
-
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
-
 EResult editMenuCommand(std::string& theString, bool directional = false);
+void showError(const std::string& theError);
+EResult yesNoPrompt(const std::string& thePrompt, const std::string& theTitle);
 
 } // Dialogs
