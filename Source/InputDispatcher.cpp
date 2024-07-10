@@ -1527,6 +1527,7 @@ void update()
 					sTracker.mouseMode = aMouseModeWanted;
 				}
 				else if( !WindowManager::overlaysAreHidden() &&
+						 !WindowManager::overlaysAreOverDesktop() &&
 						 !sTracker.mouseJumpQueued )
 				{// Jump cursor to safe spot for initial click
 					sTracker.mouseJumpToHotspot =
@@ -1547,6 +1548,7 @@ void update()
 				// (or using _Look which can affect undesired side effects)
 				// so just move it out of the way (bottom corner usually)
 				if( !WindowManager::overlaysAreHidden() &&
+					!WindowManager::overlaysAreOverDesktop() &&
 					!sTracker.mouseJumpQueued )
 				{
 					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
