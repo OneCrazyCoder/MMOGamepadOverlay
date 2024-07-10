@@ -8,6 +8,7 @@
 #include "Resources/resource.h"
 
 #include <fstream>
+#include <ShellAPI.h>
 
 namespace Profile
 {
@@ -63,12 +64,12 @@ const ResourceProfile kResTemplateDefault[] =
 
 const ResourceProfile kResTemplateCustom[] =
 {//		name			fileName		resID
-	{	"M&M Default",	"MnM Custom",	IDR_TEXT_INI_CUST_MNM	},
-	{	"P99 Default",	"P99 Custom",	IDR_TEXT_INI_CUST_P99	},
-	{	"PQ Default",	"PQ Custom",	IDR_TEXT_INI_CUST_PQ	},
-	{	"M&M Taron",	"MnM Custom",	IDR_TEXT_INI_TARON_MNM	},
-	{	"P99 Taron",	"P99 Custom",	IDR_TEXT_INI_TARON_P99	},
-	{	"PQ Taron",		"PQ Custom",	IDR_TEXT_INI_TARON_PQ	},
+	{	"M&M Default",	"MnM",			IDR_TEXT_INI_CUST_MNM	},
+	{	"P99 Default",	"P99",			IDR_TEXT_INI_CUST_P99	},
+	{	"PQ Default",	"PQ",			IDR_TEXT_INI_CUST_PQ	},
+	{	"M&M Taron",	"MnM",			IDR_TEXT_INI_TARON_MNM	},
+	{	"P99 Taron",	"P99",			IDR_TEXT_INI_TARON_P99	},
+	{	"PQ Taron",		"PQ",			IDR_TEXT_INI_TARON_PQ	},
 };
 
 enum EParseMode
@@ -955,17 +956,6 @@ static void loadProfile(int theProfilesCanLoadIdx)
 			eParseMode_Sections);
 	}
 
-	if( sNewBaseProfileIdx >= 0 )
-	{// Generated a new kResTemplateBase profile
-		// Prompt if want to have it set to Auto-launch target app
-		std::string& aDefaultParams =
-			sPropertyMap.findOrAdd(condense(
-				std::string(kAutoLaunchAppKeySection) + "/" +
-					std::string(kAutoLaunchAppParamsKey))).val;
-		tryAddAutoLaunchApp(sNewBaseProfileIdx, aDefaultParams);
-		sNewBaseProfileIdx = -1;
-	}
-
 	// Now that have loaded a profile, only need to remember the main
 	// profile's name and can forget gathered data about other profiles
 	sLoadedProfileName = sKnownProfiles[aList[0]].name;
@@ -1111,6 +1101,8 @@ void load()
 				if( sKnownProfiles[i].name == kResTemplateCustom[j].fileName )
 					generateResourceProfile(kResTemplateCustom[j]);
 			}
+			sKnownProfiles[i].id =
+				uniqueFileIdentifier(sKnownProfiles[i].path);
 		}
 		// Restore profile load settings to regenerated Core
 		int autoProfileIdxTmp = 0;
@@ -1127,6 +1119,7 @@ void load()
 					sKnownProfiles[sProfilesCanLoad[i][0]].name);
 			}
 		}
+		sKnownProfiles[0].id = uniqueFileIdentifier(sKnownProfiles[0].path);
 	}
 	#endif
 
@@ -1140,6 +1133,9 @@ void load()
 
 bool queryUserForProfile()
 {
+	int aLastCreatedProfileIdx = -1;
+retryQuery:
+
 	if( sKnownProfiles.empty() )
 	{
 		parseProfilesCanLoad();
@@ -1264,13 +1260,16 @@ bool queryUserForProfile()
 				aDefaultSelectedIdx = i;
 		}
 	}
+	if( aLastCreatedProfileIdx >= 0 )
+		aDefaultSelectedIdx = aLastCreatedProfileIdx;
 	Dialogs::ProfileSelectResult aDialogResult = Dialogs::profileSelect(
 		aLoadableProfileNames,
 		aTemplateProfileNames,
 		aDefaultSelectedIdx,
 		sAutoProfileIdx >= 0 &&
 		sAutoProfileIdx < sProfilesCanLoad.size() &&
-		!sProfilesCanLoad[sAutoProfileIdx].empty());
+		!sProfilesCanLoad[sAutoProfileIdx].empty(),
+		needFirstProfile);
 
 	if( aDialogResult.cancelled )
 	{// User declined to select anything
@@ -1306,21 +1305,71 @@ bool queryUserForProfile()
 	size_t aSrcIdx = (unsigned)aDialogResult.selectedIndex;
 	DBG_ASSERT(aSrcIdx < aTemplateProfileIndex.size());
 
-	if( aNewEntry.id == sKnownProfiles[0].id )
-	{
-		logFatalError("Can not create custom Profile with the name 'Core'!");
-		return false;
-	}
-
-	// If profile already exists, make sure it's not in sProfilesCanLoad
-	if( aNewEntry.id != 0 )
-	{
-		for(size_t i = 0; i < sProfilesCanLoad.size(); ++i)
+	if( aNewEntry.id )
+	{// File already exists
+		if( aNewEntry.id == sKnownProfiles[0].id )
+		{
+			Dialogs::showError(
+				"Can not create custom Profile with the name 'Core'!");
+			goto retryQuery;
+		}
+		int duplicateLoadProfileIdx = -1;
+		for(int i = 0; i < sProfilesCanLoad.size(); ++i)
 		{
 			if( !sProfilesCanLoad[i].empty() &&
 				sKnownProfiles[sProfilesCanLoad[i][0]].id == aNewEntry.id )
 			{
-				sProfilesCanLoad[i].clear();
+				duplicateLoadProfileIdx = i;
+				break;
+			}
+		}
+		if( duplicateLoadProfileIdx >= 0 )
+		{
+			if( Dialogs::yesNoPrompt(
+					"A Profile already exists with given name. Overwrite?",
+					"Overwrite existing Profile") != eResult_Yes )
+			{
+				goto retryQuery;
+			}
+			sProfilesCanLoad[duplicateLoadProfileIdx].clear();
+		}
+		else
+		{
+			Dialogs::showError(
+				"New name not valid (may be in use as a parent profile)!");
+			goto retryQuery;
+		}
+	}
+
+	DBG_ASSERT(aDialogResult.selectedIndex < aTemplateProfileType.size());
+	EType aProfileType = aTemplateProfileType[aDialogResult.selectedIndex];
+	if( aProfileType == eType_ParentResDefault ||
+		aProfileType == eType_CopyResCustom )
+	{// Do not allow Base profile names for a new profile of these types
+		// This is to prevent possibly having self as grandparent
+		const std::string& aCompName = condense(aNewName);
+		for(size_t i = 0; i < ARRAYSIZE(kResTemplateBase); ++i)
+		{
+			if( aCompName == condense(kResTemplateBase[i].fileName) )
+			{
+				Dialogs::showError(
+					"Selected Profile name not valid (reserved)!");
+				goto retryQuery;
+			}
+		}
+	}
+
+	if( aProfileType == eType_CopyResCustom )
+	{// Do not allow Default profile names for a new profile of these types
+		// This is to prevent possibly having self as a parent
+		const std::string& aCompName = condense(aNewName);
+		for(size_t i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
+		{
+			if( aCompName == condense(kResTemplateDefault[i].fileName) )
+			{
+				Dialogs::showError(
+					"Selected Profile name not valid (reserved)!");
+				goto retryQuery;
 			}
 		}
 	}
@@ -1338,8 +1387,6 @@ bool queryUserForProfile()
 	if( aProfileCanLoadIdx >= sProfilesCanLoad.size() )
 		sProfilesCanLoad.resize(aProfileCanLoadIdx+1);
 
-	DBG_ASSERT(aDialogResult.selectedIndex < aTemplateProfileType.size());
-	EType aProfileType = aTemplateProfileType[aDialogResult.selectedIndex];
 	switch(aProfileType)
 	{
 	case eType_CopyFile:
@@ -1393,6 +1440,7 @@ bool queryUserForProfile()
 			aTemplateProfileIndex.push_back(sNewBaseProfileIdx);
 			aTemplateProfileType.push_back(eType_ParentFile);
 			aSrcIdx = aTemplateProfileType.size() - 1;
+			aNewEntry = profileNameToEntry(aNewName);
 		}
 		// fall through
 	case eType_ParentFile:
@@ -1400,41 +1448,43 @@ bool queryUserForProfile()
 			const size_t aKnownProfileIdx = aTemplateProfileIndex[aSrcIdx];
 			DBG_ASSERT(aKnownProfileIdx < sKnownProfiles.size());
 			const ProfileEntry& aSrcEntry = sKnownProfiles[aKnownProfileIdx];
-			// Don't actually do anything if source and dest are the same file
-			if( aNewEntry.id != aSrcEntry.id )
+			// Make sure parent and new file are not the same file
+			if( aSrcEntry.id == aNewEntry.id )
 			{
-				std::ofstream aFile(
-					widen(aNewEntry.path).c_str(),
-					std::ios::out | std::ios::trunc);
-				if( aFile.is_open() )
-				{
-					if( aKnownProfileIdx > 0 )
-					{// Don't need to specify if Core is the parent
-						aFile << "ParentProfile = ";
-						aFile << aSrcEntry.name << std::endl << std::endl;
-					}
-					aFile.close();
+				Dialogs::showError(
+					"Selected Profile name matches parent profile name!");
+				goto retryQuery;
+			}
+			std::ofstream aFile(
+				widen(aNewEntry.path).c_str(),
+				std::ios::out | std::ios::trunc);
+			if( aFile.is_open() )
+			{
+				if( aKnownProfileIdx > 0 )
+				{// Don't need to specify if Core is the parent
+					aFile << "ParentProfile = ";
+					aFile << aSrcEntry.name << std::endl << std::endl;
 				}
-				else
-				{
-					logFatalError("Unable to write Profile data to file %s\n",
-						aNewEntry.path.c_str());
-				}
+				aFile.close();
+			}
+			else
+			{
+				Dialogs::showError(
+					strFormat("Unable to write Profile data to file %s\n",
+						aNewEntry.path.c_str()));
+				goto retryQuery;
 			}
 		}
 		break;
 	}
 
-	if( hadFatalError() )
-		return false;
-
-	if( aNewEntry.id == 0 )
-		aNewEntry.id = uniqueFileIdentifier(aNewEntry.path);
+	aNewEntry.id = uniqueFileIdentifier(aNewEntry.path);
 	if( aNewEntry.id == 0 )
 	{
-		logFatalError("Failure creating new Profile '%s' (%s)!",
-			aNewEntry.name.c_str(), aNewEntry.path.c_str());
-		return false;
+		Dialogs::showError(strFormat(
+			"Failure creating new Profile '%s' (%s)!",
+			aNewEntry.name.c_str(), aNewEntry.path.c_str()));
+		goto retryQuery;
 	}
 
 	setKeyValueInINI(
@@ -1445,11 +1495,42 @@ bool queryUserForProfile()
 		getOrAddProfileIdx(aNewEntry));
 	size_t aKnownProfilesCount = sKnownProfiles.size();
 	generateProfileLoadPriorityList(aProfileCanLoadIdx);
+	sAutoProfileIdx = -1;
 	setAutoLoadProfile(
 		aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
-	loadProfile(aProfileCanLoadIdx);
+	if( aDialogResult.autoLoadRequested )
+		sAutoProfileIdx = aProfileCanLoadIdx;
+	aLastCreatedProfileIdx = aProfileCanLoadIdx;
 
-	return true;
+	if( sNewBaseProfileIdx >= 0 )
+	{// Generated a new kResTemplateBase profile
+		// Prompt if want to have it set to Auto-launch target app
+		std::string& aDefaultParams =
+			sPropertyMap.findOrAdd(condense(
+				std::string(kAutoLaunchAppKeySection) + "/" +
+					std::string(kAutoLaunchAppParamsKey))).val;
+		tryAddAutoLaunchApp(sNewBaseProfileIdx, aDefaultParams);
+		sNewBaseProfileIdx = -1;
+	}
+
+	if( needFirstProfile )
+	{
+		if( Dialogs::yesNoPrompt(
+				"Would you like to edit this Profile now to match your in-game "
+				"Key Binds, hotbar, macros, and so on?",
+				"Edit new profile") == eResult_Yes )
+		{
+			openProfileForUser(aLastCreatedProfileIdx);
+		}
+		else 
+		{
+			loadProfile(aProfileCanLoadIdx);
+			return true;
+		}
+	}
+
+	// loop and query again to actually load the new profile
+	goto retryQuery;
 }
 
 
@@ -1546,6 +1627,20 @@ void setStr(const std::string& theSection,
 			profileNameToFilePath(sLoadedProfileName),
 			theSection, theValueName, theValue);
 	}
+}
+
+
+void openProfileForUser(int theProfileID)
+{
+	if( theProfileID <= 0 )
+		theProfileID = sAutoProfileIdx;
+	if( theProfileID >= sProfilesCanLoad.size() )
+		return;
+	ProfileEntry& anEntryToLoad =
+		sKnownProfiles[sProfilesCanLoad[theProfileID][0]];
+	ShellExecute(NULL, L"open",
+		widen(anEntryToLoad.path).c_str(),
+		NULL, NULL, SW_SHOWNORMAL);
 }
 
 } // Profile

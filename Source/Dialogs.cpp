@@ -6,6 +6,7 @@
 
 #include "Gamepad.h"
 #include "InputDispatcher.h" // forceReleaseHeldKeys()
+#include "Profile.h"
 #include "Resources/resource.h"
 #include "TargetApp.h"
 #include "WindowManager.h"
@@ -36,15 +37,21 @@ struct ProfileSelectDialogData
 	const std::vector<std::string>& loadableProfiles;
 	const std::vector<std::string>& templateProfiles;
 	ProfileSelectResult& result;
+	bool initialProfile;
+	bool allowEditing;
 
 	ProfileSelectDialogData(
 		const std::vector<std::string>& loadable,
 		const std::vector<std::string>& templates,
-		ProfileSelectResult& res)
+		ProfileSelectResult& res,
+		bool initialProfile,
+		bool allowEditing)
 		:
 		loadableProfiles(loadable),
 		templateProfiles(templates),
-		result(res)
+		result(res),
+		initialProfile(initialProfile),
+		allowEditing(allowEditing)
 		{}
 };
 
@@ -121,10 +128,25 @@ static INT_PTR CALLBACK profileSelectProc(
 		// Set initial value of auto-load checkbox
 		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
 			theData->result.autoLoadRequested);
+		if( TargetApp::targetWindowIsFullScreen() )
+		{// Disable edit box
+			SetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
+				L"Can't edit now - game is full-screen");
+			EnableWindow(GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME), false);
+		}
+		else
 		{// Add prompt to edit box
 			HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
 			Edit_SetCueBannerText(hEditBox,
 				L"OR enter new Profile name here...");
+		}
+		EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_EDIT),
+			theData->allowEditing);
+		if( theData->initialProfile )
+		{
+			SetDlgItemText(theDialog, IDC_STATIC_PROMPT,
+				L"Select Profile to auto-generate:");
+			SetDlgItemText(theDialog, IDOK, L"Create");
 		}
 		return (INT_PTR)TRUE;
 
@@ -178,8 +200,21 @@ static INT_PTR CALLBACK profileSelectProc(
 			}
 			break;
 
+		case IDC_BUTTON_EDIT:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Edit button clicked
+				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_PROFILES);
+				DBG_ASSERT(hListBox);
+				const int idxToEdit = max(0,
+					SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+				Profile::openProfileForUser(idxToEdit+1);
+				return (INT_PTR)TRUE;
+			}
+			break;
+
 		case IDC_EDIT_PROFILE_NAME:
-			if( HIWORD(wParam) == EN_CHANGE )
+			if( HIWORD(wParam) == EN_CHANGE &&
+				!TargetApp::targetWindowIsFullScreen() )
 			{// Edit box contents changed - may affect other controls!
 				// Update result.newName to sanitized edit box string
 				HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
@@ -192,9 +227,16 @@ static INT_PTR CALLBACK profileSelectProc(
 				if( hasNewName != hadNewName )
 				{// Changed "modes" (Load Profile vs Create New Profile)
 					updateProfileList(theDialog, theData);
-					SetDlgItemText(theDialog, IDC_STATIC_PROMPT, hasNewName
-							? L"Select format of new Profile:"
+					SetDlgItemText(theDialog, IDC_STATIC_PROMPT,
+						hasNewName ? L"Select format of new Profile:" :
+						theData->initialProfile
+							? L"Select Profile to auto-generate:"
 							: L"Select Profile to load:");
+					SetDlgItemText(theDialog, IDOK,
+						hasNewName || theData->initialProfile
+							? L"Create" : L"Load");
+					EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_EDIT),
+						theData->allowEditing && !hasNewName);
 				}
 				return (INT_PTR)TRUE;
 			}
@@ -248,6 +290,7 @@ static void profileSelectCheckGamepad(HWND theDialog)
 		{
 		case IDOK:
 		case IDCANCEL:
+		case IDC_BUTTON_EDIT:
 		case IDC_CHECK_AUTOLOAD:
 			SendMessage(GetFocus(), BM_CLICK, 0, 0);
 			break;
@@ -575,7 +618,7 @@ static INT_PTR CALLBACK editMenuCommandProc(
 ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles,
-	int theDefaultSelection, bool wantsAutoLoad)
+	int theDefaultSelection, bool wantsAutoLoad, bool firstRun)
 {
 	DBG_ASSERT(!theLoadableProfiles.empty());
 	DBG_ASSERT(!theTemplateProfiles.empty());
@@ -585,10 +628,15 @@ ProfileSelectResult profileSelect(
 	result.selectedIndex = theDefaultSelection;
 	result.autoLoadRequested = wantsAutoLoad;
 	result.cancelled = true;
+
+	const bool needsToBeTopMost =
+		TargetApp::targetWindowIsTopMost() ||
+		TargetApp::targetWindowIsFullScreen();
+	const bool allowEditing = !firstRun && !needsToBeTopMost;
 	ProfileSelectDialogData aDataStruct(
 		theLoadableProfiles,
 		theTemplateProfiles,
-		result);
+		result, firstRun, allowEditing);
 
 	// Hide main window and overlays until dialog is done
 	TargetApp::prepareForDialog();
@@ -610,7 +658,8 @@ ProfileSelectResult profileSelect(
 		profileSelectProc,
 		reinterpret_cast<LPARAM>(&aDataStruct));
 	ShowWindow(hWnd, SW_SHOW);
-	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	if( needsToBeTopMost )
+		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetForegroundWindow(hWnd);
 
 	// Loop until dialog signals it is done
@@ -802,6 +851,64 @@ EResult editMenuCommand(std::string& theString, bool directional)
 
 	WindowManager::showOverlays();
 	return eResult_Cancel;
+}
+
+
+void showError(const std::string& theError)
+{
+	InputDispatcher::forceReleaseHeldKeys();
+
+	HWND hTempParentWindow = NULL;
+	if( TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+
+	EResult result = eResult_Yes;
+	MessageBox(
+		hTempParentWindow,
+		widen(theError).c_str(),
+		L"Error",
+		MB_OK | MB_ICONWARNING);
+
+	// Cleanup
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
+
+	mainLoopTimeSkip();
+}
+
+
+EResult yesNoPrompt(const std::string& thePrompt, const std::string& theTitle)
+{
+	InputDispatcher::forceReleaseHeldKeys();
+
+	HWND hTempParentWindow = NULL;
+	if( TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+
+	EResult result = eResult_Yes;
+	if( MessageBox(
+			hTempParentWindow,
+			widen(thePrompt).c_str(),
+			widen(theTitle).c_str(),
+			MB_YESNO) != IDYES )
+	{
+		result = eResult_Cancel;
+	}
+
+	// Cleanup
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
+
+	mainLoopTimeSkip();
+	return result;
 }
 
 } // Dialogs
