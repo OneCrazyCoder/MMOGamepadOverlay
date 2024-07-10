@@ -466,15 +466,25 @@ static INT_PTR CALLBACK licenseDialogProc(
 							break;
 						aString.push_back(((char*)pTextResource)[i]);
 					}
-						HWND hEditControl =
-							GetDlgItem(theDialog, IDC_EDIT_LICENSE_TEXT);
-						SendMessage(hEditControl, WM_SETTEXT, 0,
-							(LPARAM)widen(aString).c_str());
-						InvalidateRect(theDialog, NULL, TRUE);
-						UpdateWindow(theDialog);
-						SetFocus(hEditControl);
+					HWND hEditControl =
+						GetDlgItem(theDialog, IDC_EDIT_LICENSE_TEXT);
+					SendMessage(hEditControl, WM_SETTEXT, 0,
+						(LPARAM)widen(aString).c_str());					
+					SetTimer(theDialog, 1, 50, NULL);
+					SetFocus(hEditControl);
 				}
 			}
+		}
+		return TRUE;
+
+	case WM_TIMER:
+		if( wParam == 1 )
+		{
+			KillTimer(theDialog, 1);
+			HWND hEditControl =
+				GetDlgItem(theDialog, IDC_EDIT_LICENSE_TEXT);
+			InvalidateRect(hEditControl, NULL, TRUE);
+			UpdateWindow(hEditControl);
 		}
 		return TRUE;
 
