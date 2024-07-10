@@ -908,6 +908,12 @@ bool overlaysAreHidden()
 }
 
 
+bool overlaysAreOverDesktop()
+{
+	return !sHidden && !TargetApp::targetWindowHandle();
+}
+
+
 SIZE overlayTargetSize()
 {
 	return sTargetSize;
