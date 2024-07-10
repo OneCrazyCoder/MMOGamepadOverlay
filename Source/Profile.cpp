@@ -22,7 +22,8 @@ kINIFileBufferSize = 256, // How many characters to process at a time from .ini
 
 struct ResourceProfile
 {
-	const char* name;
+	const char* dispName;
+	const char* fileName;
 	const WORD resID;
 };
 
@@ -44,23 +45,30 @@ const char* kAutoLoadProfileKey = "AutoLoadProfile";
 const std::string kEndOfLine = "\r\n";
 
 const ResourceProfile kResTemplateCore =
-	{	"Core",			IDR_TEXT_INI_CORE		};
+	{	"Core",			"Core",			IDR_TEXT_INI_CORE		};
 
 const ResourceProfile kResTemplateBase[] =
-{//		name			resID
-	{	"MnM Base",		IDR_TEXT_INI_BASE_MNM	},
-	{	"P99 Base",		IDR_TEXT_INI_BASE_P99	},
-	{	"PQ Base",		IDR_TEXT_INI_BASE_PQ	},
+{//		name			fileName		resID
+	{	"M&M Base",		"MnM Base",		IDR_TEXT_INI_BASE_MNM	},
+	{	"P99 Base",		"P99 Base",		IDR_TEXT_INI_BASE_P99	},
+	{	"PQ Base",		"PQ Base",		IDR_TEXT_INI_BASE_PQ	},
 };
 
 const ResourceProfile kResTemplateDefault[] =
-{//		name			resID
-	{	"MnM Default",	IDR_TEXT_INI_DEF_MNM	},
-	{	"P99 Default",	IDR_TEXT_INI_DEF_P99	},
-	{	"PQ Default",	IDR_TEXT_INI_DEF_PQ		},
-	{	"MnM Taron",	IDR_TEXT_INI_TARON_MNM	},
-	{	"P99 Taron",	IDR_TEXT_INI_TARON_P99	},
-	{	"PQ Taron",		IDR_TEXT_INI_TARON_PQ	},
+{//		name			fileName		resID
+	{	"M&M Default",	"MnM Default",	IDR_TEXT_INI_DEF_MNM	},
+	{	"P99 Default",	"P99 Default",	IDR_TEXT_INI_DEF_P99	},
+	{	"PQ Default",	"PQ Default",	IDR_TEXT_INI_DEF_PQ		},
+};
+
+const ResourceProfile kResTemplateCustom[] =
+{//		name			fileName		resID
+	{	"M&M Default",	"MnM Custom",	IDR_TEXT_INI_CUST_MNM	},
+	{	"P99 Default",	"P99 Custom",	IDR_TEXT_INI_CUST_P99	},
+	{	"PQ Default",	"PQ Custom",	IDR_TEXT_INI_CUST_PQ	},
+	{	"M&M Taron",	"MnM Custom",	IDR_TEXT_INI_TARON_MNM	},
+	{	"P99 Taron",	"P99 Custom",	IDR_TEXT_INI_TARON_P99	},
+	{	"PQ Taron",		"PQ Custom",	IDR_TEXT_INI_TARON_PQ	},
 };
 
 enum EParseMode
@@ -679,7 +687,7 @@ static void generateResourceProfile(const ResourceProfile& theResProfile)
 			DWORD aSize = SizeofResource(hModule, hResource);
 
 			const std::string& aFilePath =
-				profileNameToFilePath(theResProfile.name);
+				profileNameToFilePath(theResProfile.fileName);
 			std::ofstream aFile(
 				widen(aFilePath).c_str(),
 				std::ios::binary | std::ios::trunc);
@@ -782,7 +790,7 @@ static void addParentCallback(
 			const std::string& aCmpName = condense(aProfileName);
 			for(size_t i = 0; i < ARRAYSIZE(kResTemplateBase); ++i)
 			{
-				if( condense(kResTemplateBase[i].name) == aCmpName )
+				if( condense(kResTemplateBase[i].fileName) == aCmpName )
 				{
 					generateResourceProfile(kResTemplateBase[i]);
 					aProfileEntry = profileNameToEntry(aProfileName);
@@ -796,7 +804,7 @@ static void addParentCallback(
 			const std::string& aCmpName = condense(aProfileName);
 			for(size_t i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
 			{
-				if( condense(kResTemplateDefault[i].name) == aCmpName )
+				if( condense(kResTemplateDefault[i].fileName) == aCmpName )
 				{
 					generateResourceProfile(kResTemplateDefault[i]);
 					aProfileEntry = profileNameToEntry(aProfileName);
@@ -951,9 +959,9 @@ static void loadProfile(int theProfilesCanLoadIdx)
 	{// Generated a new kResTemplateBase profile
 		// Prompt if want to have it set to Auto-launch target app
 		std::string& aDefaultParams =
-			sPropertyMap.findOrAdd(
+			sPropertyMap.findOrAdd(condense(
 				std::string(kAutoLaunchAppKeySection) + "/" +
-					std::string(kAutoLaunchAppParamsKey)).val;
+					std::string(kAutoLaunchAppParamsKey))).val;
 		tryAddAutoLaunchApp(sNewBaseProfileIdx, aDefaultParams);
 		sNewBaseProfileIdx = -1;
 	}
@@ -1090,13 +1098,18 @@ void load()
 		{
 			for(size_t j = 0; j < ARRAYSIZE(kResTemplateBase); ++j)
 			{
-				if( sKnownProfiles[i].name == kResTemplateBase[j].name )
+				if( sKnownProfiles[i].name == kResTemplateBase[j].fileName )
 					generateResourceProfile(kResTemplateBase[j]);
 			}
 			for(size_t j = 0; j < ARRAYSIZE(kResTemplateDefault); ++j)
 			{
-				if( sKnownProfiles[i].name == kResTemplateDefault[j].name )
+				if( sKnownProfiles[i].name == kResTemplateDefault[j].fileName )
 					generateResourceProfile(kResTemplateDefault[j]);
+			}
+			for(size_t j = 0; j < ARRAYSIZE(kResTemplateCustom); ++j)
+			{
+				if( sKnownProfiles[i].name == kResTemplateCustom[j].fileName )
+					generateResourceProfile(kResTemplateCustom[j]);
 			}
 		}
 		// Restore profile load settings to regenerated Core
@@ -1140,7 +1153,7 @@ bool queryUserForProfile()
 	enum EType
 	{
 		eType_CopyFile,			// index into sKnownProfiles
-		eType_CopyResDefault,	// index into kResTemplateDefault
+		eType_CopyResCustom,	// index into kResTemplateCustom
 		eType_ParentResBase,	// index into kResTemplateBase
 		eType_ParentResDefault,	// index into kResTemplateDefault
 		eType_ParentFile,		// index into sKnownProfiles
@@ -1171,17 +1184,17 @@ bool queryUserForProfile()
 	}
 
 	const bool needFirstProfile = aLoadableProfileNames.empty();
-	for(int i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
+	for(int i = 0; i < ARRAYSIZE(kResTemplateCustom); ++i)
 	{
 		if( needFirstProfile )
 		{
-			aLoadableProfileNames.push_back(kResTemplateDefault[i].name);
+			aLoadableProfileNames.push_back(kResTemplateCustom[i].dispName);
 			aLoadableProfileIndices.push_back(i);
 		}
 		aTemplateProfileNames.push_back(
-			kCopyResPrefix + kResTemplateDefault[i].name + '"');
+			kCopyResPrefix + kResTemplateCustom[i].dispName + '"');
 		aTemplateProfileIndex.push_back(i);
-		aTemplateProfileType.push_back(eType_CopyResDefault);
+		aTemplateProfileType.push_back(eType_CopyResCustom);
 	}
 
 	for(int i = 0; i < sKnownProfiles.size(); ++i)
@@ -1197,7 +1210,7 @@ bool queryUserForProfile()
 		// Only add ones that don't already exist in sKnownProfiles
 		bool alreadyExists = false;
 		const ProfileEntry& aTestEntry =
-			profileNameToEntry(kResTemplateBase[i].name);
+			profileNameToEntry(kResTemplateBase[i].fileName);
 		if( aTestEntry.id != 0 )
 		{
 			for(int j = 0; j < sKnownProfiles.size(); ++j)
@@ -1212,7 +1225,7 @@ bool queryUserForProfile()
 		if( alreadyExists )
 			continue;
 		aTemplateProfileNames.push_back(
-			kParentPrefix + kResTemplateBase[i].name + '"');
+			kParentPrefix + kResTemplateBase[i].dispName + '"');
 		aTemplateProfileIndex.push_back(i);
 		aTemplateProfileType.push_back(eType_ParentResBase);
 	}
@@ -1221,7 +1234,7 @@ bool queryUserForProfile()
 	{
 		bool alreadyExists = false;
 		const ProfileEntry& aTestEntry =
-			profileNameToEntry(kResTemplateDefault[i].name);
+			profileNameToEntry(kResTemplateDefault[i].fileName);
 		if( aTestEntry.id != 0 )
 		{
 			for(int j = 0; j < sKnownProfiles.size(); ++j)
@@ -1236,7 +1249,7 @@ bool queryUserForProfile()
 		if( alreadyExists )
 			continue;
 		aTemplateProfileNames.push_back(
-			kParentPrefix + kResTemplateDefault[i].name + '"');
+			kParentPrefix + kResTemplateDefault[i].dispName + '"');
 		aTemplateProfileIndex.push_back(i);
 		aTemplateProfileType.push_back(eType_ParentResDefault);
 	}
@@ -1270,11 +1283,11 @@ bool queryUserForProfile()
 	// For first profile, if no name given then use built-in name
 	// NOTE: This only works out because set the first entries of
 	// aTemplateProfile's to match aLoadableProfile's which both
-	// match the entries in kResTemplateDefault. So need to change
+	// match the entries in kResTemplateCustom. So need to change
 	// this if rearrange the order of any of these above!
 	if( needFirstProfile && aDialogResult.newName.empty() )
 		aDialogResult.newName =
-			kResTemplateDefault[aDialogResult.selectedIndex].name;
+			kResTemplateCustom[aDialogResult.selectedIndex].fileName;
 
 	if( aDialogResult.newName.empty() )
 	{// User must have requested to load an existing profile
@@ -1344,12 +1357,12 @@ bool queryUserForProfile()
 			}
 		}
 		break;
-	case eType_CopyResDefault:
+	case eType_CopyResCustom:
 		{// Generate resource profile but with new file name
 			const size_t aResTemplateIdx = aTemplateProfileIndex[aSrcIdx];
-			DBG_ASSERT(aResTemplateIdx < ARRAYSIZE(kResTemplateDefault));
-			ResourceProfile aResProfile = kResTemplateDefault[aResTemplateIdx];
-			aResProfile.name = aNewName.c_str();
+			DBG_ASSERT(aResTemplateIdx < ARRAYSIZE(kResTemplateCustom));
+			ResourceProfile aResProfile = kResTemplateCustom[aResTemplateIdx];
+			aResProfile.fileName = aNewName.c_str();
 			generateResourceProfile(aResProfile);
 		}
 		break;
@@ -1362,13 +1375,13 @@ bool queryUserForProfile()
 			{
 				DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateDefault));
 				generateResourceProfile(kResTemplateDefault[aResBaseIdx]);
-				aProfileName = kResTemplateDefault[aResBaseIdx].name;
+				aProfileName = kResTemplateDefault[aResBaseIdx].fileName;
 			}
 			else
 			{
 				DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateBase));
 				generateResourceProfile(kResTemplateBase[aResBaseIdx]);
-				aProfileName = kResTemplateBase[aResBaseIdx].name;
+				aProfileName = kResTemplateBase[aResBaseIdx].fileName;
 			}
 			sNewBaseProfileIdx = -1;
 			sNewBaseProfileIdx = getOrAddProfileIdx(
@@ -1419,7 +1432,7 @@ bool queryUserForProfile()
 		aNewEntry.id = uniqueFileIdentifier(aNewEntry.path);
 	if( aNewEntry.id == 0 )
 	{
-		logFatalError("Failure creating new Profile %s (%s)!",
+		logFatalError("Failure creating new Profile '%s' (%s)!",
 			aNewEntry.name.c_str(), aNewEntry.path.c_str());
 		return false;
 	}

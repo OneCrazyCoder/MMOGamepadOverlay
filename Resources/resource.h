@@ -10,16 +10,20 @@
 #define IDR_TEXT_INI_DEF_MNM            106
 #define IDR_TEXT_INI_DEF_P99            107
 #define IDR_TEXT_INI_DEF_PQ             108
-#define IDR_TEXT_INI_TARON_MNM          109
-#define IDR_TEXT_INI_TARON_P99          110
-#define IDR_TEXT_INI_TARON_PQ           111
-#define IDD_DIALOG_PROFILE_SELECT       112
-#define IDD_DIALOG_TARGET_APP           113
-#define IDI_ICON_MAIN                   114
-#define IDD_DIALOG_LICENSE              115
-#define IDR_MENU_MAIN                   116
-#define IDD_DIALOG_EDIT_COMMAND         117
-#define IDD_DIALOG_EDIT_DIR_CMD         118
+#define IDR_TEXT_INI_CUST_P99           109
+#define IDR_TEXT_INI_CUST_MNM2          110
+#define IDR_TEXT_INI_CUST_MNM           111
+#define IDR_TEXT_INI_CUST_PQ            112
+#define IDR_TEXT_INI_TARON_MNM          113
+#define IDR_TEXT_INI_TARON_P99          114
+#define IDR_TEXT_INI_TARON_PQ           115
+#define IDD_DIALOG_PROFILE_SELECT       116
+#define IDD_DIALOG_TARGET_APP           117
+#define IDI_ICON_MAIN                   118
+#define IDD_DIALOG_LICENSE              119
+#define IDR_MENU_MAIN                   120
+#define IDD_DIALOG_EDIT_COMMAND         121
+#define IDD_DIALOG_EDIT_DIR_CMD         122
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_LIST_PROFILES               1002
 #define IDC_STATIC_PROMPT               1003
@@ -35,7 +39,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        119
+#define _APS_NEXT_RESOURCE_VALUE        123
 #define _APS_NEXT_COMMAND_VALUE         40004
 #define _APS_NEXT_CONTROL_VALUE         1008
 #define _APS_NEXT_SYMED_VALUE           101

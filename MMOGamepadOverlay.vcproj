@@ -387,6 +387,18 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Resources\Custom-MnM.ini"
+			>
+		</File>
+		<File
+			RelativePath=".\Resources\Custom-P99.ini"
+			>
+		</File>
+		<File
+			RelativePath=".\Resources\Custom-PQ.ini"
+			>
+		</File>
+		<File
 			RelativePath=".\Source\Debug.cpp"
 			>
 		</File>
