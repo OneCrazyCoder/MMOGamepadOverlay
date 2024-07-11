@@ -895,11 +895,27 @@ static void parseProfilesCanLoad()
 }
 
 
-static void tryAddAutoLaunchApp(
-	int theKnownProfileIdx,
-	std::string& theDefaultParams)
+static void readProfileCallback(
+   const std::string& theKey,
+   const std::string& theValue,
+   void*)
 {
-	std::string aPath = Dialogs::targetAppPath(theDefaultParams);
+	sPropertyMap.setValue(condense(theKey), ProfileProperty(theKey, theValue));
+}
+
+
+static void tryAddAutoLaunchApp(int theKnownProfileIdx)
+{
+	// Load the properties from the profile to get the default params
+	parseINI(
+		readProfileCallback,
+		sKnownProfiles[theKnownProfileIdx].path,
+		eParseMode_Sections);
+	std::string& aDefaultParams =
+		sPropertyMap.findOrAdd(condense(
+			std::string(kAutoLaunchAppKeySection) + "/" +
+				std::string(kAutoLaunchAppParamsKey))).val;
+	std::string aPath = Dialogs::targetAppPath(aDefaultParams);
 	if( !aPath.empty() )
 	{
 		setKeyValueInINI(
@@ -916,17 +932,8 @@ static void tryAddAutoLaunchApp(
 		setKeyValueInINI(
 			sKnownProfiles[theKnownProfileIdx].path,
 			kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
-			theDefaultParams);
+			aDefaultParams);
 	}
-}
-
-
-static void readProfileCallback(
-   const std::string& theKey,
-   const std::string& theValue,
-   void*)
-{
-	sPropertyMap.setValue(condense(theKey), ProfileProperty(theKey, theValue));
 }
 
 
@@ -1505,11 +1512,7 @@ retryQuery:
 	if( sNewBaseProfileIdx >= 0 )
 	{// Generated a new kResTemplateBase profile
 		// Prompt if want to have it set to Auto-launch target app
-		std::string& aDefaultParams =
-			sPropertyMap.findOrAdd(condense(
-				std::string(kAutoLaunchAppKeySection) + "/" +
-					std::string(kAutoLaunchAppParamsKey))).val;
-		tryAddAutoLaunchApp(sNewBaseProfileIdx, aDefaultParams);
+		tryAddAutoLaunchApp(sNewBaseProfileIdx);
 		sNewBaseProfileIdx = -1;
 	}
 
