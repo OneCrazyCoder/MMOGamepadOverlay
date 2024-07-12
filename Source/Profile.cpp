@@ -8,7 +8,6 @@
 #include "Resources/resource.h"
 
 #include <fstream>
-#include <ShellAPI.h>
 
 namespace Profile
 {
@@ -1176,6 +1175,28 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 }
 
 
+static void userEditProfile(int theProfilesCanLoadIdx)
+{
+	// Generate list of files to possibly edit
+	DBG_ASSERT(theProfilesCanLoadIdx >= 0);
+	DBG_ASSERT(theProfilesCanLoadIdx < sProfilesCanLoad.size());
+	const std::vector<int>& aList = sProfilesCanLoad[theProfilesCanLoadIdx];
+	DBG_ASSERT(!aList.empty());
+
+	std::vector<std::string> aFileList;
+	for(std::vector<int>::const_reverse_iterator itr = aList.rbegin();
+		itr != aList.rend(); ++itr)
+	{
+		DBG_ASSERT(*itr >= 0);
+		DBG_ASSERT(*itr < sKnownProfiles.size());
+		checkForOutdatedFileVersion(sKnownProfiles[*itr]);
+		aFileList.push_back(sKnownProfiles[*itr].path);
+	}
+
+	Dialogs::profileEdit(aFileList);
+}
+
+
 static void readProfileCallback(
    const std::string& theKey,
    const std::string& theValue,
@@ -1478,12 +1499,17 @@ retryQuery:
 			kResTemplateCustom[aDialogResult.selectedIndex].fileName;
 
 	if( aDialogResult.newName.empty() )
-	{// User must have requested to load an existing profile
+	{// User must have requested to load or edit an existing profile
 		DBG_ASSERT(aDialogResult.selectedIndex < aLoadableProfileNames.size());
 		const int aProfileCanLoadIdx =
 			aLoadableProfileIndices[aDialogResult.selectedIndex];
 		setAutoLoadProfile(
 			aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
+		if( aDialogResult.editProfileRequested )
+		{
+			userEditProfile(aProfileCanLoadIdx);
+			goto retryQuery;
+		}
 		loadProfile(aProfileCanLoadIdx);
 		return true;
 	}
@@ -1708,7 +1734,7 @@ retryQuery:
 				"Key Binds, hotbar, macros, and so on?",
 				"Edit new profile") == eResult_Yes )
 		{
-			openProfileForUser(aLastCreatedProfileIdx);
+			userEditProfile(aLastCreatedProfileIdx);
 		}
 		else 
 		{
@@ -1815,20 +1841,6 @@ void setStr(const std::string& theSection,
 			profileNameToFilePath(sLoadedProfileName),
 			theSection, theValueName, theValue);
 	}
-}
-
-
-void openProfileForUser(int theProfileID)
-{
-	if( theProfileID <= 0 )
-		theProfileID = sAutoProfileIdx;
-	if( theProfileID >= sProfilesCanLoad.size() )
-		return;
-	ProfileEntry& anEntryToLoad =
-		sKnownProfiles[sProfilesCanLoad[theProfileID][0]];
-	ShellExecute(NULL, L"open",
-		widen(anEntryToLoad.path).c_str(),
-		NULL, NULL, SW_SHOWNORMAL);
 }
 
 } // Profile

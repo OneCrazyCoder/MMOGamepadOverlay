@@ -20,6 +20,7 @@ struct ProfileSelectResult
 	std::string newName;
 	int selectedIndex;
 	bool autoLoadRequested;
+	bool editProfileRequested;
 	bool cancelled;
 };
 
@@ -27,6 +28,8 @@ ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles,
 	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
+
+void profileEdit(const std::vector<std::string>& theFileList);
 
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
