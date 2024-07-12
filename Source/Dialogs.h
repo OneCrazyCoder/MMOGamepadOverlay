@@ -28,10 +28,12 @@ ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theTemplateProfiles,
 	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
 
-std::string targetAppPath(std::string& theCommandLineParams);
+void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
 EResult editMenuCommand(std::string& theString, bool directional = false);
 void showError(const std::string& theError);
-EResult yesNoPrompt(const std::string& thePrompt, const std::string& theTitle);
+EResult yesNoPrompt(const std::string& thePrompt,
+					const std::string& theTitle,
+					bool skipIfTargetAppRunning = false);
 
 } // Dialogs

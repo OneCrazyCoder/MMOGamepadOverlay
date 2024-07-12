@@ -349,6 +349,7 @@ enum EResult
 
 	eResult_Fail,
 	eResult_Cancel,
+	eResult_No,
 	eResult_NotFound,
 	eResult_InvalidParameter,
 	eResult_Incomplete,
