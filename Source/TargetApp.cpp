@@ -570,7 +570,7 @@ void autoLaunch()
 		return;
 
 	// Convert given path into a non-const wide string for CreateProcess
-	WCHAR aFinalPath[MAX_PATH];
+	WCHAR aFinalPath[MAX_PATH] = { 0 };
 	std::string aPath = kConfig.targetAppPath;
 	std::string aParams = getPathParams(aPath);
 	if( !kConfig.targetAppParams.empty() )
@@ -588,7 +588,7 @@ void autoLaunch()
 	const std::string aDirPath = getFileDir(aPath);
 	if( !aParams.empty() )
 		aPath = "\"" + aPath + "\" " + aParams;
-	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH);
+	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH-1);
 
 	STARTUPINFO si;
 	PROCESS_INFORMATION pi;

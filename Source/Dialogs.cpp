@@ -688,13 +688,14 @@ ProfileSelectResult profileSelect(
 }
 
 
-std::string targetAppPath(std::string& theCommandLineParams)
+void targetAppPath(std::string& thePath, std::string& theCommandLineParams)
 {
-	std::string result;
-
 	// Don't ask about auto-launching an app when already have one active
 	if( TargetApp::targetAppActive() )
-		return result;
+	{
+		thePath.clear();
+		return;
+	}
 
 	sDialogEditText = &theCommandLineParams;
 
@@ -706,7 +707,6 @@ std::string targetAppPath(std::string& theCommandLineParams)
 		hTempParentWindow = CreateWindowEx(
 			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
 			NULL, NULL, GetModuleHandle(NULL), NULL);
-
 	}
 
 	if( MessageBox(
@@ -717,24 +717,30 @@ std::string targetAppPath(std::string& theCommandLineParams)
 			MB_YESNO) != IDYES )
 	{
 		mainLoopTimeSkip();
-		return result;
+		thePath.clear();
+		return;
 	}
 
+	const std::wstring& anInitDir = widen(getFileDir(thePath));
+	const std::wstring& aFileName = widen(getFileName(thePath));
 	OPENFILENAME ofn;
-	WCHAR aPath[MAX_PATH];
+	WCHAR aWPath[MAX_PATH] = { 0 };
+	if( !aFileName.empty() )
+		wcsncpy(aWPath, aFileName.c_str(), MAX_PATH-1);
 	ZeroMemory(&ofn, sizeof(ofn));
 	ofn.lStructSize = sizeof(ofn);
 	ofn.hwndOwner = hTempParentWindow;
 	ofn.lpstrTitle = L"Select Auto-Launch App";
-	ofn.lpstrFile = aPath;
-	ofn.lpstrFile[0] = '\0';
-	ofn.nMaxFile = sizeof(aPath);
+	ofn.lpstrFile = aWPath;
+	ofn.nMaxFile = sizeof(aWPath) / sizeof(aWPath[0]);
 	ofn.lpstrFilter =
 		L"Executable Files (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
 	ofn.nFilterIndex = 1;
 	ofn.lpstrFileTitle = NULL;
 	ofn.nMaxFileTitle = 0;
 	ofn.lpstrInitialDir = NULL;
+	if( !anInitDir.empty() )
+		ofn.lpstrInitialDir = anInitDir.c_str();
 	ofn.hInstance = GetModuleHandle(NULL);
 	ofn.Flags =
 		OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY |
@@ -743,7 +749,7 @@ std::string targetAppPath(std::string& theCommandLineParams)
 	ofn.lpfnHook = targetAppPathProc;
 	if( GetOpenFileName(&ofn) )
 	{
-		result = narrow(aPath);
+		thePath = narrow(aWPath);
 	}
 	else
 	{
@@ -753,6 +759,7 @@ std::string targetAppPath(std::string& theCommandLineParams)
 			L"entry to add one later.",
 			L"Auto-Launch Target App",
 			MB_OK | MB_ICONWARNING);
+		thePath.clear();
 	}
 
 	// Cleanup
@@ -761,7 +768,6 @@ std::string targetAppPath(std::string& theCommandLineParams)
 		DestroyWindow(hTempParentWindow);
 
 	mainLoopTimeSkip();
-	return result;
 }
 
 
@@ -881,8 +887,14 @@ void showError(const std::string& theError)
 }
 
 
-EResult yesNoPrompt(const std::string& thePrompt, const std::string& theTitle)
+EResult yesNoPrompt(
+	const std::string& thePrompt,
+	const std::string& theTitle,
+	bool skipIfTargetAppRunning)
 {
+	if( skipIfTargetAppRunning && TargetApp::targetAppActive() )
+		return eResult_Cancel;
+
 	InputDispatcher::forceReleaseHeldKeys();
 
 	HWND hTempParentWindow = NULL;
@@ -900,7 +912,7 @@ EResult yesNoPrompt(const std::string& thePrompt, const std::string& theTitle)
 			widen(theTitle).c_str(),
 			MB_YESNO) != IDYES )
 	{
-		result = eResult_Cancel;
+		result = eResult_No;
 	}
 
 	// Cleanup
