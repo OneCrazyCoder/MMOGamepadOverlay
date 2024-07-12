@@ -6,7 +6,6 @@
 
 #include "Gamepad.h"
 #include "InputDispatcher.h" // forceReleaseHeldKeys()
-#include "Profile.h"
 #include "Resources/resource.h"
 #include "TargetApp.h"
 #include "WindowManager.h"
@@ -19,6 +18,9 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 // Support for GetOpenFileName()
 #include <CommDlg.h>
+
+// Support for ShellExecute (to open files in default text editor)
+#include <ShellAPI.h>
 
 // Forward declares of functions defined in Main.cpp for main loop update
 void mainLoopUpdate(HWND theDialog);
@@ -172,6 +174,7 @@ static INT_PTR CALLBACK profileSelectProc(
 		switch(LOWORD(wParam))
 		{
 		case IDOK:
+		case IDC_BUTTON_EDIT:
 			if( HIWORD(wParam) == BN_CLICKED )
 			{// Okay button clicked
 				theData->result.cancelled = false;
@@ -184,6 +187,9 @@ static INT_PTR CALLBACK profileSelectProc(
 				theData->result.autoLoadRequested =
 					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
 						== BST_CHECKED);
+				// Flag if actually want to edit profile instead of load it
+				theData->result.editProfileRequested =
+					LOWORD(wParam) == IDC_BUTTON_EDIT;
 				// Signal to main loop that are ready to close
 				sDialogDone = true;
 				return (INT_PTR)TRUE;
@@ -196,18 +202,6 @@ static INT_PTR CALLBACK profileSelectProc(
 				theData->result.cancelled = true;
 				// Signal to main loop that are ready to close
 				sDialogDone = true;
-				return (INT_PTR)TRUE;
-			}
-			break;
-
-		case IDC_BUTTON_EDIT:
-			if( HIWORD(wParam) == BN_CLICKED )
-			{// Edit button clicked
-				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_PROFILES);
-				DBG_ASSERT(hListBox);
-				const int idxToEdit = max(0,
-					SendMessage(hListBox, LB_GETCURSEL, 0, 0));
-				Profile::openProfileForUser(idxToEdit+1);
 				return (INT_PTR)TRUE;
 			}
 			break;
@@ -254,6 +248,77 @@ static INT_PTR CALLBACK profileSelectProc(
 			return (INT_PTR)TRUE;
 		}
 		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
+		break;
+	}
+
+	return (INT_PTR)FALSE;
+}
+
+
+static INT_PTR CALLBACK editProfileSelectProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	std::vector<std::string>* theFiles = NULL;
+
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		theFiles = (std::vector<std::string>*)(UINT_PTR)lParam;
+		// Allow other messages to access theFiles later
+		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theFiles);
+		DBG_ASSERT(theFiles);
+		{// Add available files to the list box
+			HWND hListBox = GetDlgItem(theDialog, IDC_LIST_PROFILES);
+			DBG_ASSERT(hListBox);
+			for(size_t i = 0; i < theFiles->size(); ++i)
+			{
+				SendMessage(hListBox, LB_ADDSTRING, 0,
+					(LPARAM)(widen(getFileName((*theFiles)[i])).c_str()));
+			}
+			SendMessage(hListBox, LB_SETCURSEL, theFiles->size()-1, 0);
+		}
+		return (INT_PTR)TRUE;
+
+	case WM_COMMAND:
+		// Process control commands
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Okay (open file) button clicked
+				theFiles = (std::vector<std::string>*)(UINT_PTR)
+					GetWindowLongPtr(theDialog, GWLP_USERDATA);
+				if( !theFiles )
+					break;
+				// Get selected item and open it w/ user's text editor
+				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_PROFILES);
+				DBG_ASSERT(hListBox);
+				int aFile = max(0, SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+				ShellExecute(NULL, L"open",
+					widen((*theFiles)[aFile]).c_str(),
+					NULL, NULL, SW_SHOWNORMAL);
+				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDCANCEL:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Cancel button clicked
+				// Signal to main loop that are ready to close
+				sDialogDone = true;
+				return (INT_PTR)TRUE;
+			}
+			break;
+		}
+		break;
+
+	case WM_CLOSE:
+		// Treat the same as Cancel being clicked
+		sDialogDone = true;
+		return (INT_PTR)TRUE;
 
 	case WM_DEVICECHANGE:
 		Gamepad::checkDeviceChange();
@@ -410,7 +475,7 @@ static void profileSelectCheckGamepad(HWND theDialog)
 		{
 		case IDC_LIST_PROFILES:
 		case IDC_EDIT_PROFILE_NAME:
-			SetFocus(GetDlgItem(theDialog, IDC_CHECK_AUTOLOAD));
+			SetFocus(GetDlgItem(theDialog, IDCANCEL));
 			break;
 		}
 		break;
@@ -685,6 +750,64 @@ ProfileSelectResult profileSelect(
 		WindowManager::showOverlays();
 
 	return result;
+}
+
+
+void profileEdit(const std::vector<std::string>& theFileList)
+{
+	DBG_ASSERT(!theFileList.empty());
+
+	// Initialize data structures
+	ProfileSelectResult result;
+
+	// Hide main window and overlays until dialog is done
+	TargetApp::prepareForDialog();
+	if( WindowManager::mainHandle() )
+	{
+		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
+		WindowManager::hideOverlays();
+		WindowManager::update();
+	}
+
+	// Release any keys held by InputDispatcher first
+	InputDispatcher::forceReleaseHeldKeys();
+
+	// Create and show dialog window
+	HWND hWnd = CreateDialogParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_PROFILE_EDIT),
+		NULL,
+		editProfileSelectProc,
+		reinterpret_cast<LPARAM>(&theFileList));
+	ShowWindow(hWnd, SW_SHOW);
+	SetForegroundWindow(hWnd);
+
+	// Open main customize file automatically
+	ShellExecute(NULL, L"open",
+		widen(theFileList.back()).c_str(),
+		NULL, NULL, SW_SHOWNORMAL);
+
+
+	// Loop until dialog signals it is done
+	sDialogDone = false;
+	sDialogFocusShown = false;
+	while(!gShutdown && !hadFatalError())
+	{
+		mainLoopUpdate(hWnd);
+		profileSelectCheckGamepad(hWnd);
+
+		if( sDialogDone )
+			break;
+
+		mainLoopSleep();
+	}
+
+	// Cleanup
+	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
+	DestroyWindow(hWnd);
+	if( WindowManager::mainHandle() )
+		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
+	WindowManager::showOverlays();
 }
 
 

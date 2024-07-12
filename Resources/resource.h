@@ -18,12 +18,13 @@
 #define IDR_TEXT_INI_TARON_P99          114
 #define IDR_TEXT_INI_TARON_PQ           115
 #define IDD_DIALOG_PROFILE_SELECT       116
-#define IDD_DIALOG_TARGET_APP           117
-#define IDI_ICON_MAIN                   118
-#define IDD_DIALOG_LICENSE              119
-#define IDR_MENU_MAIN                   120
-#define IDD_DIALOG_EDIT_COMMAND         121
-#define IDD_DIALOG_EDIT_DIR_CMD         122
+#define IDD_DIALOG_PROFILE_EDIT         117
+#define IDD_DIALOG_TARGET_APP           118
+#define IDI_ICON_MAIN                   119
+#define IDD_DIALOG_LICENSE              120
+#define IDR_MENU_MAIN                   121
+#define IDD_DIALOG_EDIT_COMMAND         122
+#define IDD_DIALOG_EDIT_DIR_CMD         123
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_LIST_PROFILES               1002
 #define IDC_STATIC_PROMPT               1003
@@ -40,7 +41,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        123
+#define _APS_NEXT_RESOURCE_VALUE        124
 #define _APS_NEXT_COMMAND_VALUE         40004
 #define _APS_NEXT_CONTROL_VALUE         1009
 #define _APS_NEXT_SYMED_VALUE           101
