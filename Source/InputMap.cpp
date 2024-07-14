@@ -2402,7 +2402,7 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 			// Ignore whitespace in the string
 			while(*aStrChar <= ' ') ++aStrChar;
 			// Mismatch if reach end of string or chars don't match
-			if( !*aStrChar || ::toupper(*aPrefixChar) != *aStrChar )
+			if( !*aStrChar || ::toupper(*aPrefixChar) != ::toupper(*aStrChar) )
 			{
 				matchFound = false;
 				break;
@@ -2458,7 +2458,8 @@ static void addButtonAction(
 	// Determine button & action to assign command to
 	EButtonAction aBtnAct = breakOffButtonAction(theBtnName);
 	int aBtnTime = breakOffIntegerSuffix(theBtnName);
-	EButton aBtnID = buttonNameToID(theBtnName);
+	std::string aBtnKeyName = condense(theBtnName);
+	EButton aBtnID = buttonNameToID(aBtnKeyName);
 
 	bool isA4DirMultiAssign = false;
 	if( aBtnID >= eBtn_Num )
@@ -2468,7 +2469,7 @@ static void addButtonAction(
 		// a single 4-directional input (D-pad, analog sticks, etc).
 		for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
 		{
-			if( theBtnName == k4DirButtons[i] )
+			if( aBtnKeyName == k4DirButtons[i] )
 			{
 				isA4DirMultiAssign = true;
 				break;
@@ -2487,7 +2488,7 @@ static void addButtonAction(
 		for(size_t i = 0; i < 4; ++i)
 		{
 			// Get true button ID by adding direction key to button name
-			aBtnID = buttonNameToID(theBtnName + k4DirKeyNames[i]);
+			aBtnID = buttonNameToID(aBtnKeyName + k4DirKeyNames[i]);
 			DBG_ASSERT(aBtnID < eBtn_Num);
 			// See if can get a different command if append a direction,
 			// if didn't already fail previously
@@ -2541,14 +2542,18 @@ static void addButtonAction(
 	if( aBtnTime >= 0 && aBtnID >= eBtn_Num )
 	{// Part of the button's name might have been absorbed into aBtnTime
 		std::string aTimeAsString = toString(aBtnTime);
-		aBtnTime = -1;
-		theBtnName.push_back(aTimeAsString[0]);
+		std::string aBtnTmpName = theBtnName;
+		aBtnTmpName.push_back(aTimeAsString[0]);
 		aTimeAsString.erase(0, 1);
-		aBtnID = buttonNameToID(theBtnName);
-		if( aBtnID >= eBtn_Num )
-			theBtnName += aTimeAsString; // to restore for below error
-		else if( !aTimeAsString.empty() )
-			aBtnTime = intFromString(aTimeAsString);
+		aBtnKeyName = condense(aBtnTmpName);
+		aBtnID = buttonNameToID(aBtnKeyName);
+		if( aBtnID < eBtn_Num )
+		{
+			aBtnTime = -1;
+			if( !aTimeAsString.empty() )
+				aBtnTime = intFromString(aTimeAsString);
+			theBtnName = aBtnTmpName;
+		}
 	}
 
 	// If still no valid button ID, must just be a badly-named action + button key
@@ -2589,16 +2594,17 @@ static void addButtonAction(
 static void addSignalCommand(
 	InputMapBuilder& theBuilder,
 	u16 theLayerIdx,
-	std::string theSignalKey,
+	std::string theSignalName,
 	const std::string& theCmdStr)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
-	if( theSignalKey.empty() || theCmdStr.empty() )
+	if( theSignalName.empty() || theCmdStr.empty() )
 		return;
 
 	// Check for responding to use of any key in a key bind array
+	std::string aSignalKey = condense(theSignalName);
 	if( u16* aKeyBindArrayID =
-			theBuilder.keyBindArrayNameToIdxMap.find(theSignalKey) )
+			theBuilder.keyBindArrayNameToIdxMap.find(aSignalKey) )
 	{
 		Command aCmd = stringToCommand(theBuilder, theCmdStr, true);
 		if( aCmd.type != eCmdType_Empty )
@@ -2627,7 +2633,7 @@ static void addSignalCommand(
 	}
 
 	// Check for responding to use of a key bind
-	if( Command* aCommandAlias = theBuilder.commandAliases.find(theSignalKey) )
+	if( Command* aCommandAlias = theBuilder.commandAliases.find(aSignalKey) )
 	{
 		Command aCmd = stringToCommand(theBuilder, theCmdStr, true);
 		if( aCmd.type != eCmdType_Empty )
@@ -2656,47 +2662,48 @@ static void addSignalCommand(
 	}
 
 	// Check for responding to use of of "Move", "MoveTurn", and "MoveStrafe"
-	switch(commandWordToID(condense(theSignalKey)))
+	switch(commandWordToID(aSignalKey))
 	{
 	case eCmdWord_Move:
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_StrafeL]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_StrafeL], theCmdStr);
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_StrafeR]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_StrafeR], theCmdStr);
 		// fall through
 	case eCmdWord_Turn:
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_MoveF]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_MoveF], theCmdStr);
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_MoveB]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_MoveB], theCmdStr);
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_TurnL]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_TurnL], theCmdStr);
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_TurnR]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_TurnR], theCmdStr);
 		return;
 	case eCmdWord_Strafe:
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_MoveF]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_MoveF], theCmdStr);
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_MoveB]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_MoveB], theCmdStr);
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_StrafeL]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_StrafeL], theCmdStr);
 		addSignalCommand(theBuilder, theLayerIdx,
-			condense(kSpecialKeyNames[eSpecialKey_StrafeR]), theCmdStr);
+			kSpecialKeyNames[eSpecialKey_StrafeR], theCmdStr);
 		return;
 	}
 
 	// For button press signals, need to actually use the word "press"
 	// Other button actions (tap, hold, release) are not supported as signals
-	if( breakOffButtonAction(theSignalKey) == eBtnAct_Press )
+	if( breakOffButtonAction(theSignalName) == eBtnAct_Press )
 	{
-		u16 aBtnID = buttonNameToID(theSignalKey);
+		aSignalKey = condense(theSignalName);
+		EButton aBtnID = buttonNameToID(aSignalKey);
 		bool isA4DirMultiAssign = false;
 		if( aBtnID >= eBtn_Num )
 		{
 			for(size_t i = 0; i < ARRAYSIZE(k4DirButtons); ++i)
 			{
-				if( theSignalKey == k4DirButtons[i] )
+				if( aSignalKey == k4DirButtons[i] )
 				{
 					isA4DirMultiAssign = true;
 					break;
@@ -2713,7 +2720,7 @@ static void addSignalCommand(
 			bool dirCommandFailed = false;
 			for(size_t i = 0; i < 4; ++i)
 			{
-				aBtnID = buttonNameToID(theSignalKey + k4DirKeyNames[i]);
+				aBtnID = buttonNameToID(aSignalKey + k4DirKeyNames[i]);
 				DBG_ASSERT(aBtnID < eBtn_Num);
 				std::string aCmdStr = theCmdStr;
 				Command aCmd;
@@ -2785,7 +2792,7 @@ static void addSignalCommand(
 
 	logError("Unrecognized signal name for '%s %s' requested in [%s]",
 		kSignalCommandPrefix.c_str(),
-		theSignalKey.c_str(),
+		theSignalName.c_str(),
 		theBuilder.debugItemName.c_str());
 }
 
@@ -2956,7 +2963,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			theBuilder.debugSubItemName = theBuilder.debugSubItemName.substr(
 				posAfterPrefix(itr->first, kSignalCommandPrefix));
 			addSignalCommand(theBuilder, theLayerIdx,
-				aKey.substr(kSignalCommandPrefix.length()),
+				&itr->first[posAfterPrefix(itr->first, kSignalCommandPrefix)],
 				itr->second);
 			continue;
 		}
@@ -2969,12 +2976,13 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			theBuilder.debugSubItemName = theBuilder.debugSubItemName.substr(
 				posAfterPrefix(itr->first, kActionOnlyPrefix));
 			addButtonAction(theBuilder, theLayerIdx,
-				aKey.substr(kActionOnlyPrefix.length()),
+				&itr->first[posAfterPrefix(itr->first, kActionOnlyPrefix)],
 				itr->second, true);
 			continue;
 		}
 
-		addButtonAction(theBuilder, theLayerIdx, aKey, itr->second, false);
+		addButtonAction(theBuilder, theLayerIdx,
+			itr->first, itr->second, false);
 	}
 	theBuilder.keyValueList.clear();
 	sLayers[theLayerIdx].buttonMap.trim();

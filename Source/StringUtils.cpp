@@ -464,6 +464,9 @@ int breakOffIntegerSuffix(std::string& theString)
 	else
 		theString.resize(aStrPos+1);
 
+	while(isspace(theString[theString.size()-1]))
+		theString.resize(theString.size()-1);
+
 	return result;
 }
 
