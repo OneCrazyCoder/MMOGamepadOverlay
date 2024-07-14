@@ -86,7 +86,6 @@ void logNotice(const char* fmt ...)
 	va_end(argList);
 
 	logToConsole("", aNoticeString);
-	logToErrorFile(aNoticeString);
 	// Store most recent notice, as past ones may no longer matter
 	gNoticeString = widen(aNoticeString);
 }
