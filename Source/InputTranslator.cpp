@@ -1174,7 +1174,8 @@ static void processAutoRepeat(ButtonState& theBtnState)
 		return;
 
 	// Auto-repeat only commandsWhenPressed assigned to _Down
-	Command aCmd = theBtnState.commandsWhenPressed.cmd[eBtnAct_Down];
+	const ButtonCommandSet& aCmdSet = theBtnState.commandsWhenPressed;
+	Command aCmd = aCmdSet.cmd[eBtnAct_Down];
 
 	// Filter out which commands can use auto-repeat safely
 	switch(aCmd.type)
@@ -1196,8 +1197,8 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	}
 	
 	// Don't auto-repeat when button has other conflicting actions assigned
-	if( theBtnState.commandsWhenPressed.cmd[eBtnAct_Tap].type ||
-		theBtnState.commandsWhenPressed.cmd[eBtnAct_Hold].type )
+	if( aCmdSet.cmd[eBtnAct_Tap].type >= eCmdType_FirstValid ||
+		aCmdSet.cmd[eBtnAct_Hold].type >= eCmdType_FirstValid )
 		return;
 
 	// Needs to be held for initial held time first before start repeating
