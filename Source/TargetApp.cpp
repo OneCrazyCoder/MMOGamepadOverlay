@@ -141,9 +141,9 @@ static void restoreTargetWindow()
 	if( !sTargetWindowHandle )
 		return;
 	// Make sure target window still matches name in current profile
-	wchar_t wczTitle[256];
-	GetWindowText(sTargetWindowHandle, wczTitle, sizeof(wczTitle));
-	if( kConfig.targetWindowName != wczTitle )
+	wchar_t aWStr[256];
+	GetWindowText(sTargetWindowHandle, aWStr, ARRAYSIZE(aWStr));
+	if( kConfig.targetWindowName != aWStr )
 	{
 		dropTargetWindow();
 		return;
@@ -166,15 +166,22 @@ static void checkWindowExists()
 	if( aForegroundWindow == NULL ||
 		aForegroundWindow == sTargetWindowHandle ||
 		WindowManager::isOwnedByThisApp(aForegroundWindow) )
-	{
-		// Don't need to worry about this foreground window
+	{// Don't need to worry about this foreground window
+		return;
+	}
+
+	// Check if foreground window is a known system window
+	wchar_t aWStr[256];
+	GetClassName(aForegroundWindow, aWStr, ARRAYSIZE(aWStr));
+	if( widen("CabinetWClass") == aWStr ||
+		widen("ExplorerWClass") == aWStr )
+	{// Don't need to worry about this foreground window
 		return;
 	}
 
 	// Check if foreground window matches name we are looking for
-	wchar_t wczTitle[256];
-	GetWindowText(aForegroundWindow, wczTitle, sizeof(wczTitle));
-	if( kConfig.targetWindowName != wczTitle )
+	GetWindowText(aForegroundWindow, aWStr, ARRAYSIZE(aWStr));
+	if( kConfig.targetWindowName != aWStr )
 		return;
 
 	// Make sure the window is a normal window size (not minimized etc)
