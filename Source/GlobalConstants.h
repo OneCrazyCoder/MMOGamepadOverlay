@@ -56,6 +56,7 @@ enum ECommandType
 	// These are just a mix of special-case one-off commands
 	eCmdType_StartAutoRun,
 	eCmdType_ChangeProfile,
+	eCmdType_EditLayout,
 	eCmdType_UpdateUIScale,
 	eCmdType_QuitApp,
 
@@ -319,6 +320,7 @@ enum ECommandKeyWord
 	eCmdWord_Last,
 	eCmdWord_Change,
 	eCmdWord_Profile,
+	eCmdWord_Layout,
 	eCmdWord_UIScale,
 	eCmdWord_App,
 

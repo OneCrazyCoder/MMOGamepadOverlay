@@ -77,12 +77,12 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTI
 CAPTION "Select Profile"
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
+    LISTBOX         IDC_LIST_ITEMS,7,17,132,65,LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
     DEFPUSHBUTTON   "Load",IDOK,145,17,50,14
     PUSHBUTTON      "Edit",IDC_BUTTON_EDIT,145,33,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,145,49,50,14
     CONTROL         "Auto-Load this profile next time",IDC_CHECK_AUTOLOAD,
                     "Button",BS_AUTOCHECKBOX | BS_TOP | BS_MULTILINE | WS_TABSTOP,149,69,46,29
-    LISTBOX         IDC_LIST_PROFILES,7,17,132,65,LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Select Profile to load:",IDC_STATIC_PROMPT,7,7,189,9
     EDITTEXT        IDC_EDIT_PROFILE_NAME,7,85,132,14,ES_AUTOHSCROLL,WS_EX_STATICEDGE
 END
@@ -92,9 +92,9 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTI
 CAPTION "Edit Profile"
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
+    LISTBOX         IDC_LIST_ITEMS,6,27,132,36,LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
     DEFPUSHBUTTON   "Open File",IDOK,145,33,50,14
     PUSHBUTTON      "Done",IDCANCEL,145,49,50,14
-    LISTBOX         IDC_LIST_PROFILES,6,27,132,36,LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
     LTEXT           "This Profile will read the below files in the order listed.\nProperties in later files will override those in earlier files!",IDC_STATIC_PROMPT,7,7,189,20
 END
 
@@ -121,8 +121,8 @@ IDD_DIALOG_EDIT_COMMAND DIALOGEX 0, 0, 295, 65
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
-    DEFPUSHBUTTON   "OK",IDOK,238,46,50,12
     EDITTEXT        IDC_EDIT_COMMAND,7,46,229,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,238,46,50,12
     LTEXT           "Input format ""Label: Command"" (or ""AltLabel | Label : Command"" for some Menus)\nInput just a name without colon (:) to make a sub-menu\nLeave blank to delete this menu item\nAdd + or - as first character to insert as new item before (-) or after (+) current",IDC_STATIC_PROMPT,7,7,281,36
 END
 
@@ -130,9 +130,19 @@ IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 50
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
-    DEFPUSHBUTTON   "OK",IDOK,238,31,50,12
     EDITTEXT        IDC_EDIT_COMMAND,7,31,229,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,238,31,50,12
     LTEXT           "Input format ""Label: Command"" (without quotes, include colon) for normal item\nInput just a name without colon (:) to make a sub-menu",IDC_STATIC_PROMPT,7,7,281,19
+END
+
+IDD_DIALOG_LAYOUT_SELECT DIALOGEX 0, 0, 160, 240
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Select item to move"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    CONTROL         "",IDC_TREE_ITEMS,"SysTreeView32",TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,7,7,146,210
+    DEFPUSHBUTTON   "Reposition",IDOK,7,219,50,14
+    PUSHBUTTON      "Done",IDCANCEL,103,219,50,14
 END
 
 
@@ -190,6 +200,14 @@ BEGIN
         RIGHTMARGIN, 288
         TOPMARGIN, 7
         BOTTOMMARGIN, 42
+    END
+
+    IDD_DIALOG_LAYOUT_SELECT, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 153
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 233
     END
 END
 #endif    // APSTUDIO_INVOKED
@@ -255,6 +273,10 @@ BEGIN
         MENUITEM "Profile",                     ID_FILE_PROFILE
         MENUITEM SEPARATOR
         MENUITEM "Exit",                        ID_FILE_EXIT
+    END
+    POPUP "Edit"
+    BEGIN
+        MENUITEM "UI Layout",                   ID_EDIT_UILAYOUT
     END
     POPUP "Help"
     BEGIN

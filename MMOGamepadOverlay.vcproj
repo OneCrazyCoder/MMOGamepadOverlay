@@ -491,6 +491,14 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Source\LayoutEditor.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\LayoutEditor.h"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\License.txt"
 			>
 		</File>

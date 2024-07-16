@@ -1092,6 +1092,18 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
+	// "= [Edit] Layout"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Change);
+	allowedKeyWords.set(eCmdWord_Edit);
+	allowedKeyWords.set(eCmdWord_Layout);
+	if( keyWordsFound.test(eCmdWord_Layout) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_EditLayout;
+		return result;
+	}
+
 	// "= Close App"
 	if( keyWordsFound.test(eCmdWord_Close) &&
 		keyWordsFound.test(eCmdWord_App) &&

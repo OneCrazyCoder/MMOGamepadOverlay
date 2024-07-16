@@ -23,14 +23,19 @@ struct ProfileSelectResult
 	bool editProfileRequested;
 	bool cancelled;
 };
-
 ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles,
 	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
-
 void profileEdit(const std::vector<std::string>& theFileList);
 
+struct TreeViewDialogItem
+{
+	std::string name;
+	size_t parentIndex;
+	bool allowedAsResult;
+};
+size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
 EResult editMenuCommand(std::string& theString, bool directional = false);
