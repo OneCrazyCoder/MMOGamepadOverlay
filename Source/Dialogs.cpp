@@ -342,6 +342,56 @@ static INT_PTR CALLBACK editProfileSelectProc(
 }
 
 
+static int CALLBACK layoutItemSortProc(
+	LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
+{
+	std::vector<TreeViewDialogItem*>* theItems =
+		(std::vector<TreeViewDialogItem*>*)(UINT_PTR)lParamSort;
+	TreeViewDialogItem* anItem1 =
+		(*theItems)[LOWORD(lParam1)];
+	TreeViewDialogItem* anItem2 =
+		(*theItems)[LOWORD(lParam2)];
+	std::string aName1 = condense(anItem1->name);
+	std::string aName2 = condense(anItem2->name);
+	int aName1Val = breakOffIntegerSuffix(aName1);
+	int aName2Val = breakOffIntegerSuffix(aName2);
+	if( aName1Val >= 0 && aName1[aName1.size()-1] == '-' )
+	{
+		aName1.resize(aName1.size()-1);
+		aName1Val = breakOffIntegerSuffix(aName1);
+	}
+	if( aName2Val >= 0 && aName2[aName2.size()-1] == '-' )
+	{
+		aName2.resize(aName2.size()-1);
+		aName2Val = breakOffIntegerSuffix(aName2);
+	}
+	if( aName1 == aName2 )
+		return aName1Val - aName2Val;
+	return anItem1->name.compare(anItem2->name);
+}
+
+
+static void layoutItemSortTree(
+	HWND hTreeView,
+	HTREEITEM hItem,
+	std::vector<TreeViewDialogItem*>* theItems)
+{
+	TVSORTCB tvs;
+	tvs.hParent = hItem;
+	tvs.lpfnCompare = layoutItemSortProc;
+	tvs.lParam = (LPARAM)theItems;
+	if( hItem != TVI_ROOT )
+		TreeView_SortChildrenCB(hTreeView, &tvs, 0);
+	
+	HTREEITEM hChild = TreeView_GetChild(hTreeView, hItem);
+	while(hChild)
+	{
+		layoutItemSortTree(hTreeView, hChild, theItems);
+		hChild = TreeView_GetNextSibling(hTreeView, hChild);
+	}
+}
+
+
 static INT_PTR CALLBACK layoutItemSelectProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -359,7 +409,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 			HWND hTreeView = GetDlgItem(theDialog, IDC_TREE_ITEMS);
 			DBG_ASSERT(hTreeView);
 			TVINSERTSTRUCT tvInsert;
-			tvInsert.hInsertAfter = TVI_SORT;
+			tvInsert.hInsertAfter = TVI_LAST;
 			std::vector<HTREEITEM> aHandlesList;
 			aHandlesList.reserve(theItems->size());
 			aHandlesList.push_back(TVI_ROOT);
@@ -371,20 +421,21 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 			{
 				DBG_ASSERT((*theItems)[i] != null);
 				const std::wstring& anItemName = widen((*theItems)[i]->name);
-				const size_t aParentIdx = (*theItems)[i]->parentIndex;
-				const u16 isOkAllowed = (*theItems)[i]->allowedAsResult;
+				const u32 aParentIdx = u32((*theItems)[i]->parentIndex);
+				const u32 isRootCategory = u32((*theItems)[i]->isRootCategory);
 				tvInsert.item.pszText = const_cast<WCHAR*>(anItemName.c_str());
 				tvInsert.item.mask = TVIF_TEXT | TVIF_PARAM;
 				tvInsert.item.cChildren = anItemHasChildren.test(i) ? 1 : 0;
 				if( tvInsert.item.cChildren )
 					tvInsert.item.mask |= TVIF_CHILDREN;
-				tvInsert.item.lParam = MAKELPARAM(i, isOkAllowed);
+				tvInsert.item.lParam = MAKELPARAM(i, isRootCategory);
 				tvInsert.hParent = aHandlesList[aParentIdx];
 				aHandlesList.push_back((HTREEITEM)SendMessage(
 					hTreeView,
 					TVM_INSERTITEM, 0,
 					(LPARAM)&tvInsert));
 			}
+			layoutItemSortTree(hTreeView, TVI_ROOT, theItems);
 		}
 		return (INT_PTR)TRUE;
 
@@ -436,7 +487,8 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 				tvItem.mask = TVIF_PARAM;
 				tvItem.hItem = hSelectedItem;
 				SendMessage(nmhdr->hwndFrom, TVM_GETITEM, 0, (LPARAM)&tvItem);
-				EnableWindow(GetDlgItem(theDialog, IDOK), HIWORD(tvItem.lParam) != 0);
+				const u32 isRootCategory = HIWORD(tvItem.lParam) != 0;
+				EnableWindow(GetDlgItem(theDialog, IDOK), !isRootCategory);
 			}
 			else
 			{

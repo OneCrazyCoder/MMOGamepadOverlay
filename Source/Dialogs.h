@@ -33,7 +33,7 @@ struct TreeViewDialogItem
 {
 	std::string name;
 	size_t parentIndex;
-	bool allowedAsResult;
+	bool isRootCategory;
 };
 size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
