@@ -8,6 +8,7 @@
 #include "HotspotMap.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
+#include "LayoutEditor.h"
 #include "Menus.h"
 #include "Profile.h"
 #include "WindowManager.h" // readUIScale()
@@ -844,6 +845,9 @@ static void processCommand(
 	case eCmdType_ChangeProfile:
 		Profile::queryUserForProfile();
 		gReloadProfile = true;
+		break;
+	case eCmdType_EditLayout:
+		LayoutEditor::launch();
 		break;
 	case eCmdType_UpdateUIScale:
 		// TODO - more with this

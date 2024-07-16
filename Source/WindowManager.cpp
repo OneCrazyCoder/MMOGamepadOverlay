@@ -7,6 +7,7 @@
 #include "Dialogs.h"
 #include "HUD.h"
 #include "InputMap.h"
+#include "LayoutEditor.h"
 #include "Profile.h"
 #include "Resources/resource.h"
 #include "TargetApp.h" // targetWindowHandle()
@@ -185,6 +186,9 @@ static LRESULT CALLBACK mainWindowProc(
 		case ID_FILE_PROFILE:
 			if( Profile::queryUserForProfile() )
 				gReloadProfile = true;
+			return 0;
+		case ID_EDIT_UILAYOUT:
+			LayoutEditor::launch();
 			return 0;
 		case ID_HELP_LICENSE:
 			Dialogs::showLicenseAgreement(theWindow);
