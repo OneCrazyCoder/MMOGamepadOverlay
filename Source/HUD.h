@@ -52,6 +52,10 @@ void drawMainWindowContents(HWND theWindow);
 // Causes border of eHUDType_System to flash for a bit to show region
 void flashSystemWindowBorder();
 
+// Sets a draw hook for eHUDType_System and (keeps it visible if != NULL)
+typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
+void setSystemOverlayDrawHook(SystemPaintFunc);
+
 // Get alpha fade in/out information
 u8 maxAlpha(u16 theHUDElementID);
 u8 inactiveAlpha(u16 theHUDElementID);

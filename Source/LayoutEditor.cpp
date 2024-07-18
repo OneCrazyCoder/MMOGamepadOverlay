@@ -8,6 +8,7 @@
 #include "HotspotMap.h"
 #include "InputMap.h"
 #include "Profile.h"
+#include "WindowManager.h"
 
 namespace LayoutEditor
 {
@@ -59,9 +60,23 @@ struct LayoutEntry
 };
 
 
+struct EditorState
+{
+	std::vector<LayoutEntry> entries;
+	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
+	bool attachedToSystemHUD;
+
+	EditorState() :
+		attachedToSystemHUD()
+	{}
+};
+
+
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
+
+static EditorState* sState = null;
 
 
 //-----------------------------------------------------------------------------
@@ -73,6 +88,56 @@ struct LayoutEntry
 #else
 #define layoutDebugPrint(...) ((void)0)
 #endif
+
+static LRESULT CALLBACK layoutEditorWindowProc(
+	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	if( theMessage == WM_LBUTTONDOWN )
+	{
+		layoutDebugPrint("Mouse click detected in overlay!\n");
+		return 0;
+	}
+
+	return DefWindowProc(theWindow, theMessage, wParam, lParam);
+}
+
+
+static void layoutEditorPaintFunc(
+	HDC hdc, const RECT& theDrawRect, bool firstDraw)
+{
+	if( firstDraw )
+	{
+		//RECT aRect = theDrawRect;
+		//InflateRect(&aRect, -400, -400);
+		//FillRect(hdc, &aRect, (HBRUSH)GetStockObject(WHITE_BRUSH));
+	}
+}
+
+
+static void promptForEditEntry()
+{
+	DBG_ASSERT(sState);
+	if( sState->attachedToSystemHUD )
+	{
+		WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+		sState->attachedToSystemHUD = false;
+	}
+	size_t anEntryToEdit = Dialogs::layoutItemSelect(sState->dialogItems);
+	layoutDebugPrint("Returned selection value = %d (%s)\n",
+		anEntryToEdit,
+		sState->entries[anEntryToEdit].item.name.c_str());
+	if( anEntryToEdit > 0 )
+	{
+		WindowManager::setSystemOverlayCallbacks(
+			layoutEditorWindowProc, layoutEditorPaintFunc);
+		sState->attachedToSystemHUD = true;
+	}
+	else
+	{
+		cleanup();
+	}
+}
+
 
 static void setEntryParent(
 	LayoutEntry& theEntry,
@@ -193,49 +258,52 @@ static std::pair<std::string, std::string> tryGetHUDHotspot(
 // Global Functions
 //-----------------------------------------------------------------------------
 
-void launch()
+void init()
 {
+	cleanup();
+
 	// Gather information on elements that can be edited
-	layoutDebugPrint("Initializing layout editor\n");
+	layoutDebugPrint("Initializing\n");
+	DBG_ASSERT(sState == null);
+	sState = new EditorState();
 
 	// Start with all the categories
-	std::vector<LayoutEntry> aLayoutEntriesList;
 	LayoutEntry aNewEntry;
 	aNewEntry.type = LayoutEntry::eType_Root;
 	aNewEntry.item.parentIndex = 0;
 	aNewEntry.item.isRootCategory = true;
 	aNewEntry.rangeCount = 0;
-	aLayoutEntriesList.push_back(aNewEntry);
+	sState->entries.push_back(aNewEntry);
 	aNewEntry.type = LayoutEntry::eType_HotspotCategory;
 	aNewEntry.item.name = "Hotspots";
 	aNewEntry.keyName = kHotspotsPrefix;
-	aLayoutEntriesList.push_back(aNewEntry);
+	sState->entries.push_back(aNewEntry);
 	aNewEntry.type = LayoutEntry::eType_CopyIconCategory;
 	aNewEntry.item.name = "Copy Icons";
 	aNewEntry.keyName = kIconsPrefix;
-	aLayoutEntriesList.push_back(aNewEntry);
+	sState->entries.push_back(aNewEntry);
 	aNewEntry.type = LayoutEntry::eType_MenuCategory;
 	aNewEntry.item.name = "Menus";
 	aNewEntry.keyName = kMenuPrefix;
-	aLayoutEntriesList.push_back(aNewEntry);
+	sState->entries.push_back(aNewEntry);
 	aNewEntry.type = LayoutEntry::eType_HUDCategory;
 	aNewEntry.item.name = "HUD Elements";
 	aNewEntry.keyName = kHUDPrefix;
-	aLayoutEntriesList.push_back(aNewEntry);
-	DBG_ASSERT(aLayoutEntriesList.size() == LayoutEntry::eType_CategoryNum);
-	for(size_t i = 0; i < aLayoutEntriesList.size(); ++i)
-		DBG_ASSERT(aLayoutEntriesList[i].type == i);
+	sState->entries.push_back(aNewEntry);
+	DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
+	for(size_t i = 0; i < sState->entries.size(); ++i)
+		DBG_ASSERT(sState->entries[i].type == i);
 	aNewEntry.item.isRootCategory = false;
 
 	// Collect the hotspots
 	addArrayEntries(
-		aLayoutEntriesList,
+		sState->entries,
 		LayoutEntry::eType_HotspotCategory,
 		LayoutEntry::eType_Hotspot);
 
 	// Collect the copy icon regions
 	addArrayEntries(
-		aLayoutEntriesList,
+		sState->entries,
 		LayoutEntry::eType_CopyIconCategory,
 		LayoutEntry::eType_CopyIcon);
 
@@ -253,7 +321,7 @@ void launch()
 			aCatType = LayoutEntry::EType(aCatType+1),
 			anEntryType = LayoutEntry::EType(anEntryType+1))
 		{
-			const std::string& aPrefix = aLayoutEntriesList[aCatType].keyName;
+			const std::string& aPrefix = sState->entries[aCatType].keyName;
 			aHotspotStr = tryGetHUDHotspot(
 				aPrefix, aNewEntry.item.name, kPositionKey);
 			if( !aHotspotStr.second.empty() )
@@ -282,29 +350,36 @@ void launch()
 							aHotspotStr.second, aNewEntry.size);
 					}
 				}
-				aLayoutEntriesList.push_back(aNewEntry);
+				sState->entries.push_back(aNewEntry);
 				break;
 			}
 		}
 	}
 
 	// Prepare for prompt dialog
-	if( aLayoutEntriesList.empty() )
+	if( sState->entries.empty() )
 	{
 		logError("Current profile has no positional items to edit!");
 		return;
 	}
-	std::vector<Dialogs::TreeViewDialogItem*> aDialogList;
-	aDialogList.reserve(aLayoutEntriesList.size());
-	for(size_t i = 0; i < aLayoutEntriesList.size(); ++i)
-		aDialogList.push_back(&aLayoutEntriesList[i].item);
+	sState->dialogItems.reserve(sState->entries.size());
+	for(size_t i = 0; i < sState->entries.size(); ++i)
+		sState->dialogItems.push_back(&sState->entries[i].item);
 	
-	size_t anEntryToEdit = Dialogs::layoutItemSelect(aDialogList);
-	layoutDebugPrint("Returned selection value = %d (%s)\n",
-		anEntryToEdit,
-		aLayoutEntriesList[anEntryToEdit].item.name.c_str());
-	if( anEntryToEdit > 0 )
-		logNotice("Layout editor functionality not yet implemented!");
+	promptForEditEntry();
+}
+
+
+void cleanup()
+{
+	if( !sState )
+		return;
+
+	layoutDebugPrint("Shutting down and clearing memory\n");
+	if( sState->attachedToSystemHUD )
+		WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+	delete sState;
+	sState = null;
 }
 
 #undef LAYOUT_EDITOR_DEBUG_PRINT

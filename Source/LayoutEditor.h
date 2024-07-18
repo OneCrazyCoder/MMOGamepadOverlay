@@ -15,6 +15,9 @@ namespace LayoutEditor
 {
 
 // Launches the editor (displays dialog to select what to change)
-void launch();
+void init();
+
+// Halts editor mode if it is running and cleans up memory
+void cleanup();
 
 } // LayoutEditor
