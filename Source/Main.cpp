@@ -17,6 +17,7 @@
 #include "InputDispatcher.h"
 #include "InputMap.h"
 #include "InputTranslator.h"
+#include "LayoutEditor.h"
 #include "Menus.h"
 #include "Profile.h"
 #include "TargetApp.h"
@@ -207,6 +208,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		InputDispatcher::cleanup();
 		InputTranslator::cleanup();
 		HotspotMap::cleanup();
+		LayoutEditor::cleanup();
 		if( !hadFatalError() )
 			WindowManager::destroyAll(hInstance);
 	}

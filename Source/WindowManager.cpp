@@ -25,6 +25,7 @@ namespace WindowManager
 
 const wchar_t* kMainWindowClassName = L"MMOGO Main";
 const wchar_t* kOverlayWindowClassName = L"MMOGO Overlay";
+const wchar_t* kSystemOverlayWindowClassName = L"MMOGO System Overlay";
 
 enum EIconCopyMethod
 {
@@ -92,6 +93,7 @@ struct OverlayWindowPriority
 //-----------------------------------------------------------------------------
 
 static HWND sMainWindow = NULL;
+static HWND sSystemOverlayWindow = NULL;
 static HANDLE sModalModeTimer = NULL;
 static HANDLE sModalModeThread = NULL;
 static HANDLE sModalModeExit = NULL;
@@ -100,9 +102,11 @@ static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
 static RECT sDesktopTargetRect; // relative to virtual desktop
 static RECT sScreenTargetRect; // relative to main screen
 static SIZE sTargetSize = { 0 };
+static WNDPROC sSystemOverlayProc = NULL;
 static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sUseChildWindows = false;
 static bool sHidden = false;
+static bool sInDialogMode = false;
 static bool sMainWindowInModalMode = false;
 
 
@@ -188,7 +192,7 @@ static LRESULT CALLBACK mainWindowProc(
 				gReloadProfile = true;
 			return 0;
 		case ID_EDIT_UILAYOUT:
-			LayoutEditor::launch();
+			LayoutEditor::init();
 			return 0;
 		case ID_HELP_LICENSE:
 			Dialogs::showLicenseAgreement(theWindow);
@@ -269,6 +273,26 @@ static LRESULT CALLBACK overlayWindowProc(
 		gRedrawHUD.set(aHUDElementID);
 		break;
 	}
+
+	return DefWindowProc(theWindow, theMessage, wParam, lParam);
+}
+
+
+static LRESULT CALLBACK systemOverlayWindowProc(
+	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	u16 aHUDElementID = u16(GetWindowLongPtr(theWindow, GWLP_USERDATA));
+	switch(theMessage)
+	{
+	case WM_PAINT:
+		gRedrawHUD.set(aHUDElementID);
+		break;
+	case WM_MOUSEACTIVATE:
+		return MA_NOACTIVATE;
+	}
+
+	if( sSystemOverlayProc )
+		return sSystemOverlayProc(theWindow, theMessage, wParam, lParam);
 
 	return DefWindowProc(theWindow, theMessage, wParam, lParam);
 }
@@ -571,6 +595,10 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.lpszMenuName = NULL;
 	RegisterClassExW(&aWindowClass);
 	
+	aWindowClass.lpfnWndProc = systemOverlayWindowProc;
+	aWindowClass.lpszClassName = kSystemOverlayWindowClassName;
+	RegisterClassExW(&aWindowClass);
+
 	// Create main app window
 	sMainWindow = CreateWindowExW(
 		isMainWindowHidden ? (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_APPWINDOW) : 0,
@@ -635,6 +663,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 	{
 		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+		const bool isSystemOverlay =
+			InputMap::hudElementType(aHUDElementID) == eHUDType_System;
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 			aWindow.components, aWindow.position, aWindow.size);
 		aWindow.layoutUpdated = true;
@@ -642,7 +672,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
 			WS_EX_TRANSPARENT | WS_EX_LAYERED,
-			kOverlayWindowClassName,
+			isSystemOverlay
+				? kSystemOverlayWindowClassName : kOverlayWindowClassName,
 			widen(InputMap::hudElementKeyName(aHUDElementID)).c_str(),
 			WS_POPUP | (sUseChildWindows ? WS_CHILD : 0),
 			aWindow.position.x,
@@ -659,6 +690,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		{
 			pSetWindowDisplayAffinity(aWindow.handle, WDA_EXCLUDEFROMCAPTURE);
 		}
+		if( isSystemOverlay )
+			sSystemOverlayWindow = aWindow.handle;
 	}
 }
 
@@ -677,16 +710,26 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 		if( sOverlayWindows[i].handle )
 			DestroyWindow(sOverlayWindows[i].handle);
 	}
+	sSystemOverlayProc = NULL;
+	sSystemOverlayWindow = NULL;
 	sOverlayWindows.clear();
 	sOverlayWindowOrder.clear();
 	UnregisterClassW(kMainWindowClassName, theAppInstanceHandle);
 	UnregisterClassW(kOverlayWindowClassName, theAppInstanceHandle);
+	UnregisterClassW(kSystemOverlayWindowClassName, theAppInstanceHandle);
 }
 
 
 void update()
 {
-	if( sMainWindowInModalMode )
+	if( sInDialogMode )
+	{
+		sInDialogMode = false;
+		if( sMainWindow && !gReloadProfile && !gShutdown )
+			ShowWindow(sMainWindow, SW_SHOW);
+	}
+
+	if( sMainWindowInModalMode || gReloadProfile || gShutdown )
 		return;
 
 	// Update each overlay window as needed
@@ -814,6 +857,24 @@ void update()
 	}
 	ReleaseDC(NULL, aCaptureDC);
 	ReleaseDC(NULL, aScreenDC);
+}
+
+
+void prepareForDialog()
+{
+	stopModalModeUpdates();
+	if( sMainWindow )
+		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
+	sInDialogMode = true;
+	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
+	{
+		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+
+		if( IsWindowVisible(aWindow.handle) )
+			ShowWindow(aWindow.handle, SW_HIDE);
+		aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
+	}
 }
 
 
@@ -975,6 +1036,24 @@ void readUIScale()
 void showTargetWindowFound()
 {
 	HUD::flashSystemWindowBorder();
+}
+
+
+void setSystemOverlayCallbacks(WNDPROC theProc, SystemPaintFunc thePaintFunc)
+{
+	HUD::setSystemOverlayDrawHook(thePaintFunc);
+	if( sSystemOverlayWindow && theProc != sSystemOverlayProc )
+	{
+		sSystemOverlayProc = theProc;
+		LONG exStyle = GetWindowLong(sSystemOverlayWindow, GWL_EXSTYLE);
+		if( theProc != NULL )
+			exStyle &= ~WS_EX_TRANSPARENT;
+		else
+			exStyle |= WS_EX_TRANSPARENT;
+		SetWindowLong(sSystemOverlayWindow, GWL_EXSTYLE, exStyle);
+		SetWindowPos(sSystemOverlayWindow, NULL, 0, 0, 0, 0,
+			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+	}
 }
 
 

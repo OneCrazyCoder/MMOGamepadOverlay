@@ -37,6 +37,9 @@ void destroyAll(HINSTANCE);
 // Update window contents as needed
 void update();
 
+// Hides main window and overlays until next time update() is run
+void prepareForDialog();
+
 // Stops main window manually updating modules in modal mode (resizing window)
 void stopModalModeUpdates();
 
@@ -60,6 +63,14 @@ SIZE overlayTargetSize();
 void readUIScale();
 // Displays a visual indicater that are tracking a target window now
 void showTargetWindowFound();
+
+// Adds callback functions for drawing and getting messages for the System
+// overlay window (the top-most, full-sized one) for editor functionality.
+// Allows non-transparent pixels of the overlay to get mouse click messages.
+// Said overlay will stay visible, but gRedrawHUD must be used for redraws.
+// Set the callbacks to NULL to stop this behaviour and clear/hide the window.
+typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
+void setSystemOverlayCallbacks(WNDPROC, SystemPaintFunc);
 
 // Gets overlay-window-relative/clamped mouse position
 POINT mouseToOverlayPos(bool clamped = true);

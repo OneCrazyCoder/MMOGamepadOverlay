@@ -306,11 +306,14 @@ static std::vector<AutoRefreshLabelEntry> sAutoRefreshLabels;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
+static SystemPaintFunc sSystemOverlayPaintFunc = NULL;
 static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
 static int sSystemBorderFlashTimer = 0;
 static u32 sCopyIconUpdateRate = 100;
 static u32 sNextAutoRefreshTime = 0;
+static u16 sSystemHUDElementID = 0;
+static bool sSystemHUDNeedsErase = true;
 
 
 //-----------------------------------------------------------------------------
@@ -1750,9 +1753,13 @@ static void drawSystemHUD(HUDDrawData& dd)
 		dd.firstDraw = true;
 	}
 
-	// Erase any previous strings
-	if( !dd.firstDraw )
-		eraseRect(dd, dd.components[0]);
+	if( sSystemOverlayPaintFunc )
+	{
+		COLORREF oldColor = SetDCBrushColor(dd.hdc, hi.transColor);
+		HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
+		sSystemOverlayPaintFunc(dd.hdc, dd.components[0], dd.firstDraw);
+		SetDCBrushColor(dd.hdc, oldColor);
+	}
 
 	RECT aTextRect = dd.components[0];
 	InflateRect(&aTextRect, -8, -8);
@@ -1908,6 +1915,7 @@ void init()
 		if( hi.type == eHUDType_System )
 		{
 			hi.drawPriority = 127; // Higher than any can be manually set to
+			sSystemHUDElementID = aHUDElementID;
 			continue;
 		}
 		const std::string& aHUDName =
@@ -2109,7 +2117,9 @@ void cleanup()
 	sLabelIcons.clear();
 	sHUDElementInfo.clear();
 	sErrorMessage.clear();
+	sSystemOverlayPaintFunc = NULL;
 	sErrorMessageTimer = 0;
+	sSystemHUDElementID = 0;
 
 	DeleteDC(sBitmapDrawSrc);
 	sBitmapDrawSrc = NULL;
@@ -2118,10 +2128,10 @@ void cleanup()
 
 void update()
 {
-	// Handle display of error messages and other notices
+	// Handle display of error messages and other notices via _System HUD
 	// eHUDType_System should always be the last HUD element in the list
-	const u16 aSystemElementID = u16(sHUDElementInfo.size() - 1);
-	DBG_ASSERT(sHUDElementInfo[aSystemElementID].type == eHUDType_System);
+	DBG_ASSERT(sSystemHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(sHUDElementInfo[sSystemHUDElementID].type == eHUDType_System);
 
 	if( sErrorMessageTimer > 0 )
 	{
@@ -2130,7 +2140,8 @@ void update()
 		{
 			sErrorMessageTimer = 0;
 			sErrorMessage.clear();
-			gRedrawHUD.set(aSystemElementID);
+			sSystemHUDNeedsErase = true;
+			gRedrawHUD.set(sSystemHUDElementID);
 		}
 	}
 	else if( !gErrorString.empty() && !hadFatalError() )
@@ -2144,7 +2155,8 @@ void update()
 			int(kNoticeStringDisplayTimePerChar *
 				sErrorMessage.size()));
 		gErrorString.clear();
-		gRedrawHUD.set(aSystemElementID);
+		sSystemHUDNeedsErase = true;
+		gRedrawHUD.set(sSystemHUDElementID);
 	}
 
 	if( sNoticeMessageTimer > 0 )
@@ -2154,7 +2166,8 @@ void update()
 		{
 			sNoticeMessageTimer = 0;
 			sNoticeMessage.clear();
-			gRedrawHUD.set(aSystemElementID);
+			sSystemHUDNeedsErase = true;
+			gRedrawHUD.set(sSystemHUDElementID);
 		}
 	}
 	if( !gNoticeString.empty() )
@@ -2165,7 +2178,8 @@ void update()
 			int(kNoticeStringDisplayTimePerChar *
 				sNoticeMessage.size()));
 		gNoticeString.clear();
-		gRedrawHUD.set(aSystemElementID);
+		sSystemHUDNeedsErase = true;
+		gRedrawHUD.set(sSystemHUDElementID);
 	}
 
 	bool showSystemBorder = false;
@@ -2174,21 +2188,22 @@ void update()
 		showSystemBorder =
 			((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0;
 		sSystemBorderFlashTimer = max(0, sSystemBorderFlashTimer - gAppFrameTime);
-		if( gVisibleHUD.test(aSystemElementID) != showSystemBorder )
-			gRedrawHUD.set(aSystemElementID);
+		if( gVisibleHUD.test(sSystemHUDElementID) != showSystemBorder )
+			gRedrawHUD.set(sSystemHUDElementID);
 	}
 
 	#ifdef DEBUG_DRAW_OVERLAY_FRAME
 		showSystemBorder = true;
 	#endif
 
-	gVisibleHUD.set(aSystemElementID,
+	gVisibleHUD.set(sSystemHUDElementID,
 		!sNoticeMessage.empty() ||
 		!sErrorMessage.empty() ||
+		sSystemOverlayPaintFunc ||
 		showSystemBorder);
 
-	if( gVisibleHUD.test(aSystemElementID) )
-		gActiveHUD.set(aSystemElementID);
+	if( gVisibleHUD.test(sSystemHUDElementID) )
+		gActiveHUD.set(sSystemHUDElementID);
 
 	// Check for updates to other HUD elements
 	for(size_t i = 0; i < sHUDElementInfo.size(); ++i)
@@ -2381,6 +2396,11 @@ void drawElement(
 			needsInitialErase = aDrawData.firstDraw = true;
 			hi.subMenuID = aNewSubMenu;
 		}
+	}
+	else if( hi.type == eHUDType_System && sSystemHUDNeedsErase )
+	{// Check for complete redraw from error message or hook changing
+		needsInitialErase = aDrawData.firstDraw = true;
+		sSystemHUDNeedsErase = false;
 	}
 
 	// Select the transparent color (erase) brush by default first
@@ -2809,6 +2829,14 @@ void drawMainWindowContents(HWND theWindow)
 void flashSystemWindowBorder()
 {
 	sSystemBorderFlashTimer = kSystemHUDFlashTime;
+}
+
+
+void setSystemOverlayDrawHook(SystemPaintFunc theFunc)
+{
+	sSystemOverlayPaintFunc = theFunc;
+	if( sSystemHUDElementID < gRedrawHUD.size() )
+		gRedrawHUD.set(sSystemHUDElementID);
 }
 
 

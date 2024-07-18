@@ -847,7 +847,7 @@ static void processCommand(
 		gReloadProfile = true;
 		break;
 	case eCmdType_EditLayout:
-		LayoutEditor::launch();
+		LayoutEditor::init();
 		break;
 	case eCmdType_UpdateUIScale:
 		// TODO - more with this

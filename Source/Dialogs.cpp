@@ -888,12 +888,7 @@ ProfileSelectResult profileSelect(
 
 	// Hide main window and overlays until dialog is done
 	TargetApp::prepareForDialog();
-	if( WindowManager::mainHandle() )
-	{
-		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
-		WindowManager::hideOverlays();
-		WindowManager::update();
-	}
+	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -927,10 +922,6 @@ ProfileSelectResult profileSelect(
 	// Cleanup
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
-	if( WindowManager::mainHandle() )
-		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
-	if( result.cancelled )
-		WindowManager::showOverlays();
 
 	return result;
 }
@@ -945,12 +936,7 @@ void profileEdit(const std::vector<std::string>& theFileList)
 
 	// Hide main window and overlays until dialog is done
 	TargetApp::prepareForDialog();
-	if( WindowManager::mainHandle() )
-	{
-		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
-		WindowManager::hideOverlays();
-		WindowManager::update();
-	}
+	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -982,9 +968,6 @@ void profileEdit(const std::vector<std::string>& theFileList)
 	// Cleanup
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
-	if( WindowManager::mainHandle() )
-		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
-	WindowManager::showOverlays();
 }
 
 
@@ -997,12 +980,7 @@ size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 
 	// Hide main window and overlays until dialog is done
 	TargetApp::prepareForDialog();
-	if( WindowManager::mainHandle() )
-	{
-		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
-		WindowManager::hideOverlays();
-		WindowManager::update();
-	}
+	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1034,9 +1012,6 @@ size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 	// Cleanup
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
-	if( WindowManager::mainHandle() )
-		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
-	WindowManager::showOverlays();
 
 	return sDialogSelected;
 }
@@ -1152,12 +1127,7 @@ EResult editMenuCommand(std::string& theString, bool directional)
 
 	// Hide main window and overlays until dialog is done
 	TargetApp::prepareForDialog();
-	if( WindowManager::mainHandle() )
-	{
-		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
-		WindowManager::hideOverlays();
-		WindowManager::update();
-	}
+	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1202,14 +1172,8 @@ EResult editMenuCommand(std::string& theString, bool directional)
 	// Cleanup
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
-	if( WindowManager::mainHandle() )
-		ShowWindow(WindowManager::mainHandle(), SW_SHOW);
 
-	if( theString != anOriginalString )
-		return eResult_Ok;
-
-	WindowManager::showOverlays();
-	return eResult_Cancel;
+	return (theString != anOriginalString) ? eResult_Ok : eResult_Cancel;
 }
 
 
