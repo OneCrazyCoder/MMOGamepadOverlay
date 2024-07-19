@@ -77,6 +77,8 @@ void mainLoopUpdate(HWND theDialog)
 			gShutdown = true;
 			break;
 		default:
+			if( !theDialog && WindowManager::toolbarHandle() )
+				theDialog = WindowManager::toolbarHandle();
 			if( !theDialog ||
 				!IsDialogMessage(theDialog, &aWindowsMessage) )
 			{

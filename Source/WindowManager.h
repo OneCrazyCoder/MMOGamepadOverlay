@@ -37,8 +37,9 @@ void destroyAll(HINSTANCE);
 // Update window contents as needed
 void update();
 
-// Hides main window and overlays until next time update() is run
+// Disables main window and hides overlays until endDialogMode() or update()
 void prepareForDialog();
+void endDialogMode();
 
 // Stops main window manually updating modules in modal mode (resizing window)
 void stopModalModeUpdates();
@@ -49,6 +50,14 @@ bool isOwnedByThisApp(HWND theWindow);
 // Gets handle to the main window (or NULL)
 HWND mainHandle();
 
+// Gets handle to active editor toolbar window (or NULL)
+HWND toolbarHandle();
+
+// Checks for situations where mouse must be visible and directly controlled
+// (not hidden in the corner or attempting to use mouse look mode) due to
+// current status of UI (i.e. not actively in-game at the moment).
+bool requiresNormalCursorControl();
+
 // Move/resize/hide/restore the overlay windows
 void resize(RECT theNewTargetRect);
 void resetOverlays();
@@ -56,13 +65,17 @@ void hideOverlays();
 void showOverlays();
 void setOverlaysToTopZ();
 bool overlaysAreHidden();
-bool overlaysAreOverDesktop();
 SIZE overlayTargetSize();
 
 // Updates gUIScale based on Profile and possibly Windows registry
 void readUIScale();
 // Displays a visual indicater that are tracking a target window now
 void showTargetWindowFound();
+
+// Creates a floating toolbar window placed on top of the overlays
+// Only one of these can be active at a time!
+HWND createToolbarWindow(int theResID, DLGPROC theProc, LPARAM theParam = 0);
+void destroyToolbarWindow();
 
 // Adds callback functions for drawing and getting messages for the System
 // overlay window (the top-most, full-sized one) for editor functionality.

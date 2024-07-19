@@ -27,7 +27,7 @@ ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles,
 	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
-void profileEdit(const std::vector<std::string>& theFileList);
+void profileEdit(const std::vector<std::string>& theFileList, bool firstRun);
 
 struct TreeViewDialogItem
 {

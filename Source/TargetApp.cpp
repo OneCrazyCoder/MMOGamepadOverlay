@@ -219,6 +219,12 @@ static void checkWindowActive()
 		SetForegroundWindow(sTargetWindowHandle);
 	}
 
+	// Allow toolbar to be active over target, unless target is minimized
+	if( WindowManager::toolbarHandle() &&
+		aForegroundWindow == WindowManager::toolbarHandle() &&
+		!IsIconic(sTargetWindowHandle) )
+		return;
+
 	if( WindowManager::overlaysAreHidden() )
 		return;
 

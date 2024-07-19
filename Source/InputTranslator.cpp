@@ -843,8 +843,7 @@ static void processCommand(
 			sResults.charMoveLockMovement = true;
 		break;
 	case eCmdType_ChangeProfile:
-		Profile::queryUserForProfile();
-		gReloadProfile = true;
+		gReloadProfile = Profile::queryUserForProfile();
 		break;
 	case eCmdType_EditLayout:
 		LayoutEditor::init();
