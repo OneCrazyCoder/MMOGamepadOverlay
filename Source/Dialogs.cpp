@@ -251,17 +251,6 @@ static INT_PTR CALLBACK profileSelectProc(
 		}
 		break;
 
-	case WM_CLOSE:
-		theData = (ProfileSelectDialogData*)(UINT_PTR)
-			GetWindowLongPtr(theDialog, GWLP_USERDATA);
-		if( theData )
-		{// Treat the same as Cancel being clicked
-			theData->result.cancelled = true;
-			sDialogDone = true;
-			return (INT_PTR)TRUE;
-		}
-		break;
-
 	case WM_DEVICECHANGE:
 		Gamepad::checkDeviceChange();
 		break;
@@ -327,11 +316,6 @@ static INT_PTR CALLBACK editProfileSelectProc(
 			break;
 		}
 		break;
-
-	case WM_CLOSE:
-		// Treat the same as Cancel being clicked
-		sDialogDone = true;
-		return (INT_PTR)TRUE;
 
 	case WM_DEVICECHANGE:
 		Gamepad::checkDeviceChange();
@@ -403,7 +387,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 	case WM_INITDIALOG:
 		theItems = (std::vector<TreeViewDialogItem*>*)
 			(UINT_PTR)lParam;
-		DBG_ASSERT(theItems);
+		DBG_ASSERT(theItems && !theItems->empty());
 		EnableWindow(GetDlgItem(theDialog, IDOK), FALSE);
 		{// Add available items to the tree
 			HWND hTreeView = GetDlgItem(theDialog, IDC_TREE_ITEMS);
@@ -436,6 +420,12 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 					(LPARAM)&tvInsert));
 			}
 			layoutItemSortTree(hTreeView, TVI_ROOT, theItems);
+			if( size_t anInitialSel = (*theItems)[0]->parentIndex )
+			{
+				HTREEITEM hInitialItem = aHandlesList[anInitialSel];
+				TreeView_SelectItem(hTreeView, hInitialItem);
+				TreeView_EnsureVisible(hTreeView, hInitialItem);
+			}
 		}
 		return (INT_PTR)TRUE;
 
@@ -445,7 +435,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 		{
 		case IDOK:
 			if( HIWORD(wParam) == BN_CLICKED )
-			{// Okay button clicked
+			{// Okay button clicked - signal which item was selected
 				sDialogSelected = 0;
 				HWND hTreeView = GetDlgItem(theDialog, IDC_TREE_ITEMS);
 				 HTREEITEM hSelectedItem = (HTREEITEM)
@@ -478,7 +468,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 	case WM_NOTIFY:
 		nmhdr = (LPNMHDR)lParam;
 		if( nmhdr->idFrom == IDC_TREE_ITEMS && nmhdr->code == TVN_SELCHANGED )
-		{
+		{// Update enabled status of OK button when treeview item selected
 			LPNMTREEVIEW pnmtv = (LPNMTREEVIEW)nmhdr;
 			HTREEITEM hSelectedItem = pnmtv->itemNew.hItem;
 			if( hSelectedItem )
@@ -495,12 +485,6 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 				EnableWindow(GetDlgItem(theDialog, IDOK), FALSE);
 			}
 		}
-		return (INT_PTR)TRUE;
-
-	case WM_CLOSE:
-		// Treat the same as Cancel being clicked
-		sDialogSelected = 0;
-		sDialogDone = true;
 		return (INT_PTR)TRUE;
 
 	case WM_DEVICECHANGE:
@@ -608,11 +592,6 @@ static INT_PTR CALLBACK licenseDialogProc(
 			return TRUE;
 		}
 		break;
-
-	case WM_CLOSE:
-		// Treat the same as clicking Decline (cancel)
-		EndDialog(theDialog, IDCANCEL);
-		return TRUE;
 	}
 
 	return FALSE;
@@ -920,6 +899,7 @@ ProfileSelectResult profileSelect(
 	}
 
 	// Cleanup
+	WindowManager::endDialogMode();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 
@@ -927,7 +907,7 @@ ProfileSelectResult profileSelect(
 }
 
 
-void profileEdit(const std::vector<std::string>& theFileList)
+void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 {
 	DBG_ASSERT(!theFileList.empty());
 
@@ -951,6 +931,14 @@ void profileEdit(const std::vector<std::string>& theFileList)
 	ShowWindow(hWnd, SW_SHOW);
 	SetForegroundWindow(hWnd);
 
+	// Open main customize file automatically on first run
+	if( firstRun )
+	{
+		ShellExecute(NULL, L"open",
+			widen(theFileList.back()).c_str(),
+			NULL, NULL, SW_SHOWNORMAL);
+	}
+
 	// Loop until dialog signals it is done
 	sDialogDone = false;
 	sDialogFocusShown = false;
@@ -966,6 +954,7 @@ void profileEdit(const std::vector<std::string>& theFileList)
 	}
 
 	// Cleanup
+	WindowManager::endDialogMode();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 }
@@ -977,6 +966,9 @@ size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 
 	// Initialize data structures
 	sDialogSelected = 0;
+	const bool needsToBeTopMost =
+		TargetApp::targetWindowIsTopMost() ||
+		TargetApp::targetWindowIsFullScreen();
 
 	// Hide main window and overlays until dialog is done
 	TargetApp::prepareForDialog();
@@ -993,6 +985,8 @@ size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 		layoutItemSelectProc,
 		reinterpret_cast<LPARAM>(&theList));
 	ShowWindow(hWnd, SW_SHOW);
+	if( needsToBeTopMost )
+		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetForegroundWindow(hWnd);
 
 	// Loop until dialog signals it is done
@@ -1010,6 +1004,7 @@ size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 	}
 
 	// Cleanup
+	WindowManager::endDialogMode();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 
@@ -1170,6 +1165,7 @@ EResult editMenuCommand(std::string& theString, bool directional)
 	}
 
 	// Cleanup
+	WindowManager::endDialogMode();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 

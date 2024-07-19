@@ -94,6 +94,8 @@ struct OverlayWindowPriority
 
 static HWND sMainWindow = NULL;
 static HWND sSystemOverlayWindow = NULL;
+static HWND sToolbarWindow = NULL;
+static DLGPROC sToolbarDialogProc = NULL;
 static HANDLE sModalModeTimer = NULL;
 static HANDLE sModalModeThread = NULL;
 static HANDLE sModalModeExit = NULL;
@@ -107,7 +109,7 @@ static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sUseChildWindows = false;
 static bool sHidden = false;
 static bool sInDialogMode = false;
-static bool sMainWindowInModalMode = false;
+static bool sWindowInModalMode = false;
 
 
 //-----------------------------------------------------------------------------
@@ -126,7 +128,7 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 		{
 		case WAIT_OBJECT_0:
 			// Timer update
-			if( sMainWindowInModalMode )
+			if( sWindowInModalMode )
 			{
 				mainTimerUpdate();
 				mainModulesUpdate();
@@ -144,11 +146,11 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 
 static void startModalModeUpdates()
 {
-	if( sMainWindowInModalMode )
+	if( sWindowInModalMode )
 		return;
 
 	// This is used to make sure gamepad input still has an effect when
-	// click in main window's title bar, close button, menu, etc. just in
+	// click in a window's title bar, close button, menu, etc. just in
 	// case it was our own gamepad-to-mouse translations that started it.
 	// Without this, would be stuck in a modal update loop and never get
 	// any further updates from the gamepad to release the mouse button,
@@ -172,7 +174,33 @@ static void startModalModeUpdates()
 			gAppTargetFrameTime, NULL, NULL, FALSE);
 	}
 
-	sMainWindowInModalMode = true;
+	sWindowInModalMode = true;
+}
+
+
+static bool normalWindowsProc(
+	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch(theMessage)
+	{
+ 	case WM_SYSCOLORCHANGE:
+	case WM_DISPLAYCHANGE:
+		InvalidateRect(theWindow, NULL, false);
+		break;
+
+	case WM_NCLBUTTONDOWN:
+	case WM_NCLBUTTONDBLCLK:
+	case WM_ENTERSIZEMOVE:
+		startModalModeUpdates();
+		break;
+
+	case WM_SYSCOMMAND:
+		if( wParam == SC_MOVE || wParam == SC_SIZE )
+			startModalModeUpdates();
+		break;
+	}
+
+	return false;
 }
 
 
@@ -188,8 +216,7 @@ static LRESULT CALLBACK mainWindowProc(
 			PostQuitMessage(0);
 			return 0;
 		case ID_FILE_PROFILE:
-			if( Profile::queryUserForProfile() )
-				gReloadProfile = true;
+			gReloadProfile = Profile::queryUserForProfile();
 			return 0;
 		case ID_EDIT_UILAYOUT:
 			LayoutEditor::init();
@@ -209,6 +236,7 @@ static LRESULT CALLBACK mainWindowProc(
 		return 0;
 
 	case WM_DESTROY:
+		// Clean up modal mode handling
 		if( sModalModeExit )
 		{
 			SetEvent(sModalModeExit);
@@ -229,14 +257,8 @@ static LRESULT CALLBACK mainWindowProc(
 		sMainWindow = NULL;
 		return 0;
 
-	case WM_DEVICECHANGE:
-        // Forward this message to app's main message handler
-		PostMessage(NULL, theMessage, wParam, lParam);
-		break;
-
  	case WM_SYSCOLORCHANGE:
 	case WM_DISPLAYCHANGE:
-		InvalidateRect(theWindow, NULL, false);
 		for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 		{
 			if( sOverlayWindows[i].bitmap )
@@ -248,18 +270,27 @@ static LRESULT CALLBACK mainWindowProc(
 		HUD::init();
 		break;
 
-	case WM_NCLBUTTONDOWN:
-	case WM_NCLBUTTONDBLCLK:
-	case WM_ENTERSIZEMOVE:
-		startModalModeUpdates();
-		break;
-	case WM_SYSCOMMAND:
-		if( wParam == SC_MOVE || wParam == SC_SIZE )
-			startModalModeUpdates();
+	case WM_DEVICECHANGE:
+        // Forward this message to app's main message handler
+		PostMessage(NULL, theMessage, wParam, lParam);
 		break;
 	}
 
+	if( normalWindowsProc(theWindow, theMessage, wParam, lParam) )
+		return 0;
+
 	return DefWindowProc(theWindow, theMessage, wParam, lParam);
+}
+
+
+static INT_PTR CALLBACK toolbarWindowProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	if( normalWindowsProc(theDialog, theMessage, wParam, lParam) )
+		return (INT_PTR)TRUE;
+	if( sToolbarDialogProc )
+		return sToolbarDialogProc(theDialog, theMessage, wParam, lParam);
+	return (INT_PTR)FALSE;
 }
 
 
@@ -703,6 +734,7 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 		DestroyWindow(sMainWindow);
 		sMainWindow = NULL;
 	}
+	destroyToolbarWindow();
 	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
 	{
 		if( sOverlayWindows[i].bitmap )
@@ -722,15 +754,12 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void update()
 {
-	if( sInDialogMode )
-	{
-		sInDialogMode = false;
-		if( sMainWindow && !gReloadProfile && !gShutdown )
-			ShowWindow(sMainWindow, SW_SHOW);
-	}
-
-	if( sMainWindowInModalMode || gReloadProfile || gShutdown )
+	if( sWindowInModalMode || gReloadProfile || gShutdown )
 		return;
+
+	sInDialogMode = false;
+	if( sMainWindow && !sToolbarWindow && !IsWindowEnabled(sMainWindow) )
+		EnableWindow(sMainWindow, TRUE);
 
 	// Update each overlay window as needed
 	HDC aScreenDC = GetDC(NULL);
@@ -857,6 +886,9 @@ void update()
 	}
 	ReleaseDC(NULL, aCaptureDC);
 	ReleaseDC(NULL, aScreenDC);
+
+	if( sToolbarWindow && !sHidden && !IsWindowVisible(sToolbarWindow) )
+		ShowWindow(sToolbarWindow, SW_SHOW);
 }
 
 
@@ -864,7 +896,7 @@ void prepareForDialog()
 {
 	stopModalModeUpdates();
 	if( sMainWindow )
-		ShowWindow(WindowManager::mainHandle(), SW_HIDE);
+		EnableWindow(sMainWindow, FALSE);
 	sInDialogMode = true;
 	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
 	{
@@ -875,15 +907,29 @@ void prepareForDialog()
 			ShowWindow(aWindow.handle, SW_HIDE);
 		aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
 	}
+	if( sToolbarWindow && IsWindowVisible(sToolbarWindow) )
+		ShowWindow(sToolbarWindow, SW_HIDE);
+}
+
+
+void endDialogMode()
+{
+	if( !sInDialogMode )
+		return;
+	
+	if( sMainWindow && !sToolbarWindow )
+		EnableWindow(sMainWindow, TRUE);
+	sInDialogMode = false;
 }
 
 
 void stopModalModeUpdates()
 {
-	if( !sMainWindowInModalMode || !sMainWindow || !sModalModeTimer )
+	if( !sWindowInModalMode )
 		return;
-	CancelWaitableTimer(sModalModeTimer);
-	sMainWindowInModalMode = false;
+	if( sModalModeTimer )
+		CancelWaitableTimer(sModalModeTimer);
+	sWindowInModalMode = false;
 }
 
 
@@ -899,6 +945,21 @@ bool isOwnedByThisApp(HWND theWindow)
 HWND mainHandle()
 {
 	return sMainWindow;
+}
+
+
+HWND toolbarHandle()
+{
+	return sToolbarWindow;
+}
+
+
+
+bool requiresNormalCursorControl()
+{
+	return
+		sHidden || sToolbarWindow ||
+		!TargetApp::targetWindowHandle();
 }
 
 
@@ -964,18 +1025,19 @@ void setOverlaysToTopZ()
 			0, 0, 0, 0,
 			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
 	}
+	if( sToolbarWindow )
+	{
+		SetWindowPos(
+			sToolbarWindow, HWND_TOPMOST,
+			0, 0, 0, 0,
+			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
+	}
 }
 
 
 bool overlaysAreHidden()
 {
 	return sHidden;
-}
-
-
-bool overlaysAreOverDesktop()
-{
-	return !sHidden && !TargetApp::targetWindowHandle();
 }
 
 
@@ -1036,6 +1098,32 @@ void readUIScale()
 void showTargetWindowFound()
 {
 	HUD::flashSystemWindowBorder();
+}
+
+
+HWND createToolbarWindow(int theResID, DLGPROC theProc, LPARAM theParam)
+{
+	destroyToolbarWindow();
+	sToolbarDialogProc = theProc;
+	sToolbarWindow = CreateDialogParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(theResID),
+		NULL,
+		toolbarWindowProc,
+		theParam);
+	if( sMainWindow )
+		EnableWindow(sMainWindow, FALSE);
+	return sToolbarWindow;
+}
+
+
+void destroyToolbarWindow()
+{
+	if( !sToolbarWindow && !sToolbarDialogProc )
+		return;
+	DestroyWindow(sToolbarWindow);
+	sToolbarWindow = NULL;
+	sToolbarDialogProc = NULL;
 }
 
 

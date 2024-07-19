@@ -875,8 +875,11 @@ static bool manualCharacterMoveInUse()
 
 static EMouseMode getMouseModeWanted()
 {
-	// This is to with the "auto" mouse modes that swap between
-	// other modes depending on the current situation
+	// This is to assist with the "auto" mouse modes that swap between
+	// other modes depending on the current situation, or in other cases
+	// where mouse mode wanted does not match the actual user request
+	if( WindowManager::requiresNormalCursorControl() )
+		return eMouseMode_Cursor;
 	switch(sTracker.mouseModeWanted)
 	{
 	case eMouseMode_AutoLook:
@@ -1000,7 +1003,7 @@ static void tryMouseLookZoningFix()
 	if( kConfig.mouseLookZoneFixTime == 0 ||
 		sTracker.mouseMode != eMouseMode_LookTurn ||
 		!sTracker.keysHeldDown.test(VK_RBUTTON) ||
-		WindowManager::overlaysAreHidden() ||
+		WindowManager::requiresNormalCursorControl() ||
 		sTracker.mouseJumpQueued )
 		return;
 
@@ -1526,9 +1529,7 @@ void update()
 					sTracker.mouseLookZoneFixTimer = 0;
 					sTracker.mouseMode = aMouseModeWanted;
 				}
-				else if( !WindowManager::overlaysAreHidden() &&
-						 !WindowManager::overlaysAreOverDesktop() &&
-						 !sTracker.mouseJumpQueued )
+				else if( !sTracker.mouseJumpQueued )
 				{// Jump cursor to safe spot for initial click
 					sTracker.mouseJumpToHotspot =
 						eSpecialHotspot_MouseLookStart;
@@ -1545,11 +1546,9 @@ void update()
 				break;
 			case eMouseMode_Hide:
 				// Can't actually hide cursor without messing with target app
-				// (or using _Look which can affect undesired side effects)
+				// (or using _Look which can cause undesired side effects)
 				// so just move it out of the way (bottom corner usually)
-				if( !WindowManager::overlaysAreHidden() &&
-					!WindowManager::overlaysAreOverDesktop() &&
-					!sTracker.mouseJumpQueued )
+				if( !sTracker.mouseJumpQueued )
 				{
 					sTracker.mouseJumpToHotspot = eSpecialHotspot_MouseHidden;
 					sTracker.mouseJumpToMode = aMouseModeWanted;

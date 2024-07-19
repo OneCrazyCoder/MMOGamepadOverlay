@@ -70,12 +70,21 @@ const ResourceProfile kResTemplateDefault[] =
 
 const ResourceProfile kResTemplateCustom[] =
 {//		name			fileName		resID					vers
+#ifdef _DEBUG
+	{	"M&M Default",	"MnM Custom",	IDR_TEXT_INI_CUST_MNM,	0	},
+	{	"P99 Default",	"P99 Custom",	IDR_TEXT_INI_CUST_P99,	0	},
+	{	"PQ Default",	"PQ Custom",	IDR_TEXT_INI_CUST_PQ,	0	},
+	{	"M&M Taron",	"MnM Taron",	IDR_TEXT_INI_TARON_MNM,	0	},
+	{	"P99 Taron",	"P99 Taron",	IDR_TEXT_INI_TARON_P99,	0	},
+	{	"PQ Taron",		"PQ Taron",		IDR_TEXT_INI_TARON_PQ,	0	},
+#else
 	{	"M&M Default",	"MnM",			IDR_TEXT_INI_CUST_MNM,	0	},
 	{	"P99 Default",	"P99",			IDR_TEXT_INI_CUST_P99,	0	},
 	{	"PQ Default",	"PQ",			IDR_TEXT_INI_CUST_PQ,	0	},
 	{	"M&M Taron",	"MnM",			IDR_TEXT_INI_TARON_MNM,	0	},
 	{	"P99 Taron",	"P99",			IDR_TEXT_INI_TARON_P99,	0	},
 	{	"PQ Taron",		"PQ",			IDR_TEXT_INI_TARON_PQ,	0	},
+#endif
 };
 
 enum EParseMode
@@ -1175,7 +1184,7 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 }
 
 
-static void userEditProfile(int theProfilesCanLoadIdx)
+static void userEditProfile(int theProfilesCanLoadIdx, bool firstProfile)
 {
 	// Generate list of files to possibly edit
 	DBG_ASSERT(theProfilesCanLoadIdx >= 0);
@@ -1193,7 +1202,7 @@ static void userEditProfile(int theProfilesCanLoadIdx)
 		aFileList.push_back(sKnownProfiles[*itr].path);
 	}
 
-	Dialogs::profileEdit(aFileList);
+	Dialogs::profileEdit(aFileList, firstProfile);
 }
 
 
@@ -1507,7 +1516,7 @@ retryQuery:
 			aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
 		if( aDialogResult.editProfileRequested )
 		{
-			userEditProfile(aProfileCanLoadIdx);
+			userEditProfile(aProfileCanLoadIdx, false);
 			goto retryQuery;
 		}
 		loadProfile(aProfileCanLoadIdx);
@@ -1734,7 +1743,7 @@ retryQuery:
 				"Key Binds, hotbar, macros, and so on?",
 				"Edit new profile") == eResult_Yes )
 		{
-			userEditProfile(aLastCreatedProfileIdx);
+			userEditProfile(aLastCreatedProfileIdx, true);
 		}
 		else 
 		{

@@ -8,6 +8,7 @@
 #include "HotspotMap.h"
 #include "InputMap.h"
 #include "Profile.h"
+#include "Resources/resource.h"
 #include "WindowManager.h"
 
 namespace LayoutEditor
@@ -64,11 +65,9 @@ struct EditorState
 {
 	std::vector<LayoutEntry> entries;
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
-	bool attachedToSystemHUD;
+	size_t activeEntry;
 
-	EditorState() :
-		attachedToSystemHUD()
-	{}
+	EditorState() : activeEntry() {}
 };
 
 
@@ -89,6 +88,27 @@ static EditorState* sState = null;
 #define layoutDebugPrint(...) ((void)0)
 #endif
 
+// Forward declares
+static void cancelRepositioning();
+static void promptForEditEntry();
+
+bool entryIncludesSize(const LayoutEntry& theEntry)
+{
+	switch(theEntry.type)
+	{
+	case LayoutEntry::eType_Hotspot:
+		return false;
+	case LayoutEntry::eType_CopyIcon:
+		return theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum;
+	case LayoutEntry::eType_Menu:
+	case LayoutEntry::eType_HUD:
+		return !theEntry.sizeKeyName.empty();
+	}
+
+	return false;
+}
+
+
 static LRESULT CALLBACK layoutEditorWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -105,37 +125,71 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 static void layoutEditorPaintFunc(
 	HDC hdc, const RECT& theDrawRect, bool firstDraw)
 {
-	if( firstDraw )
+}
+
+
+static INT_PTR CALLBACK editLayoutToolbarProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch(theMessage)
 	{
-		//RECT aRect = theDrawRect;
-		//InflateRect(&aRect, -400, -400);
-		//FillRect(hdc, &aRect, (HBRUSH)GetStockObject(WHITE_BRUSH));
+	case WM_INITDIALOG:
+		layoutDebugPrint("Initializing repositioning toolbar\n");
+		break;
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+		case IDCANCEL:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Cancel button clicked
+				cancelRepositioning();
+				promptForEditEntry();
+				return (INT_PTR)TRUE;
+			}
+			break;
+		}
 	}
+
+	return (INT_PTR)FALSE;
 }
 
 
 static void promptForEditEntry()
 {
 	DBG_ASSERT(sState);
-	if( sState->attachedToSystemHUD )
-	{
-		WindowManager::setSystemOverlayCallbacks(NULL, NULL);
-		sState->attachedToSystemHUD = false;
-	}
-	size_t anEntryToEdit = Dialogs::layoutItemSelect(sState->dialogItems);
+	// Set root's parent to be last-selected item if there was one
+	// This signals to the dialog which item to start out already selected
+	sState->entries[0].item.parentIndex = sState->activeEntry;
+	sState->activeEntry = Dialogs::layoutItemSelect(sState->dialogItems);
 	layoutDebugPrint("Returned selection value = %d (%s)\n",
-		anEntryToEdit,
-		sState->entries[anEntryToEdit].item.name.c_str());
-	if( anEntryToEdit > 0 )
+		sState->activeEntry,
+		sState->entries[sState->activeEntry].item.name.c_str());
+	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	if( sState->activeEntry )
 	{
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
-		sState->attachedToSystemHUD = true;
+		WindowManager::createToolbarWindow(
+			entryIncludesSize(sState->entries[sState->activeEntry])
+				? IDD_DIALOG_LAYOUT_XYWH_TOOLBAR
+				: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
+			editLayoutToolbarProc);
 	}
 	else
 	{
 		cleanup();
 	}
+}
+
+
+static void cancelRepositioning()
+{
+	DBG_ASSERT(sState);
+	DBG_ASSERT(sState->activeEntry != 0);
+	layoutDebugPrint("Reposition cancelled\n");
+	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+	WindowManager::destroyToolbarWindow();
 }
 
 
@@ -260,7 +314,15 @@ static std::pair<std::string, std::string> tryGetHUDHotspot(
 
 void init()
 {
-	cleanup();
+	if( sState )
+	{
+		if( sState->activeEntry )
+		{
+			cancelRepositioning();
+			return;
+		}
+		cleanup();
+	}
 
 	// Gather information on elements that can be edited
 	layoutDebugPrint("Initializing\n");
@@ -329,6 +391,7 @@ void init()
 				aNewEntry.type = anEntryType;
 				aNewEntry.keyName = aHotspotStr.first;
 				aNewEntry.item.parentIndex = aCatType;
+				aNewEntry.sizeKeyName.clear();
 				HotspotMap::stringToHotspot(
 					aHotspotStr.second, aNewEntry.position);
 				aHotspotStr = tryGetHUDHotspot(
@@ -376,8 +439,8 @@ void cleanup()
 		return;
 
 	layoutDebugPrint("Shutting down and clearing memory\n");
-	if( sState->attachedToSystemHUD )
-		WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+	if( sState->activeEntry )
+		cancelRepositioning();
 	delete sState;
 	sState = null;
 }
