@@ -90,5 +90,6 @@ template <typename T=void> struct ConstructFromZeroInitializedMemory
 #include "BitHacks.h"
 #include "GlobalConstants.h"
 #include "GlobalState.h"
+#include "GlobalStructures.h"
 #include "Lookup.h"
 #include "StringUtils.h"

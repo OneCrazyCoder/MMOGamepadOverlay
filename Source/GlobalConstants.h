@@ -5,8 +5,8 @@
 #pragma once
 
 /*
-	Central location for global constants, enums, typedefs (structs), and
-	data lookup tables that are needed by multiple modules.
+	Central location for global constants, enums, and data lookup tables that
+	are needed by multiple modules.
 */
 
 enum {
@@ -361,63 +361,6 @@ enum EResult
 	eResult_Empty,
 	eResult_Declined,
 	eResult_NotNeeded,
-};
-
-struct Command : public ConstructFromZeroInitializedMemory<Command>
-{
-	ECommandType type;
-	union
-	{
-		struct
-		{
-			union
-			{
-				u16 dir;
-				u16 vKey;
-				u16 layerID;
-				u16 subMenuID;
-				u16 hotspotID;
-				u16 keyStringIdx;
-				u16 arrayIdx;
-				u16 menuItemIdx;
-			};
-			union
-			{
-				u16 signalID;
-				u16 menuID;
-				u16 keybindArrayID;
-				u16 replacementLayer;
-				u16 mouseWheelMotionType;
-				bool multiDirAutoRun;
-			};
-			u8 count;
-			bool wrap;
-			bool withMouse;
-			bool andClick;
-		};
-		const char* string;
-		u64 compare;
-	};
-
-	bool operator==(const Command& rhs) const
-	{ return type == rhs.type && compare == rhs.compare; }
-};
-
-struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
-{
-	struct Coord
-	{
-		u16 anchor; // normalized x/65536 percentage of area
-		s16 offset; // fixed pixel offset from .anchor
-		s16 scaled; // scaled pixel offset from .anchor + .offset
-		bool operator==(const Coord& rhs) const
-		{ return anchor == rhs.anchor &&
-			offset == rhs.offset &&
-			scaled == rhs.scaled; }
-	} x, y;
-
-	bool operator==(const Hotspot& rhs) const
-	{ return x == rhs.x && y == rhs.y; }
 };
 
 // Generic button names used in Profile .ini files

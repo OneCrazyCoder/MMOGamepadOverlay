@@ -539,12 +539,10 @@ static inline POINT hotspotToPoint(
 	POINT result;
 	result.x =
 		LONG(theHotspot.x.anchor) * theTargetSize.cx / 0x10000 +
-		LONG(theHotspot.x.offset) +
-		LONG(theHotspot.x.scaled * gUIScale);
+		LONG(theHotspot.x.offset * gUIScale);
 	result.y =
 		LONG(theHotspot.y.anchor) * theTargetSize.cy / 0x10000 +
-		LONG(theHotspot.y.offset) +
-		LONG(theHotspot.y.scaled * gUIScale);
+		LONG(theHotspot.y.offset * gUIScale);
 	return result;
 }
 
@@ -567,7 +565,7 @@ static LONG hotspotUnscaledValue(
 {
 	return
 		LONG(theCoord.anchor) * theMaxValue / 0x10000 +
-		LONG(theCoord.offset) + LONG(theCoord.scaled);
+		LONG(theCoord.offset);
 }
 
 
@@ -575,9 +573,7 @@ static LONG hotspotAnchorValue(
 	const Hotspot::Coord& theCoord,
 	const LONG theMaxValue)
 {
-	return
-		LONG(theCoord.anchor) * theMaxValue / 0x10000 +
-		LONG(theCoord.offset);
+	return LONG(theCoord.anchor) * theMaxValue / 0x10000;
 }
 
 
@@ -834,8 +830,6 @@ static IconEntry createOffsetCopyIcon(
 	aCopyIcon.size = sCopyIcons[aBaseCopyIconID].size;
 	aCopyIcon.pos.x.offset += anOffsetHotspot.x.offset;
 	aCopyIcon.pos.y.offset += anOffsetHotspot.y.offset;
-	aCopyIcon.pos.x.scaled += anOffsetHotspot.x.scaled;
-	aCopyIcon.pos.y.scaled += anOffsetHotspot.y.scaled;
 	sCopyIcons.push_back(aCopyIcon);
 	IconEntry anOffsetIcon;
 	anOffsetIcon.copyFromTarget = true;
@@ -2485,8 +2479,8 @@ void updateWindowLayout(
 	// Start with component size since it affects several other properties
 	int aCompBaseSizeX = hotspotAnchorValue(hi.itemSize.x, theTargetSize.cx);
 	int aCompBaseSizeY = hotspotAnchorValue(hi.itemSize.x, theTargetSize.cx);
-	double aCompScalingSizeX = hi.itemSize.x.scaled;
-	double aCompScalingSizeY = hi.itemSize.y.scaled;
+	double aCompScalingSizeX = hi.itemSize.x.offset;
+	double aCompScalingSizeY = hi.itemSize.y.offset;
 
 	// Calculate window size needed based on type and component size
 	double aWinBaseSizeX = aCompBaseSizeX;
@@ -2557,8 +2551,8 @@ void updateWindowLayout(
 	// Get base window position (top-left corner) assuming top-left alignment
 	double aWinBasePosX = hotspotAnchorValue(hi.position.x, theTargetSize.cx);
 	double aWinBasePosY = hotspotAnchorValue(hi.position.y, theTargetSize.cy);
-	double aWinScalingPosX = hi.position.x.scaled;
-	double aWinScalingPosY = hi.position.y.scaled;
+	double aWinScalingPosX = hi.position.x.offset;
+	double aWinScalingPosY = hi.position.y.offset;
 
 	// Apply special-case window position offsets
 	switch(hi.type)
@@ -2568,8 +2562,8 @@ void updateWindowLayout(
 			const Hotspot& aHotspot = InputMap::getHotspot(hi.hotspotID);
 			aWinBasePosX += hotspotAnchorValue(aHotspot.x,theTargetSize.cx);
 			aWinBasePosY += hotspotAnchorValue(aHotspot.y,theTargetSize.cy);
-			aWinScalingPosX += aHotspot.x.scaled;
-			aWinScalingPosY += aHotspot.y.scaled;
+			aWinScalingPosX += aHotspot.x.offset;
+			aWinScalingPosY += aHotspot.y.offset;
 		}
 		break;
 	case eHUDType_KBArrayLast:
@@ -2579,8 +2573,8 @@ void updateWindowLayout(
 		{
 			aWinBasePosX += hotspotAnchorValue(aHotspot->x,theTargetSize.cx);
 			aWinBasePosY += hotspotAnchorValue(aHotspot->y,theTargetSize.cy);
-			aWinScalingPosX += aHotspot->x.scaled;
-			aWinScalingPosY += aHotspot->y.scaled;
+			aWinScalingPosX += aHotspot->x.offset;
+			aWinScalingPosY += aHotspot->y.offset;
 		}
 		break;
 	}

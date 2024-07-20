@@ -722,18 +722,14 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 		eMode_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
 		eMode_OffsetSpace,	// Optional space between -/+ and offset number
 		eMode_OffsetNumber, // Checking for 10 in 50% + 10, CX+10, R-10, etc
-		eMode_ScaledSign,	// Checking for -/+ in 50%+10-8, etc
-		eMode_ScaledSpace,	// Optional space between -/+ and scaled number
-		eMode_ScaledNumber, // Checking for 8 in 50% + 10 - 8, etc
+		eMode_TrailSpace,	// Check for final , or 'x' after end of coordinate
 	} aMode = eMode_Prefix;
 
 	u32 aNumerator = 0;
 	u32 aDenominator = 0;
-	u32 aScaledOffset = 0;
-	u32 aFixedOffset = 0;
+	u32 anOffset = 0;
 	bool done = false;
-	bool isScaledNegative  = false;
-	bool isFixedNegative  = false;
+	bool isOffsetNegative  = false;
 	size_t aCharPos = 0;
 	char c = theString[aCharPos];
 
@@ -759,18 +755,15 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 					return eResult_Overflow;
 				break;
 			case eMode_OffsetSign:
-			case eMode_ScaledSign:
 				aMode = EMode(aMode + 1);
 				// fall through
 			case eMode_OffsetSpace:
-			case eMode_ScaledSpace:
 				aMode = EMode(aMode + 1);
 				// fall through
 			case eMode_OffsetNumber:
-			case eMode_ScaledNumber:
-				aScaledOffset *= 10;
-				aScaledOffset += u32(c - '0');
-				if( aScaledOffset > 0x7FFF )
+				anOffset *= 10;
+				anOffset += u32(c - '0');
+				if( anOffset > 0x7FFF )
 					return eResult_Overflow;
 				break;
 			default:
@@ -788,24 +781,9 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			case eMode_PrefixEnd:
 			case eMode_Denominator:
 			case eMode_OffsetSign:
-				isScaledNegative = (c == '-');
+				isOffsetNegative = (c == '-');
 				aMode = eMode_OffsetSpace;
 				break;
-			case eMode_OffsetNumber:
-			case eMode_ScaledSign:
-				// Second offset specified
-				isFixedNegative = isScaledNegative;
-				isScaledNegative = (c == '-');
-				aFixedOffset = aScaledOffset;
-				aScaledOffset = 0;
-				aMode = eMode_ScaledSpace;
-				break;
-			case eMode_Numerator:
-				isScaledNegative = (c == '-');
-				aFixedOffset = aNumerator;
-				aNumerator = 0;
-				aDenominator = 1;
-				aMode = eMode_ScaledSpace;
 			default:
 				return eResult_Malformed;
 			}
@@ -882,18 +860,16 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 				return eResult_Malformed;
 			}
 			break;
-		case 'x': case 'X':
-		case 'y': case 'Y':
-		case ',':
+		case 'x': case 'X': case ',':
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
 				if( c == ',' )
 					done = true;
-				// Ignore as part of prefix like CX or CY
+				// Ignore as part of CX prefix
 				break;
 			case eMode_Numerator:
-				aScaledOffset = aNumerator;
+				anOffset = aNumerator;
 				aNumerator = 0;
 				aDenominator = 1;
 				done = true;
@@ -901,13 +877,22 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			case eMode_Denominator:
 			case eMode_OffsetSign:
 			case eMode_OffsetNumber:
-			case eMode_ScaledSign:
-			case eMode_ScaledNumber:
+			case eMode_TrailSpace:
 				// Assume marks end of this coordinate
 				done = true;
 				break;
 			default:
 				return eResult_Malformed;
+			}
+			break;
+		case 'y': case 'Y':
+			switch(aMode)
+			{
+			case eMode_PrefixEnd:
+				if( c == ',' )
+					done = true;
+				// Ignore as part of CY prefix
+				break;
 			}
 			break;
 		case ' ':
@@ -916,8 +901,7 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			case eMode_Prefix:
 			case eMode_OffsetSign:
 			case eMode_OffsetSpace:
-			case eMode_ScaledSign:
-			case eMode_ScaledSpace:
+			case eMode_TrailSpace:
 				// Allowed whitespace, ignore
 				break;
 			case eMode_PrefixEnd:
@@ -927,15 +911,12 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 				aMode = eMode_OffsetSign;
 				break;
 			case eMode_Numerator:
-				aScaledOffset = aNumerator;
+				anOffset = aNumerator;
 				aNumerator = 0;
 				aDenominator = 1;
 				// fall through
 			case eMode_OffsetNumber:
-				aMode = eMode_ScaledSign;
-				break;
-			case eMode_ScaledNumber:
-				done = true;
+				aMode = eMode_TrailSpace;
 				break;
 			}
 			break;
@@ -957,7 +938,7 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 
 	if( aDenominator == 0 )
 	{
-		aScaledOffset = aNumerator;
+		anOffset = aNumerator;
 		aNumerator = 0;
 		aDenominator = 1;
 	}
@@ -966,12 +947,9 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 		out.anchor = 0xFFFF;
 	else
 		out.anchor = u16((aNumerator * 0x10000) / aDenominator);
-	out.offset = s16(aFixedOffset);
-	if( isFixedNegative )
+	out.offset = s16(anOffset);
+	if( isOffsetNegative )
 		out.offset = -out.offset;
-	out.scaled = s16(aScaledOffset);
-	if( isScaledNegative )
-		out.scaled = -out.scaled;
 
 	// Remove processed section from start of string
 	theString = theString.substr(aCharPos);

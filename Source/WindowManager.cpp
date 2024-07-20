@@ -1174,12 +1174,9 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 	// Convert to client-rect-relative pixel position
 	result.x = result.x * sTargetSize.cx / 0x10000;
 	result.y = result.y * sTargetSize.cy / 0x10000;
-	// Add fixed pixel offset
-	result.x += theHotspot.x.offset;
-	result.y += theHotspot.y.offset;
-	// Add pixel offset w/ position scaling applied
-	result.x += theHotspot.x.scaled * gUIScale;
-	result.y += theHotspot.y.scaled * gUIScale;
+	// Add pixel offset w/ UI Scale applied
+	result.x += theHotspot.x.offset * gUIScale;
+	result.y += theHotspot.y.offset * gUIScale;
 	// Clamp to within client rect range
 	result.x = clamp(result.x, 0, sTargetSize.cx - 1);
 	result.y = clamp(result.y, 0, sTargetSize.cy - 1);
