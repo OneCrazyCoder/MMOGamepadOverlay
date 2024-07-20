@@ -274,34 +274,32 @@ When using this for the above example of relative group targeting, a visual indi
 
 **Hotspots** are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Positions of Hotspots, HUD Elements, Icons, and so on are specified as X and Y coordinates with Y=0 representing the top and X=0 representing the left side. Some properties use 4 coordinates to represent a rectangle, arranged as X (left edge), Y (top edge), Width, and then Height.
 
-Each of the 2-4 coordinates can have up to 3 values - the *Anchor*, the *Fixed Offset*, and the *Scaling Offset*, in that order. *It is NOT required to specify all 3,* or even more than one per coordinate. 
+Each of the 2-4 coordinates can have one of 3 formats - an *Anchor*, an *Offset*, or both.
 
-The anchor represents the starting point as a relative position (usually to the target game's window/screen size), and is expressed as either percent (like 50%, or 0.5 if you prefer) or by special shortcuts like L/T/R/B/C/CX/CY/W/H instead of numbers. If no anchor is specified, it is assumed to be 0% (the top-left corner).
+The anchor represents the starting point as a relative position (of the target game's window/screen size), and is expressed as either percent (like 50%, or 0.5 if you prefer) or by special shortcuts like L/T/R/B/C/CX/CY/W/H instead of numbers. If no anchor is specified, it is assumed to be 0% (the top-left corner). This value can not be negative, nor > 100% or 1.0.
 
-After the anchor (if there is one) is the offsets in pixels. If you specify only one offset (or only one number overall) it will be the *scaling offset*, which will be multiplied by the global  [System] property ``UIScale=`` (which itself can be automatically set for some games by use of ``UIScaleRegKey=``). If you specify two offsets, the first will be a *fixed offset* (NOT multiplied by UIScale) and the second will be the scaling offset (which you can just set to 0 if you don't need one).
+The offset is expressed in actual pixels as a positive or negative whole number. It is recognized by the absence of a % or decimal or one of the shortcut letters specified above.
 
-Each value after the first one within a coordinate should be separated by a '+' or `-' sign, and full coordinates are separated from each other by a comma or 'x' (i.e. "10 x 5" or "10, 5")
+To have both an anchor and an offset for a single coordinate, they must be separated by a '+' or `-' sign and the anchor must be specified first (i.e. "30% + 10"). The final coordinate will be the anchor position calculated according to the target window size, and then with the pixel offset added to it.
+
+Full coordinates (X, Y, Width, and Height) are separated from each other by a comma or 'x' (i.e. "10 x 5" or "10, 5")
 
 Some accepted examples of valid positions for reference:
 
     # Center of the screen/window
     = 50% x 50%
     = 0.5, CY
-    # Pixel position 200x by 100y, multiplied by UIScale
+    # Pixel position 200x by 100y
     = 200 x 100
-    # Same but ignoring UIScale
-    = 200+0, 100+0
     # 10 pixels to the left of right edge, and
     # 5 pixels down from 30.5% of the game window's height
-    # (10 and 5 will be multiplied by UIScale)
     = R - 10, 30.5% + 5
-    # BR corner offset -50x and -75y (un-scaled)
-    # then another 10 (scaled) up from there
-    = R-50 + 0, B -75 -10
+    # BR corner offset -50x and -75y
+    = R-50, B -75
     # Rectangle with full height but 50%-75% of the width
     = 50%, 0, 25%, H
 
-*Properties that only have a single value such as BorderSize, TitleHeight, and FontSize are always considered "scaling" and are thus affected by UIScale!*
+*NOTE: The offset value is unaffected by the size of the target screen/window, but will instead be multiplied by the global  [System] property ``UIScale=`` (which itself can be automatically set for some games by use of ``UIScaleRegKey=``). Some size-related properties that only have a single value, such as BorderSize, TitleHeight, and FontSize, are also multiplied by UIScale!*
 
 ## Controls Layers
 
@@ -803,13 +801,13 @@ To create an anchor, define a hotspot or icon with no number after its name. At 
     [Hotspots]
     LootWindow = 32x240
     LootWindow1 = +0, +0
-    # Will actually be at 32x281
+    # Below will actually be at 32x281
     LootWindow2 = +0, +41
 
     [Icons]
     Spell = 17, 7, 36, 28
     Spell1 = +0, +0
-    # Will actually copy from 17, 36, 36, 28
+    # Below will actually copy from 17, 36, 36, 28
     Spell2 = +0, +29
 
 In addition, to save on typing you can specify multiple hotspot/icon offsets in a single line by using the format ``Name##-##``, with the first number being the first index in the array and the number after the ``-`` being the last index in the array. When using this format, each element in the range (including the first) will be offset from *the previous element in the array*, and ignore the base anchor position (in fact, you do not need to define a base anchor position at all in this case). For example:

@@ -1966,8 +1966,6 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 					sHotspots[aHotspotID].y.anchor += anAnchor.y.anchor;
 					sHotspots[aHotspotID].x.offset += anAnchor.x.offset;
 					sHotspots[aHotspotID].y.offset += anAnchor.y.offset;
-					sHotspots[aHotspotID].x.scaled += anAnchor.x.scaled;
-					sHotspots[aHotspotID].y.scaled += anAnchor.y.scaled;
 				}
 				++aNextArrayIdx;
 			}
@@ -2025,10 +2023,6 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 							aPrevEntry.x.offset + aDeltaHotspot.x.offset;
 						sHotspots[aHotspotID].y.offset =
 							aPrevEntry.y.offset + aDeltaHotspot.y.offset;
-						sHotspots[aHotspotID].x.scaled =
-							aPrevEntry.x.scaled + aDeltaHotspot.x.scaled;
-						sHotspots[aHotspotID].y.scaled =
-							aPrevEntry.y.scaled + aDeltaHotspot.y.scaled;
 					}
 				}
 				theBuilder.keyValueList.clear();

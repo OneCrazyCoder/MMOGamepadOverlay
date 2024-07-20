@@ -451,6 +451,10 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Source\GlobalStructures.h"
+			>
+		</File>
+		<File
 			RelativePath=".\Source\HotspotMap.cpp"
 			>
 		</File>
