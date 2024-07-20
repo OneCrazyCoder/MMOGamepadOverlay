@@ -143,10 +143,10 @@ static INT_PTR CALLBACK profileSelectProc(
 		// Set initial value of auto-load checkbox
 		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
 			theData->result.autoLoadRequested);
-		if( TargetApp::targetWindowIsFullScreen() )
+		if( TargetApp::targetWindowIsTopMost() )
 		{// Disable edit box
 			SetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
-				L"Can't edit now - game is full-screen");
+				L"Can't edit - game is top-most window");
 			EnableWindow(GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME), false);
 		}
 		else
@@ -164,19 +164,6 @@ static INT_PTR CALLBACK profileSelectProc(
 			SetDlgItemText(theDialog, IDOK, L"Create");
 		}
 		return (INT_PTR)TRUE;
-
-	case WM_ACTIVATE:
-		if( LOWORD(wParam) == WA_INACTIVE &&
-			TargetApp::targetWindowIsFullScreen() )
-		{// Deactivating the window should be same as clicking Cancel
-			theData = (ProfileSelectDialogData*)(UINT_PTR)
-				GetWindowLongPtr(theDialog, GWLP_USERDATA);
-			if( theData )
-				theData->result.cancelled = true;
-			sDialogDone = true;
-			return (INT_PTR)TRUE;
-		}
-		break;
 
 	case WM_COMMAND:
 		// Process control commands
@@ -619,15 +606,6 @@ static INT_PTR CALLBACK editMenuCommandProc(
 		}
 		return (INT_PTR)TRUE;
 
-	case WM_ACTIVATE:
-		if( LOWORD(wParam) == WA_INACTIVE &&
-			TargetApp::targetWindowIsFullScreen() )
-		{// Deactivating the window cancels change being made
-			sDialogDone = true;
-			return (INT_PTR)TRUE;
-		}
-		break;
-
 	case WM_COMMAND:
 		// Process control commands
 		theString = (std::string*)(UINT_PTR)
@@ -660,8 +638,18 @@ static void dialogCheckGamepad(HWND theDialog)
 {
 	Gamepad::update();
 
+	const int aCancelID = GetDlgItem(theDialog, IDCANCEL) ? IDCANCEL : IDOK;
 	if( GetForegroundWindow() != theDialog )
+	{
+		if( TargetApp::targetWindowIsFullScreen() &&
+			TargetApp::targetWindowIsActive() )
+		{
+			// If switched from dialog to full-screen game it can be difficult
+			// to regain normal controls, so just cancel the dialog out
+			SendDlgItemMessage(theDialog, aCancelID, BM_CLICK, 0, 0);		
+		}
 		return;
+	}
 
 	HWND aFocusControl = GetFocus();
 	UINT aFocusID =
@@ -675,7 +663,7 @@ static void dialogCheckGamepad(HWND theDialog)
 	// Check for confirm (A on XB) or back (B on XB)
 	if( Gamepad::buttonHit(eBtn_FRight) )
 	{
-		SendDlgItemMessage(theDialog, IDCANCEL, BM_CLICK, 0, 0);
+		SendDlgItemMessage(theDialog, aCancelID, BM_CLICK, 0, 0);
 		Gamepad::ignoreUntilPressedAgain(eBtn_FRight);
 		return;
 	}
@@ -856,9 +844,7 @@ ProfileSelectResult profileSelect(
 	result.autoLoadRequested = wantsAutoLoad;
 	result.cancelled = true;
 
-	const bool needsToBeTopMost =
-		TargetApp::targetWindowIsTopMost() ||
-		TargetApp::targetWindowIsFullScreen();
+	const bool needsToBeTopMost = TargetApp::targetWindowIsTopMost();
 	const bool allowEditing = !firstRun && !needsToBeTopMost;
 	ProfileSelectDialogData aDataStruct(
 		theLoadableProfiles,
@@ -966,9 +952,7 @@ size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 
 	// Initialize data structures
 	sDialogSelected = 0;
-	const bool needsToBeTopMost =
-		TargetApp::targetWindowIsTopMost() ||
-		TargetApp::targetWindowIsFullScreen();
+	const bool needsToBeTopMost = TargetApp::targetWindowIsTopMost();
 
 	// Hide main window and overlays until dialog is done
 	TargetApp::prepareForDialog();
@@ -1147,16 +1131,7 @@ EResult editMenuCommand(std::string& theString, bool directional)
 	while(!gShutdown && !hadFatalError())
 	{
 		mainLoopUpdate(hWnd);
-
-		Gamepad::update();
-		if( GetForegroundWindow() == hWnd &&
-			(Gamepad::buttonHit(eBtn_FRight) ||
-			 Gamepad::buttonHit(eBtn_FDown)) )
-		{// Treat the same as clicking Okay on the dialog
-			SendDlgItemMessage(hWnd, IDOK, BM_CLICK, 0, 0);
-			Gamepad::ignoreUntilPressedAgain(eBtn_FRight);
-			Gamepad::ignoreUntilPressedAgain(eBtn_FDown);
-		}
+		dialogCheckGamepad(hWnd);
 
 		if( sDialogDone )
 			break;

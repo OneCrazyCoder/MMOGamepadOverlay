@@ -46,4 +46,7 @@ bool targetWindowIsTopMost();
 // Check if have a target window that is a full-screen window
 bool targetWindowIsFullScreen();
 
+// Check if have a target window that is the active foreground window
+bool targetWindowIsActive();
+
 } // TargetApp
