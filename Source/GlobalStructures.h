@@ -49,6 +49,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 	{ return type == rhs.type && compare == rhs.compare; }
 };
 
+
 struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 {
 	struct Coord

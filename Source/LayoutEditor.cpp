@@ -15,7 +15,7 @@ namespace LayoutEditor
 {
 
 // Uncomment this to print status of target app/window tracking to debug window
-#define LAYOUT_EDITOR_DEBUG_PRINT
+//#define LAYOUT_EDITOR_DEBUG_PRINT
 
 //-----------------------------------------------------------------------------
 // Const Data
@@ -316,12 +316,8 @@ void init()
 {
 	if( sState )
 	{
-		if( sState->activeEntry )
-		{
-			cancelRepositioning();
-			return;
-		}
 		cleanup();
+		return;
 	}
 
 	// Gather information on elements that can be edited

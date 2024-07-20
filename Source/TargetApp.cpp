@@ -42,7 +42,7 @@ enum EWindowMode
 };
 
 const LONG kFullScreenWindowStyle = WS_VISIBLE;
-const LONG kFullScreenWindowStyleEx = WS_EX_TOPMOST;
+const LONG kFullScreenWindowStyleEx = 0;
 const LONG kNormalWindowStyle = WS_VISIBLE | WS_CAPTION | WS_MINIMIZEBOX;
 const LONG kNormalOnlyStyleFlags = WS_CAPTION | WS_BORDER | WS_THICKFRAME;
 const LONG kIgnoredStyleFlags = WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
@@ -135,7 +135,7 @@ static void dropTargetWindow()
 
 static void restoreTargetWindow()
 {
-	if( gShutdown || gReloadProfile )
+	if( gShutdown || gReloadProfile || WindowManager::toolbarHandle() )
 		return;
 	sRestoreTargetWindow = false;
 	if( !sTargetWindowHandle )
@@ -153,6 +153,9 @@ static void restoreTargetWindow()
 	{
 		targetDebugPrint("Restoring target window to active window\n");
 		SetForegroundWindow(sTargetWindowHandle);
+		sNextCheckDelay = 0;
+		sRepeatCheckTime = 500;
+		sNextCheck = eCheck_WindowZOrder;
 	}
 }
 
@@ -486,8 +489,10 @@ static void checkWindowMode()
 			aMonRect.left, aMonRect.top,
 			aMonRectWidth, aMonRectHeight,
 			SWP_FRAMECHANGED);
-		WindowManager::setOverlaysToTopZ();
-		WindowManager::showOverlays();
+		SetWindowPos(sTargetWindowHandle, HWND_NOTOPMOST,
+			aMonRect.left, aMonRect.top,
+			aMonRectWidth, aMonRectHeight,
+			SWP_NOMOVE | SWP_NOSIZE);
 		sLastKnownTargetMode = eWindowMode_FullScreenWindow;
 		return;
 	}
@@ -712,7 +717,10 @@ void swapWindowMode()
 
 void prepareForDialog()
 {
-	sRestoreTargetWindow = (GetForegroundWindow() == sTargetWindowHandle);
+	sRestoreTargetWindow = sRestoreTargetWindow ||
+		(GetForegroundWindow() == sTargetWindowHandle) ||
+		(WindowManager::toolbarHandle() &&
+		 GetForegroundWindow() == sTargetWindowHandle);
 	// Overlays may get resized while in dialog, so prepare to restore them
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	targetDebugPrint("Preparing for dialog box - will%srestore target window\n",
@@ -751,7 +759,7 @@ bool targetWindowIsTopMost()
 
 bool targetWindowIsFullScreen()
 {
-	if (!sTargetWindowHandle)
+	if( !sTargetWindowHandle )
 		return false;
 
 	// Check if the window style indicates it is a borderless window
@@ -787,6 +795,14 @@ bool targetWindowIsFullScreen()
 		abs(aWRect.top - aMonRect.top) <= anEpsilon &&
 		abs(aWRectWidth - aMonRectWidth) <= anEpsilon &&
 		abs(aWRectHeight - aMonRectHeight) <= anEpsilon;
+}
+
+
+bool targetWindowIsActive()
+{
+	return
+		sTargetWindowHandle &&
+		GetForegroundWindow() == sTargetWindowHandle;
 }
 
 #undef TARGET_APP_DEBUG_PRINT
