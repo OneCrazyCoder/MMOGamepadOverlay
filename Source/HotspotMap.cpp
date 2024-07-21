@@ -749,9 +749,9 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 				aDenominator *= 10;
 				aNumerator *= 10;
 				aNumerator += u32(c - '0');
-				if( aNumerator > 0x7FFF )
+				if( aNumerator > 0x7FFFFFFF )
 					return eResult_Overflow;
-				if( aDenominator > 0x7FFF )
+				if( aDenominator > 0x7FFFFFFF )
 					return eResult_Overflow;
 				break;
 			case eMode_OffsetSign:
@@ -955,6 +955,117 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 	theString = theString.substr(aCharPos);
 
 	return eResult_Ok;
+}
+
+std::string hotspotToString(
+	const Hotspot& theHotspot,
+	EHotspotNamingConvention theConvention)
+{
+	std::string result;
+	EHotspotNamingConvention aCoordConvention;
+	switch(theConvention)
+	{
+	case eHNC_XY:		aCoordConvention = eHNC_X; break;
+	case eHNC_XY_Off:	aCoordConvention = eHNC_X_Off; break;
+	case eHNC_WH:		aCoordConvention = eHNC_W; break;
+	default: DBG_ASSERT(false);
+	}
+	result = coordToString(theHotspot.x, aCoordConvention) + ", ";
+	switch(theConvention)
+	{
+	case eHNC_XY:		aCoordConvention = eHNC_Y; break;
+	case eHNC_XY_Off:	aCoordConvention = eHNC_Y_Off; break;
+	case eHNC_WH:		aCoordConvention = eHNC_H; break;
+	default: DBG_ASSERT(false);
+	}
+	result += coordToString(theHotspot.x, aCoordConvention);
+	return result;
+}
+
+
+std::string coordToString(
+	const Hotspot::Coord& theCoord,
+	EHotspotNamingConvention theConvention)
+{
+	const u16 kPercentResolution = 4000; // Must be evenly divisible by 10
+	std::string result;
+	switch(theCoord.anchor)
+	{
+	case 0:
+		// Leave blank
+		break;
+	case 0x8000:
+		switch(theConvention)
+		{
+		case eHNC_X: case eHNC_W: case eHNC_X_Off:
+			result = "CX";
+			break;
+		case eHNC_Y: case eHNC_H: case eHNC_Y_Off:
+			result = "CY";
+			break;
+		}
+		break;
+	case 0xFFFF:
+		switch(theConvention)
+		{
+		case eHNC_X: case eHNC_W: case eHNC_X_Off:
+			result = "R";
+			break;
+		case eHNC_Y: case eHNC_H: case eHNC_Y_Off:
+			result = "B";
+			break;
+		}
+		break;
+	default:
+		{// Convert to a XX.XXX% string
+			u32 anInt = (theCoord.anchor + 1) * kPercentResolution / 0xFFFF;
+			result = toString(anInt * 100 / kPercentResolution);
+			anInt = anInt * 100 % kPercentResolution;
+			if( anInt )
+			{
+				result += ".";
+				for(int i = 0; i < 3 && anInt != 0; ++i)
+				{
+					anInt *= 10;
+					result += toString(anInt / kPercentResolution);
+					anInt %= kPercentResolution;
+				}
+				while(result[result.size()-1] == '0')
+					result.resize(result.size()-1);
+				if( result[result.size()-1] == '.' )
+					result.resize(result.size()-1);
+			}
+			result += "%";
+		}
+		break;
+	}
+
+	if( theCoord.offset > 0 &&
+		(!result.empty() ||
+		 theConvention == eHNC_X_Off ||
+		 theConvention == eHNC_Y_Off) )
+	{
+		result += "+";
+	}
+	if( theCoord.offset != 0 )
+		result += toString(theCoord.offset);
+	if( result.empty() )
+	{
+		switch(theConvention)
+		{
+		case eHNC_X: case eHNC_W: 
+			result = "L";
+			break;
+		case eHNC_Y: case eHNC_H:
+			result = "T";
+			break;
+		case eHNC_X_Off:
+		case eHNC_Y_Off:
+			result = "+0";
+			break;
+		}
+	}
+	return result;
 }
 
 #undef mapDebugPrint

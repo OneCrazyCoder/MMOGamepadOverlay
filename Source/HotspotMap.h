@@ -41,5 +41,11 @@ const Links& getLinks(u16 theArrayID);
 EResult stringToHotspot(std::string& theString, Hotspot& out);
 // Same thing but for only a single coordinate of a hotspot
 EResult stringToCoord(std::string& theString, Hotspot::Coord& out);
+// Reverse of above - converts a hotspot into a Profile string
+enum EHotspotNamingConvention
+{	eHNC_XY, eHNC_XY_Off, eHNC_WH, eHNC_X, eHNC_Y,
+	eHNC_W, eHNC_H, eHNC_X_Off, eHNC_Y_Off, eHNC_Num };
+std::string hotspotToString(const Hotspot&, EHotspotNamingConvention);
+std::string coordToString(const Hotspot::Coord&, EHotspotNamingConvention);
 
 } // HotspotMap

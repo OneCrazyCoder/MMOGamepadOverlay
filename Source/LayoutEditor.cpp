@@ -109,6 +109,12 @@ bool entryIncludesSize(const LayoutEntry& theEntry)
 }
 
 
+bool entryIsAnOffset(const LayoutEntry& theEntry)
+{
+	return theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum;
+}
+
+
 static LRESULT CALLBACK layoutEditorWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -128,16 +134,15 @@ static void layoutEditorPaintFunc(
 }
 
 
-static void setInitialToolbarPos(HWND hDlg)
+static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 {
 	if( !sState || !sState->activeEntry )
 		return;
 
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
-	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	POINT anEntryPos = WindowManager::hotspotToOverlayPos(anEntry.position);
-	POINT anEntrySize = WindowManager::hotspotToOverlayPos(anEntry.size);
+	POINT anEntryPos = WindowManager::hotspotToOverlayPos(theEntry.position);
+	POINT anEntrySize = WindowManager::hotspotToOverlayPos(theEntry.size);
 	anEntryPos.x = anEntryPos.x + anEntrySize.x / 2;
 	anEntryPos.y = anEntryPos.y + anEntrySize.y / 2;
 	RECT anOverlayRect;
@@ -168,6 +173,8 @@ static void setInitialToolbarPos(HWND hDlg)
 static INT_PTR CALLBACK editLayoutToolbarProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+
 	switch(theMessage)
 	{
 	case WM_INITDIALOG:
@@ -175,8 +182,32 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		// Allow Esc to cancel even when not the active window
 		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
 		// Fill in initial values in each of the edit fields
-		// TODO
-		setInitialToolbarPos(theDialog);
+		SetWindowText(
+			GetDlgItem(theDialog, IDC_EDIT_X),
+			widen(HotspotMap::coordToString(
+				anEntry.position.x,
+				entryIsAnOffset(anEntry)
+					? HotspotMap::eHNC_X_Off
+					: HotspotMap::eHNC_X)).c_str());
+		SetWindowText(
+			GetDlgItem(theDialog, IDC_EDIT_Y),
+			widen(HotspotMap::coordToString(
+				anEntry.position.y,
+				entryIsAnOffset(anEntry)
+					? HotspotMap::eHNC_Y_Off
+					: HotspotMap::eHNC_Y)).c_str());
+		if( entryIncludesSize(anEntry) )
+		{
+			SetWindowText(
+				GetDlgItem(theDialog, IDC_EDIT_W),
+				widen(HotspotMap::coordToString(
+					anEntry.size.x, HotspotMap::eHNC_W)).c_str());
+			SetWindowText(
+				GetDlgItem(theDialog, IDC_EDIT_H),
+				widen(HotspotMap::coordToString(
+					anEntry.size.y, HotspotMap::eHNC_H)).c_str());
+		}
+		setInitialToolbarPos(theDialog, anEntry);
 		break;
 	case WM_COMMAND:
 		switch(LOWORD(wParam))
