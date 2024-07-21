@@ -11,6 +11,7 @@
 
 enum {
 kSwapWindowModeHotkeyID = 0x01,
+kCancelToolbarHotkeyID = 0x02,
 kVKeyFireSignal = 0x07, // "reserved" by MS
 kVKeyModKeyOnlyBase = 0x0F, // unassigned by MS
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
