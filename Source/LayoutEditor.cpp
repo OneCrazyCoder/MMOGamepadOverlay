@@ -128,6 +128,43 @@ static void layoutEditorPaintFunc(
 }
 
 
+static void setInitialToolbarPos(HWND hDlg)
+{
+	if( !sState || !sState->activeEntry )
+		return;
+
+	// Position the tool bar as far as possible from the object to be moved,
+	// so that it is less likely to end up overlapping the object
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	POINT anEntryPos = WindowManager::hotspotToOverlayPos(anEntry.position);
+	POINT anEntrySize = WindowManager::hotspotToOverlayPos(anEntry.size);
+	anEntryPos.x = anEntryPos.x + anEntrySize.x / 2;
+	anEntryPos.y = anEntryPos.y + anEntrySize.y / 2;
+	RECT anOverlayRect;
+	anOverlayRect = WindowManager::overlayTargetScreenRect();
+	POINT anOverlayCenter;
+	anOverlayCenter.x = (anOverlayRect.left + anOverlayRect.right) / 2;
+	anOverlayCenter.y = (anOverlayRect.top + anOverlayRect.bottom) / 2;
+
+	const bool useRightEdge = anEntryPos.x < anOverlayCenter.x;
+	const bool useBottomEdge = anEntryPos.y < anOverlayCenter.y;
+
+	RECT aDialogRect;
+	GetWindowRect(hDlg, &aDialogRect);
+	const int aDialogWidth = aDialogRect.right - aDialogRect.left;
+	const int aDialogHeight = aDialogRect.bottom - aDialogRect.top;
+	
+	SetWindowPos(hDlg, NULL,
+		useRightEdge
+			? anOverlayRect.right - aDialogWidth
+			: anOverlayRect.left,
+		useBottomEdge
+			? anOverlayRect.bottom - aDialogHeight
+			: anOverlayRect.top,
+		0, 0, SWP_NOZORDER | SWP_NOSIZE);
+}
+
+
 static INT_PTR CALLBACK editLayoutToolbarProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -135,6 +172,11 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	{
 	case WM_INITDIALOG:
 		layoutDebugPrint("Initializing repositioning toolbar\n");
+		// Allow Esc to cancel even when not the active window
+		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
+		// Fill in initial values in each of the edit fields
+		// TODO
+		setInitialToolbarPos(theDialog);
 		break;
 	case WM_COMMAND:
 		switch(LOWORD(wParam))
@@ -149,6 +191,10 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			}
 			break;
 		}
+		break;
+	case WM_DESTROY:
+		UnregisterHotKey(NULL, kCancelToolbarHotkeyID);
+		break;
 	}
 
 	return (INT_PTR)FALSE;

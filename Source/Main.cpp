@@ -70,8 +70,19 @@ void mainLoopUpdate(HWND theDialog)
 			Gamepad::checkDeviceChange();
 			break;
 		case WM_HOTKEY:
-			if( aWindowsMessage.wParam == kSwapWindowModeHotkeyID )
+			switch(aWindowsMessage.wParam)
+			{
+			case kSwapWindowModeHotkeyID:
 				TargetApp::swapWindowMode();
+				break;
+			case kCancelToolbarHotkeyID:
+				if( WindowManager::toolbarHandle() )
+				{
+					SendDlgItemMessage(WindowManager::toolbarHandle(),
+						IDCANCEL, BM_CLICK, 0 ,0);
+				}
+				break;
+			}
 			break;
 		case WM_QUIT:
 			gShutdown = true;

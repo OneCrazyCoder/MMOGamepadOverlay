@@ -99,6 +99,7 @@ static DLGPROC sToolbarDialogProc = NULL;
 static HANDLE sModalModeTimer = NULL;
 static HANDLE sModalModeThread = NULL;
 static HANDLE sModalModeExit = NULL;
+static POINT sMainWindowPos;
 static std::vector<OverlayWindow> sOverlayWindows;
 static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
 static RECT sDesktopTargetRect; // relative to virtual desktop
@@ -106,6 +107,7 @@ static RECT sScreenTargetRect; // relative to main screen
 static SIZE sTargetSize = { 0 };
 static WNDPROC sSystemOverlayProc = NULL;
 static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
+static bool sMainWindowPosInit = false;
 static bool sUseChildWindows = false;
 static bool sHidden = false;
 static bool sInDialogMode = false;
@@ -236,6 +238,13 @@ static LRESULT CALLBACK mainWindowProc(
 		return 0;
 
 	case WM_DESTROY:
+		// Note position in case are re-created
+		{
+			RECT aWindowRect;
+			GetWindowRect(theWindow, &aWindowRect);
+			sMainWindowPos.x = aWindowRect.left;
+			sMainWindowPos.y = aWindowRect.top;
+		}
 		// Clean up modal mode handling
 		if( sModalModeExit )
 		{
@@ -630,13 +639,31 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.lpszClassName = kSystemOverlayWindowClassName;
 	RegisterClassExW(&aWindowClass);
 
+	// Determine main app window position if haven't yet
+	if( !sMainWindowPosInit )
+	{
+		sMainWindowPos.x = aScreenRect.right - aMainWindowWidth;
+		sMainWindowPos.y = aScreenRect.bottom - aMainWindowHeight;
+		if( !Profile::getStr("System/WindowXPos").empty() )
+			sMainWindowPos.x = Profile::getInt("System/WindowXPos");
+		if( !Profile::getStr("System/WindowYPos").empty() )
+			sMainWindowPos.x = Profile::getInt("System/WindowYPos");
+		sMainWindowPosInit = true;
+	}
+
 	// Create main app window
 	sMainWindow = CreateWindowExW(
-		isMainWindowHidden ? (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_APPWINDOW) : 0,
+		isMainWindowHidden
+			? (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_APPWINDOW)
+			: 0,
 		kMainWindowClassName,
 		aMainWindowName.c_str(),
-		isMainWindowHidden ? WS_POPUP : WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) | WS_SYSMENU,
-		aScreenRect.right - aMainWindowWidth, aScreenRect.bottom - aMainWindowHeight, aMainWindowWidth, aMainWindowHeight,
+		isMainWindowHidden
+			? WS_POPUP
+			: WS_SYSMENU | WS_OVERLAPPEDWINDOW
+				&~(WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX),
+		sMainWindowPos.x, sMainWindowPos.y,
+		aMainWindowWidth, aMainWindowHeight,
 		NULL, NULL, theAppInstanceHandle, NULL);
 
 	if( !sMainWindow )
@@ -1044,6 +1071,18 @@ bool overlaysAreHidden()
 SIZE overlayTargetSize()
 {
 	return sTargetSize;
+}
+
+
+RECT overlayTargetScreenRect()
+{
+	return sScreenTargetRect;
+}
+
+
+RECT overlayTargetDesktopRect()
+{
+	return sDesktopTargetRect;
 }
 
 
