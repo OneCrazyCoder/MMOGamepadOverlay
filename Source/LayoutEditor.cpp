@@ -89,7 +89,6 @@ static EditorState* sState = null;
 #endif
 
 // Forward declares
-static void cancelRepositioning();
 static void promptForEditEntry();
 
 bool entryIncludesSize(const LayoutEntry& theEntry)
@@ -134,6 +133,59 @@ static void layoutEditorPaintFunc(
 }
 
 
+static void cancelRepositioning()
+{
+	DBG_ASSERT(sState);
+	DBG_ASSERT(sState->activeEntry != 0);
+	layoutDebugPrint("Reposition cancelled\n");
+	// TODO
+	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+	WindowManager::destroyToolbarWindow();
+}
+
+
+static void applyNewPosition()
+{
+	DBG_ASSERT(sState);
+	DBG_ASSERT(sState->activeEntry != 0);
+	layoutDebugPrint("New position applied\n");
+	// TODO
+}
+
+
+static void saveNewPositionToProfile()
+{
+	applyNewPosition();
+	layoutDebugPrint("New position saved to profile\n");
+	// TODO
+	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+	WindowManager::destroyToolbarWindow();
+}
+
+
+static HotspotMap::EHotspotNamingConvention formatForCoord(
+	const LayoutEntry& theEntry, int theEditControlID)
+{
+	switch(theEditControlID)
+	{
+	case IDC_EDIT_X:
+		return entryIsAnOffset(theEntry)
+			? HotspotMap::eHNC_X_Off
+			: HotspotMap::eHNC_X;
+	case IDC_EDIT_Y:
+		return entryIsAnOffset(theEntry)
+			? HotspotMap::eHNC_Y_Off
+			: HotspotMap::eHNC_Y;
+	case IDC_EDIT_W:
+		return HotspotMap::eHNC_W;
+	case IDC_EDIT_H:
+		return HotspotMap::eHNC_H;
+	}
+
+	return HotspotMap::eHNC_Num;
+}
+
+
 static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 {
 	if( !sState || !sState->activeEntry )
@@ -170,6 +222,65 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 }
 
 
+static void processEditControlString(
+	HWND hDlg, const LayoutEntry& theEntry, int theEditControlID)
+{
+	HWND hEdit = GetDlgItem(hDlg, theEditControlID);
+	DBG_ASSERT(hEdit);
+	std::string aControlStr;
+	if( int aStrLen = GetWindowTextLength(hEdit) )
+	{
+		std::vector<WCHAR> aStrBuf(aStrLen+1);
+		GetDlgItemText(hDlg, theEditControlID, &aStrBuf[0], aStrLen+1);
+		aControlStr = narrow(&aStrBuf[0]);
+	}
+
+	Hotspot::Coord aNewCoord;
+	std::string aCoordStr = trim(aControlStr);
+	if( !aCoordStr.empty() )
+	{
+		std::string aCheckedStr = aCoordStr;
+		EResult aResult = HotspotMap::stringToCoord(aCheckedStr, aNewCoord);
+		while(!aCoordStr.empty() &&
+			  (aResult != eResult_Ok || !aCheckedStr.empty()))
+		{// Try just trimming extra characters off the end to salvage it
+			if( aResult == eResult_Ok )
+				aCoordStr.resize(aCoordStr.size() - aCheckedStr.size());
+			else
+				aCoordStr.resize(aCoordStr.size() - 1);
+			aCheckedStr = aCoordStr;
+			aResult = HotspotMap::stringToCoord(aCheckedStr, aNewCoord);
+		}
+	}
+
+	if( aCoordStr.empty() )
+	{
+		switch(theEditControlID)
+		{
+		case IDC_EDIT_X: aCoordStr = "L"; break;
+		case IDC_EDIT_Y: aCoordStr = "T"; break;
+		case IDC_EDIT_W: aCoordStr = "4"; break;
+		case IDC_EDIT_H: aCoordStr = "4"; break;
+		}
+		std::string aCheckedStr = aCoordStr;
+		HotspotMap::stringToCoord(aCheckedStr, aNewCoord);
+	}
+	DBG_ASSERT(!aCoordStr.empty());
+
+	if( aCoordStr[aCoordStr.size()-1] != '%' &&
+		!isdigit(aCoordStr[aCoordStr.size()-1]) )
+	{// String may have extra characters at end - fix by re-converting it
+		aCoordStr = HotspotMap::coordToString(
+			aNewCoord, formatForCoord(theEntry, theEditControlID));
+	}
+
+	if( aCoordStr != aControlStr )
+		SetWindowText(hEdit, widen(aCoordStr).c_str());
+
+	// TODO - apply aNewCoord
+}
+
+
 static INT_PTR CALLBACK editLayoutToolbarProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -179,6 +290,10 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	{
 	case WM_INITDIALOG:
 		layoutDebugPrint("Initializing repositioning toolbar\n");
+		// Set title to match the entry name
+		SetWindowText(theDialog,
+			(std::wstring(L"Repositioning: ") +
+			 widen(anEntry.item.name)).c_str());
 		// Allow Esc to cancel even when not the active window
 		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
 		// Fill in initial values in each of the edit fields
@@ -186,26 +301,24 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			GetDlgItem(theDialog, IDC_EDIT_X),
 			widen(HotspotMap::coordToString(
 				anEntry.position.x,
-				entryIsAnOffset(anEntry)
-					? HotspotMap::eHNC_X_Off
-					: HotspotMap::eHNC_X)).c_str());
+				formatForCoord(anEntry, IDC_EDIT_X))).c_str());
 		SetWindowText(
 			GetDlgItem(theDialog, IDC_EDIT_Y),
 			widen(HotspotMap::coordToString(
 				anEntry.position.y,
-				entryIsAnOffset(anEntry)
-					? HotspotMap::eHNC_Y_Off
-					: HotspotMap::eHNC_Y)).c_str());
+				formatForCoord(anEntry, IDC_EDIT_Y))).c_str());
 		if( entryIncludesSize(anEntry) )
 		{
 			SetWindowText(
 				GetDlgItem(theDialog, IDC_EDIT_W),
 				widen(HotspotMap::coordToString(
-					anEntry.size.x, HotspotMap::eHNC_W)).c_str());
+					anEntry.size.x,
+					formatForCoord(anEntry, IDC_EDIT_W))).c_str());
 			SetWindowText(
 				GetDlgItem(theDialog, IDC_EDIT_H),
 				widen(HotspotMap::coordToString(
-					anEntry.size.y, HotspotMap::eHNC_H)).c_str());
+					anEntry.size.y,
+					formatForCoord(anEntry, IDC_EDIT_H))).c_str());
 		}
 		setInitialToolbarPos(theDialog, anEntry);
 		break;
@@ -213,13 +326,39 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		switch(LOWORD(wParam))
 		{
 		case IDOK:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				if( HWND hFocus = GetFocus() )
+				{
+					switch(GetDlgCtrlID(hFocus))
+					{
+					case IDC_EDIT_X: case IDC_EDIT_Y:
+					case IDC_EDIT_W: case IDC_EDIT_H:
+						// Set focus to OK button but don't click it yet
+						PostMessage(theDialog, WM_NEXTDLGCTL,
+							(WPARAM)GetDlgItem(theDialog, IDOK), TRUE);
+						return (INT_PTR)TRUE;
+					default:
+						saveNewPositionToProfile();
+						promptForEditEntry();
+						return (INT_PTR)TRUE;
+					}
+				}
+			}
+			break;
+
 		case IDCANCEL:
 			if( HIWORD(wParam) == BN_CLICKED )
-			{// Cancel button clicked
+			{
 				cancelRepositioning();
 				promptForEditEntry();
 				return (INT_PTR)TRUE;
 			}
+			break;
+
+		case IDC_EDIT_X: case IDC_EDIT_Y: case IDC_EDIT_W: case IDC_EDIT_H:
+			if( HIWORD(wParam) == EN_KILLFOCUS )
+				processEditControlString(theDialog, anEntry, LOWORD(wParam));
 			break;
 		}
 		break;
@@ -239,9 +378,6 @@ static void promptForEditEntry()
 	// This signals to the dialog which item to start out already selected
 	sState->entries[0].item.parentIndex = sState->activeEntry;
 	sState->activeEntry = Dialogs::layoutItemSelect(sState->dialogItems);
-	layoutDebugPrint("Returned selection value = %d (%s)\n",
-		sState->activeEntry,
-		sState->entries[sState->activeEntry].item.name.c_str());
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	if( sState->activeEntry )
 	{
@@ -257,16 +393,6 @@ static void promptForEditEntry()
 	{
 		cleanup();
 	}
-}
-
-
-static void cancelRepositioning()
-{
-	DBG_ASSERT(sState);
-	DBG_ASSERT(sState->activeEntry != 0);
-	layoutDebugPrint("Reposition cancelled\n");
-	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
-	WindowManager::destroyToolbarWindow();
 }
 
 

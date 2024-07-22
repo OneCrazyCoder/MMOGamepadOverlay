@@ -943,7 +943,10 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 		aDenominator = 1;
 	}
 
-	if( aNumerator >= aDenominator )
+	if( aNumerator > aDenominator )
+		return eResult_Overflow;
+
+	if( aNumerator == aDenominator )
 		out.anchor = 0xFFFF;
 	else
 		out.anchor = u16((aNumerator * 0x10000) / aDenominator);
