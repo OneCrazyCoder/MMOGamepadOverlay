@@ -1911,7 +1911,15 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 			sHotspots.resize(aHotspotIdx+1);
 		EResult aResult = HotspotMap::stringToHotspot(
 			aHotspotDescription, sHotspots[aHotspotIdx]);
-		if( aResult == eResult_Malformed || aResult == eResult_Overflow )
+		if( aResult == eResult_Overflow )
+		{
+			logError("Hotspot %s: Invalid coordinate in '%s' "
+				"(anchor must be in 0-100% range)",
+				theBuilder.keyValueList[i].first,
+				theBuilder.keyValueList[i].second);
+			sHotspots[aHotspotIdx] = Hotspot();
+		}
+		else if( aResult == eResult_Malformed )
 		{
 			logError("Hotspot %s: Could not decipher hotspot position '%s'",
 				theBuilder.keyValueList[i].first,
@@ -1952,8 +1960,14 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 				std::string aHotspotDesc = aHotspotValue;
 				EResult aResult = HotspotMap::stringToHotspot(
 					aHotspotDesc, sHotspots[aHotspotID]);
-				if( aResult == eResult_Malformed ||
-					aResult == eResult_Overflow )
+				if( aResult == eResult_Overflow )
+				{
+					logError("Hotspot %s: Invalid coordinate in '%s' "
+						"(anchor must be in 0-100% range)",
+						aHotspotName.c_str(),
+						aHotspotValue.c_str());
+				}
+				else if( aResult == eResult_Malformed )
 				{
 					logError(
 						"Hotspot %s: Could not decipher hotspot position '%s'",
@@ -1999,8 +2013,15 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 					Hotspot aDeltaHotspot;
 					EResult aResult = HotspotMap::stringToHotspot(
 						aHotspotDesc, aDeltaHotspot);
-					if( aResult == eResult_Malformed ||
-						aResult == eResult_Overflow )
+					if( aResult == eResult_Overflow )
+					{
+						logError("Hotspot %s: Invalid coordinate in '%s' "
+							"(anchor must be in 0-100% range)",
+							aHotspotName.c_str(),
+							theBuilder.keyValueList[0].second);
+						aDeltaHotspot = Hotspot();
+					}
+					else if( aResult == eResult_Malformed )
 					{
 						logError(
 							"Hotspot %s: Could not decipher offsets '%s'",
