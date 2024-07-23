@@ -47,7 +47,7 @@ void updateWindowLayout(
 	SIZE& theWindowSize);
 
 // Draws contents of main window (version string)
-void drawMainWindowContents(HWND theWindow);
+void drawMainWindowContents(HWND theWindow, bool asDisabled);
 
 // Causes border of eHUDType_System to flash for a bit to show region
 void flashSystemWindowBorder();

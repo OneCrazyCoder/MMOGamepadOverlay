@@ -1085,11 +1085,11 @@ EResult showLicenseAgreement(HWND theParentWindow)
 	InputDispatcher::forceReleaseHeldKeys();
 
 	if( DialogBoxParam(
-		GetModuleHandle(NULL),
-		MAKEINTRESOURCE(IDD_DIALOG_LICENSE),
-		theParentWindow,
-		licenseDialogProc,
-		0) == IDOK )
+			GetModuleHandle(NULL),
+			MAKEINTRESOURCE(IDD_DIALOG_LICENSE),
+			theParentWindow,
+			licenseDialogProc,
+			0) == IDOK )
 	{
 		mainLoopTimeSkip();
 		return eResult_Accepted;

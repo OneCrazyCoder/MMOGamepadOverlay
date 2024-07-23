@@ -58,8 +58,12 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 		s16 offset; // pixel offset from .anchor (is multiplied by UIScale)
 		bool operator==(const Coord& rhs) const
 		{ return anchor == rhs.anchor && offset == rhs.offset; }
+		bool operator!=(const Coord& rhs) const
+		{ return !(*this == rhs); }
 	} x, y;
 
 	bool operator==(const Hotspot& rhs) const
 	{ return x == rhs.x && y == rhs.y; }
+	bool operator!=(const Hotspot& rhs) const
+	{ return !(*this == rhs); }
 };

@@ -111,6 +111,7 @@ static bool sMainWindowPosInit = false;
 static bool sUseChildWindows = false;
 static bool sHidden = false;
 static bool sInDialogMode = false;
+static bool sMainWindowDisabled = false;
 static bool sWindowInModalMode = false;
 
 
@@ -230,7 +231,12 @@ static LRESULT CALLBACK mainWindowProc(
 		break;
 
 	case WM_PAINT:
-		HUD::drawMainWindowContents(theWindow);
+		HUD::drawMainWindowContents(theWindow,
+			sMainWindowDisabled || (GetActiveWindow() != theWindow));
+		break;
+
+	case WM_ACTIVATE:
+		InvalidateRect(theWindow, NULL, TRUE);
 		break;
 
 	case WM_CLOSE:
@@ -289,6 +295,28 @@ static LRESULT CALLBACK mainWindowProc(
 		return 0;
 
 	return DefWindowProc(theWindow, theMessage, wParam, lParam);
+}
+
+
+static void setMainWindowEnabled(bool enable = true)
+{
+	if( !sMainWindow || sMainWindowDisabled != enable )
+		return;
+	if( enable && sToolbarWindow )
+		return;
+
+	sMainWindowDisabled = !enable;
+	if( HMENU hMenu = GetMenu(sMainWindow) )
+	{
+		int itemCount = GetMenuItemCount(hMenu);
+		for(int i = 0; i < itemCount; ++i)
+		{
+			EnableMenuItem(hMenu, i,
+				MF_BYPOSITION | (enable ? MF_ENABLED : MF_GRAYED));
+		}
+		DrawMenuBar(sMainWindow);
+		InvalidateRect(sMainWindow, NULL, TRUE);
+	}
 }
 
 
@@ -785,8 +813,7 @@ void update()
 		return;
 
 	sInDialogMode = false;
-	if( sMainWindow && !sToolbarWindow && !IsWindowEnabled(sMainWindow) )
-		EnableWindow(sMainWindow, TRUE);
+	setMainWindowEnabled(true);
 
 	// Update each overlay window as needed
 	HDC aScreenDC = GetDC(NULL);
@@ -922,8 +949,7 @@ void update()
 void prepareForDialog()
 {
 	stopModalModeUpdates();
-	if( sMainWindow )
-		EnableWindow(sMainWindow, FALSE);
+	setMainWindowEnabled(false);
 	sInDialogMode = true;
 	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
 	{
@@ -944,8 +970,7 @@ void endDialogMode()
 	if( !sInDialogMode )
 		return;
 	
-	if( sMainWindow && !sToolbarWindow )
-		EnableWindow(sMainWindow, TRUE);
+	setMainWindowEnabled(true);
 	sInDialogMode = false;
 }
 
@@ -1150,8 +1175,7 @@ HWND createToolbarWindow(int theResID, DLGPROC theProc, LPARAM theParam)
 		NULL,
 		toolbarWindowProc,
 		theParam);
-	if( sMainWindow )
-		EnableWindow(sMainWindow, FALSE);
+	setMainWindowEnabled(false);
 	return sToolbarWindow;
 }
 
