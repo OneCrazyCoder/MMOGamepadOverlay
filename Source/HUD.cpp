@@ -2781,7 +2781,7 @@ void updateWindowLayout(
 }
 
 
-void drawMainWindowContents(HWND theWindow)
+void drawMainWindowContents(HWND theWindow, bool asDisabled)
 {
 	PAINTSTRUCT ps;
 	HDC hdc = BeginPaint(theWindow, &ps);
@@ -2809,11 +2809,19 @@ void drawMainWindowContents(HWND theWindow)
 			CreateFontIndirect(&ncm.lfMessageFont)));
 	}
 
+	// Set to appear grayed out while window is disabled/inactive
+	COLORREF oldTextColor;
+	if( asDisabled )
+		oldTextColor = SetTextColor(hdc, RGB(128, 128, 128));
+
 	// Draw version string centered
 	DrawText(hdc, aWStr.c_str(), -1, &aRect,
 		DT_SINGLELINE | DT_CENTER | DT_VCENTER);
 
-	// Swap back to default font and delete temp font
+
+	// Cleanup
+	if( asDisabled )
+		SetTextColor(hdc, oldTextColor);
 	DeleteObject(SelectObject(hdc, hOldFont));
 
 	EndPaint(theWindow, &ps);

@@ -66,6 +66,7 @@ struct EditorState
 	std::vector<LayoutEntry> entries;
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
 	size_t activeEntry;
+	Hotspot undoPos, undoSize, newPos, newSize, appliedPos, appliedSize;
 
 	EditorState() : activeEntry() {}
 };
@@ -133,31 +134,60 @@ static void layoutEditorPaintFunc(
 }
 
 
+static void applyNewPosition()
+{
+	DBG_ASSERT(sState);
+	DBG_ASSERT(sState->activeEntry != 0);
+	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	if( sState->appliedPos != sState->newPos ||
+		sState->appliedSize != sState->newSize )
+	{
+		layoutDebugPrint("Applying altered position/size to '%s'\n",
+			anEntry.item.name.c_str());
+		sState->appliedPos = sState->newPos;
+		sState->appliedSize = sState->newSize;
+		// TODO - save to Profile cache
+	}
+}
+
+
 static void cancelRepositioning()
 {
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry != 0);
-	layoutDebugPrint("Reposition cancelled\n");
-	// TODO
+	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	if( !gShutdown &&
+		(sState->appliedPos != sState->undoPos ||
+		 sState->appliedSize != sState->undoSize) )
+	{
+		layoutDebugPrint("Restoring previous position/size of '%s'\n",
+			anEntry.item.name.c_str());
+		sState->newPos = sState->undoPos;
+		sState->newSize = sState->undoSize;
+		applyNewPosition();
+	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
 }
 
 
-static void applyNewPosition()
+static void saveNewPosition()
 {
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry != 0);
-	layoutDebugPrint("New position applied\n");
-	// TODO
-}
-
-
-static void saveNewPositionToProfile()
-{
+	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	applyNewPosition();
-	layoutDebugPrint("New position saved to profile\n");
-	// TODO
+	if( anEntry.position != sState->appliedPos ||
+		anEntry.size != sState->appliedSize )
+	{
+		anEntry.position = sState->appliedPos;
+		anEntry.size = sState->appliedSize;
+		// TODO - save to Profile .ini file
+		layoutDebugPrint("New position saved to profile\n");
+	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
 }
@@ -222,9 +252,11 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 }
 
 
-static void processEditControlString(
-	HWND hDlg, const LayoutEntry& theEntry, int theEditControlID)
+static void processEditControlString(HWND hDlg, int theEditControlID)
 {
+	DBG_ASSERT(sState);
+	DBG_ASSERT(sState->activeEntry != 0);
+	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	HWND hEdit = GetDlgItem(hDlg, theEditControlID);
 	DBG_ASSERT(hEdit);
 	std::string aControlStr;
@@ -270,14 +302,22 @@ static void processEditControlString(
 	if( aCoordStr[aCoordStr.size()-1] != '%' &&
 		!isdigit(aCoordStr[aCoordStr.size()-1]) )
 	{// String may have extra characters at end - fix by re-converting it
+		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 		aCoordStr = HotspotMap::coordToString(
-			aNewCoord, formatForCoord(theEntry, theEditControlID));
+			aNewCoord, formatForCoord(anEntry, theEditControlID));
 	}
 
 	if( aCoordStr != aControlStr )
 		SetWindowText(hEdit, widen(aCoordStr).c_str());
 
-	// TODO - apply aNewCoord
+	switch(theEditControlID)
+	{
+	case IDC_EDIT_X: sState->newPos.x = aNewCoord; break;
+	case IDC_EDIT_Y: sState->newPos.y = aNewCoord; break;
+	case IDC_EDIT_W: sState->newSize.x = aNewCoord; break;
+	case IDC_EDIT_H: sState->newSize.y = aNewCoord; break;
+	}
+	applyNewPosition();
 }
 
 
@@ -339,7 +379,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 							(WPARAM)GetDlgItem(theDialog, IDOK), TRUE);
 						return (INT_PTR)TRUE;
 					default:
-						saveNewPositionToProfile();
+						saveNewPosition();
 						promptForEditEntry();
 						return (INT_PTR)TRUE;
 					}
@@ -358,7 +398,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 
 		case IDC_EDIT_X: case IDC_EDIT_Y: case IDC_EDIT_W: case IDC_EDIT_H:
 			if( HIWORD(wParam) == EN_KILLFOCUS )
-				processEditControlString(theDialog, anEntry, LOWORD(wParam));
+				processEditControlString(theDialog, LOWORD(wParam));
 			break;
 		}
 		break;
@@ -381,6 +421,11 @@ static void promptForEditEntry()
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	if( sState->activeEntry )
 	{
+		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+		sState->appliedPos = anEntry.position;
+		sState->appliedSize = anEntry.size;
+		sState->undoPos = sState->newPos = sState->appliedPos;
+		sState->undoSize = sState->newSize = sState->appliedSize;
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
