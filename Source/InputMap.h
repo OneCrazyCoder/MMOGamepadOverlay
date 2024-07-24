@@ -86,6 +86,9 @@ u16 firstHotspotInArray(u16 theHotspotArrayID);
 u16 lastHotspotInArray(u16 theHotspotArrayID);
 const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
 void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
+void reloadHotspotKey(const std::string& theHotspotName,
+	StringToValueMap<u16>& theHotspotNameMapCache,
+	StringToValueMap<u16>& theHotspotArrayNameMapCache);
 
 // HUD ELEMENTS
 EHUDType hudElementType(u16 theHUDElementID);

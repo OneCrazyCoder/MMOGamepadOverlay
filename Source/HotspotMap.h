@@ -23,6 +23,9 @@ void cleanup();
 // Updates hotspot tracking from changes to cursor, target size, etc.
 void update();
 
+// Reload hotspot positions from InputMap
+void reloadPositions();
+
 // Set which hotspot arrays should be active
 void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays);
 

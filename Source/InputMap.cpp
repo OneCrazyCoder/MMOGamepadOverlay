@@ -1844,32 +1844,23 @@ static Command stringToCommand(
 }
 
 
-static void buildHotspots(InputMapBuilder& theBuilder)
+static void assignHotspots(
+	StringToValueMap<u16>& theHotspotNameToIdxMap,
+	StringToValueMap<u16>& theHotspotArrayNameToIdxMap,
+	Profile::KeyValuePairs& theKeyValueList)
 {
-	mapDebugPrint("Assigning hotspots...\n");
-	sHotspots.resize(eSpecialHotspot_Num);
-	// sHotspots[0] is reserved as eSpecialHotspot_None
-	// The hotspotNameToIdxMap maps to this for "filler" words between
-	// jump/point/click and the actual hotspot name.
-	theBuilder.hotspotNameToIdxMap.setValue("MOUSE", 0);
-	theBuilder.hotspotNameToIdxMap.setValue("CURSOR", 0);
-	theBuilder.hotspotNameToIdxMap.setValue("TO", 0);
-	theBuilder.hotspotNameToIdxMap.setValue("AT", 0);
-	theBuilder.hotspotNameToIdxMap.setValue("ON", 0);
-	theBuilder.hotspotNameToIdxMap.setValue("HOTSPOT", 0);
-	theBuilder.hotspotNameToIdxMap.setValue("HOT", 0);
-	theBuilder.hotspotNameToIdxMap.setValue("SPOT", 0);
-
-	for(u16 i = 0; i < eSpecialHotspot_Num; ++i)
-		theBuilder.hotspotNameToIdxMap.setValue(kSpecialHotspotNames[i], i);
+	if( theHotspotNameToIdxMap.empty() )
+	{
+		for(u16 i = 0; i < eSpecialHotspot_Num; ++i)
+			theHotspotNameToIdxMap.setValue(kSpecialHotspotNames[i], i);
+	}
 
 	// Parse normal hotspots and pick out any that might be arrays
-	DBG_ASSERT(theBuilder.keyValueList.empty());
-	Profile::getAllKeys(kHotspotsPrefix, theBuilder.keyValueList);
-	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
+	BitVector<> aFoundArrays;
+	aFoundArrays.clearAndResize(sHotspotArrays.size());
+	for(size_t i = 0; i < theKeyValueList.size(); ++i)
 	{
-		std::string aHotspotName = condense(theBuilder.keyValueList[i].first);
-		std::string aHotspotDescription = theBuilder.keyValueList[i].second;
+		std::string aHotspotName = condense(theKeyValueList[i].first);
 
 		// Check if might be part of a hotspot array
 		const int anArrayIdx = breakOffIntegerSuffix(aHotspotName);
@@ -1884,66 +1875,81 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 			}
 			if( anArrayIdx >= aStartArrayIdx && !aHotspotArrayName.empty() )
 			{
-				u16& aHotspotArrayIdx = theBuilder.hotspotArrayNameToIdxMap
+				u16& aHotspotArrayIdx = theHotspotArrayNameToIdxMap
 					.findOrAdd(condense(aHotspotArrayName),
 						u16(sHotspotArrays.size()));
 				if( aHotspotArrayIdx >= sHotspotArrays.size() )
 				{
 					HotspotArray anEntry;
-					anEntry.label = theBuilder.keyValueList[i].first;
+					anEntry.label = theKeyValueList[i].first;
 					anEntry.label.resize(
 						posAfterPrefix(anEntry.label, aHotspotArrayName));
 					anEntry.first = anEntry.last = 0;
 					sHotspotArrays.push_back(anEntry);
+					aFoundArrays.resize(sHotspotArrays.size());
 				}
+				aFoundArrays.set(aHotspotArrayIdx);
 				sHotspotArrays[aHotspotArrayIdx].last = max(
 					sHotspotArrays[aHotspotArrayIdx].last,
-					anArrayIdx);
+					sHotspotArrays[aHotspotArrayIdx].first + anArrayIdx - 1);
 				continue;
 			}
 			// Doesn't seem to be part of a valid array, so restore name
-			aHotspotName = condense(theBuilder.keyValueList[i].first);
+			aHotspotName = condense(theKeyValueList[i].first);
+		}
+		else if( u16* aHotspotArrayIdxPtr =
+					theHotspotArrayNameToIdxMap.find(aHotspotName) )
+		{// Must be the anchor hotspot of an array
+			aFoundArrays.set(*aHotspotArrayIdxPtr);
 		}
 
-		u16& aHotspotIdx = theBuilder.hotspotNameToIdxMap.findOrAdd(
+
+		u16& aHotspotIdx = theHotspotNameToIdxMap.findOrAdd(
 			aHotspotName, u16(sHotspots.size()));
 		if( aHotspotIdx >= sHotspots.size() )
 			sHotspots.resize(aHotspotIdx+1);
+		std::string aHotspotDescription = theKeyValueList[i].second;
 		EResult aResult = HotspotMap::stringToHotspot(
 			aHotspotDescription, sHotspots[aHotspotIdx]);
 		if( aResult == eResult_Overflow )
 		{
 			logError("Hotspot %s: Invalid coordinate in '%s' "
 				"(anchor must be in 0-100% range)",
-				theBuilder.keyValueList[i].first,
-				theBuilder.keyValueList[i].second);
+				theKeyValueList[i].first,
+				theKeyValueList[i].second);
 			sHotspots[aHotspotIdx] = Hotspot();
 		}
 		else if( aResult == eResult_Malformed )
 		{
 			logError("Hotspot %s: Could not decipher hotspot position '%s'",
-				theBuilder.keyValueList[i].first,
-				theBuilder.keyValueList[i].second);
+				theKeyValueList[i].first,
+				theKeyValueList[i].second);
 			sHotspots[aHotspotIdx] = Hotspot();
 		}
 	}
-	theBuilder.keyValueList.clear();
+	theKeyValueList.clear();
 
-	// Fill in the hotspot arrays
-	for(size_t aHSA_ID = 0; aHSA_ID < sHotspotArrays.size(); ++aHSA_ID)
+	// Fill in any discovered hotspot arrays
+	for(int aHSA_ID = aFoundArrays.firstSetBit();
+		aHSA_ID < aFoundArrays.size();
+		aHSA_ID = aFoundArrays.nextSetBit(aHSA_ID+1))
 	{
 		HotspotArray& aHotspotArray = sHotspotArrays[aHSA_ID];
-		mapDebugPrint("Building Hotspot Array %s\n", aHotspotArray.label.c_str());
 		Hotspot anAnchor;
-		u16* anAnchorIdx = theBuilder.hotspotNameToIdxMap.
+		u16* anAnchorIdx = theHotspotNameToIdxMap.
 			find(condense(aHotspotArray.label));
 		if( anAnchorIdx )
 			anAnchor = sHotspots[*anAnchorIdx];
-		// Allocate enough hotspots for the array
-		const u16 aHotspotArrayCount = aHotspotArray.last;
-		aHotspotArray.first = u16(sHotspots.size());
-		sHotspots.resize(aHotspotArray.first + aHotspotArrayCount);
-		aHotspotArray.last = u16(sHotspots.size()-1);
+		const u16 aHotspotArrayCount =
+			aHotspotArray.last - aHotspotArray.first + 1;
+		if( aHotspotArray.first == 0 )
+		{// Allocate enough hotspots for a new array
+			mapDebugPrint("Building Hotspot Array %s\n",
+				aHotspotArray.label.c_str());
+			aHotspotArray.first = u16(sHotspots.size());
+			sHotspots.resize(sHotspots.size() + aHotspotArrayCount);
+			aHotspotArray.last += aHotspotArray.first;
+		}
 		u16 aNextArrayIdx = 1;
 		while(aNextArrayIdx <= aHotspotArrayCount)
 		{
@@ -1951,7 +1957,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 				aHotspotArray.first + aNextArrayIdx - 1;
 			std::string aHotspotName =
 				aHotspotArray.label + toString(aNextArrayIdx);
-			theBuilder.hotspotNameToIdxMap.setValue(
+			theHotspotNameToIdxMap.setValue(
 				condense(aHotspotName), aHotspotID);
 			std::string aHotspotValue = Profile::getStr(
 				std::string(kHotspotsPrefix) + aHotspotName);
@@ -1974,12 +1980,15 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 						aHotspotName.c_str(),
 						aHotspotValue.c_str());
 				}
-				if( sHotspots[aHotspotID].x.anchor == 0 &&
-					sHotspots[aHotspotID].y.anchor == 0 )
-				{// Offset by anchor hotspot
-					sHotspots[aHotspotID].x.anchor += anAnchor.x.anchor;
-					sHotspots[aHotspotID].y.anchor += anAnchor.y.anchor;
+				// Offset by anchor hotspot if don't have own anchor set
+				if( sHotspots[aHotspotID].x.anchor == 0 )
+				{
+					sHotspots[aHotspotID].x.anchor = anAnchor.x.anchor;
 					sHotspots[aHotspotID].x.offset += anAnchor.x.offset;
+				}
+				if( sHotspots[aHotspotID].y.anchor == 0 )
+				{
+					sHotspots[aHotspotID].y.anchor = anAnchor.y.anchor;
 					sHotspots[aHotspotID].y.offset += anAnchor.y.offset;
 				}
 				++aNextArrayIdx;
@@ -1987,10 +1996,11 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 			else
 			{
 				// Attempt to find as part of a range of hotspots
+				DBG_ASSERT(theKeyValueList.empty());
 				Profile::getAllKeys(
 					std::string(kHotspotsPrefix)+aHotspotName+'-',
-					theBuilder.keyValueList);
-				if( theBuilder.keyValueList.empty() )
+					theKeyValueList);
+				if( theKeyValueList.empty() )
 				{
 					logError(
 						"Hotspot Array %s missing hotspot entry #%d",
@@ -1998,7 +2008,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 						aNextArrayIdx);
 					++aNextArrayIdx;
 				}
-				else if( theBuilder.keyValueList.size() > 1 )
+				else if( theKeyValueList.size() > 1 )
 				{
 					logError(
 						"Hotspot Array %s has overlapping ranges "
@@ -2009,7 +2019,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 				}
 				else
 				{
-					std::string aHotspotDesc = theBuilder.keyValueList[0].second;
+					std::string aHotspotDesc = theKeyValueList[0].second;
 					Hotspot aDeltaHotspot;
 					EResult aResult = HotspotMap::stringToHotspot(
 						aHotspotDesc, aDeltaHotspot);
@@ -2018,7 +2028,7 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 						logError("Hotspot %s: Invalid coordinate in '%s' "
 							"(anchor must be in 0-100% range)",
 							aHotspotName.c_str(),
-							theBuilder.keyValueList[0].second);
+							theKeyValueList[0].second);
 						aDeltaHotspot = Hotspot();
 					}
 					else if( aResult == eResult_Malformed )
@@ -2026,18 +2036,18 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 						logError(
 							"Hotspot %s: Could not decipher offsets '%s'",
 							aHotspotName.c_str(),
-							theBuilder.keyValueList[0].second);
+							theKeyValueList[0].second);
 						aDeltaHotspot = Hotspot();
 					}
 					int aLastIdx =
-						intFromString(theBuilder.keyValueList[0].first);
+						intFromString(theKeyValueList[0].first);
 					for(; aNextArrayIdx <= aLastIdx; ++aNextArrayIdx )
 					{
 						aHotspotID =
 							aHotspotArray.first + aNextArrayIdx - 1;
 						aHotspotName =
 							aHotspotArray.label + toString(aNextArrayIdx);
-						theBuilder.hotspotNameToIdxMap.setValue(
+						theHotspotNameToIdxMap.setValue(
 							condense(aHotspotName), aHotspotID);
 						Hotspot& aPrevEntry = sHotspots[aHotspotID-1];
 						sHotspots[aHotspotID].x.anchor = aPrevEntry.x.anchor;
@@ -2048,10 +2058,36 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 							aPrevEntry.y.offset + aDeltaHotspot.y.offset;
 					}
 				}
-				theBuilder.keyValueList.clear();
+				theKeyValueList.clear();
 			}
 		}
 	}
+}
+
+
+static void buildHotspots(InputMapBuilder& theBuilder)
+{
+	mapDebugPrint("Assigning hotspots...\n");
+	sHotspots.resize(eSpecialHotspot_Num);
+
+	DBG_ASSERT(theBuilder.keyValueList.empty());
+	Profile::getAllKeys(kHotspotsPrefix, theBuilder.keyValueList);
+	assignHotspots(
+		theBuilder.hotspotNameToIdxMap,
+		theBuilder.hotspotArrayNameToIdxMap,
+		theBuilder.keyValueList);
+
+	// sHotspots[0] is reserved as eSpecialHotspot_None
+	// The hotspotNameToIdxMap maps to this for "filler" words between
+	// jump/point/click and the actual hotspot name in VKey sequences.
+	theBuilder.hotspotNameToIdxMap.setValue("MOUSE", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("CURSOR", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("TO", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("AT", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("ON", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("HOTSPOT", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("HOT", 0);
+	theBuilder.hotspotNameToIdxMap.setValue("SPOT", 0);
 }
 
 
@@ -3853,6 +3889,35 @@ void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues)
 {
 	DBG_ASSERT(theHotspotID < sHotspots.size());
 	sHotspots[theHotspotID] = theNewValues;
+}
+
+
+void reloadHotspotKey(
+	const std::string& theHotspotName,
+	StringToValueMap<u16>& theHotspotNameMapCache,
+	StringToValueMap<u16>& theHotspotArrayNameMapCache)
+{
+	Profile::KeyValuePairs aKeyValueList;
+	if( theHotspotNameMapCache.empty() )
+	{
+		Profile::getAllKeys(kHotspotsPrefix, aKeyValueList);
+		sHotspots.resize(eSpecialHotspot_Num);
+		sHotspotArrays.clear();
+		assignHotspots(
+			theHotspotNameMapCache,
+			theHotspotArrayNameMapCache,
+			aKeyValueList);
+		return;
+	}
+
+	std::string aHotspotDesc =
+		Profile::getStr(std::string(kHotspotsPrefix) + theHotspotName);
+	aKeyValueList.push_back(std::make_pair(
+		theHotspotName.c_str(), aHotspotDesc.c_str()));
+	assignHotspots(
+		theHotspotNameMapCache,
+		theHotspotArrayNameMapCache,
+		aKeyValueList);
 }
 
 

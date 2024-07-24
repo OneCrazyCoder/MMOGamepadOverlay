@@ -75,6 +75,8 @@ struct EditorState
 {
 	std::vector<LayoutEntry> entries;
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
+	StringToValueMap<u16> hotspotNameMapCache;
+	StringToValueMap<u16> hotspotArrayNameMapCache;
 	size_t activeEntry;
 	LayoutEntry::Shape undo, entered, applied;
 
@@ -194,7 +196,24 @@ static void applyNewPosition()
 			sState->entered.w + ", " + sState->entered.h, false);
 	}
 	sState->applied = sState->entered;
-	// TODO - update hotspot map, input map, HUD, etc to reflect this!
+
+	switch(anEntry.type)
+	{
+	case LayoutEntry::eType_Hotspot:
+		InputMap::reloadHotspotKey(anEntry.item.name,
+			sState->hotspotNameMapCache,
+			sState->hotspotArrayNameMapCache);
+		HotspotMap::reloadPositions();
+		for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+		{
+			if( InputMap::hudElementType(i) == eMenuStyle_Hotspots ||
+				InputMap::hudElementType(i) == eHUDType_Hotspot )
+			{
+				gReshapeHUD.set(i);
+			}
+		}
+		break;
+	}
 }
 
 
