@@ -21,10 +21,12 @@ namespace LayoutEditor
 // Const Data
 //-----------------------------------------------------------------------------
 
-const char* kHotspotsPrefix = "Hotspots/";
-const char* kIconsPrefix = "Icons/";
+const char* kHotspotsPrefix = "Hotspots";
+const char* kIconsPrefix = "Icons";
 const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
+const char* kDefHUDPrefx = "HUD";
+const char* kDefMenuPrefix = "Menu";
 const char* kPositionKey = "Position";
 const char* kSizeKey = "Size";
 const char* kItemSizeKey = "ItemSize";
@@ -52,11 +54,19 @@ struct LayoutEntry
 		eType_Num,
 		eType_CategoryNum = eType_Hotspot
 	} type;
-	std::string keyName;
-	std::string sizeKeyName;
-	Hotspot position;
-	Hotspot size;
 	Dialogs::TreeViewDialogItem item;
+
+	struct Shape
+	{
+		std::string x, y, w, h;
+		bool operator==(const Shape& rhs) const
+		{ return x == rhs.x && y == rhs.y && w == rhs.w && h == rhs.h; }
+		bool operator!=(const Shape& rhs) const
+		{ return !(*this == rhs); }
+		
+	} shape;
+
+	std::string posSect, posProp, sizeSect, sizeProp;
 	u16 rangeCount;
 };
 
@@ -66,7 +76,7 @@ struct EditorState
 	std::vector<LayoutEntry> entries;
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
 	size_t activeEntry;
-	Hotspot undoPos, undoSize, newPos, newSize, appliedPos, appliedSize;
+	LayoutEntry::Shape undo, entered, applied;
 
 	EditorState() : activeEntry() {}
 };
@@ -102,7 +112,7 @@ bool entryIncludesSize(const LayoutEntry& theEntry)
 		return theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum;
 	case LayoutEntry::eType_Menu:
 	case LayoutEntry::eType_HUD:
-		return !theEntry.sizeKeyName.empty();
+		return !theEntry.sizeProp.empty();
 	}
 
 	return false;
@@ -140,15 +150,51 @@ static void applyNewPosition()
 	DBG_ASSERT(sState->activeEntry != 0);
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	if( sState->appliedPos != sState->newPos ||
-		sState->appliedSize != sState->newSize )
+	const bool needNewPos =
+		sState->entered.x != sState->applied.x ||
+		sState->entered.y != sState->applied.y;
+	const bool needCheckSize = entryIncludesSize(anEntry);
+	const bool needNewSize = needCheckSize &&
+		(sState->entered.w != sState->applied.w ||
+		 sState->entered.h != sState->applied.h);
+	if( !needNewPos && !needNewSize )
+		return;
+
+	const bool needNewCombo = (needNewPos || needNewSize) &&
+		needCheckSize && anEntry.type == LayoutEntry::eType_CopyIcon;
+	if( needNewCombo )
 	{
-		layoutDebugPrint("Applying altered position/size to '%s'\n",
+		layoutDebugPrint("Applying altered position & size to '%s'\n",
 			anEntry.item.name.c_str());
-		sState->appliedPos = sState->newPos;
-		sState->appliedSize = sState->newSize;
-		// TODO - save to Profile cache
+		Profile::setStr(anEntry.posSect, anEntry.posProp,
+			sState->entered.x + ", " + sState->entered.y + ", " +
+			sState->entered.w + ", " + sState->entered.h, false);
 	}
+	else if( needNewPos && needNewSize )
+	{
+		layoutDebugPrint("Applying altered position & size to '%s'\n",
+			anEntry.item.name.c_str());
+		Profile::setStr(anEntry.posSect, anEntry.posProp,
+			sState->entered.x + ", " + sState->entered.y, false);
+		Profile::setStr(anEntry.sizeSect, anEntry.sizeProp,
+			sState->entered.w + ", " + sState->entered.h, false);
+	}
+	else if( needNewPos )
+	{
+		layoutDebugPrint("Applying altered position to '%s'\n",
+			anEntry.item.name.c_str());
+		Profile::setStr(anEntry.posSect, anEntry.posProp,
+			sState->entered.x + ", " + sState->entered.y, false);
+	}
+	else if( needNewSize )
+	{
+		layoutDebugPrint("Applying altered size to '%s'\n",
+			anEntry.item.name.c_str());
+		Profile::setStr(anEntry.sizeSect, anEntry.sizeProp,
+			sState->entered.w + ", " + sState->entered.h, false);
+	}
+	sState->applied = sState->entered;
+	// TODO - update hotspot map, input map, HUD, etc to reflect this!
 }
 
 
@@ -158,14 +204,11 @@ static void cancelRepositioning()
 	DBG_ASSERT(sState->activeEntry != 0);
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	if( !gShutdown &&
-		(sState->appliedPos != sState->undoPos ||
-		 sState->appliedSize != sState->undoSize) )
+	if( !gShutdown && sState->applied != sState->undo )
 	{
 		layoutDebugPrint("Restoring previous position/size of '%s'\n",
 			anEntry.item.name.c_str());
-		sState->newPos = sState->undoPos;
-		sState->newSize = sState->undoSize;
+		sState->entered = sState->undo;
 		applyNewPosition();
 	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
@@ -180,12 +223,10 @@ static void saveNewPosition()
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	applyNewPosition();
-	if( anEntry.position != sState->appliedPos ||
-		anEntry.size != sState->appliedSize )
+	if( anEntry.shape != sState->applied )
 	{
-		anEntry.position = sState->appliedPos;
-		anEntry.size = sState->appliedSize;
-		// TODO - save to Profile .ini file
+		anEntry.shape = sState->applied;
+		Profile::saveChangesToFile();
 		layoutDebugPrint("New position saved to profile\n");
 	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
@@ -223,8 +264,14 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
-	POINT anEntryPos = WindowManager::hotspotToOverlayPos(theEntry.position);
-	POINT anEntrySize = WindowManager::hotspotToOverlayPos(theEntry.size);
+	Hotspot anEntryHSPos, anEntryHSSize;
+	std::string aStr;
+	aStr = theEntry.shape.x; HotspotMap::stringToCoord(aStr, anEntryHSPos.x);
+	aStr = theEntry.shape.y; HotspotMap::stringToCoord(aStr, anEntryHSPos.y);
+	aStr = theEntry.shape.w; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
+	aStr = theEntry.shape.h; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
+	POINT anEntryPos = WindowManager::hotspotToOverlayPos(anEntryHSPos);
+	POINT anEntrySize = WindowManager::hotspotToOverlayPos(anEntryHSSize);
 	anEntryPos.x = anEntryPos.x + anEntrySize.x / 2;
 	anEntryPos.y = anEntryPos.y + anEntrySize.y / 2;
 	RECT anOverlayRect;
@@ -267,55 +314,31 @@ static void processEditControlString(HWND hDlg, int theEditControlID)
 		aControlStr = narrow(&aStrBuf[0]);
 	}
 
-	Hotspot::Coord aNewCoord;
-	std::string aCoordStr = trim(aControlStr);
-	if( !aCoordStr.empty() )
-	{
-		std::string aCheckedStr = aCoordStr;
-		EResult aResult = HotspotMap::stringToCoord(aCheckedStr, aNewCoord);
-		while(!aCoordStr.empty() &&
-			  (aResult != eResult_Ok || !aCheckedStr.empty()))
-		{// Try just trimming extra characters off the end to salvage it
-			if( aResult == eResult_Ok )
-				aCoordStr.resize(aCoordStr.size() - aCheckedStr.size());
-			else
-				aCoordStr.resize(aCoordStr.size() - 1);
-			aCheckedStr = aCoordStr;
-			aResult = HotspotMap::stringToCoord(aCheckedStr, aNewCoord);
-		}
-	}
-
-	if( aCoordStr.empty() )
+	Hotspot::Coord tmp;
+	std::string aValidatedStr = aControlStr;
+	std::string aTestStr = aControlStr;
+	HotspotMap::stringToCoord(aTestStr, tmp, &aValidatedStr);
+	if( aValidatedStr.empty() )
 	{
 		switch(theEditControlID)
 		{
-		case IDC_EDIT_X: aCoordStr = "L"; break;
-		case IDC_EDIT_Y: aCoordStr = "T"; break;
-		case IDC_EDIT_W: aCoordStr = "4"; break;
-		case IDC_EDIT_H: aCoordStr = "4"; break;
+		case IDC_EDIT_X: aValidatedStr = "L"; break;
+		case IDC_EDIT_Y: aValidatedStr = "T"; break;
+		case IDC_EDIT_W: aValidatedStr = "4"; break;
+		case IDC_EDIT_H: aValidatedStr = "4"; break;
 		}
-		std::string aCheckedStr = aCoordStr;
-		HotspotMap::stringToCoord(aCheckedStr, aNewCoord);
 	}
-	DBG_ASSERT(!aCoordStr.empty());
+	DBG_ASSERT(!aValidatedStr.empty());
 
-	if( aCoordStr[aCoordStr.size()-1] != '%' &&
-		!isdigit(aCoordStr[aCoordStr.size()-1]) )
-	{// String may have extra characters at end - fix by re-converting it
-		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-		aCoordStr = HotspotMap::coordToString(
-			aNewCoord, formatForCoord(anEntry, theEditControlID));
-	}
-
-	if( aCoordStr != aControlStr )
-		SetWindowText(hEdit, widen(aCoordStr).c_str());
+	if( aValidatedStr != aControlStr )
+		SetWindowText(hEdit, widen(aValidatedStr).c_str());
 
 	switch(theEditControlID)
 	{
-	case IDC_EDIT_X: sState->newPos.x = aNewCoord; break;
-	case IDC_EDIT_Y: sState->newPos.y = aNewCoord; break;
-	case IDC_EDIT_W: sState->newSize.x = aNewCoord; break;
-	case IDC_EDIT_H: sState->newSize.y = aNewCoord; break;
+	case IDC_EDIT_X: sState->entered.x = aValidatedStr; break;
+	case IDC_EDIT_Y: sState->entered.y = aValidatedStr; break;
+	case IDC_EDIT_W: sState->entered.w = aValidatedStr; break;
+	case IDC_EDIT_H: sState->entered.h = aValidatedStr; break;
 	}
 	applyNewPosition();
 }
@@ -339,26 +362,18 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		// Fill in initial values in each of the edit fields
 		SetWindowText(
 			GetDlgItem(theDialog, IDC_EDIT_X),
-			widen(HotspotMap::coordToString(
-				anEntry.position.x,
-				formatForCoord(anEntry, IDC_EDIT_X))).c_str());
+			widen(anEntry.shape.x).c_str());
 		SetWindowText(
 			GetDlgItem(theDialog, IDC_EDIT_Y),
-			widen(HotspotMap::coordToString(
-				anEntry.position.y,
-				formatForCoord(anEntry, IDC_EDIT_Y))).c_str());
+			widen(anEntry.shape.y).c_str());
 		if( entryIncludesSize(anEntry) )
 		{
 			SetWindowText(
 				GetDlgItem(theDialog, IDC_EDIT_W),
-				widen(HotspotMap::coordToString(
-					anEntry.size.x,
-					formatForCoord(anEntry, IDC_EDIT_W))).c_str());
+				widen(anEntry.shape.w).c_str());
 			SetWindowText(
 				GetDlgItem(theDialog, IDC_EDIT_H),
-				widen(HotspotMap::coordToString(
-					anEntry.size.y,
-					formatForCoord(anEntry, IDC_EDIT_H))).c_str());
+				widen(anEntry.shape.h).c_str());
 		}
 		setInitialToolbarPos(theDialog, anEntry);
 		break;
@@ -422,10 +437,7 @@ static void promptForEditEntry()
 	if( sState->activeEntry )
 	{
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-		sState->appliedPos = anEntry.position;
-		sState->appliedSize = anEntry.size;
-		sState->undoPos = sState->newPos = sState->appliedPos;
-		sState->undoSize = sState->newSize = sState->appliedSize;
+		sState->undo = sState->entered = sState->applied = anEntry.shape;
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
@@ -506,15 +518,15 @@ static void addArrayEntries(
 
 	Profile::KeyValuePairs aPropertySet;
 	Profile::getAllKeys(
-		theEntryList[theCategoryType].keyName,
+		theEntryList[theCategoryType].posSect + "/",
 		aPropertySet);
 	StringToValueMap<u32> anEntryNameToIdxMap;
 	for(size_t i = 0; i < aPropertySet.size(); ++i)
 	{
 		aNewEntry.rangeCount = 0;
 		aNewEntry.item.name = aPropertySet[i].first;
-		aNewEntry.keyName = theEntryList[theCategoryType].keyName;
-		aNewEntry.keyName += aNewEntry.item.name;
+		aNewEntry.posSect = theEntryList[theCategoryType].posSect;
+		aNewEntry.posProp = aNewEntry.item.name;
 		std::string aKeyName = condense(aNewEntry.item.name);
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
@@ -531,8 +543,11 @@ static void addArrayEntries(
 			aNewEntry.rangeCount += anArrayEndIdx - anArrayStartIdx;
 		}
 		std::string aHotspotDesc = aPropertySet[i].second;
-		HotspotMap::stringToHotspot(aHotspotDesc, aNewEntry.position);
-		HotspotMap::stringToHotspot(aHotspotDesc, aNewEntry.size);
+		Hotspot::Coord tmp;
+		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.x);
+		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.y);
+		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.w);
+		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.h);
 		theEntryList.push_back(aNewEntry);
 	}
 	aPropertySet.clear();
@@ -543,16 +558,54 @@ static void addArrayEntries(
 }
 
 
-static std::pair<std::string, std::string> tryGetHUDHotspot(
-	const std::string& thePrefix,
-	const std::string& theElementName,
-	const char* thePropKey)
+static void tryFetchHUDHotspot(
+	LayoutEntry& theEntry,
+	const std::string& thePropName,
+	const std::string& theReadSect,
+	const std::string& theWriteSect)
 {
-	std::pair<std::string, std::string> result;
-	result.first = thePrefix + theElementName + "/";
-	result.first += thePropKey;
-	result.second = Profile::getStr(result.first);
-	return result;
+	const bool isPosition = thePropName == kPositionKey;
+	std::string* aDestSectStr =
+		isPosition ? &theEntry.posSect : &theEntry.sizeSect;
+	if( !aDestSectStr->empty() )
+		return;
+	std::string* aDestProptr =
+		isPosition ? &theEntry.posProp : &theEntry.sizeProp;
+	if( theReadSect.empty() )
+	{
+		*aDestSectStr = theWriteSect;
+		*aDestProptr = thePropName;
+		if( isPosition )
+		{
+			theEntry.shape.x = "L";
+			theEntry.shape.y = "T";
+		}
+		else
+		{
+			theEntry.shape.w = "4";
+			theEntry.shape.h = "4";
+		}
+	}
+	else
+	{
+		std::string aValStr = Profile::getStr(theReadSect + "/" + thePropName);
+		if( !aValStr.empty() )
+		{
+			*aDestSectStr = theWriteSect;
+			*aDestProptr = thePropName;
+			Hotspot::Coord tmp;
+			if( isPosition )
+			{
+				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.x);
+				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.y);
+			}
+			else
+			{
+				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.w);
+				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.h);
+			}
+		}
+	}
 }
 
 
@@ -574,32 +627,33 @@ void init()
 	sState = new EditorState();
 
 	// Start with all the categories
-	LayoutEntry aNewEntry;
-	aNewEntry.type = LayoutEntry::eType_Root;
-	aNewEntry.item.parentIndex = 0;
-	aNewEntry.item.isRootCategory = true;
-	aNewEntry.rangeCount = 0;
-	sState->entries.push_back(aNewEntry);
-	aNewEntry.type = LayoutEntry::eType_HotspotCategory;
-	aNewEntry.item.name = "Hotspots";
-	aNewEntry.keyName = kHotspotsPrefix;
-	sState->entries.push_back(aNewEntry);
-	aNewEntry.type = LayoutEntry::eType_CopyIconCategory;
-	aNewEntry.item.name = "Copy Icons";
-	aNewEntry.keyName = kIconsPrefix;
-	sState->entries.push_back(aNewEntry);
-	aNewEntry.type = LayoutEntry::eType_MenuCategory;
-	aNewEntry.item.name = "Menus";
-	aNewEntry.keyName = kMenuPrefix;
-	sState->entries.push_back(aNewEntry);
-	aNewEntry.type = LayoutEntry::eType_HUDCategory;
-	aNewEntry.item.name = "HUD Elements";
-	aNewEntry.keyName = kHUDPrefix;
-	sState->entries.push_back(aNewEntry);
-	DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
-	for(size_t i = 0; i < sState->entries.size(); ++i)
-		DBG_ASSERT(sState->entries[i].type == i);
-	aNewEntry.item.isRootCategory = false;
+	{
+		LayoutEntry aCatEntry;
+		aCatEntry.type = LayoutEntry::eType_Root;
+		aCatEntry.item.parentIndex = 0;
+		aCatEntry.item.isRootCategory = true;
+		aCatEntry.rangeCount = 0;
+		sState->entries.push_back(aCatEntry);
+		aCatEntry.type = LayoutEntry::eType_HotspotCategory;
+		aCatEntry.item.name = "Hotspots";
+		aCatEntry.posSect = kHotspotsPrefix;
+		sState->entries.push_back(aCatEntry);
+		aCatEntry.type = LayoutEntry::eType_CopyIconCategory;
+		aCatEntry.item.name = "Copy Icons";
+		aCatEntry.posSect = kIconsPrefix;
+		sState->entries.push_back(aCatEntry);
+		aCatEntry.type = LayoutEntry::eType_MenuCategory;
+		aCatEntry.item.name = "Menus";
+		aCatEntry.posSect = kMenuPrefix;
+		sState->entries.push_back(aCatEntry);
+		aCatEntry.type = LayoutEntry::eType_HUDCategory;
+		aCatEntry.item.name = "HUD Elements";
+		aCatEntry.posSect = kHUDPrefix;
+		sState->entries.push_back(aCatEntry);
+		DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
+		for(size_t i = 0; i < sState->entries.size(); ++i)
+			DBG_ASSERT(sState->entries[i].type == i);
+	}
 
 	// Collect the hotspots
 	addArrayEntries(
@@ -616,51 +670,71 @@ void init()
 	// Collect HUD Element / Menu position keys from InputMap
 	for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
 	{
+		LayoutEntry aNewEntry;
+		aNewEntry.item.isRootCategory = false;
 		aNewEntry.rangeCount = 0;
 		aNewEntry.item.name = InputMap::hudElementKeyName(i);
+		const bool isAMenu = InputMap::hudElementIsAMenu(i);
+		aNewEntry.type = isAMenu
+			? LayoutEntry::eType_Menu
+			: LayoutEntry::eType_HUD;
+		aNewEntry.item.parentIndex = isAMenu
+			? LayoutEntry::eType_MenuCategory
+			: LayoutEntry::eType_HUDCategory;
 		if( aNewEntry.item.name.empty() )
 			continue;
-		std::pair<std::string, std::string> aHotspotStr;
-		for(LayoutEntry::EType aCatType = LayoutEntry::eType_MenuCategory,
-			anEntryType = LayoutEntry::eType_Menu;
-			aCatType < LayoutEntry::eType_CategoryNum;
-			aCatType = LayoutEntry::EType(aCatType+1),
-			anEntryType = LayoutEntry::EType(anEntryType+1))
-		{
-			const std::string& aPrefix = sState->entries[aCatType].keyName;
-			aHotspotStr = tryGetHUDHotspot(
-				aPrefix, aNewEntry.item.name, kPositionKey);
-			if( !aHotspotStr.second.empty() )
-			{
-				aNewEntry.type = anEntryType;
-				aNewEntry.keyName = aHotspotStr.first;
-				aNewEntry.item.parentIndex = aCatType;
-				aNewEntry.sizeKeyName.clear();
-				HotspotMap::stringToHotspot(
-					aHotspotStr.second, aNewEntry.position);
-				aHotspotStr = tryGetHUDHotspot(
-					aPrefix, aNewEntry.item.name, kSizeKey);
-				if( !aHotspotStr.second.empty() )
-				{
-					aNewEntry.sizeKeyName = aHotspotStr.first;
-					HotspotMap::stringToHotspot(
-						aHotspotStr.second, aNewEntry.size);
-				}
-				else
-				{
-					aHotspotStr = tryGetHUDHotspot(
-						aPrefix, aNewEntry.item.name, kItemSizeKey);
-					if( !aHotspotStr.second.empty() )
-					{
-						aNewEntry.sizeKeyName = aHotspotStr.first;
-						HotspotMap::stringToHotspot(
-							aHotspotStr.second, aNewEntry.size);
-					}
-				}
-				sState->entries.push_back(aNewEntry);
-				break;
-			}
-		}
+
+		// Try read/write [Menu.Name]/Position
+		tryFetchHUDHotspot(aNewEntry, kPositionKey,
+			kMenuPrefix + aNewEntry.item.name,
+			kMenuPrefix + aNewEntry.item.name);
+		// Try read/write [HUD.Name]/Position
+		tryFetchHUDHotspot(aNewEntry, kPositionKey,
+			kHUDPrefix + aNewEntry.item.name,
+			kHUDPrefix + aNewEntry.item.name);
+		// Try read [HUD]/Position and write to [HUD/Menu.Name]/Position
+		tryFetchHUDHotspot(aNewEntry, kPositionKey, kDefHUDPrefx,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Try read [Menu]/Position and write to [HUD/Menu.Name]/Position
+		tryFetchHUDHotspot(aNewEntry, kPositionKey, kDefMenuPrefix,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Just write to [HUD/Menu.Name]/Position w/ default settings
+		tryFetchHUDHotspot(aNewEntry, kPositionKey, "",
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+
+		// Try read/write [Menu.Name]/Size
+		tryFetchHUDHotspot(aNewEntry, kSizeKey,
+			kMenuPrefix + aNewEntry.item.name,
+			kMenuPrefix + aNewEntry.item.name);
+		// Try read/write [Menu.Name]/ItemSize
+		tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
+			kMenuPrefix + aNewEntry.item.name,
+			kMenuPrefix + aNewEntry.item.name);
+		// Try read/write [HUD.Name]/Size
+		tryFetchHUDHotspot(aNewEntry, kSizeKey,
+			kHUDPrefix + aNewEntry.item.name,
+			kHUDPrefix + aNewEntry.item.name);
+		// Try read/write [HUD.Name]/ItemSize
+		tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
+			kHUDPrefix + aNewEntry.item.name,
+			kHUDPrefix + aNewEntry.item.name);
+		// Try read [HUD]/ItemSize and write to [HUD/Menu.Name]/ItemSize
+		tryFetchHUDHotspot(aNewEntry, kItemSizeKey, kDefHUDPrefx,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Try read [HUD]/Size and write to [HUD/Menu.Name]/Size
+		tryFetchHUDHotspot(aNewEntry, kSizeKey, kDefHUDPrefx,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Try read [Menu]/ItemSize and write to [HUD/Menu.Name]/ItemSize
+		tryFetchHUDHotspot(aNewEntry, kItemSizeKey, kDefMenuPrefix,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Try read [Menu]/Size and write to [HUD/Menu.Name]/Size
+		tryFetchHUDHotspot(aNewEntry, kSizeKey, kDefMenuPrefix,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Just write defaults to [Menu.Name]/ItemSize or [HUD.Name]/Size
+		tryFetchHUDHotspot(aNewEntry, (isAMenu ? kItemSizeKey : kSizeKey), "",
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+
+		sState->entries.push_back(aNewEntry);
 	}
 
 	// Prepare for prompt dialog
