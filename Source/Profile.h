@@ -29,7 +29,7 @@ void load();
 // Returns true if user loaded a profile, false if they cancelled
 bool queryUserForProfile();
 
-// Access the profile settings
+// Access the profile properties
 std::string getStr(const std::string& theKey, const std::string& theDefaultValue = "");
 int getInt(const std::string& theKey, int theDefaultValue = 0);
 bool getBool(const std::string& theKey, bool theDefaultValue = false);
@@ -41,11 +41,16 @@ float getFloat(const std::string& theKey, float theDefaultValue = 0);
 typedef std::vector<std::pair<const char*, const char*> > KeyValuePairs;
 void getAllKeys(const std::string& thePrefix, KeyValuePairs& out);
 
-// Add or modify profile settings
+// Add or modify profile properties
 // This requires section name be specified directly, in case there are any
-// forward slash characters in the section or value name.
+// forward slash characters in the section or property name.
+// If saveToFileNow is false, this change will only apply until the application
+// is shut down or saveChangesToFile() is called.
 void setStr(const std::string& theSection,
-			const std::string& theValueName,
-			const std::string& theValue);
+			const std::string& theProperty,
+			const std::string& theValue,
+			bool saveToFileNow = true);
+// Saves any modifications made using setStr() (w/o saveToFileNow) to .ini file
+void saveChangesToFile();
 
 } // Profile

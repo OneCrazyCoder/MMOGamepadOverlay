@@ -109,12 +109,20 @@ struct ProfileProperty
 };
 typedef StringToValueMap<ProfileProperty> PropertyMap;
 
+struct ProfileNewProperty
+{
+	std::string section;
+	std::string name;
+	std::string val;
+};
+
 
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
 
 static PropertyMap sPropertyMap;
+static std::vector<ProfileNewProperty> sUnsavedChangesList;
 static std::vector<ProfileEntry> sKnownProfiles;
 static std::vector< std::vector<int> > sProfilesCanLoad;
 static std::string sLoadedProfileName;
@@ -480,7 +488,7 @@ static bool areOnSameVolume(
 }
 
 
-static void setKeyValueInINI(
+static void setPropertyInINI(
 	const std::string& theFilePath,
 	const std::string& theSection,
 	const std::string& theKey,
@@ -779,7 +787,7 @@ static void generateResourceProfile(const ResourceProfile& theResProfile)
 
 			if( theResProfile.version )
 			{
-				setKeyValueInINI(aFilePath,
+				setPropertyInINI(aFilePath,
 					"", kAutoGenVersionKey,
 					toString(theResProfile.version));
 			}
@@ -1010,11 +1018,11 @@ static void tryAddAutoLaunchApp(int theProfileIdx)
 	AutoLaunchAppInfo anAppInfo =
 		getAutoLaunchAppInfo(sKnownProfiles[theProfileIdx]);
 	Dialogs::targetAppPath(anAppInfo.path, anAppInfo.params);
-	setKeyValueInINI(
+	setPropertyInINI(
 		sKnownProfiles[theProfileIdx].path,
 		kAutoLaunchAppKeySection, kAutoLaunchAppKey,
 		anAppInfo.path);
-	setKeyValueInINI(
+	setPropertyInINI(
 		sKnownProfiles[theProfileIdx].path,
 		kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
 		anAppInfo.params);
@@ -1030,14 +1038,14 @@ static void setAutoLoadProfile(int theProfilesCanLoadIdx)
 
 	if( theProfilesCanLoadIdx > 0 )
 	{
-		setKeyValueInINI(
+		setPropertyInINI(
 			sKnownProfiles[0].path,
 			"", kAutoLoadProfileKey,
 			toString(theProfilesCanLoadIdx));
 	}
 	else
 	{
-		setKeyValueInINI(
+		setPropertyInINI(
 			sKnownProfiles[0].path,
 			"", kAutoLoadProfileKey, "");
 	}
@@ -1153,7 +1161,7 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 			{
 				if( !sProfilesCanLoad[i].empty() )
 				{
-					setKeyValueInINI(
+					setPropertyInINI(
 						theFile.path, "",
 						std::string(kProfileKeyPrefix) + toString(aProfID++),
 						sKnownProfiles[sProfilesCanLoad[i][0]].name);
@@ -1162,11 +1170,11 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 		}
 		else if( matchingResourceIsBase )
 		{// Restore auto-launch app path and params to regenerated Base file
-			setKeyValueInINI(
+			setPropertyInINI(
 				theFile.path,
 				kAutoLaunchAppKeySection, kAutoLaunchAppKey,
 				anAppInfo.path);
-			setKeyValueInINI(
+			setPropertyInINI(
 				theFile.path,
 				kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
 				anAppInfo.params);
@@ -1175,7 +1183,7 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 	else if( aResult == eResult_No )
 	{
 		// Update the file's version number so won't ask again
-		setKeyValueInINI(theFile.path,
+		setPropertyInINI(theFile.path,
 			"", kAutoGenVersionKey,
 			toString(theMatchingResource->version));
 	}
@@ -1714,7 +1722,7 @@ retryQuery:
 		goto retryQuery;
 	}
 
-	setKeyValueInINI(
+	setPropertyInINI(
 		sKnownProfiles[0].path, "",
 		std::string(kProfileKeyPrefix) + toString(aProfileCanLoadIdx),
 		aNewEntry.name);
@@ -1831,10 +1839,11 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 
 
 void setStr(const std::string& theSection,
-			const std::string& theValueName,
-			const std::string& theValue)
+			const std::string& theProperty,
+			const std::string& theValue,
+			bool saveToFileNow)
 {
-	const std::string& aPropertyName = theSection + "/" + theValueName;
+	const std::string& aPropertyName = theSection + "/" + theProperty;
 	ProfileProperty& aPropertyRef = sPropertyMap.findOrAdd(
 		condense(aPropertyName),
 		ProfileProperty(aPropertyName, ""));
@@ -1844,12 +1853,49 @@ void setStr(const std::string& theSection,
 		return;
 	aPropertyRef.val = theValue;
 
-	if( !sLoadedProfileName.empty() )
+	if( saveToFileNow )
 	{
-		setKeyValueInINI(
-			profileNameToFilePath(sLoadedProfileName),
-			theSection, theValueName, theValue);
+		if( !sLoadedProfileName.empty() )
+		{
+			setPropertyInINI(
+				profileNameToFilePath(sLoadedProfileName),
+				theSection, theProperty, theValue);
+		}
 	}
+	else
+	{
+		for(size_t i = 0; i < sUnsavedChangesList.size(); ++i)
+		{
+			if( sUnsavedChangesList[i].section == theSection &&
+				sUnsavedChangesList[i].name == theProperty )
+			{
+				sUnsavedChangesList[i].val = theValue;
+				return;
+			}
+		}
+		ProfileNewProperty aNewProperty;
+		aNewProperty.section = theSection;
+		aNewProperty.name = theProperty;
+		aNewProperty.val = theValue;
+		sUnsavedChangesList.push_back(aNewProperty);
+	}
+}
+
+
+void saveChangesToFile()
+{
+	if( sLoadedProfileName.empty() )
+		return;
+	const std::string& aFilePath = profileNameToFilePath(sLoadedProfileName);
+	for(size_t i = 0; i < sUnsavedChangesList.size(); ++i)
+	{
+		setPropertyInINI(
+			aFilePath,
+			sUnsavedChangesList[i].section,
+			sUnsavedChangesList[i].name,
+			sUnsavedChangesList[i].val);
+	}
+	sUnsavedChangesList.clear();
 }
 
 } // Profile

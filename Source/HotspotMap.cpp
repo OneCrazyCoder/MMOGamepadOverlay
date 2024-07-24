@@ -706,10 +706,14 @@ EResult stringToHotspot(std::string& theString, Hotspot& out)
 }
 
 
-EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
+EResult stringToCoord(std::string& theString,
+					  Hotspot::Coord& out,
+					  std::string* theValidatedString)
 {
 	// This function also removes the coordinate from start of string
 	out = Hotspot::Coord();
+	if( theValidatedString )
+		theValidatedString->clear();
 	if( theString.empty() )
 		return eResult_Empty;
 
@@ -753,6 +757,7 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 					return eResult_Overflow;
 				if( aDenominator > 0x7FFFFFFF )
 					return eResult_Overflow;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_OffsetSign:
 				aMode = EMode(aMode + 1);
@@ -765,6 +770,7 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 				anOffset += u32(c - '0');
 				if( anOffset > 0x7FFF )
 					return eResult_Overflow;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
 				return eResult_Malformed;
@@ -783,6 +789,7 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			case eMode_OffsetSign:
 				isOffsetNegative = (c == '-');
 				aMode = eMode_OffsetSpace;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
 				return eResult_Malformed;
@@ -795,6 +802,7 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			case eMode_Numerator:
 				aMode = eMode_Denominator;
 				aDenominator = 1;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
 				return eResult_Malformed;
@@ -805,12 +813,14 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Numerator:
 			case eMode_Denominator:
 				if( !aDenominator ) aDenominator = 1;
 				aDenominator *= 100; // Convert 50% to 0.5
 				aMode = eMode_OffsetSign;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
 				return eResult_Malformed;
@@ -821,11 +831,13 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Prefix:
 				aNumerator = 0;
 				aDenominator = 1;
 				aMode = eMode_PrefixEnd;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
 				return eResult_Malformed;
@@ -836,11 +848,13 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Prefix:
 				aNumerator = 1;
 				aDenominator = 1;
 				aMode = eMode_PrefixEnd;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
 				return eResult_Malformed;
@@ -850,11 +864,13 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Prefix:
 				aNumerator = 1;
 				aDenominator = 2;
 				aMode = eMode_PrefixEnd;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
 				return eResult_Malformed;
@@ -866,7 +882,8 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			case eMode_PrefixEnd:
 				if( c == ',' )
 					done = true;
-				// Ignore as part of CX prefix
+				else if( theValidatedString )
+					(*theValidatedString) += c; // part of CX prefix
 				break;
 			case eMode_Numerator:
 				anOffset = aNumerator;
@@ -889,26 +906,31 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
-				if( c == ',' )
-					done = true;
-				// Ignore as part of CY prefix
+				if( theValidatedString )
+					(*theValidatedString) += c; // part of CY prefix
 				break;
+			default:
+				return eResult_Malformed;
 			}
 			break;
 		case ' ':
 			switch(aMode)
 			{
-			case eMode_Prefix:
 			case eMode_OffsetSign:
 			case eMode_OffsetSpace:
+				if( theValidatedString ) (*theValidatedString) += c;
+				// fall through
+			case eMode_Prefix:
 			case eMode_TrailSpace:
 				// Allowed whitespace, ignore
 				break;
 			case eMode_PrefixEnd:
 				aMode = eMode_OffsetSign;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Denominator:
 				aMode = eMode_OffsetSign;
+				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Numerator:
 				anOffset = aNumerator;
@@ -921,7 +943,9 @@ EResult stringToCoord(std::string& theString, Hotspot::Coord& out)
 			}
 			break;
 		default:
-			if( aMode != eMode_PrefixEnd )
+			if( aMode == eMode_PrefixEnd && theValidatedString )
+				(*theValidatedString) += c;
+			else if( aMode != eMode_PrefixEnd )
 				return eResult_Malformed;
 			break;
 		}
