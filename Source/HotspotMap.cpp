@@ -556,6 +556,14 @@ void update()
 }
 
 
+void reloadPositions()
+{
+	sNewTasks.set();
+	for(size_t i = 0; i < sLinkMaps.size(); ++i)
+		sLinkMaps[i].clear();
+}
+
+
 void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
 {
 	if( sRequestedArrays != theHotspotArrays )
