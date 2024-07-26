@@ -6,6 +6,7 @@
 
 #include "Dialogs.h"
 #include "HotspotMap.h"
+#include "HUD.h"
 #include "InputMap.h"
 #include "Profile.h"
 #include "Resources/resource.h"
@@ -212,6 +213,9 @@ static void applyNewPosition()
 				gReshapeHUD.set(i);
 			}
 		}
+		break;
+	case LayoutEntry::eType_CopyIcon:
+		HUD::reloadCopyIconLabel(anEntry.item.name);
 		break;
 	}
 }
@@ -482,14 +486,14 @@ static void setEntryParent(
 	const int anArrayEndIdx = breakOffIntegerSuffix(anArrayName);
 	DBG_ASSERT(anArrayEndIdx >= 0);
 	if( theEntry.rangeCount == 1 )
-	{// Search for an anchor hotspot to act as parent
+	{// Search for an anchor to act as parent
 		const u32* aParentIdx = theEntryNameMap.find(anArrayName);
 		if( aParentIdx )
 			theEntry.item.parentIndex = *aParentIdx;
 		return;
 	}
 
-	// Search for previous hotspot in the hotspot array
+	// Search for previous index in the array
 	DBG_ASSERT(anArrayName[anArrayName.size()-1] == '-');
 	anArrayName.resize(anArrayName.size()-1);
 	const int anArrayStartIdx = breakOffIntegerSuffix(anArrayName);
@@ -549,24 +553,33 @@ static void addArrayEntries(
 		std::string aKeyName = condense(aNewEntry.item.name);
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
-		const int anArrayEndIdx = breakOffIntegerSuffix(aKeyName);
-		if( anArrayEndIdx > 0 )
+		std::string aDesc = aPropertySet[i].second;
+		Hotspot aHotspot;
+		HotspotMap::stringToCoord(aDesc, aHotspot.x, &aNewEntry.shape.x);
+		HotspotMap::stringToCoord(aDesc, aHotspot.y, &aNewEntry.shape.y);
+		if( theEntryType == LayoutEntry::eType_CopyIcon )
 		{
-			aNewEntry.rangeCount = 1;
-			int anArrayStartIdx = anArrayEndIdx;
-			if( aKeyName[aKeyName.size()-1] == '-' )
-			{// Part of a range of values, like Name2-8
-				aKeyName.resize(aKeyName.size()-1);
-				anArrayStartIdx = breakOffIntegerSuffix(aKeyName);
-			}
-			aNewEntry.rangeCount += anArrayEndIdx - anArrayStartIdx;
+			Hotspot::Coord tmp;
+			HotspotMap::stringToCoord(aDesc, tmp, &aNewEntry.shape.w);
+			HotspotMap::stringToCoord(aDesc, tmp, &aNewEntry.shape.h);
 		}
-		std::string aHotspotDesc = aPropertySet[i].second;
-		Hotspot::Coord tmp;
-		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.x);
-		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.y);
-		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.w);
-		HotspotMap::stringToCoord(aHotspotDesc, tmp, &aNewEntry.shape.h);
+		if( aHotspot.x.anchor == 0 && aHotspot.y.anchor == 0 &&
+			aNewEntry.shape.h.empty() )
+		{// Possibly has a parent to offset from
+			aNewEntry.shape.w.clear();
+			const int anArrayEndIdx = breakOffIntegerSuffix(aKeyName);
+			if( anArrayEndIdx > 0 )
+			{
+				aNewEntry.rangeCount = 1;
+				int anArrayStartIdx = anArrayEndIdx;
+				if( aKeyName[aKeyName.size()-1] == '-' )
+				{// Part of a range of values, like Name2-8
+					aKeyName.resize(aKeyName.size()-1);
+					anArrayStartIdx = breakOffIntegerSuffix(aKeyName);
+				}
+				aNewEntry.rangeCount += anArrayEndIdx - anArrayStartIdx;
+			}
+		}
 		theEntryList.push_back(aNewEntry);
 	}
 	aPropertySet.clear();

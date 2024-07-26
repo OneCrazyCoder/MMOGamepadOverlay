@@ -214,12 +214,13 @@ public:
 	// be used to index into keys()/values(). Can be used after freeKeys()
 	// but result will not be valid if no keys actually have given prefix!
 	void findAllWithPrefix(const Key& thePrefix, IndexVector* out) const;
-	// Const access to the vectors of keys & values, for direct iteration.
+	// Direct access to the vectors of keys & values, for direct iteration.
 	// These are not guaranteed to be in any particular order, except in
 	// relation to each other (i.e. keyVector()[idx] returns the key for
 	// the associated value valueVector()[idx]).
 	const KeyVector& keys() const { return mKeys; }
 	const ValueVector& values() const { return mValues; }
+	ValueVector& values() { return mValues; }
 	bool empty() const { return mValues.empty(); }
 	size_t size() const { return mValues.size(); }
 
