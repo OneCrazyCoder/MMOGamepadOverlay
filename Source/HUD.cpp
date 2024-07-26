@@ -2439,6 +2439,44 @@ void reloadCopyIconLabel(const std::string& theCopyIconLabel)
 }
 
 
+void reloadElementShape(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
+
+	const std::string& aHUDName =
+		InputMap::hudElementKeyName(theHUDElementID);
+	std::string aStr;
+	hi.position = strToHotspot(
+		getHUDPropStr(aHUDName, eHUDProp_Position),
+		aHUDName, eHUDProp_Position);
+	const bool isAMenu =
+		hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
+	if( isAMenu )
+		aStr = getNamedHUDPropStr(aHUDName, eHUDProp_ItemSize);
+	else
+		aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
+	if( aStr.empty() && isAMenu )
+		aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
+	if( aStr.empty() )
+		aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
+	hi.itemSize = strToHotspot(aStr, aHUDName, eHUDProp_ItemSize);
+	Hotspot aTempHotspot = strToHotspot(
+		getHUDPropStr(aHUDName, eHUDProp_Alignment),
+		aHUDName, eHUDProp_Alignment);
+	hi.alignmentX =
+		aTempHotspot.x.anchor < 0x4000	? eAlignment_Min :
+		aTempHotspot.x.anchor > 0xC000	? eAlignment_Max :
+		/*otherwise*/					  eAlignment_Center;
+	hi.alignmentY =
+		aTempHotspot.y.anchor < 0x4000	? eAlignment_Min :
+		aTempHotspot.y.anchor > 0xC000	? eAlignment_Max :
+		/*otherwise*/					  eAlignment_Center;
+	sMenuDrawCache[theHUDElementID].clear();
+	gReshapeHUD.set(theHUDElementID);
+}
+
+
 void drawElement(
 	HDC hdc,
 	HDC hCaptureDC,
