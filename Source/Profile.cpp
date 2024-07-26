@@ -1816,7 +1816,7 @@ float getFloat(const std::string& theKey, float theDefaultValue)
 }
 
 
-void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
+void getAllKeys(const std::string& thePrefix, KeyValuePairs& out, bool trimKeys)
 {
 	PropertyMap::IndexVector anIndexSet;
 	sPropertyMap.findAllWithPrefix(condense(thePrefix), &anIndexSet);
@@ -1830,9 +1830,9 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out)
 	{
 		out.push_back(std::make_pair(
 			sPropertyMap.values()[anIndexSet[i]].name.c_str() +
-				posAfterPrefix(
+				(trimKeys ? posAfterPrefix(
 					sPropertyMap.values()[anIndexSet[i]].name,
-					thePrefix),
+					thePrefix) : 0),
 			sPropertyMap.values()[anIndexSet[i]].val.c_str()));
 	}
 }

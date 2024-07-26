@@ -235,6 +235,7 @@ struct IconEntry
 {
 	u16 iconID;
 	bool copyFromTarget;
+	bool isUpToDate;
 };
 
 struct BuildIconEntry
@@ -742,9 +743,9 @@ static size_t getOrCreateBuildIconEntry(
 }
 
 
-static void createBitmapIcon(BuildIconEntry& theBuildEntry)
+static void setBitmapIcon(IconEntry& theEntry, BuildIconEntry& theBuildEntry)
 {
-	if( !theBuildEntry.srcFile || theBuildEntry.result.iconID > 0 )
+	if( !theBuildEntry.srcFile || theEntry.isUpToDate )
 		return;
 
 	// Create a bitmap in memory from portion of bitmap file
@@ -779,9 +780,20 @@ static void createBitmapIcon(BuildIconEntry& theBuildEntry)
 	SelectObject(hdcDest, hOldDestBitmap);
 	DeleteDC(hdcDest);
 
-	sBitmapIcons.push_back(aBitmapIcon);
-	theBuildEntry.result.copyFromTarget = false;
-	theBuildEntry.result.iconID = u16(sBitmapIcons.size()-1);
+	if( theEntry.iconID == 0 )
+	{
+		sBitmapIcons.push_back(aBitmapIcon);
+		theEntry.iconID = u16(sBitmapIcons.size()-1);
+	}
+	else
+	{
+		DeleteObject(sBitmapIcons[theEntry.iconID].image);
+		DeleteObject(sBitmapIcons[theEntry.iconID].mask);
+		sBitmapIcons[theEntry.iconID] = aBitmapIcon;
+	}
+	theEntry.copyFromTarget = false;
+	theEntry.isUpToDate = true;
+	theBuildEntry.result = theEntry;
 }
 
 
@@ -805,37 +817,56 @@ static void generateBitmapIconMask(BitmapIcon& theIcon, COLORREF theTransColor)
 }
 
 
-static void createCopyIcon(BuildIconEntry& theBuildEntry)
+static void setCopyIcon(IconEntry& theEntry, BuildIconEntry& theBuildEntry)
 {
-	if( theBuildEntry.srcFile || theBuildEntry.result.iconID > 0 )
+	if( theBuildEntry.srcFile || theEntry.isUpToDate )
 		return;
 
 	CopyIcon aCopyIcon = CopyIcon();
 	aCopyIcon.pos = theBuildEntry.pos;
 	aCopyIcon.size = theBuildEntry.size;
-	sCopyIcons.push_back(aCopyIcon);
-	theBuildEntry.result.copyFromTarget = true;
-	theBuildEntry.result.iconID = u16(sCopyIcons.size()-1);
+
+	if( theEntry.iconID == 0 )
+	{
+		sCopyIcons.push_back(aCopyIcon);
+		theEntry.iconID = u16(sCopyIcons.size()-1);
+	}
+	else
+	{
+		sCopyIcons[theEntry.iconID] = aCopyIcon;
+	}
+	theEntry.copyFromTarget = true;
+	theEntry.isUpToDate = true;
+	theBuildEntry.result = theEntry;
 }
 
 
-static IconEntry createOffsetCopyIcon(
-	const std::string& theIconString,
-	u16 aBaseCopyIconID,
-	const Hotspot& anOffsetHotspot)
+static void setOffsetCopyIcon(
+	IconEntry& theEntry,
+	const IconEntry& theBaseCopyIcon,
+	const Hotspot& theOffsetHotspot)
 {
-	DBG_ASSERT(aBaseCopyIconID < sCopyIcons.size());
+	if( theEntry.isUpToDate && theEntry.copyFromTarget )
+		return;
+
 	CopyIcon aCopyIcon = CopyIcon();
-	aCopyIcon.pos = sCopyIcons[aBaseCopyIconID].pos;
-	aCopyIcon.size = sCopyIcons[aBaseCopyIconID].size;
-	aCopyIcon.pos.x.offset += anOffsetHotspot.x.offset;
-	aCopyIcon.pos.y.offset += anOffsetHotspot.y.offset;
-	sCopyIcons.push_back(aCopyIcon);
-	IconEntry anOffsetIcon;
-	anOffsetIcon.copyFromTarget = true;
-	anOffsetIcon.iconID = u16(sCopyIcons.size()-1);
-	sLabelIcons.setValue(theIconString, anOffsetIcon);
-	return anOffsetIcon;
+	DBG_ASSERT(theBaseCopyIcon.iconID < sCopyIcons.size());
+	aCopyIcon.pos = sCopyIcons[theBaseCopyIcon.iconID].pos;
+	aCopyIcon.size = sCopyIcons[theBaseCopyIcon.iconID].size;
+	aCopyIcon.pos.x.offset += theOffsetHotspot.x.offset;
+	aCopyIcon.pos.y.offset += theOffsetHotspot.y.offset;
+
+	if( theEntry.iconID == 0 )
+	{
+		sCopyIcons.push_back(aCopyIcon);
+		theEntry.iconID = u16(sCopyIcons.size()-1);
+	}
+	else
+	{
+		sCopyIcons[theEntry.iconID] = aCopyIcon;
+	}
+	theEntry.copyFromTarget = true;
+	theEntry.isUpToDate = true;
 }
 
 
@@ -850,9 +881,9 @@ static u16 getOrCreateBitmapIconID(
 	BuildIconEntry& aBuildEntry = theBuilder.iconBuilders[anIconBuildID];
 	if( !aBuildEntry.srcFile )
 		return 0;
-	if( aBuildEntry.result.iconID > 0 )
+	if( aBuildEntry.result.isUpToDate )
 		return aBuildEntry.result.iconID;
-	createBitmapIcon(aBuildEntry);
+	setBitmapIcon(aBuildEntry.result, aBuildEntry);
 	return aBuildEntry.result.iconID;
 }
 
@@ -860,10 +891,10 @@ static u16 getOrCreateBitmapIconID(
 static IconEntry getOrCreateLabelIcon(
 	HUDBuilder& theBuilder,
 	const std::string& theTextLabel,
-	const std::string& theIconDescription)
+	const std::string& theIconDescription,
+	bool usePrevIdxAsBase = false)
 {
 	std::string aTextLabel = condense(theTextLabel);
-	std::string anIconDesc(theIconDescription);
 
 	// Check if might just be an offset from another copy icon
 	int anArrayIdx = breakOffIntegerSuffix(aTextLabel);
@@ -875,19 +906,22 @@ static IconEntry getOrCreateLabelIcon(
 			aTextLabel.resize(aTextLabel.size()-1);
 			aStartArrayIdx =
 				breakOffIntegerSuffix(aTextLabel);
+			usePrevIdxAsBase = true;
 		}
-		else if( IconEntry* anOldEntry = sLabelIcons.find(theTextLabel) )
+		else if( IconEntry* anOldEntry =
+					sLabelIcons.find(aTextLabel + toString(anArrayIdx)) )
 		{
-			return *anOldEntry;
+			if( anOldEntry->isUpToDate )
+				return *anOldEntry;
 		}
 		Hotspot anOffset;
-		EResult aResult = HotspotMap::stringToHotspot(
-			anIconDesc, anOffset);
-		if( aResult == eResult_Ok && anIconDesc.empty() &&
+		std::string anIconDesc(theIconDescription);
+		HotspotMap::stringToHotspot(anIconDesc, anOffset);
+		if( anIconDesc.empty() &&
 			anOffset.x.anchor == 0 && anOffset.y.anchor == 0 )
 		{// Find icon to use as a base to offset from
 			IconEntry aBaseIcon;
-			if( aStartArrayIdx < anArrayIdx && aStartArrayIdx > 1 )
+			if( usePrevIdxAsBase )
 			{// Use aStartArrayIdx - 1 as base
 				std::string aBaseLabel =
 					aTextLabel + toString(aStartArrayIdx-1);
@@ -901,41 +935,41 @@ static IconEntry getOrCreateLabelIcon(
 					theBuilder, aTextLabel,
 					Profile::getStr(kIconsPrefix + aTextLabel));
 			}
-			if( aBaseIcon.iconID && aBaseIcon.copyFromTarget )
+			if( aBaseIcon.isUpToDate && aBaseIcon.copyFromTarget )
 			{
 				for(int i = aStartArrayIdx; i <= anArrayIdx; ++i)
 				{
-					createOffsetCopyIcon(
-						aTextLabel + toString(i),
-						aBaseIcon.iconID, anOffset);
-					aBaseIcon.iconID = u16(sCopyIcons.size()-1);
+					IconEntry& anEntry = sLabelIcons.findOrAdd(
+						aTextLabel + toString(i), IconEntry());
+					setOffsetCopyIcon(anEntry, aBaseIcon, anOffset);
+					aBaseIcon = anEntry;
 				}
 				return aBaseIcon;
 			}
 		}
+		// Restore full label
+		aTextLabel = condense(theTextLabel);
 	}
 
-	IconEntry& anEntry = sLabelIcons.findOrAdd(theTextLabel, IconEntry());
-	if( anEntry.iconID != 0 )
+	IconEntry& anEntry = sLabelIcons.findOrAdd(aTextLabel, IconEntry());
+	if( anEntry.isUpToDate )
 		return anEntry;
 	size_t anIconBuildID = getOrCreateBuildIconEntry(
 		theBuilder, theIconDescription, true);
 	if( anIconBuildID == 0 )
 		return anEntry;
 	BuildIconEntry& aBuildEntry = theBuilder.iconBuilders[anIconBuildID];
-	if( aBuildEntry.result.iconID > 0 )
+	if( aBuildEntry.result.isUpToDate )
 	{
 		anEntry = aBuildEntry.result;
 		return anEntry;
 	}
 	if( aBuildEntry.srcFile )
 	{
-		createBitmapIcon(aBuildEntry);
-		anEntry = aBuildEntry.result;
+		setBitmapIcon(anEntry, aBuildEntry);
 		return anEntry;
 	}
-	createCopyIcon(aBuildEntry);
-	anEntry = aBuildEntry.result;
+	setCopyIcon(anEntry, aBuildEntry);
 	return anEntry;
 }
 
@@ -2353,6 +2387,54 @@ void updateScaling()
 		}
 		appearance.borderPenID = getOrCreatePenID(aHUDBuilder,
 			appearance.borderColor, appearance.borderSize);
+	}
+}
+
+
+void reloadCopyIconLabel(const std::string& theCopyIconLabel)
+{
+	// Get root of string in cases where it may be part of an array
+	std::string aRootLabel = condense(theCopyIconLabel);
+	while(!aRootLabel.empty() &&
+		  !isdigit(aRootLabel[0]) &&
+		  (isdigit(aRootLabel[aRootLabel.size()-1]) ||
+		   aRootLabel[aRootLabel.size()-1] == '-'))
+	{
+		aRootLabel.resize(aRootLabel.size()-1);
+	}
+	
+	{// Mark any icons with same root string as being out of date
+		StringToValueMap<IconEntry>::IndexVector anIconsToUpdateList;
+		sLabelIcons.findAllWithPrefix(aRootLabel, &anIconsToUpdateList);
+		for(size_t i = 0; i < anIconsToUpdateList.size(); ++i)
+			sLabelIcons.values()[anIconsToUpdateList[i]].isUpToDate = false;
+	}
+
+	// Grab current data from Profile and reassign the copy icons using it
+	Profile::KeyValuePairs aKeyValueList;
+	Profile::getAllKeys(kIconsPrefix + aRootLabel, aKeyValueList, false);
+	if( !aKeyValueList.empty() )
+	{
+		HUDBuilder aHUDBuilder;
+		aHUDBuilder.iconBuilders.push_back(BuildIconEntry());
+		const size_t aTrimPos =
+			posAfterPrefix(aKeyValueList[0].first, kIconsPrefix);
+		for(size_t i = 0; i < aKeyValueList.size(); ++i)
+		{
+			std::string aTextLabel = aKeyValueList[i].first + aTrimPos;
+			std::string anIconDesc = aKeyValueList[i].second;
+			getOrCreateLabelIcon(aHUDBuilder, aTextLabel, anIconDesc);
+		}
+	}
+
+	// Clear any cached copy icon draw data
+	for(size_t i = 0; i < sMenuDrawCache.size(); ++i)
+	{
+		for(size_t j = 0; j < sMenuDrawCache[i].size(); ++j)
+		{
+			if( sMenuDrawCache[i][j].type == eMenuItemLabelType_CopyRect )
+				sMenuDrawCache[i][j] = MenuDrawCacheEntry();
+		}
 	}
 }
 

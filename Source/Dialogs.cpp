@@ -381,30 +381,44 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 			DBG_ASSERT(hTreeView);
 			TVINSERTSTRUCT tvInsert;
 			tvInsert.hInsertAfter = TVI_LAST;
-			std::vector<HTREEITEM> aHandlesList;
-			aHandlesList.reserve(theItems->size());
-			aHandlesList.push_back(TVI_ROOT);
-			BitVector<> anItemHasChildren;
+			std::vector<HTREEITEM> aHandlesList(theItems->size());
+			BitVector<> anItemHasChildren, anItemWasAdded;
 			anItemHasChildren.clearAndResize(theItems->size());
+			anItemWasAdded.clearAndResize(theItems->size());
 			for(size_t i = 1; i < theItems->size(); ++i)
 				anItemHasChildren.set((*theItems)[i]->parentIndex);
-			for(size_t i = 1; i < theItems->size(); ++i)
+			aHandlesList[0] = TVI_ROOT;
+			anItemWasAdded.set(0);
+			while(!anItemWasAdded.all())
 			{
-				DBG_ASSERT((*theItems)[i] != null);
-				const std::wstring& anItemName = widen((*theItems)[i]->name);
-				const u32 aParentIdx = u32((*theItems)[i]->parentIndex);
-				const u32 isRootCategory = u32((*theItems)[i]->isRootCategory);
-				tvInsert.item.pszText = const_cast<WCHAR*>(anItemName.c_str());
-				tvInsert.item.mask = TVIF_TEXT | TVIF_PARAM;
-				tvInsert.item.cChildren = anItemHasChildren.test(i) ? 1 : 0;
-				if( tvInsert.item.cChildren )
-					tvInsert.item.mask |= TVIF_CHILDREN;
-				tvInsert.item.lParam = MAKELPARAM(i, isRootCategory);
-				tvInsert.hParent = aHandlesList[aParentIdx];
-				aHandlesList.push_back((HTREEITEM)SendMessage(
-					hTreeView,
-					TVM_INSERTITEM, 0,
-					(LPARAM)&tvInsert));
+				for(size_t i = 1; i < theItems->size(); ++i)
+				{
+					DBG_ASSERT((*theItems)[i] != null);
+					if( anItemWasAdded.test(i) )
+						continue;
+					const std::wstring& anItemName =
+						widen((*theItems)[i]->name);
+					const u32 aParentIdx =
+						u32((*theItems)[i]->parentIndex);
+					if( !anItemWasAdded.test(aParentIdx) )
+						continue;
+					const u32 isRootCategory =
+						u32((*theItems)[i]->isRootCategory);
+					tvInsert.item.pszText =
+						const_cast<WCHAR*>(anItemName.c_str());
+					tvInsert.item.mask = TVIF_TEXT | TVIF_PARAM;
+					tvInsert.item.cChildren =
+						anItemHasChildren.test(i) ? 1 : 0;
+					if( tvInsert.item.cChildren )
+						tvInsert.item.mask |= TVIF_CHILDREN;
+					tvInsert.item.lParam = MAKELPARAM(i, isRootCategory);
+					tvInsert.hParent = aHandlesList[aParentIdx];
+					aHandlesList[i] = (HTREEITEM)SendMessage(
+						hTreeView,
+						TVM_INSERTITEM, 0,
+						(LPARAM)&tvInsert);
+					anItemWasAdded.set(i);
+				}
 			}
 			layoutItemSortTree(hTreeView, TVI_ROOT, theItems);
 			if( size_t anInitialSel = (*theItems)[0]->parentIndex )

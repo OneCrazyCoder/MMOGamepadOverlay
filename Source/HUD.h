@@ -28,6 +28,9 @@ void update();
 // Refreshes cached drawing data related to target window size
 void updateScaling();
 
+// Updates copy-from-target-region icon data from Profile for given label
+void reloadCopyIconLabel(const std::string& theCopyIconLabel);
+
 // Draws given HUD element to given Device Context (bitmap), starting at 0,0
 void drawElement(
 	HDC hdc,

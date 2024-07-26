@@ -35,11 +35,11 @@ int getInt(const std::string& theKey, int theDefaultValue = 0);
 bool getBool(const std::string& theKey, bool theDefaultValue = false);
 float getFloat(const std::string& theKey, float theDefaultValue = 0);
 // Directly returns all key/value pairs whose keys start with given prefix (section).
-// Returned key names will have given prefix removed, and will be appended to any data
-// already contained in passed-in KeyValuePairs.
+// Returned key/value pairs will be appended to any data already in 'out' vector.
+// If 'trimKeys', thePrefix will be removed from returned key values.
 // WARNING: Returned pointers may be invalidated with any modifications to profile!
 typedef std::vector<std::pair<const char*, const char*> > KeyValuePairs;
-void getAllKeys(const std::string& thePrefix, KeyValuePairs& out);
+void getAllKeys(const std::string& thePrefix, KeyValuePairs& out, bool trimKeys = true);
 
 // Add or modify profile properties
 // This requires section name be specified directly, in case there are any
