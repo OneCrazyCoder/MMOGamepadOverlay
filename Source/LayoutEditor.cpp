@@ -31,6 +31,35 @@ const char* kDefMenuPrefix = "Menu";
 const char* kPositionKey = "Position";
 const char* kSizeKey = "Size";
 const char* kItemSizeKey = "ItemSize";
+const char* kAlignmentKey = "Alignment";
+
+enum EAlignment
+{
+	eAlignment_L_T,
+	eAlignment_CX_T,
+	eAlignment_R_T,
+	eAlignment_L_CY,
+	eAlignment_CX_CY,
+	eAlignment_R_CY,
+	eAlignment_L_B,
+	eAlignment_CX_B,
+	eAlignment_R_B,
+
+	eAlignment_Num
+};
+
+const char* kAlignmentStr[][2] =
+{//		Droplist			Profile
+	{	"Top Left",			"L, T"		}, // eAlignment_L_T
+	{	"Top Center",		"CX, T"		}, // eAlignment_CX_T
+	{	"Top Right",		"R, T"		}, // eAlignment_R_T
+	{ 	"Center Left",		"L, CY"		}, // eAlignment_L_CY
+	{ 	"Center",			"CX, CY"	}, // eAlignment_CX_CY
+	{ 	"Center Right",		"R, CY"		}, // eAlignment_R_CY
+	{ 	"Bottom Left",		"L, B"		}, // eAlignment_L_B
+	{ 	"Bottom Center",	"CX, B"		}, // eAlignment_CX_B
+	{ 	"Bottom Right",		"R, B"		}, // eAlignment_R_B
+};
 
 
 //-----------------------------------------------------------------------------
@@ -60,14 +89,20 @@ struct LayoutEntry
 	struct Shape
 	{
 		std::string x, y, w, h;
+		EAlignment alignment;
+		Shape() : alignment(eAlignment_Num) {}
 		bool operator==(const Shape& rhs) const
-		{ return x == rhs.x && y == rhs.y && w == rhs.w && h == rhs.h; }
+		{
+			return
+				x == rhs.x && y == rhs.y &&
+				w == rhs.w && h == rhs.h &&
+				alignment == rhs.alignment;
+		}
 		bool operator!=(const Shape& rhs) const
 		{ return !(*this == rhs); }
-		
 	} shape;
 
-	std::string posSect, posProp, sizeSect, sizeProp;
+	std::string posSect, sizeSect, alignSect, propName;
 	union
 	{
 		u16 rangeCount;
@@ -83,7 +118,7 @@ struct EditorState
 	StringToValueMap<u16> hotspotNameMapCache;
 	StringToValueMap<u16> hotspotArrayNameMapCache;
 	size_t activeEntry;
-	LayoutEntry::Shape undo, entered, applied;
+	LayoutEntry::Shape entered, applied;
 
 	EditorState() : activeEntry() {}
 };
@@ -119,7 +154,20 @@ bool entryIncludesSize(const LayoutEntry& theEntry)
 		return theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum;
 	case LayoutEntry::eType_Menu:
 	case LayoutEntry::eType_HUD:
-		return !theEntry.sizeProp.empty();
+		return true;
+	}
+
+	return false;
+}
+
+
+bool entryIncludesAlignment(const LayoutEntry& theEntry)
+{
+	switch(theEntry.type)
+	{
+	case LayoutEntry::eType_Menu:
+	case LayoutEntry::eType_HUD:
+		return true;
 	}
 
 	return false;
@@ -132,25 +180,6 @@ bool entryIsAnOffset(const LayoutEntry& theEntry)
 }
 
 
-static LRESULT CALLBACK layoutEditorWindowProc(
-	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
-{
-	if( theMessage == WM_LBUTTONDOWN )
-	{
-		layoutDebugPrint("Mouse click detected in overlay!\n");
-		return 0;
-	}
-
-	return DefWindowProc(theWindow, theMessage, wParam, lParam);
-}
-
-
-static void layoutEditorPaintFunc(
-	HDC hdc, const RECT& theDrawRect, bool firstDraw)
-{
-}
-
-
 static void applyNewPosition()
 {
 	DBG_ASSERT(sState);
@@ -160,45 +189,58 @@ static void applyNewPosition()
 	const bool needNewPos =
 		sState->entered.x != sState->applied.x ||
 		sState->entered.y != sState->applied.y;
-	const bool needCheckSize = entryIncludesSize(anEntry);
-	const bool needNewSize = needCheckSize &&
+	const bool needNewSize =
 		(sState->entered.w != sState->applied.w ||
 		 sState->entered.h != sState->applied.h);
-	if( !needNewPos && !needNewSize )
+	const bool needNewAlign =
+		sState->entered.alignment != sState->applied.alignment;
+	if( !needNewPos && !needNewSize && !needNewAlign )
 		return;
 
-	const bool needNewCombo = (needNewPos || needNewSize) &&
-		needCheckSize && anEntry.type == LayoutEntry::eType_CopyIcon;
-	if( needNewCombo )
+	if( (needNewPos || needNewSize) &&
+		anEntry.type == LayoutEntry::eType_CopyIcon &&
+		entryIncludesSize(anEntry) )
 	{
-		layoutDebugPrint("Applying altered position & size to '%s'\n",
+		layoutDebugPrint("Applying altered region to '%s'\n",
 			anEntry.item.name.c_str());
-		Profile::setStr(anEntry.posSect, anEntry.posProp,
+		Profile::setStr(kIconsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y + ", " +
 			sState->entered.w + ", " + sState->entered.h, false);
 	}
-	else if( needNewPos && needNewSize )
-	{
-		layoutDebugPrint("Applying altered position & size to '%s'\n",
-			anEntry.item.name.c_str());
-		Profile::setStr(anEntry.posSect, anEntry.posProp,
-			sState->entered.x + ", " + sState->entered.y, false);
-		Profile::setStr(anEntry.sizeSect, anEntry.sizeProp,
-			sState->entered.w + ", " + sState->entered.h, false);
-	}
-	else if( needNewPos )
+	else if( needNewPos && anEntry.type == LayoutEntry::eType_CopyIcon )
 	{
 		layoutDebugPrint("Applying altered position to '%s'\n",
 			anEntry.item.name.c_str());
-		Profile::setStr(anEntry.posSect, anEntry.posProp,
+		Profile::setStr(kIconsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y, false);
 	}
-	else if( needNewSize )
+	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot )
+	{
+		layoutDebugPrint("Applying altered position to '%s'\n",
+			anEntry.item.name.c_str());
+		Profile::setStr(kHotspotsPrefix, anEntry.propName,
+			sState->entered.x + ", " + sState->entered.y, false);
+	}
+	else if( needNewPos && !anEntry.posSect.empty() )
+	{
+		layoutDebugPrint("Applying altered position to '%s'\n",
+			anEntry.item.name.c_str());
+		Profile::setStr(anEntry.posSect, kPositionKey,
+			sState->entered.x + ", " + sState->entered.y, false);
+	}
+	if( needNewSize && !anEntry.sizeSect.empty() )
 	{
 		layoutDebugPrint("Applying altered size to '%s'\n",
 			anEntry.item.name.c_str());
-		Profile::setStr(anEntry.sizeSect, anEntry.sizeProp,
+		Profile::setStr(anEntry.sizeSect, anEntry.propName,
 			sState->entered.w + ", " + sState->entered.h, false);
+	}
+	if( needNewAlign && !anEntry.alignSect.empty() )
+	{
+		layoutDebugPrint("Applying altered alignment to '%s'\n",
+			anEntry.item.name.c_str());
+		Profile::setStr(anEntry.alignSect, kAlignmentKey,
+			kAlignmentStr[sState->entered.alignment][1], false);
 	}
 	sState->applied = sState->entered;
 
@@ -235,12 +277,13 @@ static void cancelRepositioning()
 	DBG_ASSERT(sState->activeEntry != 0);
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	if( !gShutdown && sState->applied != sState->undo )
+	if( !gShutdown && sState->applied != anEntry.shape )
 	{
 		layoutDebugPrint("Restoring previous position/size of '%s'\n",
 			anEntry.item.name.c_str());
-		sState->entered = sState->undo;
+		sState->entered = anEntry.shape;
 		applyNewPosition();
+		Profile::saveChangesToFile();
 	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
@@ -406,6 +449,21 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				GetDlgItem(theDialog, IDC_EDIT_H),
 				widen(anEntry.shape.h).c_str());
 		}
+		// Populate alignment droplist
+		if( entryIncludesAlignment(anEntry) )
+		{
+			HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
+			for(size_t i = 0; i < eAlignment_Num; ++i)
+			{
+				SendMessage(hDropList, CB_ADDSTRING, 0,
+					(LPARAM)widen(kAlignmentStr[i][0]).c_str());
+			}
+			if( anEntry.shape.alignment < eAlignment_Num )
+			{
+				SendMessage(hDropList, CB_SETCURSEL,
+					(WPARAM)anEntry.shape.alignment, 0);
+			}
+		}
 		setInitialToolbarPos(theDialog, anEntry);
 		break;
 	case WM_COMMAND:
@@ -446,6 +504,16 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			if( HIWORD(wParam) == EN_KILLFOCUS )
 				processEditControlString(theDialog, LOWORD(wParam));
 			break;
+
+		case IDC_COMBO_ALIGN:
+			if( HIWORD(wParam) == CBN_SELCHANGE && sState )
+			{
+				sState->entered.alignment = EAlignment(SendMessage(
+					GetDlgItem(theDialog, IDC_COMBO_ALIGN),
+					CB_GETCURSEL, 0, 0));
+				applyNewPosition();
+			}
+			break;
 		}
 		break;
 	case WM_DESTROY:
@@ -454,6 +522,25 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	}
 
 	return (INT_PTR)FALSE;
+}
+
+
+static LRESULT CALLBACK layoutEditorWindowProc(
+	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	if( theMessage == WM_LBUTTONDOWN )
+	{
+		layoutDebugPrint("Mouse click detected in overlay!\n");
+		return 0;
+	}
+
+	return DefWindowProc(theWindow, theMessage, wParam, lParam);
+}
+
+
+static void layoutEditorPaintFunc(
+	HDC hdc, const RECT& theDrawRect, bool firstDraw)
+{
 }
 
 
@@ -468,13 +555,15 @@ static void promptForEditEntry()
 	if( sState->activeEntry )
 	{
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-		sState->undo = sState->entered = sState->applied = anEntry.shape;
+		sState->entered = sState->applied = anEntry.shape;
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
-			entryIncludesSize(sState->entries[sState->activeEntry])
-				? IDD_DIALOG_LAYOUT_XYWH_TOOLBAR
-				: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
+			entryIncludesAlignment(sState->entries[sState->activeEntry])
+				? IDD_DIALOG_LAYOUT_ALIGN_TOOLBAR
+				: entryIncludesSize(sState->entries[sState->activeEntry])
+					? IDD_DIALOG_LAYOUT_XYWH_TOOLBAR
+					: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
 			editLayoutToolbarProc);
 	}
 	else
@@ -556,8 +645,7 @@ static void addArrayEntries(
 	{
 		aNewEntry.rangeCount = 0;
 		aNewEntry.item.name = aPropertySet[i].first;
-		aNewEntry.posSect = theEntryList[theCategoryType].posSect;
-		aNewEntry.posProp = aNewEntry.item.name;
+		aNewEntry.propName = aNewEntry.item.name;
 		std::string aKeyName = condense(aNewEntry.item.name);
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
@@ -605,25 +693,32 @@ static void tryFetchHUDHotspot(
 	const std::string& theWriteSect)
 {
 	const bool isPosition = thePropName == kPositionKey;
+	const bool isAlignment = !isPosition && thePropName == kAlignmentKey;
+	const bool isSize = !isPosition && !isAlignment;
+
 	std::string* aDestSectStr =
-		isPosition ? &theEntry.posSect : &theEntry.sizeSect;
+		isPosition ? &theEntry.posSect :
+		isSize ? &theEntry.sizeSect :
+		/*isAlignment ?*/ &theEntry.alignSect;
 	if( !aDestSectStr->empty() )
 		return;
-	std::string* aDestProptr =
-		isPosition ? &theEntry.posProp : &theEntry.sizeProp;
 	if( theReadSect.empty() )
 	{
 		*aDestSectStr = theWriteSect;
-		*aDestProptr = thePropName;
 		if( isPosition )
 		{
 			theEntry.shape.x = "L";
 			theEntry.shape.y = "T";
 		}
-		else
+		else if( isSize )
 		{
 			theEntry.shape.w = "4";
 			theEntry.shape.h = "4";
+			theEntry.propName = thePropName;
+		}
+		else// if( isAlignment )
+		{
+			theEntry.shape.alignment = eAlignment_L_T;
 		}
 	}
 	else
@@ -632,17 +727,30 @@ static void tryFetchHUDHotspot(
 		if( !aValStr.empty() )
 		{
 			*aDestSectStr = theWriteSect;
-			*aDestProptr = thePropName;
-			Hotspot::Coord tmp;
+			Hotspot tmp;
 			if( isPosition )
 			{
-				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.x);
-				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.y);
+				HotspotMap::stringToCoord(aValStr, tmp.x, &theEntry.shape.x);
+				HotspotMap::stringToCoord(aValStr, tmp.y, &theEntry.shape.y);
 			}
-			else
+			else if( isSize )
 			{
-				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.w);
-				HotspotMap::stringToCoord(aValStr, tmp, &theEntry.shape.h);
+				HotspotMap::stringToCoord(aValStr, tmp.x, &theEntry.shape.w);
+				HotspotMap::stringToCoord(aValStr, tmp.y, &theEntry.shape.h);
+				theEntry.propName = thePropName;
+			}
+			else //if( isAlignment )
+			{
+				HotspotMap::stringToHotspot(aValStr, tmp);
+				int anAlignVal =
+					tmp.x.anchor < 0x4000	? eAlignment_L_T :
+					tmp.x.anchor > 0xC000	? eAlignment_R_T :
+					/*otherwise*/			  eAlignment_CX_T;
+				anAlignVal +=
+					tmp.y.anchor < 0x4000	? eAlignment_L_T :
+					tmp.y.anchor > 0xC000	? eAlignment_L_B :
+					/*otherwise*/			  eAlignment_L_CY;
+				theEntry.shape.alignment = EAlignment(anAlignVal);
 			}
 		}
 	}
@@ -687,7 +795,7 @@ void init()
 		aCatEntry.posSect = kMenuPrefix;
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_HUDCategory;
-		aCatEntry.item.name = "Other HUD Elements";
+		aCatEntry.item.name = "HUD Elements";
 		aCatEntry.posSect = kHUDPrefix;
 		sState->entries.push_back(aCatEntry);
 		DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
@@ -788,6 +896,24 @@ void init()
 			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
 		// Just write defaults to [Menu.Name]/ItemSize or [HUD.Name]/Size
 		tryFetchHUDHotspot(aNewEntry, (isAMenu ? kItemSizeKey : kSizeKey), "",
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+
+		// Try read/write [Menu.Name]/Alignment
+		tryFetchHUDHotspot(aNewEntry, kAlignmentKey,
+			kMenuPrefix + aNewEntry.item.name,
+			kMenuPrefix + aNewEntry.item.name);
+		// Try read/write [HUD.Name]/Alignment
+		tryFetchHUDHotspot(aNewEntry, kAlignmentKey,
+			kHUDPrefix + aNewEntry.item.name,
+			kHUDPrefix + aNewEntry.item.name);
+		// Try read [HUD]/Alignment and write to [HUD/Menu.Name]/Alignment
+		tryFetchHUDHotspot(aNewEntry, kAlignmentKey, kDefHUDPrefx,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Try read [Menu]/Alignment and write to [HUD/Menu.Name]/Alignment
+		tryFetchHUDHotspot(aNewEntry, kAlignmentKey, kDefMenuPrefix,
+			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Just write to [HUD/Menu.Name]/Alignment w/ default settings
+		tryFetchHUDHotspot(aNewEntry, kAlignmentKey, "",
 			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
 
 		sState->entries.push_back(aNewEntry);

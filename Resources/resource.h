@@ -28,6 +28,7 @@
 #define IDD_DIALOG_LAYOUT_SELECT        124
 #define IDD_DIALOG_LAYOUT_XY_TOOLBAR    125
 #define IDD_DIALOG_LAYOUT_XYWH_TOOLBAR  126
+#define IDD_DIALOG_LAYOUT_ALIGN_TOOLBAR 127
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_LIST_ITEMS                  1002
 #define IDC_TREE_ITEMS                  1003
@@ -36,15 +37,17 @@
 #define IDC_STATIC_Y                    1006
 #define IDC_STATIC_W                    1007
 #define IDC_STATIC_H                    1008
-#define IDC_EDIT_PROFILE_NAME           1009
-#define IDC_EDIT_TARGET_PARAMS          1010
-#define IDC_EDIT_LICENSE_TEXT           1011
-#define IDC_EDIT_COMMAND                1012
-#define IDC_EDIT_X                      1013
-#define IDC_EDIT_Y                      1014
-#define IDC_EDIT_W                      1015
-#define IDC_EDIT_H                      1016
-#define IDC_BUTTON_EDIT                 1017
+#define IDC_STATIC_ALIGNMENT            1009
+#define IDC_EDIT_PROFILE_NAME           1010
+#define IDC_EDIT_TARGET_PARAMS          1011
+#define IDC_EDIT_LICENSE_TEXT           1012
+#define IDC_EDIT_COMMAND                1013
+#define IDC_EDIT_X                      1014
+#define IDC_EDIT_Y                      1015
+#define IDC_EDIT_W                      1016
+#define IDC_EDIT_H                      1017
+#define IDC_BUTTON_EDIT                 1018
+#define IDC_COMBO_ALIGN                 1019
 #define ID_FILE_PROFILE                 40001
 #define ID_FILE_EXIT                    40002
 #define ID_EDIT_UILAYOUT                40003
@@ -54,9 +57,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        126
+#define _APS_NEXT_RESOURCE_VALUE        128
 #define _APS_NEXT_COMMAND_VALUE         40005
-#define _APS_NEXT_CONTROL_VALUE         1018
+#define _APS_NEXT_CONTROL_VALUE         1020
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
