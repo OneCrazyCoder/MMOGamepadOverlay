@@ -68,7 +68,11 @@ struct LayoutEntry
 	} shape;
 
 	std::string posSect, posProp, sizeSect, sizeProp;
-	u16 rangeCount;
+	union
+	{
+		u16 rangeCount;
+		u16 hudElementID;
+	};
 };
 
 
@@ -216,6 +220,10 @@ static void applyNewPosition()
 		break;
 	case LayoutEntry::eType_CopyIcon:
 		HUD::reloadCopyIconLabel(anEntry.item.name);
+		break;
+	case LayoutEntry::eType_Menu:
+	case LayoutEntry::eType_HUD:
+		HUD::reloadElementShape(anEntry.hudElementID);
 		break;
 	}
 }
@@ -679,7 +687,7 @@ void init()
 		aCatEntry.posSect = kMenuPrefix;
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_HUDCategory;
-		aCatEntry.item.name = "HUD Elements";
+		aCatEntry.item.name = "Other HUD Elements";
 		aCatEntry.posSect = kHUDPrefix;
 		sState->entries.push_back(aCatEntry);
 		DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
@@ -704,7 +712,7 @@ void init()
 	{
 		LayoutEntry aNewEntry;
 		aNewEntry.item.isRootCategory = false;
-		aNewEntry.rangeCount = 0;
+		aNewEntry.hudElementID = i;
 		aNewEntry.item.name = InputMap::hudElementKeyName(i);
 		const bool isAMenu = InputMap::hudElementIsAMenu(i);
 		aNewEntry.type = isAMenu
@@ -734,33 +742,49 @@ void init()
 		tryFetchHUDHotspot(aNewEntry, kPositionKey, "",
 			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
 
-		// Try read/write [Menu.Name]/Size
-		tryFetchHUDHotspot(aNewEntry, kSizeKey,
-			kMenuPrefix + aNewEntry.item.name,
-			kMenuPrefix + aNewEntry.item.name);
-		// Try read/write [Menu.Name]/ItemSize
-		tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
-			kMenuPrefix + aNewEntry.item.name,
-			kMenuPrefix + aNewEntry.item.name);
-		// Try read/write [HUD.Name]/Size
-		tryFetchHUDHotspot(aNewEntry, kSizeKey,
-			kHUDPrefix + aNewEntry.item.name,
-			kHUDPrefix + aNewEntry.item.name);
-		// Try read/write [HUD.Name]/ItemSize
-		tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
-			kHUDPrefix + aNewEntry.item.name,
-			kHUDPrefix + aNewEntry.item.name);
+		if( isAMenu )
+		{
+			// Try read/write [Menu.Name]/ItemSize
+			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
+				kMenuPrefix + aNewEntry.item.name,
+				kMenuPrefix + aNewEntry.item.name);
+			// Try read/write [HUD.Name]/ItemSize
+			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
+				kHUDPrefix + aNewEntry.item.name,
+				kHUDPrefix + aNewEntry.item.name);
+			// Try read/write [Menu.Name]/Size
+			tryFetchHUDHotspot(aNewEntry, kSizeKey,
+				kMenuPrefix + aNewEntry.item.name,
+				kMenuPrefix + aNewEntry.item.name);
+			// Try read/write [HUD.Name]/Size
+			tryFetchHUDHotspot(aNewEntry, kSizeKey,
+				kHUDPrefix + aNewEntry.item.name,
+				kHUDPrefix + aNewEntry.item.name);
+		}
+		else
+		{
+			// Try read/write [HUD.Name]/Size
+			tryFetchHUDHotspot(aNewEntry, kSizeKey,
+				kHUDPrefix + aNewEntry.item.name,
+				kHUDPrefix + aNewEntry.item.name);
+			// Try read/write [Menu.Name]/Size
+			tryFetchHUDHotspot(aNewEntry, kSizeKey,
+				kMenuPrefix + aNewEntry.item.name,
+				kMenuPrefix + aNewEntry.item.name);
+			// Try read/write [HUD.Name]/ItemSize
+			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
+				kHUDPrefix + aNewEntry.item.name,
+				kHUDPrefix + aNewEntry.item.name);
+			// Try read/write [Menu.Name]/ItemSize
+			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
+				kMenuPrefix + aNewEntry.item.name,
+				kMenuPrefix + aNewEntry.item.name);
+		}
 		// Try read [HUD]/ItemSize and write to [HUD/Menu.Name]/ItemSize
 		tryFetchHUDHotspot(aNewEntry, kItemSizeKey, kDefHUDPrefx,
 			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Try read [HUD]/Size and write to [HUD/Menu.Name]/Size
-		tryFetchHUDHotspot(aNewEntry, kSizeKey, kDefHUDPrefx,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
 		// Try read [Menu]/ItemSize and write to [HUD/Menu.Name]/ItemSize
 		tryFetchHUDHotspot(aNewEntry, kItemSizeKey, kDefMenuPrefix,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Try read [Menu]/Size and write to [HUD/Menu.Name]/Size
-		tryFetchHUDHotspot(aNewEntry, kSizeKey, kDefMenuPrefix,
 			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
 		// Just write defaults to [Menu.Name]/ItemSize or [HUD.Name]/Size
 		tryFetchHUDHotspot(aNewEntry, (isAMenu ? kItemSizeKey : kSizeKey), "",
