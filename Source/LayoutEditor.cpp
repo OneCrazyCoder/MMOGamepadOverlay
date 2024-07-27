@@ -144,6 +144,19 @@ static EditorState* sState = null;
 // Forward declares
 static void promptForEditEntry();
 
+bool entryIncludesPosition(const LayoutEntry& theEntry)
+{
+	if( theEntry.type != LayoutEntry::eType_Menu )
+		return true;
+	switch(InputMap::hudElementType(theEntry.hudElementID))
+	{
+	case eMenuStyle_Hotspots:
+		return false;
+	}
+	return true;
+}
+
+
 bool entryIncludesSize(const LayoutEntry& theEntry)
 {
 	switch(theEntry.type)
@@ -176,7 +189,18 @@ bool entryIncludesAlignment(const LayoutEntry& theEntry)
 
 bool entryIsAnOffset(const LayoutEntry& theEntry)
 {
-	return theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum;
+	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
+		return true;
+	if( theEntry.type != LayoutEntry::eType_HUD )
+		return false;
+	switch(InputMap::hudElementType(theEntry.hudElementID))
+	{
+	case eHUDType_Hotspot:
+	case eHUDType_KBArrayLast:
+	case eHUDType_KBArrayDefault:
+		return true;
+	}
+	return false;
 }
 
 
@@ -338,16 +362,28 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
-	Hotspot anEntryHSPos, anEntryHSSize;
-	std::string aStr;
-	aStr = theEntry.shape.x; HotspotMap::stringToCoord(aStr, anEntryHSPos.x);
-	aStr = theEntry.shape.y; HotspotMap::stringToCoord(aStr, anEntryHSPos.y);
-	aStr = theEntry.shape.w; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
-	aStr = theEntry.shape.h; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
-	POINT anEntryPos = WindowManager::hotspotToOverlayPos(anEntryHSPos);
-	POINT anEntrySize = WindowManager::hotspotToOverlayPos(anEntryHSSize);
-	anEntryPos.x = anEntryPos.x + anEntrySize.x / 2;
-	anEntryPos.y = anEntryPos.y + anEntrySize.y / 2;
+	POINT anEntryPos;
+	if( theEntry.type == LayoutEntry::eType_Menu ||
+		theEntry.type == LayoutEntry::eType_HUD )
+	{
+		const RECT& anEntryRect =
+			WindowManager::hudElementRect(theEntry.hudElementID);
+		anEntryPos.x = (anEntryRect.left + anEntryRect.right) / 2;
+		anEntryPos.y = (anEntryRect.top + anEntryRect.bottom) / 2;
+	}
+	else
+	{
+		Hotspot anEntryHSPos, anEntryHSSize;
+		std::string aStr;
+		aStr = theEntry.shape.x; HotspotMap::stringToCoord(aStr, anEntryHSPos.x);
+		aStr = theEntry.shape.y; HotspotMap::stringToCoord(aStr, anEntryHSPos.y);
+		aStr = theEntry.shape.w; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
+		aStr = theEntry.shape.h; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
+		anEntryPos = WindowManager::hotspotToOverlayPos(anEntryHSPos);
+		POINT anEntrySize = WindowManager::hotspotToOverlayPos(anEntryHSSize);
+		anEntryPos.x = anEntryPos.x + anEntrySize.x / 2;
+		anEntryPos.y = anEntryPos.y + anEntrySize.y / 2;
+	}
 	RECT anOverlayRect;
 	anOverlayRect = WindowManager::overlayTargetScreenRect();
 	POINT anOverlayCenter;
@@ -378,6 +414,7 @@ static void processEditControlString(HWND hDlg, int theEditControlID)
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry != 0);
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	HWND hEdit = GetDlgItem(hDlg, theEditControlID);
 	DBG_ASSERT(hEdit);
 	std::string aControlStr;
@@ -396,10 +433,18 @@ static void processEditControlString(HWND hDlg, int theEditControlID)
 	{
 		switch(theEditControlID)
 		{
-		case IDC_EDIT_X: aValidatedStr = "L"; break;
-		case IDC_EDIT_Y: aValidatedStr = "T"; break;
-		case IDC_EDIT_W: aValidatedStr = "4"; break;
-		case IDC_EDIT_H: aValidatedStr = "4"; break;
+		case IDC_EDIT_X:
+			aValidatedStr = HotspotMap::coordToString(
+				Hotspot::Coord(), formatForCoord(anEntry, IDC_EDIT_X));
+			break;
+		case IDC_EDIT_Y:
+			aValidatedStr = HotspotMap::coordToString(
+				Hotspot::Coord(), formatForCoord(anEntry, IDC_EDIT_Y));
+			break;
+		case IDC_EDIT_W:
+		case IDC_EDIT_H:
+			aValidatedStr = "4";
+			break;
 		}
 	}
 	DBG_ASSERT(!aValidatedStr.empty());
@@ -433,13 +478,16 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			 widen(anEntry.item.name)).c_str());
 		// Allow Esc to cancel even when not the active window
 		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
-		// Fill in initial values in each of the edit fields
-		SetWindowText(
-			GetDlgItem(theDialog, IDC_EDIT_X),
-			widen(anEntry.shape.x).c_str());
-		SetWindowText(
-			GetDlgItem(theDialog, IDC_EDIT_Y),
-			widen(anEntry.shape.y).c_str());
+		// Populate controls with initial values from active entry
+		if( entryIncludesPosition(anEntry) )
+		{
+			SetWindowText(
+				GetDlgItem(theDialog, IDC_EDIT_X),
+				widen(anEntry.shape.x).c_str());
+			SetWindowText(
+				GetDlgItem(theDialog, IDC_EDIT_Y),
+				widen(anEntry.shape.y).c_str());
+		}
 		if( entryIncludesSize(anEntry) )
 		{
 			SetWindowText(
@@ -449,7 +497,6 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				GetDlgItem(theDialog, IDC_EDIT_H),
 				widen(anEntry.shape.h).c_str());
 		}
-		// Populate alignment droplist
 		if( entryIncludesAlignment(anEntry) )
 		{
 			HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
@@ -560,7 +607,9 @@ static void promptForEditEntry()
 			layoutEditorWindowProc, layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
 			entryIncludesAlignment(sState->entries[sState->activeEntry])
-				? IDD_DIALOG_LAYOUT_ALIGN_TOOLBAR
+				? entryIncludesPosition(sState->entries[sState->activeEntry])
+					? IDD_DIALOG_LAYOUT_XYWHA_TOOLBAR
+					: IDD_DIALOG_LAYOUT_WHA_TOOLBAR
 				: entryIncludesSize(sState->entries[sState->activeEntry])
 					? IDD_DIALOG_LAYOUT_XYWH_TOOLBAR
 					: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
@@ -707,8 +756,10 @@ static void tryFetchHUDHotspot(
 		*aDestSectStr = theWriteSect;
 		if( isPosition )
 		{
-			theEntry.shape.x = "L";
-			theEntry.shape.y = "T";
+			theEntry.shape.x = HotspotMap::coordToString(
+				Hotspot::Coord(), formatForCoord(theEntry, IDC_EDIT_X));
+			theEntry.shape.y = HotspotMap::coordToString(
+				Hotspot::Coord(), formatForCoord(theEntry, IDC_EDIT_Y));
 		}
 		else if( isSize )
 		{
@@ -718,7 +769,10 @@ static void tryFetchHUDHotspot(
 		}
 		else// if( isAlignment )
 		{
-			theEntry.shape.alignment = eAlignment_L_T;
+			theEntry.shape.alignment =
+				entryIncludesPosition(theEntry)
+					? eAlignment_L_T
+					: eAlignment_CX_CY;
 		}
 	}
 	else
@@ -832,23 +886,20 @@ void init()
 		if( aNewEntry.item.name.empty() )
 			continue;
 
-		// Try read/write [Menu.Name]/Position
-		tryFetchHUDHotspot(aNewEntry, kPositionKey,
-			kMenuPrefix + aNewEntry.item.name,
-			kMenuPrefix + aNewEntry.item.name);
-		// Try read/write [HUD.Name]/Position
-		tryFetchHUDHotspot(aNewEntry, kPositionKey,
-			kHUDPrefix + aNewEntry.item.name,
-			kHUDPrefix + aNewEntry.item.name);
-		// Try read [HUD]/Position and write to [HUD/Menu.Name]/Position
-		tryFetchHUDHotspot(aNewEntry, kPositionKey, kDefHUDPrefx,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Try read [Menu]/Position and write to [HUD/Menu.Name]/Position
-		tryFetchHUDHotspot(aNewEntry, kPositionKey, kDefMenuPrefix,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Just write to [HUD/Menu.Name]/Position w/ default settings
-		tryFetchHUDHotspot(aNewEntry, kPositionKey, "",
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		if( entryIncludesPosition(aNewEntry ) )
+		{
+			// Try read/write [Menu.Name]/Position
+			tryFetchHUDHotspot(aNewEntry, kPositionKey,
+				kMenuPrefix + aNewEntry.item.name,
+				kMenuPrefix + aNewEntry.item.name);
+			// Try read/write [HUD.Name]/Position
+			tryFetchHUDHotspot(aNewEntry, kPositionKey,
+				kHUDPrefix + aNewEntry.item.name,
+				kHUDPrefix + aNewEntry.item.name);
+			// Just write to [HUD/Menu.Name]/Position w/ default settings
+			tryFetchHUDHotspot(aNewEntry, kPositionKey, "",
+				(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		}
 
 		if( isAMenu )
 		{

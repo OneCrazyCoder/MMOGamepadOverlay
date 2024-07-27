@@ -1328,4 +1328,22 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 	return overlayPosToHotspot(aPos);
 }
 
+
+RECT hudElementRect(u16 theHUDElementID)
+{
+	OverlayWindow& aWindow = sOverlayWindows[theHUDElementID];
+	if( !aWindow.layoutUpdated || gReshapeHUD.test(theHUDElementID) )
+	{
+		HUD::updateWindowLayout(theHUDElementID, sTargetSize,
+			aWindow.components, aWindow.position, aWindow.size);
+	}
+
+	RECT result;
+	result.left = aWindow.position.x - sScreenTargetRect.left;
+	result.top = aWindow.position.y - sScreenTargetRect.top;
+	result.right = result.left + aWindow.size.cx;
+	result.bottom = result.top + aWindow.size.cy;
+	return result;
+}
+
 } // WindowManager
