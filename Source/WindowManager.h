@@ -100,5 +100,7 @@ POINT overlayPosToNormalizedMousePos(POINT theMousePos);
 POINT normalizedMouseToOverlayPos(POINT theSentMousePos);
 // Calculates center-point pos of a menu item as a hotspot
 Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
+// Returns overlay-window-relative RECT of given HUD element
+RECT hudElementRect(u16 theHUDElementID);
 
 } // WindowManager

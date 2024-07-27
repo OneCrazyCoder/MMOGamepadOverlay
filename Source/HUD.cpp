@@ -1835,10 +1835,19 @@ static void updateHotspotsMenuLayout(
 	{
 		const POINT& anItemPos = hotspotToPoint(
 			InputMap::getHotspot(i), theTargetSize);
+
 		RECT anItemRect;
-		anItemRect.left = anItemPos.x - aCompHalfSize.cx;
-		anItemRect.top = anItemPos.y - aCompHalfSize.cy;
+		anItemRect.left = anItemPos.x;
+		if( hi.alignmentX == eAlignment_Center )
+			anItemRect.left -= aCompHalfSize.cx;
+		else if( hi.alignmentX == eAlignment_Max )
+			anItemRect.left -= aCompSize.cx - 1;
 		anItemRect.right = anItemRect.left + aCompSize.cx;
+		anItemRect.top = anItemPos.y;
+		if( hi.alignmentY == eAlignment_Center )
+			anItemRect.top -= aCompHalfSize.cy;
+		else if( hi.alignmentY == eAlignment_Max )
+			anItemRect.top -= aCompSize.cy - 1;
 		anItemRect.bottom = anItemRect.top + aCompSize.cy;
 		theComponents.push_back(anItemRect);
 		aWinRect.left = min(aWinRect.left, anItemRect.left);
@@ -1869,6 +1878,44 @@ static void updateHotspotsMenuLayout(
 		itr->right -= theWindowPos.x;
 		itr->bottom -= theWindowPos.y;
 	}
+}
+
+
+void loadHUDElementShape(
+	HUDElementInfo& hi,
+	const std::string& theHUDName,
+	bool isAMenu)
+{
+	// hi.position = eHUDProp_Position
+	hi.position = strToHotspot(
+		getNamedHUDPropStr(theHUDName, eHUDProp_Position),
+		theHUDName, eHUDProp_Position);
+	// hi.itemSize = eHUDProp_ItemSize (Menus) or eHUDProp_Size (HUD)
+	std::string aStr;
+	if( isAMenu )
+		aStr = getNamedHUDPropStr(theHUDName, eHUDProp_ItemSize);
+	else
+		aStr = getNamedHUDPropStr(theHUDName, eHUDProp_Size);
+	if( aStr.empty() && isAMenu )
+		aStr = getNamedHUDPropStr(theHUDName, eHUDProp_Size);
+	if( aStr.empty() )
+		aStr = getHUDPropStr(theHUDName, eHUDProp_ItemSize);
+	hi.itemSize = strToHotspot(aStr, theHUDName, eHUDProp_ItemSize);
+	// hi.alignmentX/Y = eHUDProp_Alignment
+	aStr = getNamedHUDPropStr(theHUDName, eHUDProp_Alignment);
+	Hotspot aTempHotspot;
+	if( hi.type == eMenuStyle_Hotspots )
+		aTempHotspot.x.anchor = aTempHotspot.y.anchor = 0x8000;
+	if( !aStr.empty() )
+		aTempHotspot = strToHotspot(aStr, theHUDName, eHUDProp_Alignment);
+	hi.alignmentX =
+		aTempHotspot.x.anchor < 0x4000	? eAlignment_Min :
+		aTempHotspot.x.anchor > 0xC000	? eAlignment_Max :
+		/*otherwise*/					  eAlignment_Center;
+	hi.alignmentY =
+		aTempHotspot.y.anchor < 0x4000	? eAlignment_Min :
+		aTempHotspot.y.anchor > 0xC000	? eAlignment_Max :
+		/*otherwise*/					  eAlignment_Center;
 }
 
 
@@ -1969,34 +2016,9 @@ void init()
 				hi.itemType = eHUDItemType_Rect;
 			}
 		}
-		// hi.position = eHUDProp_Position
-		hi.position = strToHotspot(
-			getHUDPropStr(aHUDName, eHUDProp_Position),
-			aHUDName, eHUDProp_Position);
-		// hi.itemSize = eHUDProp_ItemSize (Menus) or eHUDProp_Size (HUD)
 		const bool isAMenu =
 			hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
-		if( isAMenu )
-			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_ItemSize);
-		else
-			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
-		if( aStr.empty() && isAMenu )
-			aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
-		if( aStr.empty() )
-			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
-		hi.itemSize = strToHotspot(aStr, aHUDName, eHUDProp_ItemSize);
-		// hi.alignmentX/Y = eHUDProp_Alignment
-		Hotspot aTempHotspot = strToHotspot(
-			getHUDPropStr(aHUDName, eHUDProp_Alignment),
-			aHUDName, eHUDProp_Alignment);
-		hi.alignmentX =
-			aTempHotspot.x.anchor < 0x4000	? eAlignment_Min :
-			aTempHotspot.x.anchor > 0xC000	? eAlignment_Max :
-			/*otherwise*/					  eAlignment_Center;
-		hi.alignmentY =
-			aTempHotspot.y.anchor < 0x4000	? eAlignment_Min :
-			aTempHotspot.y.anchor > 0xC000	? eAlignment_Max :
-			/*otherwise*/					  eAlignment_Center;
+		loadHUDElementShape(hi, aHUDName, isAMenu);
 		// hi.transColor = eHUDProp_TransColor
 		hi.transColor = strToRGB(aHUDBuilder,
 			getHUDPropStr(aHUDName, eHUDProp_TransColor));
@@ -2442,36 +2464,11 @@ void reloadCopyIconLabel(const std::string& theCopyIconLabel)
 void reloadElementShape(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
-	HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
-
-	const std::string& aHUDName =
-		InputMap::hudElementKeyName(theHUDElementID);
-	std::string aStr;
-	hi.position = strToHotspot(
-		getHUDPropStr(aHUDName, eHUDProp_Position),
-		aHUDName, eHUDProp_Position);
-	const bool isAMenu =
-		hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
-	if( isAMenu )
-		aStr = getNamedHUDPropStr(aHUDName, eHUDProp_ItemSize);
-	else
-		aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
-	if( aStr.empty() && isAMenu )
-		aStr = getNamedHUDPropStr(aHUDName, eHUDProp_Size);
-	if( aStr.empty() )
-		aStr = getHUDPropStr(aHUDName, eHUDProp_ItemSize);
-	hi.itemSize = strToHotspot(aStr, aHUDName, eHUDProp_ItemSize);
-	Hotspot aTempHotspot = strToHotspot(
-		getHUDPropStr(aHUDName, eHUDProp_Alignment),
-		aHUDName, eHUDProp_Alignment);
-	hi.alignmentX =
-		aTempHotspot.x.anchor < 0x4000	? eAlignment_Min :
-		aTempHotspot.x.anchor > 0xC000	? eAlignment_Max :
-		/*otherwise*/					  eAlignment_Center;
-	hi.alignmentY =
-		aTempHotspot.y.anchor < 0x4000	? eAlignment_Min :
-		aTempHotspot.y.anchor > 0xC000	? eAlignment_Max :
-		/*otherwise*/					  eAlignment_Center;
+	loadHUDElementShape(
+		sHUDElementInfo[theHUDElementID],
+		InputMap::hudElementKeyName(theHUDElementID),
+		sHUDElementInfo[theHUDElementID].type >= eMenuStyle_Begin &&
+		sHUDElementInfo[theHUDElementID].type < eMenuStyle_End);
 	sMenuDrawCache[theHUDElementID].clear();
 	gReshapeHUD.set(theHUDElementID);
 }
