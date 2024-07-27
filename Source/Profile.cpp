@@ -540,12 +540,11 @@ static void setPropertyInINI(
 		eSKVState_SkipSectionLine,
 		eSKVState_FindKey,
 		eSKVState_CheckKey,
+		eSKVState_FinishKeyLine,
 		eSKVState_SkipKeyLine,
 		eSKVState_ValueLine,
 		eSKVState_Finished,
 	} aState = eSKVState_FindSection;
-	if( theSection.empty() )
-		aState = eSKVState_FindKey;
 
 	// Parse the INI file to find start and end of segment to replace
 	const std::fstream::pos_type kInvalidFilePos = -1;
@@ -554,6 +553,12 @@ static void setPropertyInINI(
 	std::fstream::pos_type anEndOfValidSection = kInvalidFilePos;
 	std::fstream::pos_type aCurrFilePos = aFile.tellg();
 	std::fstream::pos_type aLastNonWhitespace = aCurrFilePos;
+
+	if( theSection.empty() )
+	{
+		aState = eSKVState_FindKey;
+		anEndOfValidSection = 0;
+	}
 
 	while(aFile.good() && aState != eSKVState_Finished)
 	{
@@ -604,9 +609,14 @@ static void setPropertyInINI(
 					{
 						aCheckStr.resize(aCheckStr.size()-1);
 						if( aCheckStr == aCmpSection )
+						{
 							aState = eSKVState_FindKey;
+							anEndOfValidSection = aCurrFilePos;
+						}
 						else if( aCmpSection.empty() )
+						{
 							aState = eSKVState_Finished;
+						}
 					}
 					break;
 				default:
@@ -651,8 +661,8 @@ static void setPropertyInINI(
 						aState = eSKVState_ValueLine;
 					}
 					else
-					{// Not the right key, skip rest of this line
-						aState = eSKVState_SkipKeyLine;
+					{// Not the right key, but could be last key of section
+						aState = eSKVState_FinishKeyLine;
 					}
 				}
 				else if( c == '\r' || c == '\n' || c == '\0' )
@@ -665,13 +675,19 @@ static void setPropertyInINI(
 				}
 				break;
 
-			case eSKVState_SkipKeyLine:
-				// Look for end of line then resume key search
+			case eSKVState_FinishKeyLine:
+				// Continue to end of line then resume key search
 				if( c == '\r' || c == '\n' || c == '\0' )
 				{
 					aState = eSKVState_FindKey;
 					anEndOfValidSection = aCurrFilePos;
 				}
+				break;
+
+			case eSKVState_SkipKeyLine:
+				// Look for end of line then resume key search
+				if( c == '\r' || c == '\n' || c == '\0' )
+					aState = eSKVState_FindKey;
 				break;
 
 			case eSKVState_ValueLine:
@@ -697,6 +713,13 @@ static void setPropertyInINI(
 		// Found the existing key, just write new value
 		DBG_ASSERT(aReplaceEndPos != kInvalidFilePos);
 		aWriteString = std::string(" ") + trim(theValue);
+	}
+	else if( anEndOfValidSection == std::fstream::pos_type(0) )
+	{
+		// Write new entry right at start of the file
+		DBG_ASSERT(theSection.empty());
+		aReplaceStartPos = aReplaceEndPos = 0;
+		aWriteString = trim(theKey) + " = " + trim(theValue) + kEndOfLine;
 	}
 	else if( anEndOfValidSection != kInvalidFilePos )
 	{
