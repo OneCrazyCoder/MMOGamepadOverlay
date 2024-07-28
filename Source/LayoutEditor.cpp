@@ -78,8 +78,7 @@ struct LayoutEntry
 
 		eType_Hotspot,
 		eType_CopyIcon,
-		eType_Menu,
-		eType_HUD,
+		eType_HUDElement,
 
 		eType_Num,
 		eType_CategoryNum = eType_Hotspot
@@ -146,7 +145,7 @@ static void promptForEditEntry();
 
 bool entryIncludesPosition(const LayoutEntry& theEntry)
 {
-	if( theEntry.type != LayoutEntry::eType_Menu )
+	if( theEntry.type != LayoutEntry::eType_HUDElement )
 		return true;
 	switch(InputMap::hudElementType(theEntry.hudElementID))
 	{
@@ -165,8 +164,7 @@ bool entryIncludesSize(const LayoutEntry& theEntry)
 		return false;
 	case LayoutEntry::eType_CopyIcon:
 		return theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum;
-	case LayoutEntry::eType_Menu:
-	case LayoutEntry::eType_HUD:
+	case LayoutEntry::eType_HUDElement:
 		return true;
 	}
 
@@ -176,14 +174,7 @@ bool entryIncludesSize(const LayoutEntry& theEntry)
 
 bool entryIncludesAlignment(const LayoutEntry& theEntry)
 {
-	switch(theEntry.type)
-	{
-	case LayoutEntry::eType_Menu:
-	case LayoutEntry::eType_HUD:
-		return true;
-	}
-
-	return false;
+	return theEntry.type == LayoutEntry::eType_HUDElement;
 }
 
 
@@ -191,7 +182,7 @@ bool entryIsAnOffset(const LayoutEntry& theEntry)
 {
 	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
 		return true;
-	if( theEntry.type != LayoutEntry::eType_HUD )
+	if( theEntry.type != LayoutEntry::eType_HUDElement )
 		return false;
 	switch(InputMap::hudElementType(theEntry.hudElementID))
 	{
@@ -287,8 +278,7 @@ static void applyNewPosition()
 	case LayoutEntry::eType_CopyIcon:
 		HUD::reloadCopyIconLabel(anEntry.item.name);
 		break;
-	case LayoutEntry::eType_Menu:
-	case LayoutEntry::eType_HUD:
+	case LayoutEntry::eType_HUDElement:
 		HUD::reloadElementShape(anEntry.hudElementID);
 		break;
 	}
@@ -363,8 +353,7 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
 	POINT anEntryPos;
-	if( theEntry.type == LayoutEntry::eType_Menu ||
-		theEntry.type == LayoutEntry::eType_HUD )
+	if( theEntry.type == LayoutEntry::eType_HUDElement )
 	{
 		const RECT& anEntryRect =
 			WindowManager::hudElementRect(theEntry.hudElementID);
@@ -606,14 +595,16 @@ static void promptForEditEntry()
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
-			entryIncludesAlignment(sState->entries[sState->activeEntry])
-				? entryIncludesPosition(sState->entries[sState->activeEntry])
+			entryIncludesAlignment(anEntry)
+				? entryIncludesPosition(anEntry)
 					? IDD_DIALOG_LAYOUT_XYWHA_TOOLBAR
 					: IDD_DIALOG_LAYOUT_WHA_TOOLBAR
-				: entryIncludesSize(sState->entries[sState->activeEntry])
+				: entryIncludesSize(anEntry)
 					? IDD_DIALOG_LAYOUT_XYWH_TOOLBAR
 					: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
-			editLayoutToolbarProc);
+			editLayoutToolbarProc,
+			anEntry.type == LayoutEntry::eType_HUDElement
+				? anEntry.hudElementID : -1);
 	}
 	else
 	{
@@ -877,9 +868,7 @@ void init()
 		aNewEntry.hudElementID = i;
 		aNewEntry.item.name = InputMap::hudElementKeyName(i);
 		const bool isAMenu = InputMap::hudElementIsAMenu(i);
-		aNewEntry.type = isAMenu
-			? LayoutEntry::eType_Menu
-			: LayoutEntry::eType_HUD;
+		aNewEntry.type = LayoutEntry::eType_HUDElement;
 		aNewEntry.item.parentIndex = isAMenu
 			? LayoutEntry::eType_MenuCategory
 			: LayoutEntry::eType_HUDCategory;

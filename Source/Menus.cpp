@@ -310,9 +310,9 @@ const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID)
 	// Push new menu on to the stack
 	aMenuInfo.subMenuStack.push_back(SubMenuInfo(theSubMenuID));
 
-	// Need to redraw new menu items
-	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-	gRedrawHUD.set(aMenuInfo.hudElementID);
+	// Need full redraw of new menu items
+	DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
+	gFullRedrawHUD.set(aMenuInfo.hudElementID);
 
 	// Might need to reshape menu for new menu item count
 	DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
@@ -350,9 +350,9 @@ const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 	if( aMenuInfo.subMenuStack.back().id == theReplacementSubMenuID )
 		return kEmptyMenuCommand;
 
-	// Going to change menus, will need to redraw
-	DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-	gRedrawHUD.set(aMenuInfo.hudElementID);
+	// Going to change menus, will need a full redraw
+	DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
+	gFullRedrawHUD.set(aMenuInfo.hudElementID);
 
 	if( aMenuInfo.style == eMenuStyle_Slots )
 	{
@@ -416,8 +416,8 @@ const Command* closeLastSubMenu(u16 theMenuID)
 	if( aMenuInfo.subMenuStack.size() > 1 )
 	{
 		aMenuInfo.subMenuStack.pop_back();
-		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(aMenuInfo.hudElementID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
+		gFullRedrawHUD.set(aMenuInfo.hudElementID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
 		if( oldMenuItemCount != itemCount(theMenuID) )
 			gReshapeHUD.set(aMenuInfo.hudElementID);
@@ -432,8 +432,8 @@ const Command* closeLastSubMenu(u16 theMenuID)
 		aMenuInfo.subMenuStack[0].id != theMenuID )
 	{
 		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
-		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(aMenuInfo.hudElementID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
+		gFullRedrawHUD.set(aMenuInfo.hudElementID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
 		if( oldMenuItemCount != itemCount(theMenuID) )
 			gReshapeHUD.set(aMenuInfo.hudElementID);
@@ -460,8 +460,8 @@ const Command* reset(u16 theMenuID)
 	{
 		aMenuInfo.subMenuStack.clear();
 		aMenuInfo.subMenuStack.push_back(SubMenuInfo(theMenuID));
-		DBG_ASSERT(aMenuInfo.hudElementID < gRedrawHUD.size());
-		gRedrawHUD.set(aMenuInfo.hudElementID);
+		DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
+		gFullRedrawHUD.set(aMenuInfo.hudElementID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
 		if( oldMenuItemCount != itemCount(theMenuID) )
 			gReshapeHUD.set(aMenuInfo.hudElementID);

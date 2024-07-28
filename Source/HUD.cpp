@@ -153,7 +153,7 @@ struct HUDElementInfo
 	u32 flashMaxTime;
 	u32 flashStartTime;
 	u16 appearanceID[eAppearanceMode_Num];
-	union { u16 subMenuID; u16 kbArrayID; u16 hotspotID; };
+	union { u16 kbArrayID; u16 hotspotID; };
 	u16 selection;
 	u16 flashing;
 	u16 prevFlashing;
@@ -314,7 +314,6 @@ static int sSystemBorderFlashTimer = 0;
 static u32 sCopyIconUpdateRate = 100;
 static u32 sNextAutoRefreshTime = 0;
 static u16 sSystemHUDElementID = 0;
-static bool sSystemHUDNeedsErase = true;
 
 
 //-----------------------------------------------------------------------------
@@ -1569,12 +1568,13 @@ static void drawBasicMenu(HUDDrawData& dd)
 	const u16 anItemCount = u16(dd.components.size() - 1);
 	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[hi.subMenuID].resize(anItemCount + hasTitle);
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
 	{
-		drawMenuTitle(dd, hi.subMenuID, dd.components[1].top,
-			sMenuDrawCache[hi.subMenuID][0].str);
+		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
+			sMenuDrawCache[aSubMenuID][0].str);
 	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
@@ -1605,8 +1605,8 @@ static void drawBasicMenu(HUDDrawData& dd)
 			else
 			{
 				drawMenuItem(dd, dd.components[itemIdx+1], itemIdx,
-					InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-					sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
+					InputMap::menuItemLabel(aSubMenuID, itemIdx),
+					sMenuDrawCache[aSubMenuID][itemIdx + hasTitle]);
 			}
 		}
 	}
@@ -1615,8 +1615,8 @@ static void drawBasicMenu(HUDDrawData& dd)
 	if( redrawSelectedItem )
 	{
 		drawMenuItem(dd, dd.components[hi.selection+1], hi.selection,
-			InputMap::menuItemLabel(hi.subMenuID, hi.selection),
-			sMenuDrawCache[hi.subMenuID][hi.selection + hasTitle]);
+			InputMap::menuItemLabel(aSubMenuID, hi.selection),
+			sMenuDrawCache[aSubMenuID][hi.selection + hasTitle]);
 	}
 
 	hi.prevFlashing = hi.flashing;
@@ -1634,13 +1634,14 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
 	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[hi.subMenuID].resize(
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	sMenuDrawCache[aSubMenuID].resize(
 		anItemCount + hasTitle + (hi.altLabelWidth ? anItemCount : 0));
 
 	if( hasTitle && dd.firstDraw )
 	{
-		drawMenuTitle(dd, hi.subMenuID, dd.components[1].top,
-			sMenuDrawCache[hi.subMenuID][0].str);
+		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
+			sMenuDrawCache[aSubMenuID][0].str);
 	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
@@ -1653,9 +1654,9 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		 hi.forcedRedrawItemID == hi.selection) )
 	{
 		const std::string& anAltLabel =
-			InputMap::menuItemAltLabel(hi.subMenuID, hi.selection);
+			InputMap::menuItemAltLabel(aSubMenuID, hi.selection);
 		const std::string& aPrevAltLabel =
-			InputMap::menuItemAltLabel(hi.subMenuID, aPrevSelection);
+			InputMap::menuItemAltLabel(aSubMenuID, aPrevSelection);
 		if( anAltLabel.empty() && !aPrevAltLabel.empty() )
 			eraseRect(dd, dd.components.back());
 		if( !anAltLabel.empty() )
@@ -1671,7 +1672,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 				hi.selection,
 				anAltLabel,
 				sAppearances[hi.appearanceID[eAppearanceMode_Normal]],
-				sMenuDrawCache[hi.subMenuID]
+				sMenuDrawCache[aSubMenuID]
 					[anItemCount+hi.selection+hasTitle]);
 		}
 	}
@@ -1700,8 +1701,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
 				eraseRect(dd, dd.components[compIdx+1]);
 			drawMenuItem(dd, dd.components[compIdx+1], itemIdx,
-				InputMap::menuItemLabel(hi.subMenuID, itemIdx),
-				sMenuDrawCache[hi.subMenuID][itemIdx + hasTitle]);
+				InputMap::menuItemLabel(aSubMenuID, itemIdx),
+				sMenuDrawCache[aSubMenuID][itemIdx + hasTitle]);
 		}
 		if( isSelection )
 		{
@@ -1720,13 +1721,14 @@ static void draw4DirMenu(HUDDrawData& dd)
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	hi.selection = kInvalidItem;
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	sMenuDrawCache[hi.subMenuID].resize(eCmdDir_Num + hasTitle);
+	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd,
-			hi.subMenuID, dd.components[1 + eCmdDir_Up].top,
-			sMenuDrawCache[hi.subMenuID][0].str);
+			aSubMenuID, dd.components[1 + eCmdDir_Up].top,
+			sMenuDrawCache[aSubMenuID][0].str);
 	}
 
 	for(u16 itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
@@ -1740,8 +1742,8 @@ static void draw4DirMenu(HUDDrawData& dd)
 			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
 				eraseRect(dd, dd.components[itemIdx+1]);
 			drawMenuItem(dd, dd.components[itemIdx+1], itemIdx,
-				InputMap::menuDirLabel(hi.subMenuID, aDir),
-				sMenuDrawCache[hi.subMenuID][aDir + hasTitle]);
+				InputMap::menuDirLabel(aSubMenuID, aDir),
+				sMenuDrawCache[aSubMenuID][aDir + hasTitle]);
 		}
 	}
 
@@ -2190,8 +2192,7 @@ void update()
 		{
 			sErrorMessageTimer = 0;
 			sErrorMessage.clear();
-			sSystemHUDNeedsErase = true;
-			gRedrawHUD.set(sSystemHUDElementID);
+			gFullRedrawHUD.set(sSystemHUDElementID);
 		}
 	}
 	else if( !gErrorString.empty() && !hadFatalError() )
@@ -2205,8 +2206,7 @@ void update()
 			int(kNoticeStringDisplayTimePerChar *
 				sErrorMessage.size()));
 		gErrorString.clear();
-		sSystemHUDNeedsErase = true;
-		gRedrawHUD.set(sSystemHUDElementID);
+		gFullRedrawHUD.set(sSystemHUDElementID);
 	}
 
 	if( sNoticeMessageTimer > 0 )
@@ -2216,8 +2216,7 @@ void update()
 		{
 			sNoticeMessageTimer = 0;
 			sNoticeMessage.clear();
-			sSystemHUDNeedsErase = true;
-			gRedrawHUD.set(sSystemHUDElementID);
+			gFullRedrawHUD.set(sSystemHUDElementID);
 		}
 	}
 	if( !gNoticeString.empty() )
@@ -2228,8 +2227,7 @@ void update()
 			int(kNoticeStringDisplayTimePerChar *
 				sNoticeMessage.size()));
 		gNoticeString.clear();
-		sSystemHUDNeedsErase = true;
-		gRedrawHUD.set(sSystemHUDElementID);
+		gFullRedrawHUD.set(sSystemHUDElementID);
 	}
 
 	bool showSystemBorder = false;
@@ -2464,6 +2462,7 @@ void reloadCopyIconLabel(const std::string& theCopyIconLabel)
 void reloadElementShape(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	const u8 anOldAlignmentX = sHUDElementInfo[theHUDElementID].alignmentX;
 	loadHUDElementShape(
 		sHUDElementInfo[theHUDElementID],
 		InputMap::hudElementKeyName(theHUDElementID),
@@ -2471,6 +2470,9 @@ void reloadElementShape(u16 theHUDElementID)
 		sHUDElementInfo[theHUDElementID].type < eMenuStyle_End);
 	sMenuDrawCache[theHUDElementID].clear();
 	gReshapeHUD.set(theHUDElementID);
+	// Some aspects, like title bar, need full redraw with X align change
+	if( anOldAlignmentX != sHUDElementInfo[theHUDElementID].alignmentX )
+		gFullRedrawHUD.set(theHUDElementID);
 }
 
 
@@ -2497,22 +2499,6 @@ void drawElement(
 	aDrawData.firstDraw = needsInitialErase;
 	if( !sBitmapDrawSrc )
 		sBitmapDrawSrc = CreateCompatibleDC(hdc);
-
-	if( hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End )
-	{// Check for complete redraw from sub-menu change
-		u16 aNewSubMenu = Menus::activeSubMenu(
-			InputMap::menuForHUDElement(theHUDElementID));
-		if( aNewSubMenu != hi.subMenuID )
-		{
-			needsInitialErase = aDrawData.firstDraw = true;
-			hi.subMenuID = aNewSubMenu;
-		}
-	}
-	else if( hi.type == eHUDType_System && sSystemHUDNeedsErase )
-	{// Check for complete redraw from error message or hook changing
-		needsInitialErase = aDrawData.firstDraw = true;
-		sSystemHUDNeedsErase = false;
-	}
 
 	// Select the transparent color (erase) brush by default first
 	SelectObject(hdc, GetStockObject(DC_BRUSH));
@@ -2774,10 +2760,18 @@ void updateWindowLayout(
 	switch(hi.type)
 	{
 	case eMenuStyle_Slots:
-		if( hi.alignmentX == eAlignment_Max && hi.altLabelWidth )
-		{// Align components to right edge of window
-			aCompTopLeft.x = aCompBotRight.x -
-				ceil(aCompBaseSizeX + gUIScale * aCompScalingSizeX);
+		if( hi.altLabelWidth )
+		{
+			if( hi.alignmentX == eAlignment_Max )
+			{// Align components to right edge of window
+				aCompTopLeft.x = aCompBotRight.x -
+					ceil(aCompBaseSizeX + gUIScale * aCompScalingSizeX);
+			}
+			else
+			{// Restrict components to left edge of window
+				aCompBotRight.x = aCompTopLeft.x +
+					ceil(aCompBaseSizeX + gUIScale * aCompScalingSizeX);
+			}
 		}
 		// fall through
 	case eMenuStyle_List:
@@ -2845,7 +2839,8 @@ void updateWindowLayout(
 			switch(itemIdx)
 			{
 			case eCmdDir_Up:
-				anItemRect.top = hi.titleHeight * gUIScale;
+				anItemRect.top = max(aCompTopLeft.y,
+					aCompTopLeft.y + gUIScale * hi.titleHeight);
 				anItemRect.bottom =
 					aCompTopLeft.y + aCompBaseSizeY + gUIScale *
 					(hi.titleHeight + aCompScalingSizeY);
@@ -2954,8 +2949,8 @@ void flashSystemWindowBorder()
 void setSystemOverlayDrawHook(SystemPaintFunc theFunc)
 {
 	sSystemOverlayPaintFunc = theFunc;
-	if( sSystemHUDElementID < gRedrawHUD.size() )
-		gRedrawHUD.set(sSystemHUDElementID);
+	if( sSystemHUDElementID < gFullRedrawHUD.size() )
+		gFullRedrawHUD.set(sSystemHUDElementID);
 }
 
 
