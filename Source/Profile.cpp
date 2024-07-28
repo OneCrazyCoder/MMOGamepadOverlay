@@ -1545,6 +1545,8 @@ retryQuery:
 			aLoadableProfileIndices[aDialogResult.selectedIndex];
 		setAutoLoadProfile(
 			aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
+		if( aDialogResult.autoLoadRequested )
+			sAutoProfileIdx = aProfileCanLoadIdx;
 		if( aDialogResult.editProfileRequested )
 		{
 			userEditProfile(aProfileCanLoadIdx, false);

@@ -75,8 +75,9 @@ void readUIScale();
 void showTargetWindowFound();
 
 // Creates a floating toolbar window placed on top of the overlays
+// Can also specify a HUD element window to keep visible alognside it.
 // Only one of these can be active at a time!
-HWND createToolbarWindow(int theResID, DLGPROC theProc, LPARAM theParam = 0);
+HWND createToolbarWindow(int theResID, DLGPROC, int theHUDElementID = -1);
 void destroyToolbarWindow();
 
 // Adds callback functions for drawing and getting messages for the System

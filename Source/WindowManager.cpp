@@ -68,7 +68,7 @@ struct OverlayWindow
 	EFadeState fadeState;
 	u8 alpha;
 	bool hideUntilActivated;
-	bool bitmapUpdated;
+	bool windowUpdated;
 	bool layoutUpdated;
 };
 
@@ -106,6 +106,7 @@ static RECT sDesktopTargetRect; // relative to virtual desktop
 static RECT sScreenTargetRect; // relative to main screen
 static SIZE sTargetSize = { 0 };
 static WNDPROC sSystemOverlayProc = NULL;
+static int sToolbarWindowHUDElementID = -1;
 static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sMainWindowPosInit = false;
 static bool sUseChildWindows = false;
@@ -595,10 +596,18 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		}
 	} while(oldState != theWindow.fadeState && allowReCheck);
 
+	if( sToolbarWindowHUDElementID == id )
+	{
+		theWindow.fadeState = eFadeState_MaxAlpha;
+		theWindow.fadeValue = 0;
+		theWindow.hideUntilActivated = false;
+		aNewAlpha = aMaxAlpha;
+	}
+
 	if( aNewAlpha != theWindow.alpha )
 	{
 		theWindow.alpha = aNewAlpha;
-		theWindow.bitmapUpdated = false;
+		theWindow.windowUpdated = false;
 	}
 }
 
@@ -754,6 +763,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 			aWindow.components, aWindow.position, aWindow.size);
 		aWindow.layoutUpdated = true;
+		aWindow.windowUpdated = false;
+		gReshapeHUD.reset(aHUDElementID);
 
 		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
@@ -836,11 +847,20 @@ void update()
 		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
+		// Check for flag that need to update layout
+		if( gReshapeHUD.test(aHUDElementID) )
+		{
+			aWindow.layoutUpdated = false;
+			gReshapeHUD.reset(aHUDElementID);
+		}
+
 		// Update alpha fade effects based on gVisibleHUD & gActiveHUD
 		updateAlphaFades(aWindow, aHUDElementID);
 
 		// Check visibility status so can mostly ignore hidden windows
 		if( sHidden || aWindow.alpha == 0 ||
+			(aWindow.layoutUpdated && aWindow.size.cx <= 0) ||
+			(aWindow.layoutUpdated && aWindow.size.cy <= 0) ||
 			(aWindow.hideUntilActivated && !gActiveHUD.test(aHUDElementID)) )
 		{
 			if( IsWindowVisible(aWindow.handle) )
@@ -858,18 +878,12 @@ void update()
 		aWindow.hideUntilActivated = false;
 
 		// Check for possible update to window layout
-		if( !aWindow.layoutUpdated || gReshapeHUD.test(aHUDElementID) )
+		if( !aWindow.layoutUpdated )
 		{
 			HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 				aWindow.components, aWindow.position, aWindow.size);
-			if( aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
-			{
-				gActiveHUD.reset(aHUDElementID);
-				continue;
-			}
 			aWindow.layoutUpdated = true;
-			aWindow.bitmapUpdated = false;
-			gReshapeHUD.reset(aHUDElementID);
+			aWindow.windowUpdated = false;
 		}
 
 		// Delete bitmap if bitmap size doesn't match window size
@@ -881,10 +895,19 @@ void update()
 			aWindow.bitmap = NULL;
 		}
 
-		// Create bitmap if doesn't exist
-		const bool needToEraseBitmap = !aWindow.bitmap;
-		if( needToEraseBitmap )
+		// Don't create bitmap for a 0-sized window (likely off screen edge)
+		if( aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
 		{
+			aWindow.size.cx = aWindow.size.cy = 0;
+			ShowWindow(aWindow.handle, SW_HIDE);
+			gActiveHUD.reset(aHUDElementID);
+			continue;
+		}
+
+		// Create bitmap if doesn't exist
+		if( !aWindow.bitmap )
+		{
+			gFullRedrawHUD.set(aHUDElementID);
 			aWindow.bitmapSize = aWindow.size;
 			aWindow.bitmap = CreateCompatibleBitmap(
 				aScreenDC, aWindow.size.cx, aWindow.size.cy);
@@ -893,7 +916,6 @@ void update()
 				logFatalError("Could not create bitmap for overlay!");
 				continue;
 			}
-			gRedrawHUD.set(aHUDElementID);
 		}
 
 		// Redraw bitmap contents if needed
@@ -905,17 +927,20 @@ void update()
 			continue;
 		}
 		SelectObject(aWindowDC, aWindow.bitmap);
-		if( gRedrawHUD.test(aHUDElementID) )
+		if( gRedrawHUD.test(aHUDElementID) ||
+			gFullRedrawHUD.test(aHUDElementID) )
 		{
 			HUD::drawElement(
 				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
-				aHUDElementID, aWindow.components, needToEraseBitmap);
-			aWindow.bitmapUpdated = false;
+				aHUDElementID, aWindow.components,
+				gFullRedrawHUD.test(aHUDElementID));
+			aWindow.windowUpdated = false;
 			gRedrawHUD.reset(aHUDElementID);
+			gFullRedrawHUD.reset(aHUDElementID);
 		}
 
 		// Update window
-		if( !aWindow.bitmapUpdated )
+		if( !aWindow.windowUpdated )
 		{
 			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
 			POINT aWindowScreenPos;
@@ -926,7 +951,7 @@ void update()
 				aWindowDC, &anOriginPoint,
 				HUD::transColor(aHUDElementID),
 				&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
-			aWindow.bitmapUpdated = true;
+			aWindow.windowUpdated = true;
 		}
 		gActiveHUD.reset(aHUDElementID);
 
@@ -1165,16 +1190,15 @@ void showTargetWindowFound()
 }
 
 
-HWND createToolbarWindow(int theResID, DLGPROC theProc, LPARAM theParam)
+HWND createToolbarWindow(int theResID, DLGPROC theProc, int theHUDElementID)
 {
 	destroyToolbarWindow();
 	sToolbarDialogProc = theProc;
 	sToolbarWindow = CreateDialogParam(
 		GetModuleHandle(NULL),
 		MAKEINTRESOURCE(theResID),
-		NULL,
-		toolbarWindowProc,
-		theParam);
+		NULL, toolbarWindowProc, 0);
+	sToolbarWindowHUDElementID = theHUDElementID;
 	setMainWindowEnabled(false);
 	return sToolbarWindow;
 }
@@ -1187,6 +1211,7 @@ void destroyToolbarWindow()
 	DestroyWindow(sToolbarWindow);
 	sToolbarWindow = NULL;
 	sToolbarDialogProc = NULL;
+	sToolbarWindowHUDElementID = -1;
 }
 
 
@@ -1314,6 +1339,9 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 	{
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 			aWindow.components, aWindow.position, aWindow.size);
+		aWindow.layoutUpdated = true;
+		aWindow.windowUpdated = false;
+		gReshapeHUD.reset(aHUDElementID);
 	}
 	POINT aPos;
 	aPos.x = aWindow.components[aCompIndex].left;
@@ -1336,6 +1364,9 @@ RECT hudElementRect(u16 theHUDElementID)
 	{
 		HUD::updateWindowLayout(theHUDElementID, sTargetSize,
 			aWindow.components, aWindow.position, aWindow.size);
+		aWindow.layoutUpdated = true;
+		aWindow.windowUpdated = false;
+		gReshapeHUD.reset(theHUDElementID);
 	}
 
 	RECT result;

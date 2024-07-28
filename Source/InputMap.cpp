@@ -3438,6 +3438,7 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 	// Can now also set size of global sizes related to HUD elements
 	gVisibleHUD.clearAndResize(sHUDElements.size());
 	gRedrawHUD.clearAndResize(sHUDElements.size());
+	gFullRedrawHUD.clearAndResize(sHUDElements.size());
 	gReshapeHUD.clearAndResize(sHUDElements.size());
 	gActiveHUD.clearAndResize(sHUDElements.size());
 	gDisabledHUD.clearAndResize(sHUDElements.size());
