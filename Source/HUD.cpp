@@ -1786,7 +1786,6 @@ static void drawSystemHUD(HUDDrawData& dd)
 	if( sSystemOverlayPaintFunc )
 	{
 		COLORREF oldColor = SetDCBrushColor(dd.hdc, hi.transColor);
-		HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 		sSystemOverlayPaintFunc(dd.hdc, dd.components[0], dd.firstDraw);
 		SetDCBrushColor(dd.hdc, oldColor);
 	}
@@ -2951,6 +2950,21 @@ void setSystemOverlayDrawHook(SystemPaintFunc theFunc)
 	sSystemOverlayPaintFunc = theFunc;
 	if( sSystemHUDElementID < gFullRedrawHUD.size() )
 		gFullRedrawHUD.set(sSystemHUDElementID);
+}
+
+
+void redrawSystemOverlay(bool fullRedraw)
+{
+	if( fullRedraw )
+	{
+		if( sSystemHUDElementID < gFullRedrawHUD.size() )
+			gFullRedrawHUD.set(sSystemHUDElementID);
+	}
+	else
+	{
+		if( sSystemHUDElementID < gRedrawHUD.size() )
+			gRedrawHUD.set(sSystemHUDElementID);
+	}
 }
 
 

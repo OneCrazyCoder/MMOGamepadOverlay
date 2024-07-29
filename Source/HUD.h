@@ -61,6 +61,8 @@ void flashSystemWindowBorder();
 // Sets a draw hook for eHUDType_System and (keeps it visible if != NULL)
 typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
 void setSystemOverlayDrawHook(SystemPaintFunc);
+// Requests redraw eHUDType_System element
+void redrawSystemOverlay(bool fullRedraw = false);
 
 // Get alpha fade in/out information
 u8 maxAlpha(u16 theHUDElementID);
