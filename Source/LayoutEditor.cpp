@@ -22,6 +22,12 @@ namespace LayoutEditor
 // Const Data
 //-----------------------------------------------------------------------------
 
+enum {
+kActiveHotspotDrawSize = 5,
+kChildHotspotDrawSize = 3,
+};
+
+
 const char* kHotspotsPrefix = "Hotspots";
 const char* kIconsPrefix = "Icons";
 const char* kMenuPrefix = "Menu.";
@@ -102,11 +108,22 @@ struct LayoutEntry
 	} shape;
 
 	std::string posSect, sizeSect, alignSect, propName;
-	union
+	std::vector<size_t> children;
+	Hotspot drawHotspot;
+	s16 drawOffX, drawOffY;
+	u16 hudElementID;
+	u16 rangeCount;
+
+	LayoutEntry() :
+		type(eType_Num),
+		drawOffX(),
+		drawOffY(),
+		hudElementID(),
+		rangeCount()
 	{
-		u16 rangeCount;
-		u16 hudElementID;
-	};
+		item.parentIndex = 0;
+		item.isRootCategory = false;
+	}
 };
 
 
@@ -116,10 +133,11 @@ struct EditorState
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
 	StringToValueMap<u16> hotspotNameMapCache;
 	StringToValueMap<u16> hotspotArrayNameMapCache;
-	size_t activeEntry;
 	LayoutEntry::Shape entered, applied;
+	size_t activeEntry;
+	bool needsDrawPosUpdate;
 
-	EditorState() : activeEntry() {}
+	EditorState() : activeEntry(), needsDrawPosUpdate(true) {}
 };
 
 
@@ -299,7 +317,8 @@ static void cancelRepositioning()
 		applyNewPosition();
 		Profile::saveChangesToFile();
 	}
-	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+	//WindowManager::setSystemOverlayCallbacks(NULL, NULL);
+	HUD::setSystemOverlayDrawHook(NULL);
 	WindowManager::destroyToolbarWindow();
 }
 
@@ -448,6 +467,9 @@ static void processEditControlString(HWND hDlg, int theEditControlID)
 	case IDC_EDIT_W: sState->entered.w = aValidatedStr; break;
 	case IDC_EDIT_H: sState->entered.h = aValidatedStr; break;
 	}
+	sState->needsDrawPosUpdate = true;
+	HUD::redrawSystemOverlay();
+
 	applyNewPosition();
 }
 
@@ -574,9 +596,207 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 }
 
 
-static void layoutEditorPaintFunc(
-	HDC hdc, const RECT& theDrawRect, bool firstDraw)
+static void updateDrawHotspot(
+	LayoutEntry& theEntry,
+	const LayoutEntry::Shape& theShape,
+	bool updateParentIfNeeded = true,
+	bool updateChildren = true)
 {
+	std::string aHotspotStr = theShape.x + ", " + theShape.y;
+	HotspotMap::stringToHotspot(aHotspotStr, theEntry.drawHotspot);
+	theEntry.drawOffX = theEntry.drawOffY = 0;
+	if( theEntry.rangeCount > 1 )
+	{
+		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
+		theEntry.drawOffY = theEntry.drawHotspot.y.offset;
+	}
+	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
+	{
+		LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
+		DBG_ASSERT(aParent.type == theEntry.type);
+		if( updateParentIfNeeded )
+			updateDrawHotspot(aParent, aParent.shape, true, false);
+		Hotspot anAnchor = aParent.drawHotspot;
+		if( aParent.rangeCount > 1 )
+		{
+			anAnchor.x.offset += aParent.drawOffX * (aParent.rangeCount-1);
+			anAnchor.y.offset += aParent.drawOffY * (aParent.rangeCount-1);
+		}
+		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
+		{
+			theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
+			theEntry.drawHotspot.x.offset += anAnchor.x.offset;
+		}
+		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
+		{
+			theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
+			theEntry.drawHotspot.y.offset += anAnchor.y.offset;
+		}
+	}
+	if( updateChildren )
+	{
+		for(size_t i = 0; i < theEntry.children.size(); ++i )
+		{
+			LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
+			updateDrawHotspot(aChildEntry, aChildEntry.shape, false, true);
+		}
+	}
+}
+
+
+static void drawHotspot(
+	HDC hdc,
+	POINT theCenterPoint,
+	int theExtents,
+	const RECT& theWindowRect,
+	COLORREF theDotColor,
+	bool isActiveHotspot)
+{
+	theCenterPoint.x -= theWindowRect.left;
+	theCenterPoint.y -= theWindowRect.top;
+	if( isActiveHotspot )
+	{
+		Rectangle(hdc,
+			theCenterPoint.x - theExtents * 3,
+			theCenterPoint.y - 1,
+			theCenterPoint.x + theExtents * 3 + 1,
+			theCenterPoint.y + 2);		
+		Rectangle(hdc,
+			theCenterPoint.x - 1,
+			theCenterPoint.y - theExtents * 3,
+			theCenterPoint.x + 2,
+			theCenterPoint.y + theExtents * 3 + 1);
+	}
+	Rectangle(hdc,
+		theCenterPoint.x - theExtents,
+		theCenterPoint.y - theExtents,
+		theCenterPoint.x + theExtents + 1,
+		theCenterPoint.y + theExtents + 1);
+	if( isActiveHotspot )
+	{
+		RECT aCenterDot;
+		const int aDotExtents = 1;
+		aCenterDot.left = theCenterPoint.x - aDotExtents;
+		aCenterDot.top = theCenterPoint.y - aDotExtents;
+		aCenterDot.right = theCenterPoint.x + aDotExtents + 1;
+		aCenterDot.bottom = theCenterPoint.y + aDotExtents + 1;
+		COLORREF oldColor = SetDCBrushColor(hdc, theDotColor);
+		HBRUSH hBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
+		FillRect(hdc, &aCenterDot, hBrush);
+		SetDCBrushColor(hdc, oldColor);
+	}
+}
+
+
+static void drawEntry(
+	LayoutEntry& theEntry,
+	HDC hdc,
+	const RECT& theWindowRect,
+	COLORREF theEraseColor,
+	bool isActiveHotspot)
+{
+	Hotspot aHotspot = theEntry.drawHotspot;
+	if( !isActiveHotspot )
+	{
+		drawHotspot(hdc,
+			WindowManager::hotspotToOverlayPos(aHotspot),
+			kChildHotspotDrawSize,
+			theWindowRect, theEraseColor, false);
+	}
+	for(size_t i = 0; i < theEntry.children.size(); ++i )
+	{
+		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
+		drawEntry(aChildEntry, hdc, theWindowRect, RGB(255, 255, 255), false);
+	}
+	for(size_t i = 2; i <= theEntry.rangeCount; ++i)
+	{
+		aHotspot.x.offset += theEntry.drawOffX;
+		aHotspot.y.offset += theEntry.drawOffY;
+		drawHotspot(hdc,
+			WindowManager::hotspotToOverlayPos(aHotspot),
+			kChildHotspotDrawSize,
+			theWindowRect, theEraseColor, false);
+	}
+	if( isActiveHotspot )
+	{// Draw last so is over top of all children
+		COLORREF oldColor = SetDCBrushColor(hdc, RGB(255, 255, 255));
+		drawHotspot(hdc,
+			WindowManager::hotspotToOverlayPos(theEntry.drawHotspot),
+			kActiveHotspotDrawSize,
+			theWindowRect, theEraseColor, true);
+		SetDCBrushColor(hdc, oldColor);
+	}
+}
+
+
+static void eraseRect(
+	HDC hdc,
+	POINT theCenterPoint,
+	int theExtents,
+	const RECT& theWindowRect)
+{
+	theCenterPoint.x -= theWindowRect.left;
+	theCenterPoint.y -= theWindowRect.top;
+	RECT aRect;
+	aRect.left = theCenterPoint.x - theExtents;
+	aRect.top = theCenterPoint.y - theExtents;
+	aRect.right = theCenterPoint.x + theExtents + 1;
+	aRect.bottom = theCenterPoint.y + theExtents + 1;
+	HBRUSH hEraseBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
+	FillRect(hdc, &aRect, hEraseBrush);
+}
+
+
+static void eraseDrawnEntry(
+	LayoutEntry& theEntry,
+	HDC hdc,
+	const RECT& theWindowRect,
+	bool isActiveHotspot = true)
+{
+	Hotspot aHotspot = theEntry.drawHotspot;
+	eraseRect(hdc,
+		WindowManager::hotspotToOverlayPos(aHotspot),
+		isActiveHotspot ? kActiveHotspotDrawSize*3 : kChildHotspotDrawSize,
+		theWindowRect);
+	for(size_t i = 2; i <= theEntry.rangeCount; ++i)
+	{
+		aHotspot.x.offset += theEntry.drawOffX;
+		aHotspot.y.offset += theEntry.drawOffY;
+		eraseRect(hdc,
+			WindowManager::hotspotToOverlayPos(aHotspot),
+			kChildHotspotDrawSize,
+			theWindowRect);
+	}
+	for(size_t i = 0; i < theEntry.children.size(); ++i )
+	{
+		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
+		eraseDrawnEntry(
+			aChildEntry, hdc, theWindowRect, false);
+	}
+}
+
+
+static void layoutEditorPaintFunc(
+	HDC hdc, const RECT& theWindowRect, bool firstDraw)
+{
+	if( !sState )
+		return;
+
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	if( sState->needsDrawPosUpdate )
+	{// Need to erase previous positions and update to new ones
+		if( !firstDraw )
+			eraseDrawnEntry(anEntry, hdc, theWindowRect);
+		updateDrawHotspot(anEntry, sState->entered, firstDraw);
+	}
+
+	COLORREF anEraseColor = SetDCBrushColor(hdc, RGB(128, 128, 128));
+	HPEN hOldPen = (HPEN)SelectObject(hdc, GetStockObject(BLACK_PEN));
+	drawEntry(anEntry, hdc, theWindowRect, anEraseColor, true);
+	SelectObject(hdc, hOldPen);
+
+	// Cleanup
+	sState->needsDrawPosUpdate = false;
 }
 
 
@@ -592,8 +812,11 @@ static void promptForEditEntry()
 	{
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 		sState->entered = sState->applied = anEntry.shape;
-		WindowManager::setSystemOverlayCallbacks(
-			layoutEditorWindowProc, layoutEditorPaintFunc);
+		sState->needsDrawPosUpdate = true;
+		//WindowManager::setSystemOverlayCallbacks(
+		//	layoutEditorWindowProc, layoutEditorPaintFunc);
+		if( entryIncludesPosition(anEntry) )
+			HUD::setSystemOverlayDrawHook(layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
 			entryIncludesAlignment(anEntry)
 				? entryIncludesPosition(anEntry)
@@ -674,7 +897,6 @@ static void addArrayEntries(
 	LayoutEntry aNewEntry;
 	aNewEntry.type = theEntryType;
 	aNewEntry.item.parentIndex = theCategoryType;
-	aNewEntry.item.isRootCategory = false;
 
 	Profile::KeyValuePairs aPropertySet;
 	Profile::getAllKeys(
@@ -823,9 +1045,7 @@ void init()
 	{
 		LayoutEntry aCatEntry;
 		aCatEntry.type = LayoutEntry::eType_Root;
-		aCatEntry.item.parentIndex = 0;
 		aCatEntry.item.isRootCategory = true;
-		aCatEntry.rangeCount = 0;
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_HotspotCategory;
 		aCatEntry.item.name = "Hotspots";
@@ -960,11 +1180,19 @@ void init()
 	}
 
 	// Prepare for prompt dialog
-	if( sState->entries.empty() )
+	if( sState->entries.size() <= LayoutEntry::eType_CategoryNum )
 	{
 		logError("Current profile has no positional items to edit!");
 		return;
 	}
+
+	// Link parent entries to their children for drawing later
+	for(size_t i = LayoutEntry::eType_CategoryNum; i < sState->entries.size(); ++i)
+	{
+		if( sState->entries[i].item.parentIndex >= LayoutEntry::eType_CategoryNum )
+			sState->entries[sState->entries[i].item.parentIndex].children.push_back(i);
+	}
+
 	sState->dialogItems.reserve(sState->entries.size());
 	for(size_t i = 0; i < sState->entries.size(); ++i)
 		sState->dialogItems.push_back(&sState->entries[i].item);
