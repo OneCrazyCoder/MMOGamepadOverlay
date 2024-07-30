@@ -2656,30 +2656,12 @@ void updateWindowLayout(
 	double aWinScalingPosX = hi.position.x.offset;
 	double aWinScalingPosY = hi.position.y.offset;
 
-	// Apply special-case window position offsets
-	switch(hi.type)
-	{
-	case eHUDType_Hotspot:
-		{
-			const Hotspot& aHotspot = InputMap::getHotspot(hi.hotspotID);
-			aWinBasePosX += hotspotAnchorValue(aHotspot.x,theTargetSize.cx);
-			aWinBasePosY += hotspotAnchorValue(aHotspot.y,theTargetSize.cy);
-			aWinScalingPosX += aHotspot.x.offset;
-			aWinScalingPosY += aHotspot.y.offset;
-		}
-		break;
-	case eHUDType_KBArrayLast:
-	case eHUDType_KBArrayDefault:
-		if( const Hotspot* aHotspot =
-				InputMap::keyBindArrayHotspot(hi.kbArrayID, hi.selection) )
-		{
-			aWinBasePosX += hotspotAnchorValue(aHotspot->x,theTargetSize.cx);
-			aWinBasePosY += hotspotAnchorValue(aHotspot->y,theTargetSize.cy);
-			aWinScalingPosX += aHotspot->x.offset;
-			aWinScalingPosY += aHotspot->y.offset;
-		}
-		break;
-	}
+	// Offset by parent hotspot, if have one
+	const Hotspot& aHotspot = parentHotspot(theHUDElementID);
+	aWinBasePosX += hotspotAnchorValue(aHotspot.x, theTargetSize.cx);
+	aWinBasePosY += hotspotAnchorValue(aHotspot.y, theTargetSize.cy);
+	aWinScalingPosX += aHotspot.x.offset;
+	aWinScalingPosY += aHotspot.y.offset;
 
 	// Adjust position according to size and alignment settings
 	switch(hi.alignmentX)
@@ -3041,6 +3023,31 @@ bool shouldStartHidden(u16 theHUDElementID)
 	}
 
 	return false;
+}
+
+
+Hotspot parentHotspot(u16 theHUDElementID)
+{
+	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
+
+	Hotspot result;
+	switch(hi.type)
+	{
+	case eHUDType_Hotspot:
+		result = InputMap::getHotspot(hi.hotspotID);
+		break;
+	case eHUDType_KBArrayLast:
+	case eHUDType_KBArrayDefault:
+		if( const Hotspot* aHotspot =
+				InputMap::keyBindArrayHotspot(hi.kbArrayID, hi.selection) )
+		{
+			result = *aHotspot;
+		}
+		break;
+	}
+
+	return result;
 }
 
 } // HUD

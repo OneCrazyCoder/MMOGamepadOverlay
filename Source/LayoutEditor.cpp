@@ -602,6 +602,7 @@ static void updateDrawHotspot(
 	bool updateParentIfNeeded = true,
 	bool updateChildren = true)
 {
+	DBG_ASSERT(entryIncludesPosition(theEntry));
 	std::string aHotspotStr = theShape.x + ", " + theShape.y;
 	HotspotMap::stringToHotspot(aHotspotStr, theEntry.drawHotspot);
 	theEntry.drawOffX = theEntry.drawOffY = 0;
@@ -610,27 +611,43 @@ static void updateDrawHotspot(
 		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
 		theEntry.drawOffY = theEntry.drawHotspot.y.offset;
 	}
-	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
+	if( entryIsAnOffset(theEntry) )
 	{
-		LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
-		DBG_ASSERT(aParent.type == theEntry.type);
-		if( updateParentIfNeeded )
-			updateDrawHotspot(aParent, aParent.shape, true, false);
-		Hotspot anAnchor = aParent.drawHotspot;
-		if( aParent.rangeCount > 1 )
-		{
-			anAnchor.x.offset += aParent.drawOffX * (aParent.rangeCount-1);
-			anAnchor.y.offset += aParent.drawOffY * (aParent.rangeCount-1);
-		}
-		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
-		{
-			theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
+		if( theEntry.type == LayoutEntry::eType_HUDElement )
+		{// Must be HUD element that offsets from a hotspot
+			const Hotspot& anAnchor =
+				HUD::parentHotspot(theEntry.hudElementID);
+			theEntry.drawHotspot.x.anchor = clamp(
+				int(anAnchor.x.anchor) + theEntry.drawHotspot.x.anchor,
+				0, 0xFFFF);
+			theEntry.drawHotspot.y.anchor = clamp(
+				int(anAnchor.y.anchor) + theEntry.drawHotspot.y.anchor,
+				0, 0xFFFF);
 			theEntry.drawHotspot.x.offset += anAnchor.x.offset;
-		}
-		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
-		{
-			theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
 			theEntry.drawHotspot.y.offset += anAnchor.y.offset;
+		}
+		else
+		{// Must be offset by a parent hotspot or copy icon
+			LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
+			DBG_ASSERT(aParent.type == theEntry.type);
+			if( updateParentIfNeeded )
+				updateDrawHotspot(aParent, aParent.shape, true, false);
+			Hotspot anAnchor = aParent.drawHotspot;
+			if( aParent.rangeCount > 1 )
+			{
+				anAnchor.x.offset += aParent.drawOffX * (aParent.rangeCount-1);
+				anAnchor.y.offset += aParent.drawOffY * (aParent.rangeCount-1);
+			}
+			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
+			{
+				theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
+				theEntry.drawHotspot.x.offset += anAnchor.x.offset;
+			}
+			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
+			{
+				theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
+				theEntry.drawHotspot.y.offset += anAnchor.y.offset;
+			}
 		}
 	}
 	if( updateChildren )

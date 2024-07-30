@@ -82,4 +82,7 @@ s8 drawPriority(u16 theHUDElementID);
 // Returns if should start hidden until certain user input
 bool shouldStartHidden(u16 theHUDElementID);
 
+// Returns associated parent hotspot if have one
+Hotspot parentHotspot(u16 theHUDElementID);
+
 } // HUD
