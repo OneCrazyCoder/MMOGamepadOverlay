@@ -49,6 +49,10 @@
 #define IDC_EDIT_H                      1017
 #define IDC_BUTTON_EDIT                 1018
 #define IDC_COMBO_ALIGN                 1019
+#define IDC_SPIN_X                      1020
+#define IDC_SPIN_Y                      1021
+#define IDC_SPIN_W                      1022
+#define IDC_SPIN_H                      1023
 #define ID_FILE_PROFILE                 40001
 #define ID_FILE_EXIT                    40002
 #define ID_EDIT_UILAYOUT                40003
@@ -60,7 +64,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        129
 #define _APS_NEXT_COMMAND_VALUE         40005
-#define _APS_NEXT_CONTROL_VALUE         1020
+#define _APS_NEXT_CONTROL_VALUE         1024
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
