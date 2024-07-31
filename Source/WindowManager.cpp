@@ -1260,8 +1260,8 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 	result.x = theHotspot.x.anchor;
 	result.y = theHotspot.y.anchor;
 	// Convert to client-rect-relative pixel position
-	result.x = result.x * sTargetSize.cx / 0x10000;
-	result.y = result.y * sTargetSize.cy / 0x10000;
+	result.x = u16ToRangeVal(result.x, sTargetSize.cx);
+	result.y = u16ToRangeVal(result.y, sTargetSize.cy);
 	// Add pixel offset w/ UI Scale applied
 	result.x += theHotspot.x.offset * gUIScale;
 	result.y += theHotspot.y.offset * gUIScale;
@@ -1277,8 +1277,8 @@ Hotspot overlayPosToHotspot(POINT thePos)
 	Hotspot result;
 	thePos.x = clamp(thePos.x, 0, sTargetSize.cx-1);
 	thePos.y = clamp(thePos.y, 0, sTargetSize.cy-1);
-	result.x.anchor = (thePos.x + 1) * 0xFFFF / sTargetSize.cx;
-	result.y.anchor = (thePos.y + 1) * 0xFFFF / sTargetSize.cy;
+	result.x.anchor = ratioToU16(thePos.x, sTargetSize.cx);
+	result.y.anchor = ratioToU16(thePos.y, sTargetSize.cy);
 	return result;
 }
 
@@ -1299,8 +1299,8 @@ POINT overlayPosToNormalizedMousePos(POINT theMousePos)
 	theMousePos.x = max(0, theMousePos.x + sDesktopTargetRect.left);
 	theMousePos.y = max(0, theMousePos.y + sDesktopTargetRect.top);
 	// Convert to % of virtual desktop size as normalized 0-65535
-	theMousePos.x = (theMousePos.x + 1) * 0xFFFF / kDesktopWidth;
-	theMousePos.y = (theMousePos.y + 1) * 0xFFFF / kDesktopHeight;
+	theMousePos.x = ratioToU16(theMousePos.x, kDesktopWidth);
+	theMousePos.y = ratioToU16(theMousePos.y, kDesktopHeight);
 	return theMousePos;
 }
 
@@ -1311,8 +1311,8 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 	
 	// Restore from normalized to pixel position of virtual desktop
-	theSentMousePos.x = theSentMousePos.x * kDesktopWidth / 0x10000;
-	theSentMousePos.y = theSentMousePos.y * kDesktopHeight / 0x10000;
+	theSentMousePos.x = u16ToRangeVal(theSentMousePos.x, kDesktopWidth);
+	theSentMousePos.y = u16ToRangeVal(theSentMousePos.y, kDesktopHeight);
 	// Offset to be client relative position
 	theSentMousePos.x -= sDesktopTargetRect.left;
 	theSentMousePos.y -= sDesktopTargetRect.top;

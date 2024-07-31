@@ -12,6 +12,8 @@
 #include "Resources/resource.h"
 #include "WindowManager.h"
 
+#include <CommCtrl.h>
+
 namespace LayoutEditor
 {
 
@@ -364,6 +366,22 @@ static HotspotMap::EHotspotNamingConvention formatForCoord(
 }
 
 
+static std::pair<POINT, SIZE> getControlPos(HWND theDialog, HWND theControl)
+{
+	DBG_ASSERT(theDialog && theControl);
+	RECT aRect;
+	GetWindowRect(theControl, &aRect);
+	POINT aTopLeftPt = { aRect.left, aRect.top };
+	POINT aBottomRightPt = { aRect.right, aRect.bottom };
+	ScreenToClient(theDialog, &aTopLeftPt);
+	ScreenToClient(theDialog, &aBottomRightPt);
+	SIZE aControlSize = {
+		aBottomRightPt.x - aTopLeftPt.x,
+		aBottomRightPt.y - aTopLeftPt.y };
+	return std::make_pair(aTopLeftPt, aControlSize);
+}
+
+
 static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 {
 	if( !sState || !sState->activeEntry )
@@ -417,60 +435,105 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 }
 
 
-static void processEditControlString(HWND hDlg, int theEditControlID)
+static void processEditControlString(HWND hDlg, int theControlID, int theDelta)
 {
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry != 0);
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	HWND hEdit = GetDlgItem(hDlg, theEditControlID);
+	HWND hEdit = GetDlgItem(hDlg, theControlID);
 	DBG_ASSERT(hEdit);
 	std::string aControlStr;
 	if( int aStrLen = GetWindowTextLength(hEdit) )
 	{
 		std::vector<WCHAR> aStrBuf(aStrLen+1);
-		GetDlgItemText(hDlg, theEditControlID, &aStrBuf[0], aStrLen+1);
+		GetDlgItemText(hDlg, theControlID, &aStrBuf[0], aStrLen+1);
 		aControlStr = narrow(&aStrBuf[0]);
 	}
 
-	Hotspot::Coord tmp;
-	std::string aValidatedStr = aControlStr;
-	std::string aTestStr = aControlStr;
-	HotspotMap::stringToCoord(aTestStr, tmp, &aValidatedStr);
-	if( aValidatedStr.empty() )
+	std::string result = aControlStr;
+	std::string aTempStr = aControlStr;
+	Hotspot::Coord aCoord;
+	HotspotMap::stringToCoord(aTempStr, aCoord, &result);
+	if( result.empty() )
 	{
-		switch(theEditControlID)
+		switch(theControlID)
 		{
 		case IDC_EDIT_X:
-			aValidatedStr = HotspotMap::coordToString(
+			result = HotspotMap::coordToString(
 				Hotspot::Coord(), formatForCoord(anEntry, IDC_EDIT_X));
 			break;
 		case IDC_EDIT_Y:
-			aValidatedStr = HotspotMap::coordToString(
+			result = HotspotMap::coordToString(
 				Hotspot::Coord(), formatForCoord(anEntry, IDC_EDIT_Y));
 			break;
 		case IDC_EDIT_W:
 		case IDC_EDIT_H:
-			aValidatedStr = "4";
+			result = "0";
 			break;
 		}
 	}
-	DBG_ASSERT(!aValidatedStr.empty());
+	DBG_ASSERT(!result.empty());
 
-	if( aValidatedStr != aControlStr )
-		SetWindowText(hEdit, widen(aValidatedStr).c_str());
-
-	switch(theEditControlID)
-	{
-	case IDC_EDIT_X: sState->entered.x = aValidatedStr; break;
-	case IDC_EDIT_Y: sState->entered.y = aValidatedStr; break;
-	case IDC_EDIT_W: sState->entered.w = aValidatedStr; break;
-	case IDC_EDIT_H: sState->entered.h = aValidatedStr; break;
+	if( theDelta )
+	{// Adjust the value while trying to maintain current formatting
+		// Check if only specifying a non-standard anchor, meaning not CX, etc,
+		// so must contain a decimal or a % symbol, and no offset specified
+		// (including no "+0" for offset), and if so increment anchor instead.
+		if( aCoord.offset == 0 && result.find('+') == std::string::npos &&
+			(result[result.size()-1] == '%' ||
+			 result.find('.') != std::string::npos) )
+		{
+			Hotspot aHotspot; aHotspot.x = aHotspot.y = aCoord;
+			POINT aWinPos = WindowManager::hotspotToOverlayPos(aHotspot);
+			aWinPos.x += theDelta; aWinPos.y += theDelta;
+			aHotspot = WindowManager::overlayPosToHotspot(aWinPos);
+			switch(theControlID)
+			{
+			case IDC_EDIT_X: case IDC_EDIT_W:
+				if( aWinPos.x >= WindowManager::overlayTargetSize().cx-1 )
+					result = "100%";
+				else
+					result = HotspotMap::coordToString(
+						aHotspot.x, HotspotMap::eHNC_Num);
+				break;
+			case IDC_EDIT_Y: case IDC_EDIT_H:
+				if( aWinPos.y >= WindowManager::overlayTargetSize().cy-1 )
+					result = "100%";
+				else
+					result = HotspotMap::coordToString(
+						aHotspot.y, HotspotMap::eHNC_Num);
+				break;
+			}
+		}
+		else
+		{
+			aCoord.offset += theDelta;
+			result = HotspotMap::coordToString(
+				aCoord, formatForCoord(anEntry, theControlID));
+			if( result[result.size()-1] == '%' )
+				result += "+0";
+		}
 	}
-	sState->needsDrawPosUpdate = true;
-	HUD::redrawSystemOverlay();
 
-	applyNewPosition();
+	if( aControlStr != result )
+		SetWindowText(hEdit, widen(result).c_str());
+
+	std::string* aDestStr = null;
+	switch(theControlID)
+	{
+	case IDC_EDIT_X: aDestStr = &sState->entered.x; break;
+	case IDC_EDIT_Y: aDestStr = &sState->entered.y; break;
+	case IDC_EDIT_W: aDestStr = &sState->entered.w; break;
+	case IDC_EDIT_H: aDestStr = &sState->entered.h; break;
+	}
+	DBG_ASSERT(aDestStr);
+	if( *aDestStr != result )
+	{
+		*aDestStr = result;
+		sState->needsDrawPosUpdate = true;
+		HUD::redrawSystemOverlay();
+	}
 }
 
 
@@ -498,6 +561,18 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			SetWindowText(
 				GetDlgItem(theDialog, IDC_EDIT_Y),
 				widen(anEntry.shape.y).c_str());
+			HWND hSpin = GetDlgItem(theDialog, IDC_SPIN_X);
+			std::pair<POINT, SIZE> aCtrlPos = getControlPos(theDialog, hSpin);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+			hSpin = GetDlgItem(theDialog, IDC_SPIN_Y);
+			aCtrlPos = getControlPos(theDialog, hSpin);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
 		}
 		if( entryIncludesSize(anEntry) )
 		{
@@ -507,6 +582,18 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			SetWindowText(
 				GetDlgItem(theDialog, IDC_EDIT_H),
 				widen(anEntry.shape.h).c_str());
+			HWND hSpin = GetDlgItem(theDialog, IDC_SPIN_W);
+			std::pair<POINT, SIZE> aCtrlPos = getControlPos(theDialog, hSpin);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+			hSpin = GetDlgItem(theDialog, IDC_SPIN_H);
+			aCtrlPos = getControlPos(theDialog, hSpin);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
 		}
 		if( entryIncludesAlignment(anEntry) )
 		{
@@ -524,6 +611,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		}
 		setInitialToolbarPos(theDialog, anEntry);
 		break;
+
 	case WM_COMMAND:
 		switch(LOWORD(wParam))
 		{
@@ -560,7 +648,10 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 
 		case IDC_EDIT_X: case IDC_EDIT_Y: case IDC_EDIT_W: case IDC_EDIT_H:
 			if( HIWORD(wParam) == EN_KILLFOCUS )
-				processEditControlString(theDialog, LOWORD(wParam));
+			{
+				processEditControlString(theDialog, LOWORD(wParam), 0);
+				applyNewPosition();
+			}
 			break;
 
 		case IDC_COMBO_ALIGN:
@@ -574,6 +665,25 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			break;
 		}
 		break;
+
+	case WM_NOTIFY:
+		switch(((LPNMHDR)lParam)->idFrom)
+		{
+		case IDC_SPIN_X: case IDC_SPIN_W:
+			processEditControlString(theDialog,
+				IDC_EDIT_X + ((LPNMHDR)lParam)->idFrom - IDC_SPIN_X,
+				-((LPNMUPDOWN)lParam)->iDelta);
+			applyNewPosition();
+			break;
+		case IDC_SPIN_Y: case IDC_SPIN_H:
+			processEditControlString(theDialog,
+				IDC_EDIT_X + ((LPNMHDR)lParam)->idFrom - IDC_SPIN_X,
+				((LPNMUPDOWN)lParam)->iDelta);
+			applyNewPosition();
+			break;
+		}
+		break;
+
 	case WM_DESTROY:
 		UnregisterHotKey(NULL, kCancelToolbarHotkeyID);
 		break;
@@ -993,8 +1103,7 @@ static void tryFetchHUDHotspot(
 		}
 		else if( isSize )
 		{
-			theEntry.shape.w = "4";
-			theEntry.shape.h = "4";
+			theEntry.shape.w = theEntry.shape.h = "0";
 			theEntry.propName = thePropName;
 		}
 		else// if( isAlignment )

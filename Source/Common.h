@@ -65,6 +65,18 @@ inline Val decWrap(Val val, Count count)
 		return Val(int(val) - 1);
 }
 
+inline u32 u16ToRangeVal(u16 theU16, u32 theRangeMax)
+{
+	return theU16 * theRangeMax / 0x10000;
+}
+
+inline u16 ratioToU16(u32 theNumerator, u32 theDenominator)
+{
+	return min(0xFFFF,
+		(u64(theNumerator) * 0x10000 + theDenominator - 1) /
+		theDenominator);
+}
+
 #ifndef M_PI
 #define M_PI (3.1415926535897932384626433832795028841971)
 #endif

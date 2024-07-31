@@ -538,10 +538,10 @@ static inline POINT hotspotToPoint(
 {
 	POINT result;
 	result.x =
-		LONG(theHotspot.x.anchor) * theTargetSize.cx / 0x10000 +
+		LONG(u16ToRangeVal(theHotspot.x.anchor, theTargetSize.cx)) +
 		LONG(theHotspot.x.offset * gUIScale);
 	result.y =
-		LONG(theHotspot.y.anchor) * theTargetSize.cy / 0x10000 +
+		LONG(u16ToRangeVal(theHotspot.y.anchor, theTargetSize.cy)) +
 		LONG(theHotspot.y.offset * gUIScale);
 	return result;
 }
@@ -553,8 +553,8 @@ static inline SIZE hotspotToSize(
 {
 	POINT aPoint = hotspotToPoint(theHotspot, theTargetSize);
 	SIZE result;
-	result.cx = aPoint.x;
-	result.cy = aPoint.y;
+	result.cx = max(1, aPoint.x);
+	result.cy = max(1, aPoint.y);
 	return result;
 }
 
@@ -564,7 +564,7 @@ static LONG hotspotUnscaledValue(
 	const LONG theMaxValue)
 {
 	return
-		LONG(theCoord.anchor) * theMaxValue / 0x10000 +
+		LONG(u16ToRangeVal(theCoord.anchor, theMaxValue)) +
 		LONG(theCoord.offset);
 }
 
@@ -573,7 +573,7 @@ static LONG hotspotAnchorValue(
 	const Hotspot::Coord& theCoord,
 	const LONG theMaxValue)
 {
-	return LONG(theCoord.anchor) * theMaxValue / 0x10000;
+	return LONG(u16ToRangeVal(theCoord.anchor, theMaxValue));
 }
 
 

@@ -718,12 +718,13 @@ EResult stringToCoord(std::string& theString,
 					  Hotspot::Coord& out,
 					  std::string* theValidatedString)
 {
+	EResult result = eResult_Empty;
 	// This function also removes the coordinate from start of string
 	out = Hotspot::Coord();
 	if( theValidatedString )
 		theValidatedString->clear();
 	if( theString.empty() )
-		return eResult_Empty;
+		return result;
 
 	enum EMode
 	{
@@ -743,9 +744,11 @@ EResult stringToCoord(std::string& theString,
 	bool done = false;
 	bool isOffsetNegative  = false;
 	size_t aCharPos = 0;
+	size_t aValidCharCount = 0;
 	char c = theString[aCharPos];
+	result = eResult_Ok;
 
-	while(!done)
+	while(!done && result == eResult_Ok)
 	{
 		switch(c)
 		{
@@ -762,10 +765,11 @@ EResult stringToCoord(std::string& theString,
 				aNumerator *= 10;
 				aNumerator += u32(c - '0');
 				if( aNumerator > 0x7FFFFFFF )
-					return eResult_Overflow;
-				if( aDenominator > 0x7FFFFFFF )
-					return eResult_Overflow;
-				if( theValidatedString ) (*theValidatedString) += c;
+					result = eResult_Overflow;
+				else if( aDenominator > 0x7FFFFFFF )
+					result = eResult_Overflow;
+				else if( aNumerator )
+					aValidCharCount = aCharPos + 1;
 				break;
 			case eMode_OffsetSign:
 				aMode = EMode(aMode + 1);
@@ -777,8 +781,9 @@ EResult stringToCoord(std::string& theString,
 				anOffset *= 10;
 				anOffset += u32(c - '0');
 				if( anOffset > 0x7FFF )
-					return eResult_Overflow;
-				if( theValidatedString ) (*theValidatedString) += c;
+					result = eResult_Overflow;
+				else if( anOffset || !isOffsetNegative )
+					aValidCharCount = aCharPos + 1;
 				break;
 			default:
 				return eResult_Malformed;
@@ -797,10 +802,9 @@ EResult stringToCoord(std::string& theString,
 			case eMode_OffsetSign:
 				isOffsetNegative = (c == '-');
 				aMode = eMode_OffsetSpace;
-				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case '.':
@@ -810,10 +814,9 @@ EResult stringToCoord(std::string& theString,
 			case eMode_Numerator:
 				aMode = eMode_Denominator;
 				aDenominator = 1;
-				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case '%':
@@ -821,17 +824,17 @@ EResult stringToCoord(std::string& theString,
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			case eMode_Numerator:
 			case eMode_Denominator:
 				if( !aDenominator ) aDenominator = 1;
 				aDenominator *= 100; // Convert 50% to 0.5
 				aMode = eMode_OffsetSign;
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case 'l': case 'L': // aka "Left"
@@ -839,16 +842,16 @@ EResult stringToCoord(std::string& theString,
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			case eMode_Prefix:
 				aNumerator = 0;
 				aDenominator = 1;
 				aMode = eMode_PrefixEnd;
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case 'r': case 'R': case 'w': case 'W': // aka "Right" or "Width"
@@ -856,32 +859,32 @@ EResult stringToCoord(std::string& theString,
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			case eMode_Prefix:
 				aNumerator = 1;
 				aDenominator = 1;
 				aMode = eMode_PrefixEnd;
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case 'c': case 'C': // aka "Center"
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			case eMode_Prefix:
 				aNumerator = 1;
 				aDenominator = 2;
 				aMode = eMode_PrefixEnd;
-				if( theValidatedString ) (*theValidatedString) += c;
+				aValidCharCount = aCharPos + 1;
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case 'x': case 'X': case ',':
@@ -890,8 +893,8 @@ EResult stringToCoord(std::string& theString,
 			case eMode_PrefixEnd:
 				if( c == ',' )
 					done = true;
-				else if( theValidatedString )
-					(*theValidatedString) += c; // part of CX prefix
+				else
+					aValidCharCount = aCharPos + 1; // part of CX prefix
 				break;
 			case eMode_Numerator:
 				anOffset = aNumerator;
@@ -907,18 +910,17 @@ EResult stringToCoord(std::string& theString,
 				done = true;
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case 'y': case 'Y':
 			switch(aMode)
 			{
 			case eMode_PrefixEnd:
-				if( theValidatedString )
-					(*theValidatedString) += c; // part of CY prefix
+				aValidCharCount = aCharPos + 1; // part of CY prefix
 				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case ' ':
@@ -926,19 +928,15 @@ EResult stringToCoord(std::string& theString,
 			{
 			case eMode_OffsetSign:
 			case eMode_OffsetSpace:
-				if( theValidatedString ) (*theValidatedString) += c;
-				// fall through
 			case eMode_Prefix:
 			case eMode_TrailSpace:
 				// Allowed whitespace, ignore
 				break;
 			case eMode_PrefixEnd:
 				aMode = eMode_OffsetSign;
-				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Denominator:
 				aMode = eMode_OffsetSign;
-				if( theValidatedString ) (*theValidatedString) += c;
 				break;
 			case eMode_Numerator:
 				anOffset = aNumerator;
@@ -951,10 +949,10 @@ EResult stringToCoord(std::string& theString,
 			}
 			break;
 		default:
-			if( aMode == eMode_PrefixEnd && theValidatedString )
-				(*theValidatedString) += c;
-			else if( aMode != eMode_PrefixEnd )
-				return eResult_Malformed;
+			if( aMode == eMode_PrefixEnd )
+				aValidCharCount = aCharPos + 1;
+			else
+				result = eResult_Malformed;
 			break;
 		}
 
@@ -976,12 +974,17 @@ EResult stringToCoord(std::string& theString,
 	}
 
 	if( aNumerator > aDenominator )
-		return eResult_Overflow;
+		result = eResult_Overflow;
 
-	if( aNumerator == aDenominator )
-		out.anchor = 0xFFFF;
-	else
-		out.anchor = u16((aNumerator * 0x10000) / aDenominator);
+	if( theValidatedString )
+		*theValidatedString = trim(theString.substr(0, aValidCharCount));
+
+	if( result != eResult_Ok )
+	{
+		return result;
+	}
+
+	out.anchor = ratioToU16(aNumerator, aDenominator);
 	out.offset = s16(anOffset);
 	if( isOffsetNegative )
 		out.offset = -out.offset;
@@ -989,7 +992,7 @@ EResult stringToCoord(std::string& theString,
 	// Remove processed section from start of string
 	theString = theString.substr(aCharPos);
 
-	return eResult_Ok;
+	return result;
 }
 
 std::string hotspotToString(
@@ -1022,7 +1025,7 @@ std::string coordToString(
 	const Hotspot::Coord& theCoord,
 	EHotspotNamingConvention theConvention)
 {
-	const u16 kPercentResolution = 4000; // Must be evenly divisible by 10
+	const u16 kPercentResolution = 10000; // Must be evenly divisible by 10
 	std::string result;
 	switch(theCoord.anchor)
 	{
@@ -1051,28 +1054,31 @@ std::string coordToString(
 			break;
 		}
 		break;
-	default:
-		{// Convert to a XX.XXX% string
-			u32 anInt = (theCoord.anchor + 1) * kPercentResolution / 0xFFFF;
-			result = toString(anInt * 100 / kPercentResolution);
-			anInt = anInt * 100 % kPercentResolution;
-			if( anInt )
+	}
+
+	if( result.empty() &&
+		(theCoord.anchor != 0 || theConvention == eHNC_Num) )
+	{// Convert to a XX.XXX% string
+		u32 anInt = u16ToRangeVal(theCoord.anchor, kPercentResolution);
+		if( ratioToU16(anInt, kPercentResolution) < theCoord.anchor )
+			++anInt;
+		result = toString(anInt * 100 / kPercentResolution);
+		anInt = anInt * 100 % kPercentResolution;
+		if( anInt )
+		{
+			result += ".";
+			for(int i = 0; i < 3 && anInt != 0; ++i)
 			{
-				result += ".";
-				for(int i = 0; i < 3 && anInt != 0; ++i)
-				{
-					anInt *= 10;
-					result += toString(anInt / kPercentResolution);
-					anInt %= kPercentResolution;
-				}
-				while(result[result.size()-1] == '0')
-					result.resize(result.size()-1);
-				if( result[result.size()-1] == '.' )
-					result.resize(result.size()-1);
+				anInt *= 10;
+				result += toString(anInt / kPercentResolution);
+				anInt %= kPercentResolution;
 			}
-			result += "%";
+			while(result[result.size()-1] == '0')
+				result.resize(result.size()-1);
+			if( result[result.size()-1] == '.' )
+				result.resize(result.size()-1);
 		}
-		break;
+		result += "%";
 	}
 
 	if( theCoord.offset > 0 &&
@@ -1088,11 +1094,15 @@ std::string coordToString(
 	{
 		switch(theConvention)
 		{
-		case eHNC_X: case eHNC_W: 
+		case eHNC_X: 
 			result = "L";
 			break;
-		case eHNC_Y: case eHNC_H:
+		case eHNC_Y:
 			result = "T";
+			break;
+		case eHNC_W:
+		case eHNC_H:
+			result = "0";
 			break;
 		case eHNC_X_Off:
 		case eHNC_Y_Off:

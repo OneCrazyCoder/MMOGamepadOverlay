@@ -1914,7 +1914,7 @@ static void assignHotspots(
 		if( aResult == eResult_Overflow )
 		{
 			logError("Hotspot %s: Invalid coordinate in '%s' "
-				"(anchor must be in 0-100% range)",
+				"(anchor must be in 0-100% range and limited decimal places)",
 				theKeyValueList[i].first,
 				theKeyValueList[i].second);
 			sHotspots[aHotspotIdx] = Hotspot();
@@ -1969,7 +1969,8 @@ static void assignHotspots(
 				if( aResult == eResult_Overflow )
 				{
 					logError("Hotspot %s: Invalid coordinate in '%s' "
-						"(anchor must be in 0-100% range)",
+						"(anchor must be in 0-100% range "
+						"and limited decimal places)",
 						aHotspotName.c_str(),
 						aHotspotValue.c_str());
 				}
@@ -2026,7 +2027,8 @@ static void assignHotspots(
 					if( aResult == eResult_Overflow )
 					{
 						logError("Hotspot %s: Invalid coordinate in '%s' "
-							"(anchor must be in 0-100% range)",
+							"(anchor must be in 0-100% range "
+							"and limited decimal places)",
 							aHotspotName.c_str(),
 							theKeyValueList[0].second);
 						aDeltaHotspot = Hotspot();
