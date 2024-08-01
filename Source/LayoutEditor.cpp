@@ -25,6 +25,7 @@ namespace LayoutEditor
 //-----------------------------------------------------------------------------
 
 enum {
+kBoundBoxAnchorDrawSize = 6,
 kActiveHotspotDrawSize = 5,
 kChildHotspotDrawSize = 3,
 };
@@ -112,7 +113,7 @@ struct LayoutEntry
 	std::string posSect, sizeSect, alignSect, propName;
 	std::vector<size_t> children;
 	RECT drawnRect;
-	Hotspot drawHotspot;
+	Hotspot drawHotspot, drawSize;
 	s16 drawOffX, drawOffY;
 	u16 hudElementID;
 	u16 rangeCount;
@@ -718,10 +719,17 @@ static void updateDrawHotspot(
 	std::string aHotspotStr = theShape.x + ", " + theShape.y;
 	HotspotMap::stringToHotspot(aHotspotStr, theEntry.drawHotspot);
 	theEntry.drawOffX = theEntry.drawOffY = 0;
+	theEntry.drawSize = Hotspot();
 	if( theEntry.rangeCount > 1 )
 	{
 		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
 		theEntry.drawOffY = theEntry.drawHotspot.y.offset;
+	}
+	if( theEntry.type == LayoutEntry::eType_CopyIcon &&
+		entryIncludesSize(theEntry) )
+	{
+		aHotspotStr = theShape.w + ", " + theShape.h;
+		HotspotMap::stringToHotspot(aHotspotStr, theEntry.drawSize);
 	}
 	if( entryIsAnOffset(theEntry) )
 	{
@@ -760,6 +768,8 @@ static void updateDrawHotspot(
 				theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
 				theEntry.drawHotspot.y.offset += anAnchor.y.offset;
 			}
+			if( theEntry.type == LayoutEntry::eType_CopyIcon )
+				theEntry.drawSize = aParent.drawSize;
 		}
 	}
 	if( updateChildren )
@@ -773,22 +783,90 @@ static void updateDrawHotspot(
 }
 
 
+static RECT drawBoundBox(
+	HDC hdc,
+	const POINT& theOrigin,
+	const SIZE& theBoxSize,
+	COLORREF theEraseColor,
+	bool isActiveBox)
+{
+	RECT aRect = {
+		theOrigin.x, theOrigin.y,
+		theOrigin.x + theBoxSize.cx, theOrigin.y + theBoxSize.cy };
+	RECT aFullDrawnRect = { 0 };
+	
+	// Draw outer-most black border
+	COLORREF oldBrushColor = SetDCBrushColor(hdc, theEraseColor);
+	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+	InflateRect(&aRect, 2, 2);
+	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
+	UnionRect(&aFullDrawnRect, &aFullDrawnRect, &aRect);
+
+	// For active box, draw anchor in top-left corner representing base pos
+	if( isActiveBox )
+	{
+		RECT anAnchorRect = { 0 };
+		anAnchorRect.left = theOrigin.x - kBoundBoxAnchorDrawSize;
+		anAnchorRect.top = theOrigin.y - kBoundBoxAnchorDrawSize;
+		anAnchorRect.right = theOrigin.x + 3;
+		anAnchorRect.bottom = theOrigin.y + 3;
+		SetDCBrushColor(hdc, oldBrushColor);
+		SelectObject(hdc, hOldBrush);
+		Rectangle(hdc,
+			anAnchorRect.left, anAnchorRect.top,
+			anAnchorRect.right, anAnchorRect.bottom);
+		UnionRect(&aFullDrawnRect, &aFullDrawnRect, &anAnchorRect);
+		SetDCBrushColor(hdc, theEraseColor);
+		SelectObject(hdc, GetStockObject(NULL_BRUSH));
+	}
+
+	// Draw white/grey border just outside of inner rect
+	InflateRect(&aRect, -1, -1);
+	HPEN hOldPen = (HPEN)SelectObject(hdc, GetStockObject(DC_PEN));
+	COLORREF oldPenColor = SetDCPenColor(hdc, oldBrushColor);
+	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
+	SetDCPenColor(hdc, oldPenColor);
+	SelectObject(hdc, hOldPen);
+	SelectObject(hdc, hOldBrush);
+	InflateRect(&aRect, -1, -1);
+
+	// Erase contents of inner rect if this is the active box
+	if( isActiveBox )	
+		FillRect(hdc, &aRect, hOldBrush);
+
+	SetDCBrushColor(hdc, oldBrushColor);
+	return aFullDrawnRect;
+}
+
+
 static RECT drawHotspot(
 	HDC hdc,
 	const Hotspot& theHotspot,
+	const Hotspot* theBoxSize,
 	int theExtents,
 	const RECT& theWindowRect,
-	COLORREF theDotColor,
+	COLORREF theEraseColor,
 	bool isActiveHotspot)
 {
-	RECT aFullDrawnRect = { 0 };
-
 	const SIZE& aTargetSize = WindowManager::overlayTargetSize();
 	const POINT aCenterPoint = {
-		int(u16ToRangeVal(theHotspot.x.anchor, aTargetSize.cx)) +
+		LONG(u16ToRangeVal(theHotspot.x.anchor, aTargetSize.cx)) +
 			theHotspot.x.offset * gUIScale + theWindowRect.left,
-		int(u16ToRangeVal(theHotspot.y.anchor, aTargetSize.cy)) +
+		LONG(u16ToRangeVal(theHotspot.y.anchor, aTargetSize.cy)) +
 			theHotspot.y.offset * gUIScale + theWindowRect.top };
+
+	if( theBoxSize )
+	{
+		const SIZE aBoxWH = {
+			max(1, LONG(u16ToRangeVal(theBoxSize->x.anchor, aTargetSize.cx)) +
+				theBoxSize->x.offset * gUIScale),
+			max(1, LONG(u16ToRangeVal(theBoxSize->y.anchor, aTargetSize.cy)) +
+				theBoxSize->y.offset * gUIScale) };
+		return drawBoundBox(
+			hdc, aCenterPoint, aBoxWH, theEraseColor, isActiveHotspot);
+	}
+
+	RECT aFullDrawnRect = { 0 };
 	aFullDrawnRect.left = aCenterPoint.x - theExtents;
 	aFullDrawnRect.top = aCenterPoint.y - theExtents;
 	aFullDrawnRect.right = aCenterPoint.x + theExtents + 1;
@@ -818,7 +896,7 @@ static RECT drawHotspot(
 		aCenterDot.top = aCenterPoint.y - aDotExtents;
 		aCenterDot.right = aCenterPoint.x + aDotExtents + 1;
 		aCenterDot.bottom = aCenterPoint.y + aDotExtents + 1;
-		COLORREF oldColor = SetDCBrushColor(hdc, theDotColor);
+		COLORREF oldColor = SetDCBrushColor(hdc, theEraseColor);
 		HBRUSH hBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
 		FillRect(hdc, &aCenterDot, hBrush);
 		SetDCBrushColor(hdc, oldColor);
@@ -836,16 +914,19 @@ static void drawEntry(
 	COLORREF theEraseColor,
 	bool isActiveHotspot)
 {
+	Hotspot* aDrawBoxSize =
+		theEntry.type == LayoutEntry::eType_CopyIcon
+			? &theEntry.drawSize : null;
 	Hotspot aHotspot = theEntry.drawHotspot;
 	if( !isActiveHotspot )
 	{// Draw basic hotspot
-		theEntry.drawnRect = drawHotspot(hdc, aHotspot, kChildHotspotDrawSize,
-			theWindowRect, theEraseColor, false);
+		theEntry.drawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
+			kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
 	}
 	for(size_t i = 0; i < theEntry.children.size(); ++i )
 	{// Draw child hotspots
 		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
-		drawEntry(aChildEntry, hdc, theWindowRect, RGB(255, 255, 255), false);
+		drawEntry(aChildEntry, hdc, theWindowRect, theEraseColor, false);
 	}
 	// Draw built-in range of hotspots and track their combined drawn rect
 	RECT aRangeDrawnRect = { 0 };
@@ -853,19 +934,16 @@ static void drawEntry(
 	{
 		aHotspot.x.offset += theEntry.drawOffX;
 		aHotspot.y.offset += theEntry.drawOffY;
-		RECT aDrawnRect = drawHotspot(hdc,
-			aHotspot,
-			kChildHotspotDrawSize,
-			theWindowRect, theEraseColor, false);
+		RECT aDrawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
+			kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
 		UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
 	}
 	if( isActiveHotspot )
 	{// Draw primary hotspot last so is over top of all children/range
 		COLORREF oldColor = SetDCBrushColor(hdc, RGB(255, 255, 255));
-		theEntry.drawnRect = drawHotspot(hdc,
-			theEntry.drawHotspot,
-			kActiveHotspotDrawSize,
-			theWindowRect, theEraseColor, true);
+		theEntry.drawnRect = drawHotspot(hdc, theEntry.drawHotspot,
+			aDrawBoxSize, kActiveHotspotDrawSize, theWindowRect,
+			theEraseColor, true);
 		SetDCBrushColor(hdc, oldColor);
 	}
 	// Have final drawn rect include range
