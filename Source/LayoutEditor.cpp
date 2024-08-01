@@ -111,6 +111,7 @@ struct LayoutEntry
 
 	std::string posSect, sizeSect, alignSect, propName;
 	std::vector<size_t> children;
+	RECT drawnRect;
 	Hotspot drawHotspot;
 	s16 drawOffX, drawOffY;
 	u16 hudElementID;
@@ -118,6 +119,7 @@ struct LayoutEntry
 
 	LayoutEntry() :
 		type(eType_Num),
+		drawnRect(),
 		drawOffX(),
 		drawOffY(),
 		hudElementID(),
@@ -771,47 +773,59 @@ static void updateDrawHotspot(
 }
 
 
-static void drawHotspot(
+static RECT drawHotspot(
 	HDC hdc,
-	POINT theCenterPoint,
+	const Hotspot& theHotspot,
 	int theExtents,
 	const RECT& theWindowRect,
 	COLORREF theDotColor,
 	bool isActiveHotspot)
 {
-	theCenterPoint.x -= theWindowRect.left;
-	theCenterPoint.y -= theWindowRect.top;
+	RECT aFullDrawnRect = { 0 };
+
+	const SIZE& aTargetSize = WindowManager::overlayTargetSize();
+	const POINT aCenterPoint = {
+		int(u16ToRangeVal(theHotspot.x.anchor, aTargetSize.cx)) +
+			theHotspot.x.offset * gUIScale + theWindowRect.left,
+		int(u16ToRangeVal(theHotspot.y.anchor, aTargetSize.cy)) +
+			theHotspot.y.offset * gUIScale + theWindowRect.top };
+	aFullDrawnRect.left = aCenterPoint.x - theExtents;
+	aFullDrawnRect.top = aCenterPoint.y - theExtents;
+	aFullDrawnRect.right = aCenterPoint.x + theExtents + 1;
+	aFullDrawnRect.bottom = aCenterPoint.y + theExtents + 1;
 	if( isActiveHotspot )
-	{
+	{// Draw extended crosshair arms
 		Rectangle(hdc,
-			theCenterPoint.x - theExtents * 3,
-			theCenterPoint.y - 1,
-			theCenterPoint.x + theExtents * 3 + 1,
-			theCenterPoint.y + 2);		
+			aCenterPoint.x - theExtents * 3,
+			aCenterPoint.y - 1,
+			aCenterPoint.x + theExtents * 3 + 1,
+			aCenterPoint.y + 2);
 		Rectangle(hdc,
-			theCenterPoint.x - 1,
-			theCenterPoint.y - theExtents * 3,
-			theCenterPoint.x + 2,
-			theCenterPoint.y + theExtents * 3 + 1);
+			aCenterPoint.x - 1,
+			aCenterPoint.y - theExtents * 3,
+			aCenterPoint.x + 2,
+			aCenterPoint.y + theExtents * 3 + 1);
 	}
+	// Draw main rectangle
 	Rectangle(hdc,
-		theCenterPoint.x - theExtents,
-		theCenterPoint.y - theExtents,
-		theCenterPoint.x + theExtents + 1,
-		theCenterPoint.y + theExtents + 1);
+		aFullDrawnRect.left, aFullDrawnRect.top,
+		aFullDrawnRect.right, aFullDrawnRect.bottom);
 	if( isActiveHotspot )
-	{
+	{// Erase center dot of rectangle
 		RECT aCenterDot;
 		const int aDotExtents = 1;
-		aCenterDot.left = theCenterPoint.x - aDotExtents;
-		aCenterDot.top = theCenterPoint.y - aDotExtents;
-		aCenterDot.right = theCenterPoint.x + aDotExtents + 1;
-		aCenterDot.bottom = theCenterPoint.y + aDotExtents + 1;
+		aCenterDot.left = aCenterPoint.x - aDotExtents;
+		aCenterDot.top = aCenterPoint.y - aDotExtents;
+		aCenterDot.right = aCenterPoint.x + aDotExtents + 1;
+		aCenterDot.bottom = aCenterPoint.y + aDotExtents + 1;
 		COLORREF oldColor = SetDCBrushColor(hdc, theDotColor);
 		HBRUSH hBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
 		FillRect(hdc, &aCenterDot, hBrush);
 		SetDCBrushColor(hdc, oldColor);
+		// Extend returned rect by earlier crosshair size
+		InflateRect(&aFullDrawnRect, theExtents * 2, theExtents * 2);
 	}
+	return aFullDrawnRect;
 }
 
 
@@ -824,81 +838,51 @@ static void drawEntry(
 {
 	Hotspot aHotspot = theEntry.drawHotspot;
 	if( !isActiveHotspot )
-	{
-		drawHotspot(hdc,
-			WindowManager::hotspotToOverlayPos(aHotspot),
-			kChildHotspotDrawSize,
+	{// Draw basic hotspot
+		theEntry.drawnRect = drawHotspot(hdc, aHotspot, kChildHotspotDrawSize,
 			theWindowRect, theEraseColor, false);
 	}
 	for(size_t i = 0; i < theEntry.children.size(); ++i )
-	{
+	{// Draw child hotspots
 		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
 		drawEntry(aChildEntry, hdc, theWindowRect, RGB(255, 255, 255), false);
 	}
+	// Draw built-in range of hotspots and track their combined drawn rect
+	RECT aRangeDrawnRect = { 0 };
 	for(size_t i = 2; i <= theEntry.rangeCount; ++i)
 	{
 		aHotspot.x.offset += theEntry.drawOffX;
 		aHotspot.y.offset += theEntry.drawOffY;
-		drawHotspot(hdc,
-			WindowManager::hotspotToOverlayPos(aHotspot),
+		RECT aDrawnRect = drawHotspot(hdc,
+			aHotspot,
 			kChildHotspotDrawSize,
 			theWindowRect, theEraseColor, false);
+		UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
 	}
 	if( isActiveHotspot )
-	{// Draw last so is over top of all children
+	{// Draw primary hotspot last so is over top of all children/range
 		COLORREF oldColor = SetDCBrushColor(hdc, RGB(255, 255, 255));
-		drawHotspot(hdc,
-			WindowManager::hotspotToOverlayPos(theEntry.drawHotspot),
+		theEntry.drawnRect = drawHotspot(hdc,
+			theEntry.drawHotspot,
 			kActiveHotspotDrawSize,
 			theWindowRect, theEraseColor, true);
 		SetDCBrushColor(hdc, oldColor);
 	}
+	// Have final drawn rect include range
+	if( theEntry.rangeCount > 1 )
+		UnionRect(&theEntry.drawnRect, &theEntry.drawnRect, &aRangeDrawnRect);
 }
 
 
-static void eraseRect(
-	HDC hdc,
-	POINT theCenterPoint,
-	int theExtents,
-	const RECT& theWindowRect)
+static void eraseDrawnEntry(LayoutEntry& theEntry, HDC hdc)
 {
-	theCenterPoint.x -= theWindowRect.left;
-	theCenterPoint.y -= theWindowRect.top;
-	RECT aRect;
-	aRect.left = theCenterPoint.x - theExtents;
-	aRect.top = theCenterPoint.y - theExtents;
-	aRect.right = theCenterPoint.x + theExtents + 1;
-	aRect.bottom = theCenterPoint.y + theExtents + 1;
 	HBRUSH hEraseBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
-	FillRect(hdc, &aRect, hEraseBrush);
-}
-
-
-static void eraseDrawnEntry(
-	LayoutEntry& theEntry,
-	HDC hdc,
-	const RECT& theWindowRect,
-	bool isActiveHotspot = true)
-{
-	Hotspot aHotspot = theEntry.drawHotspot;
-	eraseRect(hdc,
-		WindowManager::hotspotToOverlayPos(aHotspot),
-		isActiveHotspot ? kActiveHotspotDrawSize*3 : kChildHotspotDrawSize,
-		theWindowRect);
-	for(size_t i = 2; i <= theEntry.rangeCount; ++i)
-	{
-		aHotspot.x.offset += theEntry.drawOffX;
-		aHotspot.y.offset += theEntry.drawOffY;
-		eraseRect(hdc,
-			WindowManager::hotspotToOverlayPos(aHotspot),
-			kChildHotspotDrawSize,
-			theWindowRect);
-	}
+	RECT aDrawnRect = theEntry.drawnRect;
+	FillRect(hdc, &aDrawnRect, hEraseBrush);
 	for(size_t i = 0; i < theEntry.children.size(); ++i )
 	{
 		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
-		eraseDrawnEntry(
-			aChildEntry, hdc, theWindowRect, false);
+		eraseDrawnEntry(aChildEntry, hdc);
 	}
 }
 
@@ -913,7 +897,7 @@ static void layoutEditorPaintFunc(
 	if( sState->needsDrawPosUpdate )
 	{// Need to erase previous positions and update to new ones
 		if( !firstDraw )
-			eraseDrawnEntry(anEntry, hdc, theWindowRect);
+			eraseDrawnEntry(anEntry, hdc);
 		updateDrawHotspot(anEntry, sState->entered, firstDraw);
 	}
 
