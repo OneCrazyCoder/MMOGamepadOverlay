@@ -17,9 +17,6 @@
 namespace LayoutEditor
 {
 
-// Uncomment this to print status of target app/window tracking to debug window
-//#define LAYOUT_EDITOR_DEBUG_PRINT
-
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
@@ -140,9 +137,19 @@ struct EditorState
 	StringToValueMap<u16> hotspotArrayNameMapCache;
 	LayoutEntry::Shape entered, applied;
 	size_t activeEntry;
+	POINT lastMouseDragPos;
+	double unappliedDeltaX, unappliedDeltaY;
 	bool needsDrawPosUpdate;
+	bool draggingWithMouse;
 
-	EditorState() : activeEntry(), needsDrawPosUpdate(true) {}
+	EditorState() :
+		activeEntry(),
+		lastMouseDragPos(),
+		unappliedDeltaX(),
+		unappliedDeltaY(),
+		needsDrawPosUpdate(true),
+		draggingWithMouse(false)
+	{}
 };
 
 
@@ -156,12 +163,6 @@ static EditorState* sState = null;
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
-
-#ifdef LAYOUT_EDITOR_DEBUG_PRINT
-#define layoutDebugPrint(...) debugPrint("LayoutEditor: " __VA_ARGS__)
-#else
-#define layoutDebugPrint(...) ((void)0)
-#endif
 
 // Forward declares
 static void promptForEditEntry();
@@ -239,44 +240,32 @@ static void applyNewPosition()
 		anEntry.type == LayoutEntry::eType_CopyIcon &&
 		entryIncludesSize(anEntry) )
 	{
-		layoutDebugPrint("Applying altered region to '%s'\n",
-			anEntry.item.name.c_str());
 		Profile::setStr(kIconsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y + ", " +
 			sState->entered.w + ", " + sState->entered.h, false);
 	}
 	else if( needNewPos && anEntry.type == LayoutEntry::eType_CopyIcon )
 	{
-		layoutDebugPrint("Applying altered position to '%s'\n",
-			anEntry.item.name.c_str());
 		Profile::setStr(kIconsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y, false);
 	}
 	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot )
 	{
-		layoutDebugPrint("Applying altered position to '%s'\n",
-			anEntry.item.name.c_str());
 		Profile::setStr(kHotspotsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y, false);
 	}
 	else if( needNewPos && !anEntry.posSect.empty() )
 	{
-		layoutDebugPrint("Applying altered position to '%s'\n",
-			anEntry.item.name.c_str());
 		Profile::setStr(anEntry.posSect, kPositionKey,
 			sState->entered.x + ", " + sState->entered.y, false);
 	}
 	if( needNewSize && !anEntry.sizeSect.empty() )
 	{
-		layoutDebugPrint("Applying altered size to '%s'\n",
-			anEntry.item.name.c_str());
 		Profile::setStr(anEntry.sizeSect, anEntry.propName,
 			sState->entered.w + ", " + sState->entered.h, false);
 	}
 	if( needNewAlign && !anEntry.alignSect.empty() )
 	{
-		layoutDebugPrint("Applying altered alignment to '%s'\n",
-			anEntry.item.name.c_str());
 		Profile::setStr(anEntry.alignSect, kAlignmentKey,
 			kAlignmentStr[sState->entered.alignment][1], false);
 	}
@@ -316,14 +305,11 @@ static void cancelRepositioning()
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	if( !gShutdown && sState->applied != anEntry.shape )
 	{
-		layoutDebugPrint("Restoring previous position/size of '%s'\n",
-			anEntry.item.name.c_str());
 		sState->entered = anEntry.shape;
 		applyNewPosition();
 		Profile::saveChangesToFile();
 	}
-	//WindowManager::setSystemOverlayCallbacks(NULL, NULL);
-	HUD::setSystemOverlayDrawHook(NULL);
+	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
 }
 
@@ -339,7 +325,6 @@ static void saveNewPosition()
 	{
 		anEntry.shape = sState->applied;
 		Profile::saveChangesToFile();
-		layoutDebugPrint("New position saved to profile\n");
 	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
@@ -438,12 +423,63 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 }
 
 
-static void processEditControlString(HWND hDlg, int theControlID, int theDelta)
+static void autoSwapHotspotAnchor(Hotspot& theHotspot, bool forXAxis)
 {
-	DBG_ASSERT(sState);
-	DBG_ASSERT(sState->activeEntry != 0);
-	DBG_ASSERT(sState->activeEntry < sState->entries.size());
-	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	// This function changes a hotspot's anchor if it is very close to a
+	// different anchor point (considering min, max, or center points only).
+	Hotspot::Coord& out = forXAxis ? theHotspot.x : theHotspot.y;
+	if( out.anchor != 0x0000 && out.anchor != 0xFFFF && out.anchor != 0x8000 )
+		return;
+	const POINT& aWinPos = WindowManager::hotspotToOverlayPos(theHotspot);
+	const SIZE& aMaxWinPos = WindowManager::overlayTargetSize();
+	const LONG aMaxWinPosOnAxis = forXAxis ? aMaxWinPos.cx : aMaxWinPos.cy;
+	const LONG aWinPosOnAxis = forXAxis ? aWinPos.x : aWinPos.y;
+	if( out.anchor != 0 && aWinPosOnAxis <= aMaxWinPosOnAxis * 0.05 )
+	{
+		out.anchor = 0;
+		out.offset = aWinPosOnAxis;
+		if( gUIScale != 1.0 ) out.offset /= gUIScale;
+		return;
+	}
+	if( out.anchor != 0xFFFF && aWinPosOnAxis >= aMaxWinPosOnAxis * 0.95 )
+	{
+		out.anchor = 0xFFFF;
+		out.offset = (aWinPosOnAxis - (aMaxWinPosOnAxis-1));
+		if( gUIScale != 1.0 ) out.offset /= gUIScale;
+		return;
+	}
+	if( out.anchor != 0x8000 &&
+		aWinPos.x >= aMaxWinPos.cx * 0.47 &&
+		aWinPos.x <= aMaxWinPos.cx * 0.53 &&
+		aWinPos.y >= aMaxWinPos.cy * 0.47 &&
+		aWinPos.y <= aMaxWinPos.cy * 0.53 )
+	{
+		out.anchor = 0x8000;
+		out.offset = (aWinPosOnAxis - (aMaxWinPosOnAxis/2));
+		if( gUIScale != 1.0 ) out.offset /= gUIScale;
+		return;
+	}
+}
+
+
+static void processCoordString(
+	HWND hDlg,
+	int theControlID,
+	int theDelta = 0,
+	bool theDeltaSetByMouse = false)
+{
+	if( !hDlg ) return;
+
+	std::string* aDestStr = null;
+	switch(theControlID)
+	{
+	case IDC_EDIT_X: aDestStr = &sState->entered.x; break;
+	case IDC_EDIT_Y: aDestStr = &sState->entered.y; break;
+	case IDC_EDIT_W: aDestStr = &sState->entered.w; break;
+	case IDC_EDIT_H: aDestStr = &sState->entered.h; break;
+	}
+	DBG_ASSERT(aDestStr);
+
 	HWND hEdit = GetDlgItem(hDlg, theControlID);
 	DBG_ASSERT(hEdit);
 	std::string aControlStr;
@@ -453,6 +489,13 @@ static void processEditControlString(HWND hDlg, int theControlID, int theDelta)
 		GetDlgItemText(hDlg, theControlID, &aStrBuf[0], aStrLen+1);
 		aControlStr = narrow(&aStrBuf[0]);
 	}
+	if( !theDelta && aControlStr == *aDestStr )
+		return;
+
+	DBG_ASSERT(sState);
+	DBG_ASSERT(sState->activeEntry != 0);
+	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 
 	std::string result = aControlStr;
 	std::string aTempStr = aControlStr;
@@ -511,26 +554,53 @@ static void processEditControlString(HWND hDlg, int theControlID, int theDelta)
 		}
 		else
 		{
-			aCoord.offset += theDelta;
-			result = HotspotMap::coordToString(
-				aCoord, formatForCoord(anEntry, theControlID));
-			if( result[result.size()-1] == '%' )
-				result += "+0";
+			if( theDeltaSetByMouse )
+			{
+				if( gUIScale != 1.0 )
+				{
+					double* aDeltaFP =
+						theControlID == IDC_EDIT_X
+							? &sState->unappliedDeltaX
+							: &sState->unappliedDeltaY;
+					*aDeltaFP += double(theDelta) / gUIScale;
+					theDelta = *aDeltaFP;
+					*aDeltaFP -= theDelta;
+				}
+				if( theControlID == IDC_EDIT_X )
+				{
+					Hotspot aHotspot; aHotspot.x = aCoord;
+					aHotspot.x.offset += theDelta;
+					aTempStr = sState->entered.y;
+					HotspotMap::stringToCoord(aTempStr, aHotspot.y);
+					autoSwapHotspotAnchor(aHotspot, true);
+					aCoord.anchor = aHotspot.x.anchor;
+					theDelta = aHotspot.x.offset - aCoord.offset;
+				}
+				if( theControlID == IDC_EDIT_Y )
+				{
+					Hotspot aHotspot; aHotspot.y = aCoord;
+					aHotspot.y.offset += theDelta;
+					aTempStr = sState->entered.x;
+					HotspotMap::stringToCoord(aTempStr, aHotspot.x);
+					autoSwapHotspotAnchor(aHotspot, false);
+					aCoord.anchor = aHotspot.y.anchor;
+					theDelta = aHotspot.y.offset - aCoord.offset;
+				}
+			}
+			if( theDelta )
+			{
+				aCoord.offset += theDelta;
+				result = HotspotMap::coordToString(
+					aCoord, formatForCoord(anEntry, theControlID));
+				if( result[result.size()-1] == '%' )
+					result += "+0";
+			}
 		}
 	}
 
 	if( aControlStr != result )
 		SetWindowText(hEdit, widen(result).c_str());
 
-	std::string* aDestStr = null;
-	switch(theControlID)
-	{
-	case IDC_EDIT_X: aDestStr = &sState->entered.x; break;
-	case IDC_EDIT_Y: aDestStr = &sState->entered.y; break;
-	case IDC_EDIT_W: aDestStr = &sState->entered.w; break;
-	case IDC_EDIT_H: aDestStr = &sState->entered.h; break;
-	}
-	DBG_ASSERT(aDestStr);
 	if( *aDestStr != result )
 	{
 		*aDestStr = result;
@@ -548,7 +618,6 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	switch(theMessage)
 	{
 	case WM_INITDIALOG:
-		layoutDebugPrint("Initializing repositioning toolbar\n");
 		// Set title to match the entry name
 		SetWindowText(theDialog,
 			(std::wstring(L"Repositioning: ") +
@@ -652,7 +721,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		case IDC_EDIT_X: case IDC_EDIT_Y: case IDC_EDIT_W: case IDC_EDIT_H:
 			if( HIWORD(wParam) == EN_KILLFOCUS )
 			{
-				processEditControlString(theDialog, LOWORD(wParam), 0);
+				processCoordString(theDialog, LOWORD(wParam));
 				applyNewPosition();
 			}
 			break;
@@ -673,13 +742,13 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		switch(((LPNMHDR)lParam)->idFrom)
 		{
 		case IDC_SPIN_X: case IDC_SPIN_W:
-			processEditControlString(theDialog,
+			processCoordString(theDialog,
 				IDC_EDIT_X + ((LPNMHDR)lParam)->idFrom - IDC_SPIN_X,
 				-((LPNMUPDOWN)lParam)->iDelta);
 			applyNewPosition();
 			break;
 		case IDC_SPIN_Y: case IDC_SPIN_H:
-			processEditControlString(theDialog,
+			processCoordString(theDialog,
 				IDC_EDIT_X + ((LPNMHDR)lParam)->idFrom - IDC_SPIN_X,
 				((LPNMUPDOWN)lParam)->iDelta);
 			applyNewPosition();
@@ -699,9 +768,60 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 static LRESULT CALLBACK layoutEditorWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	if( theMessage == WM_LBUTTONDOWN )
+	if( !sState )
+		return DefWindowProc(theWindow, theMessage, wParam, lParam);
+
+	bool stopDragging = false;
+
+	switch(theMessage)
 	{
-		layoutDebugPrint("Mouse click detected in overlay!\n");
+	case WM_LBUTTONDOWN:
+		sState->draggingWithMouse = true;
+		sState->lastMouseDragPos.x = (short)LOWORD(lParam);
+		sState->lastMouseDragPos.y = (short)HIWORD(lParam);
+		SetCapture(theWindow);
+		return 0;
+	case WM_LBUTTONUP:
+		stopDragging = true;
+		// fall through to process final position change
+	case WM_MOUSEMOVE:
+		if( sState->draggingWithMouse )
+		{
+			POINT aMousePos;
+			aMousePos.x = (short)LOWORD(lParam);
+			aMousePos.y = (short)HIWORD(lParam);
+			
+			if( aMousePos.x != sState->lastMouseDragPos.x )
+			{
+				processCoordString(
+					WindowManager::toolbarHandle(),
+					IDC_EDIT_X,
+					aMousePos.x - sState->lastMouseDragPos.x,
+					true);
+			}
+			if( aMousePos.y != sState->lastMouseDragPos.y )
+			{
+				processCoordString(
+					WindowManager::toolbarHandle(),
+					IDC_EDIT_Y,
+					aMousePos.y - sState->lastMouseDragPos.y,
+					true);
+			}
+
+			sState->lastMouseDragPos = aMousePos;
+			if( stopDragging )
+			{
+				ReleaseCapture();
+				sState->draggingWithMouse = false;
+				sState->unappliedDeltaX = sState->unappliedDeltaY = 0;
+				applyNewPosition();
+			}
+		}
+		else
+		{
+			processCoordString(WindowManager::toolbarHandle(), IDC_EDIT_X);
+			processCoordString(WindowManager::toolbarHandle(), IDC_EDIT_Y);
+		}
 		return 0;
 	}
 
@@ -1002,10 +1122,11 @@ static void promptForEditEntry()
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 		sState->entered = sState->applied = anEntry.shape;
 		sState->needsDrawPosUpdate = true;
-		//WindowManager::setSystemOverlayCallbacks(
-		//	layoutEditorWindowProc, layoutEditorPaintFunc);
 		if( entryIncludesPosition(anEntry) )
-			HUD::setSystemOverlayDrawHook(layoutEditorPaintFunc);
+		{
+			WindowManager::setSystemOverlayCallbacks(
+				layoutEditorWindowProc, layoutEditorPaintFunc);
+		}
 		WindowManager::createToolbarWindow(
 			entryIncludesAlignment(anEntry)
 				? entryIncludesPosition(anEntry)
@@ -1225,7 +1346,6 @@ void init()
 	}
 
 	// Gather information on elements that can be edited
-	layoutDebugPrint("Initializing\n");
 	DBG_ASSERT(sState == null);
 	sState = new EditorState();
 
@@ -1394,14 +1514,10 @@ void cleanup()
 	if( !sState )
 		return;
 
-	layoutDebugPrint("Shutting down and clearing memory\n");
 	if( sState->activeEntry )
 		cancelRepositioning();
 	delete sState;
 	sState = null;
 }
-
-#undef LAYOUT_EDITOR_DEBUG_PRINT
-#undef layoutDebugPrint
 
 } // LayoutEditor
