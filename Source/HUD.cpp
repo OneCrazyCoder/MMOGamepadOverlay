@@ -1491,7 +1491,7 @@ static void drawMenuTitle(
 	if( alignment == eAlignment_Center )
 	{
 		aBGRect.left =
-			(dd.components[0].right - dd.components[0].left) / 2 -
+			((dd.components[0].left + dd.components[0].right) / 2) -
 			(theCacheEntry.width / 2) - aBorderSize;
 	}
 	else if( alignment == eAlignment_Max )

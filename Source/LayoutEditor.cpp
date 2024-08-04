@@ -434,20 +434,21 @@ static void autoSwapHotspotAnchor(Hotspot& theHotspot, bool forXAxis)
 	const SIZE& aMaxWinPos = WindowManager::overlayTargetSize();
 	const LONG aMaxWinPosOnAxis = forXAxis ? aMaxWinPos.cx : aMaxWinPos.cy;
 	const LONG aWinPosOnAxis = forXAxis ? aWinPos.x : aWinPos.y;
-	if( out.anchor != 0 && aWinPosOnAxis <= aMaxWinPosOnAxis * 0.05 )
+	if( out.anchor != 0 && aWinPosOnAxis <= aMaxWinPosOnAxis * 0.02 )
 	{
 		out.anchor = 0;
 		out.offset = aWinPosOnAxis;
 		if( gUIScale != 1.0 ) out.offset /= gUIScale;
 		return;
 	}
-	if( out.anchor != 0xFFFF && aWinPosOnAxis >= aMaxWinPosOnAxis * 0.95 )
+	if( out.anchor != 0xFFFF && aWinPosOnAxis >= aMaxWinPosOnAxis * 0.98 )
 	{
 		out.anchor = 0xFFFF;
 		out.offset = (aWinPosOnAxis - (aMaxWinPosOnAxis-1));
 		if( gUIScale != 1.0 ) out.offset /= gUIScale;
 		return;
 	}
+	/* I'm not sure auto-swapping to center anchor is a good idea...
 	if( out.anchor != 0x8000 &&
 		aWinPos.x >= aMaxWinPos.cx * 0.47 &&
 		aWinPos.x <= aMaxWinPos.cx * 0.53 &&
@@ -459,6 +460,7 @@ static void autoSwapHotspotAnchor(Hotspot& theHotspot, bool forXAxis)
 		if( gUIScale != 1.0 ) out.offset /= gUIScale;
 		return;
 	}
+	*/
 }
 
 
@@ -525,8 +527,12 @@ static void processCoordString(
 	{// Adjust the value while trying to maintain current formatting
 		// Check if only specifying a non-standard anchor, meaning not CX, etc,
 		// so must contain a decimal or a % symbol, and no offset specified
-		// (including no "+0" for offset), and if so increment anchor instead.
-		if( aCoord.offset == 0 && result.find('+') == std::string::npos &&
+		// (including no "+0" for offset), and not trying to push past edges.
+		// If it is a non-standard anchor, shift the anchor instead of offset.
+		if( aCoord.offset == 0 &&
+			(aCoord.anchor < 0xFFFF || theDelta <= 0 || theDeltaSetByMouse) &&
+			(aCoord.anchor > 0 || theDelta >= 0 || theDeltaSetByMouse) &&
+			result.find('+') == std::string::npos &&
 			(result[result.size()-1] == '%' ||
 			 result.find('.') != std::string::npos) )
 		{
@@ -539,6 +545,8 @@ static void processCoordString(
 			case IDC_EDIT_X: case IDC_EDIT_W:
 				if( aWinPos.x >= WindowManager::overlayTargetSize().cx-1 )
 					result = "100%";
+				else if( aWinPos.x <= 0 )
+					result = "0%";
 				else
 					result = HotspotMap::coordToString(
 						aHotspot.x, HotspotMap::eHNC_Num);
@@ -546,6 +554,8 @@ static void processCoordString(
 			case IDC_EDIT_Y: case IDC_EDIT_H:
 				if( aWinPos.y >= WindowManager::overlayTargetSize().cy-1 )
 					result = "100%";
+				else if( aWinPos.y <= 0 )
+					result = "0%";
 				else
 					result = HotspotMap::coordToString(
 						aHotspot.y, HotspotMap::eHNC_Num);
@@ -780,6 +790,9 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 		sState->lastMouseDragPos.x = (short)LOWORD(lParam);
 		sState->lastMouseDragPos.y = (short)HIWORD(lParam);
 		SetCapture(theWindow);
+		ShowCursor(FALSE);
+		sState->needsDrawPosUpdate = true;
+		HUD::redrawSystemOverlay();
 		return 0;
 	case WM_LBUTTONUP:
 		stopDragging = true;
@@ -811,14 +824,20 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 			sState->lastMouseDragPos = aMousePos;
 			if( stopDragging )
 			{
+				ShowCursor(TRUE);
 				ReleaseCapture();
 				sState->draggingWithMouse = false;
 				sState->unappliedDeltaX = sState->unappliedDeltaY = 0;
 				applyNewPosition();
+				sState->needsDrawPosUpdate = true;
+				HUD::redrawSystemOverlay();
 			}
 		}
-		else
+		return 0;
+	case WM_SETCURSOR:
+		if( !sState->draggingWithMouse )
 		{
+			SetCursor(LoadCursor(NULL, IDC_SIZEALL));
 			processCoordString(WindowManager::toolbarHandle(), IDC_EDIT_X);
 			processCoordString(WindowManager::toolbarHandle(), IDC_EDIT_Y);
 		}
@@ -1009,17 +1028,20 @@ static RECT drawHotspot(
 		aFullDrawnRect.left, aFullDrawnRect.top,
 		aFullDrawnRect.right, aFullDrawnRect.bottom);
 	if( isActiveHotspot )
-	{// Erase center dot of rectangle
-		RECT aCenterDot;
-		const int aDotExtents = 1;
-		aCenterDot.left = aCenterPoint.x - aDotExtents;
-		aCenterDot.top = aCenterPoint.y - aDotExtents;
-		aCenterDot.right = aCenterPoint.x + aDotExtents + 1;
-		aCenterDot.bottom = aCenterPoint.y + aDotExtents + 1;
-		COLORREF oldColor = SetDCBrushColor(hdc, theEraseColor);
-		HBRUSH hBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
-		FillRect(hdc, &aCenterDot, hBrush);
-		SetDCBrushColor(hdc, oldColor);
+	{
+		if( sState && sState->draggingWithMouse )
+		{// Erase center dot for extra help with positioning
+			RECT aCenterDot;
+			const int aDotExtents = 1;
+			aCenterDot.left = aCenterPoint.x - aDotExtents;
+			aCenterDot.top = aCenterPoint.y - aDotExtents;
+			aCenterDot.right = aCenterPoint.x + aDotExtents + 1;
+			aCenterDot.bottom = aCenterPoint.y + aDotExtents + 1;
+			COLORREF oldColor = SetDCBrushColor(hdc, theEraseColor);
+			HBRUSH hBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
+			FillRect(hdc, &aCenterDot, hBrush);
+			SetDCBrushColor(hdc, oldColor);
+		}
 		// Extend returned rect by earlier crosshair size
 		InflateRect(&aFullDrawnRect, theExtents * 2, theExtents * 2);
 	}
