@@ -768,7 +768,7 @@ EResult stringToCoord(std::string& theString,
 					result = eResult_Overflow;
 				else if( aDenominator > 0x7FFFFFFF )
 					result = eResult_Overflow;
-				else if( aNumerator )
+				else
 					aValidCharCount = aCharPos + 1;
 				break;
 			case eMode_OffsetSign:
