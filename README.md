@@ -22,28 +22,26 @@ Although there are plenty of other methods to translate gamepad input into KB/M 
 
 Nothing says it can't also be used for other games though, as it is customizable.
 
-## Basic operation
+## Initial setup
 
 Place the executable wherever is convenient, keeping in mind that it will generate and read text files with the *.ini* extension in the same folder in which it is placed. When run for the first time, you will be prompted to create a **Profile**, which is associated with one or more *.ini* files that customize how the application looks and behaves. Multiple example profiles are provided to pick from as a base template. You can just choose to have a single profile and auto-load it every time, or have different ones for different games or even different characters for the same game. You will then be prompted if you want your profile to also automatically launch an associated game (if it is the first profile loaded when launching the app), for convenience.
 
 After that, load up the game and you should be able to use the controller to move your character, move the mouse, and perform actions. How that all functions depends on the game and the settings in your loaded Profile.
 
-## Gamepad conflict for Windows 10+
+## Basic use with a default control scheme
 
-Some games (notably *Monsters & Memories* pre-alpha tests as of this writing) may actually respond to gamepad input already in Windows 10+, but not in any useful way. In fact, Windows itself can respond to gamepad input such as in the start menu by using this new UWP "feature". This can be problematic because this gamepad overlay can not stop other applications or Windows from detecting gamepad input, causing buttons you press to result in extra actions you did not intend (in M&M's case, pressing "A" on an XBox controller can cause it to click on the last button you clicked with the mouse, for example, in addition to whatever you actually assign "A" to do here).
+The rest of this Readme file after this section explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that **you don't actually have to learn any of the rest of this stuff if the default profiles provided (or maybe shared by other users) work for your needs! The information in this section is likely all you need!** This section will explain the few things you can customize without needing to manually edit a .ini text file.
 
-One way to stop this is using a utility called [HidHide](https://github.com/nefarius/HidHide) (which, if you are using a PlayStation controller and something like DS4Windows, you may already have installed anyway). Search your computer for "HidHide Configuration" and run that app if you have this installed. There, you can set it to "hide" your gamepads from the game in question, so they will ONLY respond to the mouse and keyboard input sent by this application (and your actual mouse and keyboard). HidHide can't stop Windows itself from responding to gamepad input though.
+This app will *not* automatically detect if you move around your in-game UI windows, and some functionality depends on it knowing their current positions! Therefore, you can update the positions of UI elements by selecting Edit->UI Layout from the app's main window, or selecting the option via your controller from Settings in the main menu of the default control scheme. It should be pretty simple from there to move things to match your in-game UI layout, but more details are given further down in this document in a section called "UI Layout Editor".
 
-For some applications (but sadly not *Monsters & Memories* last time I tried this) it can work to just disable this "feature" in Windows, if your Windows is updated enough to allow that, through a Registry edit. [Here](https://github.com/microsoft/microsoft-ui-xaml/issues/1495#issuecomment-745586048) is a description of how to do it. In case that link dies at some point, the brief version is to make a Registry key ``
-HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping`` and add a DWORD to it called ``Enabled`` and set its value to 0. This will only disable Windows and some "UWP" apps from using the gamepad for basic functionality - it will not prevent games that natively support gamepads for full game play, or utilities like this application or Steam from remapping a gamepad to keyboard & mouse input.
-
-## Basic use and default control scheme
-
-The rest of this Readme file explains how to customize your control scheme by editing .ini files using a text editor. This may seem daunting, but keep in mind that **you don't actually have to learn any of the rest of this stuff if the default profiles provided (or maybe shared by other users) work for your needs!**
+You may also want to customize your macros in the Macros menu included in the default control scheme, accessed by tapping L2 and using your D-Pad. If you don't want to edit a text file, you can instead add, edit, and remove Macros while playing by pressing and holding a direction on your D-Pad for a second while in this Macros menu, and then following the instructions in the prompt that pops up. Try editing some of the pre-existing macros to get an idea of how to format macros, and refer to the rest of this guide for more details on what kind of commands you can set on a macro if needed.
 
 If you'd like a simpler user guide for just playing a supported MMO with the app using a default included control scheme, try this video (click the image to play):
 
 [![MMOGO Video User Guide](http://img.youtube.com/vi/dGfhbFy53Rk/0.jpg)](http://www.youtube.com/watch?v=dGfhbFy53Rk "MMO Gamepad Overlay User Guide")
+
+**IMPORTANT NOTE:** Be aware that some games, (notably "Monsters & Memories" pre-alpha tests as of this writing) may actually respond to gamepad input already and thus interfere with this app (and any other similar apps) by performing undesired actions when you press a button that you've assigned to do something else. You can use a utility called [HidHide](https://github.com/nefarius/HidHide) to fix this by preventing the game from detecting your controller. More details about this problem and using HidHide to fix it are given in the above video. Windows 10+ itself may also respond to gamepad input in undesired ways, which you can disable via your system registry by setting ``
+HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping\Enabled`` to 0 as explained [here](https://github.com/microsoft/microsoft-ui-xaml/issues/1495#issuecomment-745586048), if you want to also navigate Windows with your gamepad while the app is active.
 
 ## Profile Setup
 
@@ -300,6 +298,14 @@ Some accepted examples of valid positions for reference:
     = 50%, 0, 25%, H
 
 *NOTE: The offset value is unaffected by the size of the target screen/window, but will instead be multiplied by the global  [System] property ``UIScale=`` (which itself can be automatically set for some games by use of ``UIScaleRegKey=``). Some size-related properties that only have a single value, such as BorderSize, TitleHeight, and FontSize, are also multiplied by UIScale!*
+
+### UI Layout Editor
+
+Setting positions of hotspots (and other things like HUD elements and copy icon regions) can be a pain without being able to visually see where they will end up compared to the game screen. To help with this, use the UI Layout Editor, which can be accessed from the Edit menu of the main app window, or by adding a ``=Edit UI Layout`` command to a button or menu in your profile somewhere.
+
+This option will bring up a dialog listing all the components found in your profile that can be repositioned. Select one and click the Reposition button. You can then see a visual indicator of the position in question overlayed over the game (and any HUD elements from this app), to see how they line up. A pop-up dialog will also appear showing the actual values from the .ini file. You can use the buttons and edit fields in that dialog to move the item, or just drag it around directly on the screen with a mouse. The game and app will continue running while you are doing this, to allow checking the position against different in-game menus and such. Simply click OK in the dialog box when done positioning the item to save the change to your profile .ini file automatically.
+
+Note that you can not add or remove hotspots or anything else with this editor, only change positions (and size and alignment in some cases). You will need to edit the .ini file manually to add or remove anything.
 
 ## Controls Layers
 
@@ -755,23 +761,25 @@ The [Icons] section is used to link each menu item's label text to what should b
     [Icons]
     Spell2 = MyIcons: 0, 0, 32, 32
 
-Would have a menu where the first Menu Item would have the text label "Spell1", but the second Menu Item would instead show a copy of the (0, 0, 32, 32) region of Bitmaps\MyIcons.bmp displayed instead of text. *Note that linking a label to an icon is case-insensitive and ignores spaces, so "SPELL 2" would link to the same icon as "Spell2".*
+Would have a menu where the first Menu Item would have the text label "Spell1", but the second Menu Item would instead show a copy of the (0, 0, 32, 32) region of Bitmaps\MyIcons.bmp displayed instead of text.
+
+*Note that linking a label to an icon is case-insensitive and ignores spaces, so "SPELL 2" would link to the same icon as "Spell2".*
 
 ### Icons copied from game window
 
-While icons from bitmaps stored on your hard drive might look nicer then plain shapes, they can't dynamically display information that might change during play. In the above example, the "Spell2" label would always show the same icon, but what if you want it to display an icon that matches the in-game icon for whatever spell you actually have memorized in slot 2? To do this, you can specify a rectangular region of the game's window to be copied and act as an icon, which will then be continuously updated (at least once every ``[System]CopyIconFrameTime=`` milliseconds).
+While icons from bitmaps stored on your hard drive might look nicer then plain shapes or a text label, they can't dynamically display information that might change during play. In the above example, the "Spell2" label would always show the same icon regardless of what spell is actually assigned to that slot. So what if you want it to display an icon that matches the in-game icon of the spell in that slot? To do this, you can specify a rectangular region of the game's window to be copied and act as an icon, which will then be continuously updated to match the game's UI (at least once every ``[System]CopyIconFrameTime=`` milliseconds).
 
-To do this, simply omit the name of a Bitmap in the [Icons] property for the menu item label you want to replace, and have the coordinates be the portion of the game's window you want copied over, like so:
+To set this up, simply omit the name of a Bitmap in the [Icons] property for the menu item label you want to replace, and have the coordinates be the portion of the game's window you want copied over, like so:
 
     [Icons]
     Spell2 = 500, 250, 32, 32
 
-These copy-from coordinates work like Hotspots and can include anchor, fixed offset, and scaled offset, such as:
+These copy-from coordinates work like Hotspots and can include both an anchor and an offset, such as:
 
     [Icons]
-    Spell2 = R-20, 20%+10-5, 5%, 15
+    Spell2 = R-20, 20%+10, 5%, 15
 
-*TIP: When using this feature, it may be desirable to have the copied-from area of the game's window be covered up by a HUD element from the overlay to avoid having the same icons show up in two places at once on your screen (the copy in the overlay + the original icon in the game's built-in UI). This requires an alternate copy method that avoids copying from the overlay itself, getting the icon hidden underneath it instead. Which copy method works may differ from game to game. You can set the method using the [System] property "IconCopyMethod". See the comments in MMOGO_Core.ini for details on possible values for this property.*
+*TIP: When using this feature, it may be desirable to have the copied-from area of the game's window be covered up by a HUD element from the overlay to avoid having the same icon show up in two places at once on your screen (the copy in the overlay + the original icon in the game's built-in UI). This requires an alternate copy method that avoids copying from the overlay itself, fetching the icon from the game window hidden underneath it instead. Which copy method works may differ from game to game. You can set the method using the [System] property "IconCopyMethod". See the comments in MMOGO_Core.ini for details on possible values for this property.*
 
 ### Hotspot & KeyBind HUD Elements
 
@@ -794,7 +802,7 @@ These commands affect the overlay app directly rather than the game you are usin
 
 ### Hotspot Array and Copy Icon ranges
 
-When defining Hotspot Arrays and regions to copy from a game window to use as icons, it can be a pain to change every individual hotspot/icon associated with in-game UI window when you want to move that UI window in the game. To help with this, these elements can use a base *anchor* element with the other elements defined as just *offsets* to the anchor, meaning they can all be moved at once by only moving the anchor.
+When defining Hotspot Arrays and regions to copy from a game window to use as icons, it can be a pain to change every individual hotspot/icon associated with in-game UI window when you want to move that UI window in the game, even with the help of the runtime UI Layout Editor. To help with this, these elements can use a base *anchor* element with the other elements defined as just *offsets* to the anchor, meaning they can all be moved at once by only moving the anchor.
 
 To create an anchor, define a hotspot or icon with no number after its name. At that point, any hotspots or other copy-from-target icons with the same name but with a number at the end of the name will be treated as an offset (in the case of icons you must also leave off the width and height for the offset versions). For example:
 
@@ -816,16 +824,15 @@ In addition, to save on typing you can specify multiple hotspot/icon offsets in 
     LootWindow = 32x240
     # Define 8-tall left column starting at 32x240 then each 41 apart in Y
     LootWindow1 = +0 x +0
-    LootWindow2-8 = +0 x +41
+    LootWindow2-8 = +0, +41
     # Define right column @ 73x240 then 41 each in Y
     LootWindow9 = +41 x +0
-    LootWindow10-16 = +0 x +41
+    LootWindow10-16 = +0, +41
 
     [Icons]
     # Copy from a column of 8 spell icons 29 apart in Y
     Spell1 = 17, 7, 36, 28
     Spell2-8 = +0, +29
-
 
 *Note that the + signs in front of each number for the offsets don't do anything, I just put them there to help remind me that these are offsets rather than direct positions.*
 

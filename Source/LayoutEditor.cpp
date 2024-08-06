@@ -1367,6 +1367,8 @@ void init()
 		return;
 	}
 
+	WindowManager::readUIScale();
+
 	// Gather information on elements that can be edited
 	DBG_ASSERT(sState == null);
 	sState = new EditorState();
