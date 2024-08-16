@@ -179,14 +179,16 @@ On a more advanced note, you can also request in the sequence to jump the mouse 
 
 While a Key Sequence could technically be used to type a message directly into the game's chat box, it is easier to directly use a *Slash Command* or *Say String* command to do this.
 
-Slash Commands start with ``/`` and Say Strings (chat messages) start with ``>`` (the '>' is replaced with the Return key to switch to the chat box when the command is actually executed). These commands will actually "type" the sequence into the chat box as a series of keyboard key presses, followed by pressing Return to send the macro. For example:
+Slash Commands start with ``/`` and Say Strings (chat messages) start with ``>`` (the '>' is replaced with the Return key to switch to the chat box when the command is actually executed). These commands will send the string to the chat box after initially opening it with Return or /, then press Return to send the macro. Some examples:
 
     [Scheme]
     Hold R1 = /who
     Hold R2 = /g Roll for loot please!
     Hold L1 = >Would you like to group?
 
-This will lock out most other inputs while typing though, so in general it is better to instead create macros using the in-game interface and activate them via key sequences, such as the earlier example for activating hotbar buttons.
+This will lock out most other inputs while the chat box is in use, so to send the text as quickly as possible it will be copied into your system clipboard and then pasted into the game by using the ``PasteText=`` KeyBind. If PasteText is not set to anything (such as for games that do not support pasting text into the chat box) the app will instead type the text in manually with multiple individual key presses.
+
+In general it is better to instead create macros using the in-game interface and activate them via key sequences, such as the earlier example for activating hotbar buttons, to reduce the effect the chat box will have of locking out other controls while it is in use.
 
 ## Key Binds (aliases)
 
@@ -233,6 +235,7 @@ These examples may not seem worth the effort just for added readability, but the
 A few Key Bind names are specifically checked for by the program and used directly as more than just aliases. These include:
 
     SwapWindowMode =
+    PasteText =
     AutoRun =
     MoveForward =
     MoveBack =
@@ -242,6 +245,8 @@ A few Key Bind names are specifically checked for by the program and used direct
     StrafeRight =
 
 ``SwapWindowMode=`` is used in the code for attempting to force the target game into full-screen-windowed mode (as opposed to *true* full screen mode which would prevent the overlay from being visible), which can be set in the [System] section with the flag ``ForceFullScreenWindow = Yes`` (and optionally ``StartInFullScreenWindow = Yes``). It is typically set to ``=Alt+Enter``.
+
+``PasteText=`` is used as explained above for "Chat box macros" to paste the string all at once instead of typing it out key-by-key if this key bind is set to anything (usually Ctrl-V).
 
 The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` etc. AutoRun is used alongside these to fix issues like accidentally immediately cancelling auto-run when it is assigned to L3 due to small stick wiggles while release the stick.
 

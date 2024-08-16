@@ -244,6 +244,7 @@ enum EHUDType
 enum ESpecialKey
 {
 	eSpecialKey_SwapWindowMode,
+	eSpecialKey_PasteText,
 	eSpecialKey_AutoRun,
 	eSpecialKey_MoveF,
 	eSpecialKey_MoveB,
