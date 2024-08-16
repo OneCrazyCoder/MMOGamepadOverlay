@@ -76,6 +76,7 @@ DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
 const char* kSpecialKeyNames[] =
 {
 	"SwapWindowMode",		// eSpecialKey_SwapWindowMode
+	"PasteText",			// eSpecialKey_PasteText
 	"AutoRun",				// eSpecialKey_AutoRun
 	"MoveForward",			// eSpecialKey_MoveF
 	"MoveBack",				// eSpecialKey_MoveB

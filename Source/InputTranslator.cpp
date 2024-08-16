@@ -187,8 +187,7 @@ struct TranslatorState
 
 struct InputResults
 {
-	std::vector<Command> keys;
-	std::vector<Command> strings;
+	std::vector<Command> queuedKeys;
 	BitVector<> menuAutoCommandRun;
 	s16 charMove;
 	s16 charTurn;
@@ -205,8 +204,7 @@ struct InputResults
 
 	void clear()
 	{
-		keys.clear();
-		strings.clear();
+		queuedKeys.clear();
 		menuAutoCommandRun.clearAndResize(InputMap::menuCount());
 		charMove = 0;
 		charTurn = 0;
@@ -728,12 +726,9 @@ static void processCommand(
 		break;
 	case eCmdType_TapKey:
 	case eCmdType_VKeySequence:
-		// Queue to send after press/release commands but before strings
-		sResults.keys.push_back(theCmd);
-		break;
 	case eCmdType_ChatBoxString:
-		// Queue to send last, since can block other input for a while
-		sResults.strings.push_back(theCmd);
+		// Queue to send after press/release commands
+		sResults.queuedKeys.push_back(theCmd);
 		break;
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MoveMouseToMenuItem:
@@ -916,7 +911,7 @@ static void processCommand(
 		if( aForwardCmd.type >= eCmdType_FirstValid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			// Close menu first if didn't just switch to a sub-menu
+			// Close menu if didn't just switch to a sub-menu
 			if( aForwardCmd.type < eCmdType_FirstMenuControl ||
 				aForwardCmd.type > eCmdType_LastMenuControl )
 			{
@@ -1706,10 +1701,8 @@ void update()
 		sResults.mouseWheelY,
 		sResults.mouseWheelDigital,
 		sResults.mouseWheelStepped);
-	for(size_t i = 0; i < sResults.keys.size(); ++i)
-		InputDispatcher::sendKeyCommand(sResults.keys[i]);
-	for(size_t i = 0; i < sResults.strings.size(); ++i)
-		InputDispatcher::sendKeyCommand(sResults.strings[i]);
+	for(size_t i = 0; i < sResults.queuedKeys.size(); ++i)
+		InputDispatcher::sendKeyCommand(sResults.queuedKeys[i]);
 
 	// Clear results for next update
 	const bool aLayerOrderChanged = sResults.layerChangeMade;

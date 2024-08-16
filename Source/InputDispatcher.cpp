@@ -362,18 +362,13 @@ static EResult popNextStringChar(const char* theString)
 		return eResult_TaskCompleted;
 
 	const size_t idx = sTracker.currTaskProgress++;
-	// Convert initial '>' into carriage return for say strings
-	const char c = (idx == 0 && theString[0] == '>') ? '\r' : theString[idx];
+	const u16 kPasteKey = InputMap::keyForSpecialAction(eSpecialKey_PasteText);
 
-	// Skip non-printable or non-ASCII characters (besides enter at end)
-	if( idx > 0 && c != '\r' && (c < ' ' || c > '~') )
-		return popNextStringChar(theString);
-
-	// Queue the key + modifiers (shift key)
-	sTracker.nextQueuedKey = VkKeyScan(c);
-
-	if( idx == 0 ) // the initial key to switch to chat bar (/ or Enter)
+	if( idx == 0 )
 	{
+		// Press initial key to switch to chat box mode ('/' or '\r')
+		sTracker.nextQueuedKey =
+			theString[0] == '/' ? VkKeyScan('/') : VK_RETURN;
 		// Add a pause to make sure game-side async key checking switches to
 		// direct text input in chat box before 'typing' at full speed
 		sTracker.queuePauseTime =
@@ -381,20 +376,54 @@ static EResult popNextStringChar(const char* theString)
 				kConfig.chatBoxPostFirstKeyDelay);
 		// Flag any movement keys now held down as possibly being "sticky"
 		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
-	}
-	else
-	{
-		// Allow releasing shift quickly to continue typing characters
-		// when are using chatbox (shouldn't have the same need for a delay
-		// as a key sequence since target game likely uses keyboard events
-		// instead of direct keyboard polling for chat box typing).
-		// This is also checked for "sticky movement keys" while typing.
-		sTracker.typingChatBoxString = true;
-	}
+		// If can paste, copy the rest of the string into the clipboard now
+		if( kPasteKey && OpenClipboard(NULL) )
+		{
+			std::string aStr(&theString[sTracker.currTaskProgress]);
+			const size_t anEndCharPos = aStr.find('\r');
+			if( anEndCharPos != std::string::npos )
+				aStr.resize(anEndCharPos);
+			const std::wstring& aWStr = widen(aStr);
 
-	if( theString[idx] == '\r' )
+			EmptyClipboard();
+			if( HGLOBAL hGlobUnicode =
+					GlobalAlloc(GMEM_MOVEABLE,
+					(aWStr.size() + 1) * sizeof(wchar_t)) )
+			{
+				if( wchar_t* pGlobUnicode =
+						(wchar_t*)GlobalLock(hGlobUnicode) )
+				{
+					memcpy(pGlobUnicode, aWStr.c_str(),
+						(aWStr.size() + 1) * sizeof(wchar_t));
+					GlobalUnlock(hGlobUnicode);
+					SetClipboardData(CF_UNICODETEXT, hGlobUnicode);
+				}
+			}
+			int ansiSize = WideCharToMultiByte(
+				CP_ACP, 0, aWStr.c_str(), -1, NULL, 0, NULL, NULL);
+			if( HGLOBAL hGlobAnsi =
+				GlobalAlloc(GMEM_MOVEABLE, ansiSize) )
+			{
+				if( char* pGlobAnsi = (char*)GlobalLock(hGlobAnsi) )
+				{
+					WideCharToMultiByte(CP_ACP, 0, aWStr.c_str(), -1,
+						pGlobAnsi, ansiSize, NULL, NULL);
+					GlobalUnlock(hGlobAnsi);
+					SetClipboardData(CF_TEXT, hGlobAnsi);
+				}
+			}
+			CloseClipboard();
+			
+			// Jump progress to the character just before final return key
+			sTracker.currTaskProgress += aStr.size();
+			--sTracker.currTaskProgress;
+		}
+	}
+	else if( theString[idx] == '\r' )
 	{
-		// Add delay after press enter before calling this task complete and
+		// Send the string by pressing carriage return
+		sTracker.nextQueuedKey = VK_RETURN;
+		// Add delay after press return before calling this task complete and
 		// allowing other key presses. This prevents the chat box interface
 		// from "absorbing" gameplay-related key presses, which can happen in
 		// some games for a time after the carriage return but before the chat
@@ -402,6 +431,25 @@ static EResult popNextStringChar(const char* theString)
 		sTracker.queuePauseTime =
 			max(sTracker.queuePauseTime,
 				kConfig.chatBoxPostEnterDelay);
+	}
+	else if( kPasteKey )
+	{
+		// Paste the string from the clipboard instead of typing it key-by-key
+		sTracker.nextQueuedKey = kPasteKey;
+		sTracker.typingChatBoxString = true;
+	}
+	else
+	{
+		// Queue typing a string character key (possibly w/ shift key modifier)
+		// Only printable ASCII characters are supported with this method!
+		if( theString[idx] >= ' ' && theString[idx] <= '~' )
+			sTracker.nextQueuedKey = VkKeyScan(theString[idx]);
+		// Allow releasing shift quickly to continue typing characters
+		// when are using chatbox (shouldn't have the same need for a delay
+		// as a key sequence since target game likely uses keyboard events
+		// instead of direct keyboard polling for chat box typing).
+		// This is also checked for "sticky movement keys" while typing.
+		sTracker.typingChatBoxString = true;
 	}
 
 	return eResult_Incomplete;
@@ -1712,7 +1760,7 @@ void update()
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
 			sTracker.typingChatBoxString = false;
-			sTracker.embeddedChatBoxStringPos = false;
+			sTracker.embeddedChatBoxStringPos = 0;
 			if( sTracker.queue.empty() )
 				sTracker.mouseJumpQueued = false;
 		}
