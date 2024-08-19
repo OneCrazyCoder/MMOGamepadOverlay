@@ -1122,9 +1122,9 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 			}
 		}
 	}
-	// Only replace custom files in Debug builds
+	// Only replace custom files in Debug builds, and only for first loaded
 	#ifdef _DEBUG
-	if( !theMatchingResource )
+	if( !theMatchingResource && sLoadedProfileName.empty() )
 	{
 		for(size_t i = 0; i < ARRAYSIZE(kResTemplateCustom); ++i)
 		{
@@ -1804,40 +1804,19 @@ std::string getStr(const std::string& theKey, const std::string& theDefaultValue
 
 int getInt(const std::string& theKey, int theDefaultValue)
 {
-	return intFromString(
-		getStr(theKey, toString(theDefaultValue)));
+	return intFromString(getStr(theKey, toString(theDefaultValue)));
 }
 
 
 bool getBool(const std::string& theKey, bool theDefaultValue)
 {
-	const std::string& aString =
-		getStr(theKey, (theDefaultValue ? "1" : "0"));
-
-	if( aString.empty() ||
-		aString[0] == '0' ||
-		aString[0] == 'n' || // no
-		aString[0] == 'N' || // No
-		aString[0] == 'f' || // false
-		aString[0] == 'F' || // False
-		(aString[0] == 'O' && aString[1] == 'F') || // OFF
-		(aString[0] == 'O' && aString[1] == 'f') || // Off
-		(aString[0] == 'o' && aString[1] == 'f') || // off
-		aString[0] == '\0' )
-	{
-		return false;
-	}
-	return true;
+	return boolFromString(getStr(theKey, (theDefaultValue ? "1" : "0")));
 }
 
 
 float getFloat(const std::string& theKey, float theDefaultValue)
 {
-	const std::string& theValue = getStr(theKey, toString(theDefaultValue));
-	float result = floatFromString(theValue);
-	if( theValue[theValue.size()-1] == '%' )
-		result /= 100;
-	return result;
+	return floatFromString(getStr(theKey, toString(theDefaultValue)));
 }
 
 

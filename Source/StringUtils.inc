@@ -168,31 +168,62 @@ inline u64 u64FromString(const char* theString)
 
 inline float floatFromString(const std::string& theString)
 {
-	return float(atof(theString.c_str()));
+	float result = float(atof(theString.c_str()));
+	if( theString[theString.size()-1] == '%' )
+		result /= 100.0;
+	return result;
 }
 
 
 inline float floatFromString(const char* theString)
 {
-	return float(atof(theString));
+	return floatFromString(std::string(theString));
 }
 
 
 inline double doubleFromString(const std::string& theString)
 {
-	return atof(theString.c_str());
+	double result = double(atof(theString.c_str()));
+	if( theString[theString.size()-1] == '%' )
+		result /= 100.0;
+	return result;
 }
 
 
 inline double doubleFromString(const char* theString)
 {
-	return atof(theString);
+	return doubleFromString(std::string(theString));
 }
 
 
 inline std::vector<u32> UTF8ToUTF32(const std::string& theString)
 {
 	return UTF8ToUTF32(theString.c_str());
+}
+
+
+inline bool boolFromString(const std::string& theString)
+{
+	return boolFromString(theString.c_str());
+}
+
+
+inline bool boolFromString(const char* theString)
+{
+	if( !theString ||
+		theString[0] == '0' ||
+		theString[0] == 'n' || // no
+		theString[0] == 'N' || // No
+		theString[0] == 'f' || // false
+		theString[0] == 'F' || // False
+		(theString[0] == 'O' && theString[1] == 'F') || // OFF
+		(theString[0] == 'O' && theString[1] == 'f') || // Off
+		(theString[0] == 'o' && theString[1] == 'f') || // off
+		theString[0] == '\0' )
+	{
+		return false;
+	}
+	return true;
 }
 
 
