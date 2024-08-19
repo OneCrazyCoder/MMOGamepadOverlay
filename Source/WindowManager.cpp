@@ -67,7 +67,6 @@ struct OverlayWindow
 	float fadeValue;
 	EFadeState fadeState;
 	u8 alpha;
-	bool hideUntilActivated;
 	bool windowUpdated;
 	bool layoutUpdated;
 };
@@ -373,8 +372,6 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 	u8 aNewAlpha = theWindow.alpha;
 	const u8 aMaxAlpha = HUD::maxAlpha(id);
 	const u8 anInactiveAlpha = HUD::inactiveAlpha(id);
-	const bool startHidden =
-		HUD::shouldStartHidden(id) && !gActiveHUD.test(id);
 	bool allowReCheck = true;
 	do
 	{
@@ -393,7 +390,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 				allowReCheck = false;
 				break;
 			}
-			if( gVisibleHUD.test(id) && !startHidden )
+			if( gVisibleHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadeInDelay;
 				theWindow.fadeValue = 0;
@@ -546,16 +543,8 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		case eFadeState_FadeOutDelay:
 			if( gVisibleHUD.test(id) )
 			{
-				if( startHidden )
-				{
-					theWindow.fadeState = eFadeState_Hidden;
-					theWindow.fadeValue = 0;
-				}
-				else
-				{
-					theWindow.fadeState = eFadeState_FadingIn;
-					theWindow.fadeValue = aNewAlpha;
-				}
+				theWindow.fadeState = eFadeState_FadingIn;
+				theWindow.fadeValue = aNewAlpha;
 				break;
 			}
 			theWindow.fadeValue += gAppFrameTime;
@@ -577,15 +566,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			}
 			if( gVisibleHUD.test(id) )
 			{
-				if( startHidden )
-				{
-					theWindow.fadeState = eFadeState_Hidden;
-					theWindow.fadeValue = 0;
-				}
-				else
-				{
-					theWindow.fadeState = eFadeState_FadingIn;
-				}
+				theWindow.fadeState = eFadeState_FadingIn;
 				break;
 			}
 			break;
@@ -600,7 +581,6 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 	{
 		theWindow.fadeState = eFadeState_MaxAlpha;
 		theWindow.fadeValue = 0;
-		theWindow.hideUntilActivated = false;
 		aNewAlpha = aMaxAlpha;
 	}
 
@@ -781,7 +761,6 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 			NULL, theAppInstanceHandle, NULL);
 
 		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, aHUDElementID);
-		aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
 		if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture &&
 			pSetWindowDisplayAffinity )
 		{
@@ -860,12 +839,10 @@ void update()
 		// Check visibility status so can mostly ignore hidden windows
 		if( sHidden || aWindow.alpha == 0 ||
 			(aWindow.layoutUpdated && aWindow.size.cx <= 0) ||
-			(aWindow.layoutUpdated && aWindow.size.cy <= 0) ||
-			(aWindow.hideUntilActivated && !gActiveHUD.test(aHUDElementID)) )
+			(aWindow.layoutUpdated && aWindow.size.cy <= 0) )
 		{
 			if( IsWindowVisible(aWindow.handle) )
 				ShowWindow(aWindow.handle, SW_HIDE);
-			aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
 			gActiveHUD.reset(aHUDElementID);
 			if( aWindow.bitmap &&
 				InputMap::hudElementType(aHUDElementID) == eHUDType_System )
@@ -875,7 +852,6 @@ void update()
 			}
 			continue;
 		}
-		aWindow.hideUntilActivated = false;
 
 		// Check for possible update to window layout
 		if( !aWindow.layoutUpdated )
@@ -983,7 +959,6 @@ void prepareForDialog()
 
 		if( IsWindowVisible(aWindow.handle) )
 			ShowWindow(aWindow.handle, SW_HIDE);
-		aWindow.hideUntilActivated = HUD::shouldStartHidden(aHUDElementID);
 	}
 	if( sToolbarWindow && IsWindowVisible(sToolbarWindow) )
 		ShowWindow(sToolbarWindow, SW_HIDE);

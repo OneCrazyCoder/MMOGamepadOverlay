@@ -85,6 +85,8 @@ float floatFromString(const std::string& theString);
 float floatFromString(const char* theString);
 double doubleFromString(const std::string& theString);
 double doubleFromString(const char* theString);
+bool boolFromString(const std::string& theString);
+bool boolFromString(const char* theString);
 
 // UTF8-encoded string conversions
 std::vector<u32> UTF8ToUTF32(const std::string& theString);

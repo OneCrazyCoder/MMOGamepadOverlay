@@ -139,9 +139,9 @@ struct LayerState
 	u16 parentLayerID;
 	u16 altParentLayerID; // 0 unless is a combo layer
 	union{ bool active; bool autoButtonDown; };
+	s8 heldActiveByButton;
 	bool autoButtonHit;
 	bool buttonCommandUsed;
-	bool heldActiveByButton;
 
 	void clear()
 	{
@@ -152,7 +152,7 @@ struct LayerState
 		active = false;
 		autoButtonHit = false;
 		buttonCommandUsed = false;
-		heldActiveByButton = false;
+		heldActiveByButton = 0;
 	}
 };
 
@@ -342,7 +342,7 @@ static void removeControlsLayer(u16 theLayerID)
 			// Reset some layer properties
 			aLayer.active = false;
 			aLayer.buttonCommandUsed = false;
-			aLayer.heldActiveByButton = false;
+			aLayer.heldActiveByButton = 0;
 			sResults.layerChangeMade = true;
 
 			// Remove from the layer order and recover iterator to continue
@@ -351,7 +351,7 @@ static void removeControlsLayer(u16 theLayerID)
 		}
 		else if( (aLayer.parentLayerID == theLayerID ||
 				  aLayer.altParentLayerID == theLayerID) &&
-				 !aLayer.heldActiveByButton )
+				  aLayer.heldActiveByButton <= 0 )
 		{
 			// Need to use recursion so also remove grandchildren, etc
 			removeControlsLayer(*itr);
@@ -406,9 +406,9 @@ static std::vector<u16>::iterator layerOrderInsertPos(
 	while(result != sState.layerOrder.end())
 	{
 		// Held layers have higher priority over non-held layers
-		if( sState.layers[*result].heldActiveByButton && !isHeldLayer )
+		if( sState.layers[*result].heldActiveByButton > 0 && !isHeldLayer )
 			break;
-		if( !sState.layers[*result].heldActiveByButton && isHeldLayer )
+		if( sState.layers[*result].heldActiveByButton <= 0 && isHeldLayer )
 		{
 			++result;
 			continue;
@@ -436,7 +436,7 @@ static std::vector<u16>::iterator layerOrderInsertPos(
 static void addComboLayers(u16 theNewLayerID); // forward declare
 static void sortComboLayers(); // forward declare
 
-static void moveControlsLayerToTop(u16 theLayerID)
+static void moveControlsLayerToTop(u16 theLayerID, bool isHeldLayer = false)
 {
 	DBG_ASSERT(theLayerID > 0);
 	DBG_ASSERT(theLayerID < sState.layers.size());
@@ -471,11 +471,11 @@ static void moveControlsLayerToTop(u16 theLayerID)
 
 	// Find new position to add the layers back to
 	std::vector<u16>::iterator aNewPos = sState.layerOrder.end();
-	if( !sState.layers[theLayerID].heldActiveByButton )
+	if( sState.layers[theLayerID].heldActiveByButton <= 0 )
 	{
 		aNewPos = layerOrderInsertPos(
 			sState.layers[theLayerID].parentLayerID,
-			InputMap::layerPriority(theLayerID));
+			InputMap::layerPriority(theLayerID), isHeldLayer);
 	}
 	sState.layerOrder.insert(aNewPos, aTempOrder.begin(), aTempOrder.end());
 	sResults.layerChangeMade = true;
@@ -652,7 +652,7 @@ static void sortComboLayers()
 
 static void flagLayerButtonCommandUsed(u16 theLayerIdx)
 {
-	if( theLayerIdx == 0 || sState.layers[theLayerIdx].buttonCommandUsed )
+	if( theLayerIdx == 0 )
 		return;
 
 	sState.layers[theLayerIdx].buttonCommandUsed = true;
@@ -1365,7 +1365,10 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 		// Flag if used in a button combo, like L2 in L2+X
 		if( sState.layers[theBtnState.layerHeld].buttonCommandUsed )
 			theBtnState.usedInButtonCombo = true;
-		removeControlsLayer(theBtnState.layerHeld);
+		if( sState.layers[theBtnState.layerHeld].heldActiveByButton <= 1 )
+			removeControlsLayer(theBtnState.layerHeld);
+		else
+			--sState.layers[theBtnState.layerHeld].heldActiveByButton;
 		theBtnState.layerHeld = 0;
 	}
 }
@@ -1388,38 +1391,54 @@ static bool tryAddLayerFromButton(
 	if( aDownCmd.type != eCmdType_HoldControlsLayer )
 		return false;
 
-	// Only concerned with layers that aren't already active
-	const u16 aLayerID = aDownCmd.layerID;
-	if( sState.layers[aLayerID].active )
+	// If already holding this layer, no change needed
+	if( aDownCmd.layerID == theBtnState.layerHeld )
 		return false;
 
-	// If newly hit, replace any past layer with new layer
-	if( wasHit )
+	// Possibly add held layer only if button newly hit
+	if( !wasHit )
+		return false;
+
+	// Release any layer previously held by this button
+	const u16 aLayerID = aDownCmd.layerID;
+	DBG_ASSERT(aLayerID < sState.layers.size());
+	DBG_ASSERT(aLayerID > 0);
+	releaseLayerHeldByButton(theBtnState);
+	LayerState& aLayer = sState.layers[aLayerID];
+
+	// Check if layer is already active by other means
+	if( aLayer.active )
 	{
-		DBG_ASSERT(aLayerID < sState.layers.size());
-		DBG_ASSERT(aLayerID > 0);
-		releaseLayerHeldByButton(theBtnState);
-
-		transDebugPrint(
-			"Holding Controls Layer '%s'\n",
-			InputMap::layerLabel(aLayerID).c_str());
-
-		sState.layerOrder.insert(layerOrderInsertPos(
-			0, InputMap::layerPriority(aLayerID), true),
-			aLayerID);
-		LayerState& aLayer = sState.layers[aLayerID];
-		aLayer.parentLayerID = 0;
-		aLayer.altParentLayerID = 0;
-		aLayer.active = true;
-		aLayer.autoButtonHit = true;
-		aLayer.heldActiveByButton = true;
-		sResults.layerChangeMade = true;
-		theBtnState.layerHeld = aLayerID;
-		addComboLayers(aLayerID);
-		return true;
+		if( aLayer.heldActiveByButton > 0 )
+		{// Second button also holding the same layer - increment ref counter
+			++aLayer.heldActiveByButton;
+			theBtnState.layerHeld = aLayerID;
+			moveControlsLayerToTop(aLayerID, true);
+			aLayer.buttonCommandUsed = false;
+			return false;
+		}
+		else
+		{// Remove non-held layer so can re-add as a held layer below
+			removeControlsLayer(aLayerID);
+		}
 	}
 
-	return false;
+	transDebugPrint(
+		"Holding Controls Layer '%s'\n",
+		InputMap::layerLabel(aLayerID).c_str());
+
+	sState.layerOrder.insert(layerOrderInsertPos(
+		0, InputMap::layerPriority(aLayerID), true),
+		aLayerID);
+	aLayer.parentLayerID = 0;
+	aLayer.altParentLayerID = 0;
+	aLayer.active = true;
+	aLayer.autoButtonHit = true;
+	aLayer.heldActiveByButton = 1;
+	sResults.layerChangeMade = true;
+	theBtnState.layerHeld = aLayerID;
+	addComboLayers(aLayerID);
+	return true;
 }
 
 
