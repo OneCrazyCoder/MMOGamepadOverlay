@@ -49,4 +49,7 @@ bool targetWindowIsFullScreen();
 // Check if have a target window that is the active foreground window
 bool targetWindowIsActive();
 
+// Confirm actually trying to target a window and not just run on desktop
+bool targetWindowRequested();
+
 } // TargetApp

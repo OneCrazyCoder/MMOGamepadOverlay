@@ -446,38 +446,6 @@ static std::string namesToVKeySequence(
 			aVKeySeq.clear();
 			return aVKeySeq;
 		}
-		if( Command* aCommandAlias = theBuilder.commandAliases.find(aName) )
-		{
-			if( aCommandAlias->type == eCmdType_SignalOnly )
-			{
-				aVKeySeq += signalIDToString(aCommandAlias->signalID);
-				continue;
-			}
-			if( aCommandAlias->type == eCmdType_TapKey )
-			{
-				if( aCommandAlias->signalID )
-					aVKeySeq += signalIDToString(aCommandAlias->signalID);
-				const u16 aVKey = aCommandAlias->vKey;
-				if( aVKey & kVKeyShiftFlag ) aVKeySeq += VK_SHIFT;
-				if( aVKey & kVKeyCtrlFlag ) aVKeySeq += VK_CONTROL;
-				if( aVKey & kVKeyAltFlag ) aVKeySeq += VK_MENU;
-				if( aVKey & kVKeyWinFlag ) aVKeySeq += VK_LWIN;
-				if( aVKey & kVKeyMask ) aVKeySeq += u8(aVKey & kVKeyMask);
-				continue;
-			}
-			if( aCommandAlias->type == eCmdType_VKeySequence )
-			{
-				DBG_ASSERT(aCommandAlias->keyStringIdx < sKeyStrings.size());
-				aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
-				continue;
-			}
-			if( aCommandAlias->type == eCmdType_ChatBoxString )
-			{
-				aVKeySeq += VK_EXECUTE;
-				aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
-				continue;
-			}
-		}
 		const u8 aVKey = keyNameToVirtualKey(aName);
 		if( aVKey == 0 )
 		{
@@ -501,6 +469,40 @@ static std::string namesToVKeySequence(
 				expectingWaitTime = true;
 			if( aResult != eResult_NotFound )
 				continue;
+
+			// Check if it is an alias to another sequence
+			if( Command* aCommandAlias = theBuilder.commandAliases.find(aName) )
+			{
+				if( aCommandAlias->type == eCmdType_SignalOnly )
+				{
+					aVKeySeq += signalIDToString(aCommandAlias->signalID);
+					continue;
+				}
+				if( aCommandAlias->type == eCmdType_TapKey )
+				{
+					if( aCommandAlias->signalID )
+						aVKeySeq += signalIDToString(aCommandAlias->signalID);
+					const u16 aVKey = aCommandAlias->vKey;
+					if( aVKey & kVKeyShiftFlag ) aVKeySeq += VK_SHIFT;
+					if( aVKey & kVKeyCtrlFlag ) aVKeySeq += VK_CONTROL;
+					if( aVKey & kVKeyAltFlag ) aVKeySeq += VK_MENU;
+					if( aVKey & kVKeyWinFlag ) aVKeySeq += VK_LWIN;
+					if( aVKey & kVKeyMask ) aVKeySeq += u8(aVKey & kVKeyMask);
+					continue;
+				}
+				if( aCommandAlias->type == eCmdType_VKeySequence )
+				{
+					DBG_ASSERT(aCommandAlias->keyStringIdx < sKeyStrings.size());
+					aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
+					continue;
+				}
+				if( aCommandAlias->type == eCmdType_ChatBoxString )
+				{
+					aVKeySeq += VK_EXECUTE;
+					aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
+					continue;
+				}
+			}
 
 			// Check if it's a modifier+key in one word like Shift2 or Alt1
 			aResult = checkForComboKeyName(aName, aVKeySeq);

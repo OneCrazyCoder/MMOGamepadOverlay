@@ -1011,7 +1011,8 @@ bool requiresNormalCursorControl()
 {
 	return
 		sHidden || sToolbarWindow ||
-		!TargetApp::targetWindowHandle();
+		(!TargetApp::targetWindowHandle() &&
+		 TargetApp::targetWindowRequested());
 }
 
 

@@ -805,6 +805,12 @@ bool targetWindowIsActive()
 		GetForegroundWindow() == sTargetWindowHandle;
 }
 
+
+bool targetWindowRequested()
+{
+	return !kConfig.targetWindowName.empty();
+}
+
 #undef TARGET_APP_DEBUG_PRINT
 #undef targetDebugPrint
 
