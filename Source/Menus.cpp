@@ -354,44 +354,32 @@ const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID)
 	DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
 	gFullRedrawHUD.set(aMenuInfo.hudElementID);
 
-	if( aMenuInfo.style == eMenuStyle_Slots )
+	// Want to retain selection of any "side menus", so check
+	// if the requested menu has already been opened and, if so,
+	// just bump it as-is to the top of the stack.
+	for(std::vector<SubMenuInfo>::iterator itr =
+			aMenuInfo.subMenuStack.begin();
+		itr != aMenuInfo.subMenuStack.end(); ++itr)
 	{
-		// Want to retain selection of any "side menus", so check
-		// if the requested menu has already been opened and, if so,
-		// just bump it as-is to the top of the stack.
-		for(std::vector<SubMenuInfo>::iterator itr =
-				aMenuInfo.subMenuStack.begin();
-			itr != aMenuInfo.subMenuStack.end(); ++itr)
+		if( itr->id == theReplacementSubMenuID )
 		{
-			if( itr->id == theReplacementSubMenuID )
-			{
-				const SubMenuInfo aSideMenuInfo = *itr;
-				aMenuInfo.subMenuStack.erase(itr);
-				aMenuInfo.subMenuStack.push_back(aSideMenuInfo);
-				DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
-				if( oldMenuItemCount != itemCount(theMenuID) )
-					gReshapeHUD.set(aMenuInfo.hudElementID);
-				return InputMap::menuAutoCommand(aSideMenuInfo.id);
-			}
+			const SubMenuInfo aSideMenuInfo = *itr;
+			aMenuInfo.subMenuStack.erase(itr);
+			aMenuInfo.subMenuStack.push_back(aSideMenuInfo);
+			DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
+			if( oldMenuItemCount != itemCount(theMenuID) )
+				gReshapeHUD.set(aMenuInfo.hudElementID);
+			return InputMap::menuAutoCommand(aSideMenuInfo.id);
 		}
-		// If doesn't exist, push it on to the stack like a sub-menu,
-		// so we retain the .selection value of the original menu.
-		// Note that this does cause closeLastSubMenu() to act a little
-		// weird with this menu style, but its not really intended to use
-		// a "back" button or have normal sub-menus anyway.
-		aMenuInfo.subMenuStack.push_back(
-			SubMenuInfo(theReplacementSubMenuID));
 	}
-	else
-	{
-		// Replace current sub-menu id with new sub-menu id directly
-		DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
-		SubMenuInfo& aSubMenu = aMenuInfo.subMenuStack.back();
-		aSubMenu.id = theReplacementSubMenuID;
-		// Clamp selection to new sub-menu's max
-		aSubMenu.selected = max(aSubMenu.selected,
-			InputMap::menuItemCount(theReplacementSubMenuID) - 1);
-	}
+
+	// If doesn't exist, push it on to the stack like a sub-menu,
+	// so we retain the .selection value of the original menu.
+	// Note that this does cause closeLastSubMenu() to act a little
+	// weird with this menu style, but its not really intended to use
+	// a "back" button or have normal sub-menus anyway.
+	aMenuInfo.subMenuStack.push_back(
+		SubMenuInfo(theReplacementSubMenuID));
 
 	DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
 	if( oldMenuItemCount != itemCount(theMenuID) )
@@ -426,10 +414,9 @@ const Command* closeLastSubMenu(u16 theMenuID)
 		return &aCmd;
 	}
 	
-	// For Slots-style menus, "side" menus (other slots) can replace
-	// root menu in 0th position, and this can be used to restore it
-	if( aMenuInfo.style == eMenuStyle_Slots &&
-		aMenuInfo.subMenuStack[0].id != theMenuID )
+	// "Side menus" can replace the root menu in 0th position,
+	// and this can be used to restore it
+	if( aMenuInfo.subMenuStack[0].id != theMenuID )
 	{
 		aMenuInfo.subMenuStack[0] = SubMenuInfo(theMenuID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());

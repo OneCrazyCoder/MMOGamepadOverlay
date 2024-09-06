@@ -923,11 +923,15 @@ static bool manualCharacterMoveInUse()
 
 static EMouseMode getMouseModeWanted()
 {
+	#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
+	// Prevent modes that hold a mouse button when not in-game yet, etc
+	if( WindowManager::requiresNormalCursorControl() )
+		return eMouseMode_Cursor;
+	#endif
+
 	// This is to assist with the "auto" mouse modes that swap between
 	// other modes depending on the current situation, or in other cases
 	// where mouse mode wanted does not match the actual user request
-	if( WindowManager::requiresNormalCursorControl() )
-		return eMouseMode_Cursor;
 	switch(sTracker.mouseModeWanted)
 	{
 	case eMouseMode_AutoLook:
