@@ -3428,7 +3428,9 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
 		buildHUDElementsForLayer(theBuilder, aLayerID);
 
-	// Special-case manually-managed HUD element (top-most overlay)
+	// Special-case internally-managed HUD elements
+	sHUDElements.push_back(HUDElement());
+	sHUDElements.back().type = eHUDType_HotspotGuide;
 	sHUDElements.push_back(HUDElement());
 	sHUDElements.back().type = eHUDType_System;
 

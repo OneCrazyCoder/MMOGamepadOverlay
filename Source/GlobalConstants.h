@@ -231,6 +231,8 @@ enum EHUDType
 	eHUDType_Hotspot,
 	eHUDType_KBArrayLast,
 	eHUDType_KBArrayDefault,
+
+	eHUDType_HotspotGuide, // Internal use only
 	eHUDType_System, // Internal use only
 
 	eHUDType_Num,
@@ -271,6 +273,16 @@ enum ESpecialHotspot
 	eSpecialHotspot_MenuItemPos,
 
 	eSpecialHotspot_Num
+};
+
+enum EHotspotGuideMode
+{
+	eHotspotGuideMode_Disabled,
+	eHotspotGuideMode_FindAvailable,
+	eHotspotGuideMode_DrawAvailable,
+	eHotspotGuideMode_Available,
+	eHotspotGuideMode_DrawAllActive,
+	eHotspotGuideMode_AllActive,
 };
 
 enum ECommandKeyWord
