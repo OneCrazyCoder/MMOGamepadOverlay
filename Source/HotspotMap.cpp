@@ -549,10 +549,23 @@ void update()
 				kNormalizedTargetSize / aScaleFactor;
 		}
 		sNewTasks.set(eTask_BeginSearch);
+		if( gHotspotsGuideMode == eHotspotGuideMode_Available )
+			gHotspotsGuideMode = eHotspotGuideMode_FindAvailable;
 	}
 
 	// Continue progress on any current tasks
 	processTasks();
+
+	// Update hotspot visual guide for nearest-only display
+	if( gHotspotsGuideMode == eHotspotGuideMode_FindAvailable &&
+		sNewTasks.none() &&
+		(sNextHotspotInDir[eCmdDir_Left] ||
+		 sNextHotspotInDir[eCmdDir_Right] ||
+		 sNextHotspotInDir[eCmdDir_Up] ||
+		 sNextHotspotInDir[eCmdDir_Down]) )
+	{
+		gHotspotsGuideMode = eHotspotGuideMode_DrawAvailable;
+	}
 }
 
 
@@ -570,7 +583,17 @@ void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
 	{
 		sRequestedArrays = theHotspotArrays;
 		sNewTasks.set(eTask_ActiveArrays);
+		if( gHotspotsGuideMode == eHotspotGuideMode_AllActive )
+			gHotspotsGuideMode = eHotspotGuideMode_DrawAllActive;
+		if( gHotspotsGuideMode == eHotspotGuideMode_Available )
+			gHotspotsGuideMode = eHotspotGuideMode_FindAvailable;
 	}
+}
+
+
+const BitVector<>& getEnabledHotspotArrays()
+{
+	return sRequestedArrays;
 }
 
 

@@ -28,6 +28,7 @@ void reloadPositions();
 
 // Set which hotspot arrays should be active
 void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays);
+const BitVector<>& getEnabledHotspotArrays();
 
 // Returns which hotspot to jump to in given direction (or 0)
 u16 getNextHotspotInDir(ECommandDir theDirection);

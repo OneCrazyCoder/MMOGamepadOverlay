@@ -968,6 +968,8 @@ static void processCommand(
 		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
+		if( gHotspotsGuideMode != eHotspotGuideMode_AllActive )
+			gHotspotsGuideMode = eHotspotGuideMode_DrawAllActive;
 		if( u16 aNextHotspot =
 				HotspotMap::getNextHotspotInDir(ECommandDir(theCmd.dir)) )
 		{

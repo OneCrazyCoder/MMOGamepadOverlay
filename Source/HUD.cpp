@@ -35,6 +35,9 @@ const char* kBitmapsPrefix = "Bitmaps";
 const char* kIconsPrefix = "Icons/";
 const char* kAppVersionString = "Version: " __DATE__;
 const char* kCopyIconRateKey = "System/CopyIconFrameTime";
+const char* kHotspotGuideAlpha = "HUD/HotspotGuideAlpha";
+const char* kHotspotGuideRGB = "HUD/HotspotGuideRGB";
+const char* kHotspotGuideSize = "HUD/HotspotGuideSize";
 
 enum EHUDProperty
 {
@@ -314,6 +317,7 @@ static int sSystemBorderFlashTimer = 0;
 static u32 sCopyIconUpdateRate = 100;
 static u32 sNextAutoRefreshTime = 0;
 static u16 sSystemHUDElementID = 0;
+static u16 sHotspotGuideHUDElementID = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -1762,6 +1766,68 @@ static void drawBasicHUD(HUDDrawData& dd)
 }
 
 
+static void drawHSGuide(HUDDrawData& dd)
+{
+	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
+	DBG_ASSERT(hi.type == eHUDType_HotspotGuide);
+	const BitVector<>& arraysToShow = HotspotMap::getEnabledHotspotArrays();
+
+	if( !dd.firstDraw )
+		eraseRect(dd, dd.components[0]);
+
+	const Appearance& appearance = sAppearances[
+		hi.appearanceID[eAppearanceMode_Normal]];
+	//SelectObject(dd.hdc, sPens[appearance.borderPenID]);
+	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
+
+	switch(gHotspotsGuideMode)
+	{
+	case eHotspotGuideMode_DrawAvailable:
+	case eHotspotGuideMode_Available:
+		for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
+		{
+			u16 aHotspotID =
+				HotspotMap::getNextHotspotInDir(ECommandDir(aDir));
+			if( !aHotspotID )
+				continue;
+			const POINT& aHotspotPos = hotspotToPoint(
+				InputMap::getHotspot(aHotspotID), dd.targetSize);
+			const RECT aDrawRect = {
+				aHotspotPos.x - hi.radius,
+				aHotspotPos.y - hi.radius,
+				aHotspotPos.x + hi.radius,
+				aHotspotPos.y + hi.radius };
+			FillRect(dd.hdc, &aDrawRect, hBrush);
+		}
+		break;
+	case eHotspotGuideMode_DrawAllActive:
+	case eHotspotGuideMode_AllActive:
+		for(int anArryIdx = arraysToShow.firstSetBit();
+			anArryIdx < arraysToShow.size();
+			anArryIdx = arraysToShow.nextSetBit(anArryIdx+1))
+		{
+			const u16 aFirstHotspot = InputMap::firstHotspotInArray(anArryIdx);
+			const u16 aLastHotspot = InputMap::lastHotspotInArray(anArryIdx);
+			for(u16 aHotspotID = aFirstHotspot;
+				aHotspotID <= aLastHotspot;
+				++aHotspotID)
+			{
+				const POINT& aHotspotPos = hotspotToPoint(
+					InputMap::getHotspot(aHotspotID), dd.targetSize);
+				const RECT aDrawRect = {
+					aHotspotPos.x - hi.radius,
+					aHotspotPos.y - hi.radius,
+					aHotspotPos.x + hi.radius,
+					aHotspotPos.y + hi.radius };
+				FillRect(dd.hdc, &aDrawRect, hBrush);
+			}
+		}
+		break;
+	}
+}
+
+
 static void drawSystemHUD(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -1994,6 +2060,19 @@ void init()
 			sSystemHUDElementID = aHUDElementID;
 			continue;
 		}
+		if( hi.type == eHUDType_HotspotGuide )
+		{
+			hi.drawPriority = -127; // Lower than any can be manually set to
+			hi.maxAlpha = Profile::getInt(kHotspotGuideAlpha);
+			Appearance anAppearance = sAppearances[eAppearanceMode_Normal];
+			anAppearance.itemColor = strToRGB(aHUDBuilder,
+				Profile::getStr(kHotspotGuideRGB));
+			hi.appearanceID[eAppearanceMode_Normal] =
+				getOrCreateAppearanceID(anAppearance);
+			hi.radius = max(1, Profile::getInt(kHotspotGuideSize) / 2);
+			sHotspotGuideHUDElementID = aHUDElementID;
+			continue;
+		}
 		const std::string& aHUDName =
 			InputMap::hudElementKeyName(aHUDElementID);
 		std::string aStr;
@@ -2180,7 +2259,6 @@ void cleanup()
 void update()
 {
 	// Handle display of error messages and other notices via _System HUD
-	// eHUDType_System should always be the last HUD element in the list
 	DBG_ASSERT(sSystemHUDElementID < sHUDElementInfo.size());
 	DBG_ASSERT(sHUDElementInfo[sSystemHUDElementID].type == eHUDType_System);
 
@@ -2294,6 +2372,28 @@ void update()
 			gRedrawHUD.set(i);
 		}
 	}
+	
+	switch(gHotspotsGuideMode)
+	{
+	case eHotspotGuideMode_Disabled:
+	case eHotspotGuideMode_FindAvailable:
+		gVisibleHUD.reset(sHotspotGuideHUDElementID);
+		break;
+	case eHotspotGuideMode_DrawAvailable:
+		gRedrawHUD.set(sHotspotGuideHUDElementID);
+		gVisibleHUD.set(sHotspotGuideHUDElementID);
+		gHotspotsGuideMode = eHotspotGuideMode_Available;
+		break;
+	case eHotspotGuideMode_DrawAllActive:
+		gRedrawHUD.set(sHotspotGuideHUDElementID);
+		gVisibleHUD.set(sHotspotGuideHUDElementID);
+		gHotspotsGuideMode = eHotspotGuideMode_AllActive;
+		break;
+	case eHotspotGuideMode_Available:
+	case eHotspotGuideMode_AllActive:
+		gVisibleHUD.set(sHotspotGuideHUDElementID);
+		break;
+	}
 
 	// Update auto-refresh of idle copy-from-target icons
 	// This system is set up to only force-redraw one icon per update,
@@ -2383,7 +2483,7 @@ void updateScaling()
 		++aHUDElementID)
 	{
 		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-		if( hi.type == eHUDType_System )
+		if( hi.type == eHUDType_System || hi.type == eHUDType_HotspotGuide )
 			continue;
 		const std::string& aHUDName =
 			InputMap::hudElementKeyName(aHUDElementID);
@@ -2545,6 +2645,7 @@ void drawElement(
 	case eHUDType_Hotspot:
 	case eHUDType_KBArrayLast:
 	case eHUDType_KBArrayDefault:	drawBasicHUD(aDrawData);	break;
+	case eHUDType_HotspotGuide:		drawHSGuide(aDrawData);		break;
 	case eHUDType_System:			drawSystemHUD(aDrawData);	break;
 	default:
 		if( aHUDType >= eHUDItemType_Begin && aHUDType < eHUDItemType_End )
@@ -2638,6 +2739,7 @@ void updateWindowLayout(
 		aWinScalingSizeY = aWinScalingSizeY * 3 + hi.gapSizeY * 2;
 		aWinScalingSizeY += hi.titleHeight;
 		break;
+	case eHUDType_HotspotGuide:
 	case eHUDType_System:
 		theComponents.reserve(1);
 		aWinBaseSizeX = theTargetSize.cx;
