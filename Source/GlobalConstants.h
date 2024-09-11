@@ -282,6 +282,7 @@ enum EHotspotGuideMode
 	eHotspotGuideMode_DrawAvailable,
 	eHotspotGuideMode_Available,
 	eHotspotGuideMode_DrawAllActive,
+	eHotspotGuideMode_ShowAllActive,
 	eHotspotGuideMode_AllActive,
 };
 

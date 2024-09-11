@@ -38,6 +38,7 @@ const char* kCopyIconRateKey = "System/CopyIconFrameTime";
 const char* kHotspotGuideAlpha = "HUD/HotspotGuideAlpha";
 const char* kHotspotGuideRGB = "HUD/HotspotGuideRGB";
 const char* kHotspotGuideSize = "HUD/HotspotGuideSize";
+const char* kHotspotGuideDisplayTime = "HUD/HotspotGuideDisplayTime";
 
 enum EHUDProperty
 {
@@ -2060,10 +2061,20 @@ void init()
 			sSystemHUDElementID = aHUDElementID;
 			continue;
 		}
+		u32 aVal;
 		if( hi.type == eHUDType_HotspotGuide )
 		{
 			hi.drawPriority = -127; // Lower than any can be manually set to
 			hi.maxAlpha = Profile::getInt(kHotspotGuideAlpha);
+			hi.delayUntilInactive =
+				max(0, Profile::getInt(kHotspotGuideDisplayTime));
+			hi.inactiveAlpha = 0;
+			aVal = max(1, u32FromString(
+				getDefaultHUDPropStr(eHUDProp_FadeInTime)));
+			hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
+			aVal = max(200, u32FromString(
+				getDefaultHUDPropStr(eHUDProp_FadeOutTime)));
+			hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
 			Appearance anAppearance = sAppearances[eAppearanceMode_Normal];
 			anAppearance.itemColor = strToRGB(aHUDBuilder,
 				Profile::getStr(kHotspotGuideRGB));
@@ -2076,7 +2087,6 @@ void init()
 		const std::string& aHUDName =
 			InputMap::hudElementKeyName(aHUDElementID);
 		std::string aStr;
-		u32 aVal;
 		// hi.itemType = eHUDProp_ItemType
 		if( hi.type >= eHUDItemType_Begin && hi.type < eHUDItemType_End )
 		{
@@ -2381,15 +2391,18 @@ void update()
 		break;
 	case eHotspotGuideMode_DrawAvailable:
 		gRedrawHUD.set(sHotspotGuideHUDElementID);
-		gVisibleHUD.set(sHotspotGuideHUDElementID);
 		gHotspotsGuideMode = eHotspotGuideMode_Available;
+		// fall through
+	case eHotspotGuideMode_Available:
+		gVisibleHUD.set(sHotspotGuideHUDElementID);
 		break;
 	case eHotspotGuideMode_DrawAllActive:
 		gRedrawHUD.set(sHotspotGuideHUDElementID);
-		gVisibleHUD.set(sHotspotGuideHUDElementID);
+		// fall through
+	case eHotspotGuideMode_ShowAllActive:
+		gActiveHUD.set(sHotspotGuideHUDElementID);
 		gHotspotsGuideMode = eHotspotGuideMode_AllActive;
-		break;
-	case eHotspotGuideMode_Available:
+		// fall through
 	case eHotspotGuideMode_AllActive:
 		gVisibleHUD.set(sHotspotGuideHUDElementID);
 		break;
