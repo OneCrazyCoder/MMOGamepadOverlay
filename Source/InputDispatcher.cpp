@@ -2251,8 +2251,7 @@ void moveMouse(int dx, int dy, bool digital)
 	sTracker.mouseVelY +=dy / kMouseToPixelDivisor;
 
 	// Update hotspot visual guide when move mouse cursor this way
-	if( gHotspotsGuideMode == eHotspotGuideMode_AllActive &&
-		sTracker.mouseMode == eMouseMode_Cursor &&
+	if( sTracker.mouseMode == eMouseMode_Cursor &&
 		(sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0) )
 	{
 		gHotspotsGuideMode = eHotspotGuideMode_FindAvailable;

@@ -844,7 +844,6 @@ static void processCommand(
 		LayoutEditor::init();
 		break;
 	case eCmdType_UpdateUIScale:
-		// TODO - more with this
 		WindowManager::readUIScale();
 		break;
 	case eCmdType_QuitApp:
@@ -968,7 +967,9 @@ static void processCommand(
 		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
-		if( gHotspotsGuideMode != eHotspotGuideMode_AllActive )
+		if( gHotspotsGuideMode == eHotspotGuideMode_AllActive )
+			gHotspotsGuideMode = eHotspotGuideMode_ShowAllActive;
+		else
 			gHotspotsGuideMode = eHotspotGuideMode_DrawAllActive;
 		if( u16 aNextHotspot =
 				HotspotMap::getNextHotspotInDir(ECommandDir(theCmd.dir)) )
