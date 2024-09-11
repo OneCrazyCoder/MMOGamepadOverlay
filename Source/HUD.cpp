@@ -2391,14 +2391,14 @@ void update()
 	case eHotspotGuideMode_FoundAvailable:
 		gVisibleHUD.reset(sHotspotGuideHUDElementID);
 		break;
-	case eHotspotGuideMode_DrawAvailable:
+	case eHotspotGuideMode_RedrawAvailable:
 		gRedrawHUD.set(sHotspotGuideHUDElementID);
 		gHotspotsGuideMode = eHotspotGuideMode_Available;
 		// fall through
 	case eHotspotGuideMode_Available:
 		gVisibleHUD.set(sHotspotGuideHUDElementID);
 		break;
-	case eHotspotGuideMode_DrawAllActive:
+	case eHotspotGuideMode_RedrawAllActive:
 		gRedrawHUD.set(sHotspotGuideHUDElementID);
 		// fall through
 	case eHotspotGuideMode_ShowAllActive:
