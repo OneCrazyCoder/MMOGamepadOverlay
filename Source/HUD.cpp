@@ -1784,7 +1784,7 @@ static void drawHSGuide(HUDDrawData& dd)
 
 	switch(gHotspotsGuideMode)
 	{
-	case eHotspotGuideMode_DrawAvailable:
+	case eHotspotGuideMode_RedrawAvailable:
 	case eHotspotGuideMode_Available:
 		for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 		{
@@ -1802,7 +1802,8 @@ static void drawHSGuide(HUDDrawData& dd)
 			FillRect(dd.hdc, &aDrawRect, hBrush);
 		}
 		break;
-	case eHotspotGuideMode_DrawAllActive:
+	case eHotspotGuideMode_RedrawAllActive:
+	case eHotspotGuideMode_ShowAllActive:
 	case eHotspotGuideMode_AllActive:
 		for(int anArryIdx = arraysToShow.firstSetBit();
 			anArryIdx < arraysToShow.size();
@@ -2387,6 +2388,7 @@ void update()
 	{
 	case eHotspotGuideMode_Disabled:
 	case eHotspotGuideMode_FindAvailable:
+	case eHotspotGuideMode_FoundAvailable:
 		gVisibleHUD.reset(sHotspotGuideHUDElementID);
 		break;
 	case eHotspotGuideMode_DrawAvailable:

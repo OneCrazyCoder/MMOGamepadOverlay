@@ -279,9 +279,10 @@ enum EHotspotGuideMode
 {
 	eHotspotGuideMode_Disabled,
 	eHotspotGuideMode_FindAvailable,
-	eHotspotGuideMode_DrawAvailable,
+	eHotspotGuideMode_FoundAvailable,
+	eHotspotGuideMode_RedrawAvailable,
 	eHotspotGuideMode_Available,
-	eHotspotGuideMode_DrawAllActive,
+	eHotspotGuideMode_RedrawAllActive,
 	eHotspotGuideMode_ShowAllActive,
 	eHotspotGuideMode_AllActive,
 };
