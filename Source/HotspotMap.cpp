@@ -549,8 +549,6 @@ void update()
 				kNormalizedTargetSize / aScaleFactor;
 		}
 		sNewTasks.set(eTask_BeginSearch);
-		if( gHotspotsGuideMode == eHotspotGuideMode_Available )
-			gHotspotsGuideMode = eHotspotGuideMode_FindAvailable;
 	}
 
 	// Continue progress on any current tasks
@@ -564,7 +562,7 @@ void update()
 		 sNextHotspotInDir[eCmdDir_Up] ||
 		 sNextHotspotInDir[eCmdDir_Down]) )
 	{
-		gHotspotsGuideMode = eHotspotGuideMode_DrawAvailable;
+		gHotspotsGuideMode = eHotspotGuideMode_FoundAvailable;
 	}
 }
 
@@ -584,7 +582,7 @@ void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
 		sRequestedArrays = theHotspotArrays;
 		sNewTasks.set(eTask_ActiveArrays);
 		if( gHotspotsGuideMode == eHotspotGuideMode_AllActive )
-			gHotspotsGuideMode = eHotspotGuideMode_DrawAllActive;
+			gHotspotsGuideMode = eHotspotGuideMode_RedrawAllActive;
 		if( gHotspotsGuideMode == eHotspotGuideMode_Available )
 			gHotspotsGuideMode = eHotspotGuideMode_FindAvailable;
 	}
