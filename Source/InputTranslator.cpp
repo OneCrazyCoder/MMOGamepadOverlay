@@ -967,10 +967,10 @@ static void processCommand(
 		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
-		if( gHotspotsGuideMode == eHotspotGuideMode_AllActive )
-			gHotspotsGuideMode = eHotspotGuideMode_ShowAllActive;
+		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
+			gHotspotsGuideMode = eHotspotGuideMode_Redisplay;
 		else
-			gHotspotsGuideMode = eHotspotGuideMode_RedrawAllActive;
+			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
 		if( u16 aNextHotspot =
 				HotspotMap::getNextHotspotInDir(ECommandDir(theCmd.dir)) )
 		{
@@ -1749,27 +1749,6 @@ void update()
 		aNewLayerOrder += "\n";
 		transDebugPrint("%s", aNewLayerOrder.c_str());
 		#endif
-	}
-
-	// If Hotspot Guide is ready to show nearby hotspots, make sure have a
-	// button assigned to the Select Hotspot command first
-	if( gHotspotsGuideMode == eHotspotGuideMode_FoundAvailable )
-	{
-		for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx)
-		{
-			ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
-			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
-			{
-				if( aBtnState.commands.cmd[aBtnAct].type ==
-						eCmdType_HotspotSelect )
-				{
-					gHotspotsGuideMode = eHotspotGuideMode_RedrawAvailable;
-					break;
-				}
-			}
-			if( gHotspotsGuideMode == eHotspotGuideMode_RedrawAvailable )
-				break;
-		}
 	}
 }
 
