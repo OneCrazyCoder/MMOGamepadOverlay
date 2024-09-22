@@ -553,17 +553,6 @@ void update()
 
 	// Continue progress on any current tasks
 	processTasks();
-
-	// Update hotspot visual guide for nearest-only display
-	if( gHotspotsGuideMode == eHotspotGuideMode_FindAvailable &&
-		sNewTasks.none() &&
-		(sNextHotspotInDir[eCmdDir_Left] ||
-		 sNextHotspotInDir[eCmdDir_Right] ||
-		 sNextHotspotInDir[eCmdDir_Up] ||
-		 sNextHotspotInDir[eCmdDir_Down]) )
-	{
-		gHotspotsGuideMode = eHotspotGuideMode_FoundAvailable;
-	}
 }
 
 
@@ -581,10 +570,8 @@ void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
 	{
 		sRequestedArrays = theHotspotArrays;
 		sNewTasks.set(eTask_ActiveArrays);
-		if( gHotspotsGuideMode == eHotspotGuideMode_AllActive )
-			gHotspotsGuideMode = eHotspotGuideMode_RedrawAllActive;
-		if( gHotspotsGuideMode == eHotspotGuideMode_Available )
-			gHotspotsGuideMode = eHotspotGuideMode_FindAvailable;
+		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
+			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
 	}
 }
 

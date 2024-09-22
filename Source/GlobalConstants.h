@@ -278,13 +278,9 @@ enum ESpecialHotspot
 enum EHotspotGuideMode
 {
 	eHotspotGuideMode_Disabled,
-	eHotspotGuideMode_FindAvailable,
-	eHotspotGuideMode_FoundAvailable,
-	eHotspotGuideMode_RedrawAvailable,
-	eHotspotGuideMode_Available,
-	eHotspotGuideMode_RedrawAllActive,
-	eHotspotGuideMode_ShowAllActive,
-	eHotspotGuideMode_AllActive,
+	eHotspotGuideMode_Redraw,
+	eHotspotGuideMode_Redisplay,
+	eHotspotGuideMode_Showing,
 };
 
 enum ECommandKeyWord

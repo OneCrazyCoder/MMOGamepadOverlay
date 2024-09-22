@@ -1782,16 +1782,16 @@ static void drawHSGuide(HUDDrawData& dd)
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
 	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 
-	switch(gHotspotsGuideMode)
+	for(int anArryIdx = arraysToShow.firstSetBit();
+		anArryIdx < arraysToShow.size();
+		anArryIdx = arraysToShow.nextSetBit(anArryIdx+1))
 	{
-	case eHotspotGuideMode_RedrawAvailable:
-	case eHotspotGuideMode_Available:
-		for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
+		const u16 aFirstHotspot = InputMap::firstHotspotInArray(anArryIdx);
+		const u16 aLastHotspot = InputMap::lastHotspotInArray(anArryIdx);
+		for(u16 aHotspotID = aFirstHotspot;
+			aHotspotID <= aLastHotspot;
+			++aHotspotID)
 		{
-			u16 aHotspotID =
-				HotspotMap::getNextHotspotInDir(ECommandDir(aDir));
-			if( !aHotspotID )
-				continue;
 			const POINT& aHotspotPos = hotspotToPoint(
 				InputMap::getHotspot(aHotspotID), dd.targetSize);
 			const RECT aDrawRect = {
@@ -1801,31 +1801,6 @@ static void drawHSGuide(HUDDrawData& dd)
 				aHotspotPos.y + hi.radius };
 			FillRect(dd.hdc, &aDrawRect, hBrush);
 		}
-		break;
-	case eHotspotGuideMode_RedrawAllActive:
-	case eHotspotGuideMode_ShowAllActive:
-	case eHotspotGuideMode_AllActive:
-		for(int anArryIdx = arraysToShow.firstSetBit();
-			anArryIdx < arraysToShow.size();
-			anArryIdx = arraysToShow.nextSetBit(anArryIdx+1))
-		{
-			const u16 aFirstHotspot = InputMap::firstHotspotInArray(anArryIdx);
-			const u16 aLastHotspot = InputMap::lastHotspotInArray(anArryIdx);
-			for(u16 aHotspotID = aFirstHotspot;
-				aHotspotID <= aLastHotspot;
-				++aHotspotID)
-			{
-				const POINT& aHotspotPos = hotspotToPoint(
-					InputMap::getHotspot(aHotspotID), dd.targetSize);
-				const RECT aDrawRect = {
-					aHotspotPos.x - hi.radius,
-					aHotspotPos.y - hi.radius,
-					aHotspotPos.x + hi.radius,
-					aHotspotPos.y + hi.radius };
-				FillRect(dd.hdc, &aDrawRect, hBrush);
-			}
-		}
-		break;
 	}
 }
 
@@ -2387,25 +2362,16 @@ void update()
 	switch(gHotspotsGuideMode)
 	{
 	case eHotspotGuideMode_Disabled:
-	case eHotspotGuideMode_FindAvailable:
-	case eHotspotGuideMode_FoundAvailable:
 		gVisibleHUD.reset(sHotspotGuideHUDElementID);
 		break;
-	case eHotspotGuideMode_RedrawAvailable:
-		gRedrawHUD.set(sHotspotGuideHUDElementID);
-		gHotspotsGuideMode = eHotspotGuideMode_Available;
-		// fall through
-	case eHotspotGuideMode_Available:
-		gVisibleHUD.set(sHotspotGuideHUDElementID);
-		break;
-	case eHotspotGuideMode_RedrawAllActive:
+	case eHotspotGuideMode_Redraw:
 		gRedrawHUD.set(sHotspotGuideHUDElementID);
 		// fall through
-	case eHotspotGuideMode_ShowAllActive:
+	case eHotspotGuideMode_Redisplay:
 		gActiveHUD.set(sHotspotGuideHUDElementID);
-		gHotspotsGuideMode = eHotspotGuideMode_AllActive;
+		gHotspotsGuideMode = eHotspotGuideMode_Showing;
 		// fall through
-	case eHotspotGuideMode_AllActive:
+	case eHotspotGuideMode_Showing:
 		gVisibleHUD.set(sHotspotGuideHUDElementID);
 		break;
 	}
