@@ -56,6 +56,7 @@ const ResourceProfile kResTemplateCore =
 
 const ResourceProfile kResTemplateBase[] =
 {//		name			fileName		resID					vers
+	{	"ECO Base",		"ECO Base",		IDR_TEXT_INI_BASE_ECO,	1	},
 	{	"M&M Base",		"MnM Base",		IDR_TEXT_INI_BASE_MNM,	2	},
 	{	"P99 Base",		"P99 Base",		IDR_TEXT_INI_BASE_P99,	2	},
 	{	"PQ Base",		"PQ Base",		IDR_TEXT_INI_BASE_PQ,	2	},
@@ -63,6 +64,7 @@ const ResourceProfile kResTemplateBase[] =
 
 const ResourceProfile kResTemplateDefault[] =
 {//		name			fileName		resID					vers
+	{	"ECO Default",	"ECO Default",	IDR_TEXT_INI_DEF_ECO,	1	},
 	{	"M&M Default",	"MnM Default",	IDR_TEXT_INI_DEF_MNM,	2	},
 	{	"P99 Default",	"P99 Default",	IDR_TEXT_INI_DEF_P99,	2	},
 	{	"PQ Default",	"PQ Default",	IDR_TEXT_INI_DEF_PQ,	2	},
@@ -71,16 +73,20 @@ const ResourceProfile kResTemplateDefault[] =
 const ResourceProfile kResTemplateCustom[] =
 {//		name			fileName		resID					vers
 #ifdef _DEBUG
+	{	"ECO Default",	"ECO Custom",	IDR_TEXT_INI_CUST_ECO,	0	},
 	{	"M&M Default",	"MnM Custom",	IDR_TEXT_INI_CUST_MNM,	0	},
 	{	"P99 Default",	"P99 Custom",	IDR_TEXT_INI_CUST_P99,	0	},
 	{	"PQ Default",	"PQ Custom",	IDR_TEXT_INI_CUST_PQ,	0	},
+	{	"ECO Taron",	"ECO Taron",	IDR_TEXT_INI_TARON_ECO,	0	},
 	{	"M&M Taron",	"MnM Taron",	IDR_TEXT_INI_TARON_MNM,	0	},
 	{	"P99 Taron",	"P99 Taron",	IDR_TEXT_INI_TARON_P99,	0	},
 	{	"PQ Taron",		"PQ Taron",		IDR_TEXT_INI_TARON_PQ,	0	},
 #else
+	{	"ECO Default",	"ECO",			IDR_TEXT_INI_CUST_ECO,	0	},
 	{	"M&M Default",	"MnM",			IDR_TEXT_INI_CUST_MNM,	0	},
 	{	"P99 Default",	"P99",			IDR_TEXT_INI_CUST_P99,	0	},
 	{	"PQ Default",	"PQ",			IDR_TEXT_INI_CUST_PQ,	0	},
+	{	"ECO Taron",	"ECO",			IDR_TEXT_INI_TARON_ECO,	0	},
 	{	"M&M Taron",	"MnM",			IDR_TEXT_INI_TARON_MNM,	0	},
 	{	"P99 Taron",	"P99",			IDR_TEXT_INI_TARON_P99,	0	},
 	{	"PQ Taron",		"PQ",			IDR_TEXT_INI_TARON_PQ,	0	},
