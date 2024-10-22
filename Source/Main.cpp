@@ -190,10 +190,10 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 				Profile::getInt("System/FrameTime", gAppTargetFrameTime));
 			InputMap::loadProfile();
 			HotspotMap::init();
+			Menus::init();
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
 			TargetApp::loadProfile();
-			Menus::init();
 			HUD::init();
 			WindowManager::createOverlays(hInstance);
 		}

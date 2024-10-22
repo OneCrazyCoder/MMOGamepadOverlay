@@ -208,7 +208,7 @@ static INT_PTR CALLBACK profileSelectProc(
 
 		case IDC_EDIT_PROFILE_NAME:
 			if( HIWORD(wParam) == EN_CHANGE &&
-				!TargetApp::targetWindowIsFullScreen() )
+				!TargetApp::targetWindowIsTopMost() )
 			{// Edit box contents changed - may affect other controls!
 				// Update result.newName to sanitized edit box string
 				HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
@@ -1071,7 +1071,7 @@ void targetAppPath(std::string& thePath, std::string& theCommandLineParams)
 	ofn.lpfnHook = targetAppPathProc;
 	if( GetOpenFileName(&ofn) )
 	{
-		thePath = narrow(aWPath);
+		thePath = std::string("\"") + narrow(aWPath) + std::string("\"");
 	}
 	else
 	{

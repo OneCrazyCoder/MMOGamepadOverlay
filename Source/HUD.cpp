@@ -1810,7 +1810,8 @@ static void drawSystemHUD(HUDDrawData& dd)
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	DBG_ASSERT(hi.type == eHUDType_System);
 
-	if( ((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0 )
+	if( ((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0 &&
+		sErrorMessage.empty() && sNoticeMessage.empty() )
 	{
 		COLORREF aFrameColor = RGB(0, 180, 0);
 		HPEN hFramePen = CreatePen(PS_INSIDEFRAME, 4, aFrameColor);
@@ -2294,7 +2295,8 @@ void update()
 	}
 
 	bool showSystemBorder = false;
-	if( sSystemBorderFlashTimer > 0 )
+	if( sSystemBorderFlashTimer > 0 &&
+		sErrorMessage.empty() && sNoticeMessage.empty() )
 	{
 		showSystemBorder =
 			((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0;

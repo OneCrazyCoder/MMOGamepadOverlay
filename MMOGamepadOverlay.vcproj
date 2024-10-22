@@ -363,6 +363,10 @@
 	</References>
 	<Files>
 		<File
+			RelativePath=".\Resources\Base-ECO.ini"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\Base-MnM.ini"
 			>
 		</File>
@@ -387,6 +391,10 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Resources\Custom-ECO.ini"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\Custom-MnM.ini"
 			>
 		</File>
@@ -404,6 +412,10 @@
 		</File>
 		<File
 			RelativePath=".\Source\Debug.h"
+			>
+		</File>
+		<File
+			RelativePath=".\Resources\Default-ECO.ini"
 			>
 		</File>
 		<File
@@ -564,6 +576,10 @@
 		</File>
 		<File
 			RelativePath=".\Source\TargetApp.h"
+			>
+		</File>
+		<File
+			RelativePath=".\Resources\Taron-ECO.ini"
 			>
 		</File>
 		<File
