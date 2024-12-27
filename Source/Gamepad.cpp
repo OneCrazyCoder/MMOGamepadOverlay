@@ -834,15 +834,13 @@ static EResult activateGamepad(int theGamepadID)
 
 static BOOL CALLBACK enumDevicesCallback(LPCDIDEVICEINSTANCE lpddi, LPVOID)
 {
-	if( sGamepadData.hDirectInput8 == NULL )
+	if( sGamepadData.hDirectInput8 == NULL ||
+		sGamepadData.deviceCountForDInput >= kMaxGamepadsEnumerated )
 		return DIENUM_STOP;
 
 	addGamepad(lpddi);
 
-	return
-		(sGamepadData.deviceCountForDInput >= kMaxGamepadsEnumerated) ?
-			DIENUM_STOP :
-			DIENUM_CONTINUE;
+	return DIENUM_CONTINUE;
 }
 
 

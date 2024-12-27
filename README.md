@@ -182,9 +182,9 @@ While a Key Sequence could technically be used to type a message directly into t
 Slash Commands start with ``/`` and Say Strings (chat messages) start with ``>`` (the '>' is replaced with the Return key to switch to the chat box when the command is actually executed). These commands will send the string to the chat box after initially opening it with Return or /, then press Return to send the macro. Some examples:
 
     [Scheme]
-    Hold R1 = /who
-    Hold R2 = /g Roll for loot please!
-    Hold L1 = >Would you like to group?
+    R1 = /who
+    R2 = /g Roll for loot please!
+    L1 = >Would you like to group?
 
 This will lock out most other inputs while the chat box is in use, so to send the text as quickly as possible it will be copied into your system clipboard and then pasted into the game by using the ``PasteText=`` KeyBind. If PasteText is not set to anything (such as for games that do not support pasting text into the chat box) the app will instead type the text in manually with multiple individual key presses.
 
@@ -399,7 +399,7 @@ For example, let's say you wanted to make pressing and holding Circle on a PS co
 
 With this setup, pressing Circle will add the MouseDrag layer, which will click and hold the left mouse button for as long as the layer is active via Auto, while also changing the D-Pad to control the mouse. Releasing Circle will remove the layer, restoring the D-Pad to character movement instead and releasing the left mouse button (since Auto is "released" when the Layer is removed).
 
-You can even assign commands to ``Press Auto=``, ``Release Auto=``,  ``Tap Auto =`` and so on, like any real button. Even ``Hold Auto ### =`` triggers once the layer has been active for ### milliseconds. ``With Auto=`` just acts an extra version of "Press" with no special properties, but allows up to 3 commands to trigger when a layer is first added ("With Auto", then "Press Auto", then just "Auto").
+You can even assign commands to ``Press Auto=``, ``Release Auto=``,  ``Tap Auto =`` and so on, like any real button. Even ``Hold Auto ### =`` triggers once the layer has been active for ### milliseconds.
 
 ### Layer Mouse= property
 

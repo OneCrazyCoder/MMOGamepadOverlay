@@ -267,6 +267,7 @@ struct DispatchTracker
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
 	bool typingChatBoxString;
+	bool chatBoxActive;
 
 	EMouseMode mouseMode;
 	EMouseMode mouseModeWanted;
@@ -374,8 +375,12 @@ static EResult popNextStringChar(const char* theString)
 		sTracker.queuePauseTime =
 			max(sTracker.queuePauseTime,
 				kConfig.chatBoxPostFirstKeyDelay);
-		// Flag any movement keys now held down as possibly being "sticky"
+		// Flag any movement keys now held down as possibly being "sticky",
+		// meaning the game will treat them as continuously held down now,
+		// even after the keys are released and even after stop using the
+		// chat box (such as in EQ Titanium client)
 		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
+		sTracker.chatBoxActive = true;
 		// If can paste, copy the rest of the string into the clipboard now
 		if( kPasteKey && OpenClipboard(NULL) )
 		{
@@ -1291,6 +1296,7 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 	if( setKeyDown(aBaseVKey, false) == eResult_Ok )
 	{
 		theKeyItr->second.depth = 0;
+		theKeyItr->second.pressed = false;
 		return true;
 	}
 
@@ -1442,6 +1448,7 @@ void cleanup()
 		jumpMouseToHotspot(eSpecialHotspot_LastCursorPos);
 	}
 	sTracker.typingChatBoxString = false;
+	sTracker.chatBoxActive = false;
 	flushInputVector();
 }
 
@@ -1618,7 +1625,7 @@ void update()
 
 	// Update queue
 	// ------------
-	if( !sTracker.nextQueuedKey )
+	if( sTracker.backupQueuedKey )
 		sTracker.nextQueuedKey = sTracker.backupQueuedKey;
 	sTracker.backupQueuedKey = 0;
 	while(sTracker.queuePauseTime <= 0 &&
@@ -1764,6 +1771,7 @@ void update()
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
 			sTracker.typingChatBoxString = false;
+			sTracker.chatBoxActive = false;
 			sTracker.embeddedChatBoxStringPos = 0;
 			if( sTracker.queue.empty() )
 				sTracker.mouseJumpQueued = false;
@@ -1826,9 +1834,10 @@ void update()
 		}
 
 		if( requiredModKeysAreAlreadyHeld(aVKey) &&
+			!sTracker.keysHeldDown.test(aBaseVKey) &&
 			(sTracker.nextQueuedKey == 0 ||
 			 (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags) )
-		{// Doesn't need a change in mod keys, so can press safely
+		{// Doesn't need a change in mod keys and not held, so can press safely
 			aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
 			aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
 			aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
@@ -1838,9 +1847,13 @@ void update()
 			continue;
 		}
 
+		// Needs a change in mod keys or to be released from a tap first
+		// Take over queued key to do this, but only if another key isn't
+		// already doing this and only for initial first press.
 		if( sTracker.backupQueuedKey == 0 &&
 			(!sTracker.nextQueuedKey || !pressed) )
-		{// Needs a change in mod keys - take over queued key to do this
+		{
+			DBG_ASSERT(!sTracker.chatBoxActive);
 			sTracker.backupQueuedKey = sTracker.nextQueuedKey;
 			sTracker.nextQueuedKey = aVKey | kVKeyHoldFlag;
 			hasNonPressedKeyThatWantsHeldDown = true;
@@ -2544,95 +2557,74 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		moveKeysWantDown.reset(eMoveKey_B);
 	}
 
-	// Release movement keys while typing so can re-press them when done
-	// (otherwise if continuously held down they might not cause actual
-	// movement if the same key was used during the chat box message).
-	if( sTracker.typingChatBoxString && !lock && !autoRun )
+	// Process changes to movement keys
+	for(int aMoveKey = 0; aMoveKey < eMoveKey_Num; ++aMoveKey)
 	{
-		for(int aWantedKey = moveKeysWantDown.firstSetBit();
-			aWantedKey < moveKeysWantDown.size();
-			aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
+		Command aCmd;
+		aCmd.type = eCmdType_PressAndHoldKey;
+		aCmd.vKey = InputMap::keyForSpecialAction(
+			ESpecialKey(aMoveKey + eSpecialKey_FirstMove));
+		if( !aCmd.vKey )
 		{
-			const u16 aVKey = InputMap::keyForSpecialAction(
-				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
-			if( aVKey && !isSafeAsyncKey(aVKey) && !isMouseButton(aVKey) )
-				moveKeysWantDown.reset(aWantedKey);
-		}
-		// Any movement keys held during chat box typing can become "sticky"
-		// in some games, requiring an extra tap to actually stop moving
-		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
-	}
-
-	// Press new movement keys
-	Command aCmd;
-	for(int aWantedKey = moveKeysWantDown.firstSetBit();
-		aWantedKey < moveKeysWantDown.size();
-		aWantedKey = moveKeysWantDown.nextSetBit(aWantedKey+1))
-	{
-		if( !sTracker.moveKeysHeld.test(aWantedKey) )
-		{
-			aCmd.type = eCmdType_PressAndHoldKey;
-			aCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(aWantedKey + eSpecialKey_FirstMove));
-			if( !aCmd.vKey )
+			// Use turn instead of doing nothing if no strafe defined
+			switch(aMoveKey + eSpecialKey_FirstMove)
 			{
-				// Use turn instead of doing nothing if no strafe defined
-				switch(aWantedKey + eSpecialKey_FirstMove)
-				{
-				case eSpecialKey_StrafeL:
-					aCmd.vKey = InputMap::keyForSpecialAction(
-						eSpecialKey_TurnL);
-					break;
-				case eSpecialKey_StrafeR:
-					aCmd.vKey = InputMap::keyForSpecialAction(
-						eSpecialKey_TurnR);
-					break;
-				}
-				if( !aCmd.vKey )
-					aCmd.type = eCmdType_SignalOnly;
+			case eSpecialKey_StrafeL:
+				aCmd.vKey = InputMap::keyForSpecialAction(
+					eSpecialKey_TurnL);
+				break;
+			case eSpecialKey_StrafeR:
+				aCmd.vKey = InputMap::keyForSpecialAction(
+					eSpecialKey_TurnR);
+				break;
 			}
-			aCmd.signalID = eBtn_Num + aWantedKey + eSpecialKey_FirstMove;
-			sendKeyCommand(aCmd);
-			sTracker.moveKeysHeld.set(aWantedKey);
-		}
-	}
-
-	// Release movement keys that aren't needed any more
-	for(int aHeldKey = sTracker.moveKeysHeld.firstSetBit();
-		aHeldKey < sTracker.moveKeysHeld.size();
-		aHeldKey = sTracker.moveKeysHeld.nextSetBit(aHeldKey+1))
-	{
-		if( !moveKeysWantDown.test(aHeldKey) )
-		{
-			aCmd.vKey = InputMap::keyForSpecialAction(
-				ESpecialKey(aHeldKey + eSpecialKey_FirstMove));
 			if( !aCmd.vKey )
-			{
-				switch(aHeldKey + eSpecialKey_FirstMove)
-				{
-				case eSpecialKey_StrafeL:
-					aCmd.vKey = InputMap::keyForSpecialAction(
-						eSpecialKey_TurnL);
-					break;
-				case eSpecialKey_StrafeR:
-					aCmd.vKey = InputMap::keyForSpecialAction(
-						eSpecialKey_TurnR);
-					break;
-				}
-			}
-			if( aCmd.vKey )
+				aCmd.type = eCmdType_SignalOnly;
+		}
+		aCmd.signalID = eBtn_Num + aMoveKey + eSpecialKey_FirstMove;
+		if( sTracker.typingChatBoxString && !lock && !autoRun &&
+			aCmd.vKey && !isSafeAsyncKey(aCmd.vKey) &&
+			!isMouseButton(aCmd.vKey) )
+		{
+			// Force release this movement key while typing so can re-press it
+			// once done - otherwise, if continuously held down, it might not
+			// trigger movement once the chat box closes, especially if this
+			// same key is pressed as part of the chat box message.
+			if( sTracker.moveKeysHeld.test(aMoveKey) )
 			{
 				aCmd.type = eCmdType_ReleaseKey;
 				sendKeyCommand(aCmd);
-				if( sTracker.stickyMoveKeys.test(aHeldKey) )
-				{// Give the key an extra tap to un-stick it
-					aCmd.type = eCmdType_TapKey;
-					if( !isMouseButton(aCmd.vKey) )
-						sendKeyCommand(aCmd);
-					sTracker.stickyMoveKeys.reset(aHeldKey);
-				}
+				sTracker.moveKeysHeld.reset(aMoveKey);
 			}
-			sTracker.moveKeysHeld.reset(aHeldKey);
+		}
+		else if( moveKeysWantDown.test(aMoveKey) )
+		{
+			if( !sTracker.moveKeysHeld.test(aMoveKey) )
+			{// Press this movement key now
+				sendKeyCommand(aCmd);
+				sTracker.moveKeysHeld.set(aMoveKey);
+				// Re-pressing a movement key will un-sticky it
+				sTracker.stickyMoveKeys.reset(aMoveKey);
+			}
+		}
+		else
+		{
+			if( sTracker.moveKeysHeld.test(aMoveKey) )
+			{// Release this movement key now that it is no longer wanted
+				aCmd.type = eCmdType_ReleaseKey;
+				sendKeyCommand(aCmd);
+				sTracker.moveKeysHeld.reset(aMoveKey);
+			}
+			if( sTracker.stickyMoveKeys.test(aMoveKey) &&
+				(!sTracker.chatBoxActive ||
+				 isSafeAsyncKey(aCmd.vKey) ||
+				 isMouseButton(aCmd.vKey)) )
+			{// Key may be stuck down by game client - tap it again to release
+				aCmd.type = eCmdType_TapKey;
+				if( !isMouseButton(aCmd.vKey) )
+					sendKeyCommand(aCmd);
+				sTracker.stickyMoveKeys.reset(aMoveKey);
+			}
 		}
 	}
 
@@ -2655,6 +2647,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	}
 	else if( autoRun )
 	{
+		Command aCmd;
 		aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_AutoRun);
 		if( aCmd.vKey )
 		{
