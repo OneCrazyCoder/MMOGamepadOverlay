@@ -87,7 +87,7 @@ struct Config
 	int mouseLookXSpeed;
 	int mouseLookYSpeed;
 	int mouseWheelSpeed;
-	int mouseLookZoneFixTime;
+	int mouseLookAutoRestoreTime;
 	u16 baseKeyReleaseLockTime;
 	u16 mouseClickLockTime;
 	u16 mouseReClickLockTime;
@@ -130,7 +130,7 @@ struct Config
 		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
 		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 50), 0, 100) / 100.0;
 		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad/CancelAutoRunDeadzone", 80) / 100.0 * 255.0, 0, 255);
-		mouseLookZoneFixTime = Profile::getInt("System/MouseLookZoneFix");
+		mouseLookAutoRestoreTime = Profile::getInt("System/MouseLookAutoRestoreTime");
 		std::string aString = Profile::getStr("System/SafeAsyncKeys");
 		if( !aString.empty() )
 		{
@@ -271,10 +271,11 @@ struct DispatchTracker
 
 	EMouseMode mouseMode;
 	EMouseMode mouseModeWanted;
+	EMouseMode mouseModeRequested;
 	EMouseMode mouseJumpToMode;
 	int mouseVelX, mouseVelY;
 	int mouseDigitalVel;
-	int mouseLookZoneFixTimer;
+	int mouseLookAutoRestoreTimer;
 	u32 mouseClickAllowedTime;
 	u32 mouseMoveAllowedTime;
 	u32 mouseJumpAllowedTime;
@@ -286,10 +287,12 @@ struct DispatchTracker
 	bool mouseJumpInterpolate;
 	bool mouseInterpolateRestart;
 	bool mouseAllowJumpDrag;
+	bool mouseLookNeededToStrafe;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
 		mouseModeWanted(eMouseMode_Cursor),
+		mouseModeRequested(eMouseMode_Cursor),
 		mouseJumpToMode(eMouseMode_Cursor)
 	{}
 };
@@ -360,7 +363,11 @@ static EResult popNextStringChar(const char* theString)
 	DBG_ASSERT(sTracker.currTaskProgress <= strlen(theString));
 
 	if( theString[sTracker.currTaskProgress] == '\0' )
+	{
+		// Trigger restoring mouse look for games like Pantheon that drop it
+		sTracker.mouseLookAutoRestoreTimer = kConfig.mouseLookAutoRestoreTime;
 		return eResult_TaskCompleted;
+	}
 
 	const size_t idx = sTracker.currTaskProgress++;
 	const u16 kPasteKey = InputMap::keyForSpecialAction(eSpecialKey_PasteText);
@@ -694,7 +701,6 @@ static void offsetMousePos(int x, int y)
 	anInput.mi.dx = sTracker.mouseVelX;
 	anInput.mi.dy = sTracker.mouseVelY;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
-	sTracker.mouseVelX = sTracker.mouseVelY = 0;
 
 	// Whether movement is allowed depends on mode
 	switch(sTracker.mouseMode)
@@ -714,6 +720,7 @@ static void offsetMousePos(int x, int y)
 		break;
 	default:
 		// Never allow
+		sTracker.mouseVelX = sTracker.mouseVelY = 0;
 		return;
 	}
 
@@ -721,7 +728,8 @@ static void offsetMousePos(int x, int y)
 		return;
 
 	sTracker.inputs.push_back(anInput);
-	sTracker.mouseLookZoneFixTimer = 0;
+	sTracker.mouseVelX = sTracker.mouseVelY = 0;
+	sTracker.mouseLookAutoRestoreTimer = 0;
 }
 
 
@@ -764,7 +772,6 @@ static void jumpMouseToHotspot(u16 theHotspotID)
 	anInput.mi.dy = aDestPos.y;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
-	sTracker.mouseLookZoneFixTimer = 0;
 }
 
 
@@ -814,6 +821,7 @@ static bool verifyCursorJumpedTo(u16 theHotspotID)
 
 	// Reached jump destination and can update mouse mode accordingly
 	sTracker.mouseMode = sTracker.mouseJumpToMode;
+	sTracker.mouseLookAutoRestoreTimer = 0;
 	return true;
 }
 
@@ -892,7 +900,6 @@ static void trailMouseToHotspot(u16 theHotspotID)
 	anInput.mi.dy = aNewPos.y;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
-	sTracker.mouseLookZoneFixTimer = 0;
 }
 
 
@@ -907,9 +914,10 @@ static bool manualCharacterMoveInUse()
 			sTracker.moveKeysHeld.test(
 				eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
 			sTracker.moveKeysHeld.test(
-				eSpecialKey_MoveF - eSpecialKey_FirstMove);
+				eSpecialKey_MoveB - eSpecialKey_FirstMove);
 	case eAutoRunMode_LockedY:
 		return
+			sTracker.mouseLookNeededToStrafe ||
 			sTracker.moveKeysHeld.test(
 				eSpecialKey_TurnL - eSpecialKey_FirstMove) ||
 			sTracker.moveKeysHeld.test(
@@ -926,14 +934,8 @@ static bool manualCharacterMoveInUse()
 }
 
 
-static EMouseMode getMouseModeWanted()
+static EMouseMode checkAutoMouseLookMode()
 {
-	#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
-	// Prevent modes that hold a mouse button when not in-game yet, etc
-	if( WindowManager::requiresNormalCursorControl() )
-		return eMouseMode_Cursor;
-	#endif
-
 	// This is to assist with the "auto" mouse modes that swap between
 	// other modes depending on the current situation, or in other cases
 	// where mouse mode wanted does not match the actual user request
@@ -948,6 +950,7 @@ static EMouseMode getMouseModeWanted()
 		}
 
 		if( sTracker.moveKeysHeld.any() ||
+			sTracker.mouseLookNeededToStrafe ||
 			sTracker.autoRunMode != eAutoRunMode_Off )
 		{
 			return eMouseMode_LookTurn;
@@ -977,6 +980,7 @@ static EMouseMode getMouseModeWanted()
 	case eMouseMode_LookTrans:
 		if( sTracker.mouseMode == eMouseMode_LookTurn ||
 			sTracker.moveKeysHeld.any() ||
+			sTracker.mouseLookNeededToStrafe ||
 			sTracker.autoRunMode != eAutoRunMode_Off )
 		{
 			sTracker.mouseModeWanted = eMouseMode_LookTurn;
@@ -1039,7 +1043,7 @@ static EMouseMode getMouseModeWanted()
 }
 
 
-static void tryMouseLookZoningFix()
+static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 {
 	// In the EverQuest Titanium client, if you zone while holding RMB for
 	// Mouse Look mode and keep holding it throughout the zoning, there's
@@ -1052,44 +1056,49 @@ static void tryMouseLookZoningFix()
 	// as well as forcing the user to press Esc or left-click somewhere to
 	// close the contextual menu that pops up.
 
-	// To fix this, if haven't moved the mouse or character for a while
-	// and the mouse has moved away from _MouseLookStart, assume zoning
-	// might be happening and, either way, it should be safe to release
-	// RMB and re-initialize MouseLook mode at the safe _MouseLookStart pos
-	// (at worse will make mouse cursor flicker visible for a frame).
-	if( kConfig.mouseLookZoneFixTime == 0 ||
-		sTracker.mouseMode != eMouseMode_LookTurn ||
-		!sTracker.keysHeldDown.test(VK_RBUTTON) ||
-		WindowManager::requiresNormalCursorControl() ||
-		sTracker.mouseJumpQueued )
-		return;
+	// There is also an issue with the Pantheon client where it drops mouse
+	// look mode whenever open the chat box while still holding the button.
 
-	if( sTracker.mouseLookZoneFixTimer - gAppFrameTime <
-			kConfig.mouseLookZoneFixTime )
-		return;
+	// To fix these, if haven't moved the mouse for a while and are requesting
+	// a look mode, a mode is used that releases the mouse button and moves
+	// the cursor into the mouse look start position. Then, the next time any
+	// actual mouse (camera) movement is requested, the mode can start again
+	// immmediately by clicking the button again.
 
-	sTracker.mouseLookZoneFixTimer = 0;
-
-#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
-	DBG_ASSERT(sTracker.nextQueuedKey == 0);
-	const Hotspot& aHotspot =
-		InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
-	const POINT& anExpectedPos =
-		WindowManager::hotspotToOverlayPos(aHotspot);
-	const POINT& anActualPos =
-		WindowManager::mouseToOverlayPos();
-	if( anExpectedPos.x != anActualPos.x ||
-		anExpectedPos.y != anActualPos.y )
+	if( kConfig.mouseLookAutoRestoreTime > 0 &&
+		!sTracker.mouseLookNeededToStrafe &&
+		(theWantedMode == eMouseMode_LookOnly ||
+		 theWantedMode == eMouseMode_LookTurn) &&
+		sTracker.mouseVelX == 0 && sTracker.mouseVelY == 0 &&
+		(sTracker.mouseMode == eMouseMode_LookReady ||
+		 sTracker.mouseLookAutoRestoreTimer - gAppFrameTime >=
+			 kConfig.mouseLookAutoRestoreTime) )
 	{
 		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-		debugPrint("Input Dispatcher: Refreshing Mouse Look mode\n");
+		if( sTracker.mouseMode != eMouseMode_LookReady )
+			debugPrint("InputDispatcher: Restoring Mouse Look mode\n");
 		#endif
-		// Force release RMB
-		sTracker.nextQueuedKey = VK_RBUTTON | kVKeyForceReleaseFlag;
-		// eMouseMode_Look will cause automatic jump to safe spot
-		// and re-press of RMB on a later update
+		return eMouseMode_LookReady;
 	}
-#endif
+
+	return theWantedMode;
+}
+
+
+static EMouseMode getmouseModeWanted()
+{
+	EMouseMode aMouseMode = eMouseMode_Cursor;
+
+	#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
+	// Prevent modes that hold a mouse button when not in-game yet, etc
+	if( WindowManager::requiresNormalCursorControl() )
+		return aMouseMode;
+	#endif
+
+	aMouseMode = checkAutoMouseLookMode();
+	aMouseMode = checkMouseLookRestore(aMouseMode);
+
+	return aMouseMode;
 }
 
 
@@ -1477,7 +1486,7 @@ void update()
 	// -------------
 	if( sTracker.queuePauseTime > 0 )
 		sTracker.queuePauseTime -= gAppFrameTime;
-	sTracker.mouseLookZoneFixTimer += gAppFrameTime;
+	sTracker.mouseLookAutoRestoreTimer += gAppFrameTime;
 
 
 	// Update mouse mode
@@ -1493,7 +1502,7 @@ void update()
 		(sTracker.currTaskProgress == 0 || sTracker.queuePauseTime > 0) )
 	{// No tasks in progress that mouse mode change could interfere with
 
-		EMouseMode aMouseModeWanted = getMouseModeWanted();
+		EMouseMode aMouseModeWanted = getmouseModeWanted();
 		bool wantDifferentMode = aMouseModeWanted != sTracker.mouseMode;
 		bool mouseMoving = sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0;
 		bool holdingLMB = sTracker.keysHeldDown.test(VK_LBUTTON);
@@ -1502,6 +1511,7 @@ void update()
 		switch(sTracker.mouseMode)
 		{
 		case eMouseMode_Hide:
+		case eMouseMode_LookReady:
 			// Mouse is never considered actually moving
 			mouseMoving = false;
 			break;
@@ -1576,6 +1586,15 @@ void update()
 					// (in case have multiple jump-clicks queued in a row)
 					sTracker.mouseMode = eMouseMode_Default;
 				}
+				else if( sTracker.mouseMode == eMouseMode_LookReady )
+				{// Skip position jump and just hold the button
+					sTracker.nextQueuedKey =
+						(aMouseModeWanted == eMouseMode_LookTurn)
+							? (VK_RBUTTON | kVKeyHoldFlag)
+							: (VK_LBUTTON | kVKeyHoldFlag);
+					sTracker.mouseMode = aMouseModeWanted;
+					sTracker.mouseLookAutoRestoreTimer = 0;
+				}
 				else if( (sTracker.mouseMode == eMouseMode_LookTurn &&
 						  sTracker.keysHeldDown.test(VK_RBUTTON)) ||
 						 (sTracker.mouseMode == eMouseMode_LookOnly &&
@@ -1585,8 +1604,8 @@ void update()
 					setKeyDown(
 						(aMouseModeWanted == eMouseMode_LookTurn)
 							? VK_RBUTTON : VK_LBUTTON, true);
-					sTracker.mouseLookZoneFixTimer = 0;
 					sTracker.mouseMode = aMouseModeWanted;
+					sTracker.mouseLookAutoRestoreTimer = 0;
 				}
 				else if( !sTracker.mouseJumpQueued )
 				{// Jump cursor to safe spot for initial click
@@ -1600,7 +1619,6 @@ void update()
 						(aMouseModeWanted == eMouseMode_LookTurn)
 							? (VK_RBUTTON | kVKeyHoldFlag)
 							: (VK_LBUTTON | kVKeyHoldFlag);
-					sTracker.mouseLookZoneFixTimer = 0;
 				}
 				break;
 			case eMouseMode_Hide:
@@ -1615,11 +1633,22 @@ void update()
 					sTracker.mouseAllowJumpDrag = false;
 				}
 				break;
+			case eMouseMode_LookReady:
+				// Just jump to mouse look start position and wait until
+				// attempt to move mouse to start actual look mode
+				if( !sTracker.mouseJumpQueued )
+				{
+					sTracker.mouseJumpToHotspot =
+						eSpecialHotspot_MouseLookStart;
+					sTracker.mouseJumpToMode = aMouseModeWanted;
+					sTracker.mouseJumpInterpolate = false;
+					sTracker.mouseAllowJumpDrag = false;
+				}
+				break;
 			default:
 				DBG_ASSERT(false && "Invalid mouse mode wanted value!");
 			}
 		}
-		tryMouseLookZoningFix();
 	}
 
 
@@ -2166,6 +2195,11 @@ void sendKeyCommand(const Command& theCommand)
 void setMouseMode(EMouseMode theMouseMode)
 {
 	DBG_ASSERT(theMouseMode <= eMouseMode_Hide);
+	if( theMouseMode != sTracker.mouseModeRequested )
+	{
+		sTracker.mouseModeRequested = theMouseMode;
+		sTracker.mouseLookAutoRestoreTimer = 0;
+	}
 	if( theMouseMode == eMouseMode_Default )
 	{
 		sTracker.mouseModeWanted = eMouseMode_Cursor;
@@ -2198,6 +2232,7 @@ void moveMouse(int dx, int dy, bool digital)
 	const bool kMouseLookSpeed =
 		sTracker.mouseMode == eMouseMode_LookOnly ||
 		sTracker.mouseMode == eMouseMode_LookTurn ||
+		sTracker.mouseMode == eMouseMode_LookReady ||
 		sTracker.keysHeldDown.test(VK_RBUTTON);
 
 	// Get magnitude of desired mouse motion in 0 to 1.0 range
@@ -2418,11 +2453,6 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	moveKeysWantDown.set(eMoveKey_SR,
 		applyMoveStrafe && aStrafeAngle > -kXRange && aStrafeAngle < kXRange);
 
-	// Effects of left/right move keys can change while in Mouse Look mode,
-	// so reset Mouse Look zone fix timer whenever any of them are pressed
-	if( moveKeysWantDown.any() )
-		sTracker.mouseLookZoneFixTimer = 0;
-
 	// For move forward/back, use the virtual stick that had the greatest X
 	// motion in order to make sure a proper circular deadzone is used.
 	moveKeysWantDown.set(
@@ -2557,6 +2587,66 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		moveKeysWantDown.reset(eMoveKey_B);
 	}
 
+	// Deal with strafe vs turn and interaction with mouse look mode
+	const bool strafeLeftHasKey =
+		InputMap::keyForSpecialAction(eSpecialKey_StrafeL) != 0;
+	const bool strafeRightHasKey =
+		InputMap::keyForSpecialAction(eSpecialKey_StrafeR) != 0;
+	// If strafe keys not set, use turn keys instead of nothing
+	if( !strafeLeftHasKey && moveKeysWantDown.test(eMoveKey_SL) )
+	{
+		moveKeysWantDown.reset(eMoveKey_SL);
+		moveKeysWantDown.set(eMoveKey_TL);
+	}
+	if( !strafeRightHasKey && moveKeysWantDown.test(eMoveKey_SR) )
+	{
+		moveKeysWantDown.reset(eMoveKey_SR);
+		moveKeysWantDown.set(eMoveKey_TR);
+	}
+	// If trying to turn in mouse look mode, convert to strafing if can,
+	// or expect the game will do it if RMB is currently held down
+	const bool useMouseLookMovement =
+		sTracker.mouseModeRequested == eMouseMode_LookTurn ||
+		sTracker.mouseModeRequested == eMouseMode_LookOnly ||
+		sTracker.mouseModeRequested == eMouseMode_AutoLook ||
+		sTracker.mouseModeRequested == eMouseMode_AutoRunLook ||
+		sTracker.keysHeldDown.test(VK_RBUTTON);
+	sTracker.mouseLookNeededToStrafe = false;
+	if( useMouseLookMovement && moveKeysWantDown.test(eMoveKey_TL) )
+	{
+		if( strafeLeftHasKey )
+		{// Manually convert turn key to strafe key
+			moveKeysWantDown.reset(eMoveKey_TL);
+			moveKeysWantDown.set(eMoveKey_SL);
+		}
+		else
+		{
+			sTracker.mouseLookAutoRestoreTimer = 0;
+			if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
+			{// Don't turn or strafe until RMB held down to strafe with
+				moveKeysWantDown.reset(eMoveKey_TL);
+				sTracker.mouseLookNeededToStrafe = true;
+			}
+		}
+	}
+	if( useMouseLookMovement && moveKeysWantDown.test(eMoveKey_TR) )
+	{
+		if( strafeRightHasKey )
+		{// Manually convert turn key to strafe key
+			moveKeysWantDown.reset(eMoveKey_TR);
+			moveKeysWantDown.set(eMoveKey_SR);
+		}
+		else
+		{
+			sTracker.mouseLookAutoRestoreTimer = 0;
+			if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
+			{// Don't turn or strafe until RMB held down to strafe with
+				moveKeysWantDown.reset(eMoveKey_TR);
+				sTracker.mouseLookNeededToStrafe = true;
+			}
+		}
+	}
+
 	// Process changes to movement keys
 	for(int aMoveKey = 0; aMoveKey < eMoveKey_Num; ++aMoveKey)
 	{
@@ -2565,22 +2655,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		aCmd.vKey = InputMap::keyForSpecialAction(
 			ESpecialKey(aMoveKey + eSpecialKey_FirstMove));
 		if( !aCmd.vKey )
-		{
-			// Use turn instead of doing nothing if no strafe defined
-			switch(aMoveKey + eSpecialKey_FirstMove)
-			{
-			case eSpecialKey_StrafeL:
-				aCmd.vKey = InputMap::keyForSpecialAction(
-					eSpecialKey_TurnL);
-				break;
-			case eSpecialKey_StrafeR:
-				aCmd.vKey = InputMap::keyForSpecialAction(
-					eSpecialKey_TurnR);
-				break;
-			}
-			if( !aCmd.vKey )
-				aCmd.type = eCmdType_SignalOnly;
-		}
+			aCmd.type = eCmdType_SignalOnly;
 		aCmd.signalID = eBtn_Num + aMoveKey + eSpecialKey_FirstMove;
 		if( sTracker.typingChatBoxString && !lock && !autoRun &&
 			aCmd.vKey && !isSafeAsyncKey(aCmd.vKey) &&

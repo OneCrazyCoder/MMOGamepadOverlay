@@ -203,7 +203,8 @@ enum EMouseMode
 	eMouseMode_JumpClicked,	// Cursor mode just after jump-then-click event
 	eMouseMode_LookTrans,	// Transitioning from AutoLook to LookTurn
 	eMouseMode_LookTrans2,	// Transitioning from AutoRunLook to LookTurn
-	eMouseMode_LookTrans3,	// Transitioning from AutoRUnLook to AutoLook
+	eMouseMode_LookTrans3,	// Transitioning from AutoRunLook to AutoLook
+	eMouseMode_LookReady,	// Cursor in place but haven't clicked to start yet
 
 	eMouseMode_Num
 };
