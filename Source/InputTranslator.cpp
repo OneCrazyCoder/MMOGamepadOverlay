@@ -844,7 +844,7 @@ static void processCommand(
 		LayoutEditor::init();
 		break;
 	case eCmdType_UpdateUIScale:
-		WindowManager::readUIScale();
+		WindowManager::updateUIScale();
 		break;
 	case eCmdType_QuitApp:
 		gShutdown = true;
