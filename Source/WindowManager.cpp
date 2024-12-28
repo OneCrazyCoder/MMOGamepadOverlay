@@ -692,7 +692,6 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	ShowWindow(sMainWindow, SW_SHOW);
 
 	// Set overlay client area to full main screen initially
-	readUIScale();
 	resize(aScreenRect);
 }
 
@@ -1030,7 +1029,7 @@ void resize(RECT theNewWindowRect)
 		aNewTargetSize.cy != sTargetSize.cy )
 	{
 		sTargetSize = aNewTargetSize;
-		HUD::updateScaling();
+		updateUIScale();
 	}
 
 	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
@@ -1112,7 +1111,7 @@ RECT overlayTargetDesktopRect()
 }
 
 
-void readUIScale()
+void updateUIScale()
 {
 	gUIScale = Profile::getFloat("System/UIScale", 1.0f);
 
@@ -1154,6 +1153,12 @@ void readUIScale()
 		}
 		RegCloseKey(hKey);
 	}
+
+	const int aUIScaleBaseHeight =
+		Profile::getInt("System/UIScaleBaseHeight");
+	if( aUIScaleBaseHeight > 0 )
+		gUIScale *= double(sTargetSize.cy) / aUIScaleBaseHeight;
+
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
 		sOverlayWindows[i].layoutUpdated = false;
 	HUD::updateScaling();

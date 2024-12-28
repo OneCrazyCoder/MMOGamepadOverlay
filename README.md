@@ -302,7 +302,7 @@ Some accepted examples of valid positions for reference:
     # Rectangle with full height but 50%-75% of the width
     = 50%, 0, 25%, H
 
-*NOTE: The offset value is unaffected by the size of the target screen/window, but will instead be multiplied by the global  [System] property ``UIScale=`` (which itself can be automatically set for some games by use of ``UIScaleRegKey=``). Some size-related properties that only have a single value, such as BorderSize, TitleHeight, and FontSize, are also multiplied by UIScale!*
+*NOTE: The offset value is unaffected by the size of the target screen/window, but will instead be multiplied by the global  [System] property ``UIScale=`` (which itself can be automatically set for some games by use of ``UIScaleRegKey=`` and/or  ``UIScaleBaseHeight=`` to the game's default resolution height). Some size-related properties that only have a single value, such as BorderSize, TitleHeight, and FontSize, are also multiplied by UIScale!*
 
 ### UI Layout Editor
 
@@ -804,6 +804,7 @@ These commands affect the overlay app directly rather than the game you are usin
 
 * ``=Change Profile`` - brings up profile select dialog
 * ``=Quit App`` - closes the overlay application
+* ``=Update UIScale`` - refreshes global UI scale
 
 ### Hotspot Array and Copy Icon ranges
 
