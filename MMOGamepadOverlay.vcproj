@@ -375,6 +375,10 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Resources\Base-Pan.ini"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\Base-PQ.ini"
 			>
 		</File>
@@ -403,6 +407,10 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Resources\Custom-Pan.ini"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\Custom-PQ.ini"
 			>
 		</File>
@@ -424,6 +432,10 @@
 		</File>
 		<File
 			RelativePath=".\Resources\Default-P99.ini"
+			>
+		</File>
+		<File
+			RelativePath=".\Resources\Default-Pan.ini"
 			>
 		</File>
 		<File
@@ -588,6 +600,10 @@
 		</File>
 		<File
 			RelativePath=".\Resources\Taron-P99.ini"
+			>
+		</File>
+		<File
+			RelativePath=".\Resources\Taron-Pan.ini"
 			>
 		</File>
 		<File
