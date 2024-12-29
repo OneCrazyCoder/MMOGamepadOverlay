@@ -1070,13 +1070,16 @@ static void drawHUDCircle(HUDDrawData& dd, const RECT& theRect)
 }
 
 
-static void drawHUDArrowL(HUDDrawData& dd, const RECT& theRect)
+static void drawHUDArrowL(HUDDrawData& dd, RECT theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[dd.appearanceMode]];
 	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	if( appearance.borderSize > 0 )
+		InflateRect(&theRect,
+			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
 
 	POINT points[3];
 	points[0].x = theRect.right;
@@ -1089,13 +1092,16 @@ static void drawHUDArrowL(HUDDrawData& dd, const RECT& theRect)
 }
 
 
-static void drawHUDArrowR(HUDDrawData& dd, const RECT& theRect)
+static void drawHUDArrowR(HUDDrawData& dd, RECT theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[dd.appearanceMode]];
 	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	if( appearance.borderSize > 0 )
+		InflateRect(&theRect,
+			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -1108,13 +1114,16 @@ static void drawHUDArrowR(HUDDrawData& dd, const RECT& theRect)
 }
 
 
-static void drawHUDArrowU(HUDDrawData& dd, const RECT& theRect)
+static void drawHUDArrowU(HUDDrawData& dd, RECT theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[dd.appearanceMode]];
 	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	if( appearance.borderSize > 0 )
+		InflateRect(&theRect,
+			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -1127,13 +1136,16 @@ static void drawHUDArrowU(HUDDrawData& dd, const RECT& theRect)
 }
 
 
-static void drawHUDArrowD(HUDDrawData& dd, const RECT& theRect)
+static void drawHUDArrowD(HUDDrawData& dd, RECT theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
 		hi.appearanceID[dd.appearanceMode]];
 	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	if( appearance.borderSize > 0 )
+		InflateRect(&theRect,
+			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
 
 	POINT points[3];
 	points[0].x = theRect.left;

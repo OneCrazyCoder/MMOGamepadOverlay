@@ -2304,8 +2304,10 @@ void moveMouseTo(const Command& theCommand)
 {
 	switch(theCommand.type)
 	{
-	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MoveMouseToMenuItem:
+		gHotspotsGuideMode = eHotspotGuideMode_Disabled;
+		// fall through
+	case eCmdType_MoveMouseToHotspot:
 		sTracker.queue.push_back(theCommand);
 		sTracker.mouseJumpQueued = true;
 		break;

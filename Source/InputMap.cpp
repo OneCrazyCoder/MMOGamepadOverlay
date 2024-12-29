@@ -1326,36 +1326,33 @@ static Command wordsToSpecialCommand(
 	// Same deal as aLayerName for the Menu-related commands needing a name
 	// of the menu in question as the one otherwise-unrelated word.
 	const std::string* aMenuName = anIgnoredWord;
-	if( allowButtonActions )
+	allowedKeyWords = keyWordsFound;
+	allowedKeyWords.reset(eCmdWord_Menu);
+	allowedKeyWords.reset(eCmdWord_Reset);
+	allowedKeyWords.reset(eCmdWord_Select);
+	allowedKeyWords.reset(eCmdWord_Confirm);
+	allowedKeyWords.reset(eCmdWord_Close);
+	allowedKeyWords.reset(eCmdWord_Edit);
+	allowedKeyWords.reset(eCmdWord_Left);
+	allowedKeyWords.reset(eCmdWord_Right);
+	allowedKeyWords.reset(eCmdWord_Up);
+	allowedKeyWords.reset(eCmdWord_Down);
+	allowedKeyWords.reset(eCmdWord_Hotspot);
+	allowedKeyWords.reset(eCmdWord_Default);
+	allowedKeyWords.reset(eCmdWord_Integer);
+	allowedKeyWords.reset(eCmdWord_Back);
+	allowedKeyWords.reset(eCmdWord_Mouse);
+	allowedKeyWords.reset(eCmdWord_Click);
+	if( allowedKeyWords.count() == 1 )
 	{
-		allowedKeyWords = keyWordsFound;
-		allowedKeyWords.reset(eCmdWord_Menu);
-		allowedKeyWords.reset(eCmdWord_Reset);
-		allowedKeyWords.reset(eCmdWord_Select);
-		allowedKeyWords.reset(eCmdWord_Confirm);
-		allowedKeyWords.reset(eCmdWord_Close);
-		allowedKeyWords.reset(eCmdWord_Edit);
-		allowedKeyWords.reset(eCmdWord_Left);
-		allowedKeyWords.reset(eCmdWord_Right);
-		allowedKeyWords.reset(eCmdWord_Up);
-		allowedKeyWords.reset(eCmdWord_Down);
-		allowedKeyWords.reset(eCmdWord_Hotspot);
-		allowedKeyWords.reset(eCmdWord_Default);
-		allowedKeyWords.reset(eCmdWord_Integer);
-		allowedKeyWords.reset(eCmdWord_Back);
-		allowedKeyWords.reset(eCmdWord_Mouse);
-		allowedKeyWords.reset(eCmdWord_Click);
-		if( allowedKeyWords.count() == 1 )
-		{
-			VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
-				theBuilder.keyWordMap.find(
-					ECommandKeyWord(allowedKeyWords.firstSetBit()));
-			if( itr != theBuilder.keyWordMap.end() )
-				aMenuName = &theWords[itr->second];
-		}
+		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
+			theBuilder.keyWordMap.find(
+				ECommandKeyWord(allowedKeyWords.firstSetBit()));
+		if( itr != theBuilder.keyWordMap.end() )
+			aMenuName = &theWords[itr->second];
 	}
 
-	if( allowButtonActions && aMenuName )
+	if( aMenuName )
 	{
 		// If add "[with] mouse" to menu commands, causes actual mouse
 		// cursor to move and point at currently selected item, and
@@ -1367,23 +1364,28 @@ static Command wordsToSpecialCommand(
 		result.withMouse = result.andClick ||
 			keyWordsFound.test(eCmdWord_Mouse);
 
-		// "= Reset <aMenuName> [Menu] [to Default] [with mouse click]"
+		// "= Reset <aMenuName> [Menu] [to Default] [to #] [with mouse click]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Menu);
 		allowedKeyWords.set(eCmdWord_Default);
 		allowedKeyWords.set(eCmdWord_Mouse);
 		allowedKeyWords.set(eCmdWord_Click);
+		allowedKeyWords.set(eCmdWord_Integer);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuReset;
 			result.menuID = getOrCreateRootMenuID(theBuilder, *aMenuName);
+			result.menuItemIdx = result.count;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
 		allowedKeyWords.reset(eCmdWord_Default);
+	}
 
+	if( allowButtonActions && aMenuName )
+	{
 		// "= Confirm <aMenuName> [Menu] [with mouse click]"
 		// allowedKeyWords = Menu & Mouse & Click
 		allowedKeyWords.set(eCmdWord_Confirm);

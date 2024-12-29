@@ -890,7 +890,8 @@ static void processCommand(
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuReset:
-		if( const Command* aCmdPtr = Menus::reset(theCmd.menuID) )
+		if( const Command* aCmdPtr =
+				Menus::reset(theCmd.menuID, theCmd.menuItemIdx) )
 		{
 			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
 			sResults.menuAutoCommandRun.set(theCmd.menuID);
