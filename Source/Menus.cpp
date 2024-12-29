@@ -433,7 +433,7 @@ const Command* closeLastSubMenu(u16 theMenuID)
 }
 
 
-const Command* reset(u16 theMenuID)
+const Command* reset(u16 theMenuID, u16 toItemNo)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -443,10 +443,15 @@ const Command* reset(u16 theMenuID)
 
 	if( aMenuInfo.subMenuStack.size() > 1 ||
 		aMenuInfo.subMenuStack.back().id != theMenuID ||
-		aMenuInfo.subMenuStack.back().selected != 0 )
+		aMenuInfo.subMenuStack.back().selected != toItemNo-1 )
 	{
 		aMenuInfo.subMenuStack.clear();
 		aMenuInfo.subMenuStack.push_back(SubMenuInfo(theMenuID));
+		if( toItemNo > 1 )
+		{
+			aMenuInfo.subMenuStack.back().selected =
+				min(toItemNo-1, InputMap::menuItemCount(theMenuID));
+		}
 		DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
 		gFullRedrawHUD.set(aMenuInfo.hudElementID);
 		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
