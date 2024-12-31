@@ -177,7 +177,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	{
 		// Load current profile
 		Profile::load();
-		gReloadProfile = false;
 
 		// Create main application window
 		if( !gShutdown && !hadFatalError() )
@@ -203,6 +202,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			TargetApp::autoLaunch();
 
 		// Main loop
+		gReloadProfile = false;
 		while(!gShutdown && !gReloadProfile && !hadFatalError())
 		{
 			// Update frame timers and process windows messages

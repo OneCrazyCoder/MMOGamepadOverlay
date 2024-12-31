@@ -1026,7 +1026,8 @@ void resize(RECT theNewWindowRect)
 	aNewTargetSize.cx = theNewWindowRect.right - theNewWindowRect.left;
 	aNewTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
 	if( aNewTargetSize.cx != sTargetSize.cx ||
-		aNewTargetSize.cy != sTargetSize.cy )
+		aNewTargetSize.cy != sTargetSize.cy ||
+		gReloadProfile )
 	{
 		sTargetSize = aNewTargetSize;
 		updateUIScale();

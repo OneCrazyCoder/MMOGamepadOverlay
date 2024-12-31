@@ -1560,11 +1560,20 @@ void update()
 			switch(aMouseModeWanted)
 			{
 			case eMouseMode_Cursor:
-				sTracker.mouseJumpToHotspot =
-					eSpecialHotspot_LastCursorPos;
-				sTracker.mouseJumpToMode = aMouseModeWanted;
-				sTracker.mouseJumpInterpolate = false;
-				sTracker.mouseAllowJumpDrag = false;
+				#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
+				if( WindowManager::requiresNormalCursorControl() )
+				{// Skip restore jump if cursor mode being forced
+					sTracker.mouseMode = eMouseMode_Cursor;
+				}
+				else
+				#endif
+				{// Jump cursor to last normal cursor position
+					sTracker.mouseJumpToHotspot =
+						eSpecialHotspot_LastCursorPos;
+					sTracker.mouseJumpToMode = aMouseModeWanted;
+					sTracker.mouseJumpInterpolate = false;
+					sTracker.mouseAllowJumpDrag = false;
+				}
 				break;
 			case eMouseMode_LookTurn:
 				if( sTracker.mouseMode != eMouseMode_JumpClicked )
