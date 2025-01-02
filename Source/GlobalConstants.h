@@ -88,6 +88,7 @@ enum ECommandType
 	// (may respond to analog axis data), and also have 'dir' as an ECommandDir
 	eCmdType_MoveTurn,
 	eCmdType_MoveStrafe,
+	eCmdType_MoveLook,
 	eCmdType_MoveMouse,
 	eCmdType_MouseWheel,
 
@@ -305,6 +306,7 @@ enum ECommandKeyWord
 	eCmdWord_Move,
 	eCmdWord_Turn,
 	eCmdWord_Strafe,
+	eCmdWord_Look,
 	eCmdWord_Select,
 	eCmdWord_Hotspot,
 	eCmdWord_Reset,

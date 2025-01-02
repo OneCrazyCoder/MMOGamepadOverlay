@@ -70,9 +70,25 @@ struct Config
 // Local Structures
 //-----------------------------------------------------------------------------
 
+struct CommandArray
+{
+	Command data[eBtnAct_Num];
+	Command& operator[](size_t index) { return data[index]; }
+	const Command& operator[](size_t index) const { return data[index]; }
+	bool operator==(const CommandArray& other) const
+	{
+		for (size_t i = 0; i < eBtnAct_Num; ++i)
+		{
+			if (!(data[i] == other.data[i]))
+				return false;
+		}
+		return true;
+	}
+};
+
 struct ButtonCommandSet
 {
-	Command cmd[eBtnAct_Num];
+	CommandArray cmd;
 	u16 layer[eBtnAct_Num];
 	u32 holdTimeForAction;
 
@@ -192,6 +208,7 @@ struct InputResults
 	s16 charMove;
 	s16 charTurn;
 	s16 charStrafe;
+	s16 charLookX;
 	s16 mouseMoveX;
 	s16 mouseMoveY;
 	s16 mouseWheelY;
@@ -209,6 +226,7 @@ struct InputResults
 		charMove = 0;
 		charTurn = 0;
 		charStrafe = 0;
+		charLookX = 0;
 		mouseMoveX = 0;
 		mouseMoveY = 0;
 		mouseWheelY = 0;
@@ -989,6 +1007,7 @@ static void processCommand(
 		break;
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
+	case eCmdType_MoveLook:
 	case eCmdType_MoveMouse:
 		// Invalid command for this function!
 		DBG_ASSERT(false && "Invalid command sent to processCommand()");
@@ -1010,21 +1029,67 @@ static void processCommand(
 }
 
 
-static bool isTapOnlyCommand(const Command& theCommand)
+static bool isAnalogCommand(
+	const Command& theCommand,
+	const ButtonState& theBtnState)
+{
+	switch(theCommand.type)
+	{
+	case eCmdType_MoveTurn:
+	case eCmdType_MoveStrafe:
+	case eCmdType_MoveLook:
+	case eCmdType_MoveMouse:
+		return true;
+	case eCmdType_MouseWheel:
+		if( theCommand.mouseWheelMotionType != eMouseWheelMotion_Jump )
+			return true;
+		return false;
+	case eCmdType_HotspotSelect:
+		if( theCommand.withMouse && theBtnState.allowHotspotToMouseWheel )
+			return true;
+		return false;
+	default:
+		return false;
+	}
+}
+
+
+static bool isAutoRepeatCommand(
+	const Command& theCommand,
+	const ButtonState& theBtnState)
+{
+	switch(theCommand.type)
+	{
+	case eCmdType_MenuSelect:
+	case eCmdType_MenuSelectAndClose:
+	case eCmdType_KeyBindArrayPrev:
+	case eCmdType_KeyBindArrayNext:
+		return true;
+	case eCmdType_HotspotSelect:
+		if( !theCommand.withMouse || !theBtnState.allowHotspotToMouseWheel )
+			return true;
+		return false;
+	default:
+		return false;
+	}
+}
+
+
+static bool isContinuousCommand(
+	const Command& theCommand,
+	const ButtonState& theBtnState)
 {
 	switch(theCommand.type)
 	{
 	case eCmdType_PressAndHoldKey:
 	case eCmdType_KeyBindArrayHoldIndex:
 	case eCmdType_HoldControlsLayer:
-	case eCmdType_MoveTurn:
-	case eCmdType_MoveStrafe:
-	case eCmdType_MoveMouse:
-	case eCmdType_MouseWheel:
-		return false;
+		return true;
 	}
 
-	return true;
+	return
+		isAnalogCommand(theCommand, theBtnState) ||
+		isAutoRepeatCommand(theCommand, theBtnState);
 }
 
 
@@ -1052,11 +1117,12 @@ static void processButtonPress(ButtonState& theBtnState)
 	{
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
+	case eCmdType_MoveLook:
 	case eCmdType_MoveMouse:
-		// Handled in processContinuousInput instead
+		// Handled in processAnalogInput instead
 		return;
 	case eCmdType_MouseWheel:
-		// Handled in processContinuousInput instead unless set to _Jump
+		// Handled in processAnalogInput instead unless set to _Jump
 		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Jump )
 			return;
 		break;
@@ -1066,38 +1132,11 @@ static void processButtonPress(ButtonState& theBtnState)
 }
 
 
-static void processContinuousInput(
+static void processAnalogInput(
 	ButtonState& theBtnState,
 	u8 theAnalogVal,
 	bool isDigitalDown)
 {
-	// Use commandsWhenPressed if has a continuous action, otherwise current
-	// These inputs should always be assigned to the _Down button action
-	Command aCmd = theBtnState.commandsWhenPressed.cmd[eBtnAct_Down];
-	if( aCmd.type < eCmdType_FirstValid || isTapOnlyCommand(aCmd) )
-		aCmd = theBtnState.commands.cmd[eBtnAct_Down];
-
-	switch(aCmd.type)
-	{
-	case eCmdType_MoveTurn:
-	case eCmdType_MoveStrafe:
-	case eCmdType_MoveMouse:
-		// Continue to analog checks below
-		break;
-	case eCmdType_MouseWheel:
-		// Continue to analog checks below unless set to _Jump
-		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Jump )
-			break;
-		return;
-	case eCmdType_HotspotSelect:
-		// Continue if set to "Select Hotspot or MouseWheel" and no hotspot
-		if( aCmd.withMouse && theBtnState.allowHotspotToMouseWheel )
-			break;
-	default:
-		// Handled elsewhere
-		return;
-	}
-
 	if( theAnalogVal )
 		isDigitalDown = false;
 	else if( isDigitalDown )
@@ -1105,14 +1144,70 @@ static void processContinuousInput(
 	else // if( theAnalogVal == 0 && !isDigitalDown )
 		return;
 
+	// All analog inputs should always be assigned to the _Down button action
+	// When layer configuration changes, commands related to analog stick
+	// movement may want to take effect immediately rather than waiting until
+	// the stick is fully centered and pressed again. Below logic is to handle
+	// which cases this is allowed.
+	const CommandArray& aPressedCmds = theBtnState.commandsWhenPressed.cmd;
+	const CommandArray& aCurrentCmds = theBtnState.commands.cmd;
+	const bool pressedHasAnalogCmd =
+		isAnalogCommand(aPressedCmds[eBtnAct_Down], theBtnState);
+	const bool currentHasAnalogCmd =
+		isAnalogCommand(aCurrentCmds[eBtnAct_Down], theBtnState);
+	if( !pressedHasAnalogCmd && !currentHasAnalogCmd )
+		return;
+
+	Command aCmd;
+	if( aPressedCmds == aCurrentCmds || !currentHasAnalogCmd ||
+		aPressedCmds[eBtnAct_Release].type >= eCmdType_FirstValid ||
+		aPressedCmds[eBtnAct_Tap].type >= eCmdType_FirstValid ||
+		aPressedCmds[eBtnAct_Hold].type >= eCmdType_FirstValid ||
+		aCurrentCmds[eBtnAct_Press].type >= eCmdType_FirstValid ||
+		isContinuousCommand(aPressedCmds[eBtnAct_Down], theBtnState) )
+	{// Pressed command still active (or transition may have side effects)
+		if( !pressedHasAnalogCmd )
+			return;
+		aCmd = aPressedCmds[eBtnAct_Down];
+	}
+	else if( pressedHasAnalogCmd && currentHasAnalogCmd )
+	{// Both are analog commands - but only some allow a hot-swap
+		aCmd = aPressedCmds[eBtnAct_Down];
+		switch(aPressedCmds[eBtnAct_Down].type)
+		{
+		case eCmdType_MoveStrafe:
+		case eCmdType_MoveLook:
+			if( aCurrentCmds[eBtnAct_Down].type == eCmdType_MoveStrafe ||
+				aCurrentCmds[eBtnAct_Down].type == eCmdType_MoveLook )
+				aCmd = aCurrentCmds[eBtnAct_Down];
+			break;
+		case eCmdType_MouseWheel:
+		case eCmdType_HotspotSelect:
+			if( aCurrentCmds[eBtnAct_Down].type == eCmdType_MouseWheel ||
+				aCurrentCmds[eBtnAct_Down].type == eCmdType_HotspotSelect )
+				aCmd = aCurrentCmds[eBtnAct_Down];
+			break;
+		}
+	}
+	else
+	{// Should be no harmful side effect for switching to current immediately
+		if( !currentHasAnalogCmd )
+			return;
+		aCmd = aCurrentCmds[eBtnAct_Down];
+	}
+
+	DBG_ASSERT(isAnalogCommand(aCmd, theBtnState));
+
 	switch(u32(aCmd.type << 16) | aCmd.dir)
 	{
 	case (eCmdType_MoveTurn << 16) | eCmdDir_Forward:
 	case (eCmdType_MoveStrafe << 16) | eCmdDir_Forward:
+	case (eCmdType_MoveLook << 16) | eCmdDir_Forward:
 		sResults.charMove += theAnalogVal;
 		break;
 	case (eCmdType_MoveTurn << 16) | eCmdDir_Back:
 	case (eCmdType_MoveStrafe << 16) | eCmdDir_Back:
+	case (eCmdType_MoveLook << 16) | eCmdDir_Back:
 		sResults.charMove -= theAnalogVal;
 		break;
 	case (eCmdType_MoveTurn << 16) | eCmdDir_Left:
@@ -1126,6 +1221,14 @@ static void processContinuousInput(
 		break;
 	case (eCmdType_MoveStrafe << 16) | eCmdDir_Right:
 		sResults.charStrafe += theAnalogVal;
+		break;
+	case (eCmdType_MoveLook << 16) | eCmdDir_Left:
+		sResults.charStrafe -= theAnalogVal;
+		sResults.charLookX -= theAnalogVal;
+		break;
+	case (eCmdType_MoveLook << 16) | eCmdDir_Right:
+		sResults.charStrafe += theAnalogVal;
+		sResults.charLookX += theAnalogVal;
 		break;
 	case (eCmdType_MoveMouse << 16) | eCmdDir_Left:
 		sResults.mouseMoveX -= theAnalogVal;
@@ -1176,31 +1279,15 @@ static void processAutoRepeat(ButtonState& theBtnState)
 		return;
 
 	// Auto-repeat only commandsWhenPressed assigned to _Down
-	const ButtonCommandSet& aCmdSet = theBtnState.commandsWhenPressed;
-	Command aCmd = aCmdSet.cmd[eBtnAct_Down];
+	const CommandArray& aCmdArray = theBtnState.commandsWhenPressed.cmd;
+	Command aCmd = aCmdArray[eBtnAct_Down];
 
-	// Filter out which commands can use auto-repeat safely
-	switch(aCmd.type)
-	{
-	case eCmdType_MenuSelect:
-	case eCmdType_MenuSelectAndClose:
-	case eCmdType_KeyBindArrayPrev:
-	case eCmdType_KeyBindArrayNext:
-		// Continue to further checks below
-		break;
-	case eCmdType_HotspotSelect:
-		// Continue to further checks unless are using as a mouse wheel cmd
-		if( !aCmd.withMouse || !theBtnState.allowHotspotToMouseWheel )
-			break;
+	if( !isAutoRepeatCommand(aCmd, theBtnState) )
 		return;
-	default:
-		// Incompatible with this feature
-		return;
-	}
 	
 	// Don't auto-repeat when button has other conflicting actions assigned
-	if( aCmdSet.cmd[eBtnAct_Tap].type >= eCmdType_FirstValid ||
-		aCmdSet.cmd[eBtnAct_Hold].type >= eCmdType_FirstValid )
+	if( aCmdArray[eBtnAct_Tap].type >= eCmdType_FirstValid ||
+		aCmdArray[eBtnAct_Hold].type >= eCmdType_FirstValid )
 		return;
 
 	// Needs to be held for initial held time first before start repeating
@@ -1332,9 +1419,9 @@ static void processButtonState(
 			processButtonReleased(theBtnState);
 	}
 
-	// Process continuous input, such as for analog axis values which
-	// which do not necessarily return hit/release when lightly pressed
-	processContinuousInput(theBtnState, theAnalogVal, isDown);
+	// Process analog input (analog axis values) continuously,
+	// since they do not necessarily return hit/release when lightly pressed
+	processAnalogInput(theBtnState, theAnalogVal, isDown);
 
 	// Update heldTime value and see if need to process a 'hold' event
 	if( isDown )
@@ -1719,6 +1806,7 @@ void update()
 	InputDispatcher::moveMouse(
 		sResults.mouseMoveX,
 		sResults.mouseMoveY,
+		sResults.charLookX,
 		sResults.mouseMoveDigital);
 	InputDispatcher::scrollMouseWheel(
 		sResults.mouseWheelY,

@@ -78,6 +78,8 @@ struct Config
 	double mouseWheelDeadzone;
 	double mouseWheelRange;
 	double moveDeadzone;
+	double moveLookDeadzone;
+	double moveLookRange;
 	double moveStraightBias;
 	int maxTaskQueuedTime; // tasks older than this in queue are skipped
 	int chatBoxPostFirstKeyDelay;
@@ -86,6 +88,7 @@ struct Config
 	int cursorYSpeed;
 	int mouseLookXSpeed;
 	int mouseLookYSpeed;
+	int moveLookSpeed;
 	int mouseWheelSpeed;
 	int mouseLookAutoRestoreTime;
 	u16 baseKeyReleaseLockTime;
@@ -119,9 +122,13 @@ struct Config
 		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse/LookSpeed", 100);
 		mouseLookXSpeed = Profile::getInt("Mouse/LookXSpeed", mouseLookXSpeed);
 		mouseLookYSpeed = Profile::getInt("Mouse/LookYSpeed", mouseLookYSpeed);
+		moveLookSpeed = Profile::getInt("Mouse/MoveLookSpeed", 25);
 		mouseLookDeadzone = clamp(Profile::getInt("Gamepad/MouseLookDeadzone", 25), 0, 100) / 100.0;
 		mouseLookRange = clamp(Profile::getInt("Gamepad/MouseLookSaturation", 100), mouseLookDeadzone, 100) / 100.0;
 		mouseLookRange = max(0, mouseLookRange - mouseLookDeadzone);
+		moveLookDeadzone = clamp(Profile::getInt("Gamepad/MoveLookDeadzone", 25), 0, 100) / 100.0;
+		moveLookRange = clamp(Profile::getInt("Gamepad/MoveLookSaturation", 100), moveLookDeadzone, 100) / 100.0;
+		moveLookRange = max(0, moveLookRange - moveLookDeadzone);
 		mouseDPadAccel = max(8, Profile::getInt("Gamepad/MouseDPadAccel", 50));
 		mouseWheelDeadzone = clamp(Profile::getInt("Gamepad/MouseWheelDeadzone", 25), 0, 100) / 100.0;
 		mouseWheelRange = clamp(Profile::getInt("Gamepad/MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
@@ -2236,7 +2243,7 @@ void setMouseMode(EMouseMode theMouseMode)
 }
 
 
-void moveMouse(int dx, int dy, bool digital)
+void moveMouse(int dx, int dy, int lookX, bool digital)
 {
 	const bool kMouseLookSpeed =
 		sTracker.mouseMode == eMouseMode_LookOnly ||
@@ -2251,40 +2258,62 @@ void moveMouse(int dx, int dy, bool digital)
 	const double kDeadZone = kMouseLookSpeed
 		? kConfig.mouseLookDeadzone : kConfig.cursorDeadzone;
 	if( aMagnitude <= kDeadZone )
-		return;
-	aMagnitude -= kDeadZone;
-	const double kRange = kMouseLookSpeed
-		? kConfig.mouseLookRange : kConfig.cursorRange;
-	aMagnitude = min(aMagnitude / kRange, 1.0);
-
-	// Apply adjustments to allow for low-speed fine control
-	if( digital )
-	{// Apply acceleration to magnitude
-		sTracker.mouseDigitalVel = min(
-			kMouseMaxDigitalVel,
-			sTracker.mouseDigitalVel +
-				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
-		aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxDigitalVel;
+	{
+		dx = dy = 0;
 	}
-	else if( aMagnitude < 1.0 )
-	{// Apply exponential easing curve to magnitude
-		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
+	else
+	{
+		aMagnitude -= kDeadZone;
+		const double kRange = kMouseLookSpeed
+			? kConfig.mouseLookRange : kConfig.cursorRange;
+		aMagnitude = min(aMagnitude / kRange, 1.0);
+
+		// Apply adjustments to allow for low-speed fine control
+		if( digital )
+		{// Apply acceleration to magnitude
+			sTracker.mouseDigitalVel = min(
+				kMouseMaxDigitalVel,
+				sTracker.mouseDigitalVel +
+					kConfig.mouseDPadAccel * 4 * gAppFrameTime);
+			aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxDigitalVel;
+		}
+		else if( aMagnitude < 1.0 )
+		{// Apply exponential easing curve to magnitude
+			aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
+		}
+
+		// Get angle of desired mouse motion
+		const double anAngle = atan2(double(dy), double(dx));
+
+		// Convert back into integer dx & dy w/ 32,768 range
+		dx = 32768.0 * aMagnitude * cos(anAngle);
+		dy = 32768.0 * aMagnitude * sin(anAngle);
+
+		// Apply speed setting
+		const int kCursorXSpeed = kMouseLookSpeed
+			? kConfig.mouseLookXSpeed : kConfig.cursorXSpeed;
+		dx = dx * kCursorXSpeed / kMouseMaxSpeed * gAppFrameTime;
+		const int kCursorYSpeed = kMouseLookSpeed
+			? kConfig.mouseLookYSpeed : kConfig.cursorYSpeed;
+		dy = dy * kCursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
 	}
 
-	// Get angle of desired mouse motion
-	const double anAngle = atan2(double(dy), double(dx));
-
-	// Convert back into integer dx & dy w/ 32,768 range
-	dx = 32768.0 * aMagnitude * cos(anAngle);
-	dy = 32768.0 * aMagnitude * sin(anAngle);
-
-	// Apply speed setting
-	const int kCursorXSpeed = kMouseLookSpeed
-		? kConfig.mouseLookXSpeed : kConfig.cursorXSpeed;
-	dx = dx * kCursorXSpeed / kMouseMaxSpeed * gAppFrameTime;
-	const int kCursorYSpeed = kMouseLookSpeed
-		? kConfig.mouseLookYSpeed : kConfig.cursorYSpeed;
-	dy = dy * kCursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
+	// Add lookX to dx in mouselook modes while moving
+	if( lookX != 0 && sTracker.moveKeysHeld.any() &&
+		(sTracker.mouseMode == eMouseMode_LookTurn ||
+		 sTracker.mouseMode == eMouseMode_LookReady) )
+	{
+		aMagnitude = abs(lookX) / 255.0;
+		if( aMagnitude > kConfig.moveLookDeadzone )
+		{
+			aMagnitude -= kConfig.moveLookDeadzone;
+			aMagnitude = min(aMagnitude / kConfig.moveLookRange, 1.0);
+			lookX = 32768.0 * (lookX < 0 ? -aMagnitude : aMagnitude);
+			lookX = lookX * kConfig.moveLookSpeed;
+			lookX = lookX / kMouseMaxSpeed * gAppFrameTime;
+			dx += lookX;
+		}
+	}
 
 	// Add in previously-stored sub-pixel movement amounts
 	static int sMouseXSubPixel = 0;
