@@ -39,7 +39,9 @@ void setMouseMode(EMouseMode theMouseMode);
 // Shift mouse mouse position relative to current position.
 // Amount specified by dx/dy is in relation to mouse speed
 // settings, and expected range of -255 to 255.
-void moveMouse(int dx, int dy, bool digital);
+// lookX is is used as dx only when in standard mouselook mode
+// and character movement is active via moveCharacter()
+void moveMouse(int dx, int dy, int lookX, bool digital);
 
 // Move mouse directly to specific location
 void moveMouseTo(const Command& theCommand);

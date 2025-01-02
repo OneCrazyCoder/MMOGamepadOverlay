@@ -248,7 +248,7 @@ A few Key Bind names are specifically checked for by the program and used direct
 
 ``PasteText=`` is used as explained above for "Chat box macros" to paste the string all at once instead of typing it out key-by-key if this key bind is set to anything (usually Ctrl-V).
 
-The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe``, or directly to ``=Strafe Left``, ``=Move Back`` etc. AutoRun is used alongside these to fix issues like accidentally immediately cancelling auto-run when it is assigned to L3 due to small stick wiggles while release the stick.
+The Move/Turn/Strafe commands are used when assign buttons to ``=Move`` (same as ``=MoveTurn``) or ``=MoveStrafe`` (or ``MoveAndLook``), or directly to ``=Strafe Left``, ``=Move Back`` etc. AutoRun is used alongside these to fix issues like accidentally immediately cancelling auto-run when it is assigned to L3 due to small stick wiggles while release the stick.
 
 *Note that assigning a button to a Move command or one of the above key binds is different than just assigning it directly to the actual keyboard key the game uses for movement (besides just the ability to assign 4 directions at once). These commands make use of extra functionality like the [Gamepad] properties ``MoveDeadzone=``, ``MoveStraightBias=``, and ``CancelAutoRunDeadzone=`` for finer control when assigned to an analog stick, plus specialized code for fixing issues with interactions between movement and other actions such as chat box macros. It is recommended you avoid directly assigning buttons to the movement keys or auto-run key and use the above commands/key binds instead.*
 
@@ -851,6 +851,14 @@ If you want to completely swap some button assignments in your profile, but not 
     Circle = Triangle
 
 The above would swap everything the Circle button and Triangle button do throughout the rest of the profile. The name on the left of the = sign is which button you will actually physically press, and the name on the right is which button you want to act as if it was pressed instead.
+
+### Experimental command: Move and Look
+
+Setting something to ``=MoveAndLook`` functions mostly the same as ``=MoveStrafe``, except it also automatically rotates the camera during left and right strafing motion (using the mouse of course, which means it only does this while in Mouse Look mode).
+
+The rotation speed depends on how far to the left or right are pressing an analog stick, if this command is set to one. This is an option seen in some games called "Auto Rotate Camera" or "Camera Follow" or some such, and is pretty common in 3D 3rd-person console games. It allows for steering with only one stick and being able to see where you are going, but you can still strafe by holding one direction on the left stick and the opposite on the right stick to counter the auto-rotation.
+
+You can modify how this command functions with the ``[Gamepad]`` settings ``MoveLookDeadzone=`` and ``MoveLookSaturation=`` as well as the ``[Mouse]`` setting ``MoveLookSpeed=``.
 
 ### Experimental command: Lock Movement
 

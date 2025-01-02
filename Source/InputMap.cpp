@@ -1642,6 +1642,17 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Strafe);
 
+		// "= 'Look|MoveLook' <aCmdDir>"
+		// allowedKeyWords = Move
+		allowedKeyWords.set(eCmdWord_Look);
+		if( keyWordsFound.test(eCmdWord_Look) &&
+			(keyWordsFound & ~allowedKeyWords).none() )
+		{
+			result.type = eCmdType_MoveLook;
+			return result;
+		}
+		allowedKeyWords.reset(eCmdWord_Look);
+
 		// "= [Move] Mouse <aCmdDir>"
 		// allowedKeyWords = Move
 		allowedKeyWords.set(eCmdWord_Mouse);
@@ -3465,6 +3476,8 @@ static void buildGamepadButtonRemaps(InputMapBuilder& theBuilder)
 	kOtherGamepadProperties.setValue("MOUSECURSORSATURATION", true);
 	kOtherGamepadProperties.setValue("MOUSELOOKDEADZONE", true);
 	kOtherGamepadProperties.setValue("MOUSELOOKSATURATION", true);
+	kOtherGamepadProperties.setValue("MOVELOOKDEADZONE", true);
+	kOtherGamepadProperties.setValue("MOVELOOKSATURATION", true);
 	kOtherGamepadProperties.setValue("MOUSEWHEELDEADZONE", true);
 	kOtherGamepadProperties.setValue("MOUSEWHEELSATURATION", true);
 	kOtherGamepadProperties.setValue("MOUSEDPADACCEL", true);
