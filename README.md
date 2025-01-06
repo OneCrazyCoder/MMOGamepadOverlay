@@ -444,6 +444,12 @@ A layer can optionally set a *parent layer* with the ``Parent=`` property, follo
 * A parent layer can have a parent of its own, and so on for as long of a chain as you want.
 * Combo layers, Held layers, and [Scheme] ignore the ``Parent=`` property since they have their own special rules for automatic removal and layer order. They can, however, act as parents to other layers.
 
+### Layer AutoLayers= property
+
+This property is simply a list of names of other layers that should be automatically added whenever the layer containing this property is added. It is mostly just an alternative to using the 'Auto' button with something like ``Auto=Add LayerName Layer``, but allows adding multiple layers at once and leaves the Auto button free for other things.
+
+*Note that the order in which layers are added is essentially random if more than one is listed, so take note of this when considering layer order and consider using the ``Priority=`` property explained further down if the order matters. The listed layers are added after the layer containing this property (and thus also after its parent, if it has one)*
+
 ### Combo layers
 
 These special layers can not be manually added, but are instead automatically added and removed whenever a combination of other layers is active. They can be used for more complex button combinations. For example, let's say you want Circle to send a different key for pressing Circle by itself, L2+Circle, R2+Circle, or L2+R2+Circle. That last one can be done with a combo layer, such as:

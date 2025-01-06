@@ -66,7 +66,7 @@ const ResourceProfile kResTemplateBase[] =
 const ResourceProfile kResTemplateDefault[] =
 {//		name				fileName			resID					vers
 	{	"ECO Default",		"ECO Default",		IDR_TEXT_INI_DEF_ECO,	1	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	2	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	3	},
 	{	"P99 Default",		"P99 Default",		IDR_TEXT_INI_DEF_P99,	2	},
 	{	"Pantheon Default",	"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	3	},
 	{	"PQ Default",		"PQ Default",		IDR_TEXT_INI_DEF_PQ,	2	},

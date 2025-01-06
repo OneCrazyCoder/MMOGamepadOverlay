@@ -40,6 +40,7 @@ const char* kHotspotsKeys[] =
 // These need to be in all upper case
 const char* kHUDSettingsKey = "HUD";
 const char* kHotspotArraysKey = "HOTSPOTS";
+const char* kAutoLayersKey = "AUTOLAYERS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
 const char* kPriorityKey = "PRIORITY";
@@ -165,6 +166,7 @@ struct ControlsLayer
 	std::string label;
 	ButtonActionsMap buttonMap;
 	VectorMap<u16, Command> signalCommands;
+	BitVector<> autoLayers;
 	BitVector<> showHUD;
 	BitVector<> hideHUD;
 	BitVector<> enableHotspots;
@@ -174,6 +176,7 @@ struct ControlsLayer
 	s8 priority;
 
 	ControlsLayer() :
+		autoLayers(),
 		showHUD(),
 		hideHUD(),
 		enableHotspots(),
@@ -1023,7 +1026,8 @@ static Command wordsToSpecialCommand(
 			break;
 		case eCmdWord_Integer:
 			anIntegerWord = &theWords[i];
-			result.count = max(result.count, intFromString(theWords[i]));
+			result.count =
+				clamp(intFromString(theWords[i]), int(result.count), 255);
 			// fall through
 		case eCmdWord_Unknown:
 			// Not allowed more than once per command, since
@@ -2880,6 +2884,30 @@ static void addSignalCommand(
 }
 
 
+static void buildAutoLayersForLayer(
+	InputMapBuilder& theBuilder,
+	u16 theLayerID,
+	const std::string& theLayersDesc)
+{
+	DBG_ASSERT(!theLayersDesc.empty());
+
+	// Break the string into individual words
+	theBuilder.parsedString.clear();
+	sanitizeSentence(theLayersDesc, theBuilder.parsedString);
+
+	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+	{
+		const std::string& aName = theBuilder.parsedString[i];
+		if( commandWordToID(upper(aName)) == eCmdWord_Filler )
+			continue;
+		const u16 anAutoLayerID =
+			getOrCreateLayerID(theBuilder, theBuilder.parsedString[i]);
+		sLayers[theLayerID].autoLayers.resize(sLayers.size());
+		sLayers[theLayerID].autoLayers.set(anAutoLayerID);
+	}
+}
+
+
 static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
@@ -2932,6 +2960,13 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			sLayers[theLayerIdx].mouseMode == eMouseMode_LookOnly ? "LMB Mouse Look" :
 			sLayers[theLayerIdx].mouseMode == eMouseMode_Hide ? "Hidden" :
 			/*otherwise*/ "Hidden OR Mouse Look" );
+	}
+
+	{// Get auto-add layers setting directly
+		const std::string& anAutoLayersStr =
+			Profile::getStr(aLayerPrefix + kAutoLayersKey);
+		if( !anAutoLayersStr.empty() )
+			buildAutoLayersForLayer(theBuilder, theLayerIdx, anAutoLayersStr);
 	}
 
 	{// Get hotspot arrays setting directly
@@ -3031,6 +3066,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 	{
 		const std::string& aKey = condense(itr->first);
 		if( aKey == kParentLayerKey ||
+			aKey == kAutoLayersKey ||
 			aKey == kMouseModeKey ||
 			aKey == kHUDSettingsKey ||
 			aKey == kHotspotArraysKey ||
@@ -3577,7 +3613,9 @@ void loadProfile()
 		buildGamepadButtonRemaps(anInputMapBuilder);
 	}
 
-	// Trim unused memory
+	// Finalize elements and trim unused memory now that all sizes are known
+	for(u16 i = 0; i < sLayers.size(); ++i)
+		sLayers[i].autoLayers.resize(sLayers.size());
 	if( sHotspots.size() < sHotspots.capacity() )
 		std::vector<Hotspot>(sHotspots).swap(sHotspots);
 	if( sHotspotArrays.size() < sHotspotArrays.capacity() )
@@ -3783,6 +3821,13 @@ const BitVector<>& hotspotArraysToDisable(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers[theLayerID].disableHotspots;
+}
+
+
+const BitVector<>& layersToAutoAddWith(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	return sLayers[theLayerID].autoLayers;
 }
 
 

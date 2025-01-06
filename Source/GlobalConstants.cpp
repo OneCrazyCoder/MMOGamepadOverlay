@@ -625,6 +625,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "OUT",			eCmdWord_Filler		},
 				{ "OF",				eCmdWord_Filler		},
 				{ "W",				eCmdWord_Filler		},
+				{ "USE",			eCmdWord_Filler		},
 				{ "USING",			eCmdWord_Filler		},
 				{ "DO",				eCmdWord_Filler		},
 				{ "THIS",			eCmdWord_Filler		},
