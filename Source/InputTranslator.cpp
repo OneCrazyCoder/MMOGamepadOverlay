@@ -451,6 +451,7 @@ static std::vector<u16>::iterator layerOrderInsertPos(
 	return result;
 }
 
+static void addControlsLayer(u16 theLayerID); // forward declare
 static void addComboLayers(u16 theNewLayerID); // forward declare
 static void sortComboLayers(); // forward declare
 
@@ -497,6 +498,16 @@ static void moveControlsLayerToTop(u16 theLayerID, bool isHeldLayer = false)
 	}
 	sState.layerOrder.insert(aNewPos, aTempOrder.begin(), aTempOrder.end());
 	sResults.layerChangeMade = true;
+
+	// Re-add or sort any auto-add layers that may have been removed
+	const BitVector<>& autoAddLayers =
+		InputMap::layersToAutoAddWith(theLayerID);
+	for(int i = autoAddLayers.firstSetBit();
+		i < autoAddLayers.size();
+		i = autoAddLayers.nextSetBit(i+1))
+	{
+		addControlsLayer(u16(i));
+	}
 
 	// Re-sort any possibly affected combo layers
 	sortComboLayers();
@@ -551,6 +562,16 @@ static void addControlsLayer(u16 theLayerID)
 
 static void addComboLayers(u16 theNewLayerID)
 {
+	// Add any auto-add layers associated with the new layer ID
+	const BitVector<>& autoAddLayers =
+		InputMap::layersToAutoAddWith(theNewLayerID);
+	for(int i = autoAddLayers.firstSetBit();
+		i < autoAddLayers.size();
+		i = autoAddLayers.nextSetBit(i+1))
+	{
+		addControlsLayer(u16(i));
+	}
+
 	// Find and add any combo layers with theNewLayerID as a base and
 	// the other base layer also being active
 	bool aLayerWasAdded = false;

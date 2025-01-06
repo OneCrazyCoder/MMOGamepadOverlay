@@ -64,6 +64,9 @@ const BitVector<>& hotspotArraysToEnable(u16 theLayerID);
 // (overrides any lower layers wishing to enable these hotspots)
 const BitVector<>& hotspotArraysToDisable(u16 theLayerID);
 
+// Gets additional auto-add layers to include with given layer
+const BitVector<>& layersToAutoAddWith(u16 theLayerID);
+
 // Returns a combo layer ID if one exists, otherwise 0
 u16 comboLayerID(u16 theLayerID1, u16 theLayerID2);
 

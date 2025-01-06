@@ -450,7 +450,7 @@ const Command* reset(u16 theMenuID, u16 toItemNo)
 		if( toItemNo > 1 )
 		{
 			aMenuInfo.subMenuStack.back().selected =
-				min(toItemNo-1, InputMap::menuItemCount(theMenuID));
+				min(toItemNo-1, InputMap::menuItemCount(theMenuID)-1);
 		}
 		DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
 		gFullRedrawHUD.set(aMenuInfo.hudElementID);
