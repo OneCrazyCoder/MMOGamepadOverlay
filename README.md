@@ -553,6 +553,8 @@ Menus are defined using the section name [Menu.MenuName]. Each *Menu Item* is de
 
 Notice how Menu Item #3 has no Command, but still contains ``:``, so the label will be shown but nothing will happen if it is used. Menu Item #4 specifies a **Sub-Menu**, indicated by the absence of ``:``. You could also just have ``:`` followed by a command if you want no label for the Menu Item.
 
+*NOTE: If you want to include a : character in the actual label text, simply use two in a row - `::` will be replaced by a single ``:``, and only a single : will separate the label and command*
+
 ### Sub-Menus
 
 A sub-menu is created by having a menu item *property value* without any ``:`` character, which then has the label double as the sub-menu's name. The sub-menu is defined by the section name ``[Menu.MenuName.SubMenuName]``.  In the earlier example, ``4=Settings`` specified a sub-menu. Here is an example setup for that sub-menu:
@@ -716,6 +718,26 @@ Various properties can be defined that set the size and colors used, including `
 
 In order to visually show current selection and possibly "flash" a menu item when it is activated, alternate colors (or Bitmaps) can be set for menus starting with the word "Selected" or "Flash" or the combination "FlashSelected", such as ``SelectedItemRGB=``, ``FlashBorderRGB=``, ``FlashSelectedLabelRGB=``, ``SelectedBitmap=``, and so on.
 
+### Label tags (text replacement)
+
+Portions of label text (such as the name of a menu item) can be dynamically replaced according to current app state by using **Label Tags**. These tags are specified by surrounding the tag name with < and > as part of a label's text. The tag will only be replaced if the tag name is recognized - otherwise it is assumed the intent was to actually print the < and > characters and whatever was between them as-is.
+
+Currently the only implemented tag type is the name of a layer, which will be replaced with "Yes" or "No" depending on if the layer with that name is active or not. This can be used for menu items that toggle a layer on or off as a means of changing a "setting" for the scheme at runtime. For example:
+
+    [Scheme]
+    LStick = MoveStrafe
+    ...
+    
+    [Layer.CamSteer]
+    LStick = MoveAndLook
+    ...
+
+    [Menu.MainMenu.Settings]
+    1 = Cam Steer - <CamSteer>: Toggle CamSteer layer
+    ...
+
+Will change if the left stick has the camera auto-rotate when strafing left or right or not, based on if the "CamSteer" layer is active. To allow swapping this setting quickly during play, the first menu item in the Settings menu will display either "Cam Steer - Yes" or "Cam Steer - No", by use of the ``<CamSteer>`` tag. Confirming that Menu Item will toggle the layer and change the button to say the opposite.
+
 ### Fading and transparency
 
 HUD elements can also fade in and out when shown or hidden, or menus can be partially faded out when they haven't been used for a while or are currently disabled (by virtue of having no active buttons assigned that can control the menu), all of which can be controlled with the properties ``MaxAlpha=, FadeInDelay=, FadeInTime=, FadeOutDelay=, FadeOutTime=, InactiveDelay=``, and ``InactiveAlpha=``. All alpha values should be in the range of 0 to 255 (0 fully invisible, 255 fully opaque), and delay times are in milliseconds (1/1000th of a second).
@@ -756,7 +778,7 @@ Once a Bitmap is set properly as in the above example, set the HUD element's ``T
 
 ### Label Icons
 
-In addition to the backdrop of a menu item, a bitmap be used in place of the text label for a menu item. This allows having a different image for each individual menu item. This image will be copied into the inner area of the menu item, meaning the resulting bitmap will be drawn at (ItemSize.x/y - (BorderSize x 2)) size.
+In addition to the backdrop of a menu item, a bitmap be used to entirely replace a text label. This allows having a different image for each individual menu item. This image will be copied into the inner area of the menu item, meaning the resulting bitmap will be drawn at (ItemSize.x/y - (BorderSize x 2)) size.
 
 The [Icons] section is used to link each menu item's label text to what should be drawn in place of it. For example:
 
@@ -814,7 +836,7 @@ These commands affect the overlay app directly rather than the game you are usin
 
 ### Hotspot Array and Copy Icon ranges
 
-When defining Hotspot Arrays and regions to copy from a game window to use as icons, it can be a pain to change every individual hotspot/icon associated with in-game UI window when you want to move that UI window in the game, even with the help of the runtime UI Layout Editor. To help with this, these elements can use a base *anchor* element with the other elements defined as just *offsets* to the anchor, meaning they can all be moved at once by only moving the anchor.
+When defining Hotspot Arrays and regions to copy from a game window to use as icons, it can be a pain to change every individual hotspot/icon associated with an in-game UI window when you want to move that UI window in the game, even with the help of the runtime UI Layout Editor. To assist with this, these elements can use a base *anchor* element with the other elements defined as just *offsets* to the anchor, meaning they can all be moved at once by only moving the anchor.
 
 To create an anchor, define a hotspot or icon with no number after its name. At that point, any hotspots or other copy-from-target icons with the same name but with a number at the end of the name will be treated as an offset (in the case of icons you must also leave off the width and height for the offset versions). For example:
 
@@ -884,7 +906,7 @@ With this mode the left mouse button will be held while no movement commands are
 
 The tricky part is while using AutoRun, which the app has no way of knowing for sure your character is still doing or not (there are multiple ways to cancel AutoRun that the app won't necessarily know about). Therefore it assumes that any time you send the AutoRun key that your character begins moving forward, and that your character will continue moving forward until you send MoveBack or release and re-send MoveForward commands, and use the right mouse button during this to allow for steering.
 
-If you prefer, you can use ``Mouse=AutoRunLook`` which instead treats AutoRun (and Lock Movement) the same as being stationary and always uses the LookOnly camera mode whenever you are not actively moving your character. This allows freely looking around for threats while auto-running without changing your direction of movement, but removes the ability to steer your character via mouse movement while auto-running. You could assign each option to different layers and switch between them by holding a button.
+If you prefer, you can use ``Mouse=AutoRunLook`` which instead treats AutoRun (and Lock Movement) the same as being stationary and always uses the LookOnly camera mode whenever you are not actively holding a movement direction. This allows freely looking around for threats while auto-running without changing your direction of movement, but removes the ability to steer your character via mouse movement while auto-running. You could also assign AutoLook and AutoRunLook to to different layers and switch between them by holding a button.
 
 ### Other system features
 

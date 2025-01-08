@@ -154,7 +154,7 @@ struct LayerState
 	ButtonState autoButton;
 	u16 parentLayerID;
 	u16 altParentLayerID; // 0 unless is a combo layer
-	union{ bool active; bool autoButtonDown; };
+	union{ bool active; bool autoButtonDown; }; // mean the same thing
 	s8 heldActiveByButton;
 	bool autoButtonHit;
 	bool buttonCommandUsed;
@@ -1860,6 +1860,13 @@ void update()
 		transDebugPrint("%s", aNewLayerOrder.c_str());
 		#endif
 	}
+}
+
+
+bool isLayerActive(u16 theLayerID)
+{
+	DBG_ASSERT(theLayerID < sState.layers.size());
+	return sState.layers[theLayerID].active;
 }
 
 #undef transDebugPrint

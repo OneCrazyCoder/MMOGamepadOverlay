@@ -26,4 +26,7 @@ void cleanup();
 // Call once per frame to translate GamePad into InputDispatcher w/ InputMap
 void update();
 
+// Check if a given Controls Layer ID is currently active (added to stack)
+bool isLayerActive(u16 theLayerID);
+
 } // InputTranslator
