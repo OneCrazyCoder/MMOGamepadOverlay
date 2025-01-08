@@ -3183,8 +3183,13 @@ static MenuItem stringToMenuItem(
 		return aMenuItem;
 	}
 
-	// Get the label (part of the string before first colon)
+	// Get the label (part of the string before first single colon)
+	// Double colons within label become single colons instead of end of label,
+	// and are ignored (become whitespace) in the remaining string
+	theString = replaceAllStr(theString, "::", "\x01");
 	std::string aLabel = breakOffItemBeforeChar(theString, ':');
+	aLabel = replaceChar(aLabel, '\x01', ':');
+	theString = replaceChar(theString, '\x01', ' ');
 
 	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
 	{// Having no : character means this points to a sub-menu
@@ -3560,6 +3565,76 @@ static void buildGamepadButtonRemaps(InputMapBuilder& theBuilder)
 }
 
 
+static void parseLabel(InputMapBuilder& theBuilder, std::string& theLabel)
+{
+	if( theLabel.size() < 3 )
+		return;
+
+	// Search for replacement text tags in format <tag>
+	bool replacementNeeded = false;
+	std::string::size_type aStartPos = 0;
+	while( (aStartPos = theLabel.find('<', aStartPos)) != std::string::npos )
+	{
+		// Find the closing '>' (or if none found, we're done)
+		std::string::size_type anEndPos = theLabel.find('>', aStartPos);
+		if( anEndPos == std::string::npos )
+			break;
+
+		// Only use the last '<' found before the closing '>'
+		aStartPos = theLabel.rfind('<', anEndPos);
+	
+		// Extract the tag string (text inside < and >)
+		const std::string& aTag = condense(theLabel.substr(
+			aStartPos + 1, anEndPos - aStartPos - 1));
+
+		// Generate the replacement character sequence
+		std::string aNewStr;
+		// See if tag matches a layer name to display layer status
+		if( u16* aLayerID = theBuilder.layerNameToIdxMap.find(aTag) )
+		{// Set replacement to a 3-char sequence for layer ID
+			aNewStr.push_back(kLayerStatusReplaceChar);
+			// Encode the layer ID into 14-bit as in checkForVKeySeqPause()
+			DBG_ASSERT(*aLayerID <= 0x3FFF);
+			aNewStr.push_back(u8((((*aLayerID) >> 7) & 0x7F) | 0x80));
+			aNewStr.push_back(u8(((*aLayerID) & 0x7F) | 0x80));
+		}
+		// TODO: Button names to be replaced with their current assigned comand
+
+		if( !aNewStr.empty() )
+		{
+			theLabel.replace(aStartPos, anEndPos - aStartPos + 1, aNewStr);
+			aStartPos += aNewStr.length();
+			replacementNeeded = true;
+		}
+	}
+
+	if( replacementNeeded )
+		theLabel = std::string(1, kLabelContainsDynamicText) + theLabel;
+}
+
+
+static void buildLabels(InputMapBuilder& theBuilder)
+{
+	mapDebugPrint("Parsing labels for text replacements...\n");
+	for(u16 i = 0; i < sHUDElements.size(); ++i)
+		parseLabel(theBuilder, sHUDElements[i].displayName);
+	for(u16 i = 0; i < sMenus.size(); ++i)
+	{
+		parseLabel(theBuilder, sMenus[i].label);
+		for(u16 aDir = 0; aDir < ARRAYSIZE(sMenus[i].dirItems); ++aDir)
+		{
+			parseLabel(theBuilder, sMenus[i].dirItems[aDir].label);
+			parseLabel(theBuilder, sMenus[i].dirItems[aDir].altLabel);
+		}
+		for(u16 anItem = 0; anItem < sMenus[i].items.size(); ++anItem)
+		{
+			parseLabel(theBuilder, sMenus[i].items[anItem].label);
+			parseLabel(theBuilder, sMenus[i].items[anItem].altLabel);
+		}
+	}
+}
+
+
 static void setCStringPointerFor(Command* theCommand)
 {
 	// Important that the raw string pointer set here is no longer held
@@ -3611,6 +3686,7 @@ void loadProfile()
 		buildMenus(anInputMapBuilder);
 		buildHUDElements(anInputMapBuilder);
 		buildGamepadButtonRemaps(anInputMapBuilder);
+		buildLabels(anInputMapBuilder);
 	}
 
 	// Finalize elements and trim unused memory now that all sizes are known

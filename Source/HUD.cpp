@@ -6,6 +6,7 @@
 
 #include "HotspotMap.h"
 #include "InputMap.h"
+#include "InputTranslator.h" // isLayerActive()
 #include "Menus.h" // activeSubMenu(), itemCount()
 #include "Profile.h"
 
@@ -1331,10 +1332,40 @@ static void drawMenuItemLabel(
 	HUDDrawData& dd,
 	const RECT& theRect,
 	u16 theItemIdx,
-	const std::string& theLabel,
+	std::string theLabel,
 	const Appearance& theAppearance,
 	MenuDrawCacheEntry& theCacheEntry)	
 {
+	if( !theLabel.empty() &&
+		theLabel[0] == kLabelContainsDynamicText )
+	{
+		std::string aNewLabel = theLabel.substr(1);
+		std::string::size_type aStartPos = 0;
+		while( (aStartPos = aNewLabel.find(kLayerStatusReplaceChar, aStartPos))
+			!= std::string::npos )
+		{
+			// Convert 3-char 14-bit code to a layer ID
+			u8 c = aNewLabel[aStartPos+1];
+			DBG_ASSERT(c != '\0');
+			u16 aLayerID = (c & 0x7F) << 7;
+			c = aNewLabel[aStartPos+2];
+			DBG_ASSERT(c != '\0');
+			aLayerID |= (c & 0x7F);
+			// Replace with layer's current status
+			const std::string& aNewStr =
+				InputTranslator::isLayerActive(aLayerID)
+					? "Yes" : "No";
+			aNewLabel.replace(aStartPos, 3, aNewStr);
+			aStartPos += 3;
+		}
+		// Dynamic strings shouldn't be cached
+		theCacheEntry = MenuDrawCacheEntry();
+		drawMenuItemLabel(
+			dd, theRect, theItemIdx,
+			aNewLabel, theAppearance, theCacheEntry);
+		return;
+	}
+
 	// Remove auto-refresh draw entry if have one now that are being drawn
 	for(std::vector<AutoRefreshLabelEntry>::iterator itr =
 		sAutoRefreshLabels.begin(); itr != sAutoRefreshLabels.end(); ++itr )

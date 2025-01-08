@@ -164,6 +164,24 @@ std::string replaceChar(const std::string& theString, char oldChar, char newChar
 	return aResult;
 }
 
+
+std::string replaceAllStr(const std::string& theString, const char* oldStr, const char* newStr)
+{
+	std::string result = theString;
+	const size_t oldLen = std::strlen(oldStr);
+	const size_t newLen = std::strlen(newStr);
+
+	size_t aPos = 0;
+	while ((aPos = result.find(oldStr, aPos)) != std::string::npos)
+	{
+		result.replace(aPos, oldLen, newStr);
+		aPos += newLen;
+	}
+
+	return result;
+}
+
+
 std::string getFileName(const std::string& thePath)
 {
 	std::string aResult;

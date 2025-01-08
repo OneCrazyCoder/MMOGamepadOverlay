@@ -26,6 +26,8 @@ std::string lower(const std::string& theString);
 std::string condense(const std::string& theString);
 // Replace all instances of a specific char with a different one
 std::string replaceChar(const std::string& theString, char oldChar, char newChar);
+// Replace all instances of a specific string with a different one
+std::string replaceAllStr(const std::string& theString, const char* oldStr, const char* newStr);
 
 // File/path utilities (works fine with UTF8-encoding strings)
 std::string getFileName(const std::string& thePath);
