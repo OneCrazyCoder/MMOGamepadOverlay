@@ -191,6 +191,7 @@ struct ControlsLayer
 struct HotspotArray
 {
 	std::string label;
+	float offsetScale;
 	u16 first, last;
 };
 
@@ -1888,9 +1889,12 @@ static void assignHotspots(
 			theHotspotNameToIdxMap.setValue(kSpecialHotspotNames[i], i);
 	}
 
-	// Parse normal hotspots and pick out any that might be arrays
+	// Prepare local data structures
 	BitVector<> aFoundArrays;
 	aFoundArrays.clearAndResize(sHotspotArrays.size());
+	VectorMap<u16, float> aHotspotArrayAnchorOffsetsScaleMap;
+
+	// Parse normal hotspots and pick out any that might be arrays
 	for(size_t i = 0; i < theKeyValueList.size(); ++i)
 	{
 		std::string aHotspotName = condense(theKeyValueList[i].first);
@@ -1918,6 +1922,7 @@ static void assignHotspots(
 					anEntry.label.resize(
 						posAfterPrefix(anEntry.label, aHotspotArrayName));
 					anEntry.first = anEntry.last = 0;
+					anEntry.offsetScale = 1.0;
 					sHotspotArrays.push_back(anEntry);
 					aFoundArrays.resize(sHotspotArrays.size());
 				}
@@ -1959,6 +1964,24 @@ static void assignHotspots(
 				theKeyValueList[i].second);
 			sHotspots[aHotspotIdx] = Hotspot();
 		}
+		else if( !aHotspotDescription.empty() &&
+				 aHotspotDescription[0] == '*' )
+		{
+			// Hotspot seems to have ended with an offset scaling factor
+			const float aScaleFactor =
+				floatFromString(aHotspotDescription.substr(1));
+			if( aScaleFactor == 0 )
+			{
+				logError("Hotspot %s: Invalid offset scale factor '%s'",
+					theKeyValueList[i].first,
+					aHotspotDescription.c_str());
+			}
+			else
+			{
+				aHotspotArrayAnchorOffsetsScaleMap.setValue(
+					aHotspotIdx, aScaleFactor);
+			}
+		}
 	}
 	theKeyValueList.clear();
 
@@ -1972,7 +1995,13 @@ static void assignHotspots(
 		u16* anAnchorIdx = theHotspotNameToIdxMap.
 			find(condense(aHotspotArray.label));
 		if( anAnchorIdx )
+		{
 			anAnchor = sHotspots[*anAnchorIdx];
+			VectorMap<u16, float>::iterator itr =
+				aHotspotArrayAnchorOffsetsScaleMap.find(*anAnchorIdx);
+			if( itr != aHotspotArrayAnchorOffsetsScaleMap.end() )
+				aHotspotArray.offsetScale = itr->second;
+		}
 		const u16 aHotspotArrayCount =
 			aHotspotArray.last - aHotspotArray.first + 1;
 		if( aHotspotArray.first == 0 )
@@ -2013,6 +2042,13 @@ static void assignHotspots(
 						"Hotspot %s: Could not decipher hotspot position '%s'",
 						aHotspotName.c_str(),
 						aHotspotValue.c_str());
+				}
+				else if( !aHotspotDesc.empty() && aHotspotDesc[0] == '*' )
+				{
+					logError(
+						"Hotspot %s: Only anchor hotspots can have specify "
+						"an offset scale factor (using '*')!",
+						aHotspotName.c_str());
 				}
 				// Offset by anchor hotspot if don't have own anchor set
 				if( sHotspots[aHotspotID].x.anchor == 0 )
@@ -2074,6 +2110,13 @@ static void assignHotspots(
 							theKeyValueList[0].second);
 						aDeltaHotspot = Hotspot();
 					}
+					else if( !aHotspotDesc.empty() && aHotspotDesc[0] == '*' )
+					{
+						logError(
+							"Hotspot %s: Only anchor hotspots can have specify "
+							"an offset scale factor (using '*')!",
+							aHotspotName.c_str());
+					}
 					int aLastIdx =
 						intFromString(theKeyValueList[0].first);
 					for(; aNextArrayIdx <= aLastIdx; ++aNextArrayIdx )
@@ -2094,6 +2137,15 @@ static void assignHotspots(
 					}
 				}
 				theKeyValueList.clear();
+			}
+		}
+		if( aHotspotArray.offsetScale != 1.0 )
+		{// Apply offsets scale to all hostpots in this array
+			for( u16 aHotspotID = aHotspotArray.first;
+				 aHotspotID <= aHotspotArray.last; ++aHotspotID )
+			{
+				sHotspots[aHotspotID].x.offset *= aHotspotArray.offsetScale;
+				sHotspots[aHotspotID].y.offset *= aHotspotArray.offsetScale;
 			}
 		}
 	}

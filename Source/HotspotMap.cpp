@@ -956,6 +956,11 @@ EResult stringToCoord(std::string& theString,
 				break;
 			}
 			break;
+		case '*':
+			// Offset scale indicator - treat as eol but return the '*'
+			--aCharPos;
+			done = true;
+			break;
 		default:
 			if( aMode == eMode_PrefixEnd )
 				aValidCharCount = aCharPos + 1;
