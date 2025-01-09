@@ -874,6 +874,19 @@ In addition, to save on typing you can specify multiple hotspot/icon offsets in 
 
 *Note that the + signs in front of each number for the offsets don't do anything, I just put them there to help remind me that these are offsets rather than direct positions.*
 
+### Hotspot Array scaling
+
+A Hotspot Array using an anchor + offsets (as described above) can also have all the offsets scaled by a single scale value. This works the same as the global UI Scale and is combined with it, but only applies to the hotspots in that specific array.
+
+This is useful in games that allow scaling individual UI windows, allowing adjusting all hotspots related to that UI window with a single change. Simply add ``* scaleValue`` to the end of the anchor hotspot's property value to do this.
+
+To use the above example, let's say the LootWindow is separately set to 1.5x scale. In your custom profile, you could override the ``LootWindow=`` entry as follows, without needing to add entries for the rest of the hotspots:
+
+    [Hotspots]
+    LootWindow = 32x240 * 2.5
+
+Note that the 2.5 scaling will **not** be applied to the base 32x240 values in the above example, just the offsets from that point for the remaining LootWindow hotspots. ``* 250%`` is also valid.
+
 ### Quick remap of gamepad buttons
 
 If you want to completely swap some button assignments in your profile, but not go through every layer/etc to change each button's command assignments one-by-one, you can swap them quickly using the following syntax:
