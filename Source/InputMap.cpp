@@ -33,9 +33,13 @@ const char* kKeybindsPrefix = "KeyBinds/";
 const char* kHotspotsPrefix = "Hotspots/";
 const char* kButtonRebindsPrefix = "Gamepad";
 const char* k4DirMenuItemLabel[] = { "L", "R", "U", "D" }; // match ECommandDir!
+const char* k4DirCmdSuffix[] = { " Left", " Right", " Up", " Down" };
 DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 const char* kHotspotsKeys[] =
 	{ "Hotspots", "Hotspot", "KeyBindArray", "Array", "KeyBinds" };
+const std::string kAutoLayersProperty = "AutoLayers";
+const std::string kActionOnlyPrefix = "Just";
+const std::string kSignalCommandPrefix = "When";
 
 // These need to be in all upper case
 const char* kHUDSettingsKey = "HUD";
@@ -46,13 +50,10 @@ const char* kParentLayerKey = "PARENT";
 const char* kPriorityKey = "PRIORITY";
 const char* kMenuOpenKey = "AUTO";
 const char* kMenuCloseKey = "BACK";
-const std::string kActionOnlyPrefix = "Just";
-const std::string kSignalCommandPrefix = "When";
 const std::string k4DirButtons[] =
 {	"LS", "LSTICK", "LEFTSTICK", "LEFT STICK", "DPAD",
 	"RS", "RSTICK", "RIGHTSTICK", "RIGHT STICK", "FPAD" };
 const char* k4DirKeyNames[] = { "LEFT", "RIGHT", "UP", "DOWN" };
-const char* k4DirCmdSuffix[] = { " Left", " Right", " Up", " Down" };
 
 const char* kSpecialHotspotNames[] =
 {
@@ -1165,6 +1166,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Remove);
+	allowedKeyWords.set(eCmdWord_Startup);
 	if( allowButtonActions &&
 		keyWordsFound.test(eCmdWord_Remove) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
@@ -1173,6 +1175,7 @@ static Command wordsToSpecialCommand(
 		// Since can't remove layer 0 (main scheme), 0 acts as a flag
 		// meaning to remove calling layer instead
 		result.layerID = 0;
+		result.atStartup = keyWordsFound.test(eCmdWord_Startup);
 		return result;
 	}
 
@@ -1187,6 +1190,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Hold);
 	allowedKeyWords.set(eCmdWord_Replace);
 	allowedKeyWords.set(eCmdWord_Toggle);
+	allowedKeyWords.set(eCmdWord_Startup);
 	// Directionals aren't layer-related but also not allowed as layer names
 	allowedKeyWords.set(eCmdWord_Left);
 	allowedKeyWords.set(eCmdWord_Right);
@@ -1244,6 +1248,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Layer);
 		allowedKeyWords.set(eCmdWord_Replace);
+		allowedKeyWords.set(eCmdWord_Startup);
 		if( keyWordsFound.test(eCmdWord_Replace) &&
 			aSecondLayerName && aSecondLayerName != aLayerName &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
@@ -1253,24 +1258,26 @@ static Command wordsToSpecialCommand(
 				getOrCreateLayerID(theBuilder, *aLayerName);
 			result.replacementLayer =
 				getOrCreateLayerID(theBuilder, *aSecondLayerName);
+			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Replace);
 
 		// "= Add [Layer] <aLayerName>"
-		// allowedKeyWords = Layer
+		// allowedKeyWords = Layer & Startup
 		allowedKeyWords.set(eCmdWord_Add);
 		if( keyWordsFound.test(eCmdWord_Add) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_AddControlsLayer;
 			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
+			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Add);
 
 		// "= Toggle [Layer] <aLayerName>"
-		// allowedKeyWords = Layer
+		// allowedKeyWords = Layer & Startup
 		allowedKeyWords.set(eCmdWord_Toggle);
 		if( keyWordsFound.test(eCmdWord_Toggle) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -1278,12 +1285,13 @@ static Command wordsToSpecialCommand(
 			result.type = eCmdType_ToggleControlsLayer;
 			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
 			DBG_ASSERT(result.layerID != 0);
+			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Toggle);
 
 		// "= Replace [this layer with] <aLayerName>"
-		// allowedKeyWords = Layer
+		// allowedKeyWords = Layer & Startup
 		allowedKeyWords.set(eCmdWord_Replace);
 		if( allowButtonActions &&
 			keyWordsFound.test(eCmdWord_Replace) &&
@@ -1295,9 +1303,11 @@ static Command wordsToSpecialCommand(
 			result.layerID = 0;
 			result.replacementLayer =
 				getOrCreateLayerID(theBuilder, *aLayerName);
+			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Replace);
+		allowedKeyWords.reset(eCmdWord_Startup);
 
 		// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
 		// allowedKeyWords = Layer
@@ -1316,15 +1326,18 @@ static Command wordsToSpecialCommand(
 		// "= Remove [Layer] <aLayerName>"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Remove);
+		allowedKeyWords.set(eCmdWord_Startup);
 		if( keyWordsFound.test(eCmdWord_Remove) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_RemoveControlsLayer;
 			result.layerID = getOrCreateLayerID(theBuilder, *aLayerName);
 			DBG_ASSERT(result.layerID != 0);
+			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
 			return result;
 		}
 		//allowedKeyWords.reset(eCmdWord_Remove);
+		//allowedKeyWords.reset(eCmdWord_Startup);
 	}
 
 	// Same deal as aLayerName for the Menu-related commands needing a name
@@ -2964,7 +2977,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 
 	{// Get auto-add layers setting directly
 		const std::string& anAutoLayersStr =
-			Profile::getStr(aLayerPrefix + kAutoLayersKey);
+			Profile::getStr(aLayerPrefix + kAutoLayersProperty);
 		if( !anAutoLayersStr.empty() )
 			buildAutoLayersForLayer(theBuilder, theLayerIdx, anAutoLayersStr);
 	}

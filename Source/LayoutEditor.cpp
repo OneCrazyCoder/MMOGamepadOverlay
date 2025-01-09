@@ -242,32 +242,32 @@ static void applyNewPosition()
 	{
 		Profile::setStr(kIconsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y + ", " +
-			sState->entered.w + ", " + sState->entered.h, false);
+			sState->entered.w + ", " + sState->entered.h);
 	}
 	else if( needNewPos && anEntry.type == LayoutEntry::eType_CopyIcon )
 	{
 		Profile::setStr(kIconsPrefix, anEntry.propName,
-			sState->entered.x + ", " + sState->entered.y, false);
+			sState->entered.x + ", " + sState->entered.y);
 	}
 	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot )
 	{
 		Profile::setStr(kHotspotsPrefix, anEntry.propName,
-			sState->entered.x + ", " + sState->entered.y, false);
+			sState->entered.x + ", " + sState->entered.y);
 	}
 	else if( needNewPos && !anEntry.posSect.empty() )
 	{
 		Profile::setStr(anEntry.posSect, kPositionKey,
-			sState->entered.x + ", " + sState->entered.y, false);
+			sState->entered.x + ", " + sState->entered.y);
 	}
 	if( needNewSize && !anEntry.sizeSect.empty() )
 	{
 		Profile::setStr(anEntry.sizeSect, anEntry.propName,
-			sState->entered.w + ", " + sState->entered.h, false);
+			sState->entered.w + ", " + sState->entered.h);
 	}
 	if( needNewAlign && !anEntry.alignSect.empty() )
 	{
 		Profile::setStr(anEntry.alignSect, kAlignmentKey,
-			kAlignmentStr[sState->entered.alignment][1], false);
+			kAlignmentStr[sState->entered.alignment][1]);
 	}
 	sState->applied = sState->entered;
 

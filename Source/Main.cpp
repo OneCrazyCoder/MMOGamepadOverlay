@@ -215,6 +215,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			mainLoopSleep();
 		}
 
+		Profile::saveChangesToFile();
+
 		// Cleanup
 		HUD::cleanup();
 		Menus::cleanup();

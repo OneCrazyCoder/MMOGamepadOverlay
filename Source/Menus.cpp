@@ -72,11 +72,6 @@ void init()
 			aKey += "/GridWidth";
 			aMenuInfo.gridWidth =
 				u8(max(0, intFromString(Profile::getStr(aKey))) & 0xFF);
-			if( aMenuInfo.gridWidth == 0 )
-			{// Auto-calculate grid width based on item count
-				aMenuInfo.gridWidth =
-					u8(u32(ceil(sqrt(double(itemCount(aMenuID))))) & 0xFF);
-			}
 		}
 		if( aMenuInfo.style == eMenuStyle_Hotspots )
 			HotspotMap::getLinks(InputMap::menuHotspotArray(aMenuID));
@@ -233,10 +228,9 @@ const Command& selectMenuItem(
 				aSelection -= aGridWidth;
 			break;
 		case eCmdDir_D:
-			pushedPastEdge =
-				aSelection >= (anItemCount / aGridWidth) * aGridWidth;
-			if( aSelection + aGridWidth < anItemCount )
-				aSelection = min(anItemCount - 1, aSelection + aGridWidth);
+			pushedPastEdge = aSelection + aGridWidth >= anItemCount;
+			if( !pushedPastEdge )
+				aSelection += aGridWidth;
 			else if( wrap && anItemCount > 2 )
 				aSelection = aSelection % aGridWidth;
 			else if( aSelection < ((anItemCount-1) / aGridWidth) * aGridWidth )
@@ -652,16 +646,24 @@ u8 gridWidth(u16 theMenuID)
 	DBG_ASSERT(itr != sMenuInfo.end());
 	const MenuInfo& aMenuInfo = itr->second;
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	if( aMenuInfo.style != eMenuStyle_Grid )
+		return 1;
 
-	return min(itemCount(theMenuID),
-		aMenuInfo.gridWidth);
+	u8 aGridWidth = aMenuInfo.gridWidth;
+	if( aGridWidth == 0 )
+	{// Auto-calculate grid width based on item count
+		aGridWidth =
+			u8(u32(ceil(sqrt(double(itemCount(theMenuID))))) & 0xFF);
+	}
+
+	return min(itemCount(theMenuID), aGridWidth);
 }
 
 
 u8 gridHeight(u16 theMenuID)
 {
-	const u16 anItemCount = InputMap::menuItemCount(theMenuID);
-	const u16 aGridWidth = max(1, gridWidth(theMenuID));
+	const u16 anItemCount = itemCount(theMenuID);
+	const u16 aGridWidth = gridWidth(theMenuID);
 	return (anItemCount + aGridWidth - 1) / aGridWidth;
 }
 

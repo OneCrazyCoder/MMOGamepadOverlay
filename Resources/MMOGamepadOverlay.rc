@@ -106,12 +106,13 @@ BEGIN
     LTEXT           "This Profile will read the below files in the order listed.\nProperties in later files will override those in earlier files!",IDC_STATIC_PROMPT,7,7,189,20
 END
 
-IDD_DIALOG_TARGET_APP DIALOGEX 0, 0, 300, 20
-STYLE DS_SETFONT | DS_3DLOOK | DS_CONTROL | WS_CHILD | WS_CLIPSIBLINGS
+IDD_DIALOG_TARGET_APP DIALOGEX 0, 0, 300, 38
+STYLE DS_SETFONT | DS_3DLOOK | DS_FIXEDSYS | DS_CONTROL | WS_CHILD | WS_CLIPSIBLINGS
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     EDITTEXT        IDC_EDIT_TARGET_PARAMS,130,0,164,12,ES_AUTOHSCROLL
     RTEXT           "Command-line Parameters:",IDC_STATIC_PROMPT,0,0,114,12
+    LTEXT           "For a Steam game, select steam.exe for the application and add\n""-applaunch {GameIDNumber}"" (without braces or quotes) to above",IDC_STATIC_PROMPT2,29,12,264,19
 END
 
 IDD_DIALOG_LICENSE DIALOGEX 0, 0, 300, 150
@@ -131,7 +132,8 @@ FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
     EDITTEXT        IDC_EDIT_COMMAND,7,54,229,12,ES_AUTOHSCROLL
     DEFPUSHBUTTON   "OK",IDOK,238,55,50,12
-    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.\nSome menus also support ""AltLabel | Label: Command"" format.\nAdd + or - as first character to insert as new item before (-) or after (+) this item.\nLeave blank to delete this item.",IDC_STATIC_PROMPT,7,7,281,41
+    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.",IDC_STATIC_PROMPT,7,7,281,17
+    LTEXT           "Some menus also support ""AltLabel | Label: Command"" format.\nAdd + or - as first character to insert as new item before (-) or after (+) this item.\nLeave blank to delete this item.",IDC_STATIC_PROMPT2,7,23,281,26
 END
 
 IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 50
@@ -264,7 +266,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 293
         TOPMARGIN, 7
-        BOTTOMMARGIN, 13
+        BOTTOMMARGIN, 31
     END
 
     IDD_DIALOG_LICENSE, DIALOG

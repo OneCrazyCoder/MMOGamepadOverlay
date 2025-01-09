@@ -337,6 +337,7 @@ enum ECommandKeyWord
 	eCmdWord_Last,
 	eCmdWord_Change,
 	eCmdWord_Profile,
+	eCmdWord_Startup,
 	eCmdWord_Layout,
 	eCmdWord_UIScale,
 	eCmdWord_App,

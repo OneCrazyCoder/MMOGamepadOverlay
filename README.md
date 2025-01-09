@@ -733,7 +733,7 @@ Currently the only implemented tag type is the name of a layer, which will be re
     ...
 
     [Menu.MainMenu.Settings]
-    1 = Cam Steer - <CamSteer>: Toggle CamSteer layer
+    1 = Cam Steer - <CamSteer>: Toggle CamSteer layer at startup
     ...
 
 Will change if the left stick has the camera auto-rotate when strafing left or right or not, based on if the "CamSteer" layer is active. To allow swapping this setting quickly during play, the first menu item in the Settings menu will display either "Cam Steer - Yes" or "Cam Steer - No", by use of the ``<CamSteer>`` tag. Confirming that Menu Item will toggle the layer and change the button to say the opposite.
@@ -833,6 +833,10 @@ These commands affect the overlay app directly rather than the game you are usin
 * ``=Change Profile`` - brings up profile select dialog
 * ``=Quit App`` - closes the overlay application
 * ``=Update UIScale`` - refreshes global UI scale
+
+### Remembering layers between profile loads
+
+Controls layers can be set to automatically be added or removed from the ``AutoLayers=`` property of the main ``[Scheme]``, thus causing them to become active (or not) immediately the next time the current profile is loaded. This is done by simply adding ``at startup`` to the end of the command that adds or removes a layer,  such as ``=Toggle CamSteer layer at startup`` in the earlier example for using Label Tags for layers that act like settings that can be toggled via menus. Works with the Add, Remove, Toggle, and Replace Layer commands.
 
 ### Hotspot Array and Copy Icon ranges
 
