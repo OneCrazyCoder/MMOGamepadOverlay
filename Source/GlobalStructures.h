@@ -37,9 +37,11 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 				bool multiDirAutoRun;
 			};
 			u8 count;
-			bool wrap;
-			bool withMouse;
-			bool andClick;
+			u8 wrap : 1;
+			u8 withMouse : 1;
+			u8 andClick : 1;
+			u8 atStartup : 1;
+			u8 __reserved : 4;
 		};
 		const char* string;
 		u64 compare;

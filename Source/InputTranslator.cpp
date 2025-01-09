@@ -185,6 +185,7 @@ struct TranslatorState
 	std::vector<LayerState> layers;
 	std::vector<u16> layerOrder;
 	std::vector<ActiveSignal> signalCommands;
+	BitVector<> startupLayers;
 
 	void clear()
 	{
@@ -198,6 +199,7 @@ struct TranslatorState
 		layers.clear();
 		layerOrder.clear();
 		signalCommands.clear();
+		startupLayers.clear();
 	}
 };
 
@@ -689,14 +691,52 @@ static void sortComboLayers()
 }
 
 
-static void flagLayerButtonCommandUsed(u16 theLayerIdx)
+static void setStartupControlsLayer(u16 theLayerID, bool enabled)
 {
-	if( theLayerIdx == 0 )
+	if( theLayerID == 0 )
 		return;
 
-	sState.layers[theLayerIdx].buttonCommandUsed = true;
-	flagLayerButtonCommandUsed(sState.layers[theLayerIdx].parentLayerID);
-	flagLayerButtonCommandUsed(sState.layers[theLayerIdx].altParentLayerID);
+	if( sState.startupLayers.test(theLayerID) == enabled )
+		return;
+
+	if( enabled )
+	{
+		transDebugPrint(
+			"Controls Layer '%s' will now auto-activate at profile load\n",
+			InputMap::layerLabel(theLayerID).c_str());
+	}
+	else
+	{
+		transDebugPrint(
+			"Controls Layer '%s' will stop auto-activating on profile load\n",
+			InputMap::layerLabel(theLayerID).c_str());
+	}
+
+	sState.startupLayers.set(theLayerID, enabled);
+	// Generate list string to save out to profile
+	std::string aLayersStr;
+	for(int i = sState.startupLayers.firstSetBit();
+		i < sState.startupLayers.size();
+		i = sState.startupLayers.nextSetBit(i+1))
+	{
+		// extra space at end gets trimmed by Profile automatically
+		aLayersStr += InputMap::layerLabel(u16(i)) + " ";
+	}
+	Profile::setStr(
+		InputMap::layerLabel(0),
+		InputMap::kAutoLayersProperty,
+		aLayersStr);
+}
+
+
+static void flagLayerButtonCommandUsed(u16 theLayerID)
+{
+	if( theLayerID == 0 )
+		return;
+
+	sState.layers[theLayerID].buttonCommandUsed = true;
+	flagLayerButtonCommandUsed(sState.layers[theLayerID].parentLayerID);
+	flagLayerButtonCommandUsed(sState.layers[theLayerID].altParentLayerID);
 }
 
 
@@ -890,31 +930,37 @@ static void processCommand(
 		break;
 	case eCmdType_AddControlsLayer:
 		addControlsLayer(theCmd.layerID);
+		if( theCmd.atStartup )
+			setStartupControlsLayer(theCmd.layerID, true);
 		break;
 	case eCmdType_RemoveControlsLayer:
-		if( theCmd.layerID == 0 )
-			removeControlsLayer(theLayerIdx);
-		else
-			removeControlsLayer(theCmd.layerID);
+		aForwardCmd.layerID = theCmd.layerID;
+		if( aForwardCmd.layerID == 0 )
+			aForwardCmd.layerID = theLayerIdx;
+		removeControlsLayer(aForwardCmd.layerID);
+		if( theCmd.atStartup )
+			setStartupControlsLayer(aForwardCmd.layerID, false);
 		break;
 	case eCmdType_HoldControlsLayer:
 		// Special-case, handled elsewhere
 		break;
 	case eCmdType_ReplaceControlsLayer:
 		DBG_ASSERT(theCmd.replacementLayer > 0);
-		if( theCmd.layerID == 0 )
-			removeControlsLayer(theLayerIdx);
-		else
-			removeControlsLayer(theCmd.layerID);
-		addControlsLayer(theCmd.replacementLayer);
+		aForwardCmd = theCmd;
+		aForwardCmd.type = eCmdType_RemoveControlsLayer;
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		aForwardCmd.type = eCmdType_AddControlsLayer;
+		aForwardCmd.layerID = theCmd.replacementLayer;
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_ToggleControlsLayer:
 		aForwardCmd = theCmd;
 		DBG_ASSERT(theCmd.layerID > 0);
 		if( sState.layers[theCmd.layerID].active )
-			removeControlsLayer(theCmd.layerID);
+			aForwardCmd.type = eCmdType_RemoveControlsLayer;
 		else
-			addControlsLayer(theCmd.layerID);
+			aForwardCmd.type = eCmdType_AddControlsLayer;
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_OpenSubMenu:
 		aForwardCmd = Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
@@ -1727,6 +1773,7 @@ void loadProfile()
 	loadCommandsForCurrentLayers();
 	updateHUDStateForCurrentLayers();
 	updateMouseModeForCurrentLayers();
+	sState.startupLayers = InputMap::layersToAutoAddWith(0);
 }
 
 

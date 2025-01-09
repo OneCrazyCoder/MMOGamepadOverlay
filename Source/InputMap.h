@@ -123,5 +123,6 @@ const std::string& menuItemAltLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir);
 const std::string& hudElementKeyName(u16 theHUDElementID);
 const std::string& hudElementDisplayName(u16 theHUDElementID);
+extern const std::string kAutoLayersProperty;
 
 } // InputMap

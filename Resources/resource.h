@@ -41,25 +41,26 @@
 #define IDC_LIST_ITEMS                  1002
 #define IDC_TREE_ITEMS                  1003
 #define IDC_STATIC_PROMPT               1004
-#define IDC_STATIC_X                    1005
-#define IDC_STATIC_Y                    1006
-#define IDC_STATIC_W                    1007
-#define IDC_STATIC_H                    1008
-#define IDC_STATIC_ALIGNMENT            1009
-#define IDC_EDIT_PROFILE_NAME           1010
-#define IDC_EDIT_TARGET_PARAMS          1011
-#define IDC_EDIT_LICENSE_TEXT           1012
-#define IDC_EDIT_COMMAND                1013
-#define IDC_EDIT_X                      1014
-#define IDC_EDIT_Y                      1015
-#define IDC_EDIT_W                      1016
-#define IDC_EDIT_H                      1017
-#define IDC_BUTTON_EDIT                 1018
-#define IDC_COMBO_ALIGN                 1019
-#define IDC_SPIN_X                      1020
-#define IDC_SPIN_Y                      1021
-#define IDC_SPIN_W                      1022
-#define IDC_SPIN_H                      1023
+#define IDC_STATIC_PROMPT2              1005
+#define IDC_STATIC_X                    1006
+#define IDC_STATIC_Y                    1007
+#define IDC_STATIC_W                    1008
+#define IDC_STATIC_H                    1009
+#define IDC_STATIC_ALIGNMENT            1010
+#define IDC_EDIT_PROFILE_NAME           1011
+#define IDC_EDIT_TARGET_PARAMS          1012
+#define IDC_EDIT_LICENSE_TEXT           1013
+#define IDC_EDIT_COMMAND                1014
+#define IDC_EDIT_X                      1015
+#define IDC_EDIT_Y                      1016
+#define IDC_EDIT_W                      1017
+#define IDC_EDIT_H                      1018
+#define IDC_BUTTON_EDIT                 1019
+#define IDC_COMBO_ALIGN                 1020
+#define IDC_SPIN_X                      1021
+#define IDC_SPIN_Y                      1022
+#define IDC_SPIN_W                      1023
+#define IDC_SPIN_H                      1024
 #define ID_FILE_PROFILE                 40001
 #define ID_FILE_EXIT                    40002
 #define ID_EDIT_UILAYOUT                40003
@@ -71,7 +72,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        129
 #define _APS_NEXT_COMMAND_VALUE         40005
-#define _APS_NEXT_CONTROL_VALUE         1024
+#define _APS_NEXT_CONTROL_VALUE         1025
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
