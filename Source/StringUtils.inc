@@ -169,7 +169,7 @@ inline u64 u64FromString(const char* theString)
 inline float floatFromString(const std::string& theString)
 {
 	float result = float(atof(theString.c_str()));
-	if( theString[theString.size()-1] == '%' )
+	if( !theString.empty() && theString[theString.size()-1] == '%' )
 		result /= 100.0;
 	return result;
 }
@@ -184,7 +184,7 @@ inline float floatFromString(const char* theString)
 inline double doubleFromString(const std::string& theString)
 {
 	double result = double(atof(theString.c_str()));
-	if( theString[theString.size()-1] == '%' )
+	if( !theString.empty() && theString[theString.size()-1] == '%' )
 		result /= 100.0;
 	return result;
 }
