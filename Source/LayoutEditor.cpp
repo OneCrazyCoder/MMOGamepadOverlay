@@ -171,7 +171,7 @@ static EditorState* sState = null;
 // Forward declares
 static void promptForEditEntry();
 
-bool entryIncludesPosition(const LayoutEntry& theEntry)
+static bool entryIncludesPosition(const LayoutEntry& theEntry)
 {
 	if( theEntry.type != LayoutEntry::eType_HUDElement )
 		return true;
@@ -184,7 +184,7 @@ bool entryIncludesPosition(const LayoutEntry& theEntry)
 }
 
 
-bool entryIncludesSize(const LayoutEntry& theEntry)
+static bool entryIncludesSize(const LayoutEntry& theEntry)
 {
 	switch(theEntry.type)
 	{
@@ -200,13 +200,13 @@ bool entryIncludesSize(const LayoutEntry& theEntry)
 }
 
 
-bool entryIncludesAlignment(const LayoutEntry& theEntry)
+static bool entryIncludesAlignment(const LayoutEntry& theEntry)
 {
 	return theEntry.type == LayoutEntry::eType_HUDElement;
 }
 
 
-bool entryIsAnOffset(const LayoutEntry& theEntry)
+static bool entryIsAnOffset(const LayoutEntry& theEntry)
 {
 	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
 		return true;
@@ -220,6 +220,27 @@ bool entryIsAnOffset(const LayoutEntry& theEntry)
 		return true;
 	}
 	return false;
+}
+
+
+static double entryScaleFactor(const LayoutEntry& theEntry)
+{
+	double result = 1.0;
+
+	if( theEntry.type == LayoutEntry::eType_Hotspot &&
+		entryIsAnOffset(theEntry) )
+	{
+		// Find anchor hotspot
+		LayoutEntry* anAnchorEntry =
+			&sState->entries[theEntry.item.parentIndex];
+		while(entryIsAnOffset(*anAnchorEntry))
+			anAnchorEntry = &sState->entries[anAnchorEntry->item.parentIndex];
+		result = doubleFromString(anAnchorEntry->shape.offsetScale);
+		if( result == 0 )
+			result = 1.0;
+	}
+
+	return result * gUIScale;
 }
 
 
@@ -644,10 +665,25 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	switch(theMessage)
 	{
 	case WM_INITDIALOG:
-		// Set title to match the entry name
-		SetWindowText(theDialog,
-			(std::wstring(L"Repositioning: ") +
-			 widen(anEntry.item.name)).c_str());
+		// Set title to match the entry name and display scaling being applied
+		{
+			const double aScaling = entryScaleFactor(anEntry);
+			if( aScaling != 1 )
+			{
+				SetWindowText(theDialog,
+					(std::wstring(L"Repositioning: ") +
+					 widen(anEntry.item.name) +
+					 std::wstring(L" (at ") +
+					 widen(strFormat("%.4g", aScaling * 100.0) + "%") +
+					 std::wstring(L" scale)")).c_str());
+			}
+			else
+			{
+				SetWindowText(theDialog,
+					(std::wstring(L"Repositioning: ") +
+					 widen(anEntry.item.name)).c_str());
+			}
+		}
 		// Allow Esc to cancel even when not the active window
 		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
 		// Populate controls with initial values from active entry
@@ -876,8 +912,7 @@ static void updateDrawHotspot(
 	theEntry.drawOffX = theEntry.drawOffY = 0;
 	theEntry.drawSize = Hotspot();
 	theEntry.drawOffScale = 0;
-	if( !theShape.offsetScale.empty() )
-		theEntry.drawOffScale = floatFromString(theShape.offsetScale);
+	theEntry.drawOffScale = floatFromString(theShape.offsetScale);
 	if( theEntry.drawOffScale == 0 )
 		theEntry.drawOffScale = 1.0f;
 	if( theEntry.rangeCount > 1 )
@@ -915,9 +950,15 @@ static void updateDrawHotspot(
 			theEntry.drawOffScale = aParent.drawOffScale;
 			Hotspot anAnchor = aParent.drawHotspot;
 			if( aParent.rangeCount > 1 )
-			{
-				anAnchor.x.offset += aParent.drawOffX * (aParent.rangeCount-1);
-				anAnchor.y.offset += aParent.drawOffY * (aParent.rangeCount-1);
+			{// Rare case where the parent is itself a range of hotspots
+				anAnchor.x.offset +=
+					aParent.drawOffX *
+					(aParent.rangeCount-1) *
+					aParent.drawOffScale;
+				anAnchor.y.offset +=
+					aParent.drawOffY *
+					(aParent.rangeCount-1) *
+					aParent.drawOffScale;
 			}
 			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
 			{
@@ -1096,7 +1137,7 @@ static void drawEntry(
 	}
 	// Draw built-in range of hotspots and track their combined drawn rect
 	RECT aRangeDrawnRect = { 0 };
-	if( theEntry.rangeCount > 2 )
+	if( theEntry.rangeCount > 1 )
 	{
 		const Hotspot aRangeAnchor = aHotspot;
 		for(size_t i = 2; i <= theEntry.rangeCount; ++i)
