@@ -1922,7 +1922,7 @@ static void assignHotspots(
 					anEntry.label.resize(
 						posAfterPrefix(anEntry.label, aHotspotArrayName));
 					anEntry.first = anEntry.last = 0;
-					anEntry.offsetScale = 1.0;
+					anEntry.offsetScale = 1.0f;
 					sHotspotArrays.push_back(anEntry);
 					aFoundArrays.resize(sHotspotArrays.size());
 				}
@@ -2026,8 +2026,9 @@ static void assignHotspots(
 			if( !aHotspotValue.empty() )
 			{
 				std::string aHotspotDesc = aHotspotValue;
+				Hotspot& aHotspot = sHotspots[aHotspotID];
 				EResult aResult = HotspotMap::stringToHotspot(
-					aHotspotDesc, sHotspots[aHotspotID]);
+					aHotspotDesc, aHotspot);
 				if( aResult == eResult_Overflow )
 				{
 					logError("Hotspot %s: Invalid coordinate in '%s' "
@@ -2051,15 +2052,17 @@ static void assignHotspots(
 						aHotspotName.c_str());
 				}
 				// Offset by anchor hotspot if don't have own anchor set
-				if( sHotspots[aHotspotID].x.anchor == 0 )
+				if( aHotspot.x.anchor == 0 )
 				{
-					sHotspots[aHotspotID].x.anchor = anAnchor.x.anchor;
-					sHotspots[aHotspotID].x.offset += anAnchor.x.offset;
+					aHotspot.x.offset *= aHotspotArray.offsetScale;
+					aHotspot.x.anchor = anAnchor.x.anchor;
+					aHotspot.x.offset += anAnchor.x.offset;
 				}
-				if( sHotspots[aHotspotID].y.anchor == 0 )
+				if( aHotspot.y.anchor == 0 )
 				{
-					sHotspots[aHotspotID].y.anchor = anAnchor.y.anchor;
-					sHotspots[aHotspotID].y.offset += anAnchor.y.offset;
+					aHotspot.y.offset *= aHotspotArray.offsetScale;
+					aHotspot.y.anchor = anAnchor.y.anchor;
+					aHotspot.y.offset += anAnchor.y.offset;
 				}
 				++aNextArrayIdx;
 			}
@@ -2119,6 +2122,8 @@ static void assignHotspots(
 					}
 					int aLastIdx =
 						intFromString(theKeyValueList[0].first);
+					Hotspot& aRangeAnchor = sHotspots[aHotspotID-1];
+					u16 aPosWithinRange = 1;
 					for(; aNextArrayIdx <= aLastIdx; ++aNextArrayIdx )
 					{
 						aHotspotID =
@@ -2127,25 +2132,21 @@ static void assignHotspots(
 							aHotspotArray.label + toString(aNextArrayIdx);
 						theHotspotNameToIdxMap.setValue(
 							condense(aHotspotName), aHotspotID);
-						Hotspot& aPrevEntry = sHotspots[aHotspotID-1];
-						sHotspots[aHotspotID].x.anchor = aPrevEntry.x.anchor;
-						sHotspots[aHotspotID].y.anchor = aPrevEntry.y.anchor;
-						sHotspots[aHotspotID].x.offset =
-							aPrevEntry.x.offset + aDeltaHotspot.x.offset;
-						sHotspots[aHotspotID].y.offset =
-							aPrevEntry.y.offset + aDeltaHotspot.y.offset;
+						Hotspot& aHotspot = sHotspots[aHotspotID];
+						aHotspot.x.anchor = aRangeAnchor.x.anchor;
+						aHotspot.x.offset = aDeltaHotspot.x.offset;
+						aHotspot.x.offset *= aPosWithinRange;
+						aHotspot.x.offset *= aHotspotArray.offsetScale;
+						aHotspot.x.offset += aRangeAnchor.x.offset;
+						aHotspot.y.anchor = aRangeAnchor.y.anchor;
+						aHotspot.y.offset = aDeltaHotspot.y.offset;
+						aHotspot.y.offset *= aPosWithinRange;
+						aHotspot.y.offset *= aHotspotArray.offsetScale;
+						aHotspot.y.offset += aRangeAnchor.y.offset;
+						++aPosWithinRange;
 					}
 				}
 				theKeyValueList.clear();
-			}
-		}
-		if( aHotspotArray.offsetScale != 1.0 )
-		{// Apply offsets scale to all hostpots in this array
-			for( u16 aHotspotID = aHotspotArray.first;
-				 aHotspotID <= aHotspotArray.last; ++aHotspotID )
-			{
-				sHotspots[aHotspotID].x.offset *= aHotspotArray.offsetScale;
-				sHotspots[aHotspotID].y.offset *= aHotspotArray.offsetScale;
 			}
 		}
 	}

@@ -94,6 +94,7 @@ struct LayoutEntry
 	struct Shape
 	{
 		std::string x, y, w, h;
+		std::string offsetScale;
 		EAlignment alignment;
 		Shape() : alignment(eAlignment_Num) {}
 		bool operator==(const Shape& rhs) const
@@ -101,6 +102,7 @@ struct LayoutEntry
 			return
 				x == rhs.x && y == rhs.y &&
 				w == rhs.w && h == rhs.h &&
+				offsetScale == rhs.offsetScale &&
 				alignment == rhs.alignment;
 		}
 		bool operator!=(const Shape& rhs) const
@@ -111,6 +113,7 @@ struct LayoutEntry
 	std::vector<size_t> children;
 	RECT drawnRect;
 	Hotspot drawHotspot, drawSize;
+	float drawOffScale;
 	s16 drawOffX, drawOffY;
 	u16 hudElementID;
 	u16 rangeCount;
@@ -120,6 +123,7 @@ struct LayoutEntry
 		drawnRect(),
 		drawOffX(),
 		drawOffY(),
+		drawOffScale(),
 		hudElementID(),
 		rangeCount()
 	{
@@ -233,7 +237,9 @@ static void applyNewPosition()
 		 sState->entered.h != sState->applied.h);
 	const bool needNewAlign =
 		sState->entered.alignment != sState->applied.alignment;
-	if( !needNewPos && !needNewSize && !needNewAlign )
+	const bool needNewScale =
+		sState->entered.offsetScale != sState->applied.offsetScale;
+	if( !needNewPos && !needNewSize && !needNewAlign && !needNewScale )
 		return;
 
 	if( (needNewPos || needNewSize) &&
@@ -248,6 +254,16 @@ static void applyNewPosition()
 	{
 		Profile::setStr(kIconsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y);
+	}
+	else if( (needNewPos || needNewScale) &&
+			 anEntry.type == LayoutEntry::eType_Hotspot &&
+			 !sState->entered.offsetScale.empty() &&
+			 floatFromString(sState->entered.offsetScale) != 0 &&
+			 floatFromString(sState->entered.offsetScale) != 1 )
+	{
+		Profile::setStr(kHotspotsPrefix, anEntry.propName,
+			sState->entered.x + ", " + sState->entered.y +
+			" * " + sState->entered.offsetScale);
 	}
 	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot )
 	{
@@ -859,6 +875,11 @@ static void updateDrawHotspot(
 	HotspotMap::stringToHotspot(aHotspotStr, theEntry.drawHotspot);
 	theEntry.drawOffX = theEntry.drawOffY = 0;
 	theEntry.drawSize = Hotspot();
+	theEntry.drawOffScale = 0;
+	if( !theShape.offsetScale.empty() )
+		theEntry.drawOffScale = floatFromString(theShape.offsetScale);
+	if( theEntry.drawOffScale == 0 )
+		theEntry.drawOffScale = 1.0f;
 	if( theEntry.rangeCount > 1 )
 	{
 		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
@@ -891,6 +912,7 @@ static void updateDrawHotspot(
 			DBG_ASSERT(aParent.type == theEntry.type);
 			if( updateParentIfNeeded )
 				updateDrawHotspot(aParent, aParent.shape, true, false);
+			theEntry.drawOffScale = aParent.drawOffScale;
 			Hotspot anAnchor = aParent.drawHotspot;
 			if( aParent.rangeCount > 1 )
 			{
@@ -900,11 +922,13 @@ static void updateDrawHotspot(
 			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
 			{
 				theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
+				theEntry.drawHotspot.x.offset *= theEntry.drawOffScale;
 				theEntry.drawHotspot.x.offset += anAnchor.x.offset;
 			}
 			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
 			{
 				theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
+				theEntry.drawHotspot.y.offset *= theEntry.drawOffScale;
 				theEntry.drawHotspot.y.offset += anAnchor.y.offset;
 			}
 			if( theEntry.type == LayoutEntry::eType_CopyIcon )
@@ -1072,13 +1096,21 @@ static void drawEntry(
 	}
 	// Draw built-in range of hotspots and track their combined drawn rect
 	RECT aRangeDrawnRect = { 0 };
-	for(size_t i = 2; i <= theEntry.rangeCount; ++i)
+	if( theEntry.rangeCount > 2 )
 	{
-		aHotspot.x.offset += theEntry.drawOffX;
-		aHotspot.y.offset += theEntry.drawOffY;
-		RECT aDrawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
-			kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
-		UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
+		const Hotspot aRangeAnchor = aHotspot;
+		for(size_t i = 2; i <= theEntry.rangeCount; ++i)
+		{
+			aHotspot.x.offset = theEntry.drawOffX * s16(i-1);
+			aHotspot.x.offset *= theEntry.drawOffScale;
+			aHotspot.x.offset += aRangeAnchor.x.offset;
+			aHotspot.y.offset = theEntry.drawOffY * s16(i-1);
+			aHotspot.y.offset *= theEntry.drawOffScale;
+			aHotspot.y.offset += aRangeAnchor.y.offset;
+			RECT aDrawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
+				kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
+			UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
+		}
 	}
 	if( isActiveHotspot )
 	{// Draw primary hotspot last so is over top of all children/range
@@ -1270,6 +1302,10 @@ static void addArrayEntries(
 				aNewEntry.rangeCount += anArrayEndIdx - anArrayStartIdx;
 			}
 		}
+		if( aNewEntry.rangeCount == 0 && !aDesc.empty() && aDesc[0] == '*' )
+			aNewEntry.shape.offsetScale = trim(aDesc.substr(1));
+		else
+			aNewEntry.shape.offsetScale.clear();
 		theEntryList.push_back(aNewEntry);
 	}
 	aPropertySet.clear();
