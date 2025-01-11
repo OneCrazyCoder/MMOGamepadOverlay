@@ -1877,7 +1877,7 @@ static void drawSystemHUD(HUDDrawData& dd)
 		SetDCBrushColor(dd.hdc, oldColor);
 	}
 
-	RECT aTextRect = dd.components[0];
+	RECT aTextRect = dd.components[1];
 	InflateRect(&aTextRect, -8, -8);
 
 	if( !sErrorMessage.empty() )
@@ -1904,7 +1904,8 @@ static void updateHotspotsMenuLayout(
 	const SIZE& theTargetSize,
 	std::vector<RECT>& theComponents,
 	POINT& theWindowPos,
-	SIZE& theWindowSize)
+	SIZE& theWindowSize,
+	const RECT& theTargetClipRect)
 {
 	DBG_ASSERT(hi.type == eMenuStyle_Hotspots);
 	const u16 aHotspotArrayID = InputMap::menuHotspotArray(theMenuID);
@@ -1948,10 +1949,10 @@ static void updateHotspotsMenuLayout(
 	theComponents[0] = aWinRect;
 
 	// Clip actual window to target area
-	aWinRect.left = max(aWinRect.left, 0);
-	aWinRect.top = max(aWinRect.top, 0);
-	aWinRect.right = min(aWinRect.right, theTargetSize.cx);
-	aWinRect.bottom = min(aWinRect.bottom, theTargetSize.cy);
+	aWinRect.left = max(aWinRect.left, theTargetClipRect.left);
+	aWinRect.top = max(aWinRect.top, theTargetClipRect.top);
+	aWinRect.right = min(aWinRect.right, theTargetClipRect.right);
+	aWinRect.bottom = min(aWinRect.bottom, theTargetClipRect.bottom);
 	theWindowPos.x = aWinRect.left;
 	theWindowPos.y = aWinRect.top;
 	theWindowSize.cx = aWinRect.right - aWinRect.left;
@@ -2687,7 +2688,8 @@ void updateWindowLayout(
 	const SIZE& theTargetSize,
 	std::vector<RECT>& theComponents,
 	POINT& theWindowPos,
-	SIZE& theWindowSize)
+	SIZE& theWindowSize,
+	const RECT& theTargetClipRect)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
@@ -2699,7 +2701,7 @@ void updateWindowLayout(
 	case eMenuStyle_Hotspots:
 		updateHotspotsMenuLayout(
 			hi, aMenuID, theTargetSize, theComponents,
-			theWindowPos, theWindowSize);
+			theWindowPos, theWindowSize, theTargetClipRect);
 		return;
 	}
 
@@ -2767,7 +2769,7 @@ void updateWindowLayout(
 		break;
 	case eHUDType_HotspotGuide:
 	case eHUDType_System:
-		theComponents.reserve(1);
+		theComponents.reserve(2);
 		aWinBaseSizeX = theTargetSize.cx;
 		aWinBaseSizeY = theTargetSize.cy;
 		aWinScalingSizeX = 0;
@@ -2842,10 +2844,10 @@ void updateWindowLayout(
 	RECT aWinRect =
 		{ aWinPosX, aWinPosY, aWinPosX + aWinSizeX, aWinPosY + aWinSizeY };
 	RECT aWinClippedRect;
-	aWinClippedRect.left = max(aWinRect.left, 0);
-	aWinClippedRect.top = max(aWinRect.top, 0);
-	aWinClippedRect.right = min(aWinRect.right, theTargetSize.cx);
-	aWinClippedRect.bottom = min(aWinRect.bottom, theTargetSize.cy);
+	aWinClippedRect.left = max(aWinRect.left, theTargetClipRect.left);
+	aWinClippedRect.top = max(aWinRect.top, theTargetClipRect.top);
+	aWinClippedRect.right = min(aWinRect.right, theTargetClipRect.right);
+	aWinClippedRect.bottom = min(aWinRect.bottom, theTargetClipRect.bottom);
 	theWindowPos.x = aWinClippedRect.left;
 	theWindowPos.y = aWinClippedRect.top;
 	theWindowSize.cx = aWinClippedRect.right - aWinClippedRect.left;
@@ -2976,6 +2978,11 @@ void updateWindowLayout(
 			}
 			theComponents.push_back(anItemRect);
 		}
+		break;
+	case eHUDType_HotspotGuide:
+	case eHUDType_System:
+		// These may reference clipped window rect as Component 1
+		theComponents.push_back(aWinClippedRect);
 		break;
 	}
 

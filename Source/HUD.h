@@ -50,7 +50,8 @@ void updateWindowLayout(
 	const SIZE& theTargetSize,
 	std::vector<RECT>& theComponents,
 	POINT& theWindowPos,
-	SIZE& theWindowSize);
+	SIZE& theWindowSize,
+	const RECT& theTargetClipRect);
 
 // Draws contents of main window (version string)
 void drawMainWindowContents(HWND theWindow, bool asDisabled);
