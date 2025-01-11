@@ -103,6 +103,7 @@ static std::vector<OverlayWindow> sOverlayWindows;
 static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
 static RECT sDesktopTargetRect; // relative to virtual desktop
 static RECT sScreenTargetRect; // relative to main screen
+static RECT sTargetClipRect; // relative to sScreenTargetRect
 static SIZE sTargetSize = { 0 };
 static WNDPROC sSystemOverlayProc = NULL;
 static int sToolbarWindowHUDElementID = -1;
@@ -608,9 +609,6 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	const bool isMainWindowHidden =
 		(aMainWindowWidth == 0 || aMainWindowHeight == 0);
 
-	RECT aScreenRect;
-	SystemParametersInfo(SPI_GETWORKAREA, 0, &aScreenRect, 0);
-
 	if( isMainWindowHidden )
 	{
 		sUseChildWindows = false;
@@ -656,11 +654,14 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.lpszClassName = kSystemOverlayWindowClassName;
 	RegisterClassExW(&aWindowClass);
 
+
 	// Determine main app window position if haven't yet
 	if( !sMainWindowPosInit )
 	{
-		sMainWindowPos.x = aScreenRect.right - aMainWindowWidth;
-		sMainWindowPos.y = aScreenRect.bottom - aMainWindowHeight;
+		RECT aWorkRect;
+		SystemParametersInfo(SPI_GETWORKAREA, 0, &aWorkRect, 0);
+		sMainWindowPos.x = aWorkRect.right - aMainWindowWidth;
+		sMainWindowPos.y = aWorkRect.bottom - aMainWindowHeight;
 		if( !Profile::getStr("System/WindowXPos").empty() )
 			sMainWindowPos.x = Profile::getInt("System/WindowXPos");
 		if( !Profile::getStr("System/WindowYPos").empty() )
@@ -692,6 +693,9 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	ShowWindow(sMainWindow, SW_SHOW);
 
 	// Set overlay client area to full main screen initially
+	RECT aScreenRect = { 0, 0,
+		GetSystemMetrics(SM_CXSCREEN),
+		GetSystemMetrics(SM_CYSCREEN) };
 	resize(aScreenRect);
 }
 
@@ -739,8 +743,10 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 		const bool isSystemOverlay =
 			InputMap::hudElementType(aHUDElementID) == eHUDType_System;
-		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
-			aWindow.components, aWindow.position, aWindow.size);
+		HUD::updateWindowLayout(aHUDElementID,
+			sTargetSize, aWindow.components,
+			aWindow.position, aWindow.size,
+			sTargetClipRect);
 		aWindow.layoutUpdated = true;
 		aWindow.windowUpdated = false;
 		gReshapeHUD.reset(aHUDElementID);
@@ -856,7 +862,8 @@ void update()
 		if( !aWindow.layoutUpdated )
 		{
 			HUD::updateWindowLayout(aHUDElementID, sTargetSize,
-				aWindow.components, aWindow.position, aWindow.size);
+				aWindow.components, aWindow.position,
+				aWindow.size, sTargetClipRect);
 			aWindow.layoutUpdated = true;
 			aWindow.windowUpdated = false;
 		}
@@ -1038,6 +1045,24 @@ void resize(RECT theNewWindowRect)
 	sDesktopTargetRect.right -= GetSystemMetrics(SM_XVIRTUALSCREEN);
 	sDesktopTargetRect.top -= GetSystemMetrics(SM_YVIRTUALSCREEN);
 	sDesktopTargetRect.bottom -= GetSystemMetrics(SM_YVIRTUALSCREEN);
+	sTargetClipRect = sScreenTargetRect;
+	if( HMONITOR hMonitor =
+			MonitorFromRect(&sScreenTargetRect, MONITOR_DEFAULTTONEAREST) )
+	{
+		MONITORINFO aMonitorInfo = { sizeof(MONITORINFO) };
+		if( GetMonitorInfo(hMonitor, &aMonitorInfo) )
+		{
+			if( !IntersectRect(
+					&sTargetClipRect,
+					&sScreenTargetRect,
+					&aMonitorInfo.rcWork) )
+			{
+				sTargetClipRect = sScreenTargetRect;
+			}
+		}
+	}
+	OffsetRect(&sTargetClipRect,
+		-sScreenTargetRect.left, -sScreenTargetRect.top);
 
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
 		sOverlayWindows[i].layoutUpdated = false;
@@ -1047,8 +1072,9 @@ void resize(RECT theNewWindowRect)
 void resetOverlays()
 {
 	sHidden = false;
-	RECT aScreenRect;
-	SystemParametersInfo(SPI_GETWORKAREA, 0, &aScreenRect, 0);
+	RECT aScreenRect = { 0, 0,
+		GetSystemMetrics(SM_CXSCREEN),
+		GetSystemMetrics(SM_CYSCREEN) };
 	resize(aScreenRect);
 }
 
@@ -1320,7 +1346,8 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 	if( !aWindow.layoutUpdated || gReshapeHUD.test(aHUDElementID) )
 	{
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
-			aWindow.components, aWindow.position, aWindow.size);
+			aWindow.components, aWindow.position,
+			aWindow.size, sTargetClipRect);
 		aWindow.layoutUpdated = true;
 		aWindow.windowUpdated = false;
 		gReshapeHUD.reset(aHUDElementID);
@@ -1345,7 +1372,8 @@ RECT hudElementRect(u16 theHUDElementID)
 	if( !aWindow.layoutUpdated || gReshapeHUD.test(theHUDElementID) )
 	{
 		HUD::updateWindowLayout(theHUDElementID, sTargetSize,
-			aWindow.components, aWindow.position, aWindow.size);
+			aWindow.components, aWindow.position,
+			aWindow.size, sTargetClipRect);
 		aWindow.layoutUpdated = true;
 		aWindow.windowUpdated = false;
 		gReshapeHUD.reset(theHUDElementID);
