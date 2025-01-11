@@ -25,6 +25,8 @@ enum {
 kBoundBoxAnchorDrawSize = 6,
 kActiveHotspotDrawSize = 5,
 kChildHotspotDrawSize = 3,
+kMinOffsetScale = 25,
+kMaxOffsetScale = 400,
 };
 
 
@@ -206,6 +208,15 @@ static bool entryIncludesAlignment(const LayoutEntry& theEntry)
 }
 
 
+static bool entryIncludesScale(const LayoutEntry& theEntry)
+{
+	return
+		theEntry.type == LayoutEntry::eType_Hotspot &&
+		theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum &&
+		!theEntry.children.empty();
+}
+
+
 static bool entryIsAnOffset(const LayoutEntry& theEntry)
 {
 	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
@@ -252,15 +263,14 @@ static void applyNewPosition()
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	const bool needNewPos =
 		sState->entered.x != sState->applied.x ||
-		sState->entered.y != sState->applied.y;
+		sState->entered.y != sState->applied.y ||
+		sState->entered.offsetScale != sState->applied.offsetScale;
 	const bool needNewSize =
 		(sState->entered.w != sState->applied.w ||
 		 sState->entered.h != sState->applied.h);
 	const bool needNewAlign =
 		sState->entered.alignment != sState->applied.alignment;
-	const bool needNewScale =
-		sState->entered.offsetScale != sState->applied.offsetScale;
-	if( !needNewPos && !needNewSize && !needNewAlign && !needNewScale )
+	if( !needNewPos && !needNewSize && !needNewAlign )
 		return;
 
 	if( (needNewPos || needNewSize) &&
@@ -276,10 +286,9 @@ static void applyNewPosition()
 		Profile::setStr(kIconsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y);
 	}
-	else if( (needNewPos || needNewScale) &&
-			 anEntry.type == LayoutEntry::eType_Hotspot &&
+	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot &&
 			 !sState->entered.offsetScale.empty() &&
-			 floatFromString(sState->entered.offsetScale) != 0 &&
+			 floatFromString(sState->entered.offsetScale) >= 0 &&
 			 floatFromString(sState->entered.offsetScale) != 1 )
 	{
 		Profile::setStr(kHotspotsPrefix, anEntry.propName,
@@ -516,6 +525,7 @@ static void processCoordString(
 	case IDC_EDIT_Y: aDestStr = &sState->entered.y; break;
 	case IDC_EDIT_W: aDestStr = &sState->entered.w; break;
 	case IDC_EDIT_H: aDestStr = &sState->entered.h; break;
+	case IDC_EDIT_S: aDestStr = &sState->entered.offsetScale; break;
 	}
 	DBG_ASSERT(aDestStr);
 
@@ -539,7 +549,10 @@ static void processCoordString(
 	std::string result = aControlStr;
 	std::string aTempStr = aControlStr;
 	Hotspot::Coord aCoord;
-	HotspotMap::stringToCoord(aTempStr, aCoord, &result);
+	if( theControlID != IDC_EDIT_S )
+		HotspotMap::stringToCoord(aTempStr, aCoord, &result);
+	else if( floatFromString(aControlStr) <= 0 )
+		result = "100%";
 	if( result.empty() )
 	{
 		switch(theControlID)
@@ -743,6 +756,31 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					(WPARAM)anEntry.shape.alignment, 0);
 			}
 		}
+		if( entryIncludesScale(anEntry) )
+		{
+			SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+				TBM_SETRANGE, TRUE,
+				MAKELPARAM(kMinOffsetScale, kMaxOffsetScale));
+			const float aScale = floatFromString(sState->entered.offsetScale);
+			if( anEntry.shape.offsetScale.empty() ||
+				aScale <= 0 || aScale == 1 )
+			{
+				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S), L"100%");
+				EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
+				EnableWindow(GetDlgItem(theDialog, IDC_EDIT_S), false);
+				SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+					TBM_SETPOS, TRUE, 100);
+			}
+			else
+			{
+				CheckDlgButton(theDialog, IDC_CHECK_SCALE, true);
+				SetWindowText(
+					GetDlgItem(theDialog, IDC_EDIT_S),
+					widen(anEntry.shape.offsetScale).c_str());
+				SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+					TBM_SETPOS, TRUE, LPARAM(aScale * 100));
+			}
+		}
 		setInitialToolbarPos(theDialog, anEntry);
 		break;
 
@@ -780,11 +818,43 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			}
 			break;
 
-		case IDC_EDIT_X: case IDC_EDIT_Y: case IDC_EDIT_W: case IDC_EDIT_H:
+		case IDC_EDIT_X: case IDC_EDIT_Y:
+		case IDC_EDIT_W: case IDC_EDIT_H:
+		case IDC_EDIT_S:
 			if( HIWORD(wParam) == EN_KILLFOCUS )
 			{
 				processCoordString(theDialog, LOWORD(wParam));
 				applyNewPosition();
+				if( LOWORD(wParam) == IDC_EDIT_S )
+				{// Update slider to match
+					const float aScale =
+						floatFromString(sState->entered.offsetScale);
+					SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+						TBM_SETPOS, TRUE, LPARAM(aScale * 100));
+				}
+			}
+			break;
+
+		case IDC_CHECK_SCALE:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				bool isChecked =
+					IsDlgButtonChecked(theDialog, IDC_CHECK_SCALE)
+						== BST_CHECKED;
+				EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), isChecked);
+				EnableWindow(GetDlgItem(theDialog, IDC_EDIT_S), isChecked);
+				if( isChecked )
+				{
+					processCoordString(theDialog, IDC_EDIT_S);
+					applyNewPosition();
+				}
+				else if( !sState->entered.offsetScale.empty() )
+				{
+					sState->entered.offsetScale.clear();
+					sState->needsDrawPosUpdate = true;
+					HUD::redrawSystemOverlay();
+					applyNewPosition();
+				}
 			}
 			break;
 
@@ -797,6 +867,27 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				applyNewPosition();
 			}
 			break;
+		}
+		break;
+
+	case WM_HSCROLL:
+		{// Scale slider is the only slider anyway so can skip check for that
+			const int aScaleVal =
+				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0);
+			if( !sState->entered.offsetScale.empty() &&
+				sState->entered.offsetScale
+					[sState->entered.offsetScale.size()-1] == '%' )
+			{
+				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+					widen(strFormat("%d%%", aScaleVal)).c_str());
+			}
+			else
+			{
+				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+					widen(strFormat("%.4g", aScaleVal / 100.0)).c_str());
+			}
+			processCoordString(theDialog, IDC_EDIT_S);
+			applyNewPosition();
 		}
 		break;
 
@@ -1229,6 +1320,8 @@ static void promptForEditEntry()
 					: IDD_DIALOG_LAYOUT_WHA_TOOLBAR
 				: entryIncludesSize(anEntry)
 					? IDD_DIALOG_LAYOUT_XYWH_TOOLBAR
+				: entryIncludesScale(anEntry)
+					? IDD_DIALOG_LAYOUT_XYS_TOOLBAR
 					: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
 			editLayoutToolbarProc,
 			anEntry.type == LayoutEntry::eType_HUDElement
