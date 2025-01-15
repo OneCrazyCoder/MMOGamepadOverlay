@@ -274,6 +274,7 @@ struct MenuDrawCacheEntry
 		CopyRectCacheEntry copyRect;
 		StringScaleCacheEntry str;
 	};
+	bool isDynamic;
 };
 
 struct AutoRefreshLabelEntry
@@ -1256,6 +1257,9 @@ static void initStringCacheEntry(
 	UINT theFormat,
 	StringScaleCacheEntry& theCacheEntry)
 {
+	if( theCacheEntry.width > 0 )
+		return;
+
 	// This will not only check if an alternate font size is needed, but
 	// also calculate drawn width and height for given string, which
 	// can be used to calculate offsets for things like vertical justify
@@ -1281,8 +1285,42 @@ static void initStringCacheEntry(
 		}
 	}
 
-	theCacheEntry.width = aNeededRect.right - aNeededRect.left;
-	theCacheEntry.height = aNeededRect.bottom - aNeededRect.top;
+	theCacheEntry.width = max(1, aNeededRect.right - aNeededRect.left);
+	theCacheEntry.height = max(1, aNeededRect.bottom - aNeededRect.top);
+}
+
+
+static void expandDynamicString(
+	std::string& theString,
+	MenuDrawCacheEntry& theCacheEntry)
+{
+	if( theString.empty() || theString[0] != kLabelContainsDynamicText )
+		return;
+
+	// Dynamic strings may cause a different sized string or a
+	// different icon when they change, so can't cache the data!
+	theCacheEntry = MenuDrawCacheEntry();
+	theCacheEntry.isDynamic = true;
+
+	theString = theString.substr(1);
+	std::string::size_type aStartPos = 0;
+	while( (aStartPos = theString.find(kLayerStatusReplaceChar, aStartPos))
+		!= std::string::npos )
+	{
+		// Convert 3-char 14-bit code to a layer ID
+		u8 c = theString[aStartPos+1];
+		DBG_ASSERT(c != '\0');
+		u16 aLayerID = (c & 0x7F) << 7;
+		c = theString[aStartPos+2];
+		DBG_ASSERT(c != '\0');
+		aLayerID |= (c & 0x7F);
+		// Replace with layer's current status
+		const std::string& aNewStr =
+			InputTranslator::isLayerActive(aLayerID)
+				? "Yes" : "No";
+		theString.replace(aStartPos, 3, aNewStr);
+		aStartPos += 3;
+	}
 }
 
 
@@ -1299,8 +1337,7 @@ static void drawLabelString(
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 
 	// Initialize cache entry to get font & height
-	if( theCacheEntry.width == 0 )
-		initStringCacheEntry(dd, theRect, theStr, theFormat, theCacheEntry);
+	initStringCacheEntry(dd, theRect, theStr, theFormat, theCacheEntry);
 
 	// Adjust vertial draw position manually when not using DT_SINGLELINE,
 	// which is the only time DT_VCENTER and DT_BOTTOM work normally
@@ -1336,35 +1373,7 @@ static void drawMenuItemLabel(
 	const Appearance& theAppearance,
 	MenuDrawCacheEntry& theCacheEntry)	
 {
-	if( !theLabel.empty() &&
-		theLabel[0] == kLabelContainsDynamicText )
-	{
-		std::string aNewLabel = theLabel.substr(1);
-		std::string::size_type aStartPos = 0;
-		while( (aStartPos = aNewLabel.find(kLayerStatusReplaceChar, aStartPos))
-			!= std::string::npos )
-		{
-			// Convert 3-char 14-bit code to a layer ID
-			u8 c = aNewLabel[aStartPos+1];
-			DBG_ASSERT(c != '\0');
-			u16 aLayerID = (c & 0x7F) << 7;
-			c = aNewLabel[aStartPos+2];
-			DBG_ASSERT(c != '\0');
-			aLayerID |= (c & 0x7F);
-			// Replace with layer's current status
-			const std::string& aNewStr =
-				InputTranslator::isLayerActive(aLayerID)
-					? "Yes" : "No";
-			aNewLabel.replace(aStartPos, 3, aNewStr);
-			aStartPos += 3;
-		}
-		// Dynamic strings shouldn't be cached
-		theCacheEntry = MenuDrawCacheEntry();
-		drawMenuItemLabel(
-			dd, theRect, theItemIdx,
-			aNewLabel, theAppearance, theCacheEntry);
-		return;
-	}
+	expandDynamicString(theLabel, theCacheEntry);
 
 	// Remove auto-refresh draw entry if have one now that are being drawn
 	for(std::vector<AutoRefreshLabelEntry>::iterator itr =
@@ -1502,7 +1511,7 @@ static void drawMenuTitle(
 	HUDDrawData& dd,
 	u16 theSubMenuID,
 	int theTitleBottomY,
-	StringScaleCacheEntry& theCacheEntry)
+	MenuDrawCacheEntry& theCacheEntry)
 {
 	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	const Appearance& appearance = sAppearances[
@@ -1520,7 +1529,15 @@ static void drawMenuTitle(
 
 	if( !dd.firstDraw )
 		eraseRect(dd, aTitleRect);
-	const std::wstring& aStr = widen(InputMap::menuLabel(theSubMenuID));
+	std::string aStr = InputMap::menuLabel(theSubMenuID);
+	expandDynamicString(aStr, theCacheEntry);
+	const std::wstring& aWStr = widen(aStr);
+	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
+	{
+		theCacheEntry.type = eMenuItemLabelType_String;
+		theCacheEntry.str = StringScaleCacheEntry();
+	}
+
 	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
 	switch(alignment)
 	{
@@ -1530,8 +1547,7 @@ static void drawMenuTitle(
 	}
 	const int aBorderSize = gUIScale > 1.0 ? 2 * gUIScale : 2;
 	InflateRect(&aTitleRect, -aBorderSize, -aBorderSize);
-	if( theCacheEntry.width == 0 )
-		initStringCacheEntry(dd, aTitleRect, aStr, aFormat, theCacheEntry);
+	initStringCacheEntry(dd, aTitleRect, aWStr, aFormat, theCacheEntry.str);
 
 	// Fill in 2px margin around text with titleBG (border) color
 	RECT aBGRect = aTitleRect;
@@ -1540,21 +1556,22 @@ static void drawMenuTitle(
 	{
 		aBGRect.left =
 			((dd.components[0].left + dd.components[0].right) / 2) -
-			(theCacheEntry.width / 2) - aBorderSize;
+			(theCacheEntry.str.width / 2) - aBorderSize;
 	}
 	else if( alignment == eAlignment_Max )
 	{
-		aBGRect.left = aTitleRect.right - theCacheEntry.width - aBorderSize;
+		aBGRect.left =
+			aTitleRect.right - theCacheEntry.str.width - aBorderSize;
 	}
-	aBGRect.right = aBGRect.left + theCacheEntry.width + aBorderSize * 2;
-	aBGRect.top = aBGRect.bottom - theCacheEntry.height - aBorderSize * 2;
+	aBGRect.right = aBGRect.left + theCacheEntry.str.width + aBorderSize * 2;
+	aBGRect.top = aBGRect.bottom - theCacheEntry.str.height - aBorderSize * 2;
 	COLORREF oldColor = SetDCBrushColor(dd.hdc, appearance.borderColor);
 	FillRect(dd.hdc, &aBGRect, (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH));
 	SetDCBrushColor(dd.hdc, oldColor);
 
 	SetTextColor(dd.hdc, hi.titleColor);
 	SetBkColor(dd.hdc, appearance.borderColor);
-	drawLabelString(dd, aTitleRect, aStr, aFormat, theCacheEntry);
+	drawLabelString(dd, aTitleRect, aWStr, aFormat, theCacheEntry.str);
 }
 
 
@@ -1619,10 +1636,10 @@ static void drawBasicMenu(HUDDrawData& dd)
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle && dd.firstDraw )
+	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
 	{
 		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
-			sMenuDrawCache[aSubMenuID][0].str);
+			sMenuDrawCache[aSubMenuID][0]);
 	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
@@ -1637,6 +1654,7 @@ static void drawBasicMenu(HUDDrawData& dd)
 	{
 		if( shouldRedrawAll ||
 			hi.forcedRedrawItemID == itemIdx ||
+			sMenuDrawCache[aSubMenuID][itemIdx + hasTitle].isDynamic ||
 			(selectionChanged &&
 				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
 			(flashingChanged &&
@@ -1686,10 +1704,10 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	sMenuDrawCache[aSubMenuID].resize(
 		anItemCount + hasTitle + (hi.altLabelWidth ? anItemCount : 0));
 
-	if( hasTitle && dd.firstDraw )
+	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
 	{
 		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
-			sMenuDrawCache[aSubMenuID][0].str);
+			sMenuDrawCache[aSubMenuID][0]);
 	}
 
 	const bool flashingChanged = hi.flashing != hi.prevFlashing;
@@ -1699,6 +1717,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	// Draw alternate label for selected item off to the side
 	if( hi.altLabelWidth &&
 		(selectionChanged || shouldRedrawAll ||
+		 sMenuDrawCache[aSubMenuID]
+			[anItemCount+hi.selection+hasTitle].isDynamic ||
 		 hi.forcedRedrawItemID == hi.selection) )
 	{
 		const std::string& anAltLabel =
@@ -1731,7 +1751,8 @@ static void drawSlotsMenu(HUDDrawData& dd)
 
 	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
 	// just below the top slot, and ending when draw hi.selection last at top
-	for(u16 compIdx = 1, itemIdx = (hi.selection + 1) % anItemCount; true;
+	for(u16 compIdx = (1 % anItemCount),
+		itemIdx = (hi.selection + 1) % anItemCount; true;
 		itemIdx = (itemIdx + 1) % anItemCount,
 		compIdx = (compIdx + 1) % anItemCount)
 	{
@@ -1744,6 +1765,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		}
 		if( shouldRedrawAll ||
 			hi.forcedRedrawItemID == itemIdx ||
+			sMenuDrawCache[aSubMenuID][itemIdx + hasTitle].isDynamic ||
 			(isSelection && flashingChanged) )
 		{
 			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
@@ -1772,11 +1794,11 @@ static void draw4DirMenu(HUDDrawData& dd)
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
 	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
 
-	if( hasTitle && dd.firstDraw )
+	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
 	{
 		drawMenuTitle(dd,
 			aSubMenuID, dd.components[1 + eCmdDir_Up].top,
-			sMenuDrawCache[aSubMenuID][0].str);
+			sMenuDrawCache[aSubMenuID][0]);
 	}
 
 	for(u16 itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
@@ -1784,6 +1806,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 		const ECommandDir aDir = ECommandDir(itemIdx);
 		if( dd.firstDraw ||
 			hi.forcedRedrawItemID == itemIdx ||
+			sMenuDrawCache[aSubMenuID][aDir + hasTitle].isDynamic ||
 			(hi.flashing != hi.prevFlashing &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
@@ -2403,6 +2426,20 @@ void update()
 			hi.flashing = kInvalidItem;
 			gRedrawHUD.set(i);
 		}
+
+		if( gRedrawDynamicHUDStrings && !gRedrawHUD.test(i) )
+		{// Possibly redraw any dynamic strings (text replacements)
+			for(size_t aCacheEntryIdx = 0;
+				aCacheEntryIdx < sMenuDrawCache[i].size();
+				++aCacheEntryIdx)
+			{
+				if( sMenuDrawCache[i][aCacheEntryIdx].isDynamic )
+				{
+					gRedrawHUD.set(i);
+					break;
+				}
+			}
+		}
 	}
 	
 	switch(gHotspotsGuideMode)
@@ -2479,6 +2516,7 @@ void update()
 
 	gKeyBindArrayLastIndexChanged.reset();
 	gKeyBindArrayDefaultIndexChanged.reset();
+	gRedrawDynamicHUDStrings = false;
 }
 
 

@@ -45,6 +45,9 @@ extern BitVector<> gActiveHUD;
 // Which HUD elements are disabled (i.e. Menu w/o input assigned to control it)
 extern BitVector<> gDisabledHUD;
 
+// Flag that all HUD elements containing dynamic strings need redraw
+extern bool gRedrawDynamicHUDStrings;
+
 // Displays hotspots mouse cursor can jump to with Select Hotspot command
 extern EHotspotGuideMode gHotspotsGuideMode;
 
