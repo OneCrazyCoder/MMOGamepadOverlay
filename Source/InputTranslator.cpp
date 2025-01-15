@@ -1893,6 +1893,7 @@ void update()
 		loadCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();
+		gRedrawDynamicHUDStrings = true;
 		#ifndef NDEBUG
 		std::string aNewLayerOrder("Layers: ");
 		for(std::vector<u16>::iterator itr =

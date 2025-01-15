@@ -871,7 +871,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		break;
 
 	case WM_HSCROLL:
-		{// Scale slider is the only slider anyway so can skip check for that
+		if( (HWND)lParam == GetDlgItem(theDialog, IDC_SLIDER_S) )
+		{
 			const int aScaleVal =
 				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0);
 			if( !sState->entered.offsetScale.empty() &&
