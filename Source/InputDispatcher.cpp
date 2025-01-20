@@ -60,7 +60,8 @@ struct DispatchTask
 { Command cmd; u32 queuedTime; };
 
 struct KeyWantDownStatus
-{ s8 depth; bool pressed; KeyWantDownStatus() : depth(), pressed() {} };
+{ s8 depth; s8 queued; bool pressed;
+  KeyWantDownStatus() : depth(), queued(), pressed() {} };
 typedef VectorMap<u16, KeyWantDownStatus> KeysWantDownMap;
 
 
@@ -1259,24 +1260,22 @@ static EResult setKeyDown(u16 theKey, bool down)
 }
 
 
-static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
+static bool tryQuickReleaseHeldKey(u16 theVKey, KeyWantDownStatus& theStatus)
 {
-	DBG_ASSERT(theKeyItr != sTracker.keysWantDown.end());
-
 	// If multiple gamepad buttons are tied to the same key and more than one
 	// is held down, we "release" the key by just decrementing a counter
-	if( theKeyItr->second.depth > 1 )
+	if( theStatus.depth > 1 )
 	{
-		--theKeyItr->second.depth;
+		--theStatus.depth;
 		return true;
 	}
 
-	const u16 aVKey = theKeyItr->first & (kVKeyMask | kVKeyModsMask);
-	const u8 aBaseVKey = u8(aVKey & kVKeyMask);
+	const u8 aBaseVKey = u8(theVKey & kVKeyMask);
+	DBG_ASSERT((theVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
 	DBG_ASSERT(aBaseVKey);
 
 	// Don't release yet if not actually pressed
-	if( !theKeyItr->second.pressed || !sTracker.keysHeldDown.test(aBaseVKey) )
+	if( !theStatus.pressed || !sTracker.keysHeldDown.test(aBaseVKey) )
 		return false;
 
 	// In most target apps, releasing a mouse button can itself count as
@@ -1287,7 +1286,7 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 	// keys usually only cares about the modifiers when the key is pressed.
 	// Therefore if the "key" is a mouse button, need to make sure all related
 	// modifier keys like Shift are held before releasing the mouse button!
-	if( isMouseButton(aVKey) && !requiredModKeysAreAlreadyHeld(aVKey) )
+	if( isMouseButton(theVKey) && !requiredModKeysAreAlreadyHeld(theVKey) )
 		return false;
 
 	// Make sure no other keysWantDown uses this same base key
@@ -1295,15 +1294,18 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 		itr != sTracker.keysWantDown.end(); ++itr)
 	{
 		// If find another entry wants this same base key to stay down,
-		// don't actually release the key, but return true and leave this
-		// version of the key at 0 depth as nothing more needs done now.
-		// The actual key will be released when this other entry is done.
-		if( itr != theKeyItr &&
-			(itr->first & kVKeyMask) == aBaseVKey &&
+		// don't actually release the key but act as if did so, and let
+		// the other entry actually release the key when it is done.
+		const u16 aTestVKey = itr->first & (kVKeyMask | kVKeyModsMask);
+		const u8 aTestBaseVKey = u8(aTestVKey & kVKeyMask);
+
+		if( aTestVKey != theVKey &&
+			aTestBaseVKey == aBaseVKey &&
 			itr->second.pressed &&
 			itr->second.depth > 0 )
 		{
-			theKeyItr->second.depth = 0;
+			theStatus.depth = 0;
+			theStatus.pressed = false;
 			return true;
 		}
 	}
@@ -1311,8 +1313,8 @@ static bool tryQuickReleaseHeldKey(KeysWantDownMap::iterator theKeyItr)
 	// Now attempt to actually release the key (may be locked down though)
 	if( setKeyDown(aBaseVKey, false) == eResult_Ok )
 	{
-		theKeyItr->second.depth = 0;
-		theKeyItr->second.pressed = false;
+		theStatus.depth = 0;
+		theStatus.pressed = false;
 		return true;
 	}
 
@@ -1684,50 +1686,63 @@ void update()
 			(aCurrTask.queuedTime + kConfig.maxTaskQueuedTime) < gAppRunTime;
 
 		const Command& aCmd = aCurrTask.cmd;
-		KeysWantDownMap::iterator aKeyWantDownItr;
 		EResult aTaskResult = eResult_TaskCompleted;
 
 		switch(aCmd.type)
 		{
 		case eCmdType_PressAndHoldKey:
-			// Just set want the key/combo pressed
 			DBG_ASSERT(aCmd.vKey != 0);
 			DBG_ASSERT((aCmd.vKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-			sTracker.keysWantDown.findOrAdd(aCmd.vKey).depth += 1;
-			if( !taskIsPastDue )
-				fireSignal(aCmd.signalID);
+			{// Just set want the key/combo pressed
+				KeyWantDownStatus& aKeyStatus =
+					sTracker.keysWantDown.findOrAdd(aCmd.vKey);
+				--aKeyStatus.queued;
+				if( aKeyStatus.depth > 0 )
+				{
+					++aKeyStatus.depth;
+				}
+				else
+				{
+					aKeyStatus.depth = 1;
+					itr->second.pressed = false;
+					if( !taskIsPastDue )
+						fireSignal(aCmd.signalID);
+				}
+			}
 			break;
 		case eCmdType_ReleaseKey:
 			DBG_ASSERT(aCmd.vKey != 0);
 			DBG_ASSERT((aCmd.vKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-			// Do nothing if key was never requested down anyway
-			// (or was already force-released by kVKeyForceReleaseFlag)
-			aKeyWantDownItr = sTracker.keysWantDown.find(aCmd.vKey);
-			if( aKeyWantDownItr == sTracker.keysWantDown.end() )
-				break;
-			if( !aKeyWantDownItr->second.pressed )
-			{// Key has yet to be pressed in the first place
-				// Abort queue loop and wait for it to be pressed first,
-				// unless this is a past-due event, in which case just
-				// forget ever wanted the key pressed in the first place
-				if( !taskIsPastDue )
-				{
-					sTracker.queuePauseTime = 1; 
-					aTaskResult = eResult_Incomplete;
+			{
+				KeyWantDownStatus& aKeyStatus =
+					sTracker.keysWantDown.findOrAdd(aCmd.vKey);
+				// Do nothing if key has no active hold requests
+				// (such as after force-released by kVKeyForceReleaseFlag)
+				if( aKeyStatus.depth <= 0 )
+					break;
+				if( !aKeyStatus.pressed )
+				{// Key has yet to be pressed in the first place
+					// Abort queue loop and wait for it to be pressed first,
+					// unless this is a past-due event, in which case just
+					// forget ever wanted the key pressed in the first place
+					if( !taskIsPastDue )
+					{
+						sTracker.queuePauseTime = 1; 
+						aTaskResult = eResult_Incomplete;
+					}
+					else
+					{
+						--aKeyStatus.depth;
+					}
+					break;
 				}
-				else
-				{
-					--aKeyWantDownItr->second.depth;
-				}
-			}
-			else
-			{// Key has been pressed, and should release even if past due
-
+				// Key has been pressed, and should release even if past due
 				// Attempt to release now and move on to next queue item
 				// If can't, set releasing it as the queued key event
-				if( !tryQuickReleaseHeldKey(aKeyWantDownItr) )
+				if( !tryQuickReleaseHeldKey(aCmd.vKey, aKeyStatus) )
 				{
-					aKeyWantDownItr->second.depth = 0;
+					aKeyStatus.depth = 0;
+					aKeyStatus.pressed = false;
 					sTracker.nextQueuedKey = aCmd.vKey | kVKeyReleaseFlag;
 				}
 			}
@@ -1850,8 +1865,11 @@ void update()
 		const bool pressed = itr->second.pressed;
 
 		if( itr->second.depth <= 0 )
-		{// Doesn't want to be pressed any more, so stop tracking it
-			next_itr = sTracker.keysWantDown.erase(itr);
+		{// Doesn't want to be pressed any more
+			itr->second.pressed = false;
+			// If not queued either, can erase from tracking map
+			if( itr->second.queued <= 0 )
+				next_itr = sTracker.keysWantDown.erase(itr);
 			continue;
 		}
 
@@ -2077,15 +2095,17 @@ void update()
 			sTracker.nextQueuedKey = 0;
 			if( wantRelease )
 			{
-				if( wantHold ) // wantHold + wantRelease = forced released
-				{// Stop tracking this key and any combo-keys with same base
+				if( wantHold ) // + wantRelease = kVKeyForceReleaseFlag
+				{// Stop holding this key and any combo-keys with same base
 					for(KeysWantDownMap::iterator itr =
-						sTracker.keysWantDown.begin(), next_itr = itr;
-						itr != sTracker.keysWantDown.end(); itr = next_itr)
+						sTracker.keysWantDown.begin();
+						itr != sTracker.keysWantDown.end(); ++itr)
 					{
-						++next_itr;
 						if( (itr->first & kVKeyMask) == aVKeyBase )
-							next_itr = sTracker.keysWantDown.erase(itr);
+						{
+							itr->second.depth = 0;
+							itr->second.pressed = false;
+						}
 					}
 				}
 			}
@@ -2135,45 +2155,43 @@ void sendKeyCommand(const Command& theCommand)
 	case eCmdType_PressAndHoldKey:
 		DBG_ASSERT(aBaseVKey != 0);
 		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-		{// Try pressing the key right away instead of queueing it
-			const size_t aPos = sTracker.keysWantDown.findInsertPos(aVKey);
-			if( aPos < sTracker.keysWantDown.size() &&
-				sTracker.keysWantDown[aPos].first == aVKey )
-			{
-				// Already requested hold this key...
-				// Just increment counter of simultaneous hold requests
-				++sTracker.keysWantDown[aPos].second.depth;
-				fireSignal(theCommand.signalID);
-				break;
+		{// Queue or try to press immediately
+			KeyWantDownStatus& aKeyStatus =
+				sTracker.keysWantDown.findOrAdd(aVKey);
+			if( isSafeAsyncKey(aVKey) && aKeyStatus.queued <= 0 )
+			{// Can possibly press right away
+				if( aKeyStatus.depth > 0 )
+				{// Already have another request to hold this key
+					++aKeyStatus.depth;
+					break;
+				}
+				if( setKeyDown(aBaseVKey, true) == eResult_Ok )
+				{// Was able to press the key now
+					aKeyStatus.depth = 1;
+					aKeyStatus.pressed = true;
+					aKeyStatus.queued = 0;
+					fireSignal(theCommand.signalID);
+					break;
+				}
 			}
-			if( isSafeAsyncKey(aVKey) &&
-				setKeyDown(aBaseVKey, true) == eResult_Ok )
-			{// Was able to press the key now, don't need to queue it!
-				KeyWantDownStatus aStatus;
-				aStatus.pressed = true;
-				aStatus.depth = 1;
-				sTracker.keysWantDown.insert(
-					sTracker.keysWantDown.begin() + aPos,
-					std::make_pair(aVKey, aStatus));
-				fireSignal(theCommand.signalID);
-				break;
-			}
+			// Add to queue
+			++aKeyStatus.queued;
+			sTracker.queue.push_back(theCommand);
 		}
-		sTracker.queue.push_back(theCommand);
 		break;
 	case eCmdType_ReleaseKey:
 		DBG_ASSERT(aBaseVKey != 0);
 		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-		{// Try releasing the key right away instead of queueing it
-			KeysWantDownMap::iterator itr =
-				sTracker.keysWantDown.find(aVKey);
-			if( itr != sTracker.keysWantDown.end() &&
-				tryQuickReleaseHeldKey(itr) )
-			{
-				break;
+		{// Queue or try to press immediately
+			KeyWantDownStatus& aKeyStatus =
+				sTracker.keysWantDown.findOrAdd(aVKey);
+			if( aKeyStatus.queued <= 0 )
+			{// Try releasing the key right away instead of queueing it
+				if( tryQuickReleaseHeldKey(aVKey, aKeyStatus) )
+					break;
 			}
+			sTracker.queue.push_back(theCommand);
 		}
-		sTracker.queue.push_back(theCommand);
 		break;
 	case eCmdType_TapKey:
 		DBG_ASSERT(aBaseVKey != 0);
