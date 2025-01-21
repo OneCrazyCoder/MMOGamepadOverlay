@@ -179,12 +179,15 @@ On a more advanced note, you can also request in the sequence to jump the mouse 
 
 While a Key Sequence could technically be used to type a message directly into the game's chat box, it is easier to directly use a *Slash Command* or *Say String* command to do this.
 
-Slash Commands start with ``/`` and Say Strings (chat messages) start with ``>`` (the '>' is replaced with the Return key to switch to the chat box when the command is actually executed). These commands will send the string to the chat box after initially opening it with Return or /, then press Return to send the macro. Some examples:
+Slash Commands start with ``/`` and chat box messages start with ``>`` (the '>' is replaced with the Return key to switch to the chat box when the command is actually executed). These commands will send the string to the chat box after initially opening it with Return or /, then press Return to send the macro. Some examples:
 
     [Scheme]
     R1 = /who
     R2 = /g Roll for loot please!
     L1 = >Would you like to group?
+    L2 = /shout TRAIN TO ZONE!!\nRun for it!
+
+Everything after the / or > is entered into the chat box as-is, except for the key sequence ``\n`` which symbolizes a line break for multi-line macros. Instead of typing '\n', Return is pressed once to send the message up to that point, then again to re-open the chat box and continue the rest of the macro after the '\n'. Thus L2 in the example above sends two messages.
 
 This will lock out most other inputs while the chat box is in use, so to send the text as quickly as possible it will be copied into your system clipboard and then pasted into the game by using the ``PasteText=`` KeyBind. If PasteText is not set to anything (such as for games that do not support pasting text into the chat box) the app will instead type the text in manually with multiple individual key presses.
 
@@ -225,8 +228,6 @@ or even:
 
     [Scheme]
     R1 = TargetNPC
-
-*TIP: Using multiple key binds in a sequence is the only way to have multiple chat box strings within a single command - otherwise any '/' or '>' characters after the first are just considered part of the same single string rather than a separate Slash Command or Say String.*
 
 These examples may not seem worth the effort just for added readability, but there are multiple other uses for key binds over just directly assigning things to keyboard keys. If nothing else, it can be convenient when using the same input in multiple places to only have to change the one Key Bind if you change your in-game bindings.
 

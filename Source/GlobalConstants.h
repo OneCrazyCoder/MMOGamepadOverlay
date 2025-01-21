@@ -379,6 +379,7 @@ enum EResult
 	eResult_Empty,
 	eResult_Declined,
 	eResult_NotNeeded,
+	eResult_TryAgainLater,
 };
 
 // Generic button names used in Profile .ini files

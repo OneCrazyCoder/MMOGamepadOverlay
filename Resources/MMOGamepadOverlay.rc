@@ -126,23 +126,23 @@ BEGIN
     LTEXT           "By clicking ""Accept"", you acknowledge that you have read, understood, and agree to the terms and conditions outlined in this license. If you do not agree with these terms, click ""Decline"" to exit the application.",IDC_STATIC_PROMPT,7,101,286,27,WS_BORDER
 END
 
-IDD_DIALOG_EDIT_COMMAND DIALOGEX 0, 0, 295, 70
+IDD_DIALOG_EDIT_COMMAND DIALOGEX 0, 0, 295, 79
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
-    EDITTEXT        IDC_EDIT_COMMAND,7,54,229,12,ES_AUTOHSCROLL
-    DEFPUSHBUTTON   "OK",IDOK,238,55,50,12
-    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.",IDC_STATIC_PROMPT,7,7,281,17
-    LTEXT           "Some menus also support ""AltLabel | Label: Command"" format.\nAdd + or - as first character to insert as new item before (-) or after (+) this item.\nLeave blank to delete this item.",IDC_STATIC_PROMPT2,7,23,281,26
+    EDITTEXT        IDC_EDIT_COMMAND,7,34,229,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,238,34,50,12
+    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.\nChat box macro Commands start with "">"" or ""/"" and use ""\\n"" for line breaks.",IDC_STATIC_PROMPT,7,7,281,26
+    LTEXT           "Some menus also support ""AltLabel | Label: Command"" format.\nAdd + or - as first character to insert as new item before (-) or after (+) this item.\nLeave blank to delete this item.",IDC_STATIC_PROMPT2,7,48,281,26
 END
 
-IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 50
+IDD_DIALOG_EDIT_DIR_CMD DIALOGEX 0, 0, 295, 53
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP
 FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
-    EDITTEXT        IDC_EDIT_COMMAND,7,31,229,12,ES_AUTOHSCROLL
-    DEFPUSHBUTTON   "OK",IDOK,238,31,50,12
-    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.",IDC_STATIC_PROMPT,7,7,281,19
+    EDITTEXT        IDC_EDIT_COMMAND,7,33,229,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,238,33,50,12
+    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.\nChat box macro Commands start with "">"" or ""/"" and use ""\\n"" for line breaks.",IDC_STATIC_PROMPT,7,7,281,26
 END
 
 IDD_DIALOG_LAYOUT_SELECT DIALOGEX 0, 0, 160, 240
@@ -301,7 +301,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 288
         TOPMARGIN, 7
-        BOTTOMMARGIN, 65
+        BOTTOMMARGIN, 74
     END
 
     IDD_DIALOG_EDIT_DIR_CMD, DIALOG
@@ -309,7 +309,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 288
         TOPMARGIN, 7
-        BOTTOMMARGIN, 42
+        BOTTOMMARGIN, 45
     END
 
     IDD_DIALOG_LAYOUT_SELECT, DIALOG
