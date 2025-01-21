@@ -57,7 +57,7 @@ struct Input : public INPUT
 { Input() { ZeroMemory(this, sizeof(INPUT)); } };
 
 struct DispatchTask
-{ Command cmd; u32 queuedTime; };
+{ Command cmd; u32 progress; u32 queuedTime; };
 
 struct KeyWantDownStatus
 { s8 depth; s8 queued; bool pressed;
@@ -202,7 +202,7 @@ public:
 	}
 
 
-	void push_back(const Command& theCommand)
+	void push_back(const Command& theCommand, u32 theProgress = 0)
 	{
 		if( ((mTail + 1) & (mBuffer.size() - 1)) == mHead )
 		{// Buffer is full, resize by doubling to keep power-of-2 size
@@ -217,6 +217,7 @@ public:
 		}
 
 		mBuffer[mTail].cmd = theCommand;
+		mBuffer[mTail].progress = theProgress;
 		mBuffer[mTail].queuedTime = gAppRunTime;
 		mTail = (mTail + 1) & (mBuffer.size() - 1);
 	}
@@ -260,8 +261,8 @@ struct DispatchTracker
 {
 	DispatchQueue queue;
 	std::vector<Input> inputs;
-	size_t currTaskProgress;
-	size_t embeddedChatBoxStringPos;
+	u32 currTaskProgress;
+	int embeddedChatBoxStringPos;
 	int queuePauseTime;
 	u32 nonModKeyPressAllowedTime;
 	u32 modKeyChangeAllowedTime;
@@ -435,7 +436,7 @@ static EResult popNextStringChar(const char* theString)
 			CloseClipboard();
 			
 			// Jump progress to the character just before final return key
-			sTracker.currTaskProgress += aStr.size();
+			sTracker.currTaskProgress += u32(aStr.size());
 			--sTracker.currTaskProgress;
 		}
 	}
@@ -479,8 +480,18 @@ static EResult popNextStringChar(const char* theString)
 static EResult popNextKey(const u8* theVKeySequence)
 {
 	DBG_ASSERT(sTracker.nextQueuedKey == 0);
-	if( sTracker.embeddedChatBoxStringPos )
+
+	// After processing an embedded string (signified by -1), need to clear
+	// flags like typingChatBoxString and let other queued commands run before
+	// continuing this one (in case it has multiple strings).
+	if( sTracker.embeddedChatBoxStringPos == -1 )
 	{
+		sTracker.mouseLookAutoRestoreTimer = kConfig.mouseLookAutoRestoreTime;
+		return eResult_TryAgainLater;
+	}
+
+	if( sTracker.embeddedChatBoxStringPos )
+	{// Treating this section of key sequence as string until hit \r
 		DBG_ASSERT(theVKeySequence[sTracker.currTaskProgress] != '\0');
 		const bool reachedEmbeddedStringEnd =
 			theVKeySequence[sTracker.currTaskProgress] == '\r';
@@ -489,7 +500,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			&theVKeySequence[sTracker.embeddedChatBoxStringPos]);
 		sTracker.currTaskProgress += sTracker.embeddedChatBoxStringPos;
 		if( reachedEmbeddedStringEnd )
-			sTracker.embeddedChatBoxStringPos = 0;
+			sTracker.embeddedChatBoxStringPos = -1;
 		return eResult_Incomplete;
 	}
 
@@ -514,7 +525,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 					&theVKeySequence[sTracker.currTaskProgress]);
 				sTracker.currTaskProgress += 3;
 			}
-			sTracker.embeddedChatBoxStringPos = sTracker.currTaskProgress;
+			sTracker.embeddedChatBoxStringPos = int(sTracker.currTaskProgress);
 			return eResult_Incomplete;
 		}
 
@@ -1680,6 +1691,8 @@ void update()
 		  !sTracker.queue.empty() )
 	{
 		const DispatchTask& aCurrTask = sTracker.queue.front();
+		sTracker.currTaskProgress =
+			max(sTracker.currTaskProgress, aCurrTask.progress);
 
 		const bool taskIsPastDue =
 			sTracker.currTaskProgress == 0 &&
@@ -1704,7 +1717,7 @@ void update()
 				else
 				{
 					aKeyStatus.depth = 1;
-					itr->second.pressed = false;
+					aKeyStatus.pressed = false;
 					if( !taskIsPastDue )
 						fireSignal(aCmd.signalID);
 				}
@@ -1826,8 +1839,13 @@ void update()
 			}
 			break;
 		}
+		if( aTaskResult == eResult_TryAgainLater )
+		{// Bump item to end of queue and repeat it
+			sTracker.queue.push_back(aCurrTask.cmd, sTracker.currTaskProgress);
+			aTaskResult = eResult_TaskCompleted;
+		}
 		if( aTaskResult == eResult_TaskCompleted )
-		{
+		{// Move to next item in queue
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
 			sTracker.typingChatBoxString = false;

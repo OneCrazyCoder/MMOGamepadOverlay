@@ -588,6 +588,68 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 }
 
 
+static Command parseChatBoxMacro(const std::string& theString)
+{
+	DBG_ASSERT(!theString.empty());
+	Command result;
+
+	if( theString[0] != '/' && theString[0] != '>' )
+		return result;
+
+	// Treat as Do Nothing command if nothing after the / or >
+	if( theString.length() <= 1 )
+	{
+		result.type = eCmdType_DoNothing;
+		return result;
+	}
+
+	// If have no \n in string, set as normal ChatBoxString command
+	size_t aLineBreakPos = theString.find("\\n");
+	if( aLineBreakPos == std::string::npos )
+	{
+		sKeyStrings.push_back(theString + "\r");
+		result.type = eCmdType_ChatBoxString;
+		result.keyStringIdx = u16(sKeyStrings.size()-1);
+		return result;
+	}
+
+	// Treat multi-line macros as a VKey sequence of embedded strings
+	std::string aVKeySeq;
+	std::string aStrLeft = theString;
+	while(true)
+	{
+		std::string aStrToAdd = aStrLeft.substr(0, aLineBreakPos);
+		if( aStrToAdd.length() > 1 )
+		{
+			aVKeySeq.push_back(VK_EXECUTE);
+			aVKeySeq += aStrToAdd + "\r";
+		}
+
+		if( aLineBreakPos == std::string::npos )
+			break;
+
+		aStrLeft = aStrLeft.substr(aLineBreakPos+2);
+		if( aStrLeft.empty() )
+			break;
+
+		if( aStrLeft[0] != '<' && aStrLeft[0] != '/' )
+			aStrLeft = std::string(">") + aStrLeft;
+		aLineBreakPos = aStrLeft.find("\\n");
+	}
+
+	if( aVKeySeq.empty() )
+	{
+		result.type = eCmdType_DoNothing;
+		return result;
+	}
+
+	sKeyStrings.push_back(aVKeySeq);
+	result.type = eCmdType_VKeySequence;
+	result.keyStringIdx = u16(sKeyStrings.size()-1);
+	return result;
+}
+
+
 static u16 getOrCreateLayerID(
 	InputMapBuilder& theBuilder,
 	const std::string& theLayerName,
@@ -941,6 +1003,8 @@ static Command wordsToSpecialCommand(
 	// Can't allow hold actions if don't also allow button actions
 	DBG_ASSERT(!allowHoldActions || allowButtonActions);
 	Command result;
+	if( theWords.empty() )
+		return result;
 
 	// Almost all commands require more than one "word", even if only one of
 	// words is actually a command key word (thus can force a keybind to be
@@ -1780,15 +1844,10 @@ static Command stringToCommand(
 	if( theString.empty() )
 		return result;
 
-	// Check for a slash command or say string, which stores the string
-	// as ASCII text and outputs it by typing it into the chat box
-	if( theString[0] == '/' || theString[0] == '>' )
-	{
-		sKeyStrings.push_back(theString + "\r");
-		result.type = eCmdType_ChatBoxString;
-		result.keyStringIdx = u16(sKeyStrings.size()-1);
+	// Check for a chat box macro (message or slash command)
+	result = parseChatBoxMacro(theString);
+	if( result.type != eCmdType_Empty )
 		return result;
-	}
 
 	// Check for special command
 	theBuilder.parsedString.clear();
@@ -2321,14 +2380,20 @@ static Command stringToAliasCommand(
 		return aCmd;
 	}
 
-	if( theCmdStr[0] == '/' || theCmdStr[0] == '>' )
-	{// Slash command or say string (types into chat box)
-		// '>' becomes Enter to start chat box for say strings
-		aCmd.type = eCmdType_ChatBoxString;
+	// Check for a chat box macro
+	aCmd = parseChatBoxMacro(theCmdStr);
+	if( aCmd.type == eCmdType_DoNothing )
+	{
+		aCmd.type = eCmdType_SignalOnly;
 		aCmd.signalID = theSignalID++;
-		aCmd.keyStringIdx = u16(sKeyStrings.size());
-		sKeyStrings.push_back(
-			signalIDToString(aCmd.signalID) + theCmdStr + "\r");
+		return aCmd;
+	}
+	if( aCmd.type != eCmdType_Empty )
+	{
+		aCmd.signalID = theSignalID++;
+		sKeyStrings[aCmd.keyStringIdx] =
+			signalIDToString(aCmd.signalID) +
+			sKeyStrings[aCmd.keyStringIdx];
 		return aCmd;
 	}
 
@@ -3328,14 +3393,12 @@ static MenuItem stringToMenuItem(
 	if( aMenuItem.cmd.type == eCmdType_Empty )
 	{
 		// Probably just forgot the > at front of a plain string
-		sKeyStrings.push_back(std::string(">") + theString + "\r");
-		aMenuItem.cmd.type = eCmdType_ChatBoxString;
-		aMenuItem.cmd.keyStringIdx = u16(sKeyStrings.size()-1);
+		aMenuItem.cmd = parseChatBoxMacro(std::string(">") + theString);
 		logError("%s: '%s' unsure of meaning of '%s'. "
-				 "Assigning as a chat box string. "
+				 "Assigning as a chat box macro. "
 				 "Add > to start of it if this was the intent!",
 				theBuilder.debugItemName.c_str(),
-		aLabel.c_str(), theString.c_str());
+				aLabel.c_str(), theString.c_str());
 	}
 	else
 	{

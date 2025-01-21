@@ -29,9 +29,9 @@ const wchar_t* kSystemOverlayWindowClassName = L"MMOGO System Overlay";
 
 enum EIconCopyMethod
 {
-	eIconCopyMethod_OverlayBlocksCopy,
-	eIconCopyMethod_TargetWindow,
-	eIconCopyMethod_ExcludeFromCapture,
+	eIconCopyMethod_OverlayBlocksCopy,	// 1
+	eIconCopyMethod_TargetWindow,		// 2
+	eIconCopyMethod_ExcludeFromCapture,	// 3
 
 	eIconCopyMethod_Num
 };
@@ -819,7 +819,7 @@ void update()
 	{
 		aCaptureDC = GetDC(TargetApp::targetWindowHandle());
 	}
-	else
+	else if( sIconCopyMethod != eIconCopyMethod_TargetWindow )
 	{
 		aCaptureDC = GetDC(NULL);
 		aCaptureOffset.x = sScreenTargetRect.left;
