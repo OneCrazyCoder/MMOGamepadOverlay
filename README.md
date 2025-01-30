@@ -99,19 +99,6 @@ There are various ways supported of specifying gamepad buttons and keys, so you 
 
 If you want the full list, check *Source\GlobalConstants.cpp* in the source code.
 
-### Multi-button assignment
-
-You can assign 4 buttons at once in the case of the D-pad, analog sticks, and the "face buttons" (ABXY or X/Square/Triangle/Circle). For example:
-
-    [Scheme]
-    DPad = MoveTurn
-    LStick = MoveStrafe
-    RStick = Mouse
-    # Below treats face buttons like a D-pad
-    FPad = Move
-
-Each of these (including the analog sticks) are otherwise treated as 4 separate buttons like "LStickUp" or "DPadDown", etc. when want to assign each direction to a separate command.
-
 ### Button actions
 
 When the *property name* is simply the button name by itself like in the above examples, it is treated as the action "press and hold". So in the earlier ``R2 = RMB`` example, the right mouse button will be pressed when R2 is, held for as long as R2 is held, and released when R2 is released.
@@ -130,6 +117,21 @@ This example demonstrates the maximum number of commands that could be assigned 
 You can only have one "Hold" action assigned per button, but how long it must be held to trigger can be optionally set by adding a number at the end of the property name. If no number is added, the value ``[System]/ButtonHoldTime`` will be used.
 
 Notice how only the base ``R2=`` property can actually hold a key down for more than a split second. That is the special property of this base 'press and hold' button action. All other button actions can only "tap" a key (press and then immediately release it). Many special commands can't be "held" anyway, so assigning one of these to just ``R2=`` will make it act the same as assigning it to ``Press R2=``, and some are can *only* be assigned to the base button action because they relate to "holding" for a duration.
+
+### Multi-button assignment
+
+You can assign 4 buttons at once in the case of the D-pad, analog sticks, and the "face buttons" (ABXY or X/Square/Triangle/Circle). For example:
+
+    [Scheme]
+    DPad = MoveTurn
+    LStick = MoveStrafe
+    RStick = Mouse
+    # Below treats face buttons like a D-pad
+    FPad = Move
+
+Each of these (including the analog sticks) are otherwise treated as 4 separate buttons like "LStickUp" or "DPadDown", etc. when want to assign each direction to a separate command.
+
+Non-directional commands assigned this way become assigned to the directional input as a whole rather each of the 4 individual directions. For example, ``RStick=A`` will cause the keyboard 'A' key to be sent to the game when *any* direction is pressed on the right analog stick, with releasing 'A' being sent only once the right analog stick returns to center position. In other words, assigning the key in this way means spinning the stick won't cause multiple 'A' key presses to be sent, like it would if you assigned 'A' to each direction individually. You can also combine this with assigning commands to individual stick directions separately, and both will be executed at the same time.
 
 ## Commands
 

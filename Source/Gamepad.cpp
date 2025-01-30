@@ -38,13 +38,17 @@ DBG_CTASSERT(ARRAYSIZE(kVendorID) == eVendorID_Num);
 
 static const u16 kXInputMap[] =
 {
-	0x0000,							// eBtn_None
-	0x0000,	0x0000,	0x0000,	0x0000,	// eBtn_LS
-	0x0000,	0x0000,	0x0000,	0x0000,	// eBtn_RS
+	0,								// eBtn_None
+	0,	0,	0,	0, 0,				// eBtn_LS
+	0,	0,	0,	0, 0,				// eBtn_RS
 	XINPUT_GAMEPAD_DPAD_LEFT,		// eBtn_DLeft
 	XINPUT_GAMEPAD_DPAD_RIGHT,		// eBtn_DRight
 	XINPUT_GAMEPAD_DPAD_UP,			// eBtn_DUp
 	XINPUT_GAMEPAD_DPAD_DOWN,		// eBtn_DDown
+	XINPUT_GAMEPAD_DPAD_LEFT |
+	XINPUT_GAMEPAD_DPAD_RIGHT |
+	XINPUT_GAMEPAD_DPAD_UP |
+	XINPUT_GAMEPAD_DPAD_DOWN,		// eBtn_DPad
 	XINPUT_GAMEPAD_X,				// eBtn_FLeft
 	XINPUT_GAMEPAD_B,				// eBtn_FRight
 	XINPUT_GAMEPAD_Y,				// eBtn_FUp
@@ -61,28 +65,68 @@ static const u16 kXInputMap[] =
 };
 DBG_CTASSERT(ARRAYSIZE(kXInputMap) == eBtn_Num);
 
-static const EButton kDIToEFButton[eVendorID_Num][4] =
-{
-	{ eBtn_FLeft, eBtn_FRight, eBtn_FUp, eBtn_FDown }, // eVendorID_Unknown
-	{ eBtn_FLeft, eBtn_FDown, eBtn_FRight, eBtn_FUp }, // eVendorID_Sony
-	{ eBtn_FDown, eBtn_FRight, eBtn_FLeft, eBtn_FUp }, // eVendorID_Nintendo
-	{ eBtn_FDown, eBtn_FRight, eBtn_FLeft, eBtn_FUp }, // eVendorID_Microsoft
+static const EButton kDItoEBtn[eVendorID_Num][eBtn_DInputBtnNum] =
+{// From DIJOFS_BUTTON0 to eBtn_Num
+	{// eVendorID_Unknown
+		eBtn_FDown, eBtn_FRight, eBtn_FLeft, eBtn_FUp,
+		eBtn_L1, eBtn_R1, eBtn_L2, eBtn_R2,	
+		eBtn_Select, eBtn_Start, eBtn_L3, eBtn_R3,
+		eBtn_Home, eBtn_Extra
+	},
+	{// eVendorID_Sony
+		eBtn_FLeft, eBtn_FDown, eBtn_FRight, eBtn_FUp, // Sq, X, Circ, Tri
+		eBtn_L1, eBtn_R1, eBtn_None, eBtn_None, // L2/R2 treated as analog
+		eBtn_Select, eBtn_Start, eBtn_L3, eBtn_R3,
+		eBtn_Home, eBtn_Extra
+	},
+	{// eVendorID_Nintendo
+		eBtn_FDown, eBtn_FRight, eBtn_FLeft, eBtn_FUp, // B, A, Y, X
+		eBtn_L1, eBtn_R1, eBtn_L2, eBtn_R2, // L2/R2 are digital-only
+		eBtn_Select, eBtn_Start, eBtn_L3, eBtn_R3,
+		eBtn_Home, eBtn_Extra
+	},
+	{// eVendorID_Microsoft
+		eBtn_FDown, eBtn_FRight, eBtn_FLeft, eBtn_FUp, // A, B, X, Y
+		eBtn_L1, eBtn_R1, // L2/R2 are analog-only
+		eBtn_Select, eBtn_Start, eBtn_L3, eBtn_R3,
+		eBtn_Home, eBtn_Extra
+	},
 };
 
-static const EAxis kDIToEAxis[eVendorID_Num][6] =
-{// From DIJOFS_X,_Y,_Z,_RX,_RY,_RZ
-	// eVender_Unknown
-	{ eAxis_LSLeft, eAxis_LSUp, eAxis_None,
-	  eAxis_RSLeft,	eAxis_RSUp,	eAxis_None },
-	// eVendor_Sony
-	{ eAxis_LSLeft, eAxis_LSUp, eAxis_RSLeft,
-	  eAxis_None,	eAxis_None,	eAxis_RSUp },
-	// eVendor_Nintendo
-	{ eAxis_LSLeft, eAxis_LSUp, eAxis_None,
-	  eAxis_RSLeft,	eAxis_RSUp,	eAxis_None },
-	// eVendor_Microsoft
-	{ eAxis_LSLeft, eAxis_LSUp, eAxis_RTrigger,
-	  eAxis_RSLeft,	eAxis_RSUp,	eAxis_LTrigger },
+static const EAxis kDItoEAxis[eVendorID_Num][6][2] =
+{// From DIJOFS_X to DIJOKS_RZ (neg then pos axis for each)
+	{// eVender_Unknown
+		{ eAxis_LSLeft,	eAxis_LSRight	}, // DIJOFS_X
+		{ eAxis_LSUp,	eAxis_LSDown	}, // DIJOFS_Y
+		{ eAxis_None,	eAxis_None		}, // DIJOKS_Z
+		{ eAxis_RSLeft,	eAxis_RSRight	}, // DIJOKS_RX
+		{ eAxis_RSUp,	eAxis_RSDown	}, // DIJOKS_RY
+		{ eAxis_None,	eAxis_None		}, // DIJOKS_RZ
+	},
+	{// eVendor_Sony
+		{ eAxis_LSLeft,	eAxis_LSRight	}, // DIJOFS_X
+		{ eAxis_LSUp,	eAxis_LSDown	}, // DIJOFS_Y
+		{ eAxis_RSLeft,	eAxis_RSRight	}, // DIJOFS_Z
+		{ eAxis_None,	eAxis_LTrig		}, // DIJOFS_RX
+		{ eAxis_None,	eAxis_RTrig		}, // DIJOFS_RY
+		{ eAxis_RSUp,	eAxis_RSDown	}, // DIJOFS_RZ
+	},
+	{// eVendor_Nintendo
+		{ eAxis_LSLeft,	eAxis_LSRight	}, // DIJOFS_X
+		{ eAxis_LSUp,	eAxis_LSDown	}, // DIJOFS_Y
+		{ eAxis_None,	eAxis_None		}, // DIJOFS_Z
+		{ eAxis_RSLeft,	eAxis_RSRight	}, // DIJOFS_RX
+		{ eAxis_RSUp,	eAxis_RSDown	}, // DIJOFS_RY
+		{ eAxis_None,	eAxis_None		}, // DIJOFS_RZ
+	},
+	{// eVendor_Microsoft
+		{ eAxis_LSLeft,	eAxis_LSRight	}, // DIJOFS_X
+		{ eAxis_LSUp,	eAxis_LSDown	}, // DIJOFS_Y
+		{ eAxis_RTrig,	eAxis_LTrig		}, // DIJOFS_Z
+		{ eAxis_RSLeft,	eAxis_RSRight	}, // DIJOFS_RX
+		{ eAxis_RSUp,	eAxis_RSDown	}, // DIJOFS_RY
+		{ eAxis_None,	eAxis_None		}, // DIJOFS_RZ
+	},
 };
 
 
@@ -331,14 +375,14 @@ static void pollXInputGamepad(int theGamepadID)
 			aGamepad.xInputPacketNum = state.dwPacketNumber;
 			for(int i = 1; i < eBtn_Num; ++i)
 			{
-				u16 isDown = 0;	// not a bool since using bit flag checks
+				bool isDown = false;
 				switch(i)
 				{
 				case eBtn_L2:
-					aGamepad.axisVal[eAxis_LTrigger] = state.Gamepad.bLeftTrigger;
+					aGamepad.axisVal[eAxis_LTrig] = state.Gamepad.bLeftTrigger;
 					break;
 				case eBtn_R2:
-					aGamepad.axisVal[eAxis_RTrigger] = state.Gamepad.bRightTrigger;
+					aGamepad.axisVal[eAxis_RTrig] = state.Gamepad.bRightTrigger;
 					break;
 				case eBtn_LSRight:
 					aGamepad.axisVal[eAxis_LSRight] = state.Gamepad.sThumbLX > 0
@@ -356,6 +400,15 @@ static void pollXInputGamepad(int theGamepadID)
 					aGamepad.axisVal[eAxis_LSUp] = state.Gamepad.sThumbLY > 0
 						? u8(state.Gamepad.sThumbLY >> 7) : 0;
 					break;
+				case eBtn_LSAny:
+					if( state.Gamepad.sThumbLX || state.Gamepad.sThumbLY )
+					{
+						const float dx = state.Gamepad.sThumbLX;
+						const float dy = state.Gamepad.sThumbLY;
+						const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
+						aGamepad.axisVal[eAxis_LSAny] = clamp(m, 0, 255.0);
+					}
+					break;
 				case eBtn_RSRight:
 					aGamepad.axisVal[eAxis_RSRight] = state.Gamepad.sThumbRX > 0
 						? u8(state.Gamepad.sThumbRX >> 7) : 0;
@@ -372,8 +425,17 @@ static void pollXInputGamepad(int theGamepadID)
 					aGamepad.axisVal[eAxis_RSUp] = state.Gamepad.sThumbRY > 0
 						? u8(state.Gamepad.sThumbRY >> 7) : 0;
 					break;
+				case eBtn_RSAny:
+					if( state.Gamepad.sThumbRX || state.Gamepad.sThumbRY )
+					{
+						const float dx = state.Gamepad.sThumbRX;
+						const float dy = state.Gamepad.sThumbRY;
+						const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
+						aGamepad.axisVal[eAxis_RSAny] = clamp(m, 0, 255.0);
+					}
+					break;
 				default:
-					isDown = state.Gamepad.wButtons & kXInputMap[i];
+					isDown = !!(state.Gamepad.wButtons & kXInputMap[i]);
 					break;
 				}
 				const bool wasDown = aGamepad.buttonsDown.test(i);
@@ -570,6 +632,8 @@ static void pollGamepad(int theGamepadID)
 			&dwItems,
 			0);
 
+	const BitArray<eBtn_Num> aPrevButtonsDown = aGamepad.buttonsDown;
+	BitArray<eAxis_Num> anAxisChanged; anAxisChanged.reset();
 	// dwItems = Number of elements read (could be zero).
 	bool readEvents = dwItems > 0;
 	while(SUCCEEDED(hr) && readEvents)
@@ -588,18 +652,10 @@ static void pollGamepad(int theGamepadID)
 			if( anInputOfs >= DIJOFS_BUTTON0 &&
 				anInputOfs < DIJOFS_BUTTON0 + eBtn_DInputBtnNum )
 			{// Button toggle
-				const DWORD aDIButtonIdx = anInputOfs - DIJOFS_BUTTON0;
-				EButton aButton = eBtn_FirstDInputBtn;
-				// Remap face buttons according to vendorID
-				if( aDIButtonIdx < 4 )
-					aButton = kDIToEFButton[aGamepad.vendorID][aDIButtonIdx];
-				else
-					aButton = EButton(aButton + aDIButtonIdx);
-				if( aGamepad.vendorID == eVendorID_Microsoft &&
-					aButton >= eBtn_L2 )
-				{// Compensate for Microsoft missing digital L2/R2 buttons
-					aButton = EButton(aButton + 2);
-				}
+				const EButton aButton = 
+					kDItoEBtn[aGamepad.vendorID][anInputOfs - DIJOFS_BUTTON0];
+				if( aButton == eBtn_None )
+					continue;
 				if( rgdod[i].dwData )
 				{// Button is now down
 					aGamepad.buttonsHit.set(aButton);
@@ -613,92 +669,69 @@ static void pollGamepad(int theGamepadID)
 			else if( anInputOfs >= DIJOFS_X && anInputOfs <= DIJOFS_RZ )
 			{// Axis movement
 				const DWORD aDIAxisIdx = (anInputOfs - DIJOFS_X) / sizeof(LONG);
-				EAxis anAxis[2];
-				anAxis[0] = kDIToEAxis[aGamepad.vendorID][aDIAxisIdx];
-				anAxis[1] = eAxis_None;
-				if( anAxis[0] != eAxis_None )
-				{// Standard axis (analog stick)
-					anAxis[1] = EAxis(anAxis[0] + 1);
+				EAxis aNegAxis = kDItoEAxis[aGamepad.vendorID][aDIAxisIdx][0];
+				EAxis aPosAxis = kDItoEAxis[aGamepad.vendorID][aDIAxisIdx][1];
+				if( aNegAxis != eAxis_None && aPosAxis != eAxis_None )
+				{// Standard axis with both negative and positive value range
+					anAxisChanged.set(aNegAxis);
+					anAxisChanged.set(aPosAxis);
 					const int anAxisVal = int(rgdod[i].dwData) - 0x8000;
 					if( anAxisVal >= 0 )
 					{
-						aGamepad.axisVal[anAxis[0]] = 0;
-						aGamepad.axisVal[anAxis[1]] = u8(anAxisVal >> 7);
+						aGamepad.axisVal[aNegAxis] = 0;
+						aGamepad.axisVal[aPosAxis] = u8(anAxisVal >> 7);
 					}
 					else
 					{
-						aGamepad.axisVal[anAxis[0]] = u8(-(anAxisVal +1) >> 7);
-						aGamepad.axisVal[anAxis[1]] = 0;
+						aGamepad.axisVal[aNegAxis] = u8(-(anAxisVal+1) >> 7);
+						aGamepad.axisVal[aPosAxis] = 0;
 					}
 				}
-				else if( aGamepad.vendorID == eVendorID_Sony )
-				{
-					// Sony maps L2 to RX and R2 to RY,
-					// but with the full axis range of 0-65535 for each
-					if( anInputOfs == DIJOFS_RX )
-						anAxis[0] = eAxis_LTrigger;
-					else if( anInputOfs == DIJOFS_RY )
-						anAxis[0] = eAxis_RTrigger;
-					aGamepad.axisVal[anAxis[0]] = rgdod[i].dwData >> 8;
+				else if( aPosAxis != eAxis_None )
+				{// Positive-only 0-65535 axis, like triggers for Sony
+					anAxisChanged.set(aPosAxis);
+					aGamepad.axisVal[aPosAxis] = rgdod[i].dwData >> 8;
 				}
-				for(int j = 0; j < 2; ++j)
-				{
-					const EButton aButton = buttonForAxis(anAxis[j]);
-					const bool wasDown = aGamepad.buttonsDown.test(aButton);
-					const u8 aThreshold = wasDown
-						? aGamepad.releaseThreshold[anAxis[j]]
-						: sGamepadData.pressThreshold[anAxis[j]];
-					const bool isDown =
-						aGamepad.axisVal[anAxis[j]] > aThreshold;
-					if( aButton && isDown )
-					{
-						if( !wasDown )
-						{
-							aGamepad.releaseThreshold[anAxis[j]] =
-								sGamepadData.pressThreshold[anAxis[j]];
-							aGamepad.buttonsHit.set(aButton);
-						}
-						aGamepad.buttonsDown.set(aButton);
-					}
-					else
-					{
-						aGamepad.buttonsDown.reset(aButton);
-					}
-				}
+				else // not sure what to do with only negative axis...
+					DBG_ASSERT(aNegAxis == eAxis_None);
 			}
 			else if( anInputOfs == DIJOFS_POV(0) )
 			{// Hat/POV/D-Pad movement
-				BitArray<eBtn_Num> prevInputsDown = aGamepad.buttonsDown;
 				aGamepad.buttonsDown.reset(eBtn_DLeft);
 				aGamepad.buttonsDown.reset(eBtn_DRight);
 				aGamepad.buttonsDown.reset(eBtn_DUp);
 				aGamepad.buttonsDown.reset(eBtn_DDown);
+				aGamepad.buttonsDown.reset(eBtn_DPadAny);
 				if( (signed)rgdod[i].dwData != -1 && (LOWORD(rgdod[i].dwData) != 0xFFFF) )
-				{// Moved
+				{// A direction is being presed
 					if( rgdod[i].dwData >= 22500 && rgdod[i].dwData <= 31500 )
 					{// Left
-						if( !prevInputsDown.test(eBtn_DLeft) )
+						if( !aPrevButtonsDown.test(eBtn_DLeft) )
 							aGamepad.buttonsHit.set(eBtn_DLeft);
 						aGamepad.buttonsDown.set(eBtn_DLeft);
 					}
 					if( rgdod[i].dwData >= 4500 && rgdod[i].dwData <= 13500 )
 					{// Right
-						if( !prevInputsDown.test(eBtn_DRight) )
+						if( !aPrevButtonsDown.test(eBtn_DRight) )
 							aGamepad.buttonsHit.set(eBtn_DRight);
 						aGamepad.buttonsDown.set(eBtn_DRight);
 					}
 					if( rgdod[i].dwData <= 4500 || rgdod[i].dwData >= 31500 )
 					{// Up
-						if( !prevInputsDown.test(eBtn_DUp) )
+						if( !aPrevButtonsDown.test(eBtn_DUp) )
 							aGamepad.buttonsHit.set(eBtn_DUp);
 						aGamepad.buttonsDown.set(eBtn_DUp);
 					}
 					if( rgdod[i].dwData >= 13500 && rgdod[i].dwData <= 22500 )
 					{// Down
-						if( !prevInputsDown.test(eBtn_DDown) )
+						if( !aPrevButtonsDown.test(eBtn_DDown) )
 							aGamepad.buttonsHit.set(eBtn_DDown);
 						aGamepad.buttonsDown.set(eBtn_DDown);
 					}
+					// Any
+					if( !aPrevButtonsDown.test(eBtn_DPadAny) )
+						aGamepad.buttonsHit.set(eBtn_DPadAny);
+					aGamepad.buttonsDown.set(eBtn_DPadAny);
 				}
 			}
 		}
@@ -710,6 +743,65 @@ static void pollGamepad(int theGamepadID)
 					rgdod,
 					&dwItems,
 					0);
+		}
+	}
+
+	// Translate individual analog axis into combo axis and digital presses
+	if( anAxisChanged.test(eAxis_LSLeft) ||
+		anAxisChanged.test(eAxis_LSRight) ||
+		anAxisChanged.test(eAxis_LSUp) ||
+		anAxisChanged.test(eAxis_LSDown) )
+	{
+		const float dx =
+			(aGamepad.axisVal[eAxis_LSRight] -
+			 aGamepad.axisVal[eAxis_LSLeft]);
+		const float dy =
+			(aGamepad.axisVal[eAxis_LSDown] -
+			 aGamepad.axisVal[eAxis_LSUp]);
+		const float m = std::sqrt(dx * dx + dy * dy);
+		aGamepad.axisVal[eAxis_LSAny] = clamp(m, 0, 255.0);
+		anAxisChanged.set(eAxis_LSAny);
+	}
+	if( anAxisChanged.test(eAxis_RSLeft) ||
+		anAxisChanged.test(eAxis_RSRight) ||
+		anAxisChanged.test(eAxis_RSUp) ||
+		anAxisChanged.test(eAxis_RSDown) )
+	{
+		const float dx =
+			(aGamepad.axisVal[eAxis_RSRight] -
+			 aGamepad.axisVal[eAxis_RSLeft]);
+		const float dy =
+			(aGamepad.axisVal[eAxis_RSDown] -
+			 aGamepad.axisVal[eAxis_RSUp]);
+		const float m = std::sqrt(dx * dx + dy * dy);
+		aGamepad.axisVal[eAxis_RSAny] = clamp(m, 0, 255.0);
+		anAxisChanged.set(eAxis_RSAny);
+	}
+	for(int i = anAxisChanged.firstSetBit();
+		i < anAxisChanged.size();
+		i = anAxisChanged.nextSetBit(i+1))
+	{
+		const EAxis anAxis = EAxis(i);
+		const EButton aButton = buttonForAxis(anAxis);
+		const bool wasDown = aPrevButtonsDown.test(aButton);
+		const u8 aThreshold = wasDown
+			? aGamepad.releaseThreshold[anAxis]
+			: sGamepadData.pressThreshold[anAxis];
+		const bool isDown =
+			aGamepad.axisVal[anAxis] > aThreshold;
+		if( aButton && isDown )
+		{
+			if( !wasDown )
+			{
+				aGamepad.releaseThreshold[anAxis] =
+					sGamepadData.pressThreshold[anAxis];
+				aGamepad.buttonsHit.set(aButton);
+			}
+			aGamepad.buttonsDown.set(aButton);
+		}
+		else
+		{
+			aGamepad.buttonsDown.reset(aButton);
 		}
 	}
 
@@ -923,9 +1015,9 @@ void init(bool restartAfterDisconnect)
 	// Set default thresholds for digital button presses
 	for(int i = 0; i < eAxis_Num; ++i)
 		sGamepadData.pressThreshold[i] = 100;
-	sGamepadData.pressThreshold[eAxis_LTrigger] =
+	sGamepadData.pressThreshold[eAxis_LTrig] =
 		XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
-	sGamepadData.pressThreshold[eAxis_RTrigger] =
+	sGamepadData.pressThreshold[eAxis_RTrig] =
 		XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
 }
 
@@ -1231,15 +1323,17 @@ EAxis axisForButton(EButton theButton)
 	switch(theButton)
 	{
 	case eBtn_LSLeft:	return eAxis_LSLeft;
-	case eBtn_LSDown:	return eAxis_LSDown;
 	case eBtn_LSRight:	return eAxis_LSRight;
+	case eBtn_LSDown:	return eAxis_LSDown;
 	case eBtn_LSUp:		return eAxis_LSUp;
+	case eBtn_LSAny:	return eAxis_LSAny;
 	case eBtn_RSLeft:	return eAxis_RSLeft;
-	case eBtn_RSDown:	return eAxis_RSDown;
 	case eBtn_RSRight:	return eAxis_RSRight;
 	case eBtn_RSUp:		return eAxis_RSUp;
-	case eBtn_L2:		return eAxis_LTrigger;
-	case eBtn_R2:		return eAxis_RTrigger;
+	case eBtn_RSDown:	return eAxis_RSDown;
+	case eBtn_RSAny:	return eAxis_RSAny;
+	case eBtn_L2:		return eAxis_LTrig;
+	case eBtn_R2:		return eAxis_RTrig;
 	}
 
 	return eAxis_None;
@@ -1251,15 +1345,17 @@ EButton buttonForAxis(EAxis theAxis)
 	switch(theAxis)
 	{
 	case eAxis_LSLeft:		return eBtn_LSLeft;
-	case eAxis_LSDown:		return eBtn_LSDown;
 	case eAxis_LSRight:		return eBtn_LSRight;
 	case eAxis_LSUp:		return eBtn_LSUp;
+	case eAxis_LSDown:		return eBtn_LSDown;
+	case eAxis_LSAny:		return eBtn_LSAny;
 	case eAxis_RSLeft:		return eBtn_RSLeft;
-	case eAxis_RSDown:		return eBtn_RSDown;
 	case eAxis_RSRight:		return eBtn_RSRight;
 	case eAxis_RSUp:		return eBtn_RSUp;
-	case eAxis_RTrigger:	return eBtn_R2;
-	case eAxis_LTrigger:	return eBtn_L2;
+	case eAxis_RSDown:		return eBtn_RSDown;
+	case eAxis_RSAny:		return eBtn_RSAny;
+	case eAxis_LTrig:		return eBtn_L2;
+	case eAxis_RTrig:		return eBtn_R2;
 	}
 
 	return eBtn_None;
@@ -1346,14 +1442,17 @@ const char* buttonName(EButton theButton)
 		case eBtn_LSRight:	return "Axis X+";
 		case eBtn_LSUp:		return "Axis Y-";
 		case eBtn_LSDown:	return "Axis Y+";
+		case eBtn_LSAny:	return "Axis X&Y";
 		case eBtn_RSLeft:	return "Axis RX-";
 		case eBtn_RSRight:	return "AXis RX+";
 		case eBtn_RSUp:		return "Axis RY-";
 		case eBtn_RSDown:	return "AXis RY+";
+		case eBtn_RSAny:	return "Axis RX&RY";
 		case eBtn_DLeft:	return "D-Pad Left";
 		case eBtn_DRight:	return "D-Pad Right";
 		case eBtn_DUp:		return "D-Pad Up";
 		case eBtn_DDown:	return "D-Pad Down";
+		case eBtn_DPadAny:	return "D-Pad Any Dir";
 		case eBtn_FLeft:	return "Button 1";
 		case eBtn_FRight:	return "Button 2";
 		case eBtn_FUp:		return "Button 3";
@@ -1378,14 +1477,17 @@ const char* buttonName(EButton theButton)
 		case eBtn_LSRight:	return "L-Stick Right";
 		case eBtn_LSUp:		return "L-Stick Up";
 		case eBtn_LSDown:	return "L-Stick Down";
+		case eBtn_LSAny:	return "L-Stick";
 		case eBtn_RSLeft:	return "R-Stick Left";
 		case eBtn_RSRight:	return "R-Stick Right";
 		case eBtn_RSUp:		return "R-Stick Up";
 		case eBtn_RSDown:	return "R-Stick Down";
+		case eBtn_RSAny:	return "R-Stick";
 		case eBtn_DLeft:	return "D-Pad Left";
 		case eBtn_DRight:	return "D-Pad Right";
 		case eBtn_DUp:		return "D-Pad Up";
 		case eBtn_DDown:	return "D-Pad Down";
+		case eBtn_DPadAny:	return "D-Pad";
 		case eBtn_FLeft:	return "Square";
 		case eBtn_FRight:	return "Circle";
 		case eBtn_FUp:		return "Triangle";
@@ -1410,14 +1512,17 @@ const char* buttonName(EButton theButton)
 		case eBtn_LSRight:	return "L-Stick Right";
 		case eBtn_LSUp:		return "L-Stick Up";
 		case eBtn_LSDown:	return "L-Stick Down";
+		case eBtn_LSAny:	return "L-Stick";
 		case eBtn_RSLeft:	return "R-Stick Left";
 		case eBtn_RSRight:	return "R-Stick Right";
 		case eBtn_RSUp:		return "R-Stick Up";
 		case eBtn_RSDown:	return "R-Stick Down";
+		case eBtn_RSAny:	return "R-Stick";
 		case eBtn_DLeft:	return "D-Pad Left";
 		case eBtn_DRight:	return "D-Pad Right";
 		case eBtn_DUp:		return "D-Pad Up";
 		case eBtn_DDown:	return "D-Pad Down";
+		case eBtn_DPadAny:	return "D-Pad";
 		case eBtn_FLeft:	return "Y Button";
 		case eBtn_FRight:	return "A Button";
 		case eBtn_FUp:		return "X Button";

@@ -2679,7 +2679,10 @@ static void addButtonAction(
 	std::string aBtnKeyName = condense(theBtnName);
 	EButton aBtnID = buttonNameToID(aBtnKeyName);
 
-	bool isA4DirMultiAssign = false;
+	bool isA4DirMultiAssign =
+		aBtnID == eBtn_LSAny ||
+		aBtnID == eBtn_RSAny ||
+		aBtnID == eBtn_DPadAny;
 	if( aBtnID >= eBtn_Num )
 	{
 		// Button ID not identified from key string
@@ -2718,26 +2721,52 @@ static void addButtonAction(
 				aCmd = stringToCommand(
 					theBuilder, aCmdStr, true, aBtnAct == eBtnAct_Down);
 			}
-			// If not, use the base command
-			if( aCmd.type == eCmdType_Empty )
-			{
+			// Get destination of command. Note that we do this AFTER
+			// parsing the command because stringToCommand() can lead to
+			// resizing sLayers and thus make this pointer invalid!
+			ButtonActions* aDestBtn =
+				&sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID);
+			if( !onlySpecificAction ) aDestBtn->initIfEmpty();
+			Command* aDestCmd = &(aDestBtn->cmd[aBtnAct]);
+			// Direct assignment should take priority over multi-assignment,
+			// so if this was already assigned directly then leave it alone.
+			if( aDestCmd->type > eCmdType_Unassigned || !isA4DirMultiAssign )
+				continue;
+			if( aCmd.type < eCmdType_FirstDirectional )
+			{// Not a valid directional command! Use base command
 				aCmdStr = theCmdStr;
 				aCmd = aBaseCmd;
 				dirCommandFailed = true;
+				// Possibly treat as a single assignment to the special
+				// "any direction" button for this 4-dir input
+				switch(aBtnID)
+				{
+				case eBtn_LSLeft: case eBtn_LSRight:
+				case eBtn_LSUp: case eBtn_LSDown:
+					aBtnID = eBtn_LSAny;
+					isA4DirMultiAssign = false;
+					break;
+				case eBtn_RSLeft: case eBtn_RSRight:
+				case eBtn_RSUp: case eBtn_RSDown:
+					aBtnID = eBtn_RSAny;
+					isA4DirMultiAssign = false;
+					break;
+				case eBtn_DLeft: case eBtn_DRight:
+				case eBtn_DUp: case eBtn_DDown:
+					aBtnID = eBtn_DPadAny;
+					isA4DirMultiAssign = false;
+					break;
+				}
+				if( !isA4DirMultiAssign )
+				{
+					aDestBtn =
+						&sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID);
+					if( !onlySpecificAction ) aDestBtn->initIfEmpty();
+					aDestCmd = &aDestBtn->cmd[aBtnAct];
+				}
 			}
-			// Get destination of command. Note that we do this AFTER
-			// parsing the command because stringToCommand() can lead to
-			// resizing sLayers and thus make this reference invalid!
-			ButtonActions& aDestBtn =
-				sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID);
-			if( !onlySpecificAction ) aDestBtn.initIfEmpty();
-			Command& aDestCmd = aDestBtn.cmd[aBtnAct];
-			// Direct assignment should take priority over multi-assignment,
-			// so if this was already assigned directly then leave it alone.
-			if( aDestCmd.type > eCmdType_Unassigned )
-				continue;
 			// Make and report assignment
-			aDestCmd = aCmd;
+			*aDestCmd = aCmd;
 			if( aBtnAct == eBtnAct_Hold )
 			{// Assign time to hold button for this action
 				sButtonHoldTimes.setValue(
@@ -2748,11 +2777,13 @@ static void addButtonAction(
 			}
 			std::string anExtPropName =
 				theBuilder.debugSubItemName + k4DirCmdSuffix[i];
-			swap(theBuilder.debugSubItemName, anExtPropName);
+			if( isA4DirMultiAssign )
+				swap(theBuilder.debugSubItemName, anExtPropName);
 			reportButtonAssignment(
-				theBuilder, aBtnAct, aBtnID, aDestCmd, aCmdStr,
+				theBuilder, aBtnAct, aBtnID, aCmd, aCmdStr,
 				onlySpecificAction);
-			swap(theBuilder.debugSubItemName, anExtPropName);
+			if( isA4DirMultiAssign )
+				swap(theBuilder.debugSubItemName, anExtPropName);
 		}
 		return;
 	}
@@ -2791,8 +2822,7 @@ static void addButtonAction(
 	ButtonActions& aDestBtn =
 		sLayers[theLayerIdx].buttonMap.findOrAdd(aBtnID);
 	if( !onlySpecificAction ) aDestBtn.initIfEmpty();
-	Command& aDestCmd = aDestBtn.cmd[aBtnAct]; 
-	aDestCmd = aCmd;
+	aDestBtn.cmd[aBtnAct] = aCmd;
 	if( aBtnAct == eBtnAct_Hold )
 	{// Assign time to hold button for this action
 		sButtonHoldTimes.setValue(
@@ -2804,7 +2834,7 @@ static void addButtonAction(
 
 	// Report the results of the assignment
 	reportButtonAssignment(
-		theBuilder, aBtnAct, aBtnID, aDestCmd, theCmdStr,
+		theBuilder, aBtnAct, aBtnID, aCmd, theCmdStr,
 		onlySpecificAction);
 }
 

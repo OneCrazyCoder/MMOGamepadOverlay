@@ -50,6 +50,7 @@ struct Config
 		Gamepad::setPressThreshold(eBtn_LSRight, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSUp, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSDown, aThreshold);
+		Gamepad::setPressThreshold(eBtn_LSAny, aThreshold);
 		aThreshold =
 			clamp(Profile::getInt("Gamepad/RStickButtonThreshold", 40),
 				0, 100) * 255 / 100;
@@ -57,6 +58,7 @@ struct Config
 		Gamepad::setPressThreshold(eBtn_RSRight, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSUp, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSDown, aThreshold);
+		Gamepad::setPressThreshold(eBtn_RSAny, aThreshold);
 		aThreshold =
 			clamp(Profile::getInt("Gamepad/TriggerButtonThreshold", 12),
 				0, 100) * 255 / 100;

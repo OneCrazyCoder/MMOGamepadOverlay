@@ -99,6 +99,7 @@ enum ECommandType
 	eCmdType_FirstValid = eCmdType_SignalOnly,
 	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
 	eCmdType_LastMenuControl = eCmdType_MenuEditDir,
+	eCmdType_FirstDirectional = eCmdType_MenuSelect,
 	eCmdType_FirstContinuous = eCmdType_MoveTurn,
 };
 
@@ -152,18 +153,21 @@ enum EButton
 	eBtn_LSRight,
 	eBtn_LSUp,
 	eBtn_LSDown,
+	eBtn_LSAny,
 
 	// Right analog stick (pushed past set digital deadzone)
 	eBtn_RSLeft,
 	eBtn_RSRight,
 	eBtn_RSUp,
 	eBtn_RSDown,
+	eBtn_RSAny,
 
 	// D-pad
 	eBtn_DLeft,
 	eBtn_DRight,
 	eBtn_DUp,
 	eBtn_DDown,
+	eBtn_DPadAny,
 
 	// Face buttons
 	eBtn_FLeft,		// Left face button - PS=Sqr, XB=X, N=Y
