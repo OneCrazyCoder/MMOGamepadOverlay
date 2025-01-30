@@ -17,14 +17,17 @@ const char* kProfileButtonName[] =
 	"LSRight",	// eBtn_LSRight
 	"LSUp",		// eBtn_LSUp
 	"LSDown",	// eBtn_LSDown
+	"LStick",	// eBtn_LSAny
 	"RSLeft",	// eBtn_RSLeft
 	"RSRight",	// eBtn_RSRight
 	"RSUp",		// eBtn_RSUp
 	"RSDown",	// eBtn_RSDown
+	"RStick",	// eBtn_RSAny
 	"DLeft",	// eBtn_DLeft
 	"DRight",	// eBtn_DRight
 	"DUp",		// eBtn_DUp
 	"DDown",	// eBtn_DDown
+	"DPad",		// eBtn_DPad
 	"FLeft",	// eBtn_FLeft
 	"FRight",	// eBtn_FRight
 	"FUp",		// eBtn_FUp

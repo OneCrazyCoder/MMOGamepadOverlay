@@ -25,16 +25,18 @@ enum EAxis
 	eAxis_LSRight,	// DInput X+
 	eAxis_LSUp,		// DInput Y-
 	eAxis_LSDown,	// DInput Y+
+	eAxis_LSAny,	// Magnitude of combo of all of above (0 when centered)
 
 	// Right analog stick
 	eAxis_RSLeft,
 	eAxis_RSRight,
 	eAxis_RSUp,
 	eAxis_RSDown,
+	eAxis_RSAny,
 
-	// Analog triggers (R first to match XB360 using DInput)
-	eAxis_RTrigger,
-	eAxis_LTrigger,
+	// Analog triggers
+	eAxis_LTrig,
+	eAxis_RTrig,
 
 	eAxis_Num
 };
