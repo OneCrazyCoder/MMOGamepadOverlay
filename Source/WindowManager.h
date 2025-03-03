@@ -59,7 +59,7 @@ HWND toolbarHandle();
 bool requiresNormalCursorControl();
 
 // Move/resize/hide/restore the overlay windows
-void resize(RECT theNewTargetRect);
+void resize(RECT theNewTargetRect, bool isTargetAppWindow);
 void resetOverlays();
 void hideOverlays();
 void showOverlays();

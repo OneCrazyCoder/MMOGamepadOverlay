@@ -325,7 +325,7 @@ static void checkWindowPosition()
 			"Repositioning Overlay to Target (%d x %d -> %d x %d)\n",
 			aWRect.left, aWRect.top, aWRect.right, aWRect.bottom);
 		sTargetWindowRect = aWRect;
-		WindowManager::resize(aWRect);
+		WindowManager::resize(aWRect, true);
 		WindowManager::showOverlays();
 		// Check every update for a bit in case dragging window around
 		sRepeatCheckTime = 500;

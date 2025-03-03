@@ -696,7 +696,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	RECT aScreenRect = { 0, 0,
 		GetSystemMetrics(SM_CXSCREEN),
 		GetSystemMetrics(SM_CYSCREEN) };
-	resize(aScreenRect);
+	resize(aScreenRect, false);
 }
 
 
@@ -1022,7 +1022,7 @@ bool requiresNormalCursorControl()
 }
 
 
-void resize(RECT theNewWindowRect)
+void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 {
 	if( !sMainWindow ||
 		theNewWindowRect.right <= theNewWindowRect.left ||
@@ -1046,18 +1046,21 @@ void resize(RECT theNewWindowRect)
 	sDesktopTargetRect.top -= GetSystemMetrics(SM_YVIRTUALSCREEN);
 	sDesktopTargetRect.bottom -= GetSystemMetrics(SM_YVIRTUALSCREEN);
 	sTargetClipRect = sScreenTargetRect;
-	if( HMONITOR hMonitor =
-			MonitorFromRect(&sScreenTargetRect, MONITOR_DEFAULTTONEAREST) )
-	{
-		MONITORINFO aMonitorInfo = { sizeof(MONITORINFO) };
-		if( GetMonitorInfo(hMonitor, &aMonitorInfo) )
+	if( !isTargetAppWindow )
+	{// Restrict to "work" area of active monitor when don't have a target app
+		if( HMONITOR hMonitor =
+				MonitorFromRect(&sScreenTargetRect, MONITOR_DEFAULTTONEAREST) )
 		{
-			if( !IntersectRect(
-					&sTargetClipRect,
-					&sScreenTargetRect,
-					&aMonitorInfo.rcWork) )
+			MONITORINFO aMonitorInfo = { sizeof(MONITORINFO) };
+			if( GetMonitorInfo(hMonitor, &aMonitorInfo) )
 			{
-				sTargetClipRect = sScreenTargetRect;
+				if( !IntersectRect(
+						&sTargetClipRect,
+						&sScreenTargetRect,
+						&aMonitorInfo.rcWork) )
+				{
+					sTargetClipRect = sScreenTargetRect;
+				}
 			}
 		}
 	}
@@ -1075,7 +1078,7 @@ void resetOverlays()
 	RECT aScreenRect = { 0, 0,
 		GetSystemMetrics(SM_CXSCREEN),
 		GetSystemMetrics(SM_CYSCREEN) };
-	resize(aScreenRect);
+	resize(aScreenRect, false);
 }
 
 
