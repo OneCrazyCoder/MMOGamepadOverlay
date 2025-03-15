@@ -1857,7 +1857,8 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out, bool trimKeys)
 
 void setStr(const std::string& theSection,
 			const std::string& theProperty,
-			const std::string& theValue)
+			const std::string& theValue,
+			bool saveToFile)
 {
 	const std::string& aPropertyName = theSection + "/" + theProperty;
 	ProfileProperty& aPropertyRef = sPropertyMap.findOrAdd(
@@ -1869,20 +1870,24 @@ void setStr(const std::string& theSection,
 		return;
 	aPropertyRef.val = theValue;
 
-	for(size_t i = 0; i < sUnsavedChangesList.size(); ++i)
+	if( saveToFile )
 	{
-		if( sUnsavedChangesList[i].section == theSection &&
-			sUnsavedChangesList[i].name == theProperty )
+		for(size_t i = 0; i < sUnsavedChangesList.size(); ++i)
 		{
-			sUnsavedChangesList[i].val = theValue;
-			return;
+			if( sUnsavedChangesList[i].section == theSection &&
+				sUnsavedChangesList[i].name == theProperty )
+			{
+				sUnsavedChangesList[i].val = theValue;
+				return;
+			}
 		}
+
+		ProfileNewProperty aNewProperty;
+		aNewProperty.section = theSection;
+		aNewProperty.name = theProperty;
+		aNewProperty.val = theValue;
+		sUnsavedChangesList.push_back(aNewProperty);
 	}
-	ProfileNewProperty aNewProperty;
-	aNewProperty.section = theSection;
-	aNewProperty.name = theProperty;
-	aNewProperty.val = theValue;
-	sUnsavedChangesList.push_back(aNewProperty);
 }
 
 

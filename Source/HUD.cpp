@@ -506,7 +506,9 @@ static void loadBitmapFile(
 		return;
 
 	// Convert given path into a wstring absolute path
-	theBitmapPath = removeExtension(removePathParams(theBitmapPath)) + ".bmp";
+	theBitmapPath =
+		removeExtension(removePathParams(expandPathVars(
+			theBitmapPath))) + ".bmp";
 
 	if( !isAbsolutePath(theBitmapPath) )
 	{

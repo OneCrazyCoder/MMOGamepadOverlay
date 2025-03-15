@@ -242,6 +242,34 @@ const V* StringToValueMap<V, I>::find(const Key& theKey) const
 
 
 template<class V, class I> inline
+bool StringToValueMap<V, I>::containsPrefix(const Key& thePrefix) const
+{
+	DBG_ASSERT(mKeys.size() == mValues.size());
+	DBG_ASSERT(mValues.size() == mTrie.size());
+	if( mTrie.empty() )
+		return false;
+
+	// Walk the tree searching for thePrefix until find a node whose
+	// bitpos is >= the length of thePrefix (or a back-pointing node).
+	I aCheckNodeIdx = mHeadNodeIndex;
+	u16 aMaxBitPos = u16(thePrefix.length() * 8);
+	s32 aLastCheckedNodeBitPos = -1;
+	bool foundBPNode = false;
+	while(mTrie[aCheckNodeIdx].bitPos < aMaxBitPos && !foundBPNode)
+	{
+		aLastCheckedNodeBitPos = mTrie[aCheckNodeIdx].bitPos;
+		aCheckNodeIdx = getBitAtPos(thePrefix, mTrie[aCheckNodeIdx].bitPos)
+			? mTrie[aCheckNodeIdx].right
+			: mTrie[aCheckNodeIdx].left;
+		foundBPNode = mTrie[aCheckNodeIdx].bitPos <= aLastCheckedNodeBitPos;
+	}
+
+	// Found node should be a key starting with thePrefix, if any has it
+	return !mKeys[aCheckNodeIdx].compare(0, thePrefix.length(), thePrefix);
+}
+
+
+template<class V, class I> inline
 V& StringToValueMap<V, I>::findOrAdd(const Key& theKey, const V& theDefault)
 {
 	if( mTrie.empty() )

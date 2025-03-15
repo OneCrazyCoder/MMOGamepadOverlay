@@ -305,7 +305,11 @@ Some accepted examples of valid positions for reference:
     # Rectangle with full height but 50%-75% of the width
     = 50%, 0, 25%, H
 
-*NOTE: The offset value is unaffected by the size of the target screen/window, but will instead be multiplied by the global  [System] property ``UIScale=`` (which itself can be automatically set for some games by use of ``UIScaleRegKey=`` and/or  ``UIScaleBaseHeight=`` to the game's default resolution height). Some size-related properties that only have a single value, such as BorderSize, TitleHeight, and FontSize, are also multiplied by UIScale!*
+### UI Scale
+
+The hotspot offset value mentioned above is not directly affected by the size of the target screen/window, but will instead be multiplied by a global UI Scale value. Some size-related properties that only have a single value, such as BorderSize, TitleHeight, and FontSize, are also multiplied by this global UI Scale value. The initial value for this can be configured by setting the ``[System]`` property ``UIScale=``, which defaults to 100% if undefined.
+
+For games that adjust their own UI scale automatically according to window size, such as *Pantheon*, set the ``[System]`` property ``UIScaleBaseHeight=`` to a default value like ``=1080``. The app will then compare the actual window height to this value and multiply the UIScale property by the difference. For example, with it set to 1080 but the game window being 4K (2,160 height), UIScale will be multiplied by 2.0 (2160 / 1080 = 2.0).
 
 ### UI Layout Editor
 
@@ -835,7 +839,6 @@ These commands affect the overlay app directly rather than the game you are usin
 
 * ``=Change Profile`` - brings up profile select dialog
 * ``=Quit App`` - closes the overlay application
-* ``=Update UIScale`` - refreshes global UI scale
 
 ### Remembering layers between profile loads
 
@@ -927,6 +930,21 @@ With this mode the left mouse button will be held while no movement commands are
 The tricky part is while using AutoRun, which the app has no way of knowing for sure your character is still doing or not (there are multiple ways to cancel AutoRun that the app won't necessarily know about). Therefore it assumes that any time you send the AutoRun key that your character begins moving forward, and that your character will continue moving forward until you send MoveBack or release and re-send MoveForward commands, and use the right mouse button during this to allow for steering.
 
 If you prefer, you can use ``Mouse=AutoRunLook`` which instead treats AutoRun (and Lock Movement) the same as being stationary and always uses the LookOnly camera mode whenever you are not actively holding a movement direction. This allows freely looking around for threats while auto-running without changing your direction of movement, but removes the ability to steer your character via mouse movement while auto-running. You could also assign AutoLook and AutoRunLook to to different layers and switch between them by holding a button.
+
+### Auto-sync properties to game config files
+
+Some profile properties will naturally be set to exactly match target game configuration, such as the base ``[System]`` property ``UIScale=``. For convenience, these can be set up to automatically read in data from game configuration files and apply them to the overlay - and will even automatically update if said files are modified at runtime. This automatic syncing will NOT be written out to your profile .ini files permanently, however.
+
+First, any configuration file that should be parsed needs to be set as a property in the ``[TargetConfigFiles]`` section, with a name given to each file. Environment variables such as %USERPROFILE% can be used in the file path. For example, for *Monsters and Memories* this path could be set to ``Settings=%USERPROFILE%\AppData\LocalLow\Niche Worlds Cult\Monsters and Memories\settings.json`` *NOTE: Currently only .json configuration files are supported for this feature!*
+
+Next, use the ``[TargetSyncProperties]`` section to assign a property that you want to have its value read in from one of the target game's config files. The property name should match the section and property name of the original property, separated by a period. For example, to have this feature read a UI scale value from a configuration file, the property name would be ``System.UIScale=``.
+
+The value of a sync property is a path to read from, with each step on the path separated by periods. The first step of the path should be the name of a ``[TargetConfigFiles]`` property, followed by section names, key names, value names, etc, depending on the configuration file layout. For example, *Monsters and Memories* UIScale property can be auto-synced by using:
+
+    [TargetSyncProperties]
+    System.UIScale = Settings.GameSettingUIScale
+
+*NOTE: Currently only properties set to a single numeric values like UIScale are supported by this feature!*
 
 ### Other system features
 

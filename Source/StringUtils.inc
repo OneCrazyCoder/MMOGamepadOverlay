@@ -186,6 +186,24 @@ inline double doubleFromString(const std::string& theString)
 	double result = double(atof(theString.c_str()));
 	if( !theString.empty() && theString[theString.size()-1] == '%' )
 		result /= 100.0;
+	if( result == 0 )
+	{
+		switch(theString[0])
+		{
+		case 't': case 'T':
+			if( lower(theString) == "true" )
+				result = 1.0;
+			break;
+		case 'Y': case 'y':
+			if( lower(theString) == "yes" )
+				result = 1.0;
+			break;
+		case 'O': case 'o':
+			if( lower(theString) == "on" )
+				result = 1.0;
+			break;
+		}
+	}
 	return result;
 }
 

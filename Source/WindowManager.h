@@ -69,8 +69,6 @@ SIZE overlayTargetSize();
 RECT overlayTargetScreenRect();
 RECT overlayTargetDesktopRect();
 
-// Updates gUIScale based on Profile and possibly Windows registry
-void updateUIScale();
 // Displays a visual indicater that are tracking a target window now
 void showTargetWindowFound();
 

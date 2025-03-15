@@ -10,6 +10,7 @@
 #include "InputMap.h"
 #include "Profile.h"
 #include "Resources/resource.h"
+#include "TargetConfigSync.h"
 #include "WindowManager.h"
 
 #include <CommCtrl.h>
@@ -1538,7 +1539,7 @@ void init()
 		return;
 	}
 
-	WindowManager::updateUIScale();
+	TargetConfigSync::stop();
 
 	// Gather information on elements that can be edited
 	DBG_ASSERT(sState == null);
@@ -1706,6 +1707,8 @@ void init()
 
 void cleanup()
 {
+	TargetConfigSync::load();
+
 	if( !sState )
 		return;
 

@@ -27,4 +27,5 @@ std::vector<u8> gKeyBindArrayLastIndex;
 std::vector<u8> gKeyBindArrayDefaultIndex;
 BitVector<> gKeyBindArrayLastIndexChanged;
 BitVector<> gKeyBindArrayDefaultIndexChanged;
-double gUIScale = 1.0f;
+double gUIScale = 1.0;
+double gWindowUIScale = 1.0;

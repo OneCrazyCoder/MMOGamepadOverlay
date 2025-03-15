@@ -1153,18 +1153,6 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	// "= [Update] UIScale"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Change);
-	allowedKeyWords.set(eCmdWord_Edit);
-	allowedKeyWords.set(eCmdWord_UIScale);
-	if( keyWordsFound.test(eCmdWord_UIScale) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_UpdateUIScale;
-		return result;
-	}
-
 	// "= [Edit] Layout"
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Change);
@@ -3731,21 +3719,13 @@ static void parseLabel(InputMapBuilder& theBuilder, std::string& theLabel)
 
 	// Search for replacement text tags in format <tag>
 	bool replacementNeeded = false;
-	std::string::size_type aStartPos = 0;
-	while( (aStartPos = theLabel.find('<', aStartPos)) != std::string::npos )
+	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
+		findStringTag(theLabel);
+	while(aTagCoords.first != std::string::npos )
 	{
-		// Find the closing '>' (or if none found, we're done)
-		std::string::size_type anEndPos = theLabel.find('>', aStartPos);
-		if( anEndPos == std::string::npos )
-			break;
-
-		// Only use the last '<' found before the closing '>'
-		aStartPos = theLabel.rfind('<', anEndPos);
-	
-		// Extract the tag string (text inside < and >)
 		const std::string& aTag = condense(theLabel.substr(
-			aStartPos + 1, anEndPos - aStartPos - 1));
-
+			aTagCoords.first + 1, aTagCoords.second - 2));
+	
 		// Generate the replacement character sequence
 		std::string aNewStr;
 		// See if tag matches a layer name to display layer status
@@ -3761,10 +3741,10 @@ static void parseLabel(InputMapBuilder& theBuilder, std::string& theLabel)
 
 		if( !aNewStr.empty() )
 		{
-			theLabel.replace(aStartPos, anEndPos - aStartPos + 1, aNewStr);
-			aStartPos += aNewStr.length();
+			theLabel.replace(aTagCoords.first, aTagCoords.second, aNewStr);
 			replacementNeeded = true;
 		}
+		aTagCoords = findStringTag(theLabel, aTagCoords.first+1);
 	}
 
 	if( replacementNeeded )

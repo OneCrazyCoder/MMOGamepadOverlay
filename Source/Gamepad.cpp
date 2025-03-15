@@ -8,9 +8,12 @@
 #include <dinput.h>
 #include <xinput.h>
 
+#ifndef XUSER_MAX_COUNT
+#define XUSER_MAX_COUNT 4
+#endif
+
 namespace Gamepad
 {
-
 
 // Uncomment this to print details about detecting gamepads to debug window
 //#define GAMEPAD_DEBUG_PRINT

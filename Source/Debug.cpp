@@ -78,6 +78,18 @@ void debugPrint(const char* fmt ...)
 }
 
 
+void logToFile(const char* fmt ...)
+{
+	va_list argList;
+	va_start(argList, fmt);
+	const std::string& anErrorString = vformat(fmt, argList);
+	va_end(argList);
+
+	logToConsole("<< ERROR LOG >>: ", anErrorString);
+	logToErrorFile(anErrorString);
+}
+
+
 void logNotice(const char* fmt ...)
 {
 	va_list argList;

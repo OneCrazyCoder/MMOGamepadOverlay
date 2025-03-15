@@ -597,7 +597,6 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "LAYOUT",			eCmdWord_Layout		},
 				{ "UI",				eCmdWord_Layout		},
 				{ "UILAYOUT",		eCmdWord_Layout		},
-				{ "UISCALE",		eCmdWord_UIScale	},
 				{ "PROFILE",		eCmdWord_Profile	},
 				{ "STARTUP",		eCmdWord_Startup	},
 				{ "LAUNCH",			eCmdWord_Startup	},
