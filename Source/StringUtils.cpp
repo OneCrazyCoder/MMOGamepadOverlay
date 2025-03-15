@@ -381,6 +381,7 @@ std::string removePathParams(const std::string& thePath)
 
 	if( !thePath.empty() && thePath[0] == '"' )
 	{
+		aResult.clear();
 		bool inQuotes = true;
 		for(size_t aPos = 1; aPos < thePath.size(); ++aPos)
 		{
