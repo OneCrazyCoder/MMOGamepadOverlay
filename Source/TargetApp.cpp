@@ -589,7 +589,7 @@ void autoLaunch()
 
 	// Convert given path into a non-const wide string for CreateProcess
 	WCHAR aFinalPath[MAX_PATH] = { 0 };
-	std::string aPath = kConfig.targetAppPath;
+	std::string aPath = expandPathVars(kConfig.targetAppPath);
 	std::string aParams = getPathParams(aPath);
 	if( !kConfig.targetAppParams.empty() )
 	{
@@ -598,14 +598,15 @@ void autoLaunch()
 		aParams += kConfig.targetAppParams;
 	}
 	aPath = removePathParams(aPath);
-	if( !isAbsolutePath(kConfig.targetAppPath) )
+	if( !isAbsolutePath(aPath) )
 	{
 		GetModuleFileName(NULL, aFinalPath, MAX_PATH);
 		aPath = getFileDir(narrow(aFinalPath), true) + aPath;
 	}
 	const std::string aDirPath = getFileDir(aPath);
+	aPath = "\"" + aPath + "\"";
 	if( !aParams.empty() )
-		aPath = "\"" + aPath + "\" " + aParams;
+		aPath = aPath + " " + aParams;
 	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH-1);
 
 	STARTUPINFO si;

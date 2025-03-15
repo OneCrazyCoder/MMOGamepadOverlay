@@ -46,9 +46,11 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out, bool trimKeys 
 // forward slash characters in the section or property name.
 // Changes will not be saved to file until saveChangesToFile() is called,
 // which happens when about to un-load a profile (reload/change) or exit app
+// saveToFile = false means the value will only apply until profile is unloaded
 void setStr(const std::string& theSection,
 			const std::string& theProperty,
-			const std::string& theValue);
+			const std::string& theValue,
+			bool saveToFile = true);
 // Saves any modifications made using setStr() to .ini file
 void saveChangesToFile();
 

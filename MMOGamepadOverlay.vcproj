@@ -591,6 +591,14 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Source\TargetConfigSync.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\TargetConfigSync.h"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\Taron-ECO.ini"
 			>
 		</File>

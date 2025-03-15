@@ -185,9 +185,9 @@ public:
 	void shrink_to_fit();
 	// Frees memory used to store copies of the original string keys, which
 	// are not needed any more if done adding/removing keys and only use
-	// quickFind() from then on. Invalidates the use of setValue(), erase(),
-	// find(), contains(), and findOrAdd() (will all assert) until next time
-	// clear() is used, and of course makes getKeyVector() become empty().
+	// quickFind() from then on. Invalidates the use of setValue(),
+	// find(), contains(), containsPrefix(), and findOrAdd() (will all assert)
+	// until next time clear() is used, and makes getKeyVector().empty().
 	void freeKeys();
 
 	// ACCESSORS
@@ -197,6 +197,8 @@ public:
 	const V* find(const Key& theKey) const;
 	// Just returns true if theKey is found, if that's all that's needed
 	bool contains(const Key& theKey) const { return find(theKey) != null; }
+	// Returns true if any keys contain the given prefix
+	bool containsPrefix(const Key& thePrefix) const;
 	// Like find(), but if key not found, adds it (with default value) first.
 	// Returns a direct reference to the value, since can't return 'null'.
 	V& findOrAdd(const Key& theKey, const V& theDefault = V());
@@ -214,7 +216,7 @@ public:
 	// be used to index into keys()/values(). Can be used after freeKeys()
 	// but result will not be valid if no keys actually have given prefix!
 	void findAllWithPrefix(const Key& thePrefix, IndexVector* out) const;
-	// Direct access to the vectors of keys & values, for direct iteration.
+	// Access to the internal vectors of keys & values, for direct iteration.
 	// These are not guaranteed to be in any particular order, except in
 	// relation to each other (i.e. keyVector()[idx] returns the key for
 	// the associated value valueVector()[idx]).

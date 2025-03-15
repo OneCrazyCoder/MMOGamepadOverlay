@@ -8,7 +8,8 @@
 #undef _WIN32_WINNT
 
 #define WIN32_LEAN_AND_MEAN
-#define _WIN32_WINNT 0x0501
+#define _WIN32_WINNT 0x0601
+#define WINVER 0x0601
 
 #include <windows.h>
 

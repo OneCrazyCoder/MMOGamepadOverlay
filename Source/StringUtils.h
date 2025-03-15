@@ -38,7 +38,8 @@ std::string getExtension(const std::string& thePath);
 std::string removeExtension(const std::string& thePath);
 std::string withExtension(const std::string& thePath, const std::string& theExt);
 std::string getPathParams(const std::string& thePath);
-std::string removePathParams(const std::string& thePath); // also removes "'s
+std::string removePathParams(const std::string& thePath); // also removes double quotes
+std::string expandPathVars(const std::string& thePath); // such as %USERPROFILE%
 std::string removeTrailingSlash(const std::string& theDirectory);
 std::string addTrailingSlash(const std::string& theDirectory, bool backSlash = false);
 bool isAbsolutePath(const std::string& thePath);
@@ -59,6 +60,11 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 // Finds first character in theString that is after thePrefix, even if upper/lower
 // case doesn't match or string has whitespace in its copy of the prefix
 size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix);
+// Finds next string "tag" in format <tagName> and returns its start pos and length
+// (which include the '<' and '>' chars). .subStr(.first+1, .second-2) == tagName.
+// If no tags are found, .first will be set to std::string::npos and .second to 0
+std::pair<std::string::size_type, std::string::size_type>
+findStringTag(const std::string& theString, std::string::size_type theStartPos = 0);
 
 // Conversion between numbers and (pure ASCII) strings
 std::string commaSeparate(u32 theValue);

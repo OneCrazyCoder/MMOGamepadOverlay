@@ -10,6 +10,7 @@
 #include "LayoutEditor.h"
 #include "Profile.h"
 #include "Resources/resource.h"
+#include "TargetConfigSync.h" // refresh()
 #include "TargetApp.h" // targetWindowHandle()
 
 // Forward declares of functions defined in Main.cpp for updating in modal mode
@@ -1037,7 +1038,14 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		gReloadProfile )
 	{
 		sTargetSize = aNewTargetSize;
-		updateUIScale();
+
+		const int aUIScaleBaseHeight =
+			Profile::getInt("System/UIScaleBaseHeight");
+		if( aUIScaleBaseHeight > 0 )
+			gWindowUIScale *= double(sTargetSize.cy) / aUIScaleBaseHeight;
+		else
+			gWindowUIScale = 1.0;
+		TargetConfigSync::refresh();
 	}
 
 	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
@@ -1138,60 +1146,6 @@ RECT overlayTargetScreenRect()
 RECT overlayTargetDesktopRect()
 {
 	return sDesktopTargetRect;
-}
-
-
-void updateUIScale()
-{
-	gUIScale = Profile::getFloat("System/UIScale", 1.0f);
-
-	const std::string& aUIScaleRegKey =
-		Profile::getStr("System/UIScaleRegKey");
-	if( !aUIScaleRegKey.empty() )
-	{
-		HKEY hKey;
-		const std::string& aPrefix = upper(getFileName(aUIScaleRegKey));
-		std::string aSubKey = upper(getFileDir(aUIScaleRegKey));
-		const std::string kRootKey = "HKEY_CURRENT_USER";
-		if( aSubKey.substr(0, kRootKey.size()) == kRootKey )
-			aSubKey = aSubKey.substr(kRootKey.size()+1);
-
-		if( RegOpenKeyExA(HKEY_CURRENT_USER, aSubKey.c_str(),
-			0, KEY_READ, &hKey) != ERROR_SUCCESS )
-			return;
-
-		union { u8 buf[sizeof(double)]; double val; } aDoubleValBuffer;
-		LONG aResult = 0;
-		for(DWORD i = 0; aResult != ERROR_NO_MORE_ITEMS; ++i)
-		{
-			DWORD dataSize = sizeof(aDoubleValBuffer);
-			char aValueName[256];
-			DWORD aValueNameSize = ARRAYSIZE(aValueName);
-			DWORD type;
-			aResult = RegEnumValueA(
-				hKey, i, aValueName, &aValueNameSize, NULL, &type,
-				&aDoubleValBuffer.buf[0], &dataSize);			
-			if( aResult != ERROR_SUCCESS )
-				continue;
-
-			if( aValueNameSize > aPrefix.size() &&
-				upper(aValueName).substr(0, aPrefix.size()) == aPrefix )
-			{
-				gUIScale = aDoubleValBuffer.val;
-				break;
-			}
-		}
-		RegCloseKey(hKey);
-	}
-
-	const int aUIScaleBaseHeight =
-		Profile::getInt("System/UIScaleBaseHeight");
-	if( aUIScaleBaseHeight > 0 )
-		gUIScale *= double(sTargetSize.cy) / aUIScaleBaseHeight;
-
-	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
-		sOverlayWindows[i].layoutUpdated = false;
-	HUD::updateScaling();
 }
 
 

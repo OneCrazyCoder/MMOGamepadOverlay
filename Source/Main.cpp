@@ -21,6 +21,7 @@
 #include "Menus.h"
 #include "Profile.h"
 #include "TargetApp.h"
+#include "TargetConfigSync.h"
 #include "WindowManager.h"
 
 #ifdef _DEBUG
@@ -114,6 +115,7 @@ void mainModulesUpdate()
 	InputTranslator::update();
 	InputDispatcher::update();
 	TargetApp::update();
+	TargetConfigSync::update();
 	HUD::update();
 	WindowManager::update();
 }
@@ -193,6 +195,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
 			TargetApp::loadProfile();
+			TargetConfigSync::load();
 			HUD::init();
 			WindowManager::createOverlays(hInstance);
 		}
@@ -250,6 +253,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	}
 		
 	// Final cleanup
+	TargetConfigSync::stop();
 	Gamepad::cleanup();
 	TargetApp::cleanup();
 	ReleaseMutex(hMutex);

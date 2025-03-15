@@ -60,7 +60,6 @@ enum ECommandType
 	eCmdType_StartAutoRun,
 	eCmdType_ChangeProfile,
 	eCmdType_EditLayout,
-	eCmdType_UpdateUIScale,
 	eCmdType_QuitApp,
 
 	// These trigger changes in Controls Layers (button configuration)
@@ -343,7 +342,6 @@ enum ECommandKeyWord
 	eCmdWord_Profile,
 	eCmdWord_Startup,
 	eCmdWord_Layout,
-	eCmdWord_UIScale,
 	eCmdWord_App,
 
 	eCmdWord_Integer,

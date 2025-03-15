@@ -348,6 +348,12 @@ std::string withExtension(const std::string& thePath, const std::string& theExt)
 
 std::string getPathParams(const std::string& thePath)
 {
+	// Paths containing parameters MUST have the path itself surrounded in
+	// double quotes, otherwise it is impossible to know (through string
+	// parsing alone) if a space separates file path from parameters vs
+	// being spaces within file/folder names. Checking for an extension does
+	// not help, because something like C:\Users\Jon.Doe Files\Apps\AnApp.exe
+	// would assume .Doe was an extension and Files... as parameters.
 	bool inQuotes = false;
 	bool atStart = true;
 	for(size_t aPos = 0; aPos < thePath.size(); ++aPos)
@@ -371,30 +377,33 @@ std::string getPathParams(const std::string& thePath)
 
 std::string removePathParams(const std::string& thePath)
 {
-	std::string aResult;
+	std::string aResult = trim(thePath);
 
-	bool inQuotes = false;
-	bool atStart = true;
-	for(size_t aPos = 0; aPos < thePath.size(); ++aPos)
+	if( !thePath.empty() && thePath[0] == '"' )
 	{
-		if( thePath[aPos] == '"' )
+		bool inQuotes = true;
+		for(size_t aPos = 1; aPos < thePath.size(); ++aPos)
 		{
-			inQuotes = !inQuotes;
-		}
-		else if( thePath[aPos] == ' ' )
-		{
-			if( !atStart && !inQuotes )
+			if( thePath[aPos] == '"' )
 				break;
-			aResult.push_back(thePath[aPos]);
-		}
-		else
-		{
-			atStart = false;
+
 			aResult.push_back(thePath[aPos]);
 		}
 	}
 
 	return aResult;
+}
+
+
+std::string expandPathVars(const std::string& thePath)
+{
+	WCHAR anExpandedPath[MAX_PATH];
+	DWORD aResult = ExpandEnvironmentStrings(
+		widen(thePath).c_str(),
+		anExpandedPath, MAX_PATH);
+	if( aResult != 0 && aResult <= MAX_PATH )
+		return narrow(anExpandedPath);
+	return thePath;
 }
 
 
@@ -543,6 +552,28 @@ size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix
 	}
 	
 	return theString.length();
+}
+
+
+std::pair<std::string::size_type, std::string::size_type>
+findStringTag(const std::string& theString, std::string::size_type theStartPos)
+{
+	std::pair<std::string::size_type, std::string::size_type> result;
+	result.second = 0;
+	result.first = theString.find('<', theStartPos);
+	if( result.first != std::string::npos )
+	{
+		// Find the closing '>' (or if none found, we're done)
+		std::string::size_type anEndPos = theString.find('>', result.first);
+		if( anEndPos != std::string::npos )
+		{
+			// Only use the last '<' found before the closing '>'
+			result.first = theString.rfind('<', anEndPos);
+			result.second = anEndPos - result.first + 1;
+		}
+	}
+
+	return result;
 }
 
 
