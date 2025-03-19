@@ -1539,7 +1539,7 @@ void init()
 		return;
 	}
 
-	TargetConfigSync::stop();
+	TargetConfigSync::pauseMonitoring();
 
 	// Gather information on elements that can be edited
 	DBG_ASSERT(sState == null);
@@ -1715,7 +1715,7 @@ void cleanup()
 	delete sState;
 	sState = null;
 
-	TargetConfigSync::load();
+	TargetConfigSync::resumeMonitoring();
 }
 
 } // LayoutEditor

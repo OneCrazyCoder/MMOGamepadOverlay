@@ -19,13 +19,14 @@ namespace TargetConfigSync
 // Load data from target app's config files and begin monitoring for changes
 void load();
 
-// Force reload data from target app config files even if they are unchanged
-void refresh();
-
 // Stop monitoring for file changes and free memory
-void stop();
+void cleanup();
 
 // Check for config file changes and update data as needed
 void update();
+
+// Temporarily halt monitoring for file changes
+void pauseMonitoring();
+void resumeMonitoring();
 
 } // TargetConfigSync

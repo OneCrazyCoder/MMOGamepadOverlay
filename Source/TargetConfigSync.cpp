@@ -4,12 +4,12 @@
 
 #include "TargetConfigSync.h"
 
-#include "HotspotMap.h" // reloadPositions()
-#include "HUD.h" // reloadLayout()
-#include "InputMap.h" //reloadAllHotspots()
+#include "HotspotMap.h"
+#include "HUD.h"
+#include "InputMap.h"
 #include "Lookup.h"
 #include "Profile.h"
-#include "WindowManager.h" // updateUIScale()
+#include "WindowManager.h"
 
 #include <winioctl.h> // FSCTL_REQUEST_FILTER_OPLOCK
 
@@ -254,6 +254,7 @@ static BitVector<> sChangedFiles;
 static BitVector<> sChangedValueSets;
 static bool sInvertAxis[eValueSetSubType_Num];
 static bool sInitialized = false;
+static bool sPaused = false;
 
 
 //-----------------------------------------------------------------------------
@@ -1236,9 +1237,8 @@ static std::string getValueInsertString(
 
 void load()
 {
-	sFolders.clear();
-	sFiles.clear();
-	sProperties.clear();
+	if( sInitialized || sPaused )
+		cleanup();
 	TargetConfigSyncBuilder aBuilder;
 	StringToValueMap<u16> aPathToIdxMap;
 
@@ -1303,6 +1303,7 @@ void load()
 		const u16 aPropertyID = u16(sProperties.size());
 		sProperties.push_back(aProperty);
 	}
+	sChangedFiles.clearAndResize(sFiles.size());
 
 	// Begin monitoring folders for changes to contained files w/ properites
 	aPathToIdxMap.clear();
@@ -1310,6 +1311,8 @@ void load()
 	{
 		if( sFiles[i].values.empty() )
 			continue;
+		sChangedFiles.set(i);
+		sFiles[i].lastModTime = getFileLastModTime(sFiles[i]);
 		sFiles[i].values.trim();
 		const std::string& aFolderPath = getFileDir(narrow(sFiles[i].pathW));
 		const u16 aFolderID = aPathToIdxMap.findOrAdd(
@@ -1341,33 +1344,16 @@ void load()
 		std::vector<double>(sValues).swap(sValues);
 	if( sValueSets.size() < sValueSets.capacity() )
 		std::vector<size_t>(sValueSets).swap(sValueSets);
-	sChangedFiles.clearAndResize(sFiles.size());
 	sChangedValueSets.clearAndResize(sValueSets.size());
 
 	// Load initial values and log file timestamps
-	sInitialized = true;
-	refresh();
-}
-
-
-void refresh()
-{
-	if( !sInitialized )
-		return;
-
-	for(size_t i = 0; i < sFiles.size(); ++i)
-	{
-		if( sFiles[i].values.empty() )
-			continue;
-		sFiles[i].lastModTime = getFileLastModTime(sFiles[i]);
-		sChangedFiles.set(i);
-	}
 	if( sChangedFiles.any() )
 		update();
+	sInitialized = true;
 }
 
 
-void stop()
+void cleanup()
 {
 	for(size_t i = 0; i < sFolders.size(); ++i)
 		FindCloseChangeNotification(sFolders[i].hChangedSignal);
@@ -1376,32 +1362,36 @@ void stop()
 	sProperties.clear();
 	sChangedFiles.clear();
 	sInitialized = false;
+	sPaused = false;
 }
 
 
 void update()
 {
-	if( !sInitialized || gShutdown )
+	if( sPaused || gShutdown )
 		return;
 
-	for(size_t aFolderID = 0; aFolderID < sFolders.size(); ++aFolderID)
-	{
-		TargetConfigFolder& aFolder = sFolders[aFolderID];
-		if( WaitForSingleObject(aFolder.hChangedSignal, 0)
-				== WAIT_OBJECT_0 )
+	if( sInitialized )
+	{// Check for any folder changes after initial load
+		for(size_t aFolderID = 0; aFolderID < sFolders.size(); ++aFolderID)
 		{
-			// Re-arm the notification for next update
-			FindNextChangeNotification(aFolder.hChangedSignal);
-
-			// Check if any contained files are updated (by checking timestamp)
-			for( size_t i = 0; i < aFolder.fileIDs.size(); ++i )
+			TargetConfigFolder& aFolder = sFolders[aFolderID];
+			if( WaitForSingleObject(aFolder.hChangedSignal, 0)
+					== WAIT_OBJECT_0 )
 			{
-				TargetConfigFile& aFile = sFiles[aFolder.fileIDs[i]];
-				FILETIME aFileModTime = getFileLastModTime(aFile);
-				if( CompareFileTime(&aFileModTime, &aFile.lastModTime) > 0 )
+				// Re-arm the notification for next update
+				FindNextChangeNotification(aFolder.hChangedSignal);
+
+				// Use timestamps to heck if any contained files are updated
+				for( size_t i = 0; i < aFolder.fileIDs.size(); ++i )
 				{
-					aFile.lastModTime = aFileModTime;
-					sChangedFiles.set(aFolder.fileIDs[i]);
+					TargetConfigFile& aFile = sFiles[aFolder.fileIDs[i]];
+					FILETIME aModTime = getFileLastModTime(aFile);
+					if( CompareFileTime(&aModTime, &aFile.lastModTime) > 0 )
+					{
+						aFile.lastModTime = aModTime;
+						sChangedFiles.set(aFolder.fileIDs[i]);
+					}
 				}
 			}
 		}
@@ -1437,27 +1427,49 @@ void update()
 				propTypeChanged[aProp.type] = true;
 			}
 		}
-		if( propTypeChanged[ePropertyType_Unknown] ||
-			propTypeChanged[ePropertyType_Hotspot] )
-		{
-			// TODO
-			//InputMap::reloadAllHotspots();
-			HotspotMap::reloadPositions();
-		}
-		if( propTypeChanged[ePropertyType_Unknown] ||
-			propTypeChanged[ePropertyType_CopyIcon] ||
-			propTypeChanged[ePropertyType_HUDElement] )
-		{
-			// TODO
-			//HUD::reloadLayout();
-		}
-		if( propTypeChanged[ePropertyType_Unknown] ||
-			propTypeChanged[ePropertyType_UIScale] )
-		{
-			WindowManager::updateUIScale();
+		if( sInitialized )
+		{// After initial load - need to let other modules know of changes
+			if( propTypeChanged[ePropertyType_Unknown] )
+				gReloadProfile = true;
+			if( propTypeChanged[ePropertyType_UIScale] )
+				WindowManager::updateUIScale();
+			if( propTypeChanged[ePropertyType_Hotspot] )
+			{
+				InputMap::reloadAllHotspots();
+				HotspotMap::reloadPositions();
+				for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+				{
+					if( InputMap::hudElementType(i) == eMenuStyle_Hotspots ||
+						InputMap::hudElementType(i) == eHUDType_Hotspot ||
+						InputMap::hudElementType(i) == eHUDType_HotspotGuide )
+					{
+						gReshapeHUD.set(i);
+						gFullRedrawHUD.set(i);
+					}
+				}
+			}
+			if( propTypeChanged[ePropertyType_CopyIcon] )
+				HUD::reloadCopyIconLabel("");
+			if( propTypeChanged[ePropertyType_HUDElement] )
+			{
+				for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+					HUD::reloadElementShape(i);
+			}
 		}
 		sChangedValueSets.reset();
 	}
+}
+
+
+void pauseMonitoring()
+{
+	sPaused = true;
+}
+
+
+void resumeMonitoring()
+{
+	sPaused = false;
 }
 
 } // TargetConfigSync

@@ -115,9 +115,9 @@ void mainModulesUpdate()
 	InputTranslator::update();
 	InputDispatcher::update();
 	TargetApp::update();
-	TargetConfigSync::update();
 	HUD::update();
 	WindowManager::update();
+	TargetConfigSync::update();
 }
 
 
@@ -180,6 +180,10 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		// Load current profile
 		Profile::load();
 
+		// Overwrite profile properties with game config file ones
+		if( !gShutdown && !hadFatalError() )
+			TargetConfigSync::load();
+
 		// Create main application window
 		if( !gShutdown && !hadFatalError() )
 			WindowManager::createMain(hInstance);
@@ -195,7 +199,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
 			TargetApp::loadProfile();
-			TargetConfigSync::load();
 			HUD::init();
 			WindowManager::createOverlays(hInstance);
 		}
@@ -221,6 +224,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		Profile::saveChangesToFile();
 
 		// Cleanup
+		TargetConfigSync::cleanup();
 		HUD::cleanup();
 		Menus::cleanup();
 		InputDispatcher::cleanup();
@@ -253,7 +257,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	}
 		
 	// Final cleanup
-	TargetConfigSync::stop();
 	Gamepad::cleanup();
 	TargetApp::cleanup();
 	ReleaseMutex(hMutex);

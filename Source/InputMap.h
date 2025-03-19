@@ -92,6 +92,7 @@ void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
 void reloadHotspotKey(const std::string& theHotspotName,
 	StringToValueMap<u16>& theHotspotNameMapCache,
 	StringToValueMap<u16>& theHotspotArrayNameMapCache);
+void reloadAllHotspots();
 
 // HUD ELEMENTS
 EHUDType hudElementType(u16 theHUDElementID);

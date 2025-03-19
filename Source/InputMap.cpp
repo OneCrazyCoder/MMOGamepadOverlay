@@ -4185,6 +4185,23 @@ void reloadHotspotKey(
 }
 
 
+void reloadAllHotspots()
+{
+	StringToValueMap<u16> aHotspotNameMapCache;
+	aHotspotNameMapCache.reserve(sHotspots.size());
+	StringToValueMap<u16> aHotspotArrayNameMapCache;
+	aHotspotArrayNameMapCache.reserve(sHotspotArrays.size());
+	Profile::KeyValuePairs aKeyValueList;
+	Profile::getAllKeys(kHotspotsPrefix, aKeyValueList);
+	sHotspots.resize(eSpecialHotspot_Num);
+	sHotspotArrays.clear();
+	assignHotspots(
+		aHotspotNameMapCache,
+		aHotspotArrayNameMapCache,
+		aKeyValueList);
+}
+
+
 EHUDType hudElementType(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
