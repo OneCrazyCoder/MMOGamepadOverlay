@@ -1707,8 +1707,6 @@ void init()
 
 void cleanup()
 {
-	TargetConfigSync::load();
-
 	if( !sState )
 		return;
 
@@ -1716,6 +1714,8 @@ void cleanup()
 		cancelRepositioning();
 	delete sState;
 	sState = null;
+
+	TargetConfigSync::load();
 }
 
 } // LayoutEditor

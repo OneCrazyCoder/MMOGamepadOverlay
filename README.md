@@ -937,14 +937,44 @@ Some profile properties will naturally be set to exactly match target game confi
 
 First, any configuration file that should be parsed needs to be set as a property in the ``[TargetConfigFiles]`` section, with a name given to each file. Environment variables such as %USERPROFILE% can be used in the file path. For example, for *Monsters and Memories* this path could be set to ``Settings=%USERPROFILE%\AppData\LocalLow\Niche Worlds Cult\Monsters and Memories\settings.json`` *NOTE: Currently only .json configuration files are supported for this feature!*
 
-Next, use the ``[TargetSyncProperties]`` section to assign a property that you want to have its value read in from one of the target game's config files. The property name should match the section and property name of the original property, separated by a period. For example, to have this feature read a UI scale value from a configuration file, the property name would be ``System.UIScale=``.
+Next, use the ``[TargetSyncProperties]`` section to assign a property that you want to have its value read in from one of the target game's config files. The property name should match the section and property name of the original property, separated by ``>`` symbol. For example, to have this feature read a UI scale value from a configuration file, the property name would be ``System>UIScale=``.
 
-The value of a sync property is a path to read from, with each step on the path separated by periods. The first step of the path should be the name of a ``[TargetConfigFiles]`` property, followed by section names, key names, value names, etc, depending on the configuration file layout. For example, *Monsters and Memories* UIScale property can be auto-synced by using:
+The value of a sync property is a string that can overwrite the original property value. The string should contain tags surrounded by ``<`` and ``>`` specifying where to write in the new value, and where that value should come from. For a simple case like the UIScale example, the entire string would just be a single tag. In this case that tag would simply contain the path to read from, with each step on the path separated by periods. The first step of the path should be the name of a ``[TargetConfigFiles]`` property, followed by section names, key names, value names, etc, depending on the configuration file layout. For example, *Monsters and Memories* UIScale property can be auto-synced by using:
 
     [TargetSyncProperties]
-    System.UIScale = Settings.GameSettingUIScale
+    System>UIScale = <Settings.GameSettingUIScale>
 
-*NOTE: Currently only properties set to a single numeric values like UIScale are supported by this feature!*
+*NOTE: These paths ARE case-sensitive! Also, in the above example, if the "Settings" property for the file was never created in [TargetConfigFiles], or the settings.json file can't be found or opened, you will not receive a runtime error since it is assumed it was an intentional disabling of the sync feature. Check MMOGO_ErrorLog.txt if the feature isn't working when expected to see if this is the problem.*
+
+For more complex properties such as for hotspots aligning with in-game UI windows, the tag may instead contain a special "function name" followed by a colon ``:`` followed by a key name from the config file. These "functions" may use multiple actual values to construct the text that replaces the tag. For example, to align a hotspot to the top left corner of the window a game identifies by the key "inventory", you could use:
+
+    [TargetSyncProperties]
+    Hotspots>Inventory = <Left:inventory>, <Top:inventory>
+
+The actual text that replaces ``<Left:inventory>`` might require multiple values to generate, such as for something like "50% + 23". To facilitate this, the actual values read to construct the replacement text are specified by properties in the ``[TargetConfigFileFormat]`` section.
+
+Each property in this section has a specific property name set to a path string for where to find that value within the game's config file. The path should contain a ``<name>`` tag for where to insert the name passed in from the earlier ``<FunctionName:ValueName>`` tag to create the full path to the value in the game's config file. Each variable can also have an ``Invert`` property set, specifying to invert or negate the value read in from the game's config file.
+
+Here is a complete example of setting a hotspot to the top-left corner of a UI window using this setup:
+
+    [TargetConfigFiles]
+    Layout=%USERPROFILE%\AppData\LocalLow\Niche Worlds Cult\Monsters and Memories\windows.json
+
+    [TargetConfigFileFormat]
+    PositionX = Layout.SaveData.<name>.position.x
+    PositionY = Layout.SaveData.<name>.position.y
+    AlignmentX = Layout.SaveData.<name>.anchorMin.x
+    AlignmentY = Layout.SaveData.<name>.anchorMin.y
+    PivotX = Layout.SaveData.<name>.pivot.x
+    PivotY = Layout.SaveData.<name>.pivot.y
+    Width = Layout.SaveData.<name>.sizeDelta.x
+    Height = Layout.SaveData.<name>.sizeDelta.y
+    InvertAlignmentY = Yes
+    InvertPivotY = Yes
+    InvertPositionY = Yes
+
+    [TargetSyncProperties]
+    Hotspots>Inventory = <Left:inventory>, <Top:inventory>
 
 ### Other system features
 

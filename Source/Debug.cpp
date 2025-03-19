@@ -85,7 +85,7 @@ void logToFile(const char* fmt ...)
 	const std::string& anErrorString = vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole("<< ERROR LOG >>: ", anErrorString);
+	logToConsole("Logged to error file: ", anErrorString);
 	logToErrorFile(anErrorString);
 }
 

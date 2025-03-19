@@ -698,6 +698,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		GetSystemMetrics(SM_CXSCREEN),
 		GetSystemMetrics(SM_CYSCREEN) };
 	resize(aScreenRect, false);
+	updateUIScale();
 }
 
 
@@ -1039,13 +1040,20 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	{
 		sTargetSize = aNewTargetSize;
 
+		double oldWindowUIScale = gWindowUIScale;
 		const int aUIScaleBaseHeight =
 			Profile::getInt("System/UIScaleBaseHeight");
 		if( aUIScaleBaseHeight > 0 )
 			gWindowUIScale *= double(sTargetSize.cy) / aUIScaleBaseHeight;
 		else
 			gWindowUIScale = 1.0;
-		TargetConfigSync::refresh();
+		if( gWindowUIScale != oldWindowUIScale )
+		{
+			double aUIScale = Profile::getFloat("System/UIScale", 1.0f);
+			if( aUIScale <= 0 ) aUIScale = 1.0;
+			gUIScale = aUIScale * gWindowUIScale;
+			HUD::updateScaling();
+		}
 	}
 
 	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
@@ -1146,6 +1154,17 @@ RECT overlayTargetScreenRect()
 RECT overlayTargetDesktopRect()
 {
 	return sDesktopTargetRect;
+}
+
+
+void updateUIScale()
+{
+	const double oldScale = gUIScale;
+	double aUIScale = Profile::getFloat("System/UIScale", 1.0f);
+	if( aUIScale <= 0 ) aUIScale = 1.0;
+	gUIScale = aUIScale * gWindowUIScale;
+	if( gUIScale != oldScale )
+		HUD::updateScaling();
 }
 
 

@@ -12,6 +12,19 @@ inline std::string strFormat(const char* fmt ...)
 	return result;
 }
 
+
+inline bool isAbsolutePath(const std::string& thePath)
+{
+	return !getRootDir(thePath).empty();
+}
+
+
+inline bool hasPrefix(const std::string& theString, const std::string& thePrefix)
+{
+	return posAfterPrefix(theString, thePrefix) > 0;
+}
+
+
 inline std::string toString(s32 theValue)
 {
 	char aBuf[12];
