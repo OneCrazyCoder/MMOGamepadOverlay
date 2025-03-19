@@ -58,8 +58,10 @@ int breakOffIntegerSuffix(std::string& theString);
 // scored words which are conjoined (Left-Click or Left_Click becomes LeftClick).
 void sanitizeSentence(const std::string& theString, std::vector<std::string>& out);
 // Finds first character in theString that is after thePrefix, even if upper/lower
-// case doesn't match or string has whitespace in its copy of the prefix
+// case doesn't match or string has whitespace in its copy of the prefix.
+// Returns 0 if theString does not start with entire prefix or the prefix is empty
 size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix);
+bool hasPrefix(const std::string& theString, const std::string& thePrefix);
 // Finds next string "tag" in format <tagName> and returns its start pos and length
 // (which include the '<' and '>' chars). .subStr(.first+1, .second-2) == tagName.
 // If no tags are found, .first will be set to std::string::npos and .second to 0

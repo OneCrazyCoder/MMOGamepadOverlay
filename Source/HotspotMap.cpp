@@ -718,6 +718,8 @@ EResult stringToHotspot(std::string& theString, Hotspot& out)
 	if( aResult != eResult_Ok )
 		return aResult;
 	aResult = stringToCoord(theString, out.y);
+	if( aResult == eResult_Empty ) // has first but empty second == malformed
+		aResult = eResult_Malformed;
 	return aResult;
 }
 
@@ -734,17 +736,17 @@ EResult stringToCoord(std::string& theString,
 	if( theString.empty() )
 		return result;
 
-	enum EMode
+	enum EState
 	{
-		eMode_Prefix,		// Checking for C/R/B in CX+10, R-8, B - 5, etc
-		eMode_PrefixEnd,	// Checking for X/Y in CX/CY or 'eft' in 'Left', etc
-		eMode_Numerator,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
-		eMode_Denominator,	// Checking for 5 in 0.5, 5% in 10.5%, etc
-		eMode_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
-		eMode_OffsetSpace,	// Optional space between -/+ and offset number
-		eMode_OffsetNumber, // Checking for 10 in 50% + 10, CX+10, R-10, etc
-		eMode_TrailSpace,	// Check for final , or 'x' after end of coordinate
-	} aMode = eMode_Prefix;
+		eState_Prefix,		// Checking for C/R/B in CX+10, R-8, B - 5, etc
+		eState_PrefixEnd,	// Checking for X/Y in CX/CY or 'eft' in 'Left', etc
+		eState_Numerator,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
+		eState_Denominator,	// Checking for 5 in 0.5, 5% in 10.5%, etc
+		eState_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
+		eState_OffsetSpace,	// Checking for start of offset number after sign
+		eState_OffsetNumber,// Checking for 10 in 50% + 10, CX+10, R-10, etc
+		eState_TrailSpace,	// Check for final , or 'x' after end of coordinate
+	} aState = eState_Prefix;
 
 	u32 aNumerator = 0;
 	u32 aDenominator = 0;
@@ -756,19 +758,20 @@ EResult stringToCoord(std::string& theString,
 	char c = theString[aCharPos];
 	result = eResult_Ok;
 
+	out.offset = 0;
 	while(!done && result == eResult_Ok)
 	{
 		switch(c)
 		{
 		case '0': case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9':
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_Prefix:
-				aMode = eMode_Numerator;
+			case eState_Prefix:
+				aState = eState_Numerator;
 				// fall through
-			case eMode_Numerator:
-			case eMode_Denominator:
+			case eState_Numerator:
+			case eState_Denominator:
 				aDenominator *= 10;
 				aNumerator *= 10;
 				aNumerator += u32(c - '0');
@@ -779,13 +782,13 @@ EResult stringToCoord(std::string& theString,
 				else
 					aValidCharCount = aCharPos + 1;
 				break;
-			case eMode_OffsetSign:
-				aMode = EMode(aMode + 1);
+			case eState_OffsetSign:
+				aState = EState(aState + 1);
 				// fall through
-			case eMode_OffsetSpace:
-				aMode = EMode(aMode + 1);
+			case eState_OffsetSpace:
+				aState = EState(aState + 1);
 				// fall through
-			case eMode_OffsetNumber:
+			case eState_OffsetNumber:
 				anOffset *= 10;
 				anOffset += u32(c - '0');
 				if( anOffset > 0x7FFF )
@@ -799,28 +802,58 @@ EResult stringToCoord(std::string& theString,
 			break;
 		case '-':
 		case '+':
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_Prefix:
+			case eState_Prefix:
 				// Skipping directly to offset
 				aDenominator = 1;
 				// fall through
-			case eMode_PrefixEnd:
-			case eMode_Denominator:
-			case eMode_OffsetSign:
+			case eState_PrefixEnd:
+			case eState_Denominator:
+			case eState_OffsetSign:
 				isOffsetNegative = (c == '-');
-				aMode = eMode_OffsetSpace;
+				aState = eState_OffsetSpace;
+				break;
+			case eState_OffsetSpace:
+				// Allow flipping the offset sign once by using a '-' just
+				// before the actual number starts, like "+ -5" or "- -10"
+				if( c == '-' &&
+					aCharPos < theString.size()-1 &&
+					theString[aCharPos+1] >= '0' &&
+					theString[aCharPos+1] <= '9' )
+				{
+					isOffsetNegative = !isOffsetNegative;
+					aState = eState_OffsetNumber;
+				}
+				else
+				{
+					result = eResult_Malformed;
+				}
+				break;
+			case eState_Numerator:
+				anOffset = aNumerator;
+				aNumerator = 0;
+				aDenominator = 1;
+				// fall through
+			case eState_OffsetNumber:
+			case eState_TrailSpace:
+				// Additional offset
+				out.offset +=
+					isOffsetNegative ? -s16(anOffset) : s16(anOffset);
+				anOffset = 0;
+				isOffsetNegative = (c == '-');
+				aState = eState_OffsetSpace;
 				break;
 			default:
 				result = eResult_Malformed;
 			}
 			break;
 		case '.':
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_Prefix:
-			case eMode_Numerator:
-				aMode = eMode_Denominator;
+			case eState_Prefix:
+			case eState_Numerator:
+				aState = eState_Denominator;
 				aDenominator = 1;
 				break;
 			default:
@@ -829,16 +862,16 @@ EResult stringToCoord(std::string& theString,
 			break;
 		case '%':
 		case 'p':
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_PrefixEnd:
+			case eState_PrefixEnd:
 				aValidCharCount = aCharPos + 1;
 				break;
-			case eMode_Numerator:
-			case eMode_Denominator:
+			case eState_Numerator:
+			case eState_Denominator:
 				if( !aDenominator ) aDenominator = 1;
 				aDenominator *= 100; // Convert 50% to 0.5
-				aMode = eMode_OffsetSign;
+				aState = eState_OffsetSign;
 				aValidCharCount = aCharPos + 1;
 				break;
 			default:
@@ -847,15 +880,15 @@ EResult stringToCoord(std::string& theString,
 			break;
 		case 'l': case 'L': // aka "Left"
 		case 't': case 'T': // aka "Top"
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_PrefixEnd:
+			case eState_PrefixEnd:
 				aValidCharCount = aCharPos + 1;
 				break;
-			case eMode_Prefix:
+			case eState_Prefix:
 				aNumerator = 0;
 				aDenominator = 1;
-				aMode = eMode_PrefixEnd;
+				aState = eState_PrefixEnd;
 				aValidCharCount = aCharPos + 1;
 				break;
 			default:
@@ -864,15 +897,15 @@ EResult stringToCoord(std::string& theString,
 			break;
 		case 'r': case 'R': case 'w': case 'W': // aka "Right" or "Width"
 		case 'b': case 'B': case 'h': case 'H':// aka "Bottom" or "Height"
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_PrefixEnd:
+			case eState_PrefixEnd:
 				aValidCharCount = aCharPos + 1;
 				break;
-			case eMode_Prefix:
+			case eState_Prefix:
 				aNumerator = 1;
 				aDenominator = 1;
-				aMode = eMode_PrefixEnd;
+				aState = eState_PrefixEnd;
 				aValidCharCount = aCharPos + 1;
 				break;
 			default:
@@ -880,15 +913,15 @@ EResult stringToCoord(std::string& theString,
 			}
 			break;
 		case 'c': case 'C': // aka "Center"
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_PrefixEnd:
+			case eState_PrefixEnd:
 				aValidCharCount = aCharPos + 1;
 				break;
-			case eMode_Prefix:
+			case eState_Prefix:
 				aNumerator = 1;
 				aDenominator = 2;
-				aMode = eMode_PrefixEnd;
+				aState = eState_PrefixEnd;
 				aValidCharCount = aCharPos + 1;
 				break;
 			default:
@@ -896,24 +929,24 @@ EResult stringToCoord(std::string& theString,
 			}
 			break;
 		case 'x': case 'X': case ',':
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_PrefixEnd:
+			case eState_PrefixEnd:
 				if( c == ',' )
 					done = true;
 				else
 					aValidCharCount = aCharPos + 1; // part of CX prefix
 				break;
-			case eMode_Numerator:
+			case eState_Numerator:
 				anOffset = aNumerator;
 				aNumerator = 0;
 				aDenominator = 1;
 				done = true;
 				break;
-			case eMode_Denominator:
-			case eMode_OffsetSign:
-			case eMode_OffsetNumber:
-			case eMode_TrailSpace:
+			case eState_Denominator:
+			case eState_OffsetSign:
+			case eState_OffsetNumber:
+			case eState_TrailSpace:
 				// Assume marks end of this coordinate
 				done = true;
 				break;
@@ -922,9 +955,9 @@ EResult stringToCoord(std::string& theString,
 			}
 			break;
 		case 'y': case 'Y':
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_PrefixEnd:
+			case eState_PrefixEnd:
 				aValidCharCount = aCharPos + 1; // part of CY prefix
 				break;
 			default:
@@ -932,27 +965,27 @@ EResult stringToCoord(std::string& theString,
 			}
 			break;
 		case ' ':
-			switch(aMode)
+			switch(aState)
 			{
-			case eMode_OffsetSign:
-			case eMode_OffsetSpace:
-			case eMode_Prefix:
-			case eMode_TrailSpace:
+			case eState_OffsetSign:
+			case eState_OffsetSpace:
+			case eState_Prefix:
+			case eState_TrailSpace:
 				// Allowed whitespace, ignore
 				break;
-			case eMode_PrefixEnd:
-				aMode = eMode_OffsetSign;
+			case eState_PrefixEnd:
+				aState = eState_OffsetSign;
 				break;
-			case eMode_Denominator:
-				aMode = eMode_OffsetSign;
+			case eState_Denominator:
+				aState = eState_OffsetSign;
 				break;
-			case eMode_Numerator:
+			case eState_Numerator:
 				anOffset = aNumerator;
 				aNumerator = 0;
 				aDenominator = 1;
 				// fall through
-			case eMode_OffsetNumber:
-				aMode = eMode_TrailSpace;
+			case eState_OffsetNumber:
+				aState = eState_TrailSpace;
 				break;
 			}
 			break;
@@ -962,7 +995,7 @@ EResult stringToCoord(std::string& theString,
 			done = true;
 			break;
 		default:
-			if( aMode == eMode_PrefixEnd )
+			if( aState == eState_PrefixEnd )
 				aValidCharCount = aCharPos + 1;
 			else
 				result = eResult_Malformed;
@@ -993,14 +1026,11 @@ EResult stringToCoord(std::string& theString,
 		*theValidatedString = trim(theString.substr(0, aValidCharCount));
 
 	if( result != eResult_Ok )
-	{
 		return result;
-	}
 
 	out.anchor = ratioToU16(aNumerator, aDenominator);
-	out.offset = s16(anOffset);
-	if( isOffsetNegative )
-		out.offset = -out.offset;
+	out.offset +=
+		isOffsetNegative ? -s16(anOffset) : s16(anOffset);
 
 	// Remove processed section from start of string
 	theString = theString.substr(aCharPos);

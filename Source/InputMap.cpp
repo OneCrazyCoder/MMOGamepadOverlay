@@ -2598,27 +2598,12 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 	// Check for action prefix - not many so just linear search
 	for(size_t i = 0; i < eBtnAct_Num; ++i)
 	{
-		if( kButtonActionPrefx[i][0] == '\0' )
-			continue;
-		const char* aPrefixChar = &kButtonActionPrefx[i][0];
-		const char* aStrChar = theButtonActionName.c_str();
-		bool matchFound = true;
-		for(; *aPrefixChar; ++aPrefixChar, ++aStrChar)
-		{
-			// Ignore whitespace in the string
-			while(*aStrChar <= ' ') ++aStrChar;
-			// Mismatch if reach end of string or chars don't match
-			if( !*aStrChar || ::toupper(*aPrefixChar) != ::toupper(*aStrChar) )
-			{
-				matchFound = false;
-				break;
-			}
-		}
-		if( matchFound )
+		if( const size_t aPrefixPos =
+				posAfterPrefix(theButtonActionName, kButtonActionPrefx[i]) )		
 		{
 			result = EButtonAction(i);
-			// Chop the prefix (and any whitespace after) off the front of the string
-			theButtonActionName = trim(aStrChar);
+			// Chop the prefix off the front of the string
+			theButtonActionName = theButtonActionName.substr(aPrefixPos);
 			break;
 		}
 	}
@@ -3224,27 +3209,23 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 
 		theBuilder.debugSubItemName = itr->first;
 		// Check for a signal command
-		if( aKey.compare(0,
-				kSignalCommandPrefix.length(),
-				condense(kSignalCommandPrefix)) == 0 )
+		if( size_t aStrPos = posAfterPrefix(itr->first, kSignalCommandPrefix) )
 		{
-			theBuilder.debugSubItemName = theBuilder.debugSubItemName.substr(
-				posAfterPrefix(itr->first, kSignalCommandPrefix));
+			theBuilder.debugSubItemName =
+				theBuilder.debugSubItemName.substr(aStrPos);
 			addSignalCommand(theBuilder, theLayerIdx,
-				&itr->first[posAfterPrefix(itr->first, kSignalCommandPrefix)],
+				&itr->first[aStrPos],
 				itr->second);
 			continue;
 		}
 
 		// Parse and add assignment to this layer's commands map
-		if( aKey.compare(0,
-				kActionOnlyPrefix.length(),
-				condense(kActionOnlyPrefix)) == 0 )
+		if( size_t aStrPos = posAfterPrefix(itr->first, kActionOnlyPrefix) )
 		{
-			theBuilder.debugSubItemName = theBuilder.debugSubItemName.substr(
-				posAfterPrefix(itr->first, kActionOnlyPrefix));
+			theBuilder.debugSubItemName =
+				theBuilder.debugSubItemName.substr(aStrPos);
 			addButtonAction(theBuilder, theLayerIdx,
-				&itr->first[posAfterPrefix(itr->first, kActionOnlyPrefix)],
+				&itr->first[aStrPos],
 				itr->second, true);
 			continue;
 		}

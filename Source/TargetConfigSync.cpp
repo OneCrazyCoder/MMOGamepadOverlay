@@ -4,9 +4,12 @@
 
 #include "TargetConfigSync.h"
 
-#include "HUD.h" // updateScaling()
+#include "HotspotMap.h" // reloadPositions()
+#include "HUD.h" // reloadLayout()
+#include "InputMap.h" //reloadAllHotspots()
 #include "Lookup.h"
 #include "Profile.h"
+#include "WindowManager.h" // updateUIScale()
 
 #include <winioctl.h> // FSCTL_REQUEST_FILTER_OPLOCK
 
@@ -17,32 +20,8 @@ namespace TargetConfigSync
 // Const Data
 //-----------------------------------------------------------------------------
 
-const char* kTargetConfigFilesPrefix = "TargetConfigFiles/";
-const char* kSyncPropertiesPrefix = "TargetSyncProperties/";
-
-enum EPropType
-{
-	ePropType_Scale,
-	ePropType_Hotspot,
-};
-
-enum EPropParamType
-{
-	ePropParam_Scale,
-	//ePropParam_OffsetX,
-	//ePropParam_OffsetY,
-	//ePropParam_AnchorX,
-	//ePropParam_AnchorY,
-	//ePropParam_MinAnchorX,
-	//ePropParam_MinAnchorY,
-	//ePropParam_MaxAnchorX,
-	//ePropParam_MaxAnchorY,
-	//ePropParam_PivotX,
-	//ePropParam_PivotY,
-	//ePropParam_Width,
-	//ePropParam_Height,
-
-	ePropParam_Num
+enum {
+kConfigFileBufferSize = 256, // How many chars to stream from file per read
 };
 
 enum EConfigFileFormat
@@ -50,6 +29,172 @@ enum EConfigFileFormat
 	eConfigFileFormat_JSON,
 	eConfigFileFormat_INI,
 };
+
+enum EPropertyType
+{
+	ePropertyType_Unknown,
+	ePropertyType_UIScale,
+	ePropertyType_Hotspot,
+	ePropertyType_CopyIcon,
+	ePropertyType_HUDElement,
+
+	ePropertyType_Num
+};
+
+enum EValueSetType
+{
+	eValueSetType_Single,
+	eValueSetType_UIWindow,
+
+	eValueSetType_Num
+};
+
+enum EValueSetSubType
+{
+	// eValueSetType_Single
+	eValueSetSubType_Base,
+
+	// eValueSetType_UIWindow
+	eValueSetSubType_PosX,
+	eValueSetSubType_PosY,
+	eValueSetSubType_AlignX,
+	eValueSetSubType_AlignY,
+	eValueSetSubType_PivotX,
+	eValueSetSubType_PivotY,
+	eValueSetSubType_SizeX,
+	eValueSetSubType_SizeY,
+	eValueSetSubType_Scale,
+
+	eValueSetSubType_Num,
+	eValueSetSubType_UIWindow_First = eValueSetSubType_PosX,
+	eValueSetSubType_UIWindow_Last = eValueSetSubType_Scale,
+};
+
+enum EValueFunction
+{
+	eValueFunc_Base, // just return eValueSetSubType_Base
+	eValueFunc_PosX,
+	eValueFunc_PosY,
+	eValueFunc_Left,
+	eValueFunc_Top,
+	eValueFunc_CX,
+	eValueFunc_CY,
+	eValueFunc_Right,
+	eValueFunc_Bottom,
+	eValueFunc_Width,
+	eValueFunc_Height,
+	eValueFunc_AlignX,
+	eValueFunc_AlignY,
+	eValueFunc_Scale,
+
+	eValueFunc_Num
+};
+
+const char* kTargetConfigFilesPrefix = "TargetConfigFiles/";
+const char* kSyncPropertiesPrefix = "TargetSyncProperties/";
+const char* kValueFormatNameTag = "NAME";
+const char* kValueFormatStrPrefix = "TargetConfigFileFormat/";
+const char* kValueFormatInvertPrefix = "TargetConfigFileFormat/Invert";
+const char* kValueFormatStringKeys[] =
+{
+	"Value",		// eValueSetSubType_Base
+	"PositionX",	// eValueSetSubType_PosX
+	"PositionY",	// eValueSetSubType_PosY
+	"AlignmentX",	// eValueSetSubType_AlignX
+	"AlignmentY",	// eValueSetSubType_AlignY
+	"PivotX",		// eValueSetSubType_PivotX
+	"PivotY",		// eValueSetSubType_PivotY
+	"Width",		// eValueSetSubType_Width
+	"Height",		// eValueSetSubType_Height
+	"Scale",		// eValueSetSubType_Scale
+};
+DBG_CTASSERT(ARRAYSIZE(kValueFormatStringKeys) == eValueSetSubType_Num);
+
+static const u16 kValueSetFirstIdx[] =
+{
+	eValueSetSubType_Base,				// eValueSetType_Single
+	eValueSetSubType_UIWindow_First,	// eValueSetType_UIWindow
+};
+DBG_CTASSERT(ARRAYSIZE(kValueSetFirstIdx) == eValueSetType_Num);
+
+static const u16 kValueSetLastIdx[] =
+{
+	eValueSetSubType_Base,				// eValueSetType_Single
+	eValueSetSubType_UIWindow_Last,		// eValueSetType_UIWindow
+};
+DBG_CTASSERT(ARRAYSIZE(kValueSetLastIdx) == eValueSetType_Num);
+
+static EValueFunction valueFuncNameToID(const std::string& theName)
+{
+	struct NameToEnumMapper
+	{
+		typedef StringToValueMap<EValueFunction, u8> NameToEnumMap;
+		NameToEnumMap map;
+		NameToEnumMapper()
+		{
+			struct { const char* str; EValueFunction val; } kEntries[] = {
+				{ "",			eValueFunc_Base		},
+				{ "BASE",		eValueFunc_Base		},
+				{ "VALUE",		eValueFunc_Base		},
+				{ "POSX",		eValueFunc_PosX		},
+				{ "POSITIONX",	eValueFunc_PosX		},
+				{ "XPOS",		eValueFunc_PosX		},
+				{ "XPOSITION",	eValueFunc_PosX		},
+				{ "XORIGIN",	eValueFunc_PosX		},
+				{ "ORIGINX",	eValueFunc_PosX		},
+				{ "POSY",		eValueFunc_PosY		},
+				{ "POSITIONY",	eValueFunc_PosY		},
+				{ "YPOS",		eValueFunc_PosY		},
+				{ "YPOSITION",	eValueFunc_PosY		},
+				{ "YORIGIN",	eValueFunc_PosY		},
+				{ "ORIGINY",	eValueFunc_PosY		},
+				{ "LEFT",		eValueFunc_Left		},
+				{ "L",			eValueFunc_Left		},
+				{ "TOP",		eValueFunc_Top		},
+				{ "T",			eValueFunc_Top		},
+				{ "CX",			eValueFunc_CX		},
+				{ "CENTERX",	eValueFunc_CX		},
+				{ "CENTREX",	eValueFunc_CX		},
+				{ "XCENTER",	eValueFunc_CX		},
+				{ "XCENTRE",	eValueFunc_CX		},
+				{ "CY",			eValueFunc_CY		},
+				{ "CENTERY",	eValueFunc_CY		},
+				{ "CENTREY",	eValueFunc_CY		},
+				{ "YCENTER",	eValueFunc_CY		},
+				{ "YCENTRE",	eValueFunc_CY		},
+				{ "RIGHT",		eValueFunc_Right	},
+				{ "R",			eValueFunc_Right	},
+				{ "BOTTOM",		eValueFunc_Bottom	},
+				{ "B",			eValueFunc_Bottom	},
+				{ "WIDTH",		eValueFunc_Width	},
+				{ "W",			eValueFunc_Width	},
+				{ "XSIZE",		eValueFunc_Width	},
+				{ "SIZEX",		eValueFunc_Width	},
+				{ "HEIGHT",		eValueFunc_Height	},
+				{ "H",			eValueFunc_Height	},
+				{ "YSIZE",		eValueFunc_Height	},
+				{ "SIZEY",		eValueFunc_Height	},
+				{ "ALIGNX",		eValueFunc_AlignX	},
+				{ "ANCHORX",	eValueFunc_AlignX	},
+				{ "XALIGN",		eValueFunc_AlignX	},
+				{ "XANCHOR",	eValueFunc_AlignX	},
+				{ "ALIGNY",		eValueFunc_AlignY	},
+				{ "ANCHORY",	eValueFunc_AlignY	},
+				{ "YALIGN",		eValueFunc_AlignY	},
+				{ "YANCHOR",	eValueFunc_AlignY	},
+				{ "SCALE",		eValueFunc_Scale	},
+				{ "SCALING",	eValueFunc_Scale	},
+			};
+			map.reserve(ARRAYSIZE(kEntries));
+			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
+		}
+	};
+	static NameToEnumMapper sNameToEnumMapper;
+
+	EValueFunction* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eValueFunc_Num;
+}
 
 
 //-----------------------------------------------------------------------------
@@ -59,16 +204,16 @@ enum EConfigFileFormat
 struct TargetSyncProperty :
 	public ConstructFromZeroInitializedMemory<TargetSyncProperty>
 {
-	std::string section, name;
-	EPropType type;
-	double values[ePropParam_Num];
-	bool newValueFound;
-};
-
-struct TargetConfigValue
-{
-	u16 syncPropID;
-	u16 propParamType; // EPropParamType
+	std::string section, name, valueFormat;
+	struct Segment
+	{
+		std::string::size_type insertPos;
+		EValueFunction funcType;
+		u16 valueSetID;
+	};
+	std::vector<Segment> valueInserts;
+	BitVector<> valueSetsUsed;
+	EPropertyType type;
 };
 
 struct TargetConfigFile
@@ -76,13 +221,23 @@ struct TargetConfigFile
 	EConfigFileFormat format;
 	std::wstring pathW;
 	FILETIME lastModTime;
-	StringToValueMap<TargetConfigValue> values;
+	struct Value { u16 setIdx, valueIdx; };
+	StringToValueMap<Value> values;
 };
 
 struct TargetConfigFolder
 {
 	HANDLE hChangedSignal;
 	std::vector<u16> fileIDs;
+};
+
+// Data used during parsing/building the sync links but deleted once done
+struct TargetConfigSyncBuilder
+{
+	StringToValueMap<u16> fileKeyToIDMap;
+	StringToValueMap<u16> valueSetNameToIDMap;
+	std::string valueFormatStrings[eValueSetSubType_Num];
+	std::string debugString;
 };
 
 
@@ -93,8 +248,12 @@ struct TargetConfigFolder
 static std::vector<TargetConfigFolder> sFolders;
 static std::vector<TargetConfigFile> sFiles;
 static std::vector<TargetSyncProperty> sProperties;
+static std::vector<double> sValues;
+static std::vector<size_t> sValueSets;
 static BitVector<> sChangedFiles;
-bool sInitialized = false;
+static BitVector<> sChangedValueSets;
+static bool sInvertAxis[eValueSetSubType_Num];
+static bool sInitialized = false;
 
 
 //-----------------------------------------------------------------------------
@@ -120,15 +279,13 @@ protected:
 		const std::string& thePath,
 		const std::string& theValue)
 	{
-		TargetConfigValue* aValuePtr = sFiles[mFileID].values.find(thePath);
-		if( !aValuePtr )
-			return;
-
-		TargetSyncProperty& aProperty = sProperties[aValuePtr->syncPropID];
-		aProperty.values[aValuePtr->propParamType] =
-			doubleFromString(theValue);		
-		aProperty.newValueFound = true;
-		--mUnfoundCount;
+		if( TargetConfigFile::Value* aValuePtr =
+				sFiles[mFileID].values.find(thePath) )
+		{
+			sValues[aValuePtr->valueIdx] = doubleFromString(theValue);
+			sChangedValueSets.set(aValuePtr->setIdx);
+			--mUnfoundCount;
+		}
 	}
 
 	const size_t mFileID;
@@ -497,7 +654,7 @@ public:
 // Local Functions
 //-----------------------------------------------------------------------------
 
-FILETIME getFileLastModTime(const TargetConfigFile& theFile)
+static FILETIME getFileLastModTime(const TargetConfigFile& theFile)
 {
 	WIN32_FILE_ATTRIBUTE_DATA aFileAttr;
 	if( GetFileAttributesEx(theFile.pathW.c_str(),
@@ -510,7 +667,222 @@ FILETIME getFileLastModTime(const TargetConfigFile& theFile)
 }
 
 
-bool parseTargetConfigFile(size_t theFileID)
+static bool setFetchValueFromFile(
+	TargetConfigSyncBuilder& theBuilder,
+	const std::string& theValueName,
+	const u16 theDestValueSetID,
+	const EValueSetType theValueSetType,
+	const EValueSetSubType theDestValueSetSubType)
+{
+	// Generate path from format for given sub-type
+	std::string aConfigFilePath;
+	aConfigFilePath.reserve(256);
+	aConfigFilePath = theValueName;
+	if( !theBuilder.valueFormatStrings[theDestValueSetSubType].empty() )
+	{
+		// Parse format string for <name> tag
+		bool nameTagFound = false;
+		aConfigFilePath =
+			theBuilder.valueFormatStrings[theDestValueSetSubType];
+		std::pair<std::string::size_type, std::string::size_type> aTagCoords =
+			findStringTag(aConfigFilePath);
+		while(aTagCoords.first != std::string::npos )
+		{
+			std::string aTag = aConfigFilePath.substr(
+				aTagCoords.first + 1, aTagCoords.second - 2);
+			if( condense(aTag) == kValueFormatNameTag )
+			{
+				aConfigFilePath.replace(
+					aTagCoords.first,
+					aTagCoords.second,
+					theValueName);
+				aTagCoords.second = theValueName.size();
+				nameTagFound = true;
+			}
+			aTagCoords = findStringTag(
+				aConfigFilePath,
+				aTagCoords.first + aTagCoords.second);
+		}
+		if( !nameTagFound )
+		{
+			logError("Missing <%s> tag for format string '%s = %s'",
+				lower(kValueFormatNameTag).c_str(),
+				kValueFormatStringKeys[theDestValueSetSubType],
+				aConfigFilePath.c_str());
+			return false;
+		}
+	}
+	// Extract file key from beginning of path up to first '.'
+	const std::string& aFileKey = breakOffItemBeforeChar(aConfigFilePath, '.');
+	if( aFileKey.empty() )
+	{
+		logError("Missing config file ID for path '%s' in sync property '%s'",
+			aConfigFilePath.c_str(), theBuilder.debugString.c_str());
+		return false;
+	}
+	const u16* aFileIDPtr = theBuilder.fileKeyToIDMap.find(condense(aFileKey));
+	if( !aFileIDPtr )
+	{
+		// It may be intentional that syncing was disabled by not defining the
+		// file to sync from, so report this only in the log file
+		logToFile("Config file ID '%s' referenced in '%s' not found",
+			aFileKey.c_str(), theBuilder.debugString.c_str());
+		return false;
+	}
+	// Set this keys path as a value to look for when parsing this file
+	TargetConfigFile::Value aDestValue;
+	aDestValue.setIdx = theDestValueSetID;
+	aDestValue.valueIdx =
+		sValueSets[theDestValueSetID] +
+		theDestValueSetSubType -
+		kValueSetFirstIdx[theValueSetType];
+	sFiles[*aFileIDPtr].values.setValue(aConfigFilePath, aDestValue);
+	return true;
+}
+
+
+static bool setConfigFileLinks(
+	TargetConfigSyncBuilder& theBuilder,
+	TargetSyncProperty::Segment& thePropSegment,
+	const std::string& theConfigFileValueName,
+	EValueSetType theValueSetType)
+{
+	// Find or create value set for the value name given
+	thePropSegment.valueSetID =
+		theBuilder.valueSetNameToIDMap.findOrAdd(
+			theConfigFileValueName,
+			u16(sValueSets.size()));
+	if( thePropSegment.valueSetID >= sValueSets.size() )
+	{
+		sValueSets.push_back(u16(sValues.size()));
+		sValues.resize(sValues.size() +
+			kValueSetLastIdx[theValueSetType] -
+			kValueSetFirstIdx[theValueSetType] + 1);
+	}
+	// Request fetch all related values for given function & value set
+	bool isValidResult = true;
+	#define fetchVal(x) \
+		isValidResult = isValidResult && \
+			setFetchValueFromFile( \
+				theBuilder, theConfigFileValueName, \
+				thePropSegment.valueSetID, theValueSetType, x)
+	switch(thePropSegment.funcType)
+	{
+	case eValueFunc_Base:
+		fetchVal(eValueSetSubType_Base);
+		break;
+	case eValueFunc_PosX:
+	case eValueFunc_Left:
+	case eValueFunc_CX:
+	case eValueFunc_Right:
+		fetchVal(eValueSetSubType_AlignX);
+		fetchVal(eValueSetSubType_PosX);
+		fetchVal(eValueSetSubType_SizeX);
+		fetchVal(eValueSetSubType_PivotX);
+		break;
+	case eValueFunc_PosY:
+	case eValueFunc_Top:
+	case eValueFunc_CY:
+	case eValueFunc_Bottom:
+		fetchVal(eValueSetSubType_AlignY);
+		fetchVal(eValueSetSubType_PosY);
+		fetchVal(eValueSetSubType_SizeY);
+		fetchVal(eValueSetSubType_PivotY);
+		break;
+	case eValueFunc_Width:
+		fetchVal(eValueSetSubType_SizeX);
+		break;
+	case eValueFunc_Height:
+		fetchVal(eValueSetSubType_SizeY);
+		break;
+	case eValueFunc_AlignX:
+		fetchVal(eValueSetSubType_AlignX);
+		break;
+	case eValueFunc_AlignY:
+		fetchVal(eValueSetSubType_AlignY);
+		break;
+	case eValueFunc_Scale:
+		fetchVal(eValueSetSubType_Scale);
+		break;
+	}
+	#undef fetchVal
+
+	return isValidResult;
+}
+
+
+static inline EValueSetType funcToValueSetType(EValueFunction theFunc)
+{
+	return theFunc == eValueFunc_Base
+		? eValueSetType_Single
+		: eValueSetType_UIWindow;
+}
+
+
+static void parsePropertyValueTags(
+	TargetConfigSyncBuilder& theBuilder,
+	TargetSyncProperty& theProperty,
+	std::string theDesc)
+{
+	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
+		findStringTag(theDesc);
+	while(aTagCoords.first != std::string::npos )
+	{
+		TargetSyncProperty::Segment aSegment = TargetSyncProperty::Segment();
+		// Extract the tag contents
+		std::string aTag = theDesc.substr(
+			aTagCoords.first + 1, aTagCoords.second - 2);
+		// Remove the tag from the description string
+		theDesc.replace(aTagCoords.first, aTagCoords.second, "");
+		// Note the insertion point for later replacement
+		aSegment.insertPos = aTagCoords.first;
+		// Get function identifier (empty is valid as "base" function)
+		const std::string& aFuncName = breakOffItemBeforeChar(aTag, ':');
+		aSegment.funcType = valueFuncNameToID(condense(aFuncName));
+		if( aSegment.funcType == eValueFunc_Num )
+		{
+			logError("Unknown function name '%s' in sync property '%s'",
+				aFuncName.c_str(), theBuilder.debugString.c_str());
+			theProperty.valueSetsUsed.clear();
+			return;
+		}
+		EValueSetType aValueSetType = funcToValueSetType(aSegment.funcType);
+		// Set links from config files back to this segment
+		if( !setConfigFileLinks(theBuilder, aSegment, aTag, aValueSetType) )
+		{
+			theProperty.valueSetsUsed.clear();
+			return;
+		}
+		theProperty.valueInserts.push_back(aSegment);
+		theProperty.valueSetsUsed.resize(sValueSets.size());
+		theProperty.valueSetsUsed.set(aSegment.valueSetID);
+		// Check for another tag after this one
+		aTagCoords = findStringTag(theDesc, aTagCoords.first);
+	}
+	theProperty.valueFormat.reserve(theDesc.size());
+	theProperty.valueFormat = theDesc;
+	// trim to fit
+	std::vector<TargetSyncProperty::Segment>(theProperty.valueInserts)
+		.swap(theProperty.valueInserts);
+}
+
+
+static EPropertyType extractPropertyType(const TargetSyncProperty& theProperty)
+{
+	if( theProperty.section == "HOTSPOTS" )
+		return ePropertyType_Hotspot;
+	if( theProperty.section == "ICONS" )
+		return ePropertyType_CopyIcon;
+	if( hasPrefix(theProperty.section, "HUD") ||
+		hasPrefix(theProperty.section, "MENU") )
+		return ePropertyType_HUDElement;
+	if( theProperty.section == "SYSTEM" && theProperty.name == "UISCALE" )
+		return ePropertyType_UIScale;
+	return ePropertyType_Unknown;
+}
+
+
+static bool parseTargetConfigFile(size_t theFileID)
 {
 	DBG_ASSERT(theFileID < sFiles.size());
 	TargetConfigFile& theFile = sFiles[theFileID];
@@ -604,7 +976,7 @@ bool parseTargetConfigFile(size_t theFileID)
 	} aParser(theFile.format, theFileID);
 
 	// Begin reading file
-	char aBuffer[1024];
+	char aBuffer[kConfigFileBufferSize];
 	DWORD aBytesRead = 0;
 	LARGE_INTEGER aFilePointer = {};
 	while(true)
@@ -645,22 +1017,216 @@ bool parseTargetConfigFile(size_t theFileID)
 }
 
 
-std::string hotspotValuesToStr(const TargetSyncProperty& theProp)
+static inline double getSubTypeValue(
+	const double* theValArray,
+	EValueSetSubType theSubType)
 {
-	std::string result;
+	double result = theValArray[theSubType];
+	switch(theSubType)
+	{
+	case eValueSetSubType_AlignX:
+	case eValueSetSubType_AlignY:
+		result = clamp(result, 0, 1.0);
+		if( sInvertAxis[theSubType] )
+			result = 1.0 - result;
+		break;
+	case eValueSetSubType_PivotX:
+	case eValueSetSubType_PivotY:
+		// For these what we really want is the offset needed to compensate
+		// for the pivot's effect rather than the actual pivot value itself
+		result = clamp(result, 0, 1.0);
+		if( sInvertAxis[theSubType] )
+			result = 1.0 - result;
+		if( result )
+		{
+			result *= getSubTypeValue(
+				theValArray,
+				theSubType == eValueSetSubType_PivotX
+					? eValueSetSubType_SizeX
+					: eValueSetSubType_SizeY);
+		}
+		break;
+	case eValueSetSubType_PosX:
+	case eValueSetSubType_PosY:
+		if( sInvertAxis[theSubType] )
+			result = -result;
+		break;
+	case eValueSetSubType_SizeX:
+	case eValueSetSubType_SizeY:
+		if( sInvertAxis[theSubType] )
+			result = -result;
+		result = max(0, result);
+		break;
+	case eValueSetSubType_Scale:
+		if( result <= 0 )
+			result = 1.0;
+		break;
+	}
 	return result;
 }
 
 
-void applyReadTargetConfigValues()
+static std::string getValueInsertString(
+	EValueFunction theFunction,
+	u16 theValueSet)
 {
-	const double oldScale = gUIScale;
-	double aUIScale = Profile::getFloat("System/UIScale", 1.0f);
-	if( aUIScale <= 0 )
-		aUIScale = 1.0;
-	gUIScale = aUIScale * gWindowUIScale;
-	if( gUIScale != oldScale )
-		HUD::updateScaling();
+	// Get an array pointer to the value that EValueSetSubType(0) would return
+	// (note this means v could end up pointing before the beginning of the
+	// array, but rest of logic should not be dereferencing v[0] in that case!)
+	double* v = &sValues[sValueSets[theValueSet]];
+	v -= kValueSetFirstIdx[funcToValueSetType(theFunction)];
+	std::string result;
+	result.reserve(32);
+	switch(theFunction)
+	{
+	case eValueFunc_Base:
+		result = toString(getSubTypeValue(v, eValueSetSubType_Base));
+		break;
+	case eValueFunc_PosX:
+		{
+			const double anAlign = getSubTypeValue(v, eValueSetSubType_AlignX);
+			if( anAlign < 0.4 )
+				result = getValueInsertString(eValueFunc_Left, theValueSet);
+			else if( anAlign > 0.6 )
+				result = getValueInsertString(eValueFunc_Right, theValueSet);
+			else
+				result = getValueInsertString(eValueFunc_CX, theValueSet);
+		}
+		break;
+	case eValueFunc_PosY:
+		{
+			const double anAlign = getSubTypeValue(v, eValueSetSubType_AlignY);
+			if( anAlign < 0.4 )
+				result = getValueInsertString(eValueFunc_Top, theValueSet);
+			else if( anAlign > 0.6 )
+				result = getValueInsertString(eValueFunc_Bottom, theValueSet);
+			else
+				result = getValueInsertString(eValueFunc_CY, theValueSet);
+		}
+		break;
+	case eValueFunc_Left:
+		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
+		{
+			const int anOffset =
+				getSubTypeValue(v, eValueSetSubType_PosX) -
+				getSubTypeValue(v, eValueSetSubType_PivotX);
+			if( anOffset )
+			{
+				if( anOffset > 0 ) result += "+";
+				result += toString(anOffset);
+			}
+		}
+		break;
+	case eValueFunc_Top:
+		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
+		{
+			const int anOffset =
+				getSubTypeValue(v, eValueSetSubType_PosY) -
+				getSubTypeValue(v, eValueSetSubType_PivotY);
+			if( anOffset )
+			{
+				if( anOffset > 0 ) result += "+";
+				result += toString(anOffset);
+			}
+		}
+		break;
+	case eValueFunc_CX:
+		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
+		{
+			const int anOffset =
+				getSubTypeValue(v, eValueSetSubType_PosX) -
+				getSubTypeValue(v, eValueSetSubType_PivotX) +
+				getSubTypeValue(v, eValueSetSubType_SizeX) * 0.5;
+			if( anOffset )
+			{
+				if( anOffset > 0 ) result += "+";
+				result += toString(anOffset);
+			}
+		}
+		break;
+	case eValueFunc_CY:
+		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
+		{
+			const int anOffset =
+				getSubTypeValue(v, eValueSetSubType_PosY) -
+				getSubTypeValue(v, eValueSetSubType_PivotY) +
+				getSubTypeValue(v, eValueSetSubType_SizeY) * 0.5;
+			if( anOffset )
+			{
+				if( anOffset > 0 ) result += "+";
+				result += toString(anOffset);
+			}
+		}
+		break;
+	case eValueFunc_Right:
+		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
+		{
+			const int anOffset =
+				getSubTypeValue(v, eValueSetSubType_PosX) -
+				getSubTypeValue(v, eValueSetSubType_PivotX) +
+				getSubTypeValue(v, eValueSetSubType_SizeX);
+			if( anOffset )
+			{
+				if( anOffset > 0 ) result += "+";
+				result += toString(anOffset);
+			}
+		}
+		break;
+	case eValueFunc_Bottom:
+		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
+		{
+			const int anOffset =
+				getSubTypeValue(v, eValueSetSubType_PosY) -
+				getSubTypeValue(v, eValueSetSubType_PivotY) +
+				getSubTypeValue(v, eValueSetSubType_SizeY);
+			if( anOffset )
+			{
+				if( anOffset > 0 ) result += "+";
+				result += toString(anOffset);
+			}
+		}
+		break;
+	case eValueFunc_Width:
+		result = toString(getSubTypeValue(v, eValueSetSubType_SizeX));
+		break;
+	case eValueFunc_Height:
+		result = toString(getSubTypeValue(v, eValueSetSubType_SizeY));
+		break;
+	case eValueFunc_AlignX:
+		{
+			const double anAlign = getSubTypeValue(v, eValueSetSubType_AlignX);
+			if( anAlign <= 0 )
+				result = "L";
+			else if( anAlign >= 1.0 )
+				result = "R";
+			else if( anAlign == 0.5 )
+				result = "CX";
+			else
+				result = toString(anAlign * 100.0) + "%";
+		}
+		break;
+	case eValueFunc_AlignY:
+		{
+			const double anAlign = getSubTypeValue(v, eValueSetSubType_AlignY);
+			if( anAlign <= 0 )
+				result = "T";
+			else if( anAlign >= 1.0 )
+				result = "B";
+			else if( anAlign == 0.5 )
+				result = "CY";
+			else
+				result = toString(anAlign * 100.0) + "%";
+		}
+		break;
+	case eValueFunc_Scale:
+		result = toString(
+			getSubTypeValue(v, eValueSetSubType_Scale) * 100.0) + "%";
+		break;
+	default:
+		DBG_ASSERT(false && "Invalid EValueFunction");
+		result = "0";
+	}
+	return result;
 }
 
 
@@ -673,8 +1239,8 @@ void load()
 	sFolders.clear();
 	sFiles.clear();
 	sProperties.clear();
-	StringToValueMap<u16, u8> aFilePathMap;
-	StringToValueMap<u16, u8> aConfigFileIDMap;
+	TargetConfigSyncBuilder aBuilder;
+	StringToValueMap<u16> aPathToIdxMap;
 
 	// Fetch target config files potentially containing sync properties
 	Profile::KeyValuePairs aKeyValueList;
@@ -682,8 +1248,9 @@ void load()
 	for(size_t i = 0; i < aKeyValueList.size(); ++i)
 	{
 		const std::string& aFilePath =
-			upper(removePathParams(expandPathVars(aKeyValueList[i].second)));
-		const u16 aFileID = aFilePathMap.findOrAdd(
+			upper(removePathParams(expandPathVars(
+				aKeyValueList[i].second)));
+		const u16 aFileID = aPathToIdxMap.findOrAdd(
 			aFilePath, u16(sFiles.size()));
 		if( aFileID >= sFiles.size() )
 		{
@@ -693,61 +1260,59 @@ void load()
 			aNewConfigFile.lastModTime = FILETIME();
 			sFiles.push_back(aNewConfigFile);
 		}
-		aConfigFileIDMap.setValue(upper(aKeyValueList[i].first), aFileID);
+		aBuilder.fileKeyToIDMap.setValue(
+			condense(aKeyValueList[i].first), aFileID);
+	}
+
+	// Fetch value path formating data
+	for(size_t i = 0; i < eValueSetSubType_Num; ++i)
+	{
+		aBuilder.valueFormatStrings[i] = Profile::getStr(
+			std::string(kValueFormatStrPrefix) +
+			kValueFormatStringKeys[i]);
+		sInvertAxis[i] = Profile::getBool(
+			std::string(kValueFormatInvertPrefix) +
+			kValueFormatStringKeys[i]);
 	}
 
 	// Fetch sync property values to read from the config files
-	// Format of property names:
-	//	SectionName.PropertyName =
-	// Format of property values:
-	//	ConfigFileID.RootKey.NestedKey.NestedKey...FinalKey
-	//	For arrays in .json files, the "key" for an array element object
-	//	is assumed to be the value for that object's first key. Other
-	//	array elements can be specified with [index] syntax.
-	//	For .ini files format is ConfigFileID.Section.ValueName
 	aKeyValueList.clear();
 	Profile::getAllKeys(kSyncPropertiesPrefix, aKeyValueList);
 	for(size_t i = 0; i < aKeyValueList.size(); ++i)
 	{
-		// Replace first . in key with / for the property
+		aBuilder.debugString = aKeyValueList[i].first;
+		aBuilder.debugString += " = ";
+		aBuilder.debugString += aKeyValueList[i].second;
+		// Separate key into section and property name by > character
 		TargetSyncProperty aProperty;
-		aProperty.type = ePropType_Scale; // TODO - actually calculate this
-		aProperty.section = upper(aKeyValueList[i].first);
-		size_t aPos = aProperty.section.find('.');
+		aProperty.section = condense(aKeyValueList[i].first);
+		size_t aPos = aProperty.section.find('>');
 		if( aPos == std::string::npos )
+		{
+			logError("Missing '>' between section and property name "
+				"for sync property '%s'",
+				aKeyValueList[i].first);
+			continue;
+		}
+		parsePropertyValueTags(aBuilder, aProperty, aKeyValueList[i].second);
+		if( aProperty.valueSetsUsed.none() )
 			continue;
 		aProperty.name = aProperty.section.substr(aPos+1);
 		aProperty.section.resize(aPos);
-		std::string aPropDesc = aKeyValueList[i].second;
-		if( aPropDesc.empty() )
-			continue;
-		std::string aFileKey = upper(breakOffItemBeforeChar(aPropDesc, '.'));
-		if( aFileKey.empty() )
-			continue;
-		if( const u16* aFileIDPtr = aConfigFileIDMap.find(aFileKey) )
-		{
-			const u16 aPropertyID = u16(sProperties.size());
-			sProperties.push_back(aProperty);
-			TargetConfigValue aConfigValue;
-			aConfigValue.propParamType = ePropParam_Scale;
-			aConfigValue.syncPropID = aPropertyID;
-			sFiles[*aFileIDPtr].values.setValue(aPropDesc, aConfigValue);
-		}
+		aProperty.type = extractPropertyType(aProperty);
+		const u16 aPropertyID = u16(sProperties.size());
+		sProperties.push_back(aProperty);
 	}
 
-	aKeyValueList.clear();
-	aFilePathMap.clear();
-	aConfigFileIDMap.clear();
-	sChangedFiles.clearAndResize(sFiles.size());
-
 	// Begin monitoring folders for changes to contained files w/ properites
+	aPathToIdxMap.clear();
 	for(u16 i = 0; i < sFiles.size(); ++i)
 	{
 		if( sFiles[i].values.empty() )
 			continue;
 		sFiles[i].values.trim();
 		const std::string& aFolderPath = getFileDir(narrow(sFiles[i].pathW));
-		const u16 aFolderID = aFilePathMap.findOrAdd(
+		const u16 aFolderID = aPathToIdxMap.findOrAdd(
 			aFolderPath, u16(sFolders.size()));
 		if( aFolderID >= sFolders.size() )
 		{
@@ -759,6 +1324,25 @@ void load()
 		}
 		sFolders[aFolderID].fileIDs.push_back(i);
 	}
+
+	// Trim memory and resize structures
+	for(u16 i = 0; i < sFolders.size(); ++i)
+	{
+		if( sFolders[i].fileIDs.size() < sFolders[i].fileIDs.capacity() )
+			std::vector<u16>(sFolders[i].fileIDs).swap(sFolders[i].fileIDs);	
+	}
+	if( sFolders.size() < sFolders.capacity() )
+		std::vector<TargetConfigFolder>(sFolders).swap(sFolders);
+	if( sFiles.size() < sFiles.capacity() )
+		std::vector<TargetConfigFile>(sFiles).swap(sFiles);
+	if( sProperties.size() < sProperties.capacity() )
+		std::vector<TargetSyncProperty>(sProperties).swap(sProperties);
+	if( sValues.size() < sValues.capacity() )
+		std::vector<double>(sValues).swap(sValues);
+	if( sValueSets.size() < sValueSets.capacity() )
+		std::vector<size_t>(sValueSets).swap(sValueSets);
+	sChangedFiles.clearAndResize(sFiles.size());
+	sChangedValueSets.clearAndResize(sValueSets.size());
 
 	// Load initial values and log file timestamps
 	sInitialized = true;
@@ -780,8 +1364,6 @@ void refresh()
 	}
 	if( sChangedFiles.any() )
 		update();
-	else
-		applyReadTargetConfigValues();
 }
 
 
@@ -799,7 +1381,7 @@ void stop()
 
 void update()
 {
-	if( !sInitialized )
+	if( !sInitialized || gShutdown )
 		return;
 
 	for(size_t aFolderID = 0; aFolderID < sFolders.size(); ++aFolderID)
@@ -825,8 +1407,6 @@ void update()
 		}
 	}
 
-	const bool needApplyValues = sChangedFiles.any();
-
 	for(int aFileID = sChangedFiles.firstSetBit();
 		aFileID < sChangedFiles.size();
 		aFileID = sChangedFiles.nextSetBit(aFileID+1))
@@ -835,28 +1415,48 @@ void update()
 			sChangedFiles.reset(aFileID);
 	}
 
-	if( needApplyValues )
+	if( sChangedFiles.none() && sChangedValueSets.any() )
 	{
+		bool propTypeChanged[ePropertyType_Num] = { };
 		for(size_t aPropID = 0; aPropID < sProperties.size(); ++aPropID)
 		{
 			TargetSyncProperty& aProp = sProperties[aPropID];
-			if( !aProp.newValueFound )
-				continue;
-			aProp.newValueFound = false;
-			std::string aValueStr;
-			switch(aProp.type)
+			if( (sChangedValueSets & aProp.valueSetsUsed).any() )
 			{
-			case ePropType_Scale:
-				aValueStr = toString(aProp.values[ePropParam_Scale]);
-				break;
-			case ePropType_Hotspot:
-				aValueStr = hotspotValuesToStr(aProp);
-				break;
+				std::string aValueStr = aProp.valueFormat;
+				// Work backwards so don't mess up insert positions
+				for(int i = int(aProp.valueInserts.size()-1); i >= 0; --i)
+				{
+					aValueStr.insert(
+						aProp.valueInserts[i].insertPos,
+						getValueInsertString(
+							aProp.valueInserts[i].funcType,
+							aProp.valueInserts[i].valueSetID));
+				}
+				Profile::setStr(aProp.section, aProp.name, aValueStr, false);
+				propTypeChanged[aProp.type] = true;
 			}
-			Profile::setStr(aProp.section, aProp.name, aValueStr, false);
 		}
-
-		applyReadTargetConfigValues();
+		if( propTypeChanged[ePropertyType_Unknown] ||
+			propTypeChanged[ePropertyType_Hotspot] )
+		{
+			// TODO
+			//InputMap::reloadAllHotspots();
+			HotspotMap::reloadPositions();
+		}
+		if( propTypeChanged[ePropertyType_Unknown] ||
+			propTypeChanged[ePropertyType_CopyIcon] ||
+			propTypeChanged[ePropertyType_HUDElement] )
+		{
+			// TODO
+			//HUD::reloadLayout();
+		}
+		if( propTypeChanged[ePropertyType_Unknown] ||
+			propTypeChanged[ePropertyType_UIScale] )
+		{
+			WindowManager::updateUIScale();
+		}
+		sChangedValueSets.reset();
 	}
 }
 

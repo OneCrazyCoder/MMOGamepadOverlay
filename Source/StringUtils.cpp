@@ -437,12 +437,6 @@ std::string	addTrailingSlash(const std::string& theDirectory, bool backSlash)
 }
 
 
-bool isAbsolutePath(const std::string& thePath)
-{
-	return !getRootDir(thePath).empty();
-}
-
-
 std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 {
 	std::string result;
@@ -552,7 +546,7 @@ size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix
 		}
 	}
 	
-	return theString.length();
+	return aPrefixIdx == aPrefix.length() ? theString.length() : 0;
 }
 
 

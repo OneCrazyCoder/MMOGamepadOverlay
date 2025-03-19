@@ -56,8 +56,8 @@ const ResourceProfile kResTemplateCore =
 
 const ResourceProfile kResTemplateBase[] =
 {//		name				fileName			resID					vers
-	{	"ECO Base",			"ECO Base",			IDR_TEXT_INI_BASE_ECO,	3	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	3	},
+	{	"ECO Base",			"ECO Base",			IDR_TEXT_INI_BASE_ECO,	4	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	4	},
 	{	"P99 Base",			"P99 Base",			IDR_TEXT_INI_BASE_P99,	3	},
 	{	"Pantheon Base",	"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	3	},
 	{	"PQ Base",			"PQ Base",			IDR_TEXT_INI_BASE_PQ,	3	},
@@ -66,7 +66,7 @@ const ResourceProfile kResTemplateBase[] =
 const ResourceProfile kResTemplateDefault[] =
 {//		name				fileName			resID					vers
 	{	"ECO Default",		"ECO Default",		IDR_TEXT_INI_DEF_ECO,	3	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	3	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	4	},
 	{	"P99 Default",		"P99 Default",		IDR_TEXT_INI_DEF_P99,	3	},
 	{	"Pantheon Default",	"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	3	},
 	{	"PQ Default",		"PQ Default",		IDR_TEXT_INI_DEF_PQ,	3	},
