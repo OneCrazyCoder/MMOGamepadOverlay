@@ -313,6 +313,7 @@ static std::vector<AutoRefreshLabelEntry> sAutoRefreshLabels;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
+static HRGN sClipRegion = NULL;
 static SystemPaintFunc sSystemOverlayPaintFunc = NULL;
 static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
@@ -816,8 +817,10 @@ static void generateBitmapIconMask(BitmapIcon& theIcon, COLORREF theTransColor)
 	SelectObject(hdcImage, theIcon.image);
 	SelectObject(hdcMask, theIcon.mask);
 
+	// Generate 1-bit - theTransColor areas become 1, opaque areas become 0
 	SetBkColor(hdcImage, theTransColor);
 	BitBlt(hdcMask, 0, 0, bm.bmWidth, bm.bmHeight, hdcImage, 0, 0, SRCCOPY);
+	// Change theTransColor pixels in the original image to black
 	BitBlt(hdcImage, 0, 0, bm.bmWidth, bm.bmHeight, hdcMask, 0, 0, SRCINVERT);
 
 	DeleteDC(hdcImage);
@@ -1369,10 +1372,11 @@ static void drawLabelString(
 
 static void drawMenuItemLabel(
 	HUDDrawData& dd,
-	const RECT& theRect,
+	RECT theRect,
 	u16 theItemIdx,
 	std::string theLabel,
 	const Appearance& theAppearance,
+	u8 theCurrBorderSize, u8 theMaxBorderSize,
 	MenuDrawCacheEntry& theCacheEntry)	
 {
 	expandDynamicString(theLabel, theCacheEntry);
@@ -1424,6 +1428,8 @@ static void drawMenuItemLabel(
 	{
 		SetTextColor(dd.hdc, theAppearance.labelColor);
 		SetBkColor(dd.hdc, theAppearance.itemColor);
+		if( theMaxBorderSize > 0 )
+			InflateRect(&theRect, -theMaxBorderSize, -theMaxBorderSize);
 		drawLabelString(dd, theRect, widen(theLabel),
 			DT_WORDBREAK | DT_CENTER | DT_VCENTER,
 			theCacheEntry.str);
@@ -1433,9 +1439,22 @@ static void drawMenuItemLabel(
 		DBG_ASSERT(theCacheEntry.bitmapIconID < sBitmapIcons.size());
 		const BitmapIcon& anIcon = sBitmapIcons[theCacheEntry.bitmapIconID];
 		DBG_ASSERT(sBitmapDrawSrc);
+		if( theCurrBorderSize > 0 )
+		{
+			RECT aClipRect = theRect;
+			InflateRect(&aClipRect, -theCurrBorderSize, -theCurrBorderSize);
+			DBG_ASSERT(sClipRegion);
+			SetRectRgn(sClipRegion,
+				aClipRect.left, aClipRect.top,
+				aClipRect.right, aClipRect.bottom);
+			SelectClipRgn(dd.hdc, sClipRegion);
+		}
+
+		// Draw 1-bit mask with SRCAND, which will overwrite any pixels in
+		// destination that are (0) in the mask to be all-black (0) while
+		// leaving the other pixels (white (1) in the mask) in dest as-is
 		HBITMAP hOldBitmap = (HBITMAP)
 			SelectObject(sBitmapDrawSrc, anIcon.mask);
-
 		StretchBlt(dd.hdc,
 				   theRect.left, theRect.top,
 				   theRect.right - theRect.left,
@@ -1446,6 +1465,9 @@ static void drawMenuItemLabel(
 				   anIcon.size.cy,
 				   SRCAND);
 
+		// Draw image using SRCPAINT (OR) to mask out transparent pixels
+		// Black (0) source (was TransColor) | any dest = keep dest color
+		// Color source | black dest (masked via above) = icon color
 		SelectObject(sBitmapDrawSrc, anIcon.image);
 		StretchBlt(dd.hdc,
 				   theRect.left, theRect.top,
@@ -1458,6 +1480,8 @@ static void drawMenuItemLabel(
 				   SRCPAINT);
 
 		SelectObject(sBitmapDrawSrc, hOldBitmap);
+		if( theCurrBorderSize > 0 )
+			SelectClipRgn(dd.hdc, NULL);
 	}
 	else if( theCacheEntry.type == eMenuItemLabelType_CopyRect )
 	{
@@ -1469,6 +1493,16 @@ static void drawMenuItemLabel(
 		int aSrcT = theCacheEntry.copyRect.fromPos.y + dd.captureOffset.y;
 		int aSrcW = theCacheEntry.copyRect.fromSize.cx;
 		int aSrcH = theCacheEntry.copyRect.fromSize.cy;
+		if( theCurrBorderSize > 0 )
+		{
+			RECT aClipRect = theRect;
+			InflateRect(&aClipRect, -theCurrBorderSize, -theCurrBorderSize);
+			DBG_ASSERT(sClipRegion);
+			SetRectRgn(sClipRegion,
+				aClipRect.left, aClipRect.top,
+				aClipRect.right, aClipRect.bottom);
+			SelectClipRgn(dd.hdc, sClipRegion);
+		}
 
 		if( aDstW >= aSrcW && aDstH >= aSrcH )
 		{// Just draw centered at destination
@@ -1505,6 +1539,8 @@ static void drawMenuItemLabel(
 		sAutoRefreshLabels.push_back(AutoRefreshLabelEntry());
 		sAutoRefreshLabels.back().hudElementID = dd.hudElementID;
 		sAutoRefreshLabels.back().itemIdx = theItemIdx;
+		if( theCurrBorderSize > 0 )
+			SelectClipRgn(dd.hdc, NULL);
 	}
 }
 
@@ -1604,19 +1640,20 @@ static void drawMenuItem(
 
 	// Label (usually word-wrapped and centered text)
 	RECT aLabelRect = theRect;
-	int aMaxBorderSize = hi.scaledRadius / 4;
+	int aBorderSize = hi.scaledRadius / 4;
+	int aMaxBorderSize = aBorderSize;
+	aBorderSize = max(aBorderSize, appearance.borderSize);
 	for(int i = 0; i < eAppearanceMode_Num; ++i)
 	{
 		aMaxBorderSize = max(aMaxBorderSize,
 			sAppearances[hi.appearanceID[i]].borderSize);
 	}
-	if( aMaxBorderSize > 0 )
-		InflateRect(&aLabelRect, -aMaxBorderSize - 1, -aMaxBorderSize - 1);
 	drawMenuItemLabel(
 		dd, aLabelRect,
 		theItemIdx,
 		theLabel,
 		appearance,
+		aBorderSize, aMaxBorderSize,
 		theCacheEntry);
 
 	// Flag when successfully redrew forced-redraw item
@@ -1734,14 +1771,14 @@ static void drawSlotsMenu(HUDDrawData& dd)
 			dd.appearanceMode = eAppearanceMode_Normal;
 			RECT anAltLabelRect = dd.components.back();
 			drawHUDRect(dd, anAltLabelRect);
-			const u8 aBorderSize = 
-				sAppearances[hi.appearanceID[eAppearanceMode_Normal]].borderSize;
-			InflateRect(&anAltLabelRect, -aBorderSize-1, -aBorderSize-1);
+			const Appearance& appearance = sAppearances[
+				hi.appearanceID[dd.appearanceMode]];
 			drawMenuItemLabel(
 				dd, anAltLabelRect,
 				hi.selection,
 				anAltLabel,
-				sAppearances[hi.appearanceID[eAppearanceMode_Normal]],
+				appearance,
+				appearance.borderSize, appearance.borderSize,
 				sMenuDrawCache[aSubMenuID]
 					[anItemCount+hi.selection+hasTitle]);
 		}
@@ -2309,6 +2346,8 @@ void cleanup()
 
 	DeleteDC(sBitmapDrawSrc);
 	sBitmapDrawSrc = NULL;
+	DeleteObject(sClipRegion);
+	sClipRegion = NULL;
 }
 
 
@@ -2665,6 +2704,8 @@ void drawElement(
 	aDrawData.firstDraw = needsInitialErase;
 	if( !sBitmapDrawSrc )
 		sBitmapDrawSrc = CreateCompatibleDC(hdc);
+	if( !sClipRegion )
+		sClipRegion = CreateRectRgn(0, 0, 0, 0);
 
 	// Select the transparent color (erase) brush by default first
 	SelectObject(hdc, GetStockObject(DC_BRUSH));

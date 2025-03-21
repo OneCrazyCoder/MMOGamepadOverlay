@@ -446,7 +446,7 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 		anEntryPos.y = anEntryPos.y + anEntrySize.y / 2;
 	}
 	RECT anOverlayRect;
-	anOverlayRect = WindowManager::overlayTargetScreenRect();
+	anOverlayRect = WindowManager::overlayClipRect();
 	POINT anOverlayCenter;
 	anOverlayCenter.x = (anOverlayRect.left + anOverlayRect.right) / 2;
 	anOverlayCenter.y = (anOverlayRect.top + anOverlayRect.bottom) / 2;

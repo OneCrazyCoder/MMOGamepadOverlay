@@ -785,7 +785,7 @@ Once a Bitmap is set properly as in the above example, set the HUD element's ``T
 
 ### Label Icons
 
-In addition to the backdrop of a menu item, a bitmap be used to entirely replace a text label. This allows having a different image for each individual menu item. This image will be copied into the inner area of the menu item, meaning the resulting bitmap will be drawn at (ItemSize.x/y - (BorderSize x 2)) size.
+In addition to the backdrop of a menu item, a bitmap can be used to entirely replace a text label. This allows having a different image for each individual menu item.
 
 The [Icons] section is used to link each menu item's label text to what should be drawn in place of it. For example:
 
@@ -801,7 +801,7 @@ The [Icons] section is used to link each menu item's label text to what should b
     [Icons]
     Spell2 = MyIcons: 0, 0, 32, 32
 
-Would have a menu where the first Menu Item would have the text label "Spell1", but the second Menu Item would instead show a copy of the (0, 0, 32, 32) region of Bitmaps\MyIcons.bmp displayed instead of text.
+Would have a menu where the first Menu Item would have the text label "Spell1", but the second Menu Item would instead show a copy of the (l=0, t=0, w=32, h=32) region of Bitmaps\MyIcons.bmp displayed instead of text.
 
 *Note that linking a label to an icon is case-insensitive and ignores spaces, so "SPELL 2" would link to the same icon as "Spell2".*
 
