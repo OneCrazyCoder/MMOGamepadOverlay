@@ -967,8 +967,9 @@ static void processCommand(
 		sResults.menuAutoCommandRun.set(theCmd.menuID);
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
-	case eCmdType_ReplaceMenu:
-		aForwardCmd = Menus::replaceMenu(theCmd.menuID, theCmd.subMenuID);
+	case eCmdType_SwapMenu:
+		aForwardCmd = Menus::swapMenu(
+			theCmd.menuID, theCmd.subMenuID, ECommandDir(theCmd.swapDir));
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		sResults.menuAutoCommandRun.set(theCmd.menuID);
 		moveMouseToSelectedMenuItem(theCmd);

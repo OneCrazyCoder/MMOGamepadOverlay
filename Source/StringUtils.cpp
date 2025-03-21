@@ -67,7 +67,7 @@ std::string vformat(const char* fmt, va_list argPtr)
 	int aBufferSize = kInitialBufferSize;
 	int aResult = vsnprintf(aCStringPtr, aBufferSize, fmt, argPtr);
 
-	while( (aResult < 0 || aResult >= aBufferSize) && aBufferSize < kMaxBufferSize )
+	while((aResult < 0 || aResult >= aBufferSize) && aBufferSize < kMaxBufferSize)
 	{
 		// Make buffer size needed, or if don't know just double size until do
 		// Note that this doubling loop is only needed for older Visual Studio
@@ -584,7 +584,7 @@ std::string commaSeparate(u32 theValue)
 	int aPlace = 0;
 	int aCurValue = theValue;
 
-	while( aCurValue > 0 )
+	while(aCurValue > 0)
 	{
 		if( aPlace && aPlace % 3 == 0 )
 			aResult = ',' + aResult;

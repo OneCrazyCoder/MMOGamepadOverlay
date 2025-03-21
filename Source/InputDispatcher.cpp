@@ -504,7 +504,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 		return eResult_Incomplete;
 	}
 
-	while( theVKeySequence[sTracker.currTaskProgress] != '\0' )
+	while(theVKeySequence[sTracker.currTaskProgress] != '\0')
 	{
 		const size_t idx = sTracker.currTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];

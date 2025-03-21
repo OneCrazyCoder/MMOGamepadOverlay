@@ -71,7 +71,7 @@ enum ECommandType
 
 	// These control Menu selections/state
 	eCmdType_OpenSubMenu,
-	eCmdType_ReplaceMenu,
+	eCmdType_SwapMenu,
 	eCmdType_MenuReset,
 	eCmdType_MenuConfirm,
 	eCmdType_MenuConfirmAndClose,

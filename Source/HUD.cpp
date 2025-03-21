@@ -1309,8 +1309,8 @@ static void expandDynamicString(
 
 	theString = theString.substr(1);
 	std::string::size_type aStartPos = 0;
-	while( (aStartPos = theString.find(kLayerStatusReplaceChar, aStartPos))
-		!= std::string::npos )
+	while((aStartPos = theString.find(kLayerStatusReplaceChar, aStartPos))
+			!= std::string::npos )
 	{
 		// Convert 3-char 14-bit code to a layer ID
 		u8 c = theString[aStartPos+1];
