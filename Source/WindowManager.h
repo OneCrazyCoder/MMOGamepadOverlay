@@ -66,8 +66,7 @@ void showOverlays();
 void setOverlaysToTopZ();
 bool overlaysAreHidden();
 SIZE overlayTargetSize();
-RECT overlayTargetScreenRect();
-RECT overlayTargetDesktopRect();
+RECT overlayClipRect();
 
 // Updates gUIScale read in from Profile and possibly window size
 void updateUIScale();

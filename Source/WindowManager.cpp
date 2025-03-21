@@ -1145,15 +1145,9 @@ SIZE overlayTargetSize()
 }
 
 
-RECT overlayTargetScreenRect()
+RECT overlayClipRect()
 {
-	return sScreenTargetRect;
-}
-
-
-RECT overlayTargetDesktopRect()
-{
-	return sDesktopTargetRect;
+	return sTargetClipRect;
 }
 
 
