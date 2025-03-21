@@ -3535,9 +3535,11 @@ static void buildMenus(InputMapBuilder& theBuilder)
 					aMenuStyle != eMenuStyle_4Dir )
 				{
 					// Requests to open sub-menus with directionals in
-					// most menu styles should use replace menu instead,
-					// so they behave like "side" instead of "sub" menus
-					aMenuItem.cmd.type = eCmdType_ReplaceMenu;
+					// most menu styles should use swap menu instead,
+					// meaning they'll stay on the same "level" as the
+					// previous menu instead of being a "child" menu.
+					aMenuItem.cmd.type = eCmdType_SwapMenu;
+					aMenuItem.cmd.swapDir = u8(itemIdx);
 				}
 			}
 		}

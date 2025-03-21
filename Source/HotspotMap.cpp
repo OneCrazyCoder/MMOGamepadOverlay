@@ -139,7 +139,7 @@ static void processTargetSizeTask()
 static void processActiveArraysTask()
 {
 	const size_t aHotspotArrayCount = InputMap::hotspotArrayCount();
-	while( sTaskProgress < aHotspotArrayCount )
+	while(sTaskProgress < aHotspotArrayCount)
 	{
 		const u16 anArray = sTaskProgress++;
 		bool needChangeMade = false;
@@ -193,7 +193,7 @@ static void processAddToGridTask()
 		}
 	}
 
-	while( sTaskProgress < sPoints.size() )
+	while(sTaskProgress < sPoints.size())
 	{
 		const u16 aPointIdx = sTaskProgress++;
 		if( !sPoints[aPointIdx].enabled )
@@ -294,7 +294,7 @@ static void processNextLeftTask()
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
 
-	while( sTaskProgress < sCandidates.size() )
+	while(sTaskProgress < sCandidates.size())
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
 		if( aPointIdx == sIgnorePointInSearch )
@@ -334,7 +334,7 @@ static void processNextRightTask()
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
 
-	while( sTaskProgress < sCandidates.size() )
+	while(sTaskProgress < sCandidates.size())
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
 		if( aPointIdx == sIgnorePointInSearch )
@@ -374,7 +374,7 @@ static void processNextUpTask()
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
 
-	while( sTaskProgress < sCandidates.size() )
+	while(sTaskProgress < sCandidates.size())
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
@@ -414,7 +414,7 @@ static void processNextDownTask()
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
 
-	while( sTaskProgress < sCandidates.size() )
+	while(sTaskProgress < sCandidates.size())
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
 		if( aPointIdx == sIgnorePointInSearch )

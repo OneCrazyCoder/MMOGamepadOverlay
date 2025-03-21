@@ -41,7 +41,8 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 			u8 withMouse : 1;
 			u8 andClick : 1;
 			u8 atStartup : 1;
-			u8 __reserved : 4;
+			u8 swapDir : 2;
+			u8 __reserved : 2;
 		};
 		const char* string;
 		u64 compare;

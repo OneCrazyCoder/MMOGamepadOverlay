@@ -43,7 +43,7 @@ const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID);
 // Similar result to openSubMenu but replaces current menu entirely instead
 // of adding it to menu stack, changing how closeLastSubMenu() below behaves.
 // Note that this does NOT trigger the "Back" command of replaced menu!
-const Command& replaceMenu(u16 theMenuID, u16 theReplacementSubMenuID);
+const Command& swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir);
 
 // Removes the most recently-added sub-menu (via openSubMenu), returning to
 // whichever sub-menu (or the root menu) was active before then.
