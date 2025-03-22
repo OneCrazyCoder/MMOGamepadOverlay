@@ -21,7 +21,7 @@ namespace TargetConfigSync
 //-----------------------------------------------------------------------------
 
 enum {
-kConfigFileBufferSize = 256, // How many chars to stream from file per read
+kConfigFileBufferSize = 1024, // How many chars to stream from file per read
 };
 
 enum EConfigFileFormat
@@ -253,7 +253,7 @@ static std::vector<TargetConfigFolder> sFolders;
 static std::vector<TargetConfigFile> sFiles;
 static std::vector<TargetSyncProperty> sProperties;
 static std::vector<double> sValues;
-static std::vector<size_t> sValueSets;
+static std::vector<u16> sValueSets;
 static BitVector<> sChangedFiles;
 static BitVector<> sChangedValueSets;
 static bool sInvertAxis[eValueSetSubType_Num];
@@ -1347,7 +1347,7 @@ void load()
 	if( sValues.size() < sValues.capacity() )
 		std::vector<double>(sValues).swap(sValues);
 	if( sValueSets.size() < sValueSets.capacity() )
-		std::vector<size_t>(sValueSets).swap(sValueSets);
+		std::vector<u16>(sValueSets).swap(sValueSets);
 	sChangedValueSets.clearAndResize(sValueSets.size());
 
 	// Load initial values and log file timestamps
@@ -1427,6 +1427,11 @@ void update()
 							aProp.valueInserts[i].funcType,
 							aProp.valueInserts[i].valueSetID));
 				}
+				debugPrint("Replacing %s/%s = %s with %s\n",
+					aProp.section.c_str(),
+					aProp.name.c_str(),
+					Profile::getStr(aProp.section + "/" + aProp.name).c_str(),
+					aValueStr.c_str());
 				Profile::setStr(aProp.section, aProp.name, aValueStr, false);
 				propTypeChanged[aProp.type] = true;
 			}
