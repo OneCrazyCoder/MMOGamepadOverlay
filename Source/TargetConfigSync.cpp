@@ -1427,11 +1427,6 @@ void update()
 							aProp.valueInserts[i].funcType,
 							aProp.valueInserts[i].valueSetID));
 				}
-				debugPrint("Replacing %s/%s = %s with %s\n",
-					aProp.section.c_str(),
-					aProp.name.c_str(),
-					Profile::getStr(aProp.section + "/" + aProp.name).c_str(),
-					aValueStr.c_str());
 				Profile::setStr(aProp.section, aProp.name, aValueStr, false);
 				propTypeChanged[aProp.type] = true;
 			}

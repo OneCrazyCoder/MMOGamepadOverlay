@@ -599,26 +599,6 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Resources\Taron-ECO.ini"
-			>
-		</File>
-		<File
-			RelativePath=".\Resources\Taron-MnM.ini"
-			>
-		</File>
-		<File
-			RelativePath=".\Resources\Taron-P99.ini"
-			>
-		</File>
-		<File
-			RelativePath=".\Resources\Taron-Pan.ini"
-			>
-		</File>
-		<File
-			RelativePath=".\Resources\Taron-PQ.ini"
-			>
-		</File>
-		<File
 			RelativePath=".\Source\WindowManager.cpp"
 			>
 		</File>
