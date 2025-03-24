@@ -17,7 +17,7 @@ namespace Profile
 //-----------------------------------------------------------------------------
 
 enum {
-kINIFileBufferSize = 256, // How many characters to process at a time from .ini
+kINIFileBufferSize = 4096, // How many chars to process at a time from .ini
 };
 
 struct ResourceProfile

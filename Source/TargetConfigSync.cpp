@@ -16,12 +16,15 @@
 namespace TargetConfigSync
 {
 
+// Uncomment this to print details about config file syncing to debug window
+//#define TARGET_CONFIG_SYNC_DEBUG_PRINT
+
 //-----------------------------------------------------------------------------
 // Const Data
 //-----------------------------------------------------------------------------
 
 enum {
-kConfigFileBufferSize = 1024, // How many chars to stream from file per read
+kConfigFileBufferSize = 4096 // How many chars to stream from file per read
 };
 
 enum EConfigFileFormat
@@ -244,6 +247,8 @@ struct TargetConfigSyncBuilder
 	std::string debugString;
 };
 
+class TargetConfigFileParser; // forward declare
+
 
 //-----------------------------------------------------------------------------
 // Static Variables
@@ -256,6 +261,7 @@ static std::vector<double> sValues;
 static std::vector<u16> sValueSets;
 static BitVector<> sChangedFiles;
 static BitVector<> sChangedValueSets;
+static TargetConfigFileParser* sParser;
 static bool sInvertAxis[eValueSetSubType_Num];
 static bool sInitialized = false;
 static bool sPaused = false;
@@ -265,36 +271,240 @@ static bool sPaused = false;
 // TargetConfigFileParser
 //-----------------------------------------------------------------------------
 
+#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
+#define syncDebugPrint(...) debugPrint("TargetConfigSync: " __VA_ARGS__)
+#else
+#define syncDebugPrint(...) ((void)0)
+#endif
+
 class TargetConfigFileParser
+	: public ConstructFromZeroInitializedMemory<TargetConfigFileParser>
 {
 public:
 	TargetConfigFileParser(size_t theFileID) :
-		mFileID(theFileID),
-		mUnfoundCount(int(sFiles[theFileID].values.size()))
-	{}
-	virtual ~TargetConfigFileParser() {}
-	virtual bool parse(std::string&) = 0;
-protected:
-	bool anyPathsUsePrefix(const std::string& thePrefix) const
+		fileID(theFileID),
+		mUnfound(sFiles[theFileID].values.size())
 	{
-		return sFiles[mFileID].values.containsPrefix(thePrefix);
+		mUnfound.set();
+		DBG_ASSERT(theFileID < sFiles.size());
+		TargetConfigFile& aFile = sFiles[theFileID];
+		// Get a file handle that won't block other apps' access to the file
+		mFileLockHandle = CreateFile(
+			aFile.pathW.c_str(),
+			0,
+			FILE_SHARE_READ,
+			NULL,
+			OPEN_EXISTING,
+			FILE_FLAG_OVERLAPPED,
+			NULL);
+		if( mFileLockHandle == INVALID_HANDLE_VALUE )
+		{
+			logToFile("Failed to find target config file %s",
+				narrow(aFile.pathW).c_str());
+			mParsingComplete = true;
+			return;
+		}
+
+		// Request a filter OpLock to the file so can get out of the way if
+		// target app needs the file - without causing it any sharing errors
+		mLockOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+		DBG_ASSERT(mLockOverlapped.hEvent);
+		DeviceIoControl(mFileLockHandle, FSCTL_REQUEST_FILTER_OPLOCK,
+			NULL, 0, NULL, 0, NULL, &mLockOverlapped);
+		switch (GetLastError())
+		{
+		case ERROR_IO_PENDING:
+			// Expected result for successful lock
+			break;
+		case ERROR_OPLOCK_NOT_GRANTED:
+		case ERROR_CANNOT_GRANT_REQUESTED_OPLOCK:
+			// File in use - try again later
+			syncDebugPrint("File %s in use - trying again later!\n",
+				getFileName(narrow(aFile.pathW)).c_str());
+			mParsingComplete = mFileWasBusy = true;
+			return;
+		default:
+			logToFile("Failed to get oplock read access to target config file %s",
+				narrow(aFile.pathW).c_str());
+			mParsingComplete = true;
+			return;
+		}
+
+		// Open the OpLock'd file for read
+		mFileHandle = CreateFile(
+			aFile.pathW.c_str(),
+			GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_DELETE,
+			NULL,
+			OPEN_EXISTING,
+			FILE_FLAG_OVERLAPPED,
+			NULL);
+		if( mFileHandle == INVALID_HANDLE_VALUE )
+		{
+			logToFile("Failed to open target config file %s",
+				narrow(aFile.pathW).c_str());
+			mParsingComplete = true;
+			return;
+		}
+
+		// Begin first read
+		mReadOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+		DBG_ASSERT(mReadOverlapped.hEvent);
+		if( !ReadFile(
+				mFileHandle,
+				mBuffer[mBufferIdx],
+				kConfigFileBufferSize,
+				&mBytesRead[mBufferIdx],
+				&mReadOverlapped) )
+		{
+			if( GetLastError() != ERROR_IO_PENDING )
+			{
+				logToFile("Error reading target config file %s",
+					narrow(aFile.pathW).c_str());
+				mParsingComplete = true;
+			}
+		}
 	}
 
-	void checkForFoundValue(
+	virtual ~TargetConfigFileParser()
+	{
+		CloseHandle(mReadOverlapped.hEvent);
+		CloseHandle(mLockOverlapped.hEvent);
+		CloseHandle(mFileHandle);
+		CloseHandle(mFileLockHandle);
+	}
+
+	void parseNextChunk()
+	{
+		if( mParsingComplete )
+			return;
+
+		DBG_ASSERT(this->fileID < sFiles.size());
+		TargetConfigFile& aFile = sFiles[this->fileID];
+
+		// If got OpLock break request abort and try again later
+		if( WaitForSingleObject(mLockOverlapped.hEvent, 0) == WAIT_OBJECT_0 )
+		{
+			syncDebugPrint("Another app needed file %s - delaying parse!\n",
+				getFileName(narrow(aFile.pathW)).c_str());
+			mParsingComplete = mFileWasBusy = true;
+			return;
+		}
+
+		// Wait for last async read request to complete
+		if( !GetOverlappedResult(
+				mFileHandle,
+				&mReadOverlapped,
+				&mBytesRead[mBufferIdx],
+				TRUE) )
+		{
+			mParsingComplete = true;
+			return;
+		}
+
+		if( mBytesRead[mBufferIdx] < kConfigFileBufferSize )
+			mParsingComplete = true;
+
+		// Start reading next chunk while parsing this one
+		if( !mParsingComplete )
+		{
+			mFilePointer.QuadPart += mBytesRead[mBufferIdx];
+			mReadOverlapped.Offset = mFilePointer.LowPart;
+			mReadOverlapped.OffsetHigh = mFilePointer.HighPart;
+
+			// Use overlapped async file read to begin reading to other buffer
+			if( !ReadFile(
+					mFileHandle,
+					mBuffer[mBufferIdx ? 0 : 1],
+					kConfigFileBufferSize,
+					&mBytesRead[mBufferIdx ? 0 : 1],
+					&mReadOverlapped) )
+			{
+				if( GetLastError() != ERROR_IO_PENDING )
+				{
+					logToFile("Error reading target config file %s",
+						narrow(aFile.pathW).c_str());
+					mParsingComplete = true;
+					return;
+				}
+			}
+		}
+
+		// Process the previously read-in data
+		syncDebugPrint("Parsing %d read bytes...\n", mBytesRead[mBufferIdx]);
+		const std::string aReadChunk(
+			(char*)mBuffer[mBufferIdx], mBytesRead[mBufferIdx]);
+		if( !parse(aReadChunk) || mUnfound.none() )
+			mParsingComplete = true;
+
+		// Swap buffer to check for next read
+		mBufferIdx = mBufferIdx ? 0 : 1;
+	}
+
+	void reportResults()
+	{
+		#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
+		if( !mFileWasBusy )
+		{
+			syncDebugPrint("Finished parsing '%s' with %d unfound values\n",
+				getFileName(narrow(sFiles[this->fileID].pathW)).c_str(),
+				mUnfound.count());
+			if( mUnfound.any() )
+			{
+				syncDebugPrint("Values not found:\n");
+				for(int i = mUnfound.firstSetBit();
+					i < mUnfound.size(); i = mUnfound.nextSetBit(i+1))
+				{
+					syncDebugPrint("  * %s\n",
+						sFiles[this->fileID].values.keys()[i].c_str());
+				}
+			}
+		}
+		#endif
+	}
+
+	virtual bool parse(const std::string&) = 0;
+
+	bool done() const { return mParsingComplete; }
+	bool fileWasBusy() const { return mFileWasBusy; }
+
+	const size_t fileID;
+
+protected:
+
+	bool anyPathsUsePrefix(const std::string& thePrefix) const
+	{
+		return sFiles[this->fileID].values.containsPrefix(thePrefix);
+	}
+
+	bool checkForFoundValue(
 		const std::string& thePath,
 		const std::string& theValue)
 	{
 		if( TargetConfigFile::Value* aValuePtr =
-				sFiles[mFileID].values.find(thePath) )
+				sFiles[this->fileID].values.find(thePath) )
 		{
 			sValues[aValuePtr->valueIdx] = doubleFromString(theValue);
 			sChangedValueSets.set(aValuePtr->setIdx);
-			--mUnfoundCount;
+			mUnfound.reset(
+				aValuePtr - &sFiles[this->fileID].values.values()[0]);
+			syncDebugPrint("Read path %s value as %f\n",
+				thePath.c_str(), sValues[aValuePtr->valueIdx]);
 		}
+		return mUnfound.none();
 	}
 
-	const size_t mFileID;
-	int mUnfoundCount;
+private:
+
+	BitVector<> mUnfound;
+	DWORD mBytesRead[2];
+	HANDLE mFileHandle, mFileLockHandle;
+	LARGE_INTEGER mFilePointer;
+	OVERLAPPED mReadOverlapped, mLockOverlapped;
+	u8 mBuffer[2][kConfigFileBufferSize];
+	u8 mBufferIdx;
+	bool mParsingComplete;
+	bool mFileWasBusy;
 };
 
 
@@ -314,9 +524,8 @@ public:
 		mState.reserve(16);
 		pushState(eState_Init);
 	}
-	virtual ~TargetConfigJSONParser() {}
 
-	virtual bool parse(std::string& theReadChunk)
+	virtual bool parse(const std::string& theReadChunk)
 	{
 		std::string::size_type aReadPos = 0;
 		DBG_ASSERT(!mState.empty());
@@ -508,8 +717,7 @@ public:
 					{
 						if( !mReadStr.empty() )
 						{
-							checkForFoundValue(mPath, mReadStr);
-							if( mUnfoundCount <= 0 )
+							if( checkForFoundValue(mPath, mReadStr) )
 								return false;
 						}
 						popState();
@@ -647,7 +855,7 @@ public:
 	}
 
 	virtual ~TargetConfigINIParser() {}
-	virtual bool parse(std::string& theReadChunk)
+	virtual bool parse(const std::string& theReadChunk)
 	{
 		// TODO
 		return false;
@@ -884,141 +1092,6 @@ static EPropertyType extractPropertyType(const TargetSyncProperty& theProperty)
 	if( theProperty.section == "SYSTEM" && theProperty.name == "UISCALE" )
 		return ePropertyType_UIScale;
 	return ePropertyType_Unknown;
-}
-
-
-static bool parseTargetConfigFile(size_t theFileID)
-{
-	DBG_ASSERT(theFileID < sFiles.size());
-	TargetConfigFile& theFile = sFiles[theFileID];
-	struct AutoHandle
-	{
-		AutoHandle(HANDLE theHandle = NULL) : mHandle(theHandle) {}
-		~AutoHandle() { CloseHandle(mHandle); }
-		operator HANDLE() const { return mHandle; }
-		HANDLE mHandle;
-	};
-
-	// Get a file handle that won't block other apps' access to the file
-	AutoHandle hLockFile = CreateFile(
-		theFile.pathW.c_str(),
-		0,
-		FILE_SHARE_READ,
-		NULL,
-		OPEN_EXISTING,
-		FILE_FLAG_OVERLAPPED,
-		NULL);
-	if( hLockFile == INVALID_HANDLE_VALUE )
-	{
-		logToFile("Failed to find target config file %s",
-			narrow(theFile.pathW).c_str());
-		return true;
-	}
-
-	// Request a filter OpLock to the file so can get out of the way if
-	// target app needs the file - without causing it any sharing errors
-	OVERLAPPED aLockOverlapped = {};
-	aLockOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	DBG_ASSERT(aLockOverlapped.hEvent);
-	AutoHandle aLockOverlappedEvent(aLockOverlapped.hEvent);
-	DeviceIoControl(hLockFile, FSCTL_REQUEST_FILTER_OPLOCK,
-		NULL, 0, NULL, 0, NULL, &aLockOverlapped);
-	switch (GetLastError())
-	{
-	case ERROR_IO_PENDING:
-		// Expected result for successful lock
-		break;
-	case ERROR_OPLOCK_NOT_GRANTED:
-	case ERROR_CANNOT_GRANT_REQUESTED_OPLOCK:
-		// File in use - try again next update
-		return false;
-	default:
-		logToFile("Failed to get oplock read access to target config file %s",
-			narrow(theFile.pathW).c_str());
-		return true;
-	}
-
-	// Open the OpLock'd file for read
-	AutoHandle hFile = CreateFile(
-		theFile.pathW.c_str(),
-		GENERIC_READ,
-		FILE_SHARE_READ | FILE_SHARE_DELETE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_FLAG_OVERLAPPED,
-		NULL);
-	if( hFile == INVALID_HANDLE_VALUE )
-	{
-		logToFile("Failed to open target config file %s",
-			narrow(theFile.pathW).c_str());
-		return true;
-	}
-
-	OVERLAPPED aReadOverlapped = {};
-	aReadOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	DBG_ASSERT(aReadOverlapped.hEvent);
-	AutoHandle aReadOverlappedEvent(aReadOverlapped.hEvent);
-
-	// Decide which parser to use for this file
-	struct ParserPtr
-	{
-		ParserPtr(EConfigFileFormat theFormat, size_t theFileID)
-			: mParser(NULL)
-		{
-			switch(theFormat)
-			{
-			case eConfigFileFormat_INI:
-				mParser = new TargetConfigINIParser(theFileID);
-				break;
-			case eConfigFileFormat_JSON:
-				mParser = new TargetConfigJSONParser(theFileID);
-				break;
-			}
-		}
-		~ParserPtr() { delete mParser; }
-		TargetConfigFileParser* operator->() { return mParser; }
-		TargetConfigFileParser* mParser;
-	} aParser(theFile.format, theFileID);
-
-	// Begin reading file
-	char aBuffer[kConfigFileBufferSize];
-	DWORD aBytesRead = 0;
-	LARGE_INTEGER aFilePointer = {};
-	while(true)
-	{
-		// Set the file pointer for the next read
-		aReadOverlapped.Offset = aFilePointer.LowPart;
-		aReadOverlapped.OffsetHigh = aFilePointer.HighPart;
-
-		// Use overlapped async file read
-		if( !ReadFile(hFile, aBuffer, sizeof(aBuffer),
-				&aBytesRead, &aReadOverlapped) )
-		{
-			if( GetLastError() != ERROR_IO_PENDING )
-				return true;
-		}
-
-		// Get read result
-		if( !GetOverlappedResult(hFile, &aReadOverlapped, &aBytesRead, TRUE) )
-			return true;
-
-		// If got OpLock break request abort and try again later
-		if( WaitForSingleObject(aLockOverlapped.hEvent, 0) == WAIT_OBJECT_0 )
-			return false;
-
-		// Update the file pointer
-		aFilePointer.QuadPart += aBytesRead;
-		
-		// Parse the read-in data
-		if( !aParser->parse(std::string(aBuffer, aBytesRead)) )
-			return true;
-
-		// Alternate eof check
-		if( aBytesRead < sizeof(aBuffer) )
-			return true;
-	}
-
-	return true;
 }
 
 
@@ -1359,6 +1432,8 @@ void load()
 
 void cleanup()
 {
+	delete sParser;
+	sParser = null;
 	for(size_t i = 0; i < sFolders.size(); ++i)
 		FindCloseChangeNotification(sFolders[i].hChangedSignal);
 	sFolders.clear();
@@ -1373,7 +1448,29 @@ void cleanup()
 void update()
 {
 	if( sPaused || gShutdown )
+	{
+		// Cancel any parsing in-progress
+		delete sParser;
+		sParser = null;
 		return;
+	}
+
+	// Continue any active parsing already in progress
+	if( sParser )
+	{
+		sParser->parseNextChunk();
+		if( sParser->done() )
+		{
+			if( !sParser->fileWasBusy() )
+			{
+				sParser->reportResults();
+				sChangedFiles.reset(sParser->fileID);
+			}
+			delete sParser;
+			sParser = null;
+		}
+		return;
+	}
 
 	if( sInitialized )
 	{// Check for any folder changes after initial load
@@ -1393,6 +1490,8 @@ void update()
 					FILETIME aModTime = getFileLastModTime(aFile);
 					if( CompareFileTime(&aModTime, &aFile.lastModTime) > 0 )
 					{
+						syncDebugPrint("Detected change in file %s\n",
+							getFileName(narrow(aFile.pathW)).c_str());
 						aFile.lastModTime = aModTime;
 						sChangedFiles.set(aFolder.fileIDs[i]);
 					}
@@ -1401,15 +1500,42 @@ void update()
 		}
 	}
 
+	// Begin parsing any changed files
 	for(int aFileID = sChangedFiles.firstSetBit();
 		aFileID < sChangedFiles.size();
 		aFileID = sChangedFiles.nextSetBit(aFileID+1))
 	{
-		if( parseTargetConfigFile(aFileID) )
-			sChangedFiles.reset(aFileID);
+		DBG_ASSERT(!sParser);
+		switch(sFiles[aFileID].format)
+		{
+		case eConfigFileFormat_INI:
+			sParser = new TargetConfigINIParser(aFileID);
+			break;
+		case eConfigFileFormat_JSON:
+			sParser = new TargetConfigJSONParser(aFileID);
+			break;
+		}
+		DBG_ASSERT(sParser);
+		// Attempt to complete parsing immediately when initializing
+		if( !sInitialized )
+		{
+			while(!sParser->done())
+				sParser->parseNextChunk();
+			if( !sParser->fileWasBusy() )
+			{
+				sParser->reportResults();
+				sChangedFiles.reset(sParser->fileID);
+			}
+			delete sParser;
+			sParser = null;
+			continue;
+		}
+		// Otherwise only parse one file at a time
+		return;
 	}
 
-	if( sChangedFiles.none() && sChangedValueSets.any() )
+	// Once done with all parsing, apply change values found
+	if( !sParser && sChangedFiles.none() && sChangedValueSets.any() )
 	{
 		bool propTypeChanged[ePropertyType_Num] = { };
 		for(size_t aPropID = 0; aPropID < sProperties.size(); ++aPropID)
@@ -1427,12 +1553,16 @@ void update()
 							aProp.valueInserts[i].funcType,
 							aProp.valueInserts[i].valueSetID));
 				}
+				syncDebugPrint("Setting %s/%s to %s\n",
+					aProp.section.c_str(),
+					aProp.name.c_str(),
+					aValueStr.c_str());
 				Profile::setStr(aProp.section, aProp.name, aValueStr, false);
 				propTypeChanged[aProp.type] = true;
 			}
 		}
 		if( sInitialized )
-		{// After initial load - need to let other modules know of changes
+		{// After initial load, so need to let other modules know of changes
 			if( propTypeChanged[ePropertyType_Unknown] )
 				gReloadProfile = true;
 			if( propTypeChanged[ePropertyType_UIScale] )
@@ -1461,6 +1591,7 @@ void update()
 			}
 		}
 		sChangedValueSets.reset();
+		syncDebugPrint("All read properties now applied!\n");
 	}
 }
 
@@ -1475,5 +1606,8 @@ void resumeMonitoring()
 {
 	sPaused = false;
 }
+
+#undef syncDebugPrint
+#undef TARGET_CONFIG_SYNC_DEBUG_PRINT
 
 } // TargetConfigSync
