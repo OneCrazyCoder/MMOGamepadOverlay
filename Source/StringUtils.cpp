@@ -479,6 +479,10 @@ int breakOffIntegerSuffix(std::string& theString)
 		--aStrPos;
 	}
 
+	// Don't chop off leading zeroes before the actual integer
+	while(aStrPos < theString.size()-1 && theString[aStrPos+1] == '0' )
+		++aStrPos;
+
 	// If stayed at end of string or got all the way to start, invalid as a
 	// string ending in (but not entirely being) an integer
 	if( aStrPos >= theString.size()-1 || aStrPos < 0 )

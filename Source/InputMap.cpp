@@ -29,6 +29,7 @@ const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kTypeKeys[] = { "Type", "Style" };
 const char* kDisplayNameKeys[] = { "Label", "Title", "Name", "String" };
+const char* kButtonAliasesPrefix = "ButtonNames/";
 const char* kKeybindsPrefix = "KeyBinds/";
 const char* kHotspotsPrefix = "Hotspots/";
 const char* kButtonRebindsPrefix = "Gamepad";
@@ -201,6 +202,7 @@ struct InputMapBuilder
 	std::vector<std::string> parsedString;
 	Profile::KeyValuePairs keyValueList;
 	VectorMap<ECommandKeyWord, size_t> keyWordMap;
+	StringToValueMap<std::string> buttonAliases;
 	StringToValueMap<Command> commandAliases;
 	StringToValueMap<Command> specialKeyNameToCommandMap;
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
@@ -229,7 +231,6 @@ static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static std::vector<Menu> sMenus;
 static std::vector<HUDElement> sHUDElements;
 static u16 sSpecialKeys[eSpecialKey_Num];
-static EButton sButtonRemap[eBtn_Num];
 static VectorMap<std::pair<u16, EButton>, u32> sButtonHoldTimes;
 static u32 sDefaultButtonHoldTime = 400;
 
@@ -244,10 +245,9 @@ static u32 sDefaultButtonHoldTime = 400;
 #define mapDebugPrint(...) ((void)0)
 #endif
 
-static EResult checkForComboKeyName(
-	std::string theKeyName,
-	std::string& out)
+static u16 checkForComboVKeyName(std::string theKeyName)
 {
+	u16 result = 0;
 	std::string aModKeyName;
 	aModKeyName.push_back(theKeyName[0]);
 	theKeyName = theKeyName.substr(1);
@@ -263,26 +263,40 @@ static EResult checkForComboKeyName(
 			 aModKey == VK_LWIN ||
 			 aModKey == VK_CANCEL) )
 		{// Found a valid modifier key
+			switch(aModKey)
+			{
+			case VK_SHIFT:
+				result |= kVKeyShiftFlag;
+				break;
+			case VK_CONTROL:
+				result |= kVKeyCtrlFlag;
+				break;
+			case VK_MENU:
+				result |= kVKeyAltFlag;
+				break;
+			case VK_LWIN:
+				result |= kVKeyWinFlag;
+				break;
+			}
 			// Is rest of the name a valid key now?
 			if( u8 aMainKey = keyNameToVirtualKey(theKeyName))
 			{// We have a valid key combo!
-				out.push_back(aModKey);
-				out.push_back(aMainKey);
-				return eResult_Ok;
+				result |= aMainKey;
+				return result;
 			}
 			// Perhaps remainder is another mod+key, like ShiftCtrlA?
-			std::string suffix;
-			if( checkForComboKeyName(theKeyName, suffix) == eResult_Ok )
+			if( u16 aPartialVKey = checkForComboVKeyName(theKeyName) )
 			{
-				out.push_back(aModKey);
-				out.append(suffix);
+				result |= aPartialVKey;
 				return eResult_Ok;
 			}
+			// No main key found to go with modifier key
+			result = 0;
 		}
 	}
 
 	// No valid modifier key found
-	return eResult_NotFound;
+	return 0;
 }
 
 
@@ -411,148 +425,30 @@ static std::string signalIDToString(u16 theSignalID)
 }
 
 
-static std::string namesToVKeySequence(
+static u16 namesToVKey(
 	InputMapBuilder& theBuilder,
 	const std::vector<std::string>& theNames)
 {
-	std::string aVKeySeq;
+	u16 result = 0;
 
-	if( theNames.empty() )
-		return aVKeySeq;
-
-	bool expectingWaitTime = false;
-	bool expectingJumpPos = false;
 	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
 	{
+		if( result & kVKeyMask )
+		{// Nothing else should be found after first non-modifier key
+			result = 0;
+			break;
+		}
 		const std::string& aName = upper(theNames[aNameIdx]);
 		DBG_ASSERT(!aName.empty());
-		if( expectingWaitTime )
-		{
-			if( checkForVKeySeqPause(aName, aVKeySeq, true) != eResult_Ok )
-			{// Didn't get wait time as expected - abort!
-				aVKeySeq.clear();
-				return aVKeySeq;
-			}
-			expectingWaitTime = false;
-			continue;
-		}
-		else if( expectingJumpPos )
-		{
-			const EResult aResult = checkForVKeyHotspotPos(
-				theBuilder, aName, aVKeySeq, false);
-			if( aResult == eResult_Incomplete )
-				continue;
-			if( aResult == eResult_Ok )
-			{
-				expectingJumpPos = false;
-				continue;
-			}
-			// Didn't get jump pos as expected - abort!
-			aVKeySeq.clear();
-			return aVKeySeq;
-		}
 		const u8 aVKey = keyNameToVirtualKey(aName);
-		if( aVKey == 0 )
+		switch(aVKey)
 		{
-			// If previous key was a mouse button, check for follow-up hotspot
-			EResult aResult;
-			if( !aVKeySeq.empty() &&
-				(aVKeySeq[aVKeySeq.size()-1] == VK_LBUTTON ||
-				 aVKeySeq[aVKeySeq.size()-1] == VK_MBUTTON ||
-				 aVKeySeq[aVKeySeq.size()-1] == VK_RBUTTON)  )
-			{
-				aResult = checkForVKeyHotspotPos(
-					theBuilder, aName, aVKeySeq, true);
-				if( aResult != eResult_NotFound )
-					continue;
-			}
-
-			// Check if it's a pause/delay/wait command
-			aResult = checkForVKeySeqPause(aName, aVKeySeq);
-			// Incomplete result means it WAS a wait, now need the time
-			if( aResult == eResult_Incomplete )
-				expectingWaitTime = true;
-			if( aResult != eResult_NotFound )
-				continue;
-
-			// Check if it is an alias to another sequence
-			if( Command* aCommandAlias = theBuilder.commandAliases.find(aName) )
-			{
-				if( aCommandAlias->type == eCmdType_SignalOnly )
-				{
-					aVKeySeq += signalIDToString(aCommandAlias->signalID);
-					continue;
-				}
-				if( aCommandAlias->type == eCmdType_TapKey )
-				{
-					if( aCommandAlias->signalID )
-						aVKeySeq += signalIDToString(aCommandAlias->signalID);
-					const u16 aVKey = aCommandAlias->vKey;
-					if( aVKey & kVKeyShiftFlag ) aVKeySeq += VK_SHIFT;
-					if( aVKey & kVKeyCtrlFlag ) aVKeySeq += VK_CONTROL;
-					if( aVKey & kVKeyAltFlag ) aVKeySeq += VK_MENU;
-					if( aVKey & kVKeyWinFlag ) aVKeySeq += VK_LWIN;
-					if( aVKey & kVKeyMask ) aVKeySeq += u8(aVKey & kVKeyMask);
-					continue;
-				}
-				if( aCommandAlias->type == eCmdType_VKeySequence )
-				{
-					DBG_ASSERT(aCommandAlias->keyStringIdx < sKeyStrings.size());
-					aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
-					continue;
-				}
-				if( aCommandAlias->type == eCmdType_ChatBoxString )
-				{
-					aVKeySeq += VK_EXECUTE;
-					aVKeySeq += sKeyStrings[aCommandAlias->keyStringIdx];
-					continue;
-				}
-			}
-
+		case 0:
 			// Check if it's a modifier+key in one word like Shift2 or Alt1
-			aResult = checkForComboKeyName(aName, aVKeySeq);
-			if( aResult != eResult_Ok )
-			{
-				// Can't figure this word out at all, abort!
-				aVKeySeq.clear();
-				return aVKeySeq;
-			}
-		}
-		else if( aVKey == VK_SELECT )
-		{
-			// Get name of hotspot to jump cursor to next
-			expectingJumpPos = true;
-			aVKeySeq.push_back(aVKey);
-		}
-		else
-		{
-			aVKeySeq.push_back(aVKey);
-		}
-	}
-
-	return aVKeySeq;
-}
-
-
-static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
-{
-	u16 result = 0;
-	if( theVKeySeq == null || theVKeySeq[0] == '\0' )
-		return result;
-
-	for(const u8* aVKeyPtr = theVKeySeq; *aVKeyPtr != '\0'; ++aVKeyPtr)
-	{
-		// If encounter anything else after the first non-mod key,
-		// it must be a sequence of keys rather than of a "single key",
-		// and thus can not be used with _TapKey or _PressAndHoldKey.
-		if( result & kVKeyMask )
-		{
-			result = 0;
-			return result;
-		}
-
-		switch(*aVKeyPtr)
-		{
+			result = checkForComboVKeyName(aName);
+			if( !result )
+				return result;
+			break;
 		case VK_SHIFT:
 			result |= kVKeyShiftFlag;
 			break;
@@ -567,15 +463,10 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 			break;
 		case VK_SELECT:
 		case VK_CANCEL:
-			// Can't use these special-case "keys" with single-key commands
 			result = 0;
 			return result;
-		case kVKeyFireSignal:
-			// Skip over the signal chars
-			aVKeyPtr += 2;
-			break;
 		default:
-			result |= *aVKeyPtr;
+			result |= aVKey;
 			break;
 		}
 	}
@@ -583,6 +474,138 @@ static u16 vKeySeqToSingleKey(const u8* theVKeySeq)
 	// If purely mod keys, add dummy base key
 	if( result && !(result & kVKeyMask) )
 		result |= kVKeyModKeyOnlyBase;
+
+	return result;
+}
+
+
+static std::string namesToVKeySequence(
+	InputMapBuilder& theBuilder,
+	const std::vector<std::string>& theNames)
+{
+	std::string result;
+
+	if( theNames.empty() )
+		return result;
+
+	bool expectingWaitTime = false;
+	bool expectingJumpPos = false;
+	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
+	{
+		const std::string& aName = upper(theNames[aNameIdx]);
+		DBG_ASSERT(!aName.empty());
+		if( expectingWaitTime )
+		{
+			if( checkForVKeySeqPause(aName, result, true) != eResult_Ok )
+			{// Didn't get wait time as expected - abort!
+				result.clear();
+				return result;
+			}
+			expectingWaitTime = false;
+			continue;
+		}
+		else if( expectingJumpPos )
+		{
+			const EResult aResult = checkForVKeyHotspotPos(
+				theBuilder, aName, result, false);
+			if( aResult == eResult_Incomplete )
+				continue;
+			if( aResult == eResult_Ok )
+			{
+				expectingJumpPos = false;
+				continue;
+			}
+			// Didn't get jump pos as expected - abort!
+			result.clear();
+			return result;
+		}
+		const u8 aVKey = keyNameToVirtualKey(aName);
+		if( aVKey == 0 )
+		{
+			// If previous key was a mouse button, check for follow-up hotspot
+			EResult aResult;
+			if( !result.empty() &&
+				(result[result.size()-1] == VK_LBUTTON ||
+				 result[result.size()-1] == VK_MBUTTON ||
+				 result[result.size()-1] == VK_RBUTTON)  )
+			{
+				aResult = checkForVKeyHotspotPos(
+					theBuilder, aName, result, true);
+				if( aResult != eResult_NotFound )
+					continue;
+			}
+
+			// Check if it's a pause/delay/wait command
+			aResult = checkForVKeySeqPause(aName, result);
+			// Incomplete result means it WAS a wait, now need the time
+			if( aResult == eResult_Incomplete )
+				expectingWaitTime = true;
+			if( aResult != eResult_NotFound )
+				continue;
+
+			// Check if it is an alias to another sequence
+			if( Command* aCommandAlias = theBuilder.commandAliases.find(aName) )
+			{
+				if( aCommandAlias->type == eCmdType_SignalOnly )
+				{
+					result += signalIDToString(aCommandAlias->signalID);
+					continue;
+				}
+				if( aCommandAlias->type == eCmdType_TapKey )
+				{
+					if( aCommandAlias->signalID )
+						result += signalIDToString(aCommandAlias->signalID);
+					const u16 aVKey = aCommandAlias->vKey;
+					if( aVKey & kVKeyShiftFlag ) result += VK_SHIFT;
+					if( aVKey & kVKeyCtrlFlag ) result += VK_CONTROL;
+					if( aVKey & kVKeyAltFlag ) result += VK_MENU;
+					if( aVKey & kVKeyWinFlag ) result += VK_LWIN;
+					if( aVKey & kVKeyMask ) result += u8(aVKey & kVKeyMask);
+					continue;
+				}
+				if( aCommandAlias->type == eCmdType_VKeySequence )
+				{
+					DBG_ASSERT(aCommandAlias->keyStringIdx < sKeyStrings.size());
+					result += sKeyStrings[aCommandAlias->keyStringIdx];
+					continue;
+				}
+				if( aCommandAlias->type == eCmdType_ChatBoxString )
+				{
+					result += VK_EXECUTE;
+					result += sKeyStrings[aCommandAlias->keyStringIdx];
+					continue;
+				}
+			}
+
+			// Check if it's a modifier+key in one word like Shift2 or Alt1
+			if( u16 aComboVKey = checkForComboVKeyName(aName) )
+			{
+				if( aComboVKey & kVKeyShiftFlag )
+					result.push_back(VK_SHIFT);
+				if( aComboVKey & kVKeyCtrlFlag )
+					result.push_back(VK_CONTROL);
+				if( aComboVKey & kVKeyAltFlag )
+					result.push_back(VK_MENU);
+				if( aComboVKey & kVKeyWinFlag )
+					result.push_back(VK_LWIN);
+				result.push_back(u8(aComboVKey & kVKeyMask));
+			}
+
+			// Can't figure this word out at all, abort!
+			result.clear();
+			return result;
+		}
+		else if( aVKey == VK_SELECT )
+		{
+			// Get name of hotspot to jump cursor to next
+			expectingJumpPos = true;
+			result.push_back(aVKey);
+		}
+		else
+		{
+			result.push_back(aVKey);
+		}
+	}
 
 	return result;
 }
@@ -1837,9 +1860,17 @@ static Command stringToCommand(
 	if( result.type != eCmdType_Empty )
 		return result;
 
-	// Check for special command
+	// Check for a simple key assignment
 	theBuilder.parsedString.clear();
 	sanitizeSentence(theString, theBuilder.parsedString);
+	if( u16 aVKey = namesToVKey(theBuilder, theBuilder.parsedString) )
+	{
+		result.type = eCmdType_TapKey;
+		result.vKey = aVKey;
+		return result;
+	}
+
+	// Check for special command
 	result = wordsToSpecialCommand(
 		theBuilder,
 		theBuilder.parsedString,
@@ -1886,26 +1917,17 @@ static Command stringToCommand(
 		}
 	}
 
-	// Check for Virtual-Key Code sequence or single key tap
+	// Check for Virtual-Key Code sequence
 	if( result.type == eCmdType_Empty )
 	{
-		// .parsedString was already generated for commands check above
 		const std::string& aVKeySeq =
 			namesToVKeySequence(theBuilder, theBuilder.parsedString);
 
 		if( !aVKeySeq.empty() )
 		{
-			if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
-			{
-				result.type = eCmdType_TapKey;
-				result.vKey = aVKey;
-			}
-			else
-			{
-				result.type = eCmdType_VKeySequence;
-				result.keyStringIdx = u16(sKeyStrings.size());
-				sKeyStrings.push_back(aVKeySeq);
-			}
+			result.type = eCmdType_VKeySequence;
+			result.keyStringIdx = u16(sKeyStrings.size());
+			sKeyStrings.push_back(aVKeySeq);
 		}
 	}
 
@@ -2393,21 +2415,22 @@ static Command stringToAliasCommand(
 		return aCmd;
 	}
 
-	// VKey Sequence or tap key
+	// Tap key
 	theBuilder.parsedString.clear();
 	sanitizeSentence(theCmdStr, theBuilder.parsedString);
-	const std::string& aVKeySeq =
-		namesToVKeySequence(theBuilder, theBuilder.parsedString);
-	if( aVKeySeq.empty() )
-		return aCmd;
-
-	if( u16 aVKey = vKeySeqToSingleKey((const u8*)aVKeySeq.c_str()) )
+	if( u16 aVKey = namesToVKey(theBuilder, theBuilder.parsedString) )
 	{
 		aCmd.type = eCmdType_TapKey;
 		aCmd.signalID = theSignalID++;
 		aCmd.vKey = aVKey;
 		return aCmd;
 	}
+
+	// VKey Sequence
+	const std::string& aVKeySeq =
+		namesToVKeySequence(theBuilder, theBuilder.parsedString);
+	if( aVKeySeq.empty() )
+		return aCmd;
 
 	aCmd.type = eCmdType_VKeySequence;
 	aCmd.signalID = theSignalID++;
@@ -2455,6 +2478,23 @@ static Command createKeyBindEntry(
 	}
 	
 	return aCmd;
+}
+
+
+static void buildButtonAliases(InputMapBuilder& theBuilder)
+{
+	mapDebugPrint("Assigning custom button names...\n");
+	DBG_ASSERT(theBuilder.keyValueList.empty());
+	Profile::getAllKeys(kButtonAliasesPrefix, theBuilder.keyValueList);
+	for(Profile::KeyValuePairs::const_iterator itr =
+		theBuilder.keyValueList.begin();
+		itr != theBuilder.keyValueList.end(); ++itr)
+	{
+		theBuilder.buttonAliases.setValue(
+			condense(itr->first),
+			condense(itr->second));
+	}
+	theBuilder.keyValueList.clear();
 }
 
 
@@ -2612,6 +2652,16 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 }
 
 
+static EButton buttonNameToID(
+	InputMapBuilder& theBuilder,
+	const std::string& theName)
+{
+	if( std::string* aBtnName = theBuilder.buttonAliases.find(theName) )
+		return ::buttonNameToID(*aBtnName);
+	return ::buttonNameToID(theName);
+}
+
+
 static void reportButtonAssignment(
 	InputMapBuilder& theBuilder,
 	EButtonAction theBtnAct,
@@ -2650,7 +2700,7 @@ static void addButtonAction(
 	EButtonAction aBtnAct = breakOffButtonAction(theBtnName);
 	int aBtnTime = breakOffIntegerSuffix(theBtnName);
 	std::string aBtnKeyName = condense(theBtnName);
-	EButton aBtnID = buttonNameToID(aBtnKeyName);
+	EButton aBtnID = buttonNameToID(theBuilder, aBtnKeyName);
 
 	bool isA4DirMultiAssign =
 		aBtnID == eBtn_LSAny ||
@@ -2682,7 +2732,8 @@ static void addButtonAction(
 		for(size_t i = 0; i < 4; ++i)
 		{
 			// Get true button ID by adding direction key to button name
-			aBtnID = buttonNameToID(aBtnKeyName + k4DirKeyNames[i]);
+			aBtnID = buttonNameToID(theBuilder,
+				aBtnKeyName + k4DirKeyNames[i]);
 			DBG_ASSERT(aBtnID < eBtn_Num);
 			// See if can get a different command if append a direction,
 			// if didn't already fail previously
@@ -2764,18 +2815,13 @@ static void addButtonAction(
 	if( aBtnTime >= 0 && aBtnID >= eBtn_Num )
 	{// Part of the button's name might have been absorbed into aBtnTime
 		std::string aTimeAsString = toString(aBtnTime);
-		std::string aBtnTmpName = theBtnName;
-		aBtnTmpName.push_back(aTimeAsString[0]);
-		aTimeAsString.erase(0, 1);
-		aBtnKeyName = condense(aBtnTmpName);
-		aBtnID = buttonNameToID(aBtnKeyName);
-		if( aBtnID < eBtn_Num )
-		{
-			aBtnTime = -1;
-			if( !aTimeAsString.empty() )
-				aBtnTime = intFromString(aTimeAsString);
-			theBtnName = aBtnTmpName;
-		}
+		do {
+			theBtnName.push_back(aTimeAsString[0]);
+			aTimeAsString.erase(0, 1);
+			aBtnKeyName = condense(theBtnName);
+			aBtnID = buttonNameToID(theBuilder, aBtnKeyName);
+			aBtnTime = intFromString(aTimeAsString);
+		} while(aBtnID >= eBtn_Num && !aTimeAsString.empty());
 	}
 
 	// If still no valid button ID, must just be a badly-named action + button key
@@ -2918,7 +2964,7 @@ static void addSignalCommand(
 	if( breakOffButtonAction(theSignalName) == eBtnAct_Press )
 	{
 		aSignalKey = condense(theSignalName);
-		EButton aBtnID = buttonNameToID(aSignalKey);
+		EButton aBtnID = buttonNameToID(theBuilder, aSignalKey);
 		bool isA4DirMultiAssign = false;
 		if( aBtnID >= eBtn_Num )
 		{
@@ -2941,7 +2987,8 @@ static void addSignalCommand(
 			bool dirCommandFailed = false;
 			for(size_t i = 0; i < 4; ++i)
 			{
-				aBtnID = buttonNameToID(aSignalKey + k4DirKeyNames[i]);
+				aBtnID = buttonNameToID(theBuilder,
+					aSignalKey + k4DirKeyNames[i]);
 				DBG_ASSERT(aBtnID < eBtn_Num);
 				std::string aCmdStr = theCmdStr;
 				Command aCmd;
@@ -3639,62 +3686,6 @@ static void buildHUDElements(InputMapBuilder& theBuilder)
 }
 
 
-static void buildGamepadButtonRemaps(InputMapBuilder& theBuilder)
-{
-	DBG_ASSERT(theBuilder.keyValueList.empty());
-	StringToValueMap<bool> kOtherGamepadProperties;
-	kOtherGamepadProperties.setValue("MOUSECURSORDEADZONE", true);
-	kOtherGamepadProperties.setValue("MOUSECURSORSATURATION", true);
-	kOtherGamepadProperties.setValue("MOUSELOOKDEADZONE", true);
-	kOtherGamepadProperties.setValue("MOUSELOOKSATURATION", true);
-	kOtherGamepadProperties.setValue("MOVELOOKDEADZONE", true);
-	kOtherGamepadProperties.setValue("MOVELOOKSATURATION", true);
-	kOtherGamepadProperties.setValue("MOUSEWHEELDEADZONE", true);
-	kOtherGamepadProperties.setValue("MOUSEWHEELSATURATION", true);
-	kOtherGamepadProperties.setValue("MOUSEDPADACCEL", true);
-	kOtherGamepadProperties.setValue("MOVEDEADZONE", true);
-	kOtherGamepadProperties.setValue("CANCELAUTORUNDEADZONE", true);
-	kOtherGamepadProperties.setValue("MOVESTRAIGHTBIAS", true);
-	kOtherGamepadProperties.setValue("LSTICKBUTTONTHRESHOLD", true);
-	kOtherGamepadProperties.setValue("RSTICKBUTTONTHRESHOLD", true);
-	kOtherGamepadProperties.setValue("TRIGGERBUTTONTHRESHOLD", true);
-
-	Profile::getAllKeys(std::string(kButtonRebindsPrefix) + "/",
-		theBuilder.keyValueList);
-	for(size_t i = 0; i < theBuilder.keyValueList.size(); ++i)
-	{
-		const std::string& aPropName = theBuilder.keyValueList[i].first;
-		const std::string& aPropVal = theBuilder.keyValueList[i].second;
-		const std::string& aPressBtnName = condense(aPropName);
-		const std::string& aResultBtnName = condense(aPropVal);
-		if( kOtherGamepadProperties.contains(aPressBtnName) )
-			continue;
-		EButton aPressedBtnID = buttonNameToID(aPressBtnName);
-		if( aPressedBtnID != eBtn_None && aPressedBtnID < eBtn_Num )
-		{
-			EButton aResultBtnID = buttonNameToID(aResultBtnName);
-			if( aResultBtnID != eBtn_None && aResultBtnID < eBtn_Num )
-			{
-				sButtonRemap[aPressedBtnID] = aResultBtnID;
-				mapDebugPrint("Remapping '%s' button to activate commands "
-					"originally assigned to '%s' instead!\n",
-					aPropName.c_str(),
-					aPropVal.c_str());
-			}
-			else
-				logError("Unrecognized gamepad button name '%s' to map %s to",
-					aPropVal.c_str(), aPropName.c_str());
-		}
-		else
-		{
-			logError("Unrecognized [%s] property name (button name?) '%s'",
-				kButtonRebindsPrefix, aPropName.c_str());
-		}
-	}
-	theBuilder.keyValueList.clear();
-}
-
-
 static void parseLabel(InputMapBuilder& theBuilder, std::string& theLabel)
 {
 	if( theLabel.size() < 3 )
@@ -3793,8 +3784,6 @@ void loadProfile()
 	sMenus.clear();
 	sHUDElements.clear();
 	sButtonHoldTimes.clear();
-	for(size_t i= 0; i < eBtn_Num; ++i)
-		sButtonRemap[i] = EButton(i);
 
 	// Get default button hold time to execute eBtnAct_Hold command
 	sDefaultButtonHoldTime = max(0, Profile::getInt("System/ButtonHoldTime"));
@@ -3803,11 +3792,11 @@ void loadProfile()
 	{
 		InputMapBuilder anInputMapBuilder;
 		buildHotspots(anInputMapBuilder);
+		buildButtonAliases(anInputMapBuilder);
 		buildCommandAliases(anInputMapBuilder);
 		buildControlScheme(anInputMapBuilder);
 		buildMenus(anInputMapBuilder);
 		buildHUDElements(anInputMapBuilder);
-		buildGamepadButtonRemaps(anInputMapBuilder);
 		buildLabels(anInputMapBuilder);
 	}
 
@@ -3939,7 +3928,6 @@ const Command* commandsForButton(u16 theLayerID, EButton theButton)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	DBG_ASSERT(theButton < eBtn_Num);
-	theButton = sButtonRemap[theButton];
 
 	ButtonActionsMap::const_iterator itr =
 		sLayers[theLayerID].buttonMap.find(theButton);
@@ -3961,7 +3949,6 @@ u32 commandHoldTime(u16 theLayerID, EButton theButton)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	DBG_ASSERT(theButton < eBtn_Num);
-	theButton = sButtonRemap[theButton];
 
 	std::pair<u16, EButton> aKey(theLayerID, theButton);
 	VectorMap<std::pair<u16, EButton>, u32>::const_iterator itr =

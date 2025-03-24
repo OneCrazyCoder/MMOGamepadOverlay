@@ -276,6 +276,21 @@ Other commands that can use Key Bind Arrays include *Previous, Last, Default, Se
 
 When using this for the above example of relative group targeting, a visual indicator may be helpful to know what will happen the next time the button is pressed. There are special **HUD Elements** covered later to help with this, ``Type=KeyBindArrayLast`` and ``Type=KeyBindArrayDefault``.
 
+### Custom gamepad button names
+
+Although there are several built-in names recognized to refer to a specific button on a gamepad, such as Circle, XB_B, and F-PadRight all referring to the same button, it can be convenient to have additional custom names. Especially if you name them after their main purpose in your control scheme, like the "Confirm" button or the "Cancel" or the "Interaction" button, etc. This allows for quickly re-mapping gamepad buttons if you change your mind about your setup, without needing to find every instance of "Circle" in your profile and change it to "Triangle", for instance.
+
+Though I refer to both as aliases, are not the same as Key Binds since they are aliases to the gamepad buttons being pressed rather than to keyboard and mouse buttons being sent to the game. This does mean, however, that you could have some odd-looking commands assignments like ``Jump = Jump``, where the "Jump" before the = sign means a gamepad button like X, and the "Jump" after the = sign refers to a Key Bind for pressing the space bar on the keyboard.
+
+To create a custom button name, use the ``[ButtonNames] `` section as in the following example:
+
+    [ButtonNames]
+    Confirm = PS_X
+    Cancel = Circle
+    Sit = Hold Circle
+
+Note how you can assign just the button itself, or a button action + button at once. In the former case, you can use that button name with different actions like ``Hold Confirm`` or ``Tap Confirm``, but in the latter, you can't use ``Tap Sit`` from the example because that would expand to ``Tap Hold Circle`` which is invalid.
+
 ## Position and size properties
 
 **Hotspots** are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Positions of Hotspots, HUD Elements, Icons, and so on are specified as X and Y coordinates with Y=0 representing the top and X=0 representing the left side. Some properties use 4 coordinates to represent a rectangle, arranged as X (left edge), Y (top edge), Width, and then Height.
@@ -892,16 +907,6 @@ To use the above example, let's say the LootWindow is separately set to 1.5x sca
     LootWindow = 32x240 * 2.5
 
 Note that the 2.5 scaling will **not** be applied to the base 32x240 values in the above example, just the offsets from that point for the remaining LootWindow hotspots. ``* 250%`` is also valid.
-
-### Quick remap of gamepad buttons
-
-If you want to completely swap some button assignments in your profile, but not go through every layer/etc to change each button's command assignments one-by-one, you can swap them quickly using the following syntax:
-
-    [Gamepad]
-    Triangle = Circle
-    Circle = Triangle
-
-The above would swap everything the Circle button and Triangle button do throughout the rest of the profile. The name on the left of the = sign is which button you will actually physically press, and the name on the right is which button you want to act as if it was pressed instead.
 
 ### Experimental command: Move and Look
 

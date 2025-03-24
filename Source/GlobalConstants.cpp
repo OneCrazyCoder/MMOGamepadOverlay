@@ -640,12 +640,6 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "AT",				eCmdWord_Filler		},
 				{ "WHEN",			eCmdWord_Filler		},
 				{ "GO",				eCmdWord_Filler		},
-				{ "SH",				eCmdWord_Filler		},
-				{ "SHFT",			eCmdWord_Filler		},
-				{ "SHIFT",			eCmdWord_Filler		},
-				{ "CTRL",			eCmdWord_Filler		},
-				{ "CONTROL",		eCmdWord_Filler		},
-				{ "ALT",			eCmdWord_Filler		},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
