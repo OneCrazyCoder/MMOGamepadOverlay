@@ -50,7 +50,7 @@ bool isAbsolutePath(const std::string& thePath);
 // returns empty string and only trims whitespace from beginning of theString.
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
 // If the string ends in a positive integer (but isn't entirely a number), returns
-// that integer and removes those chars. Otherwise returns -1.
+// that integer and removes those chars (except leading 0's). Otherwise returns -1.
 int breakOffIntegerSuffix(std::string& theString);
 // Breaks the string into individual sub-strings of ASCII alphanumeric characters,
 // and appends them to the passed-in vector of strings. All other characters are

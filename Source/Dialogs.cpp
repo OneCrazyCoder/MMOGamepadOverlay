@@ -674,15 +674,16 @@ static void dialogCheckGamepad(HWND theDialog)
 	input[1].type = INPUT_KEYBOARD;
 	input[1].ki.dwFlags = KEYEVENTF_KEYUP;
 
-	// Check for confirm (A on XB) or back (B on XB)
-	if( Gamepad::buttonHit(eBtn_FRight) )
+	// Check for cancel/back (B or Y on XB)
+	if( Gamepad::buttonHit(eBtn_FRight) || Gamepad::buttonHit(eBtn_FUp) )
 	{
 		SendDlgItemMessage(theDialog, aCancelID, BM_CLICK, 0, 0);
 		Gamepad::ignoreUntilPressedAgain(eBtn_FRight);
 		return;
 	}
 
-	if( Gamepad::buttonHit(eBtn_FDown) )
+	// Check for confirm (A or X on XB)
+	if( Gamepad::buttonHit(eBtn_FDown) || Gamepad::buttonHit(eBtn_FLeft) )
 	{
 		switch(aFocusID)
 		{
