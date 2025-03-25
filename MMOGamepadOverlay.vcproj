@@ -363,7 +363,7 @@
 	</References>
 	<Files>
 		<File
-			RelativePath=".\Resources\Base-ECO.ini"
+			RelativePath=".\Resources\Base-AOA.ini"
 			>
 		</File>
 		<File
@@ -395,7 +395,7 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Resources\Custom-ECO.ini"
+			RelativePath=".\Resources\Custom-AOA.ini"
 			>
 		</File>
 		<File
@@ -423,7 +423,7 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Resources\Default-ECO.ini"
+			RelativePath=".\Resources\Default-AOA.ini"
 			>
 		</File>
 		<File

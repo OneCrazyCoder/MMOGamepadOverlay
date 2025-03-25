@@ -1867,6 +1867,16 @@ static Command stringToCommand(
 	{
 		result.type = eCmdType_TapKey;
 		result.vKey = aVKey;
+		// _PressAndHoldKey (and indirectly its associated _ReleaseKey)
+		// only works properly with a single key (+ mods), just like _TapKey,
+		// and only when allowHoldActions is true (_Down button action),
+		// so in that case change _TapKey to _PressAndHoldKey instead.
+		// This does mean there isn't currently a way to keep this button
+		// action assigned to only _TapKey, and that a _Down button action
+		// will just act the same as _Press for any other commmands
+		// (which can be used intentionally to have 2 commands for button
+		// initial press, thus can be useful even if a bit unintuitive).
+		result.type = eCmdType_PressAndHoldKey;
 		return result;
 	}
 
@@ -1905,7 +1915,7 @@ static Command stringToCommand(
 					theBuilder.keyBindArrayNameToIdxMap.find(aKeyBindName);
 				if( aKeyBindArrayID )
 				{
-					// Comment on _PressAndHoldKey further down explains this
+					// Comment on _PressAndHoldKey above explains this
 					if( result.type == eCmdType_TapKey && allowHoldActions )
 						result.type = eCmdType_KeyBindArrayHoldIndex;
 					else
@@ -1930,18 +1940,6 @@ static Command stringToCommand(
 			sKeyStrings.push_back(aVKeySeq);
 		}
 	}
-
-	// _PressAndHoldKey (and indirectly its associated _ReleaseKey)
-	// only works properly with a single key (+ mods), just like _TapKey,
-	// and only when allowHoldActions is true (_Down button action),
-	// so in that case change _TapKey to _PressAndHoldKey instead.
-	// This does mean there isn't currently a way to keep this button
-	// action assigned to only _TapKey, and that a _Down button action
-	// will just act the same as _Press for any other commmands
-	// (which can be used intentionally to have 2 commands for button
-	// initial press, thus can be useful even if a bit unintuitive).
-	if( result.type == eCmdType_TapKey && allowHoldActions )
-		result.type = eCmdType_PressAndHoldKey;
 
 	return result;
 }
