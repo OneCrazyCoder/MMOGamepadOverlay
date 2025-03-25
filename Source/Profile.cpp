@@ -68,7 +68,7 @@ const ResourceProfile kResTemplateDefault[] =
 	{	"AOA Default",					"AOA Default",		IDR_TEXT_INI_DEF_AOA,	3	},
 	{	"EQ P99 Default",				"P99 Default",		IDR_TEXT_INI_DEF_P99,	3	},
 	{	"EQ PQ Default",				"PQ Default",		IDR_TEXT_INI_DEF_PQ,	3	},
-	{	"M&M Default",					"MnM Default",		IDR_TEXT_INI_DEF_MNM,	4	},
+	{	"M&M Default",					"MnM Default",		IDR_TEXT_INI_DEF_MNM,	5	},
 	{	"Pantheon Default",				"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	3	},
 };
 
