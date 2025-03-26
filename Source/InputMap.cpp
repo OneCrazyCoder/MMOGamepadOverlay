@@ -589,6 +589,7 @@ static std::string namesToVKeySequence(
 				if( aComboVKey & kVKeyWinFlag )
 					result.push_back(VK_LWIN);
 				result.push_back(u8(aComboVKey & kVKeyMask));
+				continue;
 			}
 
 			// Can't figure this word out at all, abort!
@@ -3345,6 +3346,19 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 }
 
 
+static std::string breakOffMenuItemLabel(std::string& theString)
+{
+	// Get the label (part of the string before first single colon)
+	// Double colons within label become single colons instead of end of label,
+	// and are ignored (become whitespace) in the remaining string
+	theString = replaceAllStr(theString, "::", "\x01");
+	std::string result = breakOffItemBeforeChar(theString, ':');
+	result = replaceChar(result, '\x01', ':');
+	theString = replaceChar(theString, '\x01', ' ');
+	return result;
+}
+
+
 static MenuItem stringToMenuItem(
 	InputMapBuilder& theBuilder,
 	u16 theMenuID,
@@ -3358,14 +3372,7 @@ static MenuItem stringToMenuItem(
 		return aMenuItem;
 	}
 
-	// Get the label (part of the string before first single colon)
-	// Double colons within label become single colons instead of end of label,
-	// and are ignored (become whitespace) in the remaining string
-	theString = replaceAllStr(theString, "::", "\x01");
-	std::string aLabel = breakOffItemBeforeChar(theString, ':');
-	aLabel = replaceChar(aLabel, '\x01', ':');
-	theString = replaceChar(theString, '\x01', ' ');
-
+	std::string aLabel = breakOffMenuItemLabel(theString);
 	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
 	{// Having no : character means this points to a sub-menu
 		const size_t anOldMenuCount = sMenus.size();
@@ -3549,7 +3556,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 				const u16 anArraySize = anArray.last - anArray.first + 1;
 				checkForNextMenuItem = itemIdx < anArraySize;
 			}
-			if( checkForNextMenuItem || itemIdx == 0 )
+			if( checkForNextMenuItem )
 			{
 				theBuilder.debugItemName =
 					aDebugNamePrefix + aMenuItemKeyName + ")";
@@ -3561,15 +3568,17 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			}
 			++itemIdx;
 		}
+		bool hasAtLeastOneMenuItem = !sMenus[aMenuID].items.empty();
 		for(itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
 		{
 			const std::string aMenuItemKeyName = k4DirMenuItemLabel[itemIdx];
 			const std::string& aMenuItemString = Profile::getStr(
 				aPrefix + "/" + aMenuItemKeyName);
-			if( !aMenuItemString.empty() || aMenuStyle == eMenuStyle_4Dir )
+			if( !aMenuItemString.empty() )
 			{
 				theBuilder.debugItemName =
 					aDebugNamePrefix + aMenuItemKeyName + ")";
+				hasAtLeastOneMenuItem = true;
 				sMenus[aMenuID].dirItems[itemIdx] =
 					stringToMenuItem(
 						theBuilder,
@@ -3589,8 +3598,20 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			}
 		}
 
-		// Buld any new controls layers added by this menu
-		buildRemainingControlsLayers(theBuilder, anOLdLayerCount);
+		if( hasAtLeastOneMenuItem )
+		{
+			// Buld any new controls layers added by this menu
+			buildRemainingControlsLayers(theBuilder, anOLdLayerCount);
+		}
+		else
+		{
+			logError("[%s]: No menu items found! If empty menu intended, "
+				"Set \"%s = :\" to suppress this error",
+				aPrefix.c_str(),
+				aMenuStyle == eMenuStyle_4Dir ? "U" : "1");
+			if( aMenuStyle != eMenuStyle_4Dir )
+				sMenus[aMenuID].items.push_back(MenuItem());
+		}
 	}
 }
 
@@ -4098,6 +4119,16 @@ std::string menuItemDirKeyName(ECommandDir theDir)
 {
 	DBG_ASSERT(theDir < eCmdDir_Num);
 	return k4DirMenuItemLabel[theDir];
+}
+
+
+void menuItemStringToSubMenuName(std::string& theString)
+{
+	std::string aLabel = breakOffMenuItemLabel(theString);
+	// Can't be a sub-menu if has a separate label, is empty, or
+	// starts with ':' indicating a normal command
+	if( !aLabel.empty() || theString.empty() || theString[0] == ':' )
+		theString.clear();
 }
 
 

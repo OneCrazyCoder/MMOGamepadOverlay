@@ -642,6 +642,10 @@ void editMenuItem(u16 theMenuID)
 			Profile::setStr(aMenuProfileName,
 				InputMap::menuItemKeyName(anItemIdx), aMenuItemCmd);
 		}
+		// See if created a sub-menu, and if so add a dummy item for it
+		InputMap::menuItemStringToSubMenuName(aMenuItemCmd);
+		if( !aMenuItemCmd.empty() )
+			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "1", ": ..");
 	}
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
 	gActiveHUD.set(aMenuInfo.hudElementID);
@@ -671,6 +675,15 @@ void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 		gReloadProfile = true;
 		Profile::setStr(aMenuProfileName,
 			InputMap::menuItemDirKeyName(theDir), aMenuItemCmd);
+		// See if created a sub-menu, and if so add dummy items for it
+		InputMap::menuItemStringToSubMenuName(aMenuItemCmd);
+		if( !aMenuItemCmd.empty() )
+		{
+			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "U", ":");
+			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "L", ":");
+			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "R", ":");
+			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "D", ":");
+		}
 	}
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
 	gActiveHUD.set(aMenuInfo.hudElementID);

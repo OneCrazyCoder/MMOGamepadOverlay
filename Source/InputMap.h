@@ -82,6 +82,7 @@ u16 menuHotspotArray(u16 theMenuID); // for eMenuStyle_Hotspots only
 std::string menuSectionName(u16 theMenuID);
 std::string menuItemKeyName(u16 theMenuItemIdx);
 std::string menuItemDirKeyName(ECommandDir theDir);
+void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);
