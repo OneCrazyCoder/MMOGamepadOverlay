@@ -2819,7 +2819,8 @@ static void addButtonAction(
 			aTimeAsString.erase(0, 1);
 			aBtnKeyName = condense(theBtnName);
 			aBtnID = buttonNameToID(theBuilder, aBtnKeyName);
-			aBtnTime = intFromString(aTimeAsString);
+			aBtnTime = aTimeAsString.empty()
+				? -1 : intFromString(aTimeAsString);
 		} while(aBtnID >= eBtn_Num && !aTimeAsString.empty());
 	}
 
