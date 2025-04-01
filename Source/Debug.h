@@ -8,6 +8,7 @@
 
 extern std::wstring gErrorString;
 extern std::wstring gNoticeString;
+extern bool gHadFatalError;
 void debugPrint(const char* fmt ...);
 void logToFile(const char* fmt ...);
 void logNotice(const char* fmt ...);
@@ -23,7 +24,7 @@ bool hadFatalError();
 
 #else
 
-#define DBG_ASSERT(exp) { assert(exp); }
+#define DBG_ASSERT(exp) assert(exp)
 #define DBG_LOG debugPrint
 
 // Will not assert if passed-in pointer is null, only if it is wrong type!

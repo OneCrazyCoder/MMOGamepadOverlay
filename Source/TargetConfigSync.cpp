@@ -1325,8 +1325,7 @@ void load()
 	for(size_t i = 0; i < aKeyValueList.size(); ++i)
 	{
 		const std::string& aFilePath =
-			upper(removePathParams(expandPathVars(
-				aKeyValueList[i].second)));
+			upper(toAbsolutePath(aKeyValueList[i].second));
 		const u16 aFileID = aPathToIdxMap.findOrAdd(
 			aFilePath, u16(sFiles.size()));
 		if( aFileID >= sFiles.size() )

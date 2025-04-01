@@ -229,6 +229,9 @@ static LRESULT CALLBACK mainWindowProc(
 		case ID_HELP_LICENSE:
 			Dialogs::showLicenseAgreement(theWindow);
 			return 0;
+		case ID_HELP_XINPUT_FIX:
+			Dialogs::showXInputFixDetails(theWindow);
+			return 0;
 		}
 		break;
 

@@ -16,13 +16,7 @@
 
 std::wstring gErrorString;
 std::wstring gNoticeString;
-
-
-//-----------------------------------------------------------------------------
-// Static Variables
-//-----------------------------------------------------------------------------
-
-bool sHadFatalError = false;
+bool gHadFatalError = false;
 
 
 //-----------------------------------------------------------------------------
@@ -43,10 +37,10 @@ void logToErrorFile(const std::string& theErrorString)
 	static std::wstring sErrorLogFilePath;
 	if( sErrorLogFilePath.empty() )
 	{
-		WCHAR aPathW[MAX_PATH];
-		GetModuleFileName(NULL, aPathW, MAX_PATH);
-		sErrorLogFilePath =
-			widen(getFileDir(narrow(aPathW), true) + "MMOGO_ErrorLog.txt");
+		sErrorLogFilePath = getAppFolderW();
+		if( sErrorLogFilePath.empty() )
+			return;
+		sErrorLogFilePath += L"MMOGO_ErrorLog.txt";
 	}
 
 	time_t now = time(0);
@@ -122,7 +116,7 @@ void logError(const char* fmt ...)
 void logFatalError(const char* fmt ...)
 {
 	// For first fatal error encountered, overwrite sErrorString
-	if( !sHadFatalError )
+	if( !gHadFatalError )
 		gErrorString.clear();
 
 	va_list argList;
@@ -135,11 +129,11 @@ void logFatalError(const char* fmt ...)
 	if( gErrorString.empty() )
 		gErrorString = widen(anErrorString);
 
-	sHadFatalError = true;
+	gHadFatalError = true;
 }
 
 
 bool hadFatalError()
 {
-	return sHadFatalError;
+	return gHadFatalError;
 }

@@ -1,0 +1,20 @@
+{\rtf1\ansi\ansicpg1252\deff0\deflang1033
+{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sa200\sl276\slmult1\f0\fs22\lang9
+
+{\b\fs26 WHAT THIS DOES\par}
+\fs22 Two tiny files ({\i xinput1_3.dll} and {\i xinput1_4.dll}) are created in the same folder as the game client application. Being in the same folder causes the game to use them instead of the system versions - but they do nothing. This blocks the game from {\i direct} access to XInput gamepads. This is:\par
+
+{\pard\sa100\sl180\slmult1\fi-360\li720\fs22\bullet  {\b Reversible}: Simply delete the files\par}
+{\pard\sa100\sl180\slmult1\fi-360\li720\fs22\bullet  {\b Safe}: No game files are modified\par}
+{\pard\sa100\sl320\slmult1\fi-360\li720\fs22\bullet  {\b Local}: Only affects this specific game\par}
+
+{\pard\sa200\sl276\slmult1\b\fs26 WHY IS THIS NEEDED?\par}
+\fs22 Gamepad input can be detected by multiple apps at the same time. If you use this app to assign a gamepad button to perform a desired action in the game (via keyboard or mouse emulation), the game can {\i also} directly respond to the same button at the same time - likely performing an unwanted action or cancelling the desired one. An external solution like this is needed if the game itself does not provide a setting to disable its native gamepad support.\par
+
+{\pard\sa200\sl276\slmult1\b\fs26 ALTERNATIVE FIX\par}
+\pard\sa200\sl276\slmult1\fs22 Special driver software like {\b HidHide} can also block a game from responding to gamepad input - but it may already be configured for tools like {\b DS4Windows}. Unfortunately, HidHide cannot simultaneously:\par
+{\pard\sa100\sl180\slmult1\fi-360\li720\fs22 1)  Hide ALL controllers from ONE game (for this fix)\par}
+{\pard\sa100\sl276\slmult1\fi-360\li720\fs22 2)  Hide ONE controller from ALL games (for DS4Windows)\par}
+\pard\sa200\sl276\slmult1\fs22 The solution used here works alongside HidHide without configuration conflicts.\par
+}

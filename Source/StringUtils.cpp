@@ -185,10 +185,7 @@ std::string replaceAllStr(const std::string& theString, const char* oldStr, cons
 std::string getFileName(const std::string& thePath)
 {
 	std::string aResult;
-	size_t aLastSlash = thePath.rfind('\\');
-	if( aLastSlash == std::string::npos )
-		aLastSlash = thePath.rfind('/');
-
+	size_t aLastSlash = thePath.find_last_of("\\/");
 	if( aLastSlash == std::string::npos )
 		aResult = thePath;
 	else
@@ -257,9 +254,7 @@ std::string safeFileName(const std::string& theFileName)
 std::string getFileDir(const std::string& thePath, bool withSlash)
 {
 	std::string aResult;
-	size_t aLastSlash = thePath.rfind('\\');
-	if( aLastSlash == std::string::npos )
-		aLastSlash = thePath.rfind('/');
+	size_t aLastSlash = thePath.find_last_of("\\/");
 	if( aLastSlash == std::string::npos )
 		return aResult;
 
@@ -271,46 +266,10 @@ std::string getFileDir(const std::string& thePath, bool withSlash)
 }
 
 
-std::string getRootDir(const std::string& thePath)
-{
-	std::string result;
-	size_t aSearchPos = 0;
-	if( thePath.empty() )
-		return result;
-
-	while(thePath[aSearchPos] == ' ')
-		++aSearchPos;
-	if( thePath[aSearchPos] == '\0' )
-		return result;
-	if( thePath[aSearchPos] == '"' )
-		++aSearchPos;
-	while(thePath[aSearchPos] == ' ')
-		++aSearchPos;
-	if( thePath[aSearchPos] == '\0' )
-		return result;
-	size_t aStartPos = aSearchPos;
-	while((thePath[aSearchPos] >= 'A' && thePath[aSearchPos] <= 'Z') ||
-		  (thePath[aSearchPos] >= 'a' && thePath[aSearchPos] <= 'z'))
-		++aSearchPos;
-	if( aStartPos == aSearchPos )
-		return result;
-	if( thePath[aSearchPos++] != ':' )
-		return result;
-	if( thePath[aSearchPos] != '\\' && thePath[aSearchPos] != '/' )
-		return result;
-	result = thePath.substr(aStartPos, aSearchPos-aStartPos);
-	result.push_back('\\');
-
-	return result;
-}
-
-
 std::string getExtension(const std::string& thePath)
 {
 	std::string aResult;
-	size_t aLastSlash = thePath.rfind('\\');
-	if( aLastSlash == std::string::npos )
-		aLastSlash = thePath.rfind('/');
+	size_t aLastSlash = thePath.find_last_of("\\/");
 	if( aLastSlash == std::string::npos )
 		aLastSlash = 0;
 	const size_t aLastDot = thePath.rfind('.');
@@ -323,9 +282,7 @@ std::string getExtension(const std::string& thePath)
 std::string removeExtension(const std::string& thePath)
 {
 	std::string aResult;
-	size_t aLastSlash = thePath.rfind('\\');
-	if( aLastSlash == std::string::npos )
-		aLastSlash = thePath.rfind('/');
+	size_t aLastSlash = thePath.find_last_of("\\/");
 	if( aLastSlash == std::string::npos )
 		aLastSlash = 0;
 	const size_t aLastDot = thePath.rfind('.');
@@ -372,68 +329,6 @@ std::string getPathParams(const std::string& thePath)
 	}
 
 	return std::string();
-}
-
-
-std::string removePathParams(const std::string& thePath)
-{
-	std::string aResult = trim(thePath);
-
-	if( !thePath.empty() && thePath[0] == '"' )
-	{
-		aResult.clear();
-		bool inQuotes = true;
-		for(size_t aPos = 1; aPos < thePath.size(); ++aPos)
-		{
-			if( thePath[aPos] == '"' )
-				break;
-
-			aResult.push_back(thePath[aPos]);
-		}
-	}
-
-	return aResult;
-}
-
-
-std::string expandPathVars(const std::string& thePath)
-{
-	WCHAR anExpandedPath[MAX_PATH];
-	DWORD aResult = ExpandEnvironmentStrings(
-		widen(thePath).c_str(),
-		anExpandedPath, MAX_PATH);
-	if( aResult != 0 && aResult <= MAX_PATH )
-		return narrow(anExpandedPath);
-	return thePath;
-}
-
-
-std::string removeTrailingSlash(const std::string& theDirectory)
-{
-	std::string aResult;
-	const size_t aLen = theDirectory.length();
-
-	if( aLen > 0 && (theDirectory[aLen-1] == '\\' || theDirectory[aLen-1] == '/') )
-		aResult = theDirectory.substr(0, aLen - 1);
-	else
-		aResult = theDirectory;
-	return aResult;
-}
-
-
-std::string	addTrailingSlash(const std::string& theDirectory, bool backSlash)
-{
-	std::string aResult;
-	if( !theDirectory.empty() )
-	{
-		char aChar = theDirectory[theDirectory.length()-1];
-		if( aChar != '\\' && aChar != '/' )
-			aResult = theDirectory + (backSlash ? '\\' : '/');
-		else
-			aResult = theDirectory;
-	}
-
-	return aResult;
 }
 
 

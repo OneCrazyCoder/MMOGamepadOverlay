@@ -38,6 +38,8 @@ struct AutoLaunchAppInfo
 {
 	std::string path;
 	std::string params;
+	bool hadDefaultPath;
+	bool hadDefaultParams;
 };
 
 const char* kProfileFileNamePrefix = "MMOGO_";
@@ -134,10 +136,7 @@ static const std::string& iniFolderPath()
 	if( sFolderPath.empty() )
 	{
 		// Just use our application folder (for now)
-		TCHAR aPath[_MAX_PATH];
-		GetModuleFileName(NULL, aPath, _MAX_PATH);
-		sFolderPath = getFileDir(narrow(aPath), true);
-		_wchdir(widen(sFolderPath).c_str());
+		sFolderPath = getAppFolder();
 
 		// Make sure it actually exists
 		// (obviously it has to, but leaving this here for possibly
@@ -160,44 +159,6 @@ static const std::string& iniFolderPath()
 	}
 
 	return sFolderPath;
-}
-
-
-static void clearOutOldProfiles()
-{
-	const std::string& aFolderPath = iniFolderPath();
-
-	// Cut-off date: July 12th, 2024
-	SYSTEMTIME aCutoffDate = { 2024, 7, -1, 12, 0, 0, 0, 0 };
-	FILETIME aCutoffFileTime;
-	SystemTimeToFileTime(&aCutoffDate, &aCutoffFileTime);
-
-	std::string aSearchPattern = iniFolderPath() + kProfileFileNamePrefix;
-	aSearchPattern += "*";
-	aSearchPattern += kProfileFileNameSuffix;
-
-	WIN32_FIND_DATAW aFindFileData;
-	HANDLE hFind = FindFirstFile(
-		widen(aSearchPattern).c_str(),
-		&aFindFileData);
-	if( hFind == INVALID_HANDLE_VALUE )
-		return;
-
-	// Backup and delete any profile files created before cutoff date
-	do {
-		if( !(aFindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
-		{
-			FILETIME creationTime = aFindFileData.ftCreationTime;
-			if( CompareFileTime(&creationTime, &aCutoffFileTime) < 0 )
-			{
-				const std::wstring& aWPath =
-					widen(aFolderPath) + aFindFileData.cFileName;
-				const std::wstring& aNewWPath = aWPath + L".bak";
-				if( CopyFile(aWPath.c_str(), aNewWPath.c_str(), FALSE) )
-					DeleteFile(aWPath.c_str());
-			}
-		}
-	} while (FindNextFile(hFind, &aFindFileData) != 0);
 }
 
 
@@ -224,63 +185,13 @@ static std::string profileNameToFilePath(const std::string& theName)
 
 static bool profileExists(const std::string& theFilePath)
 {
-	const DWORD aFileAttributes = GetFileAttributesW(
-		widen(theFilePath).c_str());
-
-	return
-		aFileAttributes != INVALID_FILE_ATTRIBUTES &&
-		!(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+	return isValidFilePath(theFilePath);
 }
 
 
 static bool profileExists(const ProfileEntry& theEntry)
 {
 	return profileExists(theEntry.path);
-}
-
-
-static DWORD uniqueFileId(const std::string& theFilePath)
-{
-	DWORD result = 0; // 0 == invalid file
-	if( theFilePath.empty() )
-		return result;
-
-	const std::wstring& aFilePathW = widen(theFilePath);
-	const DWORD aFileAttributes = GetFileAttributes(aFilePathW.c_str());
-	if( aFileAttributes == INVALID_FILE_ATTRIBUTES ||
-		(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
-		return result;
-
-	HANDLE hFile = CreateFile(aFilePathW.c_str(),
-		GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-	if( hFile != INVALID_HANDLE_VALUE )
-	{
-		BY_HANDLE_FILE_INFORMATION aFileInfo;
-		if( GetFileInformationByHandle(hFile, &aFileInfo) )
-		{
-			result = aFileInfo.dwVolumeSerialNumber ^
-				((aFileInfo.nFileIndexHigh << 16) | aFileInfo.nFileIndexLow) ^
-				aFileInfo.ftCreationTime.dwHighDateTime ^
-				aFileInfo.ftCreationTime.dwLowDateTime;
-		}
-		CloseHandle(hFile);
-	}
-
-	return result;
-}
-
-
-static bool operator==(const ProfileEntry& lhs, const ProfileEntry& rhs)
-{
-	return
-		lhs.path == rhs.path ||
-		uniqueFileId(lhs.path) == uniqueFileId(rhs.path);
-}
-
-
-static bool operator!=(const ProfileEntry& lhs, const ProfileEntry& rhs)
-{
-	return !(lhs == rhs);
 }
 
 
@@ -300,7 +211,7 @@ static int getOrAddProfileIdx(const ProfileEntry& theProfileEntry)
 	// there's unlikely to be a whole lot of these anyway.
 	for(int i = 0; i < sKnownProfiles.size(); ++i)
 	{
-		if( sKnownProfiles[i] == theProfileEntry )
+		if( isSamePath(sKnownProfiles[i].path, theProfileEntry.path) )
 			return i;
 	}
 
@@ -461,27 +372,6 @@ static void parseINI(
 }
 
 
-static bool areOnSameVolume(
-	const std::string& thePath1,
-	const std::string& thePath2)
-{
-	DWORD aPath1VolumeSerialNumber;
-	if(!GetVolumeInformation(widen(getRootDir(thePath1)).c_str(), 0, 0,
-							  &aPath1VolumeSerialNumber, 0, 0, 0, 0))
-	{
-		return false;
-	}
-	DWORD aPath2VolumeSerialNumber;
-	if(!GetVolumeInformation(widen(getRootDir(thePath2)).c_str(), 0, 0,
-							  &aPath2VolumeSerialNumber, 0, 0, 0, 0))
-	{
-		return false;
-	}
-
-	return aPath1VolumeSerialNumber == aPath2VolumeSerialNumber;
-}
-
-
 static void setPropertyInINI(
 	const std::string& theFilePath,
 	const std::string& theSection,
@@ -489,7 +379,8 @@ static void setPropertyInINI(
 	const std::string& theValue)
 {
 	// Open source file
-	std::ifstream aFile(widen(theFilePath).c_str(), std::ios::binary);
+	const std::wstring& aFilePathW = widen(theFilePath);
+	std::ifstream aFile(aFilePathW.c_str(), std::ios::binary);
 	if( !aFile.is_open() )
 	{
 		logError("Could not open file %s", theFilePath.c_str());
@@ -497,23 +388,13 @@ static void setPropertyInINI(
 	}
 
 	// Create temp output file
-	std::string aTmpPath;
-	{// Prefer to use temp folder if can, to reduce risk of leaving a mess
-		WCHAR aPathBuffer[MAX_PATH];
-		DWORD aLen = GetTempPath(MAX_PATH, aPathBuffer);
-		if( aLen > 0 && aLen <= MAX_PATH )
-			aTmpPath = narrow(aPathBuffer);
-	}
-	// ReplaceFile() requires both files be on the same drive...
-	if( aTmpPath.empty() || !areOnSameVolume(aTmpPath, theFilePath) )
-		aTmpPath = getFileDir(theFilePath, true);
-	aTmpPath += "~"; aTmpPath += getFileName(theFilePath);
+	const std::wstring& aTmpPath = getTempFilePathFor(aFilePathW);
 	std::ofstream aTmpFile(
-		widen(aTmpPath).c_str(),
+		aTmpPath.c_str(),
 		std::ios::binary | std::ios::trunc);
 	if( !aTmpFile.is_open() )
 	{
-		logError("Could not create temp file %s", aTmpPath.c_str());
+		logError("Could not create temp file %s", narrow(aTmpPath).c_str());
 		aFile.close();
 		return;
 	}
@@ -759,8 +640,8 @@ static void setPropertyInINI(
 	aFile.close();
 	aTmpFile.close();
 
-	// Replace original file with new temp file (and delete temp file)
-	if( !ReplaceFile(widen(theFilePath).c_str(), widen(aTmpPath).c_str(),
+	// Replace original file with temp file (temp file is moved/consumed)
+	if( !ReplaceFile(aFilePathW.c_str(), aTmpPath.c_str(),
 			NULL, REPLACEFILE_IGNORE_MERGE_ERRORS, NULL, NULL) )
 	{
 		logError("Failed to modify file %s!", theFilePath.c_str());
@@ -770,45 +651,22 @@ static void setPropertyInINI(
 
 static void generateResourceProfile(const ResourceProfile& theResProfile)
 {
-	HMODULE hModule = GetModuleHandle(NULL);
+	const std::string& aFilePath =
+		profileNameToFilePath(theResProfile.fileName);
 
-	HRSRC hResource = FindResource(
-		hModule,
-		MAKEINTRESOURCE(theResProfile.resID), L"TEXT");
-
-	if( hResource != NULL )
+	if( !writeResourceToFile(theResProfile.resID,
+			L"TEXT", widen(aFilePath).c_str()) )
 	{
-		HGLOBAL hGlobal = LoadResource(hModule, hResource);
+		logFatalError("Unable to write Profile data to file %s\n",
+			aFilePath.c_str());
+		return;
+	}
 
-		if( hGlobal != NULL )
-		{
-			void* aData = LockResource(hGlobal);
-			DWORD aSize = SizeofResource(hModule, hResource);
-
-			const std::string& aFilePath =
-				profileNameToFilePath(theResProfile.fileName);
-			std::ofstream aFile(
-				widen(aFilePath).c_str(),
-				std::ios::binary | std::ios::trunc);
-			if( aFile.is_open() )
-			{
-				aFile.write(static_cast<char*>(aData), aSize);
-				aFile.close();
-			}
-			else
-			{
-				logFatalError("Unable to write Profile data to file %s\n",
-					aFilePath.c_str());
-			}
-			FreeResource(hGlobal);
-
-			if( theResProfile.version )
-			{
-				setPropertyInINI(aFilePath,
-					"", kAutoGenVersionKey,
-					toString(theResProfile.version));
-			}
-		}
+	if( theResProfile.version )
+	{
+		setPropertyInINI(aFilePath,
+			"", kAutoGenVersionKey,
+			toString(theResProfile.version));
 	}
 }
 
@@ -1025,6 +883,8 @@ static AutoLaunchAppInfo getAutoLaunchAppInfo(const ProfileEntry& theProfile)
 		theProfile.path,
 		eParseMode_Sections,
 		&anAppInfo);
+	anAppInfo.hadDefaultPath = !anAppInfo.path.empty();
+	anAppInfo.hadDefaultParams = !anAppInfo.params.empty();
 	return anAppInfo;
 }
 
@@ -1034,15 +894,26 @@ static void tryAddAutoLaunchApp(int theProfileIdx)
 	// Load the properties from the profile to get the default params
 	AutoLaunchAppInfo anAppInfo =
 		getAutoLaunchAppInfo(sKnownProfiles[theProfileIdx]);
+
+	// Prompt user for auto-launch configuration
 	Dialogs::targetAppPath(anAppInfo.path, anAppInfo.params);
-	setPropertyInINI(
-		sKnownProfiles[theProfileIdx].path,
-		kAutoLaunchAppKeySection, kAutoLaunchAppKey,
-		anAppInfo.path);
-	setPropertyInINI(
-		sKnownProfiles[theProfileIdx].path,
-		kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
-		anAppInfo.params);
+
+	// Update profile .ini with selected configuration
+	if( anAppInfo.hadDefaultPath || !anAppInfo.path.empty() )
+	{
+		setPropertyInINI(
+			sKnownProfiles[theProfileIdx].path,
+			kAutoLaunchAppKeySection, kAutoLaunchAppKey,
+			anAppInfo.path);
+	}
+
+	if( anAppInfo.hadDefaultParams || !anAppInfo.params.empty() )
+	{
+		setPropertyInINI(
+			sKnownProfiles[theProfileIdx].path,
+			kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
+			anAppInfo.params);
+	}
 }
 
 
@@ -1187,14 +1058,20 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 		}
 		else if( matchingResourceIsBase )
 		{// Restore auto-launch app path and params to regenerated Base file
-			setPropertyInINI(
-				theFile.path,
-				kAutoLaunchAppKeySection, kAutoLaunchAppKey,
-				anAppInfo.path);
-			setPropertyInINI(
-				theFile.path,
-				kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
-				anAppInfo.params);
+			if( anAppInfo.hadDefaultPath || !anAppInfo.path.empty() )
+			{
+				setPropertyInINI(
+					theFile.path,
+					kAutoLaunchAppKeySection, kAutoLaunchAppKey,
+					anAppInfo.path);
+			}
+			if( anAppInfo.hadDefaultParams || !anAppInfo.params.empty() )
+			{
+				setPropertyInINI(
+					theFile.path,
+					kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
+					anAppInfo.params);
+			}
 		}
 	}
 	else if( aResult == eResult_No )
@@ -1285,9 +1162,6 @@ void loadCore()
 	// Should only be run once at app startup, otherwise core will be
 	// loaded alongside normal ::load()
 	DBG_ASSERT(sPropertyMap.empty());
-
-	// Don't use any profiles created before the versioning system was added
-	clearOutOldProfiles();
 
 	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
 	if( !profileExists(aCoreProfile) )
@@ -1455,7 +1329,7 @@ retryQuery:
 		{
 			for(int j = 0; j < sKnownProfiles.size(); ++j)
 			{
-				if( sKnownProfiles[j] == aTestEntry )
+				if( isSamePath(sKnownProfiles[j].path, aTestEntry.path) )
 				{
 					alreadyExists = true;
 					break;
@@ -1479,7 +1353,7 @@ retryQuery:
 		{
 			for(int j = 0; j < sKnownProfiles.size(); ++j)
 			{
-				if( sKnownProfiles[j] == aTestEntry )
+				if( isSamePath(sKnownProfiles[j].path, aTestEntry.path) )
 				{
 					alreadyExists = true;
 					break;
@@ -1558,7 +1432,7 @@ retryQuery:
 
 	if( profileExists(aNewEntry) )
 	{// File already exists
-		if( aNewEntry == sKnownProfiles[0] )
+		if( isSamePath(aNewEntry.path, sKnownProfiles[0].path) )
 		{
 			Dialogs::showError(
 				"Can not create custom Profile with the name 'Core'!");
@@ -1567,8 +1441,10 @@ retryQuery:
 		int duplicateLoadProfileIdx = -1;
 		for(int i = 0; i < sProfilesCanLoad.size(); ++i)
 		{
+			const ProfileEntry& aKnownProfile =
+				sKnownProfiles[sProfilesCanLoad[i][0]];
 			if( !sProfilesCanLoad[i].empty() &&
-				sKnownProfiles[sProfilesCanLoad[i][0]] == aNewEntry )
+				isSamePath(aKnownProfile.path, aNewEntry.path) )
 			{
 				duplicateLoadProfileIdx = i;
 				break;
@@ -1650,7 +1526,7 @@ retryQuery:
 			DBG_ASSERT(aKnownProfileIdx < sKnownProfiles.size());
 			const ProfileEntry& aSrcEntry = sKnownProfiles[aKnownProfileIdx];
 			// Don't actually do anything if source and dest are the same file
-			if( aNewEntry != aSrcEntry )
+			if( !isSamePath(aNewEntry.path, aSrcEntry.path) )
 			{
 				CopyFile(
 					widen(aSrcEntry.path).c_str(),
@@ -1704,7 +1580,7 @@ retryQuery:
 			DBG_ASSERT(aKnownProfileIdx < sKnownProfiles.size());
 			const ProfileEntry& aSrcEntry = sKnownProfiles[aKnownProfileIdx];
 			// Make sure parent and new file are not the same file
-			if( aSrcEntry == aNewEntry )
+			if( isSamePath(aSrcEntry.path, aNewEntry.path) )
 			{
 				Dialogs::showError(
 					"Selected Profile name matches parent profile name!");

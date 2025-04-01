@@ -13,12 +13,6 @@ inline std::string strFormat(const char* fmt ...)
 }
 
 
-inline bool isAbsolutePath(const std::string& thePath)
-{
-	return !getRootDir(thePath).empty();
-}
-
-
 inline bool hasPrefix(const std::string& theString, const std::string& thePrefix)
 {
 	return posAfterPrefix(theString, thePrefix) > 0;

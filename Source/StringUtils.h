@@ -33,16 +33,10 @@ std::string replaceAllStr(const std::string& theString, const char* oldStr, cons
 std::string getFileName(const std::string& thePath);
 std::string safeFileName(const std::string& theFileName);
 std::string getFileDir(const std::string& thePath, bool withSlash = false);
-std::string getRootDir(const std::string& thePath);
 std::string getExtension(const std::string& thePath);
 std::string removeExtension(const std::string& thePath);
 std::string withExtension(const std::string& thePath, const std::string& theExt);
 std::string getPathParams(const std::string& thePath);
-std::string removePathParams(const std::string& thePath); // also removes double quotes
-std::string expandPathVars(const std::string& thePath); // such as %USERPROFILE%
-std::string removeTrailingSlash(const std::string& theDirectory);
-std::string addTrailingSlash(const std::string& theDirectory, bool backSlash = false);
-bool isAbsolutePath(const std::string& thePath);
 
 // Returns string before first theChar, and removes it+theChar from theString
 // Also trims whitespace around returned string and start of theString

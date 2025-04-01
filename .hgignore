@@ -7,8 +7,9 @@ syntax: glob
 *.orig
 *.aps
 BuildTemp/*
+Debug/*
+Release/*
 *.lnk
 *Thumbs.db
 *~
 *~.*
-*.pmp
