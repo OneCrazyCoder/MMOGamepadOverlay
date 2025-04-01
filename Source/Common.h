@@ -6,6 +6,7 @@
 
 #undef WIN32_LEAN_AND_MEAN
 #undef _WIN32_WINNT
+#undef WINVER
 
 #define WIN32_LEAN_AND_MEAN
 #define _WIN32_WINNT 0x0601
@@ -101,6 +102,7 @@ template <typename T=void> struct ConstructFromZeroInitializedMemory
 #include "Debug.h"
 
 #include "BitHacks.h"
+#include "FileUtils.h"
 #include "GlobalConstants.h"
 #include "GlobalState.h"
 #include "GlobalStructures.h"

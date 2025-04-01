@@ -14,13 +14,11 @@
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
-#include <CommCtrl.h>
+#include <CommDlg.h> // GetOpenFileName()
+#include <richedit.h> // Rich text edit field
+#include <ShellAPI.h> // ShellExecute() (open files in notepad)
+#include <shlobj.h> // SHBrowseForFolder()
 
-// Support for GetOpenFileName()
-#include <CommDlg.h>
-
-// Support for ShellExecute (to open files in default text editor)
-#include <ShellAPI.h>
 
 // Forward declares of functions defined in Main.cpp for main loop update
 void mainLoopUpdate(HWND theDialog);
@@ -58,6 +56,25 @@ struct ProfileSelectDialogData
 };
 
 
+struct XInputFixDialogData
+{
+	std::wstring destFolder;
+	std::wstring gameExeName;
+	bool bitWidthKnown;
+	bool bitWidthIs64Bit;
+	bool readyForPath;
+	bool pathEntered;
+	bool readyForExport;
+	XInputFixDialogData() :
+		bitWidthKnown(),
+		bitWidthIs64Bit(),
+		pathEntered(),
+		readyForPath(),
+		readyForExport()
+		{}
+};
+
+
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
@@ -81,6 +98,17 @@ static void setDialogFocus(HWND hdlg, HWND hwndControl)
 static void setDialogFocus(HWND hdlg, int theID)
 {
 	setDialogFocus(hdlg, GetDlgItem(hdlg, theID));
+}
+
+
+static DWORD CALLBACK rtfStreamCallback(
+	DWORD_PTR dwCookie, LPBYTE pbBuff, LONG cb, LONG* pcb)
+{
+	const char** ppData = (const char**)dwCookie;
+	memcpy(pbBuff, *ppData, cb);
+	*ppData += cb;
+	*pcb = cb;
+	return 0;
 }
 
 
@@ -561,7 +589,7 @@ static INT_PTR CALLBACK licenseDialogProc(
 						aString.push_back(((char*)pTextResource)[i]);
 					}
 					HWND hEditControl =
-						GetDlgItem(theDialog, IDC_EDIT_LICENSE_TEXT);
+						GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
 					SendMessage(hEditControl, WM_SETTEXT, 0,
 						(LPARAM)widen(aString).c_str());					
 					SetTimer(theDialog, 1, 50, NULL);
@@ -576,7 +604,7 @@ static INT_PTR CALLBACK licenseDialogProc(
 		{
 			KillTimer(theDialog, 1);
 			HWND hEditControl =
-				GetDlgItem(theDialog, IDC_EDIT_LICENSE_TEXT);
+				GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
 			InvalidateRect(hEditControl, NULL, TRUE);
 			UpdateWindow(hEditControl);
 		}
@@ -596,6 +624,365 @@ static INT_PTR CALLBACK licenseDialogProc(
 	}
 
 	return FALSE;
+}
+
+
+static BOOL CALLBACK browseFolderShowSelectionCallback(
+	HWND hWndChild, LPARAM lParam)
+{
+	// Used as a workaround for a Win32 bug where the folder browser
+	// won't scroll the window to the initial selection folder
+	WCHAR aBuffer[MAX_PATH];
+	GetClassName(hWndChild, aBuffer, MAX_PATH);
+	if( std::wstring(aBuffer) == L"SysTreeView32" )
+	{
+		HTREEITEM hNode = TreeView_GetSelection(hWndChild);
+		TreeView_EnsureVisible(hWndChild, hNode);
+		return FALSE; // stop enumerating
+	}
+
+	return TRUE; // continue enumerating
+}
+
+
+static int CALLBACK browseFolderDialogProc(
+	HWND theDialog, UINT theMessage, LPARAM lParam, LPARAM lpData)
+{
+	switch(theMessage) 
+	{ 
+	case BFFM_INITIALIZED:
+		if( lpData && ((WCHAR*)lpData)[0] != L'\0' )
+		{// Initial selection has been requested
+			SendMessage(theDialog, BFFM_SETSELECTION, TRUE, lpData);
+			// Signal on next BFFM_SELCHANGED to scroll to selection
+			((WCHAR*)lpData)[0] = 1; ((WCHAR*)lpData)[1] = L'\0';
+		}
+		break;
+	case BFFM_SELCHANGED:
+		if( lpData && ((WCHAR*)lpData)[0] == 1 )
+		{// Force scroll to selection once only
+			EnumChildWindows(theDialog, browseFolderShowSelectionCallback, 0);
+			((WCHAR*)lpData)[0] = L'\0';
+		}
+		break;
+	}
+
+	return 0;
+}
+
+
+static bool getTargetGameExePath(
+	HWND hWnd,
+	std::wstring& theFolderPath,
+	std::wstring& theFileName)
+{
+	static bool sWasWarnedAboutPatcher = false;
+	if( !sWasWarnedAboutPatcher )
+	{
+		if( MessageBox(hWnd,
+			L"You will need to select the game's main executable.\n\n"
+			L"WARNING: This is likely NOT the same as the launcher/patcher "
+			L"application and may be in a completely different location!",
+			L"NOTICE",
+			MB_OKCANCEL | MB_ICONINFORMATION) != IDOK )
+		{
+			return false;
+		}
+		sWasWarnedAboutPatcher = true;
+	}
+
+	OPENFILENAME ofn;
+	WCHAR aWPath[MAX_PATH] = { 0 };
+	if( !theFileName.empty() )
+		wcsncpy(aWPath, theFileName.c_str(), MAX_PATH-1);
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = hWnd;
+	ofn.lpstrTitle = L"Select Game Executable";
+	ofn.lpstrFile = aWPath;
+	ofn.nMaxFile = sizeof(aWPath) / sizeof(aWPath[0]);
+	ofn.lpstrFilter =
+		L"Executable Files (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
+	ofn.nFilterIndex = 1;
+	if( !theFolderPath.empty() )
+		ofn.lpstrInitialDir = toAbsolutePath(theFolderPath).c_str();
+	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
+	if( !GetOpenFileName(&ofn) )
+		return false;
+
+	theFolderPath = aWPath;
+	std::wstring::size_type aLastSlash = theFolderPath.find_last_of(L"\\/");
+	if( aLastSlash == std::wstring::npos || aLastSlash == 0 )
+	{// Just the file (somehow?)
+		theFileName = theFolderPath;
+		theFolderPath.clear();
+	}
+	else if( theFolderPath[aLastSlash-1] == ':' )
+	{// File in root directory (weird...)
+		theFileName = theFolderPath.substr(aLastSlash+1);
+		theFolderPath.resize(aLastSlash+1);
+	}
+	else
+	{// Normal path + file
+		theFileName = theFolderPath.substr(aLastSlash+1);
+		theFolderPath.resize(aLastSlash);
+	}
+
+	return true;
+}
+
+
+static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
+{
+	const std::wstring& aFolderPath =
+		toAbsolutePath(theData->destFolder, true);
+	if( !isValidFolderPath(aFolderPath) )
+	{
+		MessageBox(hWnd,
+			L"Destination folder not found. "
+			L"Enter a valid destination path and try again!",
+			L"Invalid Path",
+			MB_OK | MB_ICONWARNING);
+		return false;
+	}
+
+	if( isSamePath(aFolderPath, getAppFolderW()) )
+	{
+		if( MessageBox(hWnd,
+			L"Creating the files in this folder will block "
+			L"this application itself from detecting gamepads!\n\n"
+			L"Are you sure you wish to save to here?",
+			L"Confirm potential conflict location",
+			MB_YESNO) != IDYES )
+		{
+			return false;
+		}
+	}
+
+	std::wstring aFilePath[2];
+	aFilePath[0] = aFolderPath + L"xinput1_3.dll";
+	aFilePath[1] = aFolderPath + L"xinput1_4.dll";
+
+	bool fileAlreadyExists = false;
+	for(int i = 0; i < ARRAYSIZE(aFilePath); ++i)
+	{
+		if( isValidFilePath(aFilePath[i]) )
+		{
+			fileAlreadyExists = true;
+			break;
+		}
+	}
+
+	if( fileAlreadyExists )
+	{
+		if( MessageBox(hWnd,
+			L"File already exists - fix may have already been applied.\n\n"
+			L"Would you like to overwrite the existing file?",
+			L"Overwrite file?",
+			MB_YESNO | MB_ICONWARNING) != IDYES )
+		{
+			return false;
+		}
+	}
+
+	bool exportFailed = false;
+	for(int i = 0; i < ARRAYSIZE(aFilePath); ++i)
+	{
+		if( !writeResourceToFile(
+				theData->bitWidthIs64Bit
+					? IDR_BINARY_XINPUT_DLL_64
+					: IDR_BINARY_XINPUT_DLL_32,
+				L"BINARY", aFilePath[i].c_str()) )
+		{
+			exportFailed = true;
+			break;
+		}
+	}
+
+	if( exportFailed )
+	{
+		MessageBox(hWnd,
+			L"File saving failed! "
+			L"Destination may be write-protected!\n\n"
+			L"Suggestions:\n\n"
+			L"1) Choose a different destination folder, then manually copy "
+			L"the file to the folder containing the game's main .exe file.\n\n"
+			L"2) Temporarily run this app as an administrator and try again "
+			L"using the [Help] -> [Double Input Fix] menu option.",
+			L"Sove error",
+			MB_OK | MB_ICONERROR);
+		return false;
+	}
+
+	MessageBox(hWnd,
+		L"Fix successfully applied (xinput .dll stub files created)!\n\n"
+		L"To confirm, exit the game and this app and run the game by itself "
+		L"(i.e. WITHOUT this app running). Make sure the game does NOT "
+		L"respond to any gamepad input, to avoid any \"double input\" issues "
+		L"while using this app with the game.\n\n"
+		L"The [Help] -> [Double Input Fix] menu option has more information.",
+		L"Fix applied",
+		MB_OK);
+
+	return true;
+}
+
+
+static INT_PTR CALLBACK xInputFixDialogProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	XInputFixDialogData* theData = NULL;
+	bool msgWasProcessed = false;
+
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		// Initialize contents
+		theData = (XInputFixDialogData*)(UINT_PTR)lParam;
+		// Allow other messages to access theData later
+		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theData);
+		DBG_ASSERT(theData);
+		{// Add prompts to path field
+			HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_FILE_PATH);
+			Edit_SetCueBannerText(hEditBox,
+				L"Enter destination folder...");
+			SendMessage(hEditBox, WM_SETTEXT, 0, (LPARAM)
+				L"Use \"Auto-detect\" below and select game .exe file");
+		}
+		{// Copy rich text into the description box
+			HWND hRichEdit = GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
+			DBG_ASSERT(hRichEdit);
+			HRSRC hRes = FindResource(null, 
+				MAKEINTRESOURCE(IDR_TEXT_XINPUT_FIX), L"TEXT");
+			DBG_ASSERT(hRes);	
+			HGLOBAL hData = LoadResource(null, hRes);
+			DBG_ASSERT(hData);		
+			const char* pRtfData = (const char*)LockResource(hData);
+			DWORD dwSize = SizeofResource(null, hRes);
+			EDITSTREAM es = { 0 };
+			es.dwCookie = (DWORD_PTR)&pRtfData;
+			es.pfnCallback = &rtfStreamCallback;
+			SendMessage(hRichEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+		}	
+		msgWasProcessed = true;
+		break;
+
+	case WM_COMMAND:
+		theData = (XInputFixDialogData*)(UINT_PTR)
+			GetWindowLongPtr(theDialog, GWLP_USERDATA);
+		if( !theData )
+			break;
+		switch(LOWORD(wParam))
+		{
+		case IDC_RADIO_32BIT:
+			theData->bitWidthKnown = true;
+			theData->bitWidthIs64Bit = false;
+			msgWasProcessed = true;
+			break;
+		case IDC_RADIO_64BIT:
+			theData->bitWidthKnown = true;
+			theData->bitWidthIs64Bit = true;
+			msgWasProcessed = true;
+			break;
+
+		case IDC_BUTTON_AUTO_DETECT:
+			if( getTargetGameExePath(theDialog,
+					theData->destFolder,
+					theData->gameExeName) )
+			{
+				if( getExeArchitecture(
+						toAbsolutePath(theData->destFolder, true) +
+							theData->gameExeName,
+						theData->bitWidthIs64Bit) )
+				{
+					theData->bitWidthKnown = true;
+					CheckRadioButton(theDialog,
+						IDC_RADIO_32BIT, IDC_RADIO_64BIT,
+						theData->bitWidthIs64Bit
+							? IDC_RADIO_64BIT : IDC_RADIO_32BIT);
+				}
+				else
+				{
+					MessageBox(theDialog,
+						L"Could not detect bit width - please select manually",
+						L"Bit width detecting failed",
+						MB_OK | MB_ICONERROR);
+				}
+				if( theData->readyForPath )
+				{
+					SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
+						theData->destFolder.c_str());
+				}
+			}
+			break;
+
+		case IDC_EDIT_FILE_PATH:
+			if( HIWORD(wParam) == EN_CHANGE && theData->readyForPath )
+			{
+				WCHAR aWPath[MAX_PATH] = { 0 };
+				GetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
+					aWPath, MAX_PATH);
+				theData->destFolder = aWPath;
+				if( !theData->destFolder.empty() )
+					theData->pathEntered = true;
+			}
+			break;
+
+		case IDC_BUTTON_BROWSE:
+			{// Get path to save .dll file to
+				WCHAR aWPath[MAX_PATH] = { 0 };
+				DBG_ASSERT(theData->readyForPath);
+				// Use existing path as default selection in picker
+				wcsncpy(aWPath,
+					toAbsolutePath(theData->destFolder).c_str(),
+					MAX_PATH-1);
+				BROWSEINFO bi = {0};
+				bi.hwndOwner = theDialog;
+				bi.lpszTitle = L"Select game folder";
+				bi.lpfn = browseFolderDialogProc;
+				bi.lParam = (LPARAM)aWPath;
+				bi.ulFlags =
+					BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
+				if( LPITEMIDLIST pidl = SHBrowseForFolder(&bi) )
+				{
+					SHGetPathFromIDList(pidl, aWPath);
+					SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH, aWPath);
+					CoTaskMemFree(pidl);
+				}
+			}
+			break;
+
+		case IDOK:
+			DBG_ASSERT(theData->bitWidthKnown);
+			DBG_ASSERT(theData->readyForExport);
+			if( trySaveXInputFix(theDialog, theData) )
+				EndDialog(theDialog, IDOK);
+			msgWasProcessed = true;
+			break;
+
+		case IDCANCEL:
+			EndDialog(theDialog, IDCANCEL);
+			msgWasProcessed = true;
+			break;
+		}
+		// Once have file type data set allow export
+		if( !theData->readyForPath && theData->bitWidthKnown )
+		{
+			theData->readyForPath = true;
+			SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
+				theData->destFolder.c_str());
+			EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_BROWSE), true);
+			EnableWindow(GetDlgItem(theDialog, IDC_EDIT_FILE_PATH), true);
+		}
+		if( !theData->readyForExport && theData->pathEntered )
+		{
+			EnableWindow(GetDlgItem(theDialog, IDOK), true);
+			theData->readyForExport = true;
+		}
+		break;
+	}
+	
+	return msgWasProcessed ? TRUE : FALSE;
 }
 
 
@@ -1034,8 +1421,8 @@ void targetAppPath(std::string& thePath, std::string& theCommandLineParams)
 
 	if( MessageBox(
 			hTempParentWindow,
-			L"Would you like to automatically launch target game "
-			L"when loading this profile at startup?",
+			L"Would you like to automatically launch target game's "
+			L"launcher/patcher when loading this profile at startup?",
 			L"Auto-Launch Target App",
 			MB_YESNO) != IDYES )
 	{
@@ -1112,6 +1499,27 @@ EResult showLicenseAgreement(HWND theParentWindow)
 
 	mainLoopTimeSkip();
 	return eResult_Declined;
+}
+
+
+void showXInputFixDetails(HWND theParentWindow)
+{
+	TargetApp::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
+
+	HMODULE hRichEdit = LoadLibrary(L"Riched20.dll");
+
+	XInputFixDialogData aDataStruct = XInputFixDialogData();
+	DialogBoxParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_DETAILED_FIX),
+		theParentWindow,
+		xInputFixDialogProc,
+		reinterpret_cast<LPARAM>(&aDataStruct));
+
+	mainLoopTimeSkip();
+
+	FreeLibrary(hRichEdit);
 }
 
 

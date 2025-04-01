@@ -38,6 +38,7 @@ struct TreeViewDialogItem
 size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
+void showXInputFixDetails(HWND theParentWindow);
 EResult editMenuCommand(std::string& theString, bool directional = false);
 void showError(const std::string& theError);
 EResult yesNoPrompt(const std::string& thePrompt,

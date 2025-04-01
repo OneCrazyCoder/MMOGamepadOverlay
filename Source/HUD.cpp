@@ -507,21 +507,10 @@ static void loadBitmapFile(
 		return;
 
 	// Convert given path into a wstring absolute path
-	theBitmapPath =
-		removeExtension(removePathParams(expandPathVars(
-			theBitmapPath))) + ".bmp";
-
-	if( !isAbsolutePath(theBitmapPath) )
-	{
-		WCHAR anAppPath[MAX_PATH];
-		GetModuleFileName(NULL, anAppPath, MAX_PATH);
-		theBitmapPath = getFileDir(narrow(anAppPath), true) + theBitmapPath;
-	}
+	theBitmapPath = removeExtension(toAbsolutePath(theBitmapPath)) + ".bmp";
 	const std::wstring aFilePathW = widen(theBitmapPath);
 
-	const DWORD aFileAttributes = GetFileAttributes(aFilePathW.c_str());
-	if( aFileAttributes == INVALID_FILE_ATTRIBUTES ||
-		(aFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
+	if( !isValidFilePath(aFilePathW) )
 	{
 		logError("Could not find requested bitmap file %s!",
 			theBitmapPath.c_str());
