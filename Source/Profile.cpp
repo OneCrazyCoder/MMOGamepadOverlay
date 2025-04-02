@@ -83,6 +83,16 @@ const ResourceProfile kResTemplateCustom[] =
 	{	"Pantheon: Rise of the Fallen",	"Pantheon",			IDR_TEXT_INI_CUST_PAN,	0	},
 };
 
+const Dialogs::XInputFixInfo kXInputFixInfo[] =
+{//		name, path, exe, launcher, 64bit?
+	{	"", "", "","", true }, // AOA
+	{	"", "", "","", true }, // P99
+	{	"", "", "","", true }, // PQ
+	{	"Monsters & Memories", ".\\mnm\\", "mnm.exe", "MnMLauncher.exe", true }, // M&M
+	{	"", "", "","", true }, // Pantheon
+};
+DBG_CTASSERT(ARRAYSIZE(kXInputFixInfo) == ARRAYSIZE(kResTemplateBase));
+
 enum EParseMode
 {
 	eParseMode_Header,
@@ -124,6 +134,7 @@ static std::vector< std::vector<int> > sProfilesCanLoad;
 static std::string sLoadedProfileName;
 static int sAutoProfileIdx = 0;
 static int sNewBaseProfileIdx = -1;
+static int sLastGeneratedBaseProfile = -1;
 
 
 //-----------------------------------------------------------------------------
@@ -759,6 +770,7 @@ static void addParentCallback(
 					generateResourceProfile(kResTemplateBase[i]);
 					aProfileEntry = profileNameToEntry(aProfileName);
 					sNewBaseProfileIdx = getOrAddProfileIdx(aProfileEntry);
+					sLastGeneratedBaseProfile = int(i);
 					break;
 				}
 			}
@@ -889,34 +901,6 @@ static AutoLaunchAppInfo getAutoLaunchAppInfo(const ProfileEntry& theProfile)
 }
 
 
-static void tryAddAutoLaunchApp(int theProfileIdx)
-{
-	// Load the properties from the profile to get the default params
-	AutoLaunchAppInfo anAppInfo =
-		getAutoLaunchAppInfo(sKnownProfiles[theProfileIdx]);
-
-	// Prompt user for auto-launch configuration
-	Dialogs::targetAppPath(anAppInfo.path, anAppInfo.params);
-
-	// Update profile .ini with selected configuration
-	if( anAppInfo.hadDefaultPath || !anAppInfo.path.empty() )
-	{
-		setPropertyInINI(
-			sKnownProfiles[theProfileIdx].path,
-			kAutoLaunchAppKeySection, kAutoLaunchAppKey,
-			anAppInfo.path);
-	}
-
-	if( anAppInfo.hadDefaultParams || !anAppInfo.params.empty() )
-	{
-		setPropertyInINI(
-			sKnownProfiles[theProfileIdx].path,
-			kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
-			anAppInfo.params);
-	}
-}
-
-
 static void setAutoLoadProfile(int theProfilesCanLoadIdx)
 {
 	if( theProfilesCanLoadIdx == sAutoProfileIdx )
@@ -1034,9 +1018,9 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 	#endif
 	if( aResult == eResult_Yes )
 	{// Update the generated file to new version
-		AutoLaunchAppInfo anAppInfo;
+		AutoLaunchAppInfo anOldAppInfo;
 		if( matchingResourceIsBase )
-			anAppInfo = getAutoLaunchAppInfo(theFile);
+			anOldAppInfo = getAutoLaunchAppInfo(theFile);
 		generateResourceProfile(*theMatchingResource);
 		if( matchingResourceIsCore )
 		{// Restore known profile list & auto-load setting to regenerated Core
@@ -1058,19 +1042,21 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 		}
 		else if( matchingResourceIsBase )
 		{// Restore auto-launch app path and params to regenerated Base file
-			if( anAppInfo.hadDefaultPath || !anAppInfo.path.empty() )
+			AutoLaunchAppInfo aNewAppInfo =
+				getAutoLaunchAppInfo(theFile);
+			if( aNewAppInfo.hadDefaultPath || !anOldAppInfo.path.empty() )
 			{
 				setPropertyInINI(
 					theFile.path,
 					kAutoLaunchAppKeySection, kAutoLaunchAppKey,
-					anAppInfo.path);
+					anOldAppInfo.path);
 			}
-			if( anAppInfo.hadDefaultParams || !anAppInfo.params.empty() )
+			if( aNewAppInfo.hadDefaultParams || !anOldAppInfo.params.empty() )
 			{
 				setPropertyInINI(
 					theFile.path,
 					kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
-					anAppInfo.params);
+					anOldAppInfo.params);
 			}
 		}
 	}
@@ -1560,6 +1546,7 @@ retryQuery:
 				DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateBase));
 				generateResourceProfile(kResTemplateBase[aResBaseIdx]);
 				aProfileName = kResTemplateBase[aResBaseIdx].fileName;
+				sLastGeneratedBaseProfile = int(aResBaseIdx);
 			}
 			sNewBaseProfileIdx = -1;
 			sNewBaseProfileIdx = getOrAddProfileIdx(
@@ -1632,12 +1619,63 @@ retryQuery:
 		sAutoProfileIdx = aProfileCanLoadIdx;
 	aLastCreatedProfileIdx = aProfileCanLoadIdx;
 
+	// Extra prompts for first time create a "base" profile, which represents
+	// the shared default values for all profiles for a particular game, and
+	// thus need to set some of these default but game-specific settings
 	if( sNewBaseProfileIdx >= 0 )
-	{// Generated a new kResTemplateBase profile
-		// Prompt if want to have it set to Auto-launch target app
-		tryAddAutoLaunchApp(sNewBaseProfileIdx);
-		sNewBaseProfileIdx = -1;
+	{
+		// Load default path/params for auto-launch target app feature
+		AutoLaunchAppInfo anAppInfo =
+			getAutoLaunchAppInfo(sKnownProfiles[sNewBaseProfileIdx]);
+
+		// Prompt user for auto-launch configuration
+		Dialogs::targetAppPath(anAppInfo.path, anAppInfo.params);
+
+		// Update profile .ini with selected configuration
+		if( anAppInfo.hadDefaultPath || !anAppInfo.path.empty() )
+		{
+			setPropertyInINI(
+				sKnownProfiles[sNewBaseProfileIdx].path,
+				kAutoLaunchAppKeySection, kAutoLaunchAppKey,
+				anAppInfo.path);
+		}
+		if( anAppInfo.hadDefaultParams || !anAppInfo.params.empty() )
+		{
+			setPropertyInINI(
+				sKnownProfiles[sNewBaseProfileIdx].path,
+				kAutoLaunchAppKeySection, kAutoLaunchAppParamsKey,
+				anAppInfo.params);
+		}
+
+		// Check if related game has a known issue of improper controller
+		// support that can't be disabled, and if so suggest the fix
+		if( sLastGeneratedBaseProfile >= 0 &&
+			kXInputFixInfo[sLastGeneratedBaseProfile].exeName[0] != '\0' )
+		{
+			Dialogs::XInputFixInfo aNewXInputInfo =
+				kXInputFixInfo[sLastGeneratedBaseProfile];
+			std::string aPath =
+				kXInputFixInfo[sLastGeneratedBaseProfile].exeDir;
+			// Use anAppInfo.path as base for relative path, if were given one
+			if( aPath[0] == '.' )
+			{// Relative path - set to empty or use launcher path as base
+				if( !anAppInfo.path.empty() )
+				{
+					aPath = toAbsolutePath(
+						getFileDir(toAbsolutePath(anAppInfo.path), true) +
+						aPath, true);
+				}
+				else
+				{
+					aPath.clear();
+				}
+				aNewXInputInfo.exeDir = aPath.c_str();
+			}
+			Dialogs::suggestXInputFix(aNewXInputInfo);
+		}
 	}
+	sNewBaseProfileIdx = -1;
+	sLastGeneratedBaseProfile = -1;
 
 	if( needFirstProfile )
 	{

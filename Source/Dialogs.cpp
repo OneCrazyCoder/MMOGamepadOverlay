@@ -65,12 +65,14 @@ struct XInputFixDialogData
 	bool readyForPath;
 	bool pathEntered;
 	bool readyForExport;
+	bool warnedAboutPatcher;
 	XInputFixDialogData() :
 		bitWidthKnown(),
 		bitWidthIs64Bit(),
 		pathEntered(),
 		readyForPath(),
-		readyForExport()
+		readyForExport(),
+		warnedAboutPatcher()
 		{}
 };
 
@@ -676,21 +678,6 @@ static bool getTargetGameExePath(
 	std::wstring& theFolderPath,
 	std::wstring& theFileName)
 {
-	static bool sWasWarnedAboutPatcher = false;
-	if( !sWasWarnedAboutPatcher )
-	{
-		if( MessageBox(hWnd,
-			L"You will need to select the game's main executable.\n\n"
-			L"WARNING: This is likely NOT the same as the launcher/patcher "
-			L"application and may be in a completely different location!",
-			L"NOTICE",
-			MB_OKCANCEL | MB_ICONINFORMATION) != IDOK )
-		{
-			return false;
-		}
-		sWasWarnedAboutPatcher = true;
-	}
-
 	OPENFILENAME ofn;
 	WCHAR aWPath[MAX_PATH] = { 0 };
 	if( !theFileName.empty() )
@@ -704,8 +691,8 @@ static bool getTargetGameExePath(
 	ofn.lpstrFilter =
 		L"Executable Files (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
 	ofn.nFilterIndex = 1;
-	if( !theFolderPath.empty() )
-		ofn.lpstrInitialDir = toAbsolutePath(theFolderPath).c_str();
+	theFolderPath = toAbsolutePath(theFolderPath);
+	ofn.lpstrInitialDir = theFolderPath.c_str();
 	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
 	if( !GetOpenFileName(&ofn) )
 		return false;
@@ -815,7 +802,7 @@ static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
 	}
 
 	MessageBox(hWnd,
-		L"Fix successfully applied (xinput .dll stub files created)!\n\n"
+		L"Fix successfully applied (XInput .dll stub files created)!\n\n"
 		L"To confirm, exit the game and this app and run the game by itself "
 		L"(i.e. WITHOUT this app running). Make sure the game does NOT "
 		L"respond to any gamepad input, to avoid any \"double input\" issues "
@@ -828,11 +815,79 @@ static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
 }
 
 
-static INT_PTR CALLBACK xInputFixDialogProc(
+static INT_PTR CALLBACK xInputQuickFixDialogProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	XInputFixDialogData* theData = NULL;
 	bool msgWasProcessed = false;
+	XInputFixInfo* theData = NULL;
+
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		// Initialize contents
+		theData = (XInputFixInfo*)(UINT_PTR)lParam;
+		{
+			HWND hRichEdit = GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
+			DBG_ASSERT(hRichEdit);
+			std::string aPromptStr = 
+				"{\\rtf1\\ansi\\deff0"
+				"<1> has a known \"double input\" gamepad issue. "
+				"Apply a one-time fix now?\\par\n\\par\n"
+				"You will be asked for the location of the game client "
+				"program<2> for this. "
+				"{\\i Note that it might {\\b not} be in the same folder "
+				"as the patcher/launcher<3>!}"
+				"}";
+			std::string::size_type aPos;
+			aPos = aPromptStr.find("<1>");
+			DBG_ASSERT(aPos != std::string::npos);
+			std::string aNewStr = theData->gameName;
+			if( aNewStr.empty() )
+				aNewStr = "This game";
+			else
+				aNewStr = "{\\b\\i " + aNewStr + "}";
+			aPromptStr.replace(aPos, 3, aNewStr);
+			aPos = aPromptStr.find("<2>");
+			DBG_ASSERT(aPos != std::string::npos);
+			aNewStr = theData->exeName;
+			if( !aNewStr.empty() )
+				aNewStr = " ({\\b " + aNewStr + "})";
+			aPromptStr.replace(aPos, 3, aNewStr);
+			aPos = aPromptStr.find("<3>");
+			DBG_ASSERT(aPos != std::string::npos);
+			aNewStr = theData->launcherName;
+			if( !aNewStr.empty() )
+				aNewStr = " (" + aNewStr + ")";
+			aPromptStr.replace(aPos, 3, aNewStr);
+			const char* pRtfData = aPromptStr.c_str();
+			EDITSTREAM es = { 0 };
+			es.dwCookie = (DWORD_PTR)&pRtfData;
+			es.pfnCallback = &rtfStreamCallback;
+			SendMessage(hRichEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+		}
+		return TRUE;
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+		case IDCANCEL:
+		case IDRETRY:
+			EndDialog(theDialog, LOWORD(wParam));
+			return TRUE;
+		}
+		break;
+	}
+
+	return FALSE;
+}
+
+
+static INT_PTR CALLBACK xInputDetailedFixDialogProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	bool msgWasProcessed = false;
+	XInputFixDialogData *theData = (XInputFixDialogData*)(UINT_PTR)
+		GetWindowLongPtr(theDialog, GWLP_USERDATA);
 
 	switch(theMessage)
 	{
@@ -858,18 +913,23 @@ static INT_PTR CALLBACK xInputFixDialogProc(
 			HGLOBAL hData = LoadResource(null, hRes);
 			DBG_ASSERT(hData);		
 			const char* pRtfData = (const char*)LockResource(hData);
-			DWORD dwSize = SizeofResource(null, hRes);
 			EDITSTREAM es = { 0 };
 			es.dwCookie = (DWORD_PTR)&pRtfData;
 			es.pfnCallback = &rtfStreamCallback;
 			SendMessage(hRichEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
-		}	
+		}
+		// Initialize bit width selection if it is already known
+		if( theData->bitWidthKnown )
+		{
+			CheckRadioButton(theDialog,
+				IDC_RADIO_32BIT, IDC_RADIO_64BIT,
+				theData->bitWidthIs64Bit
+					? IDC_RADIO_64BIT : IDC_RADIO_32BIT);
+		}
 		msgWasProcessed = true;
 		break;
 
 	case WM_COMMAND:
-		theData = (XInputFixDialogData*)(UINT_PTR)
-			GetWindowLongPtr(theDialog, GWLP_USERDATA);
 		if( !theData )
 			break;
 		switch(LOWORD(wParam))
@@ -886,6 +946,19 @@ static INT_PTR CALLBACK xInputFixDialogProc(
 			break;
 
 		case IDC_BUTTON_AUTO_DETECT:
+			if( !theData->warnedAboutPatcher )
+			{
+				if( MessageBox(theDialog,
+					L"You will need to select the game's main executable.\n\n"
+					L"WARNING: This is likely NOT the same as the launcher/patcher "
+					L"application and may be in a completely different location!",
+					L"NOTICE",
+					MB_OKCANCEL | MB_ICONINFORMATION) != IDOK )
+				{
+					return false;
+				}
+				theData->warnedAboutPatcher = true;
+			}
 			if( getTargetGameExePath(theDialog,
 					theData->destFolder,
 					theData->gameExeName) )
@@ -965,23 +1038,25 @@ static INT_PTR CALLBACK xInputFixDialogProc(
 			msgWasProcessed = true;
 			break;
 		}
-		// Once have file type data set allow export
-		if( !theData->readyForPath && theData->bitWidthKnown )
-		{
-			theData->readyForPath = true;
-			SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
-				theData->destFolder.c_str());
-			EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_BROWSE), true);
-			EnableWindow(GetDlgItem(theDialog, IDC_EDIT_FILE_PATH), true);
-		}
-		if( !theData->readyForExport && theData->pathEntered )
-		{
-			EnableWindow(GetDlgItem(theDialog, IDOK), true);
-			theData->readyForExport = true;
-		}
 		break;
 	}
 	
+	// Enable and set certain controls when more information is known
+	if( theData && !theData->readyForPath && theData->bitWidthKnown )
+	{
+		theData->readyForPath = true;
+		SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
+			theData->destFolder.c_str());
+		EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_BROWSE), true);
+		EnableWindow(GetDlgItem(theDialog, IDC_EDIT_FILE_PATH), true);
+	}
+
+	if( theData && !theData->readyForExport && theData->pathEntered )
+	{
+		EnableWindow(GetDlgItem(theDialog, IDOK), true);
+		theData->readyForExport = true;
+	}
+
 	return msgWasProcessed ? TRUE : FALSE;
 }
 
@@ -1502,6 +1577,82 @@ EResult showLicenseAgreement(HWND theParentWindow)
 }
 
 
+void suggestXInputFix(const XInputFixInfo& theData)
+{
+	TargetApp::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
+
+	HMODULE hRichEdit = LoadLibrary(L"Riched20.dll");
+
+	HWND hTempParentWindow = NULL;
+	if( TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+
+	INT_PTR aPromptResult = DialogBoxParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_QUICK_FIX),
+		hTempParentWindow,
+		xInputQuickFixDialogProc,
+		reinterpret_cast<LPARAM>(&theData));
+
+	XInputFixDialogData aDataStruct = XInputFixDialogData();
+	aDataStruct.bitWidthKnown = true;
+	aDataStruct.bitWidthIs64Bit = theData.is64Bit;
+	aDataStruct.gameExeName = widen(theData.exeName);
+	aDataStruct.destFolder = widen(theData.exeDir);
+	aDataStruct.warnedAboutPatcher = true;
+
+	if( aPromptResult == IDOK )
+	{
+		// If cancel out of subsequent steps, take to detailed dialog
+		aPromptResult = IDRETRY;
+		if( getTargetGameExePath(hTempParentWindow,
+					aDataStruct.destFolder,
+					aDataStruct.gameExeName) )
+		{
+			// Architecture should be known but double-check anyway
+			// (just don't complain about it not working)
+			getExeArchitecture(
+				toAbsolutePath(aDataStruct.destFolder, true) +
+					aDataStruct.gameExeName,
+				aDataStruct.bitWidthIs64Bit);
+			if( trySaveXInputFix(hTempParentWindow, &aDataStruct) )
+				aPromptResult = IDOK;
+		}
+	}
+
+	if( aPromptResult == IDRETRY )
+	{
+		aPromptResult = DialogBoxParam(
+				GetModuleHandle(NULL),
+				MAKEINTRESOURCE(IDD_DIALOG_XINPUT_DETAILED_FIX),
+				hTempParentWindow,
+				xInputDetailedFixDialogProc,
+				reinterpret_cast<LPARAM>(&aDataStruct));
+	}
+
+	if( aPromptResult != IDOK )
+	{
+		MessageBox(hTempParentWindow,
+			L"If you need to apply the fix later, you can do so via the "
+			L"[Help] -> [Double Input Fix] menu option",
+			L"Double Input fix not applied!",
+			MB_OK);
+	}
+
+	// cleanup
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
+	mainLoopTimeSkip();
+
+	FreeLibrary(hRichEdit);
+}
+
+
 void showXInputFixDetails(HWND theParentWindow)
 {
 	TargetApp::prepareForDialog();
@@ -1512,9 +1663,9 @@ void showXInputFixDetails(HWND theParentWindow)
 	XInputFixDialogData aDataStruct = XInputFixDialogData();
 	DialogBoxParam(
 		GetModuleHandle(NULL),
-		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_DETAILED_FIX),
+		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_QUICK_FIX),
 		theParentWindow,
-		xInputFixDialogProc,
+		xInputDetailedFixDialogProc,
 		reinterpret_cast<LPARAM>(&aDataStruct));
 
 	mainLoopTimeSkip();
