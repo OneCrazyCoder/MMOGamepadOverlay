@@ -38,7 +38,18 @@ struct TreeViewDialogItem
 size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
+
+struct XInputFixInfo
+{
+	const char* gameName;
+	const char* exeDir;
+	const char* exeName;
+	const char* launcherName;
+	bool is64Bit;
+};
+void suggestXInputFix(const XInputFixInfo& theData); 
 void showXInputFixDetails(HWND theParentWindow);
+
 EResult editMenuCommand(std::string& theString, bool directional = false);
 void showError(const std::string& theError);
 EResult yesNoPrompt(const std::string& thePrompt,
