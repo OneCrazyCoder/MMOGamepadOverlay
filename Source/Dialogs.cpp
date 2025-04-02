@@ -1663,7 +1663,7 @@ void showXInputFixDetails(HWND theParentWindow)
 	XInputFixDialogData aDataStruct = XInputFixDialogData();
 	DialogBoxParam(
 		GetModuleHandle(NULL),
-		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_QUICK_FIX),
+		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_DETAILED_FIX),
 		theParentWindow,
 		xInputDetailedFixDialogProc,
 		reinterpret_cast<LPARAM>(&aDataStruct));

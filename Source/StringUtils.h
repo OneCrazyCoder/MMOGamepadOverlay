@@ -37,7 +37,6 @@ std::string getExtension(const std::string& thePath);
 std::string removeExtension(const std::string& thePath);
 std::string withExtension(const std::string& thePath, const std::string& theExt);
 std::string getPathParams(const std::string& thePath);
-bool isAbsolutePath(const std::string& thePath);
 
 // Returns string before first theChar, and removes it+theChar from theString
 // Also trims whitespace around returned string and start of theString
