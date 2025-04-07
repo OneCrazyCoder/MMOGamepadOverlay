@@ -10,8 +10,12 @@
 
 std::string narrow(const wchar_t *s); // to utf8
 std::wstring widen(const char *s); // from utf8
+std::string toRTF(const wchar_t *s);
+inline std::string toRTF(const char *s) { return toRTF(widen(s).c_str()); }
 inline std::string narrow(const std::wstring &s) { return narrow(s.c_str()); }
 inline std::wstring widen(const std::string &s) { return widen(s.c_str()); }
+inline std::string toRTF(const std::wstring &s) { return toRTF(s.c_str()); }
+inline std::string toRTF(const std::string &s) { return toRTF(s.c_str()); }
 
 std::string vformat(const char* fmt, va_list argPtr);
 std::string strFormat(const char* fmt ...);
@@ -43,6 +47,9 @@ std::string getPathParams(const std::string& thePath);
 // If theChar is not found or is the first non-whitespace character,
 // returns empty string and only trims whitespace from beginning of theString.
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
+// Like above but ignores theChar if inside double-quote string (and removes quotes),
+// and if theChar not found/first character breaks it off anyway (clears theString).
+std::string breakOffNextItem(std::string& theString, char theChar = ',');
 // If the string ends in a positive integer (but isn't entirely a number), returns
 // that integer and removes those chars (except leading 0's). Otherwise returns -1.
 int breakOffIntegerSuffix(std::string& theString);
@@ -91,35 +98,5 @@ double doubleFromString(const std::string& theString);
 double doubleFromString(const char* theString);
 bool boolFromString(const std::string& theString);
 bool boolFromString(const char* theString);
-
-// UTF8-encoded string conversions
-std::vector<u32> UTF8ToUTF32(const std::string& theString);
-std::vector<u32> UTF8ToUTF32(const char*);
-std::string UTF32ToUTF8(const std::vector<u32>& theVector);
-
-// Returns a utf8-encoded sub-string of theString, but is NOT the same as if
-// called theString.substr() directly because the passed-in positions are in
-// terms of code points rather than bytes.
-std::string substrUTF8(const std::string& theString, size_t theFirstCodePointPos, size_t theCodePointLength = size_t(-1));
-std::string substrUTF8(const char* theString, size_t theFirstCodePointPos, size_t theCodePointLength = size_t(-1));
-
-enum EUTF8DecodeResult
-{
-	eUTF8DecodeResult_Ready = 0, // theCodePoint is now a valid Unicode value
-	eUTF8DecodeResult_Error = 12, // Bad UT8 sequence
-	// Any other value == need to run decodeUTF8() again with next string byte!
-};
-// Decodes one byte of a UTF8-encoded string.
-// theState and theCodePoint should initially be 0 to begin decoding. They are
-// updated and need to be passed back in again along with next byte of the
-// string if the result is not _Ready or _Error in order to fully decode a
-// single Unicode code point that uses multiple bytes of encoding. After get
-// _Ready result, do NOT need to reset theState or theCodePoint, but can just
-// pass them back in with the next byte of the string to continue decoding.
-EUTF8DecodeResult decodeUTF8(u32* theState, u32* theCodePoint, unsigned char theByte);
-
-// Converts a unicode code point to a utf8 character or sequence of charaters
-// (depending on the code point) and appends it/them to given std::string
-void appendUTF8(u32 theCodePoint, std::string& theDestString);
 
 #include "StringUtils.inc"

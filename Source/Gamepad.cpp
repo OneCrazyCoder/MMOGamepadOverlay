@@ -72,7 +72,7 @@ static const EButton kDItoEBtn[eVendorID_Num][eBtn_DInputBtnNum] =
 {// From DIJOFS_BUTTON0 to eBtn_Num
 	{// eVendorID_Unknown
 		eBtn_FDown, eBtn_FRight, eBtn_FLeft, eBtn_FUp,
-		eBtn_L1, eBtn_R1, eBtn_L2, eBtn_R2,	
+		eBtn_L1, eBtn_R1, eBtn_L2, eBtn_R2,
 		eBtn_Select, eBtn_Start, eBtn_L3, eBtn_R3,
 		eBtn_Home, eBtn_Extra
 	},
@@ -655,7 +655,7 @@ static void pollGamepad(int theGamepadID)
 			if( anInputOfs >= DIJOFS_BUTTON0 &&
 				anInputOfs < DIJOFS_BUTTON0 + eBtn_DInputBtnNum )
 			{// Button toggle
-				const EButton aButton = 
+				const EButton aButton =
 					kDItoEBtn[aGamepad.vendorID][anInputOfs - DIJOFS_BUTTON0];
 				if( aButton == eBtn_None )
 					continue;

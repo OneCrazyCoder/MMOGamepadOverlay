@@ -300,7 +300,7 @@ static void	loadCommandsForCurrentLayers()
 			itr != sState.layerOrder.end(); ++itr)
 		{
 			const u16 aLayerID = *itr;
-			const Command* aCommandsArray = 
+			const Command* aCommandsArray =
 				InputMap::commandsForButton(aLayerID, EButton(aBtnIdx));
 			if( !aCommandsArray )
 				continue;
@@ -778,7 +778,7 @@ static void processCommand(
 	// Flag when used a command assigned to a layer button (besides Auto)
 	if( theBtnState && theLayerIdx && theBtnState->buttonID != eBtn_None )
 		flagLayerButtonCommandUsed(theLayerIdx);
-		
+
 	Command aForwardCmd;
 	switch(theCmd.type)
 	{
@@ -1351,7 +1351,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 
 	if( !isAutoRepeatCommand(aCmd, theBtnState) )
 		return;
-	
+
 	// Don't auto-repeat when button has other conflicting actions assigned
 	if( aCmdArray[eBtnAct_Tap].type >= eCmdType_FirstValid ||
 		aCmdArray[eBtnAct_Hold].type >= eCmdType_FirstValid )

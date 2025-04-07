@@ -434,7 +434,7 @@ static EResult popNextStringChar(const char* theString)
 				}
 			}
 			CloseClipboard();
-			
+
 			// Jump progress to the character just before final return key
 			sTracker.currTaskProgress += u32(aStr.size());
 			--sTracker.currTaskProgress;
@@ -487,7 +487,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 	if( sTracker.embeddedChatBoxStringPos == -1 )
 	{
 		sTracker.mouseLookAutoRestoreTimer = kConfig.mouseLookAutoRestoreTime;
-		return eResult_TryAgainLater;
+		return eResult_Retry;
 	}
 
 	if( sTracker.embeddedChatBoxStringPos )
@@ -1033,7 +1033,7 @@ static EMouseMode checkAutoMouseLookMode()
 		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
 			return eMouseMode_LookTurn;
 		return eMouseMode_Hide;
-	
+
 	case eMouseMode_LookTrans3:
 		if( sTracker.mouseMode == eMouseMode_LookTurn ||
 			manualCharacterMoveInUse() )
@@ -1740,7 +1740,7 @@ void update()
 					// forget ever wanted the key pressed in the first place
 					if( !taskIsPastDue )
 					{
-						sTracker.queuePauseTime = 1; 
+						sTracker.queuePauseTime = 1;
 						aTaskResult = eResult_Incomplete;
 					}
 					else
@@ -1787,7 +1787,7 @@ void update()
 		case eCmdType_MoveMouseToHotspot:
 			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
 			{// Finish instant jump first
-				sTracker.queuePauseTime = 1; 
+				sTracker.queuePauseTime = 1;
 				aTaskResult = eResult_Incomplete;
 			}
 			else if( !taskIsPastDue )
@@ -1808,7 +1808,7 @@ void update()
 		case eCmdType_MoveMouseToMenuItem:
 			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
 			{// Finish instant jump first
-				sTracker.queuePauseTime = 1; 
+				sTracker.queuePauseTime = 1;
 				aTaskResult = eResult_Incomplete;
 			}
 			else if( !taskIsPastDue )
@@ -1839,7 +1839,7 @@ void update()
 			}
 			break;
 		}
-		if( aTaskResult == eResult_TryAgainLater )
+		if( aTaskResult == eResult_Retry )
 		{// Bump item to end of queue and repeat it
 			sTracker.queue.push_back(aCurrTask.cmd, sTracker.currTaskProgress);
 			aTaskResult = eResult_TaskCompleted;

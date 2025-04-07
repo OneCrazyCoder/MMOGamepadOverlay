@@ -4,6 +4,7 @@
 
 #include "TargetApp.h"
 
+#include "Dialogs.h"
 #include "InputDispatcher.h" // forceReleaseHeldKeys(), send _SwapWindowMode
 #include "InputMap.h" // get eSpecialKey_SwapWindowMode
 #include "Profile.h"
@@ -628,10 +629,10 @@ void autoLaunch()
 			FORMAT_MESSAGE_IGNORE_INSERTS,
 			NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 			(LPWSTR)&anErrorMessage, 0, NULL);
-		logFatalError("Failed to auto-launch target application: %s\n"
-			"Error given: %s",
+		Dialogs::showError(NULL, strFormat(
+			"Failed to auto-launch target application %s: %s",
 			narrow(aFinalPath).c_str(),
-			narrow((LPWSTR)anErrorMessage).c_str());
+			narrow((LPWSTR)anErrorMessage).c_str()));
 		LocalFree(anErrorMessage);
 	}
 }
@@ -748,7 +749,7 @@ bool targetWindowIsTopMost()
 
 	if( GetWindowLong(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST )
 		return true;
-	
+
 	return false;
 }
 
@@ -760,7 +761,7 @@ bool targetWindowIsFullScreen()
 
 	// Check if the window style indicates it is a borderless window
 	const LONG aWStyle = GetWindowLong(sTargetWindowHandle, GWL_STYLE);
-	if( (aWStyle & WS_POPUP) != WS_POPUP && 
+	if( (aWStyle & WS_POPUP) != WS_POPUP &&
 		(aWStyle & (WS_CAPTION | WS_THICKFRAME)) != 0 )
 	{
 		return false;

@@ -120,7 +120,7 @@ static void processTargetSizeTask()
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
 		if( aScaleFactor > 0 )
 		{
-			sPoints[sTaskProgress].x = min(kNormalizedTargetSize, 
+			sPoints[sTaskProgress].x = min(kNormalizedTargetSize,
 				(anOverlayPos.x + 1) * kNormalizedTargetSize / aScaleFactor);
 			sPoints[sTaskProgress].y = min(kNormalizedTargetSize,
 				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor);
@@ -265,7 +265,7 @@ static void processFetchFromGridTask()
 	DBG_ASSERT(aGridY < kGridSize);
 	mapDebugPrint(
 		"Searching grid cell %d x %d for candidates\n",
-		aGridX, aGridY);	
+		aGridX, aGridY);
 
 	for(size_t i = 0; i < sActiveGrid[aGridX][aGridY].size(); ++i)
 	{
@@ -707,7 +707,7 @@ const Links& getLinks(u16 theArrayID)
 	sNormalizedCursorPos = oldNormalizedCursorPos;
 	sIgnorePointInSearch = 0;
 	sNewTasks.set(eTask_BeginSearch);
-	
+
 	return sLinkMaps[theArrayID];
 }
 
@@ -1137,7 +1137,7 @@ std::string coordToString(
 	{
 		switch(theConvention)
 		{
-		case eHNC_X: 
+		case eHNC_X:
 			result = "L";
 			break;
 		case eHNC_Y:

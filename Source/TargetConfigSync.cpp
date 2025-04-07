@@ -721,7 +721,7 @@ public:
 								return false;
 						}
 						popState();
-					}					
+					}
 					mReadStr.clear();
 					++mState.back().valueIdx;
 					if( mState.back().type == eState_Object && ch == ']' )
@@ -785,7 +785,7 @@ public:
 				else
 				{
 					mReadStr.push_back('\\');
-					mReadStr.push_back(ch);					
+					mReadStr.push_back(ch);
 				}
 				popState();
 				break;
@@ -1408,7 +1408,7 @@ void load()
 	for(u16 i = 0; i < sFolders.size(); ++i)
 	{
 		if( sFolders[i].fileIDs.size() < sFolders[i].fileIDs.capacity() )
-			std::vector<u16>(sFolders[i].fileIDs).swap(sFolders[i].fileIDs);	
+			std::vector<u16>(sFolders[i].fileIDs).swap(sFolders[i].fileIDs);
 	}
 	if( sFolders.size() < sFolders.capacity() )
 		std::vector<TargetConfigFolder>(sFolders).swap(sFolders);

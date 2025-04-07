@@ -139,7 +139,7 @@ const Command& selectMenuItem(
 	const u16 aPrevSel = aSelection;
 	const u16 anItemCount = InputMap::menuItemCount(aSubMenuID);
 	bool pushedPastEdge = false;
-	
+
 	const Command& aDirCmd = InputMap::commandForMenuDir(aSubMenuID, theDir);
 
 	// Even if no actual change made, mark menu as having been interacted with
@@ -532,7 +532,7 @@ const Command* reset(u16 theMenuID, u16 toItemNo)
 			InputMap::menuAutoCommand(theMenuID);
 		return &aCmd;
 	}
-	
+
 	return null;
 }
 

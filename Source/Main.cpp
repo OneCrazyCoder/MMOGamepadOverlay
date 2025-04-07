@@ -203,9 +203,15 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			WindowManager::createOverlays(hInstance);
 		}
 
-		// Launch target app if requested and haven't already
 		if( !gShutdown && !hadFatalError() )
+		{
+			// Check status of XInput "double input" fix
+			if( !TargetApp::targetWindowIsActive() )
+				Profile::confirmXInputFix(WindowManager::mainHandle());
+
+			// Launch target app if requested and haven't already
 			TargetApp::autoLaunch();
+		}
 
 		// Main loop
 		gReloadProfile = false;
@@ -255,7 +261,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			MB_OK | MB_ICONERROR);
 		WindowManager::destroyAll(hInstance);
 	}
-		
+
 	// Final cleanup
 	Gamepad::cleanup();
 	TargetApp::cleanup();
