@@ -458,7 +458,7 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 	GetWindowRect(hDlg, &aDialogRect);
 	const int aDialogWidth = aDialogRect.right - aDialogRect.left;
 	const int aDialogHeight = aDialogRect.bottom - aDialogRect.top;
-	
+
 	SetWindowPos(hDlg, NULL,
 		useRightEdge
 			? anOverlayRect.right - aDialogWidth
@@ -948,7 +948,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 			POINT aMousePos;
 			aMousePos.x = (short)LOWORD(lParam);
 			aMousePos.y = (short)HIWORD(lParam);
-			
+
 			if( aMousePos.x != sState->lastMouseDragPos.x )
 			{
 				processCoordString(
@@ -1091,7 +1091,7 @@ static RECT drawBoundBox(
 		theOrigin.x, theOrigin.y,
 		theOrigin.x + theBoxSize.cx, theOrigin.y + theBoxSize.cy };
 	RECT aFullDrawnRect = { 0 };
-	
+
 	// Draw outer-most black border
 	COLORREF oldBrushColor = SetDCBrushColor(hdc, theEraseColor);
 	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
@@ -1128,7 +1128,7 @@ static RECT drawBoundBox(
 	InflateRect(&aRect, -1, -1);
 
 	// Erase contents of inner rect if this is the active box
-	if( isActiveBox )	
+	if( isActiveBox )
 		FillRect(hdc, &aRect, hOldBrush);
 
 	SetDCBrushColor(hdc, oldBrushColor);
@@ -1700,7 +1700,7 @@ void init()
 	sState->dialogItems.reserve(sState->entries.size());
 	for(size_t i = 0; i < sState->entries.size(); ++i)
 		sState->dialogItems.push_back(&sState->entries[i].item);
-	
+
 	promptForEditEntry();
 }
 

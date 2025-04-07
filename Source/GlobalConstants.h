@@ -40,7 +40,7 @@ enum ECommandType
 	eCmdType_ChatBoxString,
 
 	// Valid for InputDispatcher::moveMouseTo()
-	eCmdType_MoveMouseToHotspot, 
+	eCmdType_MoveMouseToHotspot,
 	eCmdType_MoveMouseToMenuItem,
 
 	// These active "keybind arrays" which allow a sequence of different keys
@@ -381,7 +381,7 @@ enum EResult
 	eResult_Empty,
 	eResult_Declined,
 	eResult_NotNeeded,
-	eResult_TryAgainLater,
+	eResult_Retry,
 };
 
 // Generic button names used in Profile .ini files

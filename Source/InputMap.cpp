@@ -138,7 +138,7 @@ struct HUDElement
 	std::string keyName;
 	std::string displayName;
 	EHUDType type : 16;
-	u16 menuID; 
+	u16 menuID;
 	union { u16 hotspotArrayID; u16 keyBindArrayID; u16 hotspotID; };
 	// Visual details will be parsed by HUD module
 
@@ -1642,7 +1642,7 @@ static Command wordsToSpecialCommand(
 
 	if( allowButtonActions && aMenuName && result.dir != eCmdDir_None )
 	{
-		// "= 'Select'|'Menu'|'Select Menu' 
+		// "= 'Select'|'Menu'|'Select Menu'
 		// <aMenuName> <aCmdDir> [No/Wrap] [#] [with mouse click]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Select);
@@ -2475,7 +2475,7 @@ static Command createKeyBindEntry(
 			theAlias.c_str(),
 			aHotspotID ? " (+ hotspot)" : "");
 	}
-	
+
 	return aCmd;
 }
 
@@ -2594,7 +2594,7 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 
 			const std::string& anAlias = theBuilder.keyValueList[i].first;
 			const std::string& aCmdStr = theBuilder.keyValueList[i].second;
-			
+
 			const Command& aCmd = createKeyBindEntry(
 					theBuilder, anAlias, aCmdStr, aNextSignalID);
 			if( aCmd.type != eCmdType_Empty || showErrors )
@@ -2638,7 +2638,7 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 	for(size_t i = 0; i < eBtnAct_Num; ++i)
 	{
 		if( const size_t aPrefixPos =
-				posAfterPrefix(theButtonActionName, kButtonActionPrefx[i]) )		
+				posAfterPrefix(theButtonActionName, kButtonActionPrefx[i]) )
 		{
 			result = EButtonAction(i);
 			// Chop the prefix off the front of the string
@@ -3202,7 +3202,7 @@ static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
 			}
 			else
 			{
-				sLayers[theLayerIdx].parentLayer = 
+				sLayers[theLayerIdx].parentLayer =
 					getOrCreateLayerID(theBuilder, aParentLayerName);
 				// Check for infinite parent loop
 				theBuilder.elementsProcessed.clearAndResize(sLayers.size());
@@ -3719,7 +3719,7 @@ static void parseLabel(InputMapBuilder& theBuilder, std::string& theLabel)
 	{
 		const std::string& aTag = condense(theLabel.substr(
 			aTagCoords.first + 1, aTagCoords.second - 2));
-	
+
 		// Generate the replacement character sequence
 		std::string aNewStr;
 		// See if tag matches a layer name to display layer status
@@ -3990,7 +3990,7 @@ u16 parentLayer(u16 theLayerID)
 s8 layerPriority(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
-	return sLayers[theLayerID].priority;	
+	return sLayers[theLayerID].priority;
 }
 
 
@@ -4255,7 +4255,7 @@ u16 hotspotForHUDElement(u16 theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID < sHUDElements.size());
 	DBG_ASSERT(sHUDElements[theHUDElementID].type == eHUDType_Hotspot);
-	return sHUDElements[theHUDElementID].hotspotID;	
+	return sHUDElements[theHUDElementID].hotspotID;
 }
 
 

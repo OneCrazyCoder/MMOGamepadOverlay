@@ -28,8 +28,8 @@
 #define IDD_DIALOG_PROFILE_EDIT         124
 #define IDD_DIALOG_TARGET_APP           125
 #define IDD_DIALOG_LICENSE              126
-#define IDD_DIALOG_XINPUT_QUICK_FIX     127
-#define IDD_DIALOG_XINPUT_DETAILED_FIX  128
+#define IDD_DIALOG_RICH_TEXT_PROMPT     127
+#define IDD_DIALOG_XINPUT_FIX           128
 #define IDD_DIALOG_EDIT_COMMAND         129
 #define IDD_DIALOG_EDIT_DIR_CMD         130
 #define IDD_DIALOG_LAYOUT_SELECT        131
@@ -77,7 +77,7 @@
 #define ID_HELP_XINPUT_FIX              40005
 
 // Next default values for new objects
-// 
+//
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        137

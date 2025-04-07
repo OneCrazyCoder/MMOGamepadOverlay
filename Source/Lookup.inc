@@ -18,8 +18,8 @@ struct VectorMapComparator : public C
 template<class K, class V, class C> inline
 void VectorMap<K, V, C>::sort()
 {
-    VectorMapComparator<K, V, C> comp;
-    std::sort(begin(), end(), comp);
+	VectorMapComparator<K, V, C> comp;
+	std::sort(begin(), end(), comp);
 }
 
 
@@ -34,7 +34,7 @@ void VectorMap<K, V, C>::removeDuplicates()
 template<class K, class V, class C> template<class P> inline
 void VectorMap<K, V, C>::removeDuplicates(P thePred)
 {
-    VectorMapComparator<K, V, P> comp;
+	VectorMapComparator<K, V, P> comp;
 	erase(std::unique(begin(), end(), comp), end());
 }
 

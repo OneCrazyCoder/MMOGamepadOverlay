@@ -83,7 +83,7 @@ struct OverlayWindowPriority
 	{
 		if( priority != rhs.priority )
 			return priority < rhs.priority;
-		return id < rhs.id; 
+		return id < rhs.id;
 	}
 };
 
@@ -230,7 +230,7 @@ static LRESULT CALLBACK mainWindowProc(
 			Dialogs::showLicenseAgreement(theWindow);
 			return 0;
 		case ID_HELP_XINPUT_FIX:
-			Dialogs::showXInputFixDetails(theWindow);
+			Profile::queryUserForXInputFixPref(theWindow);
 			return 0;
 		}
 		break;
@@ -291,7 +291,7 @@ static LRESULT CALLBACK mainWindowProc(
 		break;
 
 	case WM_DEVICECHANGE:
-        // Forward this message to app's main message handler
+		// Forward this message to app's main message handler
 		PostMessage(NULL, theMessage, wParam, lParam);
 		break;
 	}
@@ -653,7 +653,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.lpszClassName = kOverlayWindowClassName;
 	aWindowClass.lpszMenuName = NULL;
 	RegisterClassExW(&aWindowClass);
-	
+
 	aWindowClass.lpfnWndProc = systemOverlayWindowProc;
 	aWindowClass.lpszClassName = kSystemOverlayWindowClassName;
 	RegisterClassExW(&aWindowClass);
@@ -721,7 +721,7 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		HMODULE hUser32 = LoadLibrary(TEXT("User32.dll"));
 		if( hUser32 )
 		{
-			pSetWindowDisplayAffinity = 
+			pSetWindowDisplayAffinity =
 				(PSetWindowDisplayAffinity)GetProcAddress(
 					hUser32, "SetWindowDisplayAffinity");
 			FreeLibrary(hUser32);
@@ -980,7 +980,7 @@ void endDialogMode()
 {
 	if( !sInDialogMode )
 		return;
-	
+
 	setMainWindowEnabled(true);
 	sInDialogMode = false;
 }
@@ -1290,7 +1290,7 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 {
 	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-	
+
 	// Restore from normalized to pixel position of virtual desktop
 	theSentMousePos.x = u16ToRangeVal(theSentMousePos.x, kDesktopWidth);
 	theSentMousePos.y = u16ToRangeVal(theSentMousePos.y, kDesktopHeight);

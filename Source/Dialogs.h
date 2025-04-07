@@ -36,24 +36,42 @@ struct TreeViewDialogItem
 	bool isRootCategory;
 };
 size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
+
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
+
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
 
-struct XInputFixInfo
-{
-	const char* gameName;
-	const char* exeDir;
-	const char* exeName;
-	const char* launcherName;
-	bool is64Bit;
-};
-void suggestXInputFix(const XInputFixInfo& theData); 
-void showXInputFixDetails(HWND theParentWindow);
+EResult applyXInputFix(
+	HWND theParentWindow,
+	std::string& thePath,
+	std::string& theExeName,
+	bool& use64Bit);
+EResult showXInputFixDetails(
+	HWND theParentWindow,
+	std::string& thePath,
+	std::string& theExeName,
+	bool& use64Bit);
 
 EResult editMenuCommand(std::string& theString, bool directional = false);
-void showError(const std::string& theError);
-EResult yesNoPrompt(const std::string& thePrompt,
-					const std::string& theTitle,
-					bool skipIfTargetAppRunning = false);
+
+void showError(
+	HWND theParentWindow,
+	const std::string& theError);
+void showNotice(
+	HWND theParentWindow,
+	const std::string& theNotice,
+	const std::string& theTitle = "Notice");
+EResult yesNoPrompt(
+	HWND theParentWindow,
+	const std::string& thePrompt,
+	const std::string& theTitle,
+	bool skipIfTargetAppRunning = false);
+EResult richTextPrompt(
+	HWND theParentWindow,
+	const std::string& theRTFPrompt,
+	const std::string& theTitle,
+	const std::string& theOkLabel,
+	const std::string& theCancelLabel,
+	const std::string& theRetryLabel = "");
 
 } // Dialogs

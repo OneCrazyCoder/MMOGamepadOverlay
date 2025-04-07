@@ -54,6 +54,49 @@ std::wstring widen(const char *s)
 }
 
 
+std::string toRTF(const wchar_t* s)
+{
+	std::string rtf;
+	if (!s || !*s)
+		return rtf;
+
+	rtf = "{";
+	for(const wchar_t* p = s; *p; ++p)
+	{
+		if( *p > 0x7F )
+		{// Needs unicode support
+			rtf += "\\uc1 ";
+			break;
+		}
+	}
+
+	for (const wchar_t* p = s; *p; ++p)
+	{
+		switch (*p)
+		{
+		case L'\\':
+			rtf += "\\\\";
+			break;
+		case L'{':
+			rtf += "\\{";
+			break;
+		case L'}':
+			rtf += "\\}";
+			break;
+		default:
+			if (*p <= 127) // ascii
+				rtf += char(*p);
+			else // unicode
+				rtf += "\\u" + toString(s16(*p)) + "?";
+			break;
+		}
+	}
+
+	rtf += "}";
+	return rtf;
+}
+
+
 std::string vformat(const char* fmt, va_list argPtr)
 {
 	const int kInitialBufferSize = 260;
@@ -341,10 +384,47 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 	if( aCharPos != std::string::npos )
 	{
 		result = trim(theString.substr(0, aCharPos));
-		// If result is non-empty, everything up to and include theChar
+		// If result is non-empty, strip everything up to and include theChar
 		if( !result.empty() )
 			aStripCount = aCharPos + 1;
 	}
+
+	// Whether or not stripping anything else from above, additionally strip
+	// any whitespace characters that would otherwise be at start of theString
+	for(; aStripCount < theString.length(); ++aStripCount)
+	{
+		if( theString[aStripCount] > ' ' )
+			break;
+	}
+	theString.erase(0, aStripCount);
+
+	return result;
+}
+
+
+std::string breakOffNextItem(std::string& theString, char theChar)
+{
+	std::string result;
+	size_t aStripCount = 0;
+
+	bool inQuotes = false;
+	size_t aCharPos;
+	for(aCharPos = 0; aCharPos < theString.size(); ++aCharPos)
+	{
+		if( theString[aCharPos] == '"' )
+			inQuotes = !inQuotes;
+		if( theString[aCharPos] == theChar && !inQuotes )
+			break;
+	}
+
+	result = trim(theString.substr(0, aCharPos));
+	// Always strip theChar, even if result is empty
+	aStripCount = aCharPos + 1;
+	// Remove double quotes around result
+	if( !result.empty() && result[0] == '"' )
+		result = result.substr(1);
+	if( !result.empty() && result[result.size()-1] == '"' )
+		result.resize(result.size()-1);
 
 	// Whether or not stripping anything else from above, additionally strip
 	// any whitespace characters that would otherwise be at start of theString
@@ -412,7 +492,7 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 			word += c;
 			continue;
 		}
-				
+
 		if( c != '-' && c != '_' && c != '\'' && !word.empty() )
 		{
 			out.push_back(word);
@@ -444,7 +524,7 @@ size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix
 			allowDash = c >= '0' && c <= '9';
 		}
 	}
-	
+
 	return aPrefixIdx == aPrefix.length() ? theString.length() : 0;
 }
 
@@ -494,67 +574,3 @@ std::string commaSeparate(u32 theValue)
 
 	return aResult;
 }
-
-
-std::vector<u32> UTF8ToUTF32(const char* s)
-{
-	std::vector<u32> aResult;
-	u32 c = 0;
-	for(u32 prev = 0, curr = 0; *s; prev = curr, ++s)
-	{
-		switch(decodeUTF8(&curr, &c, *s))
-		{
-		case eUTF8DecodeResult_Error:
-			// The byte is invalid, replace it and restart.
-			DBG_LOG("U+FFFD (Bad UTF-8 sequence)\n");
-			curr = eUTF8DecodeResult_Ready;
-			if( prev != eUTF8DecodeResult_Ready )
-				--s;
-			break;;
-
-		case eUTF8DecodeResult_Ready:
-			// A properly encoded character has been found.
-			aResult.push_back(c);
-			break;
-		}
-	}
-
-	return aResult;
-}
-
-
-std::string substrUTF8(const char* s, size_t theFirstCodePointPos, size_t theCodePointLength)
-{
-	std::string aResult;
-	u32 c = 0;
-	for(u32 prev = 0, curr = 0; *s && theCodePointLength > 0; prev = curr, ++s)
-	{
-		if( !theFirstCodePointPos )
-			aResult += *s;
-		switch(decodeUTF8(&curr, &c, *s))
-		{
-		case eUTF8DecodeResult_Error:
-			// The byte is invalid, replace it and restart.
-			DBG_LOG("U+FFFD (Bad UTF-8 sequence)\n");
-			curr = eUTF8DecodeResult_Ready;
-			if( prev != eUTF8DecodeResult_Ready )
-			{
-				--s;
-				if( !theFirstCodePointPos )
-					aResult.erase(aResult.size() - 1);
-			}
-			break;;
-
-		case eUTF8DecodeResult_Ready:
-			// A properly encoded character has been found.
-			if( theFirstCodePointPos )
-				--theFirstCodePointPos;
-			else
-				--theCodePointLength;
-			break;
-		}
-	}
-
-	return aResult;
-}
-

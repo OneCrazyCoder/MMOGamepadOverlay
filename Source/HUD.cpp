@@ -1366,7 +1366,7 @@ static void drawMenuItemLabel(
 	std::string theLabel,
 	const Appearance& theAppearance,
 	u8 theCurrBorderSize, u8 theMaxBorderSize,
-	MenuDrawCacheEntry& theCacheEntry)	
+	MenuDrawCacheEntry& theCacheEntry)
 {
 	expandDynamicString(theLabel, theCacheEntry);
 
@@ -2234,7 +2234,7 @@ void init()
 			hi.titleHeight = u8(u32FromString(
 				getHUDPropStr(aHUDName, eHUDProp_TitleHeight)) & 0xFF);
 		}
-		
+
 		// Generate custom appearances if have any custom properties
 		for(u32 i = 0; i < eAppearanceMode_Num; ++i)
 		{
@@ -2471,7 +2471,7 @@ void update()
 			}
 		}
 	}
-	
+
 	switch(gHotspotsGuideMode)
 	{
 	case eHotspotGuideMode_Disabled:
@@ -2616,7 +2616,7 @@ void reloadCopyIconLabel(const std::string& theCopyIconLabel)
 	{
 		aRootLabel.resize(aRootLabel.size()-1);
 	}
-	
+
 	{// Mark any icons with same root string as being out of date
 		StringToValueMap<IconEntry>::IndexVector anIconsToUpdateList;
 		sLabelIcons.findAllWithPrefix(aRootLabel, &anIconsToUpdateList);
@@ -2764,7 +2764,7 @@ void updateWindowLayout(
 	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 	const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
-	
+
 	// Some special element types have their own unique calculation method
 	switch(hi.type)
 	{
@@ -3058,12 +3058,12 @@ void updateWindowLayout(
 
 	if( hi.type == eMenuStyle_Slots && hi.altLabelWidth )
 	{// Add extra component for the alt label rect
-		const u8 aBorderSize = 
+		const u8 aBorderSize =
 			sAppearances[hi.appearanceID[eAppearanceMode_Normal]].borderSize;
-		const u8 aSelectedBorderSize = 
+		const u8 aSelectedBorderSize =
 			sAppearances[hi.appearanceID[eAppearanceMode_Selected]].borderSize;
 		anItemRect.left = (hi.alignmentX == eAlignment_Max)
-			? theComponents[0].left 
+			? theComponents[0].left
 			: theComponents[1].right - aBorderSize;
 		anItemRect.right = (hi.alignmentX == eAlignment_Max)
 			? theComponents[1].left + aBorderSize

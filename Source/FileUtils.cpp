@@ -90,7 +90,7 @@ std::wstring toAbsolutePath(const std::wstring& thePath, bool forcedAsDir)
 		!iswalpha(aFullPath[0]) )
 	{
 		// Set app directory as current for relative paths
-		aFullPath = getAppFolderW() + aFullPath;		
+		aFullPath = getAppFolderW() + aFullPath;
 	}
 
 	// Always end in trailing slash when forcedAsDir
@@ -108,6 +108,14 @@ std::wstring toAbsolutePath(const std::wstring& thePath, bool forcedAsDir)
 		aFullPath.c_str(), MAX_PATH, aBuffer, NULL);
 	if( aLength == 0 || aLength > MAX_PATH )
 		return L"";
+
+	// If not forcedAsDir, remove trailing slash except for root drive
+	if( !forcedAsDir && aLength >= 3 &&
+		aBuffer[aLength-1] == '\\' &&
+		aBuffer[aLength-2] != ':' )
+	{
+		--aLength;
+	}
 
 	return std::wstring(aBuffer, aLength);
 }
@@ -247,7 +255,7 @@ bool writeResourceToFile(
 		FreeResource(hGlobal);
 		return false;
 	}
-	
+
 	aFile.write(static_cast<char*>(aData), aSize);
 	aFile.close();
 	FreeResource(hGlobal);
@@ -255,11 +263,17 @@ bool writeResourceToFile(
 }
 
 
+bool deleteFile(const std::wstring& theFileToDelete)
+{
+	return DeleteFile(theFileToDelete.c_str()) != 0;
+}
+
+
 bool getExeArchitecture(const std::wstring& theExePath, bool& theBitWidthIs64)
 {
 	HANDLE hFile = CreateFile(
 		theExePath.c_str(), GENERIC_READ,
-		FILE_SHARE_READ, 
+		FILE_SHARE_READ,
 		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if( hFile == INVALID_HANDLE_VALUE )
 		return false;

@@ -24,7 +24,7 @@ Nothing says it can't also be used for other games though, as it is customizable
 
 ## Initial setup
 
-Place the executable wherever is convenient, keeping in mind that it will generate and read text files with the *.ini* extension in the same folder in which it is placed. When run for the first time, you will be prompted to create a **Profile**, which is associated with one or more *.ini* files that customize how the application looks and behaves. Multiple example profiles are provided to pick from as a base template. You can just choose to have a single profile and auto-load it every time, or have different ones for different games or even different characters for the same game. You will then be prompted if you want your profile to also automatically launch an associated game (if it is the first profile loaded when launching the app), for convenience.
+Place the executable wherever is convenient, keeping in mind that it will generate and read text files with the *.ini* extension in the same folder in which it is placed. When run for the first time, you will be prompted to create a **Profile**, which is associated with one or more *.ini* files that customize how the application looks and behaves. Multiple example profiles are provided to pick from as a base template. You can just choose to have a single profile and auto-load it every time, or have different ones for different games or even different characters for the same game. You will then be prompted if you want your profile to also automatically launch an associated game (if it is the first profile loaded when launching the app), for convenience, as well as the option to immediately customize the profile to set up your key binds and such.
 
 After that, load up the game and you should be able to use the controller to move your character, move the mouse, and perform actions. How that all functions depends on the game and the settings in your loaded Profile.
 
@@ -39,9 +39,6 @@ You may also want to customize your macros in the Macros menu included in the de
 If you'd like a simpler user guide for just playing a supported MMO with the app using a default included control scheme, try this video (click the image to play):
 
 [![MMOGO Video User Guide](http://img.youtube.com/vi/dGfhbFy53Rk/0.jpg)](http://www.youtube.com/watch?v=dGfhbFy53Rk "MMO Gamepad Overlay User Guide")
-
-**IMPORTANT NOTE:** Be aware that some games, (notably "Monsters & Memories" pre-alpha tests as of this writing) may actually respond to gamepad input already and thus interfere with this app (and any other similar apps) by performing undesired actions when you press a button that you've assigned to do something else. You can use a utility called [HidHide](https://github.com/nefarius/HidHide) to fix this by preventing the game from detecting your controller. More details about this problem and using HidHide to fix it are given in the above video. Windows 10+ itself may also respond to gamepad input in undesired ways, which you can disable via your system registry by setting ``
-HKLM\Software\Microsoft\Input\Settings\ControllerProcessor\ControllerToVKMapping\Enabled`` to 0 as explained [here](https://github.com/microsoft/microsoft-ui-xaml/issues/1495#issuecomment-745586048), if you want to also navigate Windows with your gamepad while the app is active.
 
 ## Profile Setup
 
@@ -276,20 +273,19 @@ Other commands that can use Key Bind Arrays include *Previous, Last, Default, Se
 
 When using this for the above example of relative group targeting, a visual indicator may be helpful to know what will happen the next time the button is pressed. There are special **HUD Elements** covered later to help with this, ``Type=KeyBindArrayLast`` and ``Type=KeyBindArrayDefault``.
 
-### Custom gamepad button names
+### Custom button names
 
-Although there are several built-in names recognized to refer to a specific button on a gamepad, such as Circle, XB_B, and F-PadRight all referring to the same button, it can be convenient to have additional custom names. Especially if you name them after their main purpose in your control scheme, like the "Confirm" button or the "Cancel" or the "Interaction" button, etc. This allows for quickly re-mapping gamepad buttons if you change your mind about your setup, without needing to find every instance of "Circle" in your profile and change it to "Triangle", for instance.
+Although there are several built-in names recognized to refer to a specific button on a gamepad, such as "Circle", "XB_B", and "F-Pad Right" all referring to the same button, it can be convenient to have additional custom names. Especially if you name them after their main purpose in your control scheme, like the "Confirm" button or the "Cancel" or the "Interaction" button, etc. This allows for quickly re-mapping gamepad buttons if you change your mind about your setup, without needing to find every instance of "Circle" in your profile and change it to "Triangle", for instance.
 
-Though I refer to both as aliases, are not the same as Key Binds since they are aliases to the gamepad buttons being pressed rather than to keyboard and mouse buttons being sent to the game. This does mean, however, that you could have some odd-looking commands assignments like ``Jump = Jump``, where the "Jump" before the = sign means a gamepad button like X, and the "Jump" after the = sign refers to a Key Bind for pressing the space bar on the keyboard.
+These are not the same as Key Binds since they are aliases to the gamepad buttons being pressed rather than to keyboard and mouse buttons being sent to the game. This does mean, however, that you could have some odd-looking command assignments like ``Jump = Jump``, where the "Jump" before the = sign means a gamepad button like X, and the "Jump" after the = sign refers to a Key Bind for pressing the space bar on the keyboard.
 
 To create a custom button name, use the ``[ButtonNames] `` section as in the following example:
 
     [ButtonNames]
     Confirm = PS_X
     Cancel = Circle
-    Sit = Hold Circle
 
-Note how you can assign just the button itself, or a button action + button at once. In the former case, you can use that button name with different actions like ``Hold Confirm`` or ``Tap Confirm``, but in the latter, you can't use ``Tap Sit`` from the example because that would expand to ``Tap Hold Circle`` which is invalid.
+Then you can simply use "Confirm" in place of "PS_X" in your control scheme assignments.
 
 ## Position and size properties
 

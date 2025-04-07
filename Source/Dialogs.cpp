@@ -55,7 +55,6 @@ struct ProfileSelectDialogData
 		{}
 };
 
-
 struct XInputFixDialogData
 {
 	std::wstring destFolder;
@@ -65,6 +64,10 @@ struct XInputFixDialogData
 	bool readyForPath;
 	bool pathEntered;
 	bool readyForExport;
+	bool checkedExists;
+	bool pathContainsExe;
+	bool filesExist;
+	bool filesDeleted;
 	bool warnedAboutPatcher;
 	XInputFixDialogData() :
 		bitWidthKnown(),
@@ -72,9 +75,29 @@ struct XInputFixDialogData
 		pathEntered(),
 		readyForPath(),
 		readyForExport(),
+		checkedExists(),
+		pathContainsExe(),
+		filesExist(),
+		filesDeleted(),
 		warnedAboutPatcher()
 		{}
 };
+
+struct PromptDialogData
+{
+	std::string prompt;
+	std::wstring title;
+	std::wstring okLabel;
+	std::wstring cancelLabel;
+	std::wstring retryLabel;
+};
+
+struct RTF_StreamData
+{
+	const char* buffer;
+	LONG remaining;
+};
+
 
 
 //-----------------------------------------------------------------------------
@@ -104,12 +127,22 @@ static void setDialogFocus(HWND hdlg, int theID)
 
 
 static DWORD CALLBACK rtfStreamCallback(
-	DWORD_PTR dwCookie, LPBYTE pbBuff, LONG cb, LONG* pcb)
+	DWORD_PTR theCookie,
+	LPBYTE theBuffer,
+	LONG theBytesToWrite,
+	LONG* theBytesWritten)
 {
-	const char** ppData = (const char**)dwCookie;
-	memcpy(pbBuff, *ppData, cb);
-	*ppData += cb;
-	*pcb = cb;
+	RTF_StreamData* theData = (RTF_StreamData*)theCookie;
+	DBG_ASSERT(theData);
+
+	LONG aCopyByteCount = min(theBytesToWrite, theData->remaining);
+	if( aCopyByteCount > 0 )
+	{
+		memcpy(theBuffer, theData->buffer, aCopyByteCount);
+		theData->buffer += aCopyByteCount;
+		theData->remaining -= aCopyByteCount;
+	}
+	*theBytesWritten = aCopyByteCount;
 	return 0;
 }
 
@@ -383,7 +416,7 @@ static void layoutItemSortTree(
 	tvs.lParam = (LPARAM)theItems;
 	if( hItem != TVI_ROOT )
 		TreeView_SortChildrenCB(hTreeView, &tvs, 0);
-	
+
 	HTREEITEM hChild = TreeView_GetChild(hTreeView, hItem);
 	while(hChild)
 	{
@@ -593,7 +626,7 @@ static INT_PTR CALLBACK licenseDialogProc(
 					HWND hEditControl =
 						GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
 					SendMessage(hEditControl, WM_SETTEXT, 0,
-						(LPARAM)widen(aString).c_str());					
+						(LPARAM)widen(aString).c_str());
 					SetTimer(theDialog, 1, 50, NULL);
 					setDialogFocus(theDialog, hEditControl);
 				}
@@ -650,8 +683,8 @@ static BOOL CALLBACK browseFolderShowSelectionCallback(
 static int CALLBACK browseFolderDialogProc(
 	HWND theDialog, UINT theMessage, LPARAM lParam, LPARAM lpData)
 {
-	switch(theMessage) 
-	{ 
+	switch(theMessage)
+	{
 	case BFFM_INITIALIZED:
 		if( lpData && ((WCHAR*)lpData)[0] != L'\0' )
 		{// Initial selection has been requested
@@ -691,8 +724,11 @@ static bool getTargetGameExePath(
 	ofn.lpstrFilter =
 		L"Executable Files (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
 	ofn.nFilterIndex = 1;
-	theFolderPath = toAbsolutePath(theFolderPath);
-	ofn.lpstrInitialDir = theFolderPath.c_str();
+	if( !theFolderPath.empty() )
+	{
+		theFolderPath = toAbsolutePath(theFolderPath);
+		ofn.lpstrInitialDir = theFolderPath.c_str();
+	}
 	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
 	if( !GetOpenFileName(&ofn) )
 		return false;
@@ -719,10 +755,14 @@ static bool getTargetGameExePath(
 }
 
 
-static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
+static EResult trySaveXInputFix(
+	HWND hWnd,
+	std::wstring& theDestFolder,
+	bool use64BitVersion,
+	bool isExeDir)
 {
 	const std::wstring& aFolderPath =
-		toAbsolutePath(theData->destFolder, true);
+		toAbsolutePath(theDestFolder, true);
 	if( !isValidFolderPath(aFolderPath) )
 	{
 		MessageBox(hWnd,
@@ -730,7 +770,7 @@ static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
 			L"Enter a valid destination path and try again!",
 			L"Invalid Path",
 			MB_OK | MB_ICONWARNING);
-		return false;
+		return eResult_InvalidParameter;
 	}
 
 	if( isSamePath(aFolderPath, getAppFolderW()) )
@@ -742,7 +782,7 @@ static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
 			L"Confirm potential conflict location",
 			MB_YESNO) != IDYES )
 		{
-			return false;
+			return eResult_Cancel;
 		}
 	}
 
@@ -768,7 +808,7 @@ static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
 			L"Overwrite file?",
 			MB_YESNO | MB_ICONWARNING) != IDYES )
 		{
-			return false;
+			return eResult_NotNeeded;
 		}
 	}
 
@@ -776,7 +816,7 @@ static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
 	for(int i = 0; i < ARRAYSIZE(aFilePath); ++i)
 	{
 		if( !writeResourceToFile(
-				theData->bitWidthIs64Bit
+				use64BitVersion
 					? IDR_BINARY_XINPUT_DLL_64
 					: IDR_BINARY_XINPUT_DLL_32,
 				L"BINARY", aFilePath[i].c_str()) )
@@ -798,87 +838,34 @@ static bool trySaveXInputFix(HWND hWnd, const XInputFixDialogData* theData)
 			L"using the [Help] -> [Double Input Fix] menu option.",
 			L"Sove error",
 			MB_OK | MB_ICONERROR);
-		return false;
+		return eResult_Fail;
 	}
 
-	MessageBox(hWnd,
-		L"Fix successfully applied (XInput .dll stub files created)!\n\n"
-		L"To confirm, exit the game and this app and run the game by itself "
-		L"(i.e. WITHOUT this app running). Make sure the game does NOT "
-		L"respond to any gamepad input, to avoid any \"double input\" issues "
-		L"while using this app with the game.\n\n"
-		L"The [Help] -> [Double Input Fix] menu option has more information.",
-		L"Fix applied",
-		MB_OK);
-
-	return true;
-}
-
-
-static INT_PTR CALLBACK xInputQuickFixDialogProc(
-	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
-{
-	bool msgWasProcessed = false;
-	XInputFixInfo* theData = NULL;
-
-	switch(theMessage)
+	if( isExeDir )
 	{
-	case WM_INITDIALOG:
-		// Initialize contents
-		theData = (XInputFixInfo*)(UINT_PTR)lParam;
-		{
-			HWND hRichEdit = GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
-			DBG_ASSERT(hRichEdit);
-			std::string aPromptStr = 
-				"{\\rtf1\\ansi\\deff0"
-				"<1> has a known \"double input\" gamepad issue. "
-				"Apply a one-time fix now?\\par\n\\par\n"
-				"You will be asked for the location of the game client "
-				"program<2> for this. "
-				"{\\i Note that it might {\\b not} be in the same folder "
-				"as the patcher/launcher<3>!}"
-				"}";
-			std::string::size_type aPos;
-			aPos = aPromptStr.find("<1>");
-			DBG_ASSERT(aPos != std::string::npos);
-			std::string aNewStr = theData->gameName;
-			if( aNewStr.empty() )
-				aNewStr = "This game";
-			else
-				aNewStr = "{\\b\\i " + aNewStr + "}";
-			aPromptStr.replace(aPos, 3, aNewStr);
-			aPos = aPromptStr.find("<2>");
-			DBG_ASSERT(aPos != std::string::npos);
-			aNewStr = theData->exeName;
-			if( !aNewStr.empty() )
-				aNewStr = " ({\\b " + aNewStr + "})";
-			aPromptStr.replace(aPos, 3, aNewStr);
-			aPos = aPromptStr.find("<3>");
-			DBG_ASSERT(aPos != std::string::npos);
-			aNewStr = theData->launcherName;
-			if( !aNewStr.empty() )
-				aNewStr = " (" + aNewStr + ")";
-			aPromptStr.replace(aPos, 3, aNewStr);
-			const char* pRtfData = aPromptStr.c_str();
-			EDITSTREAM es = { 0 };
-			es.dwCookie = (DWORD_PTR)&pRtfData;
-			es.pfnCallback = &rtfStreamCallback;
-			SendMessage(hRichEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
-		}
-		return TRUE;
-	case WM_COMMAND:
-		switch(LOWORD(wParam))
-		{
-		case IDOK:
-		case IDCANCEL:
-		case IDRETRY:
-			EndDialog(theDialog, LOWORD(wParam));
-			return TRUE;
-		}
-		break;
+		MessageBox(hWnd,
+			L"Fix successfully applied (XInput .dll stub files created)!\n\n"
+			L"To confirm, run the game WITHOUT this app and make sure it "
+			L"does NOT respond to any gamepad input.\n\n"
+			L"In particular, click on UI buttons with your mouse then make "
+			L"sure gamepad buttons don't attempt to \"re-click\" them.\n\n"
+			L"The [Help] -> [Double Input Fix] menu option has more info.",
+			L"Fix applied",
+			MB_OK);
+	}
+	else
+	{
+		MessageBox(hWnd,
+			L"XInput .dll stub files created!\n\n"
+			L"If placed in the same folder as the game .exe and correct file "
+			L"type was chosen, these should prevent most games from "
+			L"natively detecting gamepad input. Be sure to test this by "
+			L"trying to use one in the game WITHOUT this app running!",
+			L"Files saved",
+			MB_OK);
 	}
 
-	return FALSE;
+	return eResult_Ok;
 }
 
 
@@ -886,6 +873,7 @@ static INT_PTR CALLBACK xInputDetailedFixDialogProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
 	bool msgWasProcessed = false;
+	bool aFilePathFieldChanged = false;
 	XInputFixDialogData *theData = (XInputFixDialogData*)(UINT_PTR)
 		GetWindowLongPtr(theDialog, GWLP_USERDATA);
 
@@ -907,14 +895,16 @@ static INT_PTR CALLBACK xInputDetailedFixDialogProc(
 		{// Copy rich text into the description box
 			HWND hRichEdit = GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
 			DBG_ASSERT(hRichEdit);
-			HRSRC hRes = FindResource(null, 
+			HRSRC hRes = FindResource(null,
 				MAKEINTRESOURCE(IDR_TEXT_XINPUT_FIX), L"TEXT");
-			DBG_ASSERT(hRes);	
+			DBG_ASSERT(hRes);
 			HGLOBAL hData = LoadResource(null, hRes);
-			DBG_ASSERT(hData);		
-			const char* pRtfData = (const char*)LockResource(hData);
+			DBG_ASSERT(hData);
+			RTF_StreamData aRTF_StreamData;
+			aRTF_StreamData.buffer = (const char*)LockResource(hData);
+			aRTF_StreamData.remaining = SizeofResource(null, hRes);
 			EDITSTREAM es = { 0 };
-			es.dwCookie = (DWORD_PTR)&pRtfData;
+			es.dwCookie = (DWORD_PTR)&aRTF_StreamData;
 			es.pfnCallback = &rtfStreamCallback;
 			SendMessage(hRichEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
 		}
@@ -925,6 +915,17 @@ static INT_PTR CALLBACK xInputDetailedFixDialogProc(
 				IDC_RADIO_32BIT, IDC_RADIO_64BIT,
 				theData->bitWidthIs64Bit
 					? IDC_RADIO_64BIT : IDC_RADIO_32BIT);
+		}
+		// Treat as if already used auto-detect if valid file passed in
+		if( theData->bitWidthKnown &&
+			!theData->destFolder.empty() &&
+			isValidFilePath(
+				toAbsolutePath(theData->destFolder, true) +
+				theData->gameExeName) )
+		{
+			theData->pathContainsExe = true;
+			theData->filesExist = false;
+			theData->checkedExists = false;
 		}
 		msgWasProcessed = true;
 		break;
@@ -955,7 +956,8 @@ static INT_PTR CALLBACK xInputDetailedFixDialogProc(
 					L"NOTICE",
 					MB_OKCANCEL | MB_ICONINFORMATION) != IDOK )
 				{
-					return false;
+					msgWasProcessed = true;
+					break;
 				}
 				theData->warnedAboutPatcher = true;
 			}
@@ -981,24 +983,23 @@ static INT_PTR CALLBACK xInputDetailedFixDialogProc(
 						L"Bit width detecting failed",
 						MB_OK | MB_ICONERROR);
 				}
+				theData->pathContainsExe = true;
+				theData->filesExist = false;
+				theData->checkedExists = false;
 				if( theData->readyForPath )
 				{
 					SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
 						theData->destFolder.c_str());
+					aFilePathFieldChanged = true;
 				}
 			}
+			msgWasProcessed = true;
 			break;
 
 		case IDC_EDIT_FILE_PATH:
-			if( HIWORD(wParam) == EN_CHANGE && theData->readyForPath )
-			{
-				WCHAR aWPath[MAX_PATH] = { 0 };
-				GetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
-					aWPath, MAX_PATH);
-				theData->destFolder = aWPath;
-				if( !theData->destFolder.empty() )
-					theData->pathEntered = true;
-			}
+			if( HIWORD(wParam) == EN_KILLFOCUS )
+				aFilePathFieldChanged = true;
+			msgWasProcessed = true;
 			break;
 
 		case IDC_BUTTON_BROWSE:
@@ -1020,41 +1021,133 @@ static INT_PTR CALLBACK xInputDetailedFixDialogProc(
 				{
 					SHGetPathFromIDList(pidl, aWPath);
 					SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH, aWPath);
+					aFilePathFieldChanged = true;
 					CoTaskMemFree(pidl);
 				}
 			}
+			msgWasProcessed = true;
+			break;
+
+		case IDABORT:
+			DBG_ASSERT(theData->filesExist);
+			{
+				if( MessageBox(theDialog,
+					L"Delete 'xinput1_3.dll' and 'xinput1_4.dll' files?\n\n"
+					L"This will restore native XInput gamepad support to the "
+					L"game, which may cause undesired \"double input\" issues.",
+					L"Remove Applied Fix?",
+					MB_YESNO) == IDYES )
+				{
+					const std::wstring& aDelFolder =
+						toAbsolutePath(theData->destFolder, true);
+					bool done = true;
+					done = done && deleteFile(aDelFolder + L"xinput1_3.dll");
+					done = done && deleteFile(aDelFolder + L"xinput1_4.dll");
+					if( done )
+					{
+						MessageBox(theDialog,
+							L"Stub .dll files successfully deleted.",
+							L"Fix removed",
+							MB_OK);
+					}
+					else
+					{
+						MessageBox(theDialog,
+							L"File deletion failed!\n\nYou will need to manually "
+							L"delete the the .dll stub files yourself.",
+							L"Deletion error",
+							MB_OK | MB_ICONERROR);
+					}
+					theData->filesExist = false;
+					theData->checkedExists = false;
+					theData->filesDeleted = true;
+				}
+			}
+			msgWasProcessed = true;
 			break;
 
 		case IDOK:
 			DBG_ASSERT(theData->bitWidthKnown);
 			DBG_ASSERT(theData->readyForExport);
-			if( trySaveXInputFix(theDialog, theData) )
-				EndDialog(theDialog, IDOK);
-			msgWasProcessed = true;
-			break;
-
+			{
+				EResult aResult = trySaveXInputFix(
+					theDialog,
+					theData->destFolder,
+					theData->bitWidthIs64Bit,
+					theData->pathContainsExe);
+				if( aResult == eResult_Ok || aResult == eResult_NotNeeded )
+					theData->filesExist = true;
+				if( aResult != eResult_Ok )
+					break;
+			}
+			// fall through for eResult_Ok
 		case IDCANCEL:
-			EndDialog(theDialog, IDCANCEL);
-			msgWasProcessed = true;
-			break;
+			// Only continue to care about path if confirmed had game .exe
+			if( !theData->pathContainsExe )
+				theData->destFolder.clear();
+			if( theData->filesExist )
+				EndDialog(theDialog, IDOK);
+			else if( theData->filesDeleted )
+				EndDialog(theDialog, IDABORT);
+			else
+				EndDialog(theDialog, IDCANCEL);
+			return TRUE;
 		}
 		break;
 	}
-	
+
 	// Enable and set certain controls when more information is known
 	if( theData && !theData->readyForPath && theData->bitWidthKnown )
 	{
 		theData->readyForPath = true;
-		SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
-			theData->destFolder.c_str());
 		EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_BROWSE), true);
 		EnableWindow(GetDlgItem(theDialog, IDC_EDIT_FILE_PATH), true);
+		SetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
+			theData->destFolder.c_str());
+		aFilePathFieldChanged = true;
+	}
+
+	if( aFilePathFieldChanged && theData->readyForPath )
+	{
+		WCHAR aWPath[MAX_PATH] = { 0 };
+		GetDlgItemText(theDialog, IDC_EDIT_FILE_PATH,
+			aWPath, MAX_PATH);
+		if( !isSamePath(theData->destFolder, aWPath) )
+		{
+			theData->pathContainsExe = false;
+			theData->filesExist = false;
+			theData->checkedExists = false;
+		}
+		theData->destFolder = aWPath;
+		if( !theData->destFolder.empty() )
+			theData->pathEntered = true;
 	}
 
 	if( theData && !theData->readyForExport && theData->pathEntered )
 	{
-		EnableWindow(GetDlgItem(theDialog, IDOK), true);
 		theData->readyForExport = true;
+		EnableWindow(GetDlgItem(theDialog, IDOK), true);
+	}
+
+	if( theData && !theData->checkedExists )
+	{
+		theData->checkedExists = true;
+		if( theData->pathContainsExe )
+		{
+			const std::wstring& aFolderPath =
+				toAbsolutePath(theData->destFolder, true);
+			theData->filesExist =
+				isValidFolderPath(aFolderPath) &&
+				isValidFilePath(aFolderPath + L"xinput1_3.dll");
+			ShowWindow(GetDlgItem(theDialog, IDABORT),
+				theData->filesExist ? SW_SHOW : SW_HIDE);
+			if( theData->filesExist )
+				SetDlgItemText(theDialog, IDCANCEL, L"Done");
+		}
+		else
+		{
+			ShowWindow(GetDlgItem(theDialog, IDABORT), SW_HIDE);
+		}
 	}
 
 	return msgWasProcessed ? TRUE : FALSE;
@@ -1110,6 +1203,59 @@ static INT_PTR CALLBACK editMenuCommandProc(
 }
 
 
+static INT_PTR CALLBACK richTextPromptDialogProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		if( lParam )
+		{// Initialize contents
+			PromptDialogData* theData = reinterpret_cast<PromptDialogData*>(lParam);
+
+			// Set title of dialog
+			SetWindowText(theDialog, theData->title.c_str());
+
+			// Set button labels
+			SetDlgItemText(theDialog, IDOK, theData->okLabel.c_str());
+			SetDlgItemText(theDialog, IDCANCEL, theData->cancelLabel.c_str());
+			SetDlgItemText(theDialog, IDRETRY, theData->retryLabel.c_str());
+
+			// Hide retry buton if has no label
+			if( theData->retryLabel.empty() )
+				ShowWindow(GetDlgItem(theDialog, IDRETRY), SW_HIDE);
+
+			// Initialize rich edit control
+			HWND hRichEdit = GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
+			DBG_ASSERT(hRichEdit);
+			EDITSTREAM es = { 0 };
+			RTF_StreamData aRTF_StreamData;
+			aRTF_StreamData.buffer = theData->prompt.c_str();
+			aRTF_StreamData.remaining = (LONG)theData->prompt.size();
+			es.dwCookie = (DWORD_PTR)&aRTF_StreamData;
+			es.pfnCallback = &rtfStreamCallback;
+			SendMessage(hRichEdit,
+				EM_STREAMIN, SF_RTF | SF_UNICODE,
+				(LPARAM)(&es));
+		}
+		return TRUE;
+
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+		case IDCANCEL:
+		case IDRETRY:
+			EndDialog(theDialog, LOWORD(wParam));
+			return TRUE;
+		}
+		break;
+	}
+
+	return FALSE;
+}
+
+
 static void dialogCheckGamepad(HWND theDialog)
 {
 	Gamepad::update();
@@ -1122,7 +1268,7 @@ static void dialogCheckGamepad(HWND theDialog)
 		{
 			// If switched from dialog to full-screen game it can be difficult
 			// to regain normal controls, so just cancel the dialog out
-			SendDlgItemMessage(theDialog, aCancelID, BM_CLICK, 0, 0);		
+			SendDlgItemMessage(theDialog, aCancelID, BM_CLICK, 0, 0);
 		}
 		return;
 	}
@@ -1160,7 +1306,7 @@ static void dialogCheckGamepad(HWND theDialog)
 		Gamepad::ignoreUntilPressedAgain(eBtn_FDown);
 		return;
 	}
-	
+
 	// Check for focus change or scrolling through list with directional input
 	static int sAutoRepeatTimer = 0;
 	enum EDialogDir
@@ -1577,7 +1723,54 @@ EResult showLicenseAgreement(HWND theParentWindow)
 }
 
 
-void suggestXInputFix(const XInputFixInfo& theData)
+EResult applyXInputFix(
+	HWND theParentWindow,
+	std::string& thePath,
+	std::string& theExeName,
+	bool& use64Bit)
+{
+	TargetApp::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
+
+	HWND hTempParentWindow = NULL;
+	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = theParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+
+	std::wstring aDestFolder = widen(thePath);
+	std::wstring aDestFile = widen(theExeName);
+	EResult aResult = eResult_Cancel;
+	if( getTargetGameExePath(theParentWindow, aDestFolder, aDestFile) )
+	{
+		// Architecture should be known but double-check anyway
+		// (just don't complain about it not working)
+		aDestFolder = toAbsolutePath(aDestFolder);
+		getExeArchitecture(aDestFolder + aDestFile, use64Bit);
+		aResult = trySaveXInputFix(
+			theParentWindow, aDestFolder, use64Bit, true);
+	}
+	thePath = narrow(aDestFolder);
+	theExeName = narrow(aDestFile);
+
+	// cleanup
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
+	mainLoopTimeSkip();
+
+	return
+		(aResult == eResult_Ok || aResult == eResult_NotNeeded)
+			? eResult_Ok : eResult_Cancel;
+}
+
+
+EResult showXInputFixDetails(
+	HWND theParentWindow,
+	std::string& thePath,
+	std::string& theExeName,
+	bool& use64Bit)
 {
 	TargetApp::prepareForDialog();
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1585,92 +1778,45 @@ void suggestXInputFix(const XInputFixInfo& theData)
 	HMODULE hRichEdit = LoadLibrary(L"Riched20.dll");
 
 	HWND hTempParentWindow = NULL;
-	if( TargetApp::targetWindowIsTopMost() )
+	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
 	{// Create a temporary invisible top-most window as dialog parent
-		hTempParentWindow = CreateWindowEx(
+		hTempParentWindow = theParentWindow = CreateWindowEx(
 			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
 			NULL, NULL, GetModuleHandle(NULL), NULL);
 	}
 
+	XInputFixDialogData aDataStruct;
+	aDataStruct.gameExeName = widen(theExeName);
+	aDataStruct.destFolder = widen(thePath);
+	aDataStruct.bitWidthIs64Bit = use64Bit;
+	aDataStruct.bitWidthKnown = !thePath.empty();
+	thePath.clear();
+	theExeName.clear();
+
 	INT_PTR aPromptResult = DialogBoxParam(
 		GetModuleHandle(NULL),
-		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_QUICK_FIX),
-		hTempParentWindow,
-		xInputQuickFixDialogProc,
-		reinterpret_cast<LPARAM>(&theData));
+		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_FIX),
+		theParentWindow,
+		xInputDetailedFixDialogProc,
+		reinterpret_cast<LPARAM>(&aDataStruct));
 
-	XInputFixDialogData aDataStruct = XInputFixDialogData();
-	aDataStruct.bitWidthKnown = true;
-	aDataStruct.bitWidthIs64Bit = theData.is64Bit;
-	aDataStruct.gameExeName = widen(theData.exeName);
-	aDataStruct.destFolder = widen(theData.exeDir);
-	aDataStruct.warnedAboutPatcher = true;
-
-	if( aPromptResult == IDOK )
+	if( !aDataStruct.destFolder.empty() )
 	{
-		// If cancel out of subsequent steps, take to detailed dialog
-		aPromptResult = IDRETRY;
-		if( getTargetGameExePath(hTempParentWindow,
-					aDataStruct.destFolder,
-					aDataStruct.gameExeName) )
-		{
-			// Architecture should be known but double-check anyway
-			// (just don't complain about it not working)
-			getExeArchitecture(
-				toAbsolutePath(aDataStruct.destFolder, true) +
-					aDataStruct.gameExeName,
-				aDataStruct.bitWidthIs64Bit);
-			if( trySaveXInputFix(hTempParentWindow, &aDataStruct) )
-				aPromptResult = IDOK;
-		}
-	}
-
-	if( aPromptResult == IDRETRY )
-	{
-		aPromptResult = DialogBoxParam(
-				GetModuleHandle(NULL),
-				MAKEINTRESOURCE(IDD_DIALOG_XINPUT_DETAILED_FIX),
-				hTempParentWindow,
-				xInputDetailedFixDialogProc,
-				reinterpret_cast<LPARAM>(&aDataStruct));
-	}
-
-	if( aPromptResult != IDOK )
-	{
-		MessageBox(hTempParentWindow,
-			L"If you need to apply the fix later, you can do so via the "
-			L"[Help] -> [Double Input Fix] menu option",
-			L"Double Input fix not applied!",
-			MB_OK);
+		thePath = narrow(toAbsolutePath(aDataStruct.destFolder));
+		theExeName = narrow(aDataStruct.gameExeName);
+		use64Bit = aDataStruct.bitWidthIs64Bit;
 	}
 
 	// cleanup
 	if( hTempParentWindow )
 		DestroyWindow(hTempParentWindow);
 	mainLoopTimeSkip();
-
 	FreeLibrary(hRichEdit);
-}
 
-
-void showXInputFixDetails(HWND theParentWindow)
-{
-	TargetApp::prepareForDialog();
-	InputDispatcher::forceReleaseHeldKeys();
-
-	HMODULE hRichEdit = LoadLibrary(L"Riched20.dll");
-
-	XInputFixDialogData aDataStruct = XInputFixDialogData();
-	DialogBoxParam(
-		GetModuleHandle(NULL),
-		MAKEINTRESOURCE(IDD_DIALOG_XINPUT_DETAILED_FIX),
-		theParentWindow,
-		xInputDetailedFixDialogProc,
-		reinterpret_cast<LPARAM>(&aDataStruct));
-
-	mainLoopTimeSkip();
-
-	FreeLibrary(hRichEdit);
+	return
+		aPromptResult == IDOK		? eResult_Ok :
+		aPromptResult == IDABORT	? eResult_Declined :
+		/*otherwise*/				  eResult_Cancel;
 }
 
 
@@ -1722,21 +1868,23 @@ EResult editMenuCommand(std::string& theString, bool directional)
 }
 
 
-void showError(const std::string& theError)
+void showError(HWND theParentWindow, const std::string& theError)
 {
 	InputDispatcher::forceReleaseHeldKeys();
 
 	HWND hTempParentWindow = NULL;
-	if( TargetApp::targetWindowIsTopMost() )
+	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
 	{// Create a temporary invisible top-most window as dialog parent
-		hTempParentWindow = CreateWindowEx(
+		hTempParentWindow = theParentWindow = CreateWindowEx(
 			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
 			NULL, NULL, GetModuleHandle(NULL), NULL);
 	}
 
+	logToFile(theError.c_str());
+
 	EResult result = eResult_Yes;
 	MessageBox(
-		hTempParentWindow,
+		theParentWindow,
 		widen(theError).c_str(),
 		L"Error",
 		MB_OK | MB_ICONWARNING);
@@ -1749,27 +1897,59 @@ void showError(const std::string& theError)
 }
 
 
-EResult yesNoPrompt(
-	const std::string& thePrompt,
-	const std::string& theTitle,
-	bool skipIfTargetAppRunning)
+void showNotice(
+	HWND theParentWindow,
+	const std::string& theNotice,
+	const std::string& theTitle)
 {
-	if( skipIfTargetAppRunning && TargetApp::targetAppActive() )
-		return eResult_Cancel;
-
 	InputDispatcher::forceReleaseHeldKeys();
 
 	HWND hTempParentWindow = NULL;
-	if( TargetApp::targetWindowIsTopMost() )
+	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
 	{// Create a temporary invisible top-most window as dialog parent
-		hTempParentWindow = CreateWindowEx(
+		hTempParentWindow = theParentWindow = CreateWindowEx(
 			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
 			NULL, NULL, GetModuleHandle(NULL), NULL);
 	}
 
 	EResult result = eResult_Yes;
+	MessageBox(
+		theParentWindow,
+		widen(theNotice).c_str(),
+		widen(theTitle).c_str(),
+		MB_OK);
+
+	// Cleanup
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
+
+	mainLoopTimeSkip();
+}
+
+
+EResult yesNoPrompt(
+	HWND theParentWindow,
+	const std::string& thePrompt,
+	const std::string& theTitle,
+	bool skipIfTargetAppRunning)
+{
+	EResult result = eResult_Cancel;
+	if( skipIfTargetAppRunning && TargetApp::targetAppActive() )
+		return result;
+
+	InputDispatcher::forceReleaseHeldKeys();
+
+	HWND hTempParentWindow = NULL;
+	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = theParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+
+	result = eResult_Yes;
 	if( MessageBox(
-			hTempParentWindow,
+			theParentWindow,
 			widen(thePrompt).c_str(),
 			widen(theTitle).c_str(),
 			MB_YESNO) != IDYES )
@@ -1783,6 +1963,50 @@ EResult yesNoPrompt(
 
 	mainLoopTimeSkip();
 	return result;
+}
+
+
+EResult richTextPrompt(
+	HWND theParentWindow,
+	const std::string& theRTFPrompt,
+	const std::string& theTitle,
+	const std::string& theOkLabel,
+	const std::string& theCancelLabel,
+	const std::string& theRetryLabel)
+{
+	HWND hTempParentWindow = NULL;
+	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = theParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+
+	PromptDialogData aDataStruct = PromptDialogData();
+	aDataStruct.title = widen(theTitle);
+	aDataStruct.prompt = theRTFPrompt;
+	aDataStruct.okLabel = widen(theOkLabel);
+	aDataStruct.cancelLabel = widen(theCancelLabel);
+	aDataStruct.retryLabel = widen(theRetryLabel);
+
+	HMODULE hRichEdit = LoadLibrary(L"Riched20.dll");
+	INT_PTR aPromptResult = DialogBoxParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_RICH_TEXT_PROMPT),
+		theParentWindow,
+		richTextPromptDialogProc,
+		reinterpret_cast<LPARAM>(&aDataStruct));
+
+	// cleanup
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
+	mainLoopTimeSkip();
+	FreeLibrary(hRichEdit);
+
+	return
+		aPromptResult == IDOK		? eResult_Ok :
+		aPromptResult == IDRETRY	? eResult_Retry :
+		/*otherwise*/				  eResult_Cancel;
 }
 
 } // Dialogs
