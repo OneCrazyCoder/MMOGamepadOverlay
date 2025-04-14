@@ -847,8 +847,6 @@ static EResult trySaveXInputFix(
 			L"Fix successfully applied (XInput .dll stub files created)!\n\n"
 			L"To confirm, run the game WITHOUT this app and make sure it "
 			L"does NOT respond to any gamepad input.\n\n"
-			L"In particular, click on UI buttons with your mouse then make "
-			L"sure gamepad buttons don't attempt to \"re-click\" them.\n\n"
 			L"The [Help] -> [Double Input Fix] menu option has more info.",
 			L"Fix applied",
 			MB_OK);
