@@ -1034,6 +1034,47 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		theNewWindowRect.bottom <= theNewWindowRect.top )
 		return;
 
+	// Restrict to "work" area of active monitor when don't have a target app
+	sTargetClipRect = theNewWindowRect;
+	if( !isTargetAppWindow )
+	{
+		if( HMONITOR hMonitor =
+				MonitorFromRect(&theNewWindowRect, MONITOR_DEFAULTTONEAREST) )
+		{
+			MONITORINFO aMonitorInfo = { sizeof(MONITORINFO) };
+			if( GetMonitorInfo(hMonitor, &aMonitorInfo) )
+			{
+				if( IntersectRect(
+						&sTargetClipRect,
+						&theNewWindowRect,
+						&aMonitorInfo.rcWork) )
+				{
+					// In debug builds keep using the full screen even if it
+					// means overlays may be clipped by the task bar, to allow
+					// checking positions against a reference screenshot set
+					// as desktop background image.
+					#ifndef _DEBUG
+					theNewWindowRect = sTargetClipRect;
+					#endif
+				}
+				else
+				{
+					sTargetClipRect = theNewWindowRect;
+				}
+			}
+		}
+	}
+
+	// Update sDesktopTargetRect, sScreenTargetRect, and sTargetClipRect
+	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
+	sDesktopTargetRect.left -= GetSystemMetrics(SM_XVIRTUALSCREEN);
+	sDesktopTargetRect.right -= GetSystemMetrics(SM_XVIRTUALSCREEN);
+	sDesktopTargetRect.top -= GetSystemMetrics(SM_YVIRTUALSCREEN);
+	sDesktopTargetRect.bottom -= GetSystemMetrics(SM_YVIRTUALSCREEN);
+	OffsetRect(&sTargetClipRect,
+		-sScreenTargetRect.left, -sScreenTargetRect.top);
+
+	// Update sTargetSize and gUIScale
 	SIZE aNewTargetSize;
 	aNewTargetSize.cx = theNewWindowRect.right - theNewWindowRect.left;
 	aNewTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
@@ -1059,33 +1100,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		}
 	}
 
-	sDesktopTargetRect = sScreenTargetRect = theNewWindowRect;
-	sDesktopTargetRect.left -= GetSystemMetrics(SM_XVIRTUALSCREEN);
-	sDesktopTargetRect.right -= GetSystemMetrics(SM_XVIRTUALSCREEN);
-	sDesktopTargetRect.top -= GetSystemMetrics(SM_YVIRTUALSCREEN);
-	sDesktopTargetRect.bottom -= GetSystemMetrics(SM_YVIRTUALSCREEN);
-	sTargetClipRect = sScreenTargetRect;
-	if( !isTargetAppWindow )
-	{// Restrict to "work" area of active monitor when don't have a target app
-		if( HMONITOR hMonitor =
-				MonitorFromRect(&sScreenTargetRect, MONITOR_DEFAULTTONEAREST) )
-		{
-			MONITORINFO aMonitorInfo = { sizeof(MONITORINFO) };
-			if( GetMonitorInfo(hMonitor, &aMonitorInfo) )
-			{
-				if( !IntersectRect(
-						&sTargetClipRect,
-						&sScreenTargetRect,
-						&aMonitorInfo.rcWork) )
-				{
-					sTargetClipRect = sScreenTargetRect;
-				}
-			}
-		}
-	}
-	OffsetRect(&sTargetClipRect,
-		-sScreenTargetRect.left, -sScreenTargetRect.top);
-
+	// Flag all overlay windows to update position & size accordingly
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
 		sOverlayWindows[i].layoutUpdated = false;
 }
