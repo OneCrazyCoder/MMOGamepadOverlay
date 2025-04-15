@@ -948,7 +948,9 @@ static bool manualCharacterMoveInUse()
 	case eAutoRunMode_LockedXY:
 		return false;
 	default:
-		return sTracker.moveKeysHeld.any();
+		return
+			sTracker.moveKeysHeld.any() ||
+			sTracker.mouseLookNeededToStrafe;
 	}
 }
 
@@ -996,7 +998,7 @@ static EMouseMode checkAutoMouseLookMode()
 		}
 		return sTracker.mouseMode;
 
-	case eMouseMode_LookTrans:
+	case eMouseMode_AutoToTurn:
 		if( sTracker.mouseMode == eMouseMode_LookTurn ||
 			sTracker.moveKeysHeld.any() ||
 			sTracker.mouseLookNeededToStrafe ||
@@ -1005,57 +1007,54 @@ static EMouseMode checkAutoMouseLookMode()
 			sTracker.mouseModeWanted = eMouseMode_LookTurn;
 			return eMouseMode_LookTurn;
 		}
+		return eMouseMode_LookOnly;
 
-		if( sTracker.mouseMode == eMouseMode_LookOnly &&
-			sTracker.mouseVelX != 0 )
+	case eMouseMode_RunToTurn:
+		if( sTracker.autoRunMode == eAutoRunMode_Off )
 		{
-			return eMouseMode_LookOnly;
+			sTracker.mouseModeWanted = eMouseMode_AutoToTurn;
+			return checkAutoMouseLookMode();
 		}
 
-		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
-			return eMouseMode_LookTurn;
-		return eMouseMode_Hide;
-
-	case eMouseMode_LookTrans2:
 		if( sTracker.mouseMode == eMouseMode_LookTurn ||
 			manualCharacterMoveInUse() )
 		{
 			sTracker.mouseModeWanted = eMouseMode_LookTurn;
 			return eMouseMode_LookTurn;
 		}
-
+		
 		if( sTracker.mouseMode == eMouseMode_LookOnly &&
 			sTracker.mouseVelX != 0 )
 		{
 			return eMouseMode_LookOnly;
 		}
-
 		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
+		{
+			sTracker.mouseModeWanted = eMouseMode_LookTurn;
 			return eMouseMode_LookTurn;
-		return eMouseMode_Hide;
+		}
+		return eMouseMode_LookReady;
 
-	case eMouseMode_LookTrans3:
-		if( sTracker.mouseMode == eMouseMode_LookTurn ||
+	case eMouseMode_RunToAuto:
+		if( sTracker.autoRunMode == eAutoRunMode_Off ||
+			sTracker.mouseMode == eMouseMode_LookTurn ||
 			manualCharacterMoveInUse() )
 		{
 			sTracker.mouseModeWanted = eMouseMode_AutoLook;
-			return eMouseMode_LookTurn;
+			return checkAutoMouseLookMode();
 		}
-
+		
 		if( sTracker.mouseMode == eMouseMode_LookOnly &&
 			sTracker.mouseVelX != 0 )
 		{
 			return eMouseMode_LookOnly;
 		}
-
 		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
 		{
 			sTracker.mouseModeWanted = eMouseMode_AutoLook;
-			if( sTracker.autoRunMode != eAutoRunMode_Off )
-				return eMouseMode_LookTurn;
-			return eMouseMode_LookOnly;
+			return checkAutoMouseLookMode();
 		}
-		return eMouseMode_Hide;
+		return eMouseMode_LookReady;
 	}
 
 	return sTracker.mouseModeWanted;
@@ -2259,16 +2258,16 @@ void setMouseMode(EMouseMode theMouseMode)
 	else if( theMouseMode == eMouseMode_LookTurn )
 	{
 		if( sTracker.mouseModeWanted == eMouseMode_AutoLook )
-			sTracker.mouseModeWanted = eMouseMode_LookTrans;
+			sTracker.mouseModeWanted = eMouseMode_AutoToTurn;
 		else if( sTracker.mouseModeWanted == eMouseMode_AutoRunLook )
-			sTracker.mouseModeWanted = eMouseMode_LookTrans2;
+			sTracker.mouseModeWanted = eMouseMode_RunToTurn;
 		else
 			sTracker.mouseModeWanted = theMouseMode;
 	}
 	else if( theMouseMode == eMouseMode_AutoLook &&
 			 sTracker.mouseModeWanted == eMouseMode_AutoRunLook )
 	{
-		sTracker.mouseModeWanted = eMouseMode_LookTrans3;
+		sTracker.mouseModeWanted = eMouseMode_RunToAuto;
 	}
 	else
 	{
