@@ -589,6 +589,10 @@ static UINT_PTR CALLBACK targetAppPathProc(
 			}
 		}
 		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
+		break;
 	}
 
 	return (UINT_PTR)FALSE;
@@ -655,6 +659,10 @@ static INT_PTR CALLBACK licenseDialogProc(
 			EndDialog(theDialog, IDCANCEL);
 			return TRUE;
 		}
+		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
 		break;
 	}
 
@@ -1090,7 +1098,12 @@ static INT_PTR CALLBACK xInputDetailedFixDialogProc(
 			else
 				EndDialog(theDialog, IDCANCEL);
 			return TRUE;
+
 		}
+		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
 		break;
 	}
 
@@ -1247,6 +1260,10 @@ static INT_PTR CALLBACK richTextPromptDialogProc(
 			EndDialog(theDialog, LOWORD(wParam));
 			return TRUE;
 		}
+		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
 		break;
 	}
 

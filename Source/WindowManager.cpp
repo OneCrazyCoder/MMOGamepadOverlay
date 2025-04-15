@@ -203,6 +203,11 @@ static bool normalWindowsProc(
 		if( wParam == SC_MOVE || wParam == SC_SIZE )
 			startModalModeUpdates();
 		break;
+
+	case WM_DEVICECHANGE:
+		// Forward this message to app's main message handler
+		PostMessage(NULL, theMessage, wParam, lParam);
+		break;
 	}
 
 	return false;
@@ -288,11 +293,6 @@ static LRESULT CALLBACK mainWindowProc(
 			}
 		}
 		HUD::init();
-		break;
-
-	case WM_DEVICECHANGE:
-		// Forward this message to app's main message handler
-		PostMessage(NULL, theMessage, wParam, lParam);
 		break;
 	}
 

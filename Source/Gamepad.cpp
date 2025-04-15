@@ -1030,8 +1030,14 @@ void checkDeviceChange()
 	// May have inserted a new controller
 	// Quick and dirty method of dealing with this is to just re-int
 	gamepadDebugPrint("Reinitializing to detect connected controller\n");
+	const bool wasActive = sGamepadData.selectedGamepadID >= 0;
 	cleanup();
 	init(true);
+	if( wasActive && sGamepadData.deviceCountForDInput == 0 )
+	{
+		logNotice("WARNING: Lost connection to Gamepad!");
+		sNotifyWhenSelectGamepad = true;
+	}
 }
 
 
