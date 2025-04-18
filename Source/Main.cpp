@@ -35,10 +35,23 @@
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static DWORD sLastUpdateTime = 0;
-static DWORD sUpdateStartTime = 0;
+static u64 sAppStartTime = 0;
+static u64 sUpdateStartTime = 0;
+static LARGE_INTEGER sSystemTimeFreq;
 static u32 sUpdateLoopCount = 0;
 static bool sUpdateLoopStarted = false;
+
+
+//-----------------------------------------------------------------------------
+// Local Functions
+//-----------------------------------------------------------------------------
+
+static u64 getSystemTime()
+{
+	LARGE_INTEGER aCurrentTime;
+	QueryPerformanceCounter(&aCurrentTime);
+	return aCurrentTime.QuadPart / sSystemTimeFreq.QuadPart;
+}
 
 
 //-----------------------------------------------------------------------------
@@ -47,10 +60,10 @@ static bool sUpdateLoopStarted = false;
 
 void mainTimerUpdate()
 {
-	sUpdateStartTime = timeGetTime();
-	gAppFrameTime = sUpdateStartTime - sLastUpdateTime;
-	gAppRunTime += gAppFrameTime;
-	sLastUpdateTime = sUpdateStartTime;
+	u64 aCurrentTime = getSystemTime();
+	gAppFrameTime = aCurrentTime - sUpdateStartTime;
+	gAppRunTime = u32(aCurrentTime - sAppStartTime);
+	sUpdateStartTime = aCurrentTime;
 }
 
 
@@ -128,11 +141,18 @@ void mainLoopSleep()
 		return;
 	sUpdateLoopStarted = false;
 
-	const DWORD aTimeTakenByUpdate = timeGetTime() - sUpdateStartTime;
-	if( aTimeTakenByUpdate < DWORD(gAppTargetFrameTime) )
-		Sleep(DWORD(gAppTargetFrameTime) - aTimeTakenByUpdate);
-	else
-		Sleep(1);
+	// Sleep for half the remaining frame time (full amount can overr-sleep)
+	const int aTimeTakenByUpdate = int(getSystemTime() - sUpdateStartTime);
+	const int aTimeToSleep = gAppTargetFrameTime - aTimeTakenByUpdate;
+	Sleep(DWORD(max(1, aTimeToSleep / 2)));
+
+	// Wait out the rest of the frame time
+	u64 aFrameTimePassed = getSystemTime() - sUpdateStartTime;
+	while(aFrameTimePassed < gAppTargetFrameTime)
+	{
+		Sleep(0);
+		aFrameTimePassed = getSystemTime() - sUpdateStartTime;
+	}
 
 	++sUpdateLoopCount;
 }
@@ -140,7 +160,7 @@ void mainLoopSleep()
 
 void mainLoopTimeSkip()
 {
-	sLastUpdateTime = sUpdateStartTime = timeGetTime();
+	sUpdateStartTime = getSystemTime();
 }
 
 
@@ -174,7 +194,12 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	gAppTargetFrameTime = max(1,
 		Profile::getInt("System/FrameTime", gAppTargetFrameTime));
 
-	sLastUpdateTime = timeGetTime();
+	// Initiate frame timing
+	timeBeginPeriod(gAppTargetFrameTime / 2);
+	QueryPerformanceFrequency(&sSystemTimeFreq);
+	sSystemTimeFreq.QuadPart /= 1000; // milliseconds instead of seconds
+	sAppStartTime = sUpdateStartTime = getSystemTime();
+
 	while(gReloadProfile && !gShutdown && !hadFatalError())
 	{
 		// Load current profile
@@ -240,6 +265,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		if( !hadFatalError() )
 			WindowManager::destroyAll(hInstance);
 	}
+	timeEndPeriod(gAppTargetFrameTime / 2);
 
 	// Report performance
 	if( !hadFatalError() && gAppRunTime > 0 )
