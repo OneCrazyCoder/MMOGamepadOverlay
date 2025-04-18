@@ -42,6 +42,7 @@ enum ECommandType
 	// Valid for InputDispatcher::moveMouseTo()
 	eCmdType_MoveMouseToHotspot,
 	eCmdType_MoveMouseToMenuItem,
+	eCmdType_MoveMouseToOffset,
 
 	// These active "keybind arrays" which allow a sequence of different keys
 	// to be pressed by a single buton that changes the key pressed each time.
@@ -278,6 +279,7 @@ enum ESpecialHotspot
 	eSpecialHotspot_MouseHidden,
 	eSpecialHotspot_LastCursorPos,
 	eSpecialHotspot_MenuItemPos,
+	eSpecialHotspot_OffsetPos,
 
 	eSpecialHotspot_Num
 };

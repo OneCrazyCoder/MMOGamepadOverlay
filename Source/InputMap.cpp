@@ -63,6 +63,7 @@ const char* kSpecialHotspotNames[] =
 	"MOUSEHIDDEN",			// eSpecialHotspot_MouseHidden
 	"~",					// eSpecialHotspot_LastCursorPos
 	"~~",					// eSpecialHotspot_MenuItemPos
+	"~~~",					// eSpecialHotspot_OffsetPos
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
@@ -1697,7 +1698,7 @@ static Command wordsToSpecialCommand(
 
 	if( allowButtonActions )
 	{
-		// "= [Select] [Mouse] Hotspot <aCmdDir> [No/Wrap] [#]"
+		// "= [Select] [Mouse] Hotspot <aCmdDir> [#]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Select);
 		allowedKeyWords.set(eCmdWord_Hotspot);
@@ -1761,47 +1762,25 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Move & Mouse
 		allowedKeyWords.set(eCmdWord_MouseWheel);
 		allowedKeyWords.set(eCmdWord_Stepped);
-		allowedKeyWords.set(eCmdWord_Select);
-		allowedKeyWords.set(eCmdWord_Hotspot);
 		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			if( keyWordsFound.test(eCmdWord_Hotspot) )
-			{
-				result.type = eCmdType_HotspotSelect;
-				result.mouseWheelMotionType = eMouseWheelMotion_Stepped;
-				result.withMouse = true;
-				return result;
-			}
-			else if( !keyWordsFound.test(eCmdWord_Select) )
-			{
-				result.type = eCmdType_MouseWheel;
-				result.mouseWheelMotionType = eMouseWheelMotion_Stepped;
-				return result;
-			}
+			result.type = eCmdType_MouseWheel;
+			result.mouseWheelMotionType = eMouseWheelMotion_Stepped;
+			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Stepped);
 
 		// "= [Move] [Mouse] 'Wheel'|'MouseWheel' Smooth <aCmdDir>"
-		// allowedKeyWords = Move & Mouse & Wheel & Select & Hotspot
+		// allowedKeyWords = Move & Mouse & Wheel
 		allowedKeyWords.set(eCmdWord_Smooth);
 		if( keyWordsFound.test(eCmdWord_MouseWheel) &&
 			keyWordsFound.test(eCmdWord_Smooth) &&
 			(keyWordsFound & ~allowedKeyWords).none() )
 		{
-			if( keyWordsFound.test(eCmdWord_Hotspot) )
-			{
-				result.type = eCmdType_HotspotSelect;
-				result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
-				result.withMouse = true;
-				return result;
-			}
-			else if( !keyWordsFound.test(eCmdWord_Select) )
-			{
-				result.type = eCmdType_MouseWheel;
-				result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
-				return result;
-			}
+			result.type = eCmdType_MouseWheel;
+			result.mouseWheelMotionType = eMouseWheelMotion_Smooth;
+			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Smooth);
 	}
