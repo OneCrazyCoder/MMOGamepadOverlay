@@ -439,7 +439,7 @@ Each layer (including [Scheme]) specifies which **HUD Elements** (including **Me
 
 ### Layer Hotspots= property
 
-Very similar to the HUD= property, each layer can enable or disable **Hotspot Arrays** that can be used via the ``=Select Hotspot <direction>`` or ``Select Hotspot or MouseWheel`` command (the latter of which scrolls the mouse wheel up and down if there are no hotspots available in that direction - handy for scrolling through a tall loot window!). Just like ``HUD=``, each layer can disable Hotspot Arrays enabled in the layers below it, though layers above can override that yet again.
+Very similar to the HUD= property, each layer can enable or disable **Hotspot Arrays** that can be used via the ``=Select Hotspot <direction>`` command. Just like ``HUD=``, each layer can disable Hotspot Arrays enabled in the layers below it, though layers above can override that yet again.
 
 Hotspot Arrays are defined much like Key Bind Arrays - a list of Hotspots with the same name but just different number on the end, starting with 1, like so:
 
@@ -452,6 +452,8 @@ Hotspot Arrays are defined much like Key Bind Arrays - a list of Hotspots with t
     LootWindow3=32x322
     ...
 *Multiple elements of a Hotspot Array can be defined at once to make it easier to add or adjust a whole array quickly. More on this in the later section "Hotspot Array and Copy Icon ranges".*
+
+The ``=Select Hotspot <direction>`` command will quickly move the mouse cursor to the next nearby enabled hotspot . If there are none in the direction pressed the mouse will be moved amount of the ``[Mouse]`` section properties ``DefaultHotspotXDistance=`` and ``DefaultHotspotYDistance=`` (multiplied by global UI Scale value).
 
 ### Layer Parent= property
 

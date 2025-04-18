@@ -25,7 +25,7 @@ namespace InputDispatcher
 enum {
 kMouseMaxSpeed = 256,
 kMouseToPixelDivisor = 8192,
-kMouseMaxDigitalVel = 32768,
+kMouseMaxAccelVel = 32768,
 kVKeyModsMask = 0x3F00,
 kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
 kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
@@ -74,8 +74,12 @@ struct Config
 	std::vector<u8> safeAsyncKeys;
 	double cursorDeadzone;
 	double cursorRange;
+	double cursorCurve;
+	double cursorAccel;
 	double mouseLookDeadzone;
 	double mouseLookRange;
+	double mouseLookCurve;
+	double mouseLookAccel;
 	double mouseWheelDeadzone;
 	double mouseWheelRange;
 	double moveDeadzone;
@@ -104,40 +108,45 @@ struct Config
 
 	void load()
 	{
+		const float aCursorSpeedMult = sqrt(GetSystemMetrics(SM_CYSCREEN) / 720.0);
 		maxTaskQueuedTime = Profile::getInt("System/MaxKeyQueueTime", 1000);
 		chatBoxPostFirstKeyDelay = Profile::getInt("System/ChatBoxStartDelay", 0);
 		chatBoxPostEnterDelay = Profile::getInt("System/ChatBoxEndDelay", 0);
 		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 20);
 		minModKeyChangeTime = Profile::getInt("System/MinModKeyChangeTime", 50);
-		mouseClickLockTime = Profile::getInt("System/MinMouseButtonClickTime", 25);
-		mouseReClickLockTime = Profile::getInt("System/MinMouseReClickTime", 0);
-		mouseJumpDelayTime = Profile::getInt("System/MouseJumpDelayTime", 25);
-		mouseLookMoveLockTime = Profile::getInt("System/MouseLookMoveStartTime", 25);
+		mouseClickLockTime = Profile::getInt("Mouse/MinButtonClickTime", 25);
+		mouseReClickLockTime = Profile::getInt("Mouse/MinReClickTime", 0);
+		mouseJumpDelayTime = Profile::getInt("Mouse/JumpDelayTime", 25);
+		mouseLookMoveLockTime = Profile::getInt("Mouse/CameraMoveStartDelay", 25);
 		useScanCodes = Profile::getBool("System/UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
-		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed);
-		cursorYSpeed = Profile::getInt("Mouse/CursorYSpeed", cursorYSpeed);
-		cursorDeadzone = clamp(Profile::getInt("Gamepad/MouseCursorDeadzone", 25), 0, 100) / 100.0;
-		cursorRange = clamp(Profile::getInt("Gamepad/MouseCursorSaturation", 100), cursorDeadzone, 100) / 100.0;
+		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed) * aCursorSpeedMult;
+		cursorYSpeed = Profile::getInt("Mouse/CursorYSpeed", cursorYSpeed) * aCursorSpeedMult;
+		cursorDeadzone = clamp(Profile::getInt("Mouse/CursorDeadzone", 25), 0, 100) / 100.0;
+		cursorRange = clamp(Profile::getInt("Mouse/CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
 		cursorRange = max(0, cursorRange - cursorDeadzone);
-		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse/LookSpeed", 100);
-		mouseLookXSpeed = Profile::getInt("Mouse/LookXSpeed", mouseLookXSpeed);
-		mouseLookYSpeed = Profile::getInt("Mouse/LookYSpeed", mouseLookYSpeed);
+		cursorCurve = max(Profile::getFloat("Mouse/CursorResponseCurve", 1.0), 0.1);
+		cursorAccel = Profile::getInt("Mouse/CursorAccel", 33) * 4.0 / kMouseMaxAccelVel;
+		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse/CameraSpeed", 100);
+		mouseLookXSpeed = Profile::getInt("Mouse/CameraXSpeed", mouseLookXSpeed);
+		mouseLookYSpeed = Profile::getInt("Mouse/CameraYSpeed", mouseLookYSpeed);
 		moveLookSpeed = Profile::getInt("Mouse/MoveLookSpeed", 25);
-		mouseLookDeadzone = clamp(Profile::getInt("Gamepad/MouseLookDeadzone", 25), 0, 100) / 100.0;
-		mouseLookRange = clamp(Profile::getInt("Gamepad/MouseLookSaturation", 100), mouseLookDeadzone, 100) / 100.0;
+		mouseLookDeadzone = clamp(Profile::getInt("Mouse/CameraDeadzone", 25), 0, 100) / 100.0;
+		mouseLookRange = clamp(Profile::getInt("Mouse/CameraSaturation", 100), mouseLookDeadzone, 100) / 100.0;
 		mouseLookRange = max(0, mouseLookRange - mouseLookDeadzone);
-		moveLookDeadzone = clamp(Profile::getInt("Gamepad/MoveLookDeadzone", 25), 0, 100) / 100.0;
-		moveLookRange = clamp(Profile::getInt("Gamepad/MoveLookSaturation", 100), moveLookDeadzone, 100) / 100.0;
+		mouseLookCurve = max(Profile::getFloat("Mouse/CameraResponseCurve", 1.0), 0.1);
+		mouseLookAccel = Profile::getInt("Mouse/CameraAccel", 0) * 4.0 /  kMouseMaxAccelVel;
+		moveLookDeadzone = clamp(Profile::getInt("Mouse/CameraDeadzone", 25), 0, 100) / 100.0;
+		moveLookRange = clamp(Profile::getInt("Mouse/CameraSaturation", 100), moveLookDeadzone, 100) / 100.0;
 		moveLookRange = max(0, moveLookRange - moveLookDeadzone);
-		mouseDPadAccel = max(8, Profile::getInt("Gamepad/MouseDPadAccel", 50));
-		mouseWheelDeadzone = clamp(Profile::getInt("Gamepad/MouseWheelDeadzone", 25), 0, 100) / 100.0;
-		mouseWheelRange = clamp(Profile::getInt("Gamepad/MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
+		mouseDPadAccel = clamp(Profile::getInt("Mouse/DigitalAccel", 50), 0, 255);
+		mouseWheelDeadzone = clamp(Profile::getInt("Mouse/MouseWheelDeadzone", 25), 0, 100) / 100.0;
+		mouseWheelRange = clamp(Profile::getInt("Mouse/MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
-		mouseWheelSpeed = Profile::getInt("Mouse/WheelSpeed", 255);
-		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveDeadzone", 50), 0, 100) / 100.0;
+		mouseWheelSpeed = Profile::getInt("Mouse/MouseWheelSpeed", 255);
+		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveCharacterThreshold", 50), 0, 100) / 100.0;
 		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 50), 0, 100) / 100.0;
-		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad/CancelAutoRunDeadzone", 80) / 100.0 * 255.0, 0, 255);
+		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad/CancelAutoRunThreshold", 80) / 100.0 * 255.0, 0, 255);
 		mouseLookAutoRestoreTime = Profile::getInt("System/MouseLookAutoRestoreTime");
 		std::string aString = Profile::getStr("System/SafeAsyncKeys");
 		if( !aString.empty() )
@@ -1813,8 +1822,7 @@ void update()
 			else if( !taskIsPastDue )
 			{
 				sTracker.mouseInterpolateRestart =
-					!sTracker.mouseJumpInterpolate ||
-					aCmd.hotspotID != sTracker.mouseJumpToHotspot;
+					!sTracker.mouseJumpInterpolate;
 				const Hotspot oldMenuHotspot =
 					InputMap::getHotspot(eSpecialHotspot_MenuItemPos);
 				InputMap::modifyHotspot(eSpecialHotspot_MenuItemPos,
@@ -1822,11 +1830,8 @@ void update()
 						aCmd.menuID, aCmd.menuItemIdx));
 				const Hotspot& newMenuHotspot =
 					InputMap::getHotspot(eSpecialHotspot_MenuItemPos);
-				if( !sTracker.mouseInterpolateRestart &&
-					!(oldMenuHotspot == newMenuHotspot) )
-				{// Same hotspot but it changed location, so restart interp
+				if( !(oldMenuHotspot == newMenuHotspot) )
 					sTracker.mouseInterpolateRestart = true;
-				}
 				sTracker.mouseJumpAttempted = false;
 				sTracker.mouseJumpVerified = false;
 				sTracker.mouseJumpInterpolate = true;
@@ -1835,6 +1840,37 @@ void update()
 				sTracker.mouseJumpToMode = eMouseMode_PostJump;
 				if( aCmd.andClick )
 					sTracker.nextQueuedKey = VK_LBUTTON;
+			}
+			break;
+		case eCmdType_MoveMouseToOffset:
+			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
+			{// Finish instant jump first
+				sTracker.queuePauseTime = 1;
+				aTaskResult = eResult_Incomplete;
+			}
+			else if( !taskIsPastDue )
+			{
+				Hotspot aDestHotspot = InputMap::getHotspot(
+					sTracker.mouseJumpToHotspot
+						? sTracker.mouseJumpToHotspot
+						: eSpecialHotspot_LastCursorPos);
+				switch(aCmd.dir)
+				{
+				case eCmdDir_L: aDestHotspot.x.offset -= 58; break;
+				case eCmdDir_R: aDestHotspot.x.offset += 58; break;
+				case eCmdDir_U: aDestHotspot.y.offset -= 58; break;
+				case eCmdDir_D: aDestHotspot.y.offset += 58; break;
+				}
+				InputMap::modifyHotspot(
+					eSpecialHotspot_OffsetPos,
+					aDestHotspot);
+				sTracker.mouseInterpolateRestart = true;
+				sTracker.mouseJumpAttempted = false;
+				sTracker.mouseJumpVerified = false;
+				sTracker.mouseJumpInterpolate = true;
+				sTracker.mouseAllowJumpDrag = false;
+				sTracker.mouseJumpToHotspot = eSpecialHotspot_OffsetPos;
+				sTracker.mouseJumpToMode = eMouseMode_PostJump;
 			}
 			break;
 		}
@@ -2280,7 +2316,12 @@ void setMouseMode(EMouseMode theMouseMode)
 
 void moveMouse(int dx, int dy, int lookX, bool digital)
 {
-	const bool kMouseLookSpeed =
+	static double sMagnitudeAccelFactor = 0;
+	static double sPrevMagnitude = 0;
+	static int sMouseXSubPixel = 0;
+	static int sMouseYSubPixel = 0;
+
+	const bool kForMouseLook =
 		sTracker.mouseMode == eMouseMode_LookOnly ||
 		sTracker.mouseMode == eMouseMode_LookTurn ||
 		sTracker.mouseMode == eMouseMode_LookReady ||
@@ -2290,45 +2331,79 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 	double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
 
 	// Apply deadzone and saturation to magnitude
-	const double kDeadZone = kMouseLookSpeed
+	const double kDeadZone = kForMouseLook
 		? kConfig.mouseLookDeadzone : kConfig.cursorDeadzone;
 	if( aMagnitude <= kDeadZone )
 	{
-		dx = dy = 0;
+		sMagnitudeAccelFactor = dx = dy = 0;
 	}
 	else
 	{
 		aMagnitude -= kDeadZone;
-		const double kRange = kMouseLookSpeed
+		const double kRange = kForMouseLook
 			? kConfig.mouseLookRange : kConfig.cursorRange;
 		aMagnitude = min(aMagnitude / kRange, 1.0);
 
 		// Apply adjustments to allow for low-speed fine control
-		if( digital )
+		if( digital && kConfig.mouseDPadAccel )
 		{// Apply acceleration to magnitude
 			sTracker.mouseDigitalVel = min(
-				kMouseMaxDigitalVel,
+				kMouseMaxAccelVel,
 				sTracker.mouseDigitalVel +
 					kConfig.mouseDPadAccel * 4 * gAppFrameTime);
-			aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxDigitalVel;
+			aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxAccelVel;
 		}
 		else if( aMagnitude < 1.0 )
-		{// Apply exponential easing curve to magnitude
-			aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
+		{// Apply response curve
+			const double kCurve = kForMouseLook
+				? kConfig.mouseLookCurve : kConfig.cursorCurve;
+			aMagnitude = std::pow(aMagnitude, kCurve);
 		}
 
 		// Get angle of desired mouse motion
 		const double anAngle = atan2(double(dy), double(dx));
+
+		// Apply acceleration and braking when moving a cursor by pressing
+		// fully on analog stick in order to help prevent over-shooting target
+		if( !digital &&
+			((!kForMouseLook && kConfig.cursorAccel != 0) ||
+			 (kForMouseLook && kConfig.mouseLookAccel != 0)) )
+		{
+			// Apply braking only for cursor movement
+			if( !kForMouseLook )
+			{
+				const double kHighMagBrakeThreshold = 0.0033 * gAppFrameTime;
+				const double anOldMagnitude = aMagnitude;
+				// Stop immediately on sudden decrease in magnitude
+				// Assumption is destination has been reached and should avoid
+				// "drifting" past it due to time taken for stick to re-center
+				if( aMagnitude < sPrevMagnitude - kHighMagBrakeThreshold )
+					aMagnitude = 0;
+				sPrevMagnitude = anOldMagnitude;
+			}
+
+			const double kHighMagThreshold = 0.5;
+			sMagnitudeAccelFactor += gAppFrameTime *
+				(kForMouseLook ?
+					kConfig.mouseLookAccel : kConfig.cursorAccel);
+			sMagnitudeAccelFactor = min(sMagnitudeAccelFactor, aMagnitude);
+			// Only clamp to acceleration at high magnitudes
+			if( aMagnitude > kHighMagThreshold )
+			{
+				aMagnitude = min(aMagnitude, sMagnitudeAccelFactor);
+				aMagnitude = max(aMagnitude, kHighMagThreshold);
+			}
+		}
 
 		// Convert back into integer dx & dy w/ 32,768 range
 		dx = 32768.0 * aMagnitude * cos(anAngle);
 		dy = 32768.0 * aMagnitude * sin(anAngle);
 
 		// Apply speed setting
-		const int kCursorXSpeed = kMouseLookSpeed
+		const int kCursorXSpeed = kForMouseLook
 			? kConfig.mouseLookXSpeed : kConfig.cursorXSpeed;
 		dx = dx * kCursorXSpeed / kMouseMaxSpeed * gAppFrameTime;
-		const int kCursorYSpeed = kMouseLookSpeed
+		const int kCursorYSpeed = kForMouseLook
 			? kConfig.mouseLookYSpeed : kConfig.cursorYSpeed;
 		dy = dy * kCursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
 	}
@@ -2349,27 +2424,39 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 			dx += lookX;
 		}
 	}
-
-	// Add in previously-stored sub-pixel movement amounts
-	static int sMouseXSubPixel = 0;
-	static int sMouseYSubPixel = 0;
-	dx += sMouseXSubPixel;
-	dy += sMouseYSubPixel;
-
-	// Convert to pixels and retain sub-pixel amounts to add in later
-	// Sign of result of operator%() w/ negative dividend may
-	// differ by compiler, hence the extra sign check here
-	if( dx < 0 )
-		sMouseXSubPixel = -((-dx) % kMouseToPixelDivisor);
+	
+	// Possibly track and re-apply potentially chopped-off sub-pixel motion
+	// Sign of result of operator%() w/ negative dividend may differ by
+	// compiler, hence the extra sign checks in this section
+	if( kForMouseLook || (dx && abs(dx) < kMouseToPixelDivisor) )
+	{
+		dx += sMouseXSubPixel;
+		if( dx < 0 )
+			sMouseXSubPixel = -((-dx) % kMouseToPixelDivisor);
+		else
+			sMouseXSubPixel = dx % kMouseToPixelDivisor;
+	}
 	else
-		sMouseXSubPixel = dx % kMouseToPixelDivisor;
+	{
+		sMouseXSubPixel = 0;
+	}
+
+	if( kForMouseLook || (dy && abs(dy) < kMouseToPixelDivisor) )
+	{
+		dy += sMouseYSubPixel;
+		if( dy < 0 )
+			sMouseYSubPixel = -((-dy) % kMouseToPixelDivisor);
+		else
+			sMouseYSubPixel = dy % kMouseToPixelDivisor;
+	}
+	else
+	{
+		sMouseYSubPixel = 0;
+	}
+
+	// Convert to pixel values (truncate sub-pixel values)
 	sTracker.mouseVelX += dx / kMouseToPixelDivisor;
-
-	if( dy < 0 )
-		sMouseYSubPixel = -((-dy) % kMouseToPixelDivisor);
-	else
-		sMouseYSubPixel = dy % kMouseToPixelDivisor;
-	sTracker.mouseVelY +=dy / kMouseToPixelDivisor;
+	sTracker.mouseVelY += dy / kMouseToPixelDivisor;
 }
 
 
@@ -2381,6 +2468,7 @@ void moveMouseTo(const Command& theCommand)
 		gHotspotsGuideMode = eHotspotGuideMode_Disabled;
 		// fall through
 	case eCmdType_MoveMouseToHotspot:
+	case eCmdType_MoveMouseToOffset:
 		sTracker.queue.push_back(theCommand);
 		sTracker.mouseJumpQueued = true;
 		break;
@@ -2402,17 +2490,13 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	aMagnitude = min(aMagnitude / kConfig.mouseWheelRange, 1.0);
 
 	// Apply adjustments to allow for low-speed fine control
-	if( digital )
+	if( digital && kConfig.mouseDPadAccel )
 	{// Apply acceleration to magnitude
 		sTracker.mouseDigitalVel = min(
-			kMouseMaxDigitalVel,
+			kMouseMaxAccelVel,
 			sTracker.mouseDigitalVel +
 				kConfig.mouseDPadAccel * 4 * gAppFrameTime);
-		aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxDigitalVel;
-	}
-	else if( aMagnitude < 1.0 )
-	{// Apply exponential easing curve to magnitude
-		aMagnitude = std::pow(2, 10 * (aMagnitude - 1));
+		aMagnitude *= double(sTracker.mouseDigitalVel) / kMouseMaxAccelVel;
 	}
 
 	// Convert back into integer dy w/ 32,768 range

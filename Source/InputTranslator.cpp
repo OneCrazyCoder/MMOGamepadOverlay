@@ -37,14 +37,20 @@ struct Config
 	u32 tapHoldTime;
 	u32 autoRepeatDelay;
 	u32 autoRepeatRate;
+	u32 hotspotAutoRepeatDelay;
+	u32 hotspotAutoRepeatRate;
 
 	void load()
 	{
 		tapHoldTime = Profile::getInt("System/ButtonTapTime", 500);
 		autoRepeatDelay = Profile::getInt("System/AutoRepeatDelay", 400);
 		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
+		hotspotAutoRepeatDelay =
+			Profile::getInt("System/SelectHotspotRepeatDelay", 150);
+		hotspotAutoRepeatRate =
+			Profile::getInt("System/SelectHotspotRepeatRate", 75);
 		u8 aThreshold =
-			clamp(Profile::getInt("Gamepad/LStickButtonThreshold", 40),
+			clamp(Profile::getInt("Gamepad/LStickThreshold", 40),
 				0, 100) * 255 / 100;
 		Gamepad::setPressThreshold(eBtn_LSLeft, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSRight, aThreshold);
@@ -52,7 +58,7 @@ struct Config
 		Gamepad::setPressThreshold(eBtn_LSDown, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSAny, aThreshold);
 		aThreshold =
-			clamp(Profile::getInt("Gamepad/RStickButtonThreshold", 40),
+			clamp(Profile::getInt("Gamepad/RStickThreshold", 40),
 				0, 100) * 255 / 100;
 		Gamepad::setPressThreshold(eBtn_RSLeft, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSRight, aThreshold);
@@ -60,7 +66,7 @@ struct Config
 		Gamepad::setPressThreshold(eBtn_RSDown, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSAny, aThreshold);
 		aThreshold =
-			clamp(Profile::getInt("Gamepad/TriggerButtonThreshold", 12),
+			clamp(Profile::getInt("Gamepad/TriggerThreshold", 12),
 				0, 100) * 255 / 100;
 		Gamepad::setPressThreshold(eBtn_L2, aThreshold);
 		Gamepad::setPressThreshold(eBtn_R2, aThreshold);
@@ -117,7 +123,6 @@ struct ButtonState
 	bool heldDown;
 	bool holdActionDone;
 	bool usedInButtonCombo;
-	bool allowHotspotToMouseWheel;
 
 	void clear()
 	{
@@ -132,7 +137,6 @@ struct ButtonState
 		heldDown = false;
 		holdActionDone = false;
 		usedInButtonCombo = false;
-		allowHotspotToMouseWheel = false;
 	}
 
 	void resetWhenReleased()
@@ -145,7 +149,6 @@ struct ButtonState
 		heldDown = false;
 		holdActionDone = false;
 		usedInButtonCombo = false;
-		allowHotspotToMouseWheel = false;
 	}
 
 	ButtonState() : vKeyHeld(), layerHeld() { clear(); }
@@ -813,6 +816,7 @@ static void processCommand(
 		break;
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MoveMouseToMenuItem:
+	case eCmdType_MoveMouseToOffset:
 		// Send right away, to happen before a queued mouse click
 		InputDispatcher::moveMouseTo(theCmd);
 		break;
@@ -1062,15 +1066,13 @@ static void processCommand(
 		{
 			aForwardCmd.type = eCmdType_MoveMouseToHotspot;
 			aForwardCmd.hotspotID = aNextHotspot;
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			if( theBtnState )
-				theBtnState->allowHotspotToMouseWheel = false;
 		}
-		else if( theCmd.withMouse )
-		{
-			if( theBtnState )
-				theBtnState->allowHotspotToMouseWheel = true;
-		}
+		//else
+		//{
+		//	aForwardCmd.type = eCmdType_MoveMouseToOffset;
+		//	aForwardCmd.dir = theCmd.dir;
+		//}
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
@@ -1111,10 +1113,6 @@ static bool isAnalogCommand(
 		if( theCommand.mouseWheelMotionType != eMouseWheelMotion_Jump )
 			return true;
 		return false;
-	case eCmdType_HotspotSelect:
-		if( theCommand.withMouse && theBtnState.allowHotspotToMouseWheel )
-			return true;
-		return false;
 	default:
 		return false;
 	}
@@ -1131,11 +1129,8 @@ static bool isAutoRepeatCommand(
 	case eCmdType_MenuSelectAndClose:
 	case eCmdType_KeyBindArrayPrev:
 	case eCmdType_KeyBindArrayNext:
-		return true;
 	case eCmdType_HotspotSelect:
-		if( !theCommand.withMouse || !theBtnState.allowHotspotToMouseWheel )
-			return true;
-		return false;
+		return true;
 	default:
 		return false;
 	}
@@ -1342,7 +1337,7 @@ static void processAnalogInput(
 
 static void processAutoRepeat(ButtonState& theBtnState)
 {
-	if( kConfig.autoRepeatRate == 0 || theBtnState.buttonID == eBtn_None )
+	if( theBtnState.buttonID == eBtn_None )
 		return;
 
 	// Auto-repeat only commandsWhenPressed assigned to _Down
@@ -1357,8 +1352,20 @@ static void processAutoRepeat(ButtonState& theBtnState)
 		aCmdArray[eBtnAct_Hold].type >= eCmdType_FirstValid )
 		return;
 
+	const u32 aRepeatDelay =
+		aCmd.type == eCmdType_HotspotSelect
+			? kConfig.hotspotAutoRepeatDelay
+			: kConfig.autoRepeatDelay;
+	const u32 aRepeatRate =
+		aCmd.type == eCmdType_HotspotSelect
+			? kConfig.hotspotAutoRepeatRate
+			: kConfig.autoRepeatRate;
+
+	if( aRepeatRate == 0 )
+		return;
+
 	// Needs to be held for initial held time first before start repeating
-	if( theBtnState.heldTime < kConfig.autoRepeatDelay )
+	if( theBtnState.heldTime < aRepeatDelay )
 		return;
 
 	// Now can start using repeatDelay to re-send command at autoRepeatRate
@@ -1367,7 +1374,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 		processCommand(&theBtnState, aCmd,
 			theBtnState.commandsWhenPressed.layer[eBtnAct_Down],
 			true);
-		theBtnState.repeatDelay += kConfig.autoRepeatRate;
+		theBtnState.repeatDelay += aRepeatRate;
 	}
 	theBtnState.repeatDelay -= gAppFrameTime;
 }
