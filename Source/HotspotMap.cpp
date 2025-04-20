@@ -18,7 +18,7 @@ namespace HotspotMap
 //-----------------------------------------------------------------------------
 
 enum {
-// This value won't overload a u32 when used with dist formula
+// This value won't overflow a u32 when used with dist formula
 kNormalizedTargetSize = 0x7FFF,
 // >> amount to convert kNormalizedTargetSize to kGridSize
 kNormalizedToGridShift = 12, // 0x7FFF >> 12 = 7 = 8x8 grid
@@ -49,13 +49,11 @@ enum ETask
 	eTask_AddToGrid,
 	eTask_BeginSearch,
 	eTask_FetchFromGrid,
-	eTask_NextLeft,
-	eTask_NextRight,
-	eTask_NextUp,
-	eTask_NextDown,
+	eTask_NextInDir,
+	// Next 7 are remaining dirs in order from ECommandDir
 
-	eTask_Num,
-	eTask_None = eTask_Num
+	eTask_Num = eTask_NextInDir + eCmd8Dir_Num,
+	eTask_None = eTask_Num,
 };
 
 
@@ -87,7 +85,7 @@ static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<GridPos> sFetchGrid(kMaxCheckGridCells);
 static std::vector<u16> sCandidates;
 static std::vector<Links> sLinkMaps;
-static u16 sNextHotspotInDir[eCmdDir_Num] = { 0 };
+static u16 sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
 static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
 static Hotspot sLastCursorPos;
@@ -171,6 +169,10 @@ static void processActiveArraysTask()
 				sPoints[i].enabled = enableHotspots;
 			sActiveArrays.set(anArray, enableHotspots);
 			sNewTasks.set(eTask_AddToGrid);
+			sNewTasks.set(eTask_BeginSearch);
+			sNewTasks.set(eTask_FetchFromGrid);
+			for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+				sNewTasks.set(eTask_NextInDir + aDir);
 			break;
 		}
 	}
@@ -210,10 +212,7 @@ static void processAddToGridTask()
 	}
 
 	if( sTaskProgress >= sPoints.size() )
-	{
-		sNewTasks.set(eTask_BeginSearch);
 		sCurrentTask = eTask_None;
-	}
 }
 
 
@@ -226,7 +225,7 @@ static void processBeginSearchTask()
 		// bare minimum in this first step.
 		sCandidates.clear();
 		sFetchGrid.clear();
-		for(int i = 0; i < eCmdDir_Num; ++i)
+		for(int i = 0; i < eCmd8Dir_Num; ++i)
 			sNextHotspotInDir[i] = 0;
 		++sTaskProgress;
 		return;
@@ -246,8 +245,6 @@ static void processBeginSearchTask()
 		for(aGridPos.y = aMinGridY; aGridPos.y <= aMaxGridY; ++aGridPos.y)
 			sFetchGrid.push_back(aGridPos);
 	}
-	if( !sFetchGrid.empty() )
-		sNewTasks.set(eTask_FetchFromGrid);
 	sCurrentTask = eTask_None;
 }
 
@@ -275,13 +272,7 @@ static void processFetchFromGridTask()
 		const int aDeltaY = aPoint.y - sNormalizedCursorPos.y;
 		const u32 aDist = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
 		if( aDist > kMinJumpDistSquared && aDist < kMaxJumpDistSquared )
-		{
 			sCandidates.push_back(aPointIdx);
-			sNewTasks.set(eTask_NextLeft);
-			sNewTasks.set(eTask_NextRight);
-			sNewTasks.set(eTask_NextUp);
-			sNewTasks.set(eTask_NextDown);
-		}
 	}
 
 	if( ++sTaskProgress >= sFetchGrid.size() )
@@ -289,7 +280,7 @@ static void processFetchFromGridTask()
 }
 
 
-static void processNextLeftTask()
+static void processNextInDirTask(ECommandDir theDir)
 {
 	if( sTaskProgress == 0 )
 		sBestCandidateWeight = 0xFFFFFFFF;
@@ -299,19 +290,61 @@ static void processNextLeftTask()
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
 		if( aPointIdx == sIgnorePointInSearch )
 			continue;
+
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		if( aPoint.x >= sNormalizedCursorPos.x )
+		const long dx = aPoint.x - sNormalizedCursorPos.x;
+		const long dy = aPoint.y - sNormalizedCursorPos.y;
+		bool inAllowedDir = false;
+		switch(theDir)
+		{
+		case eCmd8Dir_L:  inAllowedDir = dx < 0;			break;
+		case eCmd8Dir_R:  inAllowedDir = dx > 0;			break;
+		case eCmd8Dir_U:  inAllowedDir = dy < 0;			break;
+		case eCmd8Dir_D:  inAllowedDir = dy > 0;			break;
+		case eCmd8Dir_UL: inAllowedDir = dx < 0 && dy < 0;	break;
+		case eCmd8Dir_UR: inAllowedDir = dx > 0 && dy < 0;	break;
+		case eCmd8Dir_DL: inAllowedDir = dx < 0 && dy > 0;	break;
+		case eCmd8Dir_DR: inAllowedDir = dx > 0 && dy > 0;	break;
+		}
+		if( !inAllowedDir )
 			continue;
-		u32 aWeight = sNormalizedCursorPos.x - aPoint.x;
-		u32 anAltWeight = abs(aPoint.y - sNormalizedCursorPos.y);
+
+		u32 aWeight;
+		switch(theDir)
+		{
+		case eCmd8Dir_L:  aWeight = -dx;					break;
+		case eCmd8Dir_R:  aWeight = dx;						break;
+		case eCmd8Dir_U:  aWeight = -dy;					break;
+		case eCmd8Dir_D:  aWeight = dy;						break;
+		case eCmd8Dir_UL: aWeight = (-dx - dy) / 2;			break;
+		case eCmd8Dir_UR: aWeight = (dx - dy) / 2;			break;
+		case eCmd8Dir_DL: aWeight = (-dx + dy) / 2;			break;
+		case eCmd8Dir_DR: aWeight = (dx + dy) / 2;			break;
+		}
+		if( aWeight <= 0 )
+			continue;
+
+		u32 anAltWeight;
+		switch(theDir)
+		{
+		case eCmd8Dir_L:  anAltWeight = abs(dy);			break;
+		case eCmd8Dir_R:  anAltWeight = abs(dy);			break;
+		case eCmd8Dir_U:  anAltWeight = abs(dx);			break;
+		case eCmd8Dir_D:  anAltWeight = abs(dx);			break;
+		case eCmd8Dir_UL: anAltWeight = abs(dx - dy) / 2;	break;
+		case eCmd8Dir_UR: anAltWeight = abs(dx + dy) / 2;	break;
+		case eCmd8Dir_DL: anAltWeight = abs(-dx - dy) / 2;	break;
+		case eCmd8Dir_DR: anAltWeight = abs(dy - dx) / 2;	break;
+		}
 		if( anAltWeight >= aWeight * 2 ||
 			anAltWeight > kMaxPerpendicularWeight )
 			continue;
+
 		anAltWeight *= kPerpendicularWeightMult;
 		aWeight += anAltWeight;
 		if( aWeight < sBestCandidateWeight )
 		{
-			sNextHotspotInDir[eCmdDir_L] = aPointIdx;
+			sNextHotspotInDir[theDir] = aPointIdx;
 			sBestCandidateWeight = aWeight;
 		}
 		break;
@@ -320,130 +353,18 @@ static void processNextLeftTask()
 	if( sTaskProgress >= sCandidates.size() )
 	{
 		sCurrentTask = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_L] != 0 && !sIgnorePointInSearch )
+		if( sNextHotspotInDir[theDir] != 0 && !sIgnorePointInSearch )
 		{
-			mapDebugPrint("Left hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_L]);
-		}
-	}
-}
-
-
-static void processNextRightTask()
-{
-	if( sTaskProgress == 0 )
-		sBestCandidateWeight = 0xFFFFFFFF;
-
-	while(sTaskProgress < sCandidates.size())
-	{
-		const u16 aPointIdx = sCandidates[sTaskProgress++];
-		if( aPointIdx == sIgnorePointInSearch )
-			continue;
-		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		if( aPoint.x <= sNormalizedCursorPos.x )
-			continue;
-		u32 aWeight = aPoint.x - sNormalizedCursorPos.x;
-		u32 anAltWeight = abs(aPoint.y - sNormalizedCursorPos.y);
-		if( anAltWeight >= aWeight * 2 ||
-			anAltWeight > kMaxPerpendicularWeight )
-			continue;
-		anAltWeight *= kPerpendicularWeightMult;
-		aWeight += anAltWeight;
-		if( aWeight < sBestCandidateWeight )
-		{
-			sNextHotspotInDir[eCmdDir_R] = aPointIdx;
-			sBestCandidateWeight = aWeight;
-		}
-		break;
-	}
-
-	if( sTaskProgress >= sCandidates.size() )
-	{
-		sCurrentTask = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_R] != 0 && !sIgnorePointInSearch )
-		{
-			mapDebugPrint("Right hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_R]);
-		}
-	}
-}
-
-
-static void processNextUpTask()
-{
-	if( sTaskProgress == 0 )
-		sBestCandidateWeight = 0xFFFFFFFF;
-
-	while(sTaskProgress < sCandidates.size())
-	{
-		const u16 aPointIdx = sCandidates[sTaskProgress++];
-		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		if( aPointIdx == sIgnorePointInSearch )
-			continue;
-		if( aPoint.y >= sNormalizedCursorPos.y )
-			continue;
-		u32 aWeight = sNormalizedCursorPos.y - aPoint.y;
-		u32 anAltWeight = abs(aPoint.x - sNormalizedCursorPos.x);
-		if( anAltWeight >= aWeight * 2 ||
-			anAltWeight > kMaxPerpendicularWeight )
-			continue;
-		anAltWeight *= kPerpendicularWeightMult;
-		aWeight += anAltWeight;
-		if( aWeight < sBestCandidateWeight )
-		{
-			sNextHotspotInDir[eCmdDir_U] = aPointIdx;
-			sBestCandidateWeight = aWeight;
-		}
-		break;
-	}
-
-	if( sTaskProgress >= sCandidates.size() )
-	{
-		sCurrentTask = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_U] != 0 && !sIgnorePointInSearch )
-		{
-			mapDebugPrint("Up hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_U]);
-		}
-	}
-}
-
-
-static void processNextDownTask()
-{
-	if( sTaskProgress == 0 )
-		sBestCandidateWeight = 0xFFFFFFFF;
-
-	while(sTaskProgress < sCandidates.size())
-	{
-		const u16 aPointIdx = sCandidates[sTaskProgress++];
-		if( aPointIdx == sIgnorePointInSearch )
-			continue;
-		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		if( aPoint.y <= sNormalizedCursorPos.y )
-			continue;
-		u32 aWeight = aPoint.y - sNormalizedCursorPos.y;
-		u32 anAltWeight = abs(aPoint.x - sNormalizedCursorPos.x);
-		if( anAltWeight >= aWeight * 2 ||
-			anAltWeight > kMaxPerpendicularWeight )
-			continue;
-		anAltWeight *= kPerpendicularWeightMult;
-		aWeight += anAltWeight;
-		if( aWeight < sBestCandidateWeight )
-		{
-			sNextHotspotInDir[eCmdDir_D] = aPointIdx;
-			sBestCandidateWeight = aWeight;
-		}
-		break;
-	}
-
-	if( sTaskProgress >= sCandidates.size() )
-	{
-		sCurrentTask = eTask_None;
-		if( sNextHotspotInDir[eCmdDir_D] != 0 && !sIgnorePointInSearch )
-		{
-			mapDebugPrint("Down hotspot chosen - #%d\n",
-				sNextHotspotInDir[eCmdDir_D]);
+			mapDebugPrint("%s hotspot chosen - #%d\n",
+				theDir == eCmd8Dir_L	? "Left":
+				theDir == eCmd8Dir_R	? "Right":
+				theDir == eCmd8Dir_U	? "Up":
+				theDir == eCmd8Dir_D	? "Down":
+				theDir == eCmd8Dir_UL	? "UpLeft":
+				theDir == eCmd8Dir_UR	? "UpRight":
+				theDir == eCmd8Dir_DL	? "DownLeft":
+				/*eCmd8Dir_DR*/			  "DownRight",
+				sNextHotspotInDir[theDir]);
 		}
 	}
 }
@@ -465,15 +386,17 @@ static void processTasks()
 
 	switch(sCurrentTask)
 	{
+	case eTask_None:			break;
 	case eTask_TargetSize:		processTargetSizeTask();	break;
 	case eTask_ActiveArrays:	processActiveArraysTask();	break;
 	case eTask_AddToGrid:		processAddToGridTask();		break;
 	case eTask_BeginSearch:		processBeginSearchTask();	break;
 	case eTask_FetchFromGrid:	processFetchFromGridTask();	break;
-	case eTask_NextLeft:		processNextLeftTask();		break;
-	case eTask_NextRight:		processNextRightTask();		break;
-	case eTask_NextUp:			processNextUpTask();		break;
-	case eTask_NextDown:		processNextDownTask();		break;
+	default:
+		DBG_ASSERT(sCurrentTask >= eTask_NextInDir);
+		DBG_ASSERT(sCurrentTask < eTask_Num);
+		processNextInDirTask(ECommandDir(sCurrentTask - eTask_NextInDir));
+		break;
 	}
 }
 
@@ -531,6 +454,9 @@ void update()
 		sNewTasks.set(eTask_TargetSize);
 		sNewTasks.set(eTask_AddToGrid);
 		sNewTasks.set(eTask_BeginSearch);
+		sNewTasks.set(eTask_FetchFromGrid);
+		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+			sNewTasks.set(eTask_NextInDir + aDir);
 	}
 	const Hotspot& aCursorPos =
 		InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
@@ -549,6 +475,9 @@ void update()
 				kNormalizedTargetSize / aScaleFactor;
 		}
 		sNewTasks.set(eTask_BeginSearch);
+		sNewTasks.set(eTask_FetchFromGrid);
+		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+			sNewTasks.set(eTask_NextInDir + aDir);
 	}
 
 	// Continue progress on any current tasks
@@ -587,27 +516,16 @@ u16 getNextHotspotInDir(ECommandDir theDirection)
 	if( sPoints.empty() || sRequestedArrays.none() )
 		return 0;
 
-	// Abort "next hotspot" tasks in all directions besides requested
+	// Abort _nextInDir tasks in all directions besides requested
 	BitArray<eTask_Num> abortedTasks; abortedTasks.reset();
-	if( theDirection != eCmdDir_L && sNewTasks.test(eTask_NextLeft) )
+	for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
 	{
-		sNewTasks.reset(eTask_NextLeft);
-		abortedTasks.set(eTask_NextLeft);
-	}
-	if( theDirection != eCmdDir_R && sNewTasks.test(eTask_NextRight) )
-	{
-		sNewTasks.reset(eTask_NextRight);
-		abortedTasks.set(eTask_NextRight);
-	}
-	if( theDirection != eCmdDir_U && sNewTasks.test(eTask_NextUp) )
-	{
-		sNewTasks.reset(eTask_NextUp);
-		abortedTasks.set(eTask_NextUp);
-	}
-	if( theDirection != eCmdDir_D && sNewTasks.test(eTask_NextDown) )
-	{
-		sNewTasks.reset(eTask_NextDown);
-		abortedTasks.set(eTask_NextDown);
+		if( theDirection != aDir &&
+			sNewTasks.test(eTask_NextInDir + aDir) )
+		{
+			sNewTasks.reset(eTask_NextInDir + aDir);
+			abortedTasks.set(eTask_NextInDir + aDir);
+		}
 	}
 
 	// Complete all other tasks to get desired answer
@@ -664,15 +582,14 @@ const Links& getLinks(u16 theArrayID)
 		sIgnorePointInSearch = aFirstHotspot + aNodeIdx;
 		sNormalizedCursorPos.x = sPoints[sIgnorePointInSearch].x;
 		sNormalizedCursorPos.y = sPoints[sIgnorePointInSearch].y;
-		for(int i = 0; i < eCmdDir_Num; ++i)
-			sNextHotspotInDir[i] = 0;
-		sNewTasks.set(eTask_NextLeft);
-		sNewTasks.set(eTask_NextRight);
-		sNewTasks.set(eTask_NextUp);
-		sNewTasks.set(eTask_NextDown);
+		for(int aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+		{
+			sNextHotspotInDir[aDir] = 0;
+			sNewTasks.set(eTask_NextInDir + aDir);
+		}
 		while(sCurrentTask != eTask_None || sNewTasks.any())
 			processTasks();
-		for(int i = 0; i < eCmdDir_Num; ++i)
+		for(int i = 0; i < eCmd8Dir_Num; ++i)
 		{
 			aNode.next[i] = aNodeIdx;
 			if( sNextHotspotInDir[i] == 0 )
@@ -681,19 +598,23 @@ const Links& getLinks(u16 theArrayID)
 				aNode.next[i] = sNextHotspotInDir[i] - aFirstHotspot;
 		}
 	}
-	// Add wrap-around options or edge nodes
+	// Add wrap-around options for edge nodes
 	for(u16 aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
 		HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
-		for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
+		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
 		{
 			if( !aNode.edge[aDir] )
 				continue;
 			ECommandDir anOppDir =
-				aDir == eCmdDir_L	? eCmdDir_R :
-				aDir == eCmdDir_R	? eCmdDir_L :
-				aDir == eCmdDir_U	? eCmdDir_D :
-				/*aDir == eCmdDir_D*/ eCmdDir_U;
+				aDir == eCmd8Dir_L	? eCmd8Dir_R:
+				aDir == eCmd8Dir_R	? eCmd8Dir_L:
+				aDir == eCmd8Dir_U	? eCmd8Dir_D:
+				aDir == eCmd8Dir_D	? eCmd8Dir_U:
+				aDir == eCmd8Dir_UL	? eCmd8Dir_DR:
+				aDir == eCmd8Dir_UR	? eCmd8Dir_DL:
+				aDir == eCmd8Dir_DL	? eCmd8Dir_UR:
+				/*eCmd8Dir_DR*/		  eCmd8Dir_UL;
 			u16 aWrapNode = aNode.next[anOppDir];
 			while(!sLinkMaps[theArrayID][aWrapNode].edge[anOppDir])
 				aWrapNode = sLinkMaps[theArrayID][aWrapNode].next[anOppDir];
@@ -707,6 +628,9 @@ const Links& getLinks(u16 theArrayID)
 	sNormalizedCursorPos = oldNormalizedCursorPos;
 	sIgnorePointInSearch = 0;
 	sNewTasks.set(eTask_BeginSearch);
+	sNewTasks.set(eTask_FetchFromGrid);
+	for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+		sNewTasks.set(eTask_NextInDir + aDir);
 
 	return sLinkMaps[theArrayID];
 }
