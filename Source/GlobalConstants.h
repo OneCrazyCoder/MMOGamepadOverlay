@@ -15,6 +15,10 @@ kCancelToolbarHotkeyID = 0x02,
 kLabelContainsDynamicText = 0x01, // as first char of string
 kLayerStatusReplaceChar = 0x02, // at point to replace
 kVKeyFireSignal = 0x07, // "reserved" by MS
+kVKeyForceRelease = VK_CANCEL,
+kVKeyMouseJump = VK_SELECT,
+kVKeySeqHasMouseJump = VK_MODECHANGE,
+kVKeyStartChatString = VK_EXECUTE,
 kVKeyModKeyOnlyBase = 0x0F, // unassigned by MS
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,
@@ -43,6 +47,7 @@ enum ECommandType
 	eCmdType_MoveMouseToHotspot,
 	eCmdType_MoveMouseToMenuItem,
 	eCmdType_MoveMouseToOffset,
+	eCmdType_MouseClickAtHotspot,
 
 	// These active "keybind arrays" which allow a sequence of different keys
 	// to be pressed by a single buton that changes the key pressed each time.
@@ -278,8 +283,6 @@ enum ESpecialHotspot
 	eSpecialHotspot_MouseLookStart,
 	eSpecialHotspot_MouseHidden,
 	eSpecialHotspot_LastCursorPos,
-	eSpecialHotspot_MenuItemPos,
-	eSpecialHotspot_OffsetPos,
 
 	eSpecialHotspot_Num
 };

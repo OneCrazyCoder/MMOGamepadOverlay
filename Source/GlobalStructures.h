@@ -9,6 +9,25 @@
 	by multiple modules.
 */
 
+struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
+{
+	struct Coord
+	{
+		u16 anchor; // normalized x/65536 percentage of area
+		s16 offset; // pixel offset from .anchor (is multiplied by UIScale)
+		bool operator==(const Coord& rhs) const
+		{ return anchor == rhs.anchor && offset == rhs.offset; }
+		bool operator!=(const Coord& rhs) const
+		{ return !(*this == rhs); }
+	} x, y;
+
+	bool operator==(const Hotspot& rhs) const
+	{ return x == rhs.x && y == rhs.y; }
+	bool operator!=(const Hotspot& rhs) const
+	{ return !(*this == rhs); }
+};
+
+
 struct Command : public ConstructFromZeroInitializedMemory<Command>
 {
 	ECommandType type;
@@ -44,29 +63,11 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 			u8 swapDir : 2;
 			u8 __reserved : 2;
 		};
+		struct { Hotspot::Coord x, y; } hotspot;
 		const char* string;
 		u64 compare;
 	};
 
 	bool operator==(const Command& rhs) const
 	{ return type == rhs.type && compare == rhs.compare; }
-};
-
-
-struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
-{
-	struct Coord
-	{
-		u16 anchor; // normalized x/65536 percentage of area
-		s16 offset; // pixel offset from .anchor (is multiplied by UIScale)
-		bool operator==(const Coord& rhs) const
-		{ return anchor == rhs.anchor && offset == rhs.offset; }
-		bool operator!=(const Coord& rhs) const
-		{ return !(*this == rhs); }
-	} x, y;
-
-	bool operator==(const Hotspot& rhs) const
-	{ return x == rhs.x && y == rhs.y; }
-	bool operator!=(const Hotspot& rhs) const
-	{ return !(*this == rhs); }
 };

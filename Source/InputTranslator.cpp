@@ -225,6 +225,7 @@ struct InputResults
 	bool charMoveStartAutoRun;
 	bool charMoveLockMovement;
 	bool layerChangeMade;
+	bool autoRepeatSynch;
 
 	void clear()
 	{
@@ -243,6 +244,7 @@ struct InputResults
 		charMoveStartAutoRun = false;
 		charMoveLockMovement = false;
 		layerChangeMade = false;
+		autoRepeatSynch = false;
 	}
 };
 
@@ -768,6 +770,7 @@ static void moveMouseToSelectedMenuItem(const Command& theCmd)
 		aMoveCmd.menuItemIdx = Menus::selectedItem(theCmd.menuID);
 		aMoveCmd.andClick = theCmd.andClick;
 		InputDispatcher::moveMouseTo(aMoveCmd);
+		HotspotMap::update();
 	}
 }
 
@@ -819,6 +822,9 @@ static void processCommand(
 	case eCmdType_MoveMouseToOffset:
 		// Send right away, to happen before a queued mouse click
 		InputDispatcher::moveMouseTo(theCmd);
+		// Update hotspot map in case another command wants to move
+		// directly from this spot to a different relative hotspot
+		HotspotMap::update();
 		break;
 	case eCmdType_KeyBindArrayResetLast:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
@@ -1126,7 +1132,6 @@ static bool isAutoRepeatCommand(
 	switch(theCommand.type)
 	{
 	case eCmdType_MenuSelect:
-	case eCmdType_MenuSelectAndClose:
 	case eCmdType_KeyBindArrayPrev:
 	case eCmdType_KeyBindArrayNext:
 	case eCmdType_HotspotSelect:
@@ -1365,16 +1370,20 @@ static void processAutoRepeat(ButtonState& theBtnState)
 		return;
 
 	// Needs to be held for initial held time first before start repeating
-	if( theBtnState.heldTime < aRepeatDelay )
+	if( theBtnState.heldTime < aRepeatDelay && !sResults.autoRepeatSynch )
 		return;
 
 	// Now can start using repeatDelay to re-send command at autoRepeatRate
-	if( theBtnState.repeatDelay <= 0 )
+	// If multiple buttons are trying to auto-repeat at once, have them all
+	// execute at the same time (for things like slant-wise selection).
+	if( theBtnState.repeatDelay <= 0 || sResults.autoRepeatSynch )
 	{
+		sResults.autoRepeatSynch = true;
 		processCommand(&theBtnState, aCmd,
 			theBtnState.commandsWhenPressed.layer[eBtnAct_Down],
 			true);
-		theBtnState.repeatDelay += aRepeatRate;
+		theBtnState.repeatDelay =
+			min(0, theBtnState.repeatDelay) + aRepeatRate;
 	}
 	theBtnState.repeatDelay -= gAppFrameTime;
 }
