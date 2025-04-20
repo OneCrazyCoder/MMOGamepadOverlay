@@ -118,6 +118,17 @@ enum ECommandDir
 	eCmdDir_Num,
 	eCmdDir_None = eCmdDir_Num,
 
+	eCmd8Dir_L = eCmdDir_L,
+	eCmd8Dir_R = eCmdDir_R,
+	eCmd8Dir_U = eCmdDir_U,
+	eCmd8Dir_D = eCmdDir_D,
+	eCmd8Dir_UL,
+	eCmd8Dir_UR,
+	eCmd8Dir_DL,
+	eCmd8Dir_DR,
+	eCmd8Dir_Num,
+	eCmd8Dir_None = eCmd8Dir_Num,
+
 	eCmdDir_Left = eCmdDir_L,
 	eCmdDir_Right = eCmdDir_R,
 	eCmdDir_Up = eCmdDir_U,
