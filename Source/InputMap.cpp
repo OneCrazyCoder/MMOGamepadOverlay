@@ -62,8 +62,6 @@ const char* kSpecialHotspotNames[] =
 	"MOUSELOOKSTART",		// eSpecialHotspot_MouseLookStart
 	"MOUSEHIDDEN",			// eSpecialHotspot_MouseHidden
 	"~",					// eSpecialHotspot_LastCursorPos
-	"~~",					// eSpecialHotspot_MenuItemPos
-	"~~~",					// eSpecialHotspot_OffsetPos
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
@@ -262,7 +260,7 @@ static u16 checkForComboVKeyName(std::string theKeyName)
 			 aModKey == VK_CONTROL ||
 			 aModKey == VK_MENU ||
 			 aModKey == VK_LWIN ||
-			 aModKey == VK_CANCEL) )
+			 aModKey == kVKeyForceRelease) )
 		{// Found a valid modifier key
 			switch(aModKey)
 			{
@@ -390,12 +388,12 @@ static EResult checkForVKeyHotspotPos(
 			 out[out.size()-1] == VK_CONTROL ||
 			 out[out.size()-1] == VK_MENU ||
 			 out[out.size()-1] == VK_LWIN ||
-			 out[out.size()-1] == VK_CANCEL))
+			 out[out.size()-1] == kVKeyForceRelease))
 		{
 			suffix.insert(suffix.begin(), out[out.size()-1]);
 			out.erase(out.size()-1);
 		}
-		out.push_back(VK_SELECT);
+		out.push_back(kVKeyMouseJump);
 	}
 
 	// Encode the hotspot ID into 14-bit as in checkForVKeySeqPause()
@@ -462,8 +460,12 @@ static u16 namesToVKey(
 		case VK_LWIN:
 			result |= kVKeyWinFlag;
 			break;
-		case VK_SELECT:
-		case VK_CANCEL:
+		case VK_PAUSE:
+		case kVKeyFireSignal:
+		case kVKeyForceRelease:
+		case kVKeyMouseJump:
+		case kVKeySeqHasMouseJump:
+		case kVKeyStartChatString:
 			result = 0;
 			return result;
 		default:
@@ -489,6 +491,7 @@ static std::string namesToVKeySequence(
 	if( theNames.empty() )
 		return result;
 
+	bool hasMouseJump = false;
 	bool expectingWaitTime = false;
 	bool expectingJumpPos = false;
 	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
@@ -513,6 +516,7 @@ static std::string namesToVKeySequence(
 				continue;
 			if( aResult == eResult_Ok )
 			{
+				hasMouseJump = true;
 				expectingJumpPos = false;
 				continue;
 			}
@@ -532,6 +536,8 @@ static std::string namesToVKeySequence(
 			{
 				aResult = checkForVKeyHotspotPos(
 					theBuilder, aName, result, true);
+				if( aResult == eResult_Ok )
+					hasMouseJump = true;
 				if( aResult != eResult_NotFound )
 					continue;
 			}
@@ -567,12 +573,23 @@ static std::string namesToVKeySequence(
 				if( aCommandAlias->type == eCmdType_VKeySequence )
 				{
 					DBG_ASSERT(aCommandAlias->keyStringIdx < sKeyStrings.size());
-					result += sKeyStrings[aCommandAlias->keyStringIdx];
+					const std::string& anEmbedSeq =
+						sKeyStrings[aCommandAlias->keyStringIdx];
+					DBG_ASSERT(!anEmbedSeq.empty());
+					if( anEmbedSeq[0] == kVKeySeqHasMouseJump )
+					{
+						result += anEmbedSeq.substr(3);
+						hasMouseJump = true;
+					}
+					else
+					{
+						result += anEmbedSeq;
+					}
 					continue;
 				}
 				if( aCommandAlias->type == eCmdType_ChatBoxString )
 				{
-					result += VK_EXECUTE;
+					result += kVKeyStartChatString;
 					result += sKeyStrings[aCommandAlias->keyStringIdx];
 					continue;
 				}
@@ -597,7 +614,7 @@ static std::string namesToVKeySequence(
 			result.clear();
 			return result;
 		}
-		else if( aVKey == VK_SELECT )
+		else if( aVKey == kVKeyMouseJump )
 		{
 			// Get name of hotspot to jump cursor to next
 			expectingJumpPos = true;
@@ -607,6 +624,41 @@ static std::string namesToVKeySequence(
 		{
 			result.push_back(aVKey);
 		}
+	}
+
+	if( hasMouseJump )
+	{
+		std::string aStr;
+		aStr.push_back(kVKeySeqHasMouseJump);
+		aStr.push_back(char(0x80));
+		aStr.push_back(char(0x80));
+		// Determine if running this sequence will leave cursor in a different
+		// position, which means jumping to a hotspot and NOT clicking on it.
+		bool usesClick = false;
+		for(int i = int(result.size()-1); i >= 0; --i)
+		{
+			switch(result[i])
+			{
+			case kVKeyMouseJump:
+				if( !usesClick )
+				{
+					aStr[1] = result[i+1];
+					aStr[2] = result[i+2];
+					i = 0; // to break out of loop
+				}
+				break;
+			case VK_LBUTTON:
+			case VK_MBUTTON:
+			case VK_RBUTTON:
+				usesClick = true;
+				break;
+			case VK_PAUSE:
+			case kVKeyStartChatString:
+				usesClick = false;
+				break;
+			}
+		}
+		result = aStr + result;
 	}
 
 	return result;
@@ -646,7 +698,7 @@ static Command parseChatBoxMacro(const std::string& theString)
 		std::string aStrToAdd = aStrLeft.substr(0, aLineBreakPos);
 		if( aStrToAdd.length() > 1 )
 		{
-			aVKeySeq.push_back(VK_EXECUTE);
+			aVKeySeq.push_back(kVKeyStartChatString);
 			aVKeySeq += aStrToAdd + "\r";
 		}
 
@@ -2405,7 +2457,7 @@ static Command stringToAliasCommand(
 	}
 
 	// VKey Sequence
-	const std::string& aVKeySeq =
+	std::string aVKeySeq =
 		namesToVKeySequence(theBuilder, theBuilder.parsedString);
 	if( aVKeySeq.empty() )
 		return aCmd;
@@ -2413,8 +2465,11 @@ static Command stringToAliasCommand(
 	aCmd.type = eCmdType_VKeySequence;
 	aCmd.signalID = theSignalID++;
 	aCmd.keyStringIdx = u16(sKeyStrings.size());
-	sKeyStrings.push_back(
-		signalIDToString(aCmd.signalID) + aVKeySeq);
+	aVKeySeq.insert(
+		(aVKeySeq[0] == kVKeySeqHasMouseJump ? 3 : 0),
+		signalIDToString(aCmd.signalID));
+	sKeyStrings.push_back(aVKeySeq);
+
 	return aCmd;
 }
 
