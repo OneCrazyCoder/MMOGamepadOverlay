@@ -480,7 +480,7 @@ const Command* closeLastSubMenu(u16 theMenuID)
 		{// Swap back to root menu
 			if( aMenuInfo.subMenuStack.back().id == theMenuID )
 				return null;
-			swapMenu(theMenuID, theMenuID, eCmdDir_Num);
+			swapMenu(theMenuID, theMenuID, eCmdDir_None);
 			const Command& aCmd =
 				InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
 			return &aCmd;

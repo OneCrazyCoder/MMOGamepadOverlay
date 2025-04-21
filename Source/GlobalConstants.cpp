@@ -658,3 +658,62 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 
 	return *result;
 }
+
+
+ECommandDir opposite8Dir(ECommandDir theDir)
+{
+	switch(theDir)
+	{
+	case eCmd8Dir_L:	return eCmd8Dir_R;
+	case eCmd8Dir_R:	return eCmd8Dir_L;
+	case eCmd8Dir_U:	return eCmd8Dir_D;
+	case eCmd8Dir_D:	return eCmd8Dir_U;
+	case eCmd8Dir_UL:	return eCmd8Dir_DR;
+	case eCmd8Dir_UR:	return eCmd8Dir_DL;
+	case eCmd8Dir_DL:	return eCmd8Dir_UR;
+	case eCmd8Dir_DR:	return eCmd8Dir_UL;
+	default:			return theDir;
+	}
+}
+
+
+static inline u8 bitsFor8Dir(ECommandDir theDir)
+{
+	switch(theDir)
+	{
+	case eCmd8Dir_L: case eCmd8Dir_R: case eCmd8Dir_U: case eCmd8Dir_D:
+		return 1 << theDir;
+	case eCmd8Dir_UL: return bitsFor8Dir(eCmdDir_U) | bitsFor8Dir(eCmdDir_L);
+	case eCmd8Dir_UR: return bitsFor8Dir(eCmdDir_U) | bitsFor8Dir(eCmdDir_R);
+	case eCmd8Dir_DL: return bitsFor8Dir(eCmdDir_D) | bitsFor8Dir(eCmdDir_L);
+	case eCmd8Dir_DR: return bitsFor8Dir(eCmdDir_D) | bitsFor8Dir(eCmdDir_R);
+	}
+	return 0;
+}
+
+
+ECommandDir combined8Dir(ECommandDir theDir1, ECommandDir theDir2)
+{
+	if( theDir1 == eCmd8Dir_None ) return theDir2;
+	if( theDir2 == eCmd8Dir_None ) return theDir1;
+	if( theDir1 == theDir2 ) return theDir1;
+	const u8 kLBit = 1 << eCmd8Dir_L;
+	const u8 kRBit = 1 << eCmd8Dir_R;
+	const u8 kUBit = 1 << eCmd8Dir_U;
+	const u8 kDBit = 1 << eCmd8Dir_D;
+	const u8 aComboBits = bitsFor8Dir(theDir1) | bitsFor8Dir(theDir2);
+	if( (aComboBits & (kLBit|kRBit)) == (kLBit|kRBit) ) return eCmd8Dir_None;
+	if( (aComboBits & (kUBit|kDBit)) == (kUBit|kDBit) ) return eCmd8Dir_None;
+	switch(aComboBits)
+	{
+	case kLBit: return eCmd8Dir_L;
+	case kRBit: return eCmd8Dir_R;
+	case kUBit: return eCmd8Dir_U;
+	case kDBit: return eCmd8Dir_D;
+	case (kUBit|kLBit): return eCmd8Dir_UL;
+	case (kUBit|kRBit): return eCmd8Dir_UR;
+	case (kDBit|kLBit): return eCmd8Dir_DL;
+	case (kDBit|kRBit): return eCmd8Dir_DR;
+	default: return eCmd8Dir_None;
+	}
+}
