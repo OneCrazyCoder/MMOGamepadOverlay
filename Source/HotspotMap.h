@@ -36,7 +36,7 @@ u16 getNextHotspotInDir(ECommandDir theDirection);
 // Get a pre-generated map linking hotspots in a specific array
 // (with values relative to first hotspot in that array)
 struct HotspotLinkNode
-{ u16 next[eCmd8Dir_Num]; bool edge[eCmd8Dir_Num]; };
+{ u16 next[eCmdDir_Num]; bool edge[eCmdDir_Num]; };
 typedef std::vector<HotspotLinkNode> Links;
 const Links& getLinks(u16 theArrayID);
 

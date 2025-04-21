@@ -2495,6 +2495,11 @@ void moveMouseTo(const Command& theCommand)
 	Hotspot aDestHotspot;
 	switch(theCommand.type)
 	{
+	case eCmdType_Empty:
+	case eCmdType_Unassigned:
+	case eCmdType_DoNothing:
+		// Do nothing
+		return;
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MouseClickAtHotspot:
 		aDestHotspot = InputMap::getHotspot(theCommand.hotspotID);
@@ -2509,10 +2514,29 @@ void moveMouseTo(const Command& theCommand)
 			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
 		switch(theCommand.dir)
 		{
-		case eCmdDir_L: aDestHotspot.x.offset -= kConfig.offsetHotspotX; break;
-		case eCmdDir_R: aDestHotspot.x.offset += kConfig.offsetHotspotX; break;
-		case eCmdDir_U: aDestHotspot.y.offset -= kConfig.offsetHotspotY; break;
-		case eCmdDir_D: aDestHotspot.y.offset += kConfig.offsetHotspotY; break;
+		case eCmd8Dir_L:
+		case eCmd8Dir_UL:
+		case eCmd8Dir_DL:
+			aDestHotspot.x.offset -= kConfig.offsetHotspotX;
+			break;
+		case eCmd8Dir_R:
+		case eCmd8Dir_UR:
+		case eCmd8Dir_DR:
+			aDestHotspot.x.offset += kConfig.offsetHotspotX;
+			break;
+		}
+		switch(theCommand.dir)
+		{
+		case eCmd8Dir_U:
+		case eCmd8Dir_UL:
+		case eCmd8Dir_UR:
+			aDestHotspot.y.offset -= kConfig.offsetHotspotY;
+			break;
+		case eCmd8Dir_D:
+		case eCmd8Dir_DL:
+		case eCmd8Dir_DR:
+			aDestHotspot.y.offset += kConfig.offsetHotspotY;
+			break;
 		}
 		break;
 	default:

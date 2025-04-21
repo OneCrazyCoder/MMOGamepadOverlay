@@ -117,7 +117,6 @@ struct ButtonState
 	ButtonCommandSet commandsWhenPressed;
 	u32 heldTime;
 	u16 layerHeld;
-	s16 repeatDelay;
 	u16 vKeyHeld;
 	u16 buttonID;
 	bool heldDown;
@@ -132,7 +131,6 @@ struct ButtonState
 		commandsWhenPressed.clear();
 		layerHeld = 0;
 		heldTime = 0;
-		repeatDelay = 0;
 		buttonID = eBtn_None;
 		heldDown = false;
 		holdActionDone = false;
@@ -145,7 +143,6 @@ struct ButtonState
 		DBG_ASSERT(layerHeld == 0);
 		commandsWhenPressed.clear();
 		heldTime = 0;
-		repeatDelay = 0;
 		heldDown = false;
 		holdActionDone = false;
 		usedInButtonCombo = false;
@@ -191,6 +188,10 @@ struct TranslatorState
 	std::vector<u16> layerOrder;
 	std::vector<ActiveSignal> signalCommands;
 	BitVector<> startupLayers;
+	ButtonState* exclusiveAutoRepeatButton;
+	s16 exclusiveAutoRepeatDelay;
+	s16 syncAutoRepeatDelay;
+	bool syncAutoRepeatActive;
 
 	void clear()
 	{
@@ -205,6 +206,10 @@ struct TranslatorState
 		layerOrder.clear();
 		signalCommands.clear();
 		startupLayers.clear();
+		exclusiveAutoRepeatButton = null;
+		exclusiveAutoRepeatDelay = 0;
+		syncAutoRepeatDelay = 0;
+		syncAutoRepeatActive = false;
 	}
 };
 
@@ -212,6 +217,7 @@ struct InputResults
 {
 	std::vector<Command> queuedKeys;
 	BitVector<> menuAutoCommandRun;
+	ECommandDir selectHotspotDir;
 	s16 charMove;
 	s16 charTurn;
 	s16 charStrafe;
@@ -225,12 +231,14 @@ struct InputResults
 	bool charMoveStartAutoRun;
 	bool charMoveLockMovement;
 	bool layerChangeMade;
-	bool autoRepeatSynch;
+	bool exclusiveAutoRepeatNeeded;
+	bool syncAutoRepeatNeeded;
 
 	void clear()
 	{
 		queuedKeys.clear();
 		menuAutoCommandRun.clearAndResize(InputMap::menuCount());
+		selectHotspotDir = eCmd8Dir_None;
 		charMove = 0;
 		charTurn = 0;
 		charStrafe = 0;
@@ -244,7 +252,8 @@ struct InputResults
 		charMoveStartAutoRun = false;
 		charMoveLockMovement = false;
 		layerChangeMade = false;
-		autoRepeatSynch = false;
+		exclusiveAutoRepeatNeeded = false;
+		syncAutoRepeatNeeded = false;
 	}
 };
 
@@ -857,6 +866,8 @@ static void processCommand(
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
 		gFiredSignals.set(
 			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
+		// Allow holding this button to auto-repeat after a delay
+		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
 	case eCmdType_KeyBindArrayNext:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
@@ -872,6 +883,8 @@ static void processCommand(
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
 		gFiredSignals.set(
 			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
+		// Allow holding this button to auto-repeat after a delay
+		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
 	case eCmdType_KeyBindArrayDefault:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
@@ -1040,6 +1053,8 @@ static void processCommand(
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		moveMouseToSelectedMenuItem(theCmd);
+		// Allow holding this button to auto-repeat after a delay
+		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
 	case eCmdType_MenuSelectAndClose:
 		for(int i = 0; i < theCmd.count; ++i)
@@ -1067,18 +1082,8 @@ static void processCommand(
 			gHotspotsGuideMode = eHotspotGuideMode_Redisplay;
 		else
 			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
-		if( u16 aNextHotspot =
-				HotspotMap::getNextHotspotInDir(ECommandDir(theCmd.dir)) )
-		{
-			aForwardCmd.type = eCmdType_MoveMouseToHotspot;
-			aForwardCmd.hotspotID = aNextHotspot;
-		}
-		//else
-		//{
-		//	aForwardCmd.type = eCmdType_MoveMouseToOffset;
-		//	aForwardCmd.dir = theCmd.dir;
-		//}
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		sResults.selectHotspotDir = combined8Dir(
+			sResults.selectHotspotDir, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_MoveTurn:
 	case eCmdType_MoveStrafe:
@@ -1104,9 +1109,7 @@ static void processCommand(
 }
 
 
-static bool isAnalogCommand(
-	const Command& theCommand,
-	const ButtonState& theBtnState)
+static bool isAnalogCommand(const Command& theCommand)
 {
 	switch(theCommand.type)
 	{
@@ -1125,38 +1128,25 @@ static bool isAnalogCommand(
 }
 
 
-static bool isAutoRepeatCommand(
-	const Command& theCommand,
-	const ButtonState& theBtnState)
-{
-	switch(theCommand.type)
-	{
-	case eCmdType_MenuSelect:
-	case eCmdType_KeyBindArrayPrev:
-	case eCmdType_KeyBindArrayNext:
-	case eCmdType_HotspotSelect:
-		return true;
-	default:
-		return false;
-	}
-}
-
-
-static bool isContinuousCommand(
-	const Command& theCommand,
-	const ButtonState& theBtnState)
+static bool isContinuousCommand(const Command& theCommand)
 {
 	switch(theCommand.type)
 	{
 	case eCmdType_PressAndHoldKey:
 	case eCmdType_KeyBindArrayHoldIndex:
 	case eCmdType_HoldControlsLayer:
+		// Held state
+		return true;
+	case eCmdType_MenuSelect:
+	case eCmdType_KeyBindArrayPrev:
+	case eCmdType_KeyBindArrayNext:
+	case eCmdType_HotspotSelect:
+		// Auto-repeat
 		return true;
 	}
 
-	return
-		isAnalogCommand(theCommand, theBtnState) ||
-		isAutoRepeatCommand(theCommand, theBtnState);
+	// Analog input
+	return isAnalogCommand(theCommand);
 }
 
 
@@ -1193,6 +1183,12 @@ static void processButtonPress(ButtonState& theBtnState)
 		if( aCmd.mouseWheelMotionType != eMouseWheelMotion_Jump )
 			return;
 		break;
+	case eCmdType_HotspotSelect:
+		// If sync auto-repeat is happening already, assume it is from a
+		// perpindicular direction being held and sync up with it instead
+		if( sState.syncAutoRepeatActive )
+			return;
+		break;
 	}
 	processCommand(&theBtnState, aCmd,
 		theBtnState.commands.layer[eBtnAct_Down]);
@@ -1219,9 +1215,9 @@ static void processAnalogInput(
 	const CommandArray& aPressedCmds = theBtnState.commandsWhenPressed.cmd;
 	const CommandArray& aCurrentCmds = theBtnState.commands.cmd;
 	const bool pressedHasAnalogCmd =
-		isAnalogCommand(aPressedCmds[eBtnAct_Down], theBtnState);
+		isAnalogCommand(aPressedCmds[eBtnAct_Down]);
 	const bool currentHasAnalogCmd =
-		isAnalogCommand(aCurrentCmds[eBtnAct_Down], theBtnState);
+		isAnalogCommand(aCurrentCmds[eBtnAct_Down]);
 	if( !pressedHasAnalogCmd && !currentHasAnalogCmd )
 		return;
 
@@ -1231,7 +1227,7 @@ static void processAnalogInput(
 		aPressedCmds[eBtnAct_Tap].type >= eCmdType_FirstValid ||
 		aPressedCmds[eBtnAct_Hold].type >= eCmdType_FirstValid ||
 		aCurrentCmds[eBtnAct_Press].type >= eCmdType_FirstValid ||
-		isContinuousCommand(aPressedCmds[eBtnAct_Down], theBtnState) )
+		isContinuousCommand(aPressedCmds[eBtnAct_Down]) )
 	{// Pressed command still active (or transition may have side effects)
 		if( !pressedHasAnalogCmd )
 			return;
@@ -1263,7 +1259,7 @@ static void processAnalogInput(
 		aCmd = aCurrentCmds[eBtnAct_Down];
 	}
 
-	DBG_ASSERT(isAnalogCommand(aCmd, theBtnState));
+	DBG_ASSERT(isAnalogCommand(aCmd));
 
 	switch(u32(aCmd.type << 16) | aCmd.dir)
 	{
@@ -1349,43 +1345,61 @@ static void processAutoRepeat(ButtonState& theBtnState)
 	const CommandArray& aCmdArray = theBtnState.commandsWhenPressed.cmd;
 	Command aCmd = aCmdArray[eBtnAct_Down];
 
-	if( !isAutoRepeatCommand(aCmd, theBtnState) )
-		return;
-
 	// Don't auto-repeat when button has other conflicting actions assigned
 	if( aCmdArray[eBtnAct_Tap].type >= eCmdType_FirstValid ||
 		aCmdArray[eBtnAct_Hold].type >= eCmdType_FirstValid )
 		return;
 
-	const u32 aRepeatDelay =
-		aCmd.type == eCmdType_HotspotSelect
-			? kConfig.hotspotAutoRepeatDelay
-			: kConfig.autoRepeatDelay;
-	const u32 aRepeatRate =
-		aCmd.type == eCmdType_HotspotSelect
-			? kConfig.hotspotAutoRepeatRate
-			: kConfig.autoRepeatRate;
-
-	if( aRepeatRate == 0 )
-		return;
-
-	// Needs to be held for initial held time first before start repeating
-	if( theBtnState.heldTime < aRepeatDelay && !sResults.autoRepeatSynch )
-		return;
-
-	// Now can start using repeatDelay to re-send command at autoRepeatRate
-	// If multiple buttons are trying to auto-repeat at once, have them all
-	// execute at the same time (for things like slant-wise selection).
-	if( theBtnState.repeatDelay <= 0 || sResults.autoRepeatSynch )
+	if( aCmd.type == eCmdType_HotspotSelect )
 	{
-		sResults.autoRepeatSynch = true;
+		// Use alternate timing and synchronize when holding multiple
+		// directions at once to allow for slant-wise hotspot jumps
+		if( kConfig.hotspotAutoRepeatRate == 0 )
+			return;
+
+		// Needs to be held for initial held time first before start repeating
+		if( theBtnState.heldTime >= kConfig.hotspotAutoRepeatDelay ||
+			sState.syncAutoRepeatActive )
+		{
+			// Flag need syncing auto-repeat in main update()
+			sResults.syncAutoRepeatNeeded = true;
+
+			// Wait until response flag from update() is set to continue
+			if( !sState.syncAutoRepeatActive )
+				return;
+
+			// Repeat command whenever hit 0 delay (subtracted in update())
+			if( sState.syncAutoRepeatDelay <= 0 )
+			{
+				processCommand(&theBtnState, aCmd,
+					theBtnState.commandsWhenPressed.layer[eBtnAct_Down],
+					true);
+			}
+		}
+		return;
+	}
+
+	if( kConfig.autoRepeatRate == 0 )
+		return;
+
+	// Only the most recently-used button w/ auto-repeat command is allowed
+	if( &theBtnState != sState.exclusiveAutoRepeatButton )
+		return;
+
+	// Wait for initial delay before beginning repeat
+	if( theBtnState.heldTime < kConfig.autoRepeatDelay )
+		return;
+
+	// Flag need to update auto-repeat delay in main update()
+	sResults.exclusiveAutoRepeatNeeded = true;
+
+	// Repeat command whenever hit 0 delay (subtracted in update())
+	if( sState.exclusiveAutoRepeatDelay <= 0 )
+	{
 		processCommand(&theBtnState, aCmd,
 			theBtnState.commandsWhenPressed.layer[eBtnAct_Down],
 			true);
-		theBtnState.repeatDelay =
-			min(0, theBtnState.repeatDelay) + aRepeatRate;
 	}
-	theBtnState.repeatDelay -= gAppFrameTime;
 }
 
 
@@ -1439,6 +1453,10 @@ static void processButtonReleased(ButtonState& theBtnState)
 {
 	// Always release any key being held by this button when button is released
 	releaseKeyHeldByButton(theBtnState);
+
+	// Stop using this button for auto-repeat
+	if( sState.exclusiveAutoRepeatButton == &theBtnState )
+		sState.exclusiveAutoRepeatButton = null;
 
 	// If this button was used as a modifier to execute a button combination
 	// command (i.e. is L2 for the combo L2+X), then do not perform any other
@@ -1887,6 +1905,23 @@ void update()
 		sResults.charStrafe,
 		sResults.charMoveStartAutoRun,
 		sResults.charMoveLockMovement);
+	if( sResults.selectHotspotDir != eCmd8Dir_None )
+	{
+		Command aCmd;
+		const u16 aNextHotspot = HotspotMap::getNextHotspotInDir(
+			sResults.selectHotspotDir);
+		if( aNextHotspot )
+		{
+			aCmd.type = eCmdType_MoveMouseToHotspot;
+			aCmd.hotspotID = aNextHotspot;
+		}
+		//else
+		//{
+		//	aCmd.type = eCmdType_MoveMouseToOffset;
+		//	aCmd.dir = sResults.selectHotspotDir;
+		//}
+		InputDispatcher::moveMouseTo(aCmd);
+	}
 	InputDispatcher::moveMouse(
 		sResults.mouseMoveX,
 		sResults.mouseMoveY,
@@ -1898,6 +1933,33 @@ void update()
 		sResults.mouseWheelStepped);
 	for(size_t i = 0; i < sResults.queuedKeys.size(); ++i)
 		InputDispatcher::sendKeyCommand(sResults.queuedKeys[i]);
+
+	// Update timing for held auto-repeat buttons
+	if( sResults.syncAutoRepeatNeeded )
+	{
+		if( sState.syncAutoRepeatActive )
+		{
+			if( sState.syncAutoRepeatDelay <= 0 )
+				sState.syncAutoRepeatDelay += kConfig.hotspotAutoRepeatRate;
+			sState.syncAutoRepeatDelay -= gAppFrameTime;
+		}
+		sState.syncAutoRepeatActive = true;
+	}
+	else
+	{
+		sState.syncAutoRepeatDelay = 0;
+		sState.syncAutoRepeatActive = false;
+	}
+	if( sResults.exclusiveAutoRepeatNeeded )
+	{
+		if( sState.exclusiveAutoRepeatDelay <= 0 )
+			sState.exclusiveAutoRepeatDelay += kConfig.autoRepeatRate;
+		sState.exclusiveAutoRepeatDelay -= gAppFrameTime;
+	}
+	else
+	{
+		sState.exclusiveAutoRepeatDelay = 0;
+	}
 
 	// Clear results for next update
 	const bool aLayerOrderChanged = sResults.layerChangeMade;

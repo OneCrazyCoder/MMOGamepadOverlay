@@ -582,14 +582,14 @@ const Links& getLinks(u16 theArrayID)
 		sIgnorePointInSearch = aFirstHotspot + aNodeIdx;
 		sNormalizedCursorPos.x = sPoints[sIgnorePointInSearch].x;
 		sNormalizedCursorPos.y = sPoints[sIgnorePointInSearch].y;
-		for(int aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+		for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 		{
 			sNextHotspotInDir[aDir] = 0;
 			sNewTasks.set(eTask_NextInDir + aDir);
 		}
 		while(sCurrentTask != eTask_None || sNewTasks.any())
 			processTasks();
-		for(int i = 0; i < eCmd8Dir_Num; ++i)
+		for(int i = 0; i < eCmdDir_Num; ++i)
 		{
 			aNode.next[i] = aNodeIdx;
 			if( sNextHotspotInDir[i] == 0 )
@@ -602,19 +602,11 @@ const Links& getLinks(u16 theArrayID)
 	for(u16 aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
 		HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
-		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+		for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
 		{
 			if( !aNode.edge[aDir] )
 				continue;
-			ECommandDir anOppDir =
-				aDir == eCmd8Dir_L	? eCmd8Dir_R:
-				aDir == eCmd8Dir_R	? eCmd8Dir_L:
-				aDir == eCmd8Dir_U	? eCmd8Dir_D:
-				aDir == eCmd8Dir_D	? eCmd8Dir_U:
-				aDir == eCmd8Dir_UL	? eCmd8Dir_DR:
-				aDir == eCmd8Dir_UR	? eCmd8Dir_DL:
-				aDir == eCmd8Dir_DL	? eCmd8Dir_UR:
-				/*eCmd8Dir_DR*/		  eCmd8Dir_UL;
+			const ECommandDir anOppDir = opposite8Dir(ECommandDir(aDir));
 			u16 aWrapNode = aNode.next[anOppDir];
 			while(!sLinkMaps[theArrayID][aWrapNode].edge[anOppDir])
 				aWrapNode = sLinkMaps[theArrayID][aWrapNode].next[anOppDir];
@@ -630,7 +622,10 @@ const Links& getLinks(u16 theArrayID)
 	sNewTasks.set(eTask_BeginSearch);
 	sNewTasks.set(eTask_FetchFromGrid);
 	for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+	{
+		sNextHotspotInDir[aDir] = 0;
 		sNewTasks.set(eTask_NextInDir + aDir);
+	}
 
 	return sLinkMaps[theArrayID];
 }

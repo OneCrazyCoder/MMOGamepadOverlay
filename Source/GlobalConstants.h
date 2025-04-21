@@ -116,7 +116,6 @@ enum ECommandDir
 	eCmdDir_D,
 
 	eCmdDir_Num,
-	eCmdDir_None = eCmdDir_Num,
 
 	eCmd8Dir_L = eCmdDir_L,
 	eCmd8Dir_R = eCmdDir_R,
@@ -127,7 +126,9 @@ enum ECommandDir
 	eCmd8Dir_DL,
 	eCmd8Dir_DR,
 	eCmd8Dir_Num,
+
 	eCmd8Dir_None = eCmd8Dir_Num,
+	eCmdDir_None = eCmd8Dir_None,
 
 	eCmdDir_Left = eCmdDir_L,
 	eCmdDir_Right = eCmdDir_R,
@@ -405,9 +406,13 @@ extern const char* kProfileButtonName[];
 
 // Conversions between constant values (enums) and strings
 // Strings must already be in all upper-case!
-extern u8 keyNameToVirtualKey(const std::string& theKeyName);
-extern std::string virtualKeyToName(u8 theVKey);
-extern EButton buttonNameToID(const std::string& theName);
-extern EMouseMode mouseModeNameToID(const std::string& theName);
-extern EHUDType hudTypeNameToID(const std::string& theName);
-extern ECommandKeyWord commandWordToID(const std::string& theWord);
+u8 keyNameToVirtualKey(const std::string& theKeyName);
+std::string virtualKeyToName(u8 theVKey);
+EButton buttonNameToID(const std::string& theName);
+EMouseMode mouseModeNameToID(const std::string& theName);
+EHUDType hudTypeNameToID(const std::string& theName);
+ECommandKeyWord commandWordToID(const std::string& theWord);
+
+// Conversions between one constant value to another related one
+ECommandDir opposite8Dir(ECommandDir);
+ECommandDir combined8Dir(ECommandDir, ECommandDir);
