@@ -176,6 +176,10 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	_CrtSetDbgFlag (_CRTDBG_ALLOC_MEM_DF|_CRTDBG_LEAK_CHECK_DF);
 	#endif
 
+	// Get high-resolution system timer
+	QueryPerformanceFrequency(&sSystemTimeFreq);
+	sSystemTimeFreq.QuadPart /= 1000; // milliseconds instead of seconds
+
 	HANDLE hMutex = CreateMutex(NULL, TRUE, L"MMOGamepadOverlay");
 	if( GetLastError() == ERROR_ALREADY_EXISTS )
 	{
@@ -196,8 +200,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 
 	// Initiate frame timing
 	timeBeginPeriod(gAppTargetFrameTime / 2);
-	QueryPerformanceFrequency(&sSystemTimeFreq);
-	sSystemTimeFreq.QuadPart /= 1000; // milliseconds instead of seconds
 	sAppStartTime = sUpdateStartTime = getSystemTime();
 
 	while(gReloadProfile && !gShutdown && !hadFatalError())
