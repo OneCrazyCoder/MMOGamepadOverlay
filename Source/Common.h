@@ -16,16 +16,18 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <mmsystem.h>
 #include <string>
 #include <vector>
 
 #ifdef _MSC_VER
-#pragma warning(disable:4244)
-#pragma warning(disable:4305)
-#pragma warning(disable:4786)
-#pragma warning(disable:4503)
-#pragma warning(disable:4018)
+#pragma warning(disable:4018) // Signed/unsigned mismatch in comparisons
+#pragma warning(disable:4244) // Lossy implicit conversion (double->float)
+#pragma warning(disable:4305) // Truncation in constant init (double->float)
+#pragma warning(disable:4351) // Default-init arrays in ctor (now zero-init)
+#pragma warning(disable:4503) // Decorated name too long (common in templates)
+#pragma warning(disable:4786) // Long debug symbol names (STL-related noise)
 #endif
 
 #define null NULL

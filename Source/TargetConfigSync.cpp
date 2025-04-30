@@ -27,10 +27,20 @@ enum {
 kConfigFileBufferSize = 4096 // How many chars to stream from file per read
 };
 
-enum EConfigFileFormat
+enum EConfigDataFormat
 {
-	eConfigFileFormat_JSON,
-	eConfigFileFormat_INI,
+	eConfigDataFormat_JSON,
+	eConfigDataFormat_INI,
+
+	eConfigDataFormat_Num
+};
+
+enum EDataSourceType
+{
+	eDataSourceType_File,
+	eDataSourceType_RegVal,
+
+	eDataSourceType_Num
 };
 
 enum EPropertyType
@@ -62,6 +72,7 @@ enum EValueSetSubType
 	eValueSetSubType_PosY,
 	eValueSetSubType_AlignX,
 	eValueSetSubType_AlignY,
+	eValueSetSubType_Anchor,
 	eValueSetSubType_PivotX,
 	eValueSetSubType_PivotY,
 	eValueSetSubType_SizeX,
@@ -105,6 +116,7 @@ const char* kValueFormatStringKeys[] =
 	"PositionY",	// eValueSetSubType_PosY
 	"AlignmentX",	// eValueSetSubType_AlignX
 	"AlignmentY",	// eValueSetSubType_AlignY
+	"Anchor",		// eValueSetSubType_Anchor
 	"PivotX",		// eValueSetSubType_PivotX
 	"PivotY",		// eValueSetSubType_PivotY
 	"Width",		// eValueSetSubType_Width
@@ -139,12 +151,14 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 				{ "",			eValueFunc_Base		},
 				{ "BASE",		eValueFunc_Base		},
 				{ "VALUE",		eValueFunc_Base		},
+				{ "X",			eValueFunc_PosX		},
 				{ "POSX",		eValueFunc_PosX		},
 				{ "POSITIONX",	eValueFunc_PosX		},
 				{ "XPOS",		eValueFunc_PosX		},
 				{ "XPOSITION",	eValueFunc_PosX		},
 				{ "XORIGIN",	eValueFunc_PosX		},
 				{ "ORIGINX",	eValueFunc_PosX		},
+				{ "Y",			eValueFunc_PosY		},
 				{ "POSY",		eValueFunc_PosY		},
 				{ "POSITIONY",	eValueFunc_PosY		},
 				{ "YPOS",		eValueFunc_PosY		},
@@ -203,13 +217,19 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 	return result ? *result : eValueFunc_Num;
 }
 
+#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
+#define syncDebugPrint(...) debugPrint("TargetConfigSync: " __VA_ARGS__)
+#else
+#define syncDebugPrint(...) ((void)0)
+#endif
+
 
 //-----------------------------------------------------------------------------
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct TargetSyncProperty :
-	public ConstructFromZeroInitializedMemory<TargetSyncProperty>
+struct SyncProperty :
+	public ConstructFromZeroInitializedMemory<SyncProperty>
 {
 	std::string section, name, valueFormat;
 	struct Segment
@@ -223,300 +243,165 @@ struct TargetSyncProperty :
 	EPropertyType type;
 };
 
-struct TargetConfigFile
+struct ValueLink
 {
-	EConfigFileFormat format;
-	std::wstring pathW;
-	FILETIME lastModTime;
-	struct Value { u16 setIdx, valueIdx; };
-	StringToValueMap<Value> values;
+	u16 setIdx;
+	u16 valueIdx;
+};
+typedef StringToValueMap<ValueLink> ValueLinkMap;
+
+struct DataSource
+{
+	ValueLinkMap values;
+	EConfigDataFormat format;
+	EDataSourceType type;
+	union { u16 fileID; u16 regValID; };
 };
 
-struct TargetConfigFolder
+struct ConfigFile
+{
+	std::wstring pathW;
+	FILETIME lastModTime;
+};
+
+struct ConfigFileFolder
 {
 	HANDLE hChangedSignal;
-	std::vector<u16> fileIDs;
+	std::vector<u16> sourceIDs;
+};
+
+struct SystemRegistryValue
+{
+	HKEY hKey;
+	std::wstring valueNameW;
+};
+
+struct SystemRegistryKey
+{
+	HKEY hKey;
+	HANDLE hChangedSignal;
+	std::vector<u16> sourceIDs;
 };
 
 // Data used during parsing/building the sync links but deleted once done
 struct TargetConfigSyncBuilder
 {
-	StringToValueMap<u16> fileKeyToIDMap;
+	std::vector<ValueLinkMap> valueLinkMaps;
+	StringToValueMap<u16> nameToLinkMapID;
+	StringToValueMap<u16> pathToLinkMapID;
 	StringToValueMap<u16> valueSetNameToIDMap;
 	std::string valueFormatStrings[eValueSetSubType_Num];
 	std::string debugString;
 };
 
-class TargetConfigFileParser; // forward declare
+// Forward declares
+class ConfigDataReader;
+class ConfigDataParser;
 
 
 //-----------------------------------------------------------------------------
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static std::vector<TargetConfigFolder> sFolders;
-static std::vector<TargetConfigFile> sFiles;
-static std::vector<TargetSyncProperty> sProperties;
+static std::vector<ConfigFileFolder> sFolders;
+static std::vector<ConfigFile> sFiles;
+static std::vector<SystemRegistryKey> sRegKeys;
+static std::vector<SystemRegistryValue> sRegVals;
+static std::vector<DataSource> sDataSources;
+static std::vector<SyncProperty> sProperties;
 static std::vector<double> sValues;
 static std::vector<u16> sValueSets;
-static BitVector<> sChangedFiles;
+static BitVector<> sChangedDataSources;
 static BitVector<> sChangedValueSets;
-static TargetConfigFileParser* sParser;
+static ConfigDataReader* sReader;
+static ConfigDataParser* sParser;
 static bool sInvertAxis[eValueSetSubType_Num];
 static bool sInitialized = false;
 static bool sPaused = false;
 
 
 //-----------------------------------------------------------------------------
-// TargetConfigFileParser
+// ConfigDataParser
 //-----------------------------------------------------------------------------
 
-#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
-#define syncDebugPrint(...) debugPrint("TargetConfigSync: " __VA_ARGS__)
-#else
-#define syncDebugPrint(...) ((void)0)
-#endif
-
-class TargetConfigFileParser
-	: public ConstructFromZeroInitializedMemory<TargetConfigFileParser>
+class ConfigDataParser
+	: public ConstructFromZeroInitializedMemory<ConfigDataParser>
 {
 public:
-	TargetConfigFileParser(size_t theFileID) :
-		fileID(theFileID),
-		mUnfound(sFiles[theFileID].values.size())
+	ConfigDataParser(size_t theDataSourceID) :
+		mDataSourceID(theDataSourceID),
+		mDoneParsing(false)
 	{
+		DBG_ASSERT(theDataSourceID < sDataSources.size());
+		mUnfound.clearAndResize(sDataSources[theDataSourceID].values.size());
 		mUnfound.set();
-		DBG_ASSERT(theFileID < sFiles.size());
-		TargetConfigFile& aFile = sFiles[theFileID];
-		// Get a file handle that won't block other apps' access to the file
-		mFileLockHandle = CreateFile(
-			aFile.pathW.c_str(),
-			0,
-			FILE_SHARE_READ,
-			NULL,
-			OPEN_EXISTING,
-			FILE_FLAG_OVERLAPPED,
-			NULL);
-		if( mFileLockHandle == INVALID_HANDLE_VALUE )
-		{
-			logToFile("Failed to find target config file %s",
-				narrow(aFile.pathW).c_str());
-			mParsingComplete = true;
-			return;
-		}
-
-		// Request a filter OpLock to the file so can get out of the way if
-		// target app needs the file - without causing it any sharing errors
-		mLockOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-		DBG_ASSERT(mLockOverlapped.hEvent);
-		DeviceIoControl(mFileLockHandle, FSCTL_REQUEST_FILTER_OPLOCK,
-			NULL, 0, NULL, 0, NULL, &mLockOverlapped);
-		switch (GetLastError())
-		{
-		case ERROR_IO_PENDING:
-			// Expected result for successful lock
-			break;
-		case ERROR_OPLOCK_NOT_GRANTED:
-		case ERROR_CANNOT_GRANT_REQUESTED_OPLOCK:
-			// File in use - try again later
-			syncDebugPrint("File %s in use - trying again later!\n",
-				getFileName(narrow(aFile.pathW)).c_str());
-			mParsingComplete = mFileWasBusy = true;
-			return;
-		default:
-			logToFile("Failed to get oplock read access to target config file %s",
-				narrow(aFile.pathW).c_str());
-			mParsingComplete = true;
-			return;
-		}
-
-		// Open the OpLock'd file for read
-		mFileHandle = CreateFile(
-			aFile.pathW.c_str(),
-			GENERIC_READ,
-			FILE_SHARE_READ | FILE_SHARE_DELETE,
-			NULL,
-			OPEN_EXISTING,
-			FILE_FLAG_OVERLAPPED,
-			NULL);
-		if( mFileHandle == INVALID_HANDLE_VALUE )
-		{
-			logToFile("Failed to open target config file %s",
-				narrow(aFile.pathW).c_str());
-			mParsingComplete = true;
-			return;
-		}
-
-		// Begin first read
-		mReadOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-		DBG_ASSERT(mReadOverlapped.hEvent);
-		if( !ReadFile(
-				mFileHandle,
-				mBuffer[mBufferIdx],
-				kConfigFileBufferSize,
-				&mBytesRead[mBufferIdx],
-				&mReadOverlapped) )
-		{
-			if( GetLastError() != ERROR_IO_PENDING )
-			{
-				logToFile("Error reading target config file %s",
-					narrow(aFile.pathW).c_str());
-				mParsingComplete = true;
-			}
-		}
 	}
+	virtual ~ConfigDataParser() {}
 
-	virtual ~TargetConfigFileParser()
-	{
-		CloseHandle(mReadOverlapped.hEvent);
-		CloseHandle(mLockOverlapped.hEvent);
-		CloseHandle(mFileHandle);
-		CloseHandle(mFileLockHandle);
-	}
-
-	void parseNextChunk()
-	{
-		if( mParsingComplete )
-			return;
-
-		DBG_ASSERT(this->fileID < sFiles.size());
-		TargetConfigFile& aFile = sFiles[this->fileID];
-
-		// If got OpLock break request abort and try again later
-		if( WaitForSingleObject(mLockOverlapped.hEvent, 0) == WAIT_OBJECT_0 )
-		{
-			syncDebugPrint("Another app needed file %s - delaying parse!\n",
-				getFileName(narrow(aFile.pathW)).c_str());
-			mParsingComplete = mFileWasBusy = true;
-			return;
-		}
-
-		// Wait for last async read request to complete
-		if( !GetOverlappedResult(
-				mFileHandle,
-				&mReadOverlapped,
-				&mBytesRead[mBufferIdx],
-				TRUE) )
-		{
-			mParsingComplete = true;
-			return;
-		}
-
-		if( mBytesRead[mBufferIdx] < kConfigFileBufferSize )
-			mParsingComplete = true;
-
-		// Start reading next chunk while parsing this one
-		if( !mParsingComplete )
-		{
-			mFilePointer.QuadPart += mBytesRead[mBufferIdx];
-			mReadOverlapped.Offset = mFilePointer.LowPart;
-			mReadOverlapped.OffsetHigh = mFilePointer.HighPart;
-
-			// Use overlapped async file read to begin reading to other buffer
-			if( !ReadFile(
-					mFileHandle,
-					mBuffer[mBufferIdx ? 0 : 1],
-					kConfigFileBufferSize,
-					&mBytesRead[mBufferIdx ? 0 : 1],
-					&mReadOverlapped) )
-			{
-				if( GetLastError() != ERROR_IO_PENDING )
-				{
-					logToFile("Error reading target config file %s",
-						narrow(aFile.pathW).c_str());
-					mParsingComplete = true;
-					return;
-				}
-			}
-		}
-
-		// Process the previously read-in data
-		syncDebugPrint("Parsing %d read bytes...\n", mBytesRead[mBufferIdx]);
-		const std::string aReadChunk(
-			(char*)mBuffer[mBufferIdx], mBytesRead[mBufferIdx]);
-		if( !parse(aReadChunk) || mUnfound.none() )
-			mParsingComplete = true;
-
-		// Swap buffer to check for next read
-		mBufferIdx = mBufferIdx ? 0 : 1;
-	}
+	virtual void parseNextChunk(const std::string&) = 0;
 
 	void reportResults()
 	{
 		#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
-		if( !mFileWasBusy )
+		if( mUnfound.any() )
 		{
-			syncDebugPrint("Finished parsing '%s' with %d unfound values\n",
-				getFileName(narrow(sFiles[this->fileID].pathW)).c_str(),
-				mUnfound.count());
-			if( mUnfound.any() )
+			syncDebugPrint("%d values not found:\n", mUnfound.count());
+			for(int i = mUnfound.firstSetBit();
+				i < mUnfound.size(); i = mUnfound.nextSetBit(i+1))
 			{
-				syncDebugPrint("Values not found:\n");
-				for(int i = mUnfound.firstSetBit();
-					i < mUnfound.size(); i = mUnfound.nextSetBit(i+1))
-				{
-					syncDebugPrint("  * %s\n",
-						sFiles[this->fileID].values.keys()[i].c_str());
-				}
+				syncDebugPrint("  * %s\n",
+					sDataSources[mDataSourceID].values.keys()[i].c_str());
 			}
+		}
+		else
+		{
+			syncDebugPrint("All values found!\n");
 		}
 		#endif
 	}
 
-	virtual bool parse(const std::string&) = 0;
-
-	bool done() const { return mParsingComplete; }
-	bool fileWasBusy() const { return mFileWasBusy; }
-
-	const size_t fileID;
+	bool done() const { return mDoneParsing; }
+	size_t dataSourceID() const { return mDataSourceID; }
 
 protected:
-
 	bool anyPathsUsePrefix(const std::string& thePrefix) const
 	{
-		return sFiles[this->fileID].values.containsPrefix(thePrefix);
+		return sDataSources[mDataSourceID].values.containsPrefix(thePrefix);
 	}
 
 	bool checkForFoundValue(
 		const std::string& thePath,
 		const std::string& theValue)
 	{
-		if( TargetConfigFile::Value* aValuePtr =
-				sFiles[this->fileID].values.find(thePath) )
+		if( ValueLink* aValuePtr =
+				sDataSources[mDataSourceID].values.find(thePath) )
 		{
 			sValues[aValuePtr->valueIdx] = doubleFromString(theValue);
 			sChangedValueSets.set(aValuePtr->setIdx);
 			mUnfound.reset(
-				aValuePtr - &sFiles[this->fileID].values.values()[0]);
+				aValuePtr - &sDataSources[mDataSourceID].values.values()[0]);
 			syncDebugPrint("Read path %s value as %f\n",
 				thePath.c_str(), sValues[aValuePtr->valueIdx]);
 		}
 		return mUnfound.none();
 	}
 
-private:
-
+protected:
+	const size_t mDataSourceID;
 	BitVector<> mUnfound;
-	DWORD mBytesRead[2];
-	HANDLE mFileHandle, mFileLockHandle;
-	LARGE_INTEGER mFilePointer;
-	OVERLAPPED mReadOverlapped, mLockOverlapped;
-	u8 mBuffer[2][kConfigFileBufferSize];
-	u8 mBufferIdx;
-	bool mParsingComplete;
-	bool mFileWasBusy;
+	bool mDoneParsing;
 };
 
 
 //-----------------------------------------------------------------------------
-// TargetConfigJSONParser
+// JSONParser
 //-----------------------------------------------------------------------------
 
-class TargetConfigJSONParser : public TargetConfigFileParser
+class JSONParser : public ConfigDataParser
 {
 public:
-	TargetConfigJSONParser(size_t theFileID) :
-		TargetConfigFileParser(theFileID),
+	JSONParser(size_t theDataSourceID) :
+		ConfigDataParser(theDataSourceID),
 		mPathsFoundCount()
 	{
 		mPath.reserve(256);
@@ -525,7 +410,7 @@ public:
 		pushState(eState_Init);
 	}
 
-	virtual bool parse(const std::string& theReadChunk)
+	virtual void parseNextChunk(const std::string& theReadChunk)
 	{
 		std::string::size_type aReadPos = 0;
 		DBG_ASSERT(!mState.empty());
@@ -553,7 +438,8 @@ public:
 					break;
 				default:
 					// Invalid character
-					return false;
+					mDoneParsing = true;
+					return;
 				}
 				break;
 
@@ -575,7 +461,8 @@ public:
 					break;
 				default:
 					// Invalid character
-					return false;
+					mDoneParsing = true;
+					return;
 				}
 				break;
 
@@ -587,7 +474,8 @@ public:
 					popState();
 					break;
 				case '}':
-					return false;
+					mDoneParsing = true;
+					return;
 				case ' ': case '\t': case '\n':
 				case '\r': case '\f': case '\v':
 					// Ignored
@@ -621,7 +509,8 @@ public:
 					break;
 				default:
 					// Invalid character
-					return false;
+					mDoneParsing = true;
+					return;
 				}
 				break;
 
@@ -635,7 +524,8 @@ public:
 					{
 					case '}': case ']': case ',': case ':':
 						// Invalid in this state
-						return false;
+						mDoneParsing = true;
+						return;
 					case '{':
 						pushState(eState_Object);
 						// Special case: Do not skip objects as array elements
@@ -691,8 +581,7 @@ public:
 					{
 						popState();
 					}
-					else if( !mState.back().skip &&
-							 mState[mState.size()-2].type == eState_Object &&
+					else if( mState[mState.size()-2].type == eState_Object &&
 							 mState[mState.size()-3].type == eState_Value &&
 							 mState[mState.size()-4].type == eState_Array &&
 							 mState[mState.size()-2].valueIdx == 0 )
@@ -718,16 +607,21 @@ public:
 						if( !mReadStr.empty() )
 						{
 							if( checkForFoundValue(mPath, mReadStr) )
-								return false;
+							{// All values found!
+								mDoneParsing = true;
+								return;
+							}
 						}
 						popState();
 					}
 					mReadStr.clear();
 					++mState.back().valueIdx;
-					if( mState.back().type == eState_Object && ch == ']' )
-						return false;
-					if( mState.back().type == eState_Array && ch == '}' )
-						return false;
+					if( (mState.back().type == eState_Object && ch == ']') ||
+						(mState.back().type == eState_Array && ch == '}') )
+					{// Incorrect ending character
+						mDoneParsing = true;
+						return;
+					}
 					break;
 				case ' ': case '\t': case '\n':
 				case '\r': case '\f': case '\v':
@@ -735,7 +629,8 @@ public:
 					break;
 				default:
 					// Invalid character
-					return false;
+					mDoneParsing = true;
+					return;
 				}
 				break;
 
@@ -745,7 +640,8 @@ public:
 				{
 				case '{': case '[': case ':':
 					// Invalid in this state
-					return false;
+					mDoneParsing = true;
+					return;
 				case ',': case '}': case ']':
 					popState();
 					// Need to have pop'd state process this char
@@ -792,11 +688,10 @@ public:
 
 			case eState_Finish:
 				// No more to parse
-				return false;
+				mDoneParsing = true;
+				return;
 			}
 		}
-
-		return true;
 	}
 
 private:
@@ -834,6 +729,7 @@ private:
 		aNewState.skip = mState.empty() ? false : mState.back().skip;
 		mState.push_back(aNewState);
 	}
+
 	inline void popState()
 	{
 		mState.pop_back();
@@ -843,23 +739,414 @@ private:
 
 
 //-----------------------------------------------------------------------------
-// TargetConfigINIParser
+// INIParser
 //-----------------------------------------------------------------------------
 
-class TargetConfigINIParser : public TargetConfigFileParser
+class INIParser : public ConfigDataParser
 {
 public:
-	TargetConfigINIParser(size_t theFileID) :
-		TargetConfigFileParser(theFileID)
+	INIParser(size_t theDataSourceID) :
+		ConfigDataParser(theDataSourceID)
 	{
 	}
 
-	virtual ~TargetConfigINIParser() {}
-	virtual bool parse(const std::string& theReadChunk)
+	virtual void parseNextChunk(const std::string& theReadChunk)
 	{
 		// TODO
-		return false;
+		mDoneParsing = true;
+		return;
 	}
+};
+
+
+//-----------------------------------------------------------------------------
+// ConfigDataReader
+//-----------------------------------------------------------------------------
+
+class ConfigDataReader
+{
+public:
+	ConfigDataReader()
+		:
+		mDoneReading(false),
+		mSourceWasBusy(false)
+	{}
+	virtual ~ConfigDataReader() {}
+
+	virtual std::string readNextChunk() = 0;
+	virtual void reportResults() = 0;
+
+	bool done() const { return mDoneReading; }
+	bool sourceWasBusy() const { return mSourceWasBusy; }
+
+protected:
+	bool mDoneReading;
+	bool mSourceWasBusy;
+};
+
+
+//-----------------------------------------------------------------------------
+// ConfigFileReader
+//-----------------------------------------------------------------------------
+
+class ConfigFileReader : public ConfigDataReader
+{
+public:
+	ConfigFileReader(size_t theFileID) :
+		ConfigDataReader(),
+		mFileID(theFileID),
+		mBytesRead(),
+		mFileHandle(),
+		mFileLockHandle(),
+		mFilePointer(),
+		mReadOverlapped(),
+		mLockOverlapped(),
+		mBuffer(),
+		mBufferIdx()
+	{
+		DBG_ASSERT(theFileID < sFiles.size());
+		ConfigFile& aFile = sFiles[theFileID];
+		// Get a file handle that won't block other apps' access to the file
+		mFileLockHandle = CreateFile(
+			aFile.pathW.c_str(),
+			0,
+			FILE_SHARE_READ,
+			NULL,
+			OPEN_EXISTING,
+			FILE_FLAG_OVERLAPPED,
+			NULL);
+		if( mFileLockHandle == INVALID_HANDLE_VALUE )
+		{
+			logToFile("Failed to find target config file %s",
+				narrow(aFile.pathW).c_str());
+			mDoneReading = true;
+			return;
+		}
+
+		// Request a filter OpLock to the file so can get out of the way if
+		// target app needs the file - without causing it any sharing errors
+		mLockOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+		DBG_ASSERT(mLockOverlapped.hEvent);
+		DeviceIoControl(mFileLockHandle, FSCTL_REQUEST_FILTER_OPLOCK,
+			NULL, 0, NULL, 0, NULL, &mLockOverlapped);
+		switch (GetLastError())
+		{
+		case ERROR_IO_PENDING:
+			// Expected result for successful lock
+			break;
+		case ERROR_OPLOCK_NOT_GRANTED:
+		case ERROR_CANNOT_GRANT_REQUESTED_OPLOCK:
+			// File in use - try again later
+			syncDebugPrint("File %s in use - trying again later!\n",
+				getFileName(narrow(aFile.pathW)).c_str());
+			mDoneReading = mSourceWasBusy = true;
+			return;
+		default:
+			logToFile("Failed to get oplock read access to target config file %s",
+				narrow(aFile.pathW).c_str());
+			mDoneReading = true;
+			return;
+		}
+
+		// Open the OpLock'd file for read
+		mFileHandle = CreateFile(
+			aFile.pathW.c_str(),
+			GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_DELETE,
+			NULL,
+			OPEN_EXISTING,
+			FILE_FLAG_OVERLAPPED,
+			NULL);
+		if( mFileHandle == INVALID_HANDLE_VALUE )
+		{
+			logToFile("Failed to open target config file %s",
+				narrow(aFile.pathW).c_str());
+			mDoneReading = true;
+			return;
+		}
+
+		// Begin first read
+		mReadOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+		DBG_ASSERT(mReadOverlapped.hEvent);
+		if( !ReadFile(
+				mFileHandle,
+				mBuffer[mBufferIdx],
+				kConfigFileBufferSize,
+				&mBytesRead[mBufferIdx],
+				&mReadOverlapped) )
+		{
+			if( GetLastError() != ERROR_IO_PENDING )
+			{
+				logToFile("Error reading target config file %s",
+					narrow(aFile.pathW).c_str());
+				mDoneReading = true;
+			}
+		}
+	}
+
+	virtual ~ConfigFileReader()
+	{
+		CloseHandle(mReadOverlapped.hEvent);
+		CloseHandle(mLockOverlapped.hEvent);
+		CloseHandle(mFileHandle);
+		CloseHandle(mFileLockHandle);
+	}
+
+	virtual std::string readNextChunk()
+	{
+		std::string result;
+		if( mDoneReading )
+			return result;
+
+		DBG_ASSERT(mFileID < sFiles.size());
+		ConfigFile& aFile = sFiles[mFileID];
+
+		// If got OpLock break request abort and try again later
+		if( WaitForSingleObject(mLockOverlapped.hEvent, 0) == WAIT_OBJECT_0 )
+		{
+			syncDebugPrint("Another app needed file %s - delaying read!\n",
+				getFileName(narrow(aFile.pathW)).c_str());
+			mDoneReading = mSourceWasBusy = true;
+			return result;
+		}
+
+		// Wait for last async read request to complete
+		if( !GetOverlappedResult(
+				mFileHandle,
+				&mReadOverlapped,
+				&mBytesRead[mBufferIdx],
+				TRUE) )
+		{
+			mDoneReading = true;
+			return result;
+		}
+
+		if( mBytesRead[mBufferIdx] < kConfigFileBufferSize )
+			mDoneReading = true;
+
+		// Start reading next chunk while parsing this one
+		if( !mDoneReading )
+		{
+			mFilePointer.QuadPart += mBytesRead[mBufferIdx];
+			mReadOverlapped.Offset = mFilePointer.LowPart;
+			mReadOverlapped.OffsetHigh = mFilePointer.HighPart;
+
+			// Use overlapped async file read to begin reading to other buffer
+			if( !ReadFile(
+					mFileHandle,
+					mBuffer[mBufferIdx ? 0 : 1],
+					kConfigFileBufferSize,
+					&mBytesRead[mBufferIdx ? 0 : 1],
+					&mReadOverlapped) )
+			{
+				if( GetLastError() != ERROR_IO_PENDING )
+				{
+					logToFile("Error reading target config file %s",
+						narrow(aFile.pathW).c_str());
+					mDoneReading = true;
+					return result;
+				}
+			}
+		}
+
+		// Process the previously read-in data
+		syncDebugPrint(
+			"Read %d bytes from config file\n",
+			mBytesRead[mBufferIdx]);
+		result = std::string(
+			(char*)mBuffer[mBufferIdx], mBytesRead[mBufferIdx]);
+
+		// Swap buffer to check for next read
+		mBufferIdx = mBufferIdx ? 0 : 1;
+
+		return result;
+	}
+
+	virtual void reportResults()
+	{
+		if( !mSourceWasBusy )
+		{
+			syncDebugPrint("Finished parsing '%s'\n",
+				getFileName(narrow(sFiles[mFileID].pathW)).c_str());
+		}
+	}
+
+private:
+
+	const size_t mFileID;
+	DWORD mBytesRead[2];
+	HANDLE mFileHandle, mFileLockHandle;
+	LARGE_INTEGER mFilePointer;
+	OVERLAPPED mReadOverlapped, mLockOverlapped;
+	u8 mBuffer[2][kConfigFileBufferSize];
+	u8 mBufferIdx;
+};
+
+
+//-----------------------------------------------------------------------------
+// SystemRegistryValueReader
+//-----------------------------------------------------------------------------
+
+class SystemRegistryValueReader : public ConfigDataReader
+{
+public:
+	SystemRegistryValueReader(size_t theRegValID) :
+		ConfigDataReader(),
+		mRegValID(theRegValID)
+	{
+		const SystemRegistryValue& aRegVal = sRegVals[mRegValID];
+		if( !aRegVal.hKey )
+		{
+			mDoneReading = true;
+			return;
+		}
+
+		// Check for wildcard in value name
+		if( aRegVal.valueNameW.find(L'*') == std::wstring::npos )
+		{
+			mResolvedValueName = aRegVal.valueNameW;
+		}
+		else
+		{
+			DWORD aValueIdx = 0;
+			DWORD aValueNameLen = 0;
+
+			// Query the maximum value name length
+			DWORD aMaxValueNameLen = 0;
+			if( RegQueryInfoKey(
+					aRegVal.hKey, NULL, NULL, NULL, NULL, NULL, NULL,
+					NULL, &aMaxValueNameLen, NULL, NULL, NULL)
+						!= ERROR_SUCCESS )
+			{
+				mDoneReading = true;
+				return;
+			}
+			std::vector<WCHAR> aValueName(aMaxValueNameLen + 1);
+
+			while (true)
+			{
+				aValueNameLen = aMaxValueNameLen + 1;
+				if( RegEnumValue(
+						aRegVal.hKey, aValueIdx, &aValueName[0],
+						&aValueNameLen, NULL, NULL,
+						NULL, NULL) != ERROR_SUCCESS )
+				{
+					mDoneReading = true;
+					return;
+				}
+
+				if( wildcardMatch(&aValueName[0], aRegVal.valueNameW.c_str()) )
+				{
+					mResolvedValueName.assign(&aValueName[0], aValueNameLen);
+					break;
+				}
+
+				++aValueIdx;
+			}
+		}
+	}
+
+	virtual std::string readNextChunk()
+	{
+		// Always done in one step anyway regardless
+		mDoneReading = true;
+
+		std::string result;
+		const SystemRegistryValue& aRegVal = sRegVals[mRegValID];
+		DBG_ASSERT(aRegVal.hKey);
+		if( mResolvedValueName.empty() )
+			return result;
+
+		DWORD aValueType = 0;
+		DWORD aDataSize = 0;
+		const DWORD kValueTypeFlags =
+			RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ |
+			RRF_RT_REG_MULTI_SZ | RRF_RT_REG_BINARY;
+
+		RegGetValueW(aRegVal.hKey, null, mResolvedValueName.c_str(),
+			kValueTypeFlags, &aValueType, null, &aDataSize);
+		if( aDataSize == 0 )
+			return result;
+
+		std::vector<BYTE> aDataBuff(aDataSize);
+		if( RegGetValueW(aRegVal.hKey, null, mResolvedValueName.c_str(),
+			kValueTypeFlags, &aValueType, &aDataBuff[0], &aDataSize)
+				!= ERROR_SUCCESS)
+		{
+			return result;
+		}
+
+		switch(aValueType)
+		{
+		case REG_SZ:
+		case REG_EXPAND_SZ:
+			result = narrow((wchar_t*)(&aDataBuff[0]));
+			break;
+		case REG_MULTI_SZ:
+			{
+				const wchar_t* ptr = (wchar_t*)(&aDataBuff[0]);
+				while (*ptr)
+				{
+					if (!result.empty()) result += '\n';
+					result += narrow(ptr);
+					ptr += wcslen(ptr) + 1;
+				}
+			}
+			break;
+		case REG_BINARY:
+			// Assume a utf-8 format string was stuffed in here
+			result.assign((const char*)(&aDataBuff[0]), aDataSize);
+			break;
+		}
+		
+		return result;
+	}
+
+	virtual void reportResults() override
+	{
+		if( !mResolvedValueName.empty() )
+		{
+			syncDebugPrint("Finished parsing '%s'\n",
+				narrow(mResolvedValueName).c_str());
+		}
+	}
+
+private:
+
+	inline bool wildcardMatch(
+		const wchar_t* theText,
+		const wchar_t* thePattern)
+	{
+		while(*thePattern)
+		{
+			if( *thePattern == '*' )
+			{
+				++thePattern;
+				if( !*thePattern )
+					return true;
+				while(*theText)
+				{
+					if( wildcardMatch(theText, thePattern) )
+						return true;
+					++theText;
+				}
+				return false;
+			}
+			else if( *thePattern == ::towupper(*theText) )
+			{
+				++thePattern;
+				++theText;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		return *theText == 0;
+	}
+
+	const size_t mRegValID;
+	std::wstring mResolvedValueName;
 };
 
 
@@ -867,7 +1154,7 @@ public:
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static FILETIME getFileLastModTime(const TargetConfigFile& theFile)
+static inline FILETIME getFileLastModTime(const ConfigFile& theFile)
 {
 	WIN32_FILE_ATTRIBUTE_DATA aFileAttr;
 	if( GetFileAttributesEx(theFile.pathW.c_str(),
@@ -880,7 +1167,64 @@ static FILETIME getFileLastModTime(const TargetConfigFile& theFile)
 }
 
 
-static bool setFetchValueFromFile(
+static inline bool isRegistryPath(const std::string thePath)
+{
+	return
+		thePath.size() > 2 &&
+		::toupper(thePath[0]) == 'H' &&
+		::toupper(thePath[1]) == 'K';
+}
+
+
+static inline std::string normalizedPath(std::string thePath)
+{
+	if( thePath.size() >= 4 )
+	{
+		// Remove quotes
+		while(
+			thePath.size() >= 4 &&
+			thePath[0] == '\"' &&
+			thePath[thePath.size()-1] == '\"')
+		{
+			thePath = thePath.substr(1, thePath.size() - 2);
+		}
+
+		if( isRegistryPath(thePath) )
+		{// Assume a registry path rather than file path
+			thePath = upper(thePath);
+			thePath = replaceChar(thePath, '/', '\\');
+			// Expand known shorthands for root key
+			if( thePath.compare(0, 4, "HKLM") == 0 )
+				thePath.replace(0, 4, "HKEY_LOCAL_MACHINE");
+			else if( thePath.compare(0, 4, "HKCU") == 0 )
+				thePath.replace(0, 4, "HKEY_CURRENT_USER");
+			else if( thePath.compare(0, 4, "HKCR") == 0 )
+				thePath.replace(0, 4, "HKEY_CLASSES_ROOT");
+			else if( thePath.compare(0, 4, "HKCC") == 0 )
+				thePath.replace(0, 4, "HKEY_CURRENT_CONFIG");
+			else if( thePath.compare(0, 5, "HKU") == 0 )
+				thePath.replace(0, 3, "HKEY_USERS");
+			return thePath;
+		}
+	}
+
+	thePath = upper(toAbsolutePath(thePath));
+	return thePath;
+}
+
+
+static inline HKEY getRootKeyHandle(const std::string& root)
+{
+	if( root == "HKEY_LOCAL_MACHINE" )	return HKEY_LOCAL_MACHINE;
+	if( root == "HKEY_CURRENT_USER" )	return HKEY_CURRENT_USER;
+	if( root == "HKEY_CLASSES_ROOT" )	return HKEY_CLASSES_ROOT;
+	if( root == "HKEY_CURRENT_CONFIG" )	return HKEY_CURRENT_CONFIG;
+	if( root == "HKEY_USERS" )			return HKEY_USERS;
+	return null;
+}
+
+
+static bool setFetchValueFromDataSource(
 	TargetConfigSyncBuilder& theBuilder,
 	const std::string& theValueName,
 	const u16 theDestValueSetID,
@@ -888,24 +1232,24 @@ static bool setFetchValueFromFile(
 	const EValueSetSubType theDestValueSetSubType)
 {
 	// Generate path from format for given sub-type
-	std::string aConfigFilePath;
-	aConfigFilePath.reserve(256);
-	aConfigFilePath = theValueName;
+	std::string aConfigDataPath;
+	aConfigDataPath.reserve(256);
+	aConfigDataPath = theValueName;
 	if( !theBuilder.valueFormatStrings[theDestValueSetSubType].empty() )
 	{
 		// Parse format string for <name> tag
 		bool nameTagFound = false;
-		aConfigFilePath =
+		aConfigDataPath =
 			theBuilder.valueFormatStrings[theDestValueSetSubType];
 		std::pair<std::string::size_type, std::string::size_type> aTagCoords =
-			findStringTag(aConfigFilePath);
+			findStringTag(aConfigDataPath);
 		while(aTagCoords.first != std::string::npos )
 		{
-			std::string aTag = aConfigFilePath.substr(
+			std::string aTag = aConfigDataPath.substr(
 				aTagCoords.first + 1, aTagCoords.second - 2);
 			if( condense(aTag) == kValueFormatNameTag )
 			{
-				aConfigFilePath.replace(
+				aConfigDataPath.replace(
 					aTagCoords.first,
 					aTagCoords.second,
 					theValueName);
@@ -913,7 +1257,7 @@ static bool setFetchValueFromFile(
 				nameTagFound = true;
 			}
 			aTagCoords = findStringTag(
-				aConfigFilePath,
+				aConfigDataPath,
 				aTagCoords.first + aTagCoords.second);
 		}
 		if( !nameTagFound )
@@ -921,42 +1265,54 @@ static bool setFetchValueFromFile(
 			logError("Missing <%s> tag for format string '%s = %s'",
 				lower(kValueFormatNameTag).c_str(),
 				kValueFormatStringKeys[theDestValueSetSubType],
-				aConfigFilePath.c_str());
+				aConfigDataPath.c_str());
 			return false;
 		}
 	}
-	// Extract file key from beginning of path up to first '.'
-	const std::string& aFileKey = breakOffItemBeforeChar(aConfigFilePath, '.');
-	if( aFileKey.empty() )
+	else if( theValueSetType != eValueSetType_Single )
+	{
+		// For single values in a value set, if no format string is
+		// specified, this particular value should be left as 0.
+		return true;
+	}
+
+	// Extract data source key from beginning of path up to first '.'
+	const std::string& aDataSourceKey =
+		breakOffItemBeforeChar(aConfigDataPath, '.');
+	if( aDataSourceKey.empty() )
 	{
 		logError("Missing config file ID for path '%s' in sync property '%s'",
-			aConfigFilePath.c_str(), theBuilder.debugString.c_str());
+			aConfigDataPath.c_str(), theBuilder.debugString.c_str());
 		return false;
 	}
-	const u16* aFileIDPtr = theBuilder.fileKeyToIDMap.find(condense(aFileKey));
-	if( !aFileIDPtr )
+	u16* const aValueLinkMapID =
+		theBuilder.nameToLinkMapID.find(condense(aDataSourceKey));
+	if( !aValueLinkMapID )
 	{
 		// It may be intentional that syncing was disabled by not defining the
-		// file to sync from, so report this only in the log file
+		// data path to sync from, so report this only in the log file
 		logToFile("Config file ID '%s' referenced in '%s' not found",
-			aFileKey.c_str(), theBuilder.debugString.c_str());
+			aDataSourceKey.c_str(), theBuilder.debugString.c_str());
 		return false;
 	}
-	// Set this keys path as a value to look for when parsing this file
-	TargetConfigFile::Value aDestValue;
+
+	// Set this key's path as a value to look for when parsing this data
+	ValueLink aDestValue;
 	aDestValue.setIdx = theDestValueSetID;
 	aDestValue.valueIdx =
 		sValueSets[theDestValueSetID] +
 		theDestValueSetSubType -
 		kValueSetFirstIdx[theValueSetType];
-	sFiles[*aFileIDPtr].values.setValue(aConfigFilePath, aDestValue);
+	DBG_ASSERT(*aValueLinkMapID < theBuilder.valueLinkMaps.size());
+	theBuilder.valueLinkMaps[*aValueLinkMapID].setValue(
+		aConfigDataPath, aDestValue);
 	return true;
 }
 
 
-static bool setConfigFileLinks(
+static bool setConfigValueLinks(
 	TargetConfigSyncBuilder& theBuilder,
-	TargetSyncProperty::Segment& thePropSegment,
+	SyncProperty::Segment& thePropSegment,
 	const std::string& theConfigFileValueName,
 	EValueSetType theValueSetType)
 {
@@ -970,13 +1326,14 @@ static bool setConfigFileLinks(
 		sValueSets.push_back(u16(sValues.size()));
 		sValues.resize(sValues.size() +
 			kValueSetLastIdx[theValueSetType] -
-			kValueSetFirstIdx[theValueSetType] + 1);
+			kValueSetFirstIdx[theValueSetType] + 1,
+			std::numeric_limits<double>::quiet_NaN());
 	}
 	// Request fetch all related values for given function & value set
 	bool isValidResult = true;
 	#define fetchVal(x) \
 		isValidResult = isValidResult && \
-			setFetchValueFromFile( \
+			setFetchValueFromDataSource( \
 				theBuilder, theConfigFileValueName, \
 				thePropSegment.valueSetID, theValueSetType, x)
 	switch(thePropSegment.funcType)
@@ -988,19 +1345,21 @@ static bool setConfigFileLinks(
 	case eValueFunc_Left:
 	case eValueFunc_CX:
 	case eValueFunc_Right:
-		fetchVal(eValueSetSubType_AlignX);
 		fetchVal(eValueSetSubType_PosX);
-		fetchVal(eValueSetSubType_SizeX);
+		fetchVal(eValueSetSubType_AlignX);
+		fetchVal(eValueSetSubType_Anchor);
 		fetchVal(eValueSetSubType_PivotX);
+		fetchVal(eValueSetSubType_SizeX);
 		break;
 	case eValueFunc_PosY:
 	case eValueFunc_Top:
 	case eValueFunc_CY:
 	case eValueFunc_Bottom:
-		fetchVal(eValueSetSubType_AlignY);
 		fetchVal(eValueSetSubType_PosY);
-		fetchVal(eValueSetSubType_SizeY);
+		fetchVal(eValueSetSubType_AlignY);
+		fetchVal(eValueSetSubType_Anchor);
 		fetchVal(eValueSetSubType_PivotY);
+		fetchVal(eValueSetSubType_SizeY);
 		break;
 	case eValueFunc_Width:
 		fetchVal(eValueSetSubType_SizeX);
@@ -1010,9 +1369,11 @@ static bool setConfigFileLinks(
 		break;
 	case eValueFunc_AlignX:
 		fetchVal(eValueSetSubType_AlignX);
+		fetchVal(eValueSetSubType_Anchor);
 		break;
 	case eValueFunc_AlignY:
 		fetchVal(eValueSetSubType_AlignY);
+		fetchVal(eValueSetSubType_Anchor);
 		break;
 	case eValueFunc_Scale:
 		fetchVal(eValueSetSubType_Scale);
@@ -1034,14 +1395,14 @@ static inline EValueSetType funcToValueSetType(EValueFunction theFunc)
 
 static void parsePropertyValueTags(
 	TargetConfigSyncBuilder& theBuilder,
-	TargetSyncProperty& theProperty,
+	SyncProperty& theProperty,
 	std::string theDesc)
 {
 	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
 		findStringTag(theDesc);
 	while(aTagCoords.first != std::string::npos )
 	{
-		TargetSyncProperty::Segment aSegment = TargetSyncProperty::Segment();
+		SyncProperty::Segment aSegment = SyncProperty::Segment();
 		// Extract the tag contents
 		std::string aTag = theDesc.substr(
 			aTagCoords.first + 1, aTagCoords.second - 2);
@@ -1060,8 +1421,8 @@ static void parsePropertyValueTags(
 			return;
 		}
 		EValueSetType aValueSetType = funcToValueSetType(aSegment.funcType);
-		// Set links from config files back to this segment
-		if( !setConfigFileLinks(theBuilder, aSegment, aTag, aValueSetType) )
+		// Set links from config data sources back to this segment
+		if( !setConfigValueLinks(theBuilder, aSegment, aTag, aValueSetType) )
 		{
 			theProperty.valueSetsUsed.clear();
 			return;
@@ -1075,12 +1436,12 @@ static void parsePropertyValueTags(
 	theProperty.valueFormat.reserve(theDesc.size());
 	theProperty.valueFormat = theDesc;
 	// trim to fit
-	std::vector<TargetSyncProperty::Segment>(theProperty.valueInserts)
+	std::vector<SyncProperty::Segment>(theProperty.valueInserts)
 		.swap(theProperty.valueInserts);
 }
 
 
-static EPropertyType extractPropertyType(const TargetSyncProperty& theProperty)
+static EPropertyType extractPropertyType(const SyncProperty& theProperty)
 {
 	if( theProperty.section == "HOTSPOTS" )
 		return ePropertyType_Hotspot;
@@ -1100,10 +1461,47 @@ static inline double getSubTypeValue(
 	EValueSetSubType theSubType)
 {
 	double result = theValArray[theSubType];
+	const bool wasFound = !_isnan(result);
+	if( !wasFound ) result = 0;
+
 	switch(theSubType)
 	{
+	case eValueSetSubType_PosX:
+	case eValueSetSubType_PosY:
+		if( sInvertAxis[theSubType] )
+			result = -result;
+		break;
 	case eValueSetSubType_AlignX:
+		if( !wasFound )
+		{
+			const int anAnchorType(
+				getSubTypeValue(theValArray, eValueSetSubType_Anchor));
+			// Based on Unity value for anchor types
+			// 0 = to-left, then "reading" order (left-to-right then down)
+			switch(anAnchorType)
+			{
+			case 1: case 4: case 7: result = 0.5; break;
+			case 2: case 5: case 8: result = 1.0; break;
+			}
+		}
+		result = clamp(result, 0, 1.0);
+		if( sInvertAxis[theSubType] )
+			result = 1.0 - result;
+		break;
 	case eValueSetSubType_AlignY:
+		if( !wasFound )
+		{
+			const int anAnchorType(
+				getSubTypeValue(theValArray,
+				eValueSetSubType_Anchor));
+			// Based on Unity value for anchor types
+			// 0 = to-left, then "reading" order (left-to-right then down)
+			switch(anAnchorType)
+			{
+			case 3: case 4: case 5:	result = 0.5; break;
+			case 6: case 7: case 8:	result = 1.0; break;
+			}
+		}
 		result = clamp(result, 0, 1.0);
 		if( sInvertAxis[theSubType] )
 			result = 1.0 - result;
@@ -1112,10 +1510,20 @@ static inline double getSubTypeValue(
 	case eValueSetSubType_PivotY:
 		// For these what we really want is the offset needed to compensate
 		// for the pivot's effect rather than the actual pivot value itself
+		// When not read in, have pivot point match alignment (i.e. center
+		// alignment aligns pos w/ center of window, like in our own UI).
+		if( !wasFound )
+		{
+			result = getSubTypeValue(
+				theValArray,
+				theSubType == eValueSetSubType_PivotX
+					? eValueSetSubType_AlignX
+					: eValueSetSubType_AlignY);
+		}
 		result = clamp(result, 0, 1.0);
 		if( sInvertAxis[theSubType] )
 			result = 1.0 - result;
-		if( result )
+		if( result != 0 )
 		{
 			result *= getSubTypeValue(
 				theValArray,
@@ -1123,11 +1531,6 @@ static inline double getSubTypeValue(
 					? eValueSetSubType_SizeX
 					: eValueSetSubType_SizeY);
 		}
-		break;
-	case eValueSetSubType_PosX:
-	case eValueSetSubType_PosY:
-		if( sInvertAxis[theSubType] )
-			result = -result;
 		break;
 	case eValueSetSubType_SizeX:
 	case eValueSetSubType_SizeY:
@@ -1317,27 +1720,22 @@ void load()
 	if( sInitialized || sPaused )
 		cleanup();
 	TargetConfigSyncBuilder aBuilder;
-	StringToValueMap<u16> aPathToIdxMap;
 
-	// Fetch target config files potentially containing sync properties
+	// Fetch target config paths potentially containing sync properties
 	Profile::KeyValuePairs aKeyValueList;
 	Profile::getAllKeys(kTargetConfigFilesPrefix, aKeyValueList);
+	aBuilder.nameToLinkMapID.reserve(aKeyValueList.size());
+	aBuilder.pathToLinkMapID.reserve(aKeyValueList.size());
+	aBuilder.valueLinkMaps.reserve(aKeyValueList.size());
 	for(size_t i = 0; i < aKeyValueList.size(); ++i)
 	{
-		const std::string& aFilePath =
-			upper(toAbsolutePath(aKeyValueList[i].second));
-		const u16 aFileID = aPathToIdxMap.findOrAdd(
-			aFilePath, u16(sFiles.size()));
-		if( aFileID >= sFiles.size() )
-		{
-			TargetConfigFile aNewConfigFile;
-			aNewConfigFile.pathW = widen(aFilePath);
-			aNewConfigFile.format = eConfigFileFormat_JSON; // TODO properly
-			aNewConfigFile.lastModTime = FILETIME();
-			sFiles.push_back(aNewConfigFile);
-		}
-		aBuilder.fileKeyToIDMap.setValue(
-			condense(aKeyValueList[i].first), aFileID);
+		const u16 aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
+			normalizedPath(aKeyValueList[i].second),
+			u16(aBuilder.valueLinkMaps.size()));
+		if( aLinkMapID >= aBuilder.valueLinkMaps.size() )
+			aBuilder.valueLinkMaps.push_back(ValueLinkMap());
+		aBuilder.nameToLinkMapID.setValue(
+			condense(aKeyValueList[i].first), aLinkMapID);
 	}
 
 	// Fetch value path formating data
@@ -1351,7 +1749,7 @@ void load()
 			kValueFormatStringKeys[i]);
 	}
 
-	// Fetch sync property values to read from the config files
+	// Fetch sync property values to read from the data sources
 	aKeyValueList.clear();
 	Profile::getAllKeys(kSyncPropertiesPrefix, aKeyValueList);
 	for(size_t i = 0; i < aKeyValueList.size(); ++i)
@@ -1360,7 +1758,7 @@ void load()
 		aBuilder.debugString += " = ";
 		aBuilder.debugString += aKeyValueList[i].second;
 		// Separate key into section and property name by > character
-		TargetSyncProperty aProperty;
+		SyncProperty aProperty;
 		aProperty.section = condense(aKeyValueList[i].first);
 		size_t aPos = aProperty.section.find('>');
 		if( aPos == std::string::npos )
@@ -1379,43 +1777,120 @@ void load()
 		const u16 aPropertyID = u16(sProperties.size());
 		sProperties.push_back(aProperty);
 	}
-	sChangedFiles.clearAndResize(sFiles.size());
+	aBuilder.nameToLinkMapID.clear();
 
-	// Begin monitoring folders for changes to contained files w/ properites
-	aPathToIdxMap.clear();
-	for(u16 i = 0; i < sFiles.size(); ++i)
+	// Prepare data sources for reading and monitoring for changes
+	StringToValueMap<u16> aFolderPathToIdxMap;
+	StringToValueMap<u16> aRegKeyPathToIdxMap;
+	for(size_t i = 0; i < aBuilder.pathToLinkMapID.size(); ++i)
 	{
-		if( sFiles[i].values.empty() )
+		const size_t aValueLinkMapIdx = 
+			aBuilder.pathToLinkMapID.values()[i];
+		DBG_ASSERT(aValueLinkMapIdx < aBuilder.valueLinkMaps.size());
+		ValueLinkMap& aValueLinkMap =
+			aBuilder.valueLinkMaps[aValueLinkMapIdx];
+		if( aValueLinkMap.empty() )
 			continue;
-		sChangedFiles.set(i);
-		sFiles[i].lastModTime = getFileLastModTime(sFiles[i]);
-		sFiles[i].values.trim();
-		const std::string& aFolderPath = getFileDir(narrow(sFiles[i].pathW));
-		const u16 aFolderID = aPathToIdxMap.findOrAdd(
-			aFolderPath, u16(sFolders.size()));
-		if( aFolderID >= sFolders.size() )
+		const std::string& aSourcePath = aBuilder.pathToLinkMapID.keys()[i];
+		DataSource aNewDataSource;
+		aNewDataSource.values = aValueLinkMap;
+		const u16 aSourceID = u16(sDataSources.size());
+		if( isRegistryPath(aSourcePath) )
 		{
-			TargetConfigFolder aNewConfigFolder;
-			aNewConfigFolder.hChangedSignal = FindFirstChangeNotification(
-				widen(aFolderPath).c_str(),
-				FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
-			sFolders.push_back(aNewConfigFolder);
+			aNewDataSource.type = eDataSourceType_RegVal;
+			aNewDataSource.format = eConfigDataFormat_JSON;
+			aNewDataSource.regValID = u16(sRegVals.size());
+			SystemRegistryValue aNewRegVal;
+			aNewRegVal.valueNameW = widen(getFileName(aSourcePath));
+			std::string aRegKeyPath = getFileDir(aSourcePath);
+			const u16 aRegKeyID = aRegKeyPathToIdxMap.findOrAdd(
+				aRegKeyPath, u16(sRegKeys.size()));
+			if( aRegKeyID >= sRegKeys.size() )
+			{
+				const HKEY aRootKey = getRootKeyHandle(
+					breakOffItemBeforeChar(aRegKeyPath, '\\'));
+				if( !aRootKey )
+				{
+					logError("Invalid root registry key name in path '%s'",
+						getFileDir(aSourcePath).c_str());
+					continue;
+				}
+				SystemRegistryKey aNewRegKey;
+				if( RegOpenKeyEx(aRootKey, widen(aRegKeyPath).c_str(), 0,
+					KEY_READ | KEY_NOTIFY, &aNewRegKey.hKey) != ERROR_SUCCESS )
+				{
+					logToFile(
+						"Couldn't open System Registry key '%s' "
+						"(does not exist yet?)",
+						getFileDir(aSourcePath).c_str());
+					continue;
+				}
+				// Monitor for future changes to this system registry key
+				if( aNewRegKey.hChangedSignal =
+						CreateEvent(NULL, TRUE, FALSE, NULL) )
+				{
+					RegNotifyChangeKeyValue(
+						aNewRegKey.hKey,
+						FALSE, REG_NOTIFY_CHANGE_LAST_SET,
+						aNewRegKey.hChangedSignal, TRUE);
+				}
+				sRegKeys.push_back(aNewRegKey);
+			}
+			aNewRegVal.hKey = sRegKeys[aRegKeyID].hKey;
+			sRegKeys[aRegKeyID].sourceIDs.push_back(aSourceID);
+			sRegVals.push_back(aNewRegVal);
 		}
-		sFolders[aFolderID].fileIDs.push_back(i);
+		else
+		{
+			aNewDataSource.type = eDataSourceType_File;
+			aNewDataSource.format = eConfigDataFormat_JSON; // TODO properly
+			aNewDataSource.fileID = u16(sFiles.size());
+			ConfigFile aNewConfigFile;
+			aNewConfigFile.pathW = widen(aSourcePath);
+			aNewConfigFile.lastModTime = getFileLastModTime(aNewConfigFile);
+			const std::string& aFolderPath = getFileDir(aSourcePath);
+			const u16 aFolderID = aFolderPathToIdxMap.findOrAdd(
+				aFolderPath, u16(sFolders.size()));
+			if( aFolderID >= sFolders.size() )
+			{
+				const std::wstring& aFolderPathW = widen(aFolderPath);
+				if( !isValidFolderPath(aFolderPathW) )
+				{
+					logToFile("Config file folder %s does not exist (yet?)",
+						aFolderPath.c_str());
+					continue;
+				}
+				ConfigFileFolder aNewFolder;
+				// Monitor for future changes to this folder
+				aNewFolder.hChangedSignal = FindFirstChangeNotification(
+					aFolderPathW.c_str(),
+					FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
+				sFolders.push_back(aNewFolder);
+			}
+			sFolders[aFolderID].sourceIDs.push_back(aSourceID);
+			sFiles.push_back(aNewConfigFile);
+		}
+		sDataSources.push_back(aNewDataSource);
+		sDataSources.back().values = aValueLinkMap;
 	}
+	aFolderPathToIdxMap.clear();
+	aRegKeyPathToIdxMap.clear();
+	aBuilder.pathToLinkMapID.clear();
+	aBuilder.valueLinkMaps.clear();
 
 	// Trim memory and resize structures
-	for(u16 i = 0; i < sFolders.size(); ++i)
-	{
-		if( sFolders[i].fileIDs.size() < sFolders[i].fileIDs.capacity() )
-			std::vector<u16>(sFolders[i].fileIDs).swap(sFolders[i].fileIDs);
-	}
 	if( sFolders.size() < sFolders.capacity() )
-		std::vector<TargetConfigFolder>(sFolders).swap(sFolders);
+		std::vector<ConfigFileFolder>(sFolders).swap(sFolders);
 	if( sFiles.size() < sFiles.capacity() )
-		std::vector<TargetConfigFile>(sFiles).swap(sFiles);
+		std::vector<ConfigFile>(sFiles).swap(sFiles);
+	if( sRegKeys.size() < sRegKeys.capacity() )
+		std::vector<SystemRegistryKey>(sRegKeys).swap(sRegKeys);
+	if( sRegVals.size() < sRegVals.capacity() )
+		std::vector<SystemRegistryValue>(sRegVals).swap(sRegVals);
+	if( sDataSources.size() < sDataSources.capacity() )
+		std::vector<DataSource>(sDataSources).swap(sDataSources);
 	if( sProperties.size() < sProperties.capacity() )
-		std::vector<TargetSyncProperty>(sProperties).swap(sProperties);
+		std::vector<SyncProperty>(sProperties).swap(sProperties);
 	if( sValues.size() < sValues.capacity() )
 		std::vector<double>(sValues).swap(sValues);
 	if( sValueSets.size() < sValueSets.capacity() )
@@ -1423,7 +1898,9 @@ void load()
 	sChangedValueSets.clearAndResize(sValueSets.size());
 
 	// Load initial values and log file timestamps
-	if( sChangedFiles.any() )
+	sChangedDataSources.clearAndResize(sDataSources.size());
+	sChangedDataSources.set();
+	if( !sFiles.empty() || !sRegVals.empty() )
 		update();
 	sInitialized = true;
 }
@@ -1431,14 +1908,28 @@ void load()
 
 void cleanup()
 {
-	delete sParser;
-	sParser = null;
+	delete sReader; sReader = null;
+	delete sParser; sParser = null;
+
 	for(size_t i = 0; i < sFolders.size(); ++i)
 		FindCloseChangeNotification(sFolders[i].hChangedSignal);
 	sFolders.clear();
 	sFiles.clear();
+
+	for(size_t i = 0; i < sRegKeys.size(); ++i)
+	{
+		RegCloseKey(sRegKeys[i].hKey);
+		CloseHandle(sRegKeys[i].hChangedSignal);
+	}
+	sRegKeys.clear();
+	sRegVals.clear();
+
+	sDataSources.clear();
 	sProperties.clear();
-	sChangedFiles.clear();
+	sValues.clear();
+	sValueSets.clear();
+	sChangedValueSets.clear();
+	sChangedDataSources.clear();
 	sInitialized = false;
 	sPaused = false;
 }
@@ -1449,84 +1940,123 @@ void update()
 	if( sPaused || gShutdown )
 	{
 		// Cancel any parsing in-progress
-		delete sParser;
-		sParser = null;
+		delete sReader; sReader = null;
+		delete sParser; sParser = null;
 		return;
 	}
 
-	// Continue any active parsing already in progress
-	if( sParser )
+	// Continue any active reading & parsing already in progress
+	if( sReader || sParser )
 	{
-		sParser->parseNextChunk();
-		if( sParser->done() )
+		DBG_ASSERT(sReader && sParser);
+		sParser->parseNextChunk(sReader->readNextChunk());
+		if( sReader->done() || sParser->done() )
 		{
-			if( !sParser->fileWasBusy() )
-			{
+			sChangedDataSources.reset(sParser->dataSourceID());
+			sReader->reportResults();
+			if( !sReader->sourceWasBusy() )
 				sParser->reportResults();
-				sChangedFiles.reset(sParser->fileID);
-			}
-			delete sParser;
-			sParser = null;
+			delete sReader; sReader = null;
+			delete sParser; sParser = null;
 		}
 		return;
 	}
 
 	if( sInitialized )
-	{// Check for any folder changes after initial load
+	{// Check for any folder or registry key changes after initial load
 		for(size_t aFolderID = 0; aFolderID < sFolders.size(); ++aFolderID)
 		{
-			TargetConfigFolder& aFolder = sFolders[aFolderID];
+			ConfigFileFolder& aFolder = sFolders[aFolderID];
 			if( WaitForSingleObject(aFolder.hChangedSignal, 0)
 					== WAIT_OBJECT_0 )
 			{
 				// Re-arm the notification for next update
 				FindNextChangeNotification(aFolder.hChangedSignal);
 
-				// Use timestamps to heck if any contained files are updated
-				for( size_t i = 0; i < aFolder.fileIDs.size(); ++i )
+				// Use timestamps to check if any contained files are updated
+				for( size_t i = 0; i < aFolder.sourceIDs.size(); ++i )
 				{
-					TargetConfigFile& aFile = sFiles[aFolder.fileIDs[i]];
+					DataSource& aSource = sDataSources[aFolder.sourceIDs[i]];
+					DBG_ASSERT(aSource.type == eDataSourceType_File);
+					ConfigFile& aFile = sFiles[aSource.fileID];
 					FILETIME aModTime = getFileLastModTime(aFile);
 					if( CompareFileTime(&aModTime, &aFile.lastModTime) > 0 )
 					{
 						syncDebugPrint("Detected change in file %s\n",
 							getFileName(narrow(aFile.pathW)).c_str());
 						aFile.lastModTime = aModTime;
-						sChangedFiles.set(aFolder.fileIDs[i]);
+						sChangedDataSources.set(aFolder.sourceIDs[i]);
 					}
+				}
+			}
+		}
+
+		for(size_t aRegKeyID = 0; aRegKeyID < sRegKeys.size(); ++aRegKeyID)
+		{
+			SystemRegistryKey& aRegKey = sRegKeys[aRegKeyID];
+			if( WaitForSingleObject(aRegKey.hChangedSignal, 0)
+					== WAIT_OBJECT_0)
+			{
+				// Rearm the notification for next update
+				RegNotifyChangeKeyValue(
+					aRegKey.hKey,
+					FALSE, REG_NOTIFY_CHANGE_LAST_SET,
+					aRegKey.hChangedSignal, TRUE);
+
+				// Mark all data sources using this key as changed
+				for(size_t i = 0; i < aRegKey.sourceIDs.size(); ++i)
+				{
+					sChangedDataSources.set(aRegKey.sourceIDs[i]);
+					syncDebugPrint(
+						"Detected change in registry key value name %s\n",
+						narrow(sRegVals[sDataSources[aRegKey.sourceIDs[i]].
+							regValID].valueNameW).c_str());
 				}
 			}
 		}
 	}
 
-	// Begin parsing any changed files
-	for(int aFileID = sChangedFiles.firstSetBit();
-		aFileID < sChangedFiles.size();
-		aFileID = sChangedFiles.nextSetBit(aFileID+1))
+	// Begin parsing any changed data sources
+	for(int aDataSourceID = sChangedDataSources.firstSetBit();
+		aDataSourceID < sChangedDataSources.size();
+		aDataSourceID = sChangedDataSources.nextSetBit(aDataSourceID+1))
 	{
-		DBG_ASSERT(!sParser);
-		switch(sFiles[aFileID].format)
+		DBG_ASSERT(!sParser && !sReader);
+		DataSource& aDataSource = sDataSources[aDataSourceID];
+		switch(aDataSource.type)
 		{
-		case eConfigFileFormat_INI:
-			sParser = new TargetConfigINIParser(aFileID);
+		case eDataSourceType_File:
+			sReader = new ConfigFileReader(aDataSource.fileID);
 			break;
-		case eConfigFileFormat_JSON:
-			sParser = new TargetConfigJSONParser(aFileID);
+		case eDataSourceType_RegVal:
+			sReader = new SystemRegistryValueReader(aDataSource.regValID);
 			break;
+		default:
+			DBG_ASSERT(false && "Unknown config source data type");
 		}
-		DBG_ASSERT(sParser);
+		switch(aDataSource.format)
+		{
+		case eConfigDataFormat_JSON:
+			sParser = new JSONParser(aDataSourceID);
+			break;
+		case eConfigDataFormat_INI:
+			sParser = new INIParser(aDataSourceID);
+			break;
+		default:
+			DBG_ASSERT(false && "Unknown config data format");
+		}
+		DBG_ASSERT(sReader && sParser);
 		// Attempt to complete parsing immediately when initializing
 		if( !sInitialized )
 		{
-			while(!sParser->done())
-				sParser->parseNextChunk();
-			if( !sParser->fileWasBusy() )
-			{
+			while(!sParser->done() && !sReader->done())
+				sParser->parseNextChunk(sReader->readNextChunk());
+			sChangedDataSources.reset(sParser->dataSourceID());
+			sReader->reportResults();
+			if( !sReader->sourceWasBusy() )
 				sParser->reportResults();
-				sChangedFiles.reset(sParser->fileID);
-			}
-			delete sParser;
-			sParser = null;
+			delete sReader; sReader = null;
+			delete sParser; sParser = null;
 			continue;
 		}
 		// Otherwise only parse one file at a time
@@ -1534,12 +2064,13 @@ void update()
 	}
 
 	// Once done with all parsing, apply change values found
-	if( !sParser && sChangedFiles.none() && sChangedValueSets.any() )
+	if( !sParser && !sReader &&
+		sChangedDataSources.none() && sChangedValueSets.any() )
 	{
 		bool propTypeChanged[ePropertyType_Num] = { };
 		for(size_t aPropID = 0; aPropID < sProperties.size(); ++aPropID)
 		{
-			TargetSyncProperty& aProp = sProperties[aPropID];
+			SyncProperty& aProp = sProperties[aPropID];
 			if( (sChangedValueSets & aProp.valueSetsUsed).any() )
 			{
 				std::string aValueStr = aProp.valueFormat;
