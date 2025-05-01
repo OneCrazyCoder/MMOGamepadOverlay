@@ -453,7 +453,7 @@ Hotspot Arrays are defined much like Key Bind Arrays - a list of Hotspots with t
     ...
 *Multiple elements of a Hotspot Array can be defined at once to make it easier to add or adjust a whole array quickly. More on this in the later section "Hotspot Array and Copy Icon ranges".*
 
-The ``=Select Hotspot <direction>`` command will quickly move the mouse cursor to the next nearby enabled hotspot . If there are none in the direction pressed the mouse will be moved amount of the ``[Mouse]`` section properties ``DefaultHotspotXDistance=`` and ``DefaultHotspotYDistance=`` (multiplied by global UI Scale value).
+The ``=Select Hotspot <direction>`` command will quickly move the mouse cursor to the next nearby enabled hotspot . If there are none in the direction pressed the mouse will be moved amount of the ``[Mouse]`` section property ``DefaultHotspotDistance=`` (multiplied by the UIScale properly).
 
 ### Layer Parent= property
 
@@ -938,7 +938,9 @@ If you prefer, you can use ``Mouse=AutoRunLook`` which instead treats AutoRun (a
 
 Some profile properties will naturally be set to exactly match target game configuration, such as the base ``[System]`` property ``UIScale=``. For convenience, these can be set up to automatically read in data from game configuration files and apply them to the overlay - and will even automatically update if said files are modified at runtime. This automatic syncing will NOT be written out to your profile .ini files permanently, however.
 
-First, any configuration file that should be parsed needs to be set as a property in the ``[TargetConfigFiles]`` section, with a name given to each file. Environment variables such as %USERPROFILE% can be used in the file path. For example, for *Monsters and Memories* this path could be set to ``Settings=%USERPROFILE%\AppData\LocalLow\Niche Worlds Cult\Monsters and Memories\settings.json`` *NOTE: Currently only .json configuration files are supported for this feature!*
+First, any configuration file that should be parsed needs to be set as a property in the ``[TargetConfigFiles]`` section, with a name given to each file. Environment variables such as %USERPROFILE% can be used in the file path, such as  ``Settings=%USERPROFILE%\AppData\LocalLow\Company\Game\settings.json`` For games that use it, a system registry path can also be used, such as ``HKEY_CURRENT_USER\Software\Company\Game\uiWindows*``
+
+*NOTE: Currently only .json configuration files are supported for this feature!*
 
 Next, use the ``[TargetSyncProperties]`` section to assign a property that you want to have its value read in from one of the target game's config files. The property name should match the section and property name of the original property, separated by ``>`` symbol. For example, to have this feature read a UI scale value from a configuration file, the property name would be ``System>UIScale=``.
 
@@ -949,35 +951,30 @@ The value of a sync property is a string that can overwrite the original propert
 
 *NOTE: These paths ARE case-sensitive! Also, in the above example, if the "Settings" property for the file was never created in [TargetConfigFiles], or the settings.json file can't be found or opened, you will not receive a runtime error since it is assumed it was an intentional disabling of the sync feature. Check MMOGO_ErrorLog.txt if the feature isn't working when expected to see if this is the problem.*
 
-For more complex properties such as for hotspots aligning with in-game UI windows, the tag may instead contain a special "function name" followed by a colon ``:`` followed by a key name from the config file. These "functions" may use multiple actual values to construct the text that replaces the tag. For example, to align a hotspot to the top left corner of the window a game identifies by the key "inventory", you could use:
+For more complex properties such as for hotspots aligning with in-game UI windows, the tag may instead contain a special "function name" followed by a colon ``:`` followed by a comma-separated list of names (usually just one). These "functions" may use multiple actual values to construct the text that replaces the tag. For example, to align a hotspot to the top left corner of the window a game identifies by the key "inventory", you could use:
 
     [TargetSyncProperties]
     Hotspots>Inventory = <Left:inventory>, <Top:inventory>
 
-The actual text that replaces ``<Left:inventory>`` might require multiple values to generate, such as for something like "50% + 23". To facilitate this, the actual values read to construct the replacement text are specified by properties in the ``[TargetConfigFileFormat]`` section.
+Anything outside the <> tags will just be used directly, so you could add extra offsets or fixed values alongside them, such as:
 
-Each property in this section has a specific property name set to a path string for where to find that value within the game's config file. The path should contain a ``<name>`` tag for where to insert the name passed in from the earlier ``<FunctionName:ValueName>`` tag to create the full path to the value in the game's config file. Each variable can also have an ``Invert`` property set, specifying to invert or negate the value read in from the game's config file.
+    [TargetSyncProperties]
+    Icons>Hotbar1 = <Left:hotbar>+4, <Top:hotbar>+14, 49, 49
+   
+The actual text that replaces the tags might require multiple values to generate, such as for something like "50% + 23". To facilitate this, the values read to construct the replacement text are specified by properties in the ``[TargetConfigFileFormat]`` section.
 
-Here is a complete example of setting a hotspot to the top-left corner of a UI window using this setup:
-
-    [TargetConfigFiles]
-    Layout=%USERPROFILE%\AppData\LocalLow\Niche Worlds Cult\Monsters and Memories\windows.json
+Each property in this section has a specific property name set to a path string for where to find that value within the game's config file. The path should contain one or numbered tags in the format  ``<1>``, ``<2>``, etc for where to insert the names passed in from the earlier ``<FunctionName:Name1, Name2, ...>`` tag to create the full path to the value in the game's config file. So for the above Inventory hotspot example, you might use:
 
     [TargetConfigFileFormat]
-    PositionX = Layout.SaveData.<name>.position.x
-    PositionY = Layout.SaveData.<name>.position.y
-    AlignmentX = Layout.SaveData.<name>.anchorMin.x
-    AlignmentY = Layout.SaveData.<name>.anchorMin.y
-    PivotX = Layout.SaveData.<name>.pivot.x
-    PivotY = Layout.SaveData.<name>.pivot.y
-    Width = Layout.SaveData.<name>.sizeDelta.x
-    Height = Layout.SaveData.<name>.sizeDelta.y
-    InvertAlignmentY = Yes
-    InvertPivotY = Yes
+    PositionX = Windows.SaveData.<1>.position.x
+    PositionY = Windows.SaveData.<1>.position.y
+    AlignmentX = Windows.SaveData.<1>.anchorMin.x
+    AlignmentY = Windows.SaveData.<1>.anchorMin.y
     InvertPositionY = Yes
+    InvertAlignmentY = Yes
 
-    [TargetSyncProperties]
-    Hotspots>Inventory = <Left:inventory>, <Top:inventory>
+
+For more detailed examples, check the generated default profiles for different games (usually near the bottom of the *MMOGO_Game_Base.ini* file).
 
 ### Other system features
 

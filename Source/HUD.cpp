@@ -2044,8 +2044,6 @@ void loadHUDElementShape(
 	// hi.alignmentX/Y = eHUDProp_Alignment
 	aStr = getNamedHUDPropStr(theHUDName, eHUDProp_Alignment);
 	Hotspot aTempHotspot;
-	if( hi.type == eMenuStyle_Hotspots )
-		aTempHotspot.x.anchor = aTempHotspot.y.anchor = 0x8000;
 	if( !aStr.empty() )
 		aTempHotspot = strToHotspot(aStr, theHUDName, eHUDProp_Alignment);
 	hi.alignmentX =

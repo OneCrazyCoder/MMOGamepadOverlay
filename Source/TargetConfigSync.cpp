@@ -72,7 +72,7 @@ enum EValueSetSubType
 	eValueSetSubType_PosY,
 	eValueSetSubType_AlignX,
 	eValueSetSubType_AlignY,
-	eValueSetSubType_Anchor,
+	eValueSetSubType_AnchorTypeA,
 	eValueSetSubType_PivotX,
 	eValueSetSubType_PivotY,
 	eValueSetSubType_SizeX,
@@ -106,7 +106,6 @@ enum EValueFunction
 
 const char* kTargetConfigFilesPrefix = "TargetConfigFiles/";
 const char* kSyncPropertiesPrefix = "TargetSyncProperties/";
-const char* kValueFormatNameTag = "NAME";
 const char* kValueFormatStrPrefix = "TargetConfigFileFormat/";
 const char* kValueFormatInvertPrefix = "TargetConfigFileFormat/Invert";
 const char* kValueFormatStringKeys[] =
@@ -116,7 +115,7 @@ const char* kValueFormatStringKeys[] =
 	"PositionY",	// eValueSetSubType_PosY
 	"AlignmentX",	// eValueSetSubType_AlignX
 	"AlignmentY",	// eValueSetSubType_AlignY
-	"Anchor",		// eValueSetSubType_Anchor
+	"AnchorTypeA",	// eValueSetSubType_AnchorTypeA - as in AOA
 	"PivotX",		// eValueSetSubType_PivotX
 	"PivotY",		// eValueSetSubType_PivotY
 	"Width",		// eValueSetSubType_Width
@@ -1226,7 +1225,7 @@ static inline HKEY getRootKeyHandle(const std::string& root)
 
 static bool setFetchValueFromDataSource(
 	TargetConfigSyncBuilder& theBuilder,
-	const std::string& theValueName,
+	const std::string& theSubstituteStr,
 	const u16 theDestValueSetID,
 	const EValueSetType theValueSetType,
 	const EValueSetSubType theDestValueSetSubType)
@@ -1234,39 +1233,65 @@ static bool setFetchValueFromDataSource(
 	// Generate path from format for given sub-type
 	std::string aConfigDataPath;
 	aConfigDataPath.reserve(256);
-	aConfigDataPath = theValueName;
 	if( !theBuilder.valueFormatStrings[theDestValueSetSubType].empty() )
 	{
-		// Parse format string for <name> tag
-		bool nameTagFound = false;
+		// Parse format string for string replacement tags
+		std::vector<std::string> aReplacementStrings;
+		aReplacementStrings.reserve(4);
+		{// Extract individual parameters
+			std::string aStr = theSubstituteStr;
+			while(!aStr.empty())
+				aReplacementStrings.push_back(breakOffNextItem(aStr));
+		}
 		aConfigDataPath =
 			theBuilder.valueFormatStrings[theDestValueSetSubType];
 		std::pair<std::string::size_type, std::string::size_type> aTagCoords =
 			findStringTag(aConfigDataPath);
 		while(aTagCoords.first != std::string::npos )
 		{
-			std::string aTag = aConfigDataPath.substr(
-				aTagCoords.first + 1, aTagCoords.second - 2);
-			if( condense(aTag) == kValueFormatNameTag )
+			const std::string& aTag = condense(
+				aConfigDataPath.substr(
+					aTagCoords.first + 1, aTagCoords.second - 2));
+			if( isAnInteger(aTag) || aTag == "NAME" )
 			{
-				aConfigDataPath.replace(
-					aTagCoords.first,
-					aTagCoords.second,
-					theValueName);
-				aTagCoords.second = theValueName.size();
-				nameTagFound = true;
+				// <name> can be used the same as <1>
+				const u32 aTagNum = max(intFromString(aTag), 1) - 1;
+				if( aTagNum < aReplacementStrings.size() )
+				{
+					aConfigDataPath.replace(
+						aTagCoords.first,
+						aTagCoords.second,
+						aReplacementStrings[aTagNum]);
+				}
+				else
+				{
+					logError(
+						"No parameter for tag <%s> in <%s> for '%s = %s'",
+						theSubstituteStr.c_str(),
+						aTag.c_str(),
+						kValueFormatStringKeys[theDestValueSetSubType],
+						theBuilder.valueFormatStrings[
+							theDestValueSetSubType].c_str());
+					return false;
+				}
+			}
+			else
+			{
+				logError(
+					"Unrecognized tag %s '%s = %s'",
+					aConfigDataPath.substr(
+					aTagCoords.first, aTagCoords.second).c_str(),
+					kValueFormatStringKeys[theDestValueSetSubType],
+					theBuilder.valueFormatStrings[
+						theDestValueSetSubType].c_str());
+				// Prevent spamming this error
+				theBuilder.valueFormatStrings[
+					theDestValueSetSubType].clear();
+				return false;
 			}
 			aTagCoords = findStringTag(
 				aConfigDataPath,
 				aTagCoords.first + aTagCoords.second);
-		}
-		if( !nameTagFound )
-		{
-			logError("Missing <%s> tag for format string '%s = %s'",
-				lower(kValueFormatNameTag).c_str(),
-				kValueFormatStringKeys[theDestValueSetSubType],
-				aConfigDataPath.c_str());
-			return false;
 		}
 	}
 	else if( theValueSetType != eValueSetType_Single )
@@ -1274,6 +1299,11 @@ static bool setFetchValueFromDataSource(
 		// For single values in a value set, if no format string is
 		// specified, this particular value should be left as 0.
 		return true;
+	}
+	else
+	{
+		// Must be a single-value direct path
+		aConfigDataPath = theSubstituteStr;
 	}
 
 	// Extract data source key from beginning of path up to first '.'
@@ -1347,7 +1377,7 @@ static bool setConfigValueLinks(
 	case eValueFunc_Right:
 		fetchVal(eValueSetSubType_PosX);
 		fetchVal(eValueSetSubType_AlignX);
-		fetchVal(eValueSetSubType_Anchor);
+		fetchVal(eValueSetSubType_AnchorTypeA);
 		fetchVal(eValueSetSubType_PivotX);
 		fetchVal(eValueSetSubType_SizeX);
 		break;
@@ -1357,7 +1387,7 @@ static bool setConfigValueLinks(
 	case eValueFunc_Bottom:
 		fetchVal(eValueSetSubType_PosY);
 		fetchVal(eValueSetSubType_AlignY);
-		fetchVal(eValueSetSubType_Anchor);
+		fetchVal(eValueSetSubType_AnchorTypeA);
 		fetchVal(eValueSetSubType_PivotY);
 		fetchVal(eValueSetSubType_SizeY);
 		break;
@@ -1369,11 +1399,11 @@ static bool setConfigValueLinks(
 		break;
 	case eValueFunc_AlignX:
 		fetchVal(eValueSetSubType_AlignX);
-		fetchVal(eValueSetSubType_Anchor);
+		fetchVal(eValueSetSubType_AnchorTypeA);
 		break;
 	case eValueFunc_AlignY:
 		fetchVal(eValueSetSubType_AlignY);
-		fetchVal(eValueSetSubType_Anchor);
+		fetchVal(eValueSetSubType_AnchorTypeA);
 		break;
 	case eValueFunc_Scale:
 		fetchVal(eValueSetSubType_Scale);
@@ -1456,6 +1486,43 @@ static EPropertyType extractPropertyType(const SyncProperty& theProperty)
 }
 
 
+static inline double anchorTypeToSubTypeValue(
+	const double* theValArray,
+	EValueSetSubType theSubType)
+{
+	// Anchor Type A - used by AOA
+	// This type goes clockwise from TL in a spiral ending at center,
+	// and it affects both alignment and pivot point
+	if( !_isnan(theValArray[eValueSetSubType_AnchorTypeA]) )
+	{
+		//	  L-T  C-T  R-T  R-C  R-B  C-B  L-B  L-C  C-C
+		static const double kTypeAAlignX[9] =
+			{ 0.0, 0.5, 1.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.5 };
+		static const double kTypeAAlignY[9] =
+			{ 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 0.5, 0.5 };
+		const u32 anAnchorType =
+			u32(int(theValArray[eValueSetSubType_AnchorTypeA]));
+		if( anAnchorType < 9 )
+		{
+			switch(theSubType)
+			{
+			case eValueSetSubType_AlignX:
+			case eValueSetSubType_PivotX:
+				return kTypeAAlignX[anAnchorType];
+			case eValueSetSubType_AlignY:
+			case eValueSetSubType_PivotY:
+				return kTypeAAlignY[anAnchorType];
+			}
+		}
+		// Invalid value for this anchor type enum
+		return 0;
+	}
+
+	// No anchor type values were read in
+	return 0;
+}
+
+
 static inline double getSubTypeValue(
 	const double* theValArray,
 	EValueSetSubType theSubType)
@@ -1472,36 +1539,9 @@ static inline double getSubTypeValue(
 			result = -result;
 		break;
 	case eValueSetSubType_AlignX:
-		if( !wasFound )
-		{
-			const int anAnchorType(
-				getSubTypeValue(theValArray, eValueSetSubType_Anchor));
-			// Based on Unity value for anchor types
-			// 0 = to-left, then "reading" order (left-to-right then down)
-			switch(anAnchorType)
-			{
-			case 1: case 4: case 7: result = 0.5; break;
-			case 2: case 5: case 8: result = 1.0; break;
-			}
-		}
-		result = clamp(result, 0, 1.0);
-		if( sInvertAxis[theSubType] )
-			result = 1.0 - result;
-		break;
 	case eValueSetSubType_AlignY:
 		if( !wasFound )
-		{
-			const int anAnchorType(
-				getSubTypeValue(theValArray,
-				eValueSetSubType_Anchor));
-			// Based on Unity value for anchor types
-			// 0 = to-left, then "reading" order (left-to-right then down)
-			switch(anAnchorType)
-			{
-			case 3: case 4: case 5:	result = 0.5; break;
-			case 6: case 7: case 8:	result = 1.0; break;
-			}
-		}
+			result = anchorTypeToSubTypeValue(theValArray, theSubType);
 		result = clamp(result, 0, 1.0);
 		if( sInvertAxis[theSubType] )
 			result = 1.0 - result;
@@ -1509,17 +1549,9 @@ static inline double getSubTypeValue(
 	case eValueSetSubType_PivotX:
 	case eValueSetSubType_PivotY:
 		// For these what we really want is the offset needed to compensate
-		// for the pivot's effect rather than the actual pivot value itself
-		// When not read in, have pivot point match alignment (i.e. center
-		// alignment aligns pos w/ center of window, like in our own UI).
+		// for the pivot's effect rather than the actual pivot value itself.
 		if( !wasFound )
-		{
-			result = getSubTypeValue(
-				theValArray,
-				theSubType == eValueSetSubType_PivotX
-					? eValueSetSubType_AlignX
-					: eValueSetSubType_AlignY);
-		}
+			result = anchorTypeToSubTypeValue(theValArray, theSubType);
 		result = clamp(result, 0, 1.0);
 		if( sInvertAxis[theSubType] )
 			result = 1.0 - result;
@@ -1808,7 +1840,7 @@ void load()
 			if( aRegKeyID >= sRegKeys.size() )
 			{
 				const HKEY aRootKey = getRootKeyHandle(
-					breakOffItemBeforeChar(aRegKeyPath, '\\'));
+					breakOffNextItem(aRegKeyPath, '\\'));
 				if( !aRootKey )
 				{
 					logError("Invalid root registry key name in path '%s'",
