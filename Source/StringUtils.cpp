@@ -224,6 +224,54 @@ std::string replaceAllStr(const std::string& theString, const char* oldStr, cons
 	return result;
 }
 
+bool wildcardMatch(
+	const wchar_t* theString,
+	const wchar_t* thePattern,
+	std::vector<std::wstring>* out)
+{
+	const wchar_t* aLastStar = NULL;
+	const wchar_t* aLastMatch = NULL;
+
+	bool newMatchStarted = false;
+	while(*theString)
+	{
+		if( *thePattern == '*' )
+		{
+			aLastStar = thePattern++;
+			aLastMatch = theString;
+			newMatchStarted = true;
+		}
+		else if( towupper(*theString) == towupper(*thePattern) )
+		{
+			++theString;
+			++thePattern;
+		}
+		else if( aLastStar )
+		{
+			if( out )
+			{
+				if( newMatchStarted )
+					out->push_back(L"");
+				out->back().push_back(towupper(*aLastMatch));
+				newMatchStarted = false;
+			}
+			thePattern = aLastStar + 1;
+			++aLastMatch;
+			theString = aLastMatch;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	// Trailing *'s
+	while(*thePattern == '*')
+		++thePattern;
+
+	return *thePattern == '\0';
+}
+
 
 std::string getFileName(const std::string& thePath)
 {

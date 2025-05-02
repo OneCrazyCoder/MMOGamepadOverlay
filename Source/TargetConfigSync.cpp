@@ -310,6 +310,9 @@ static std::vector<DataSource> sDataSources;
 static std::vector<SyncProperty> sProperties;
 static std::vector<double> sValues;
 static std::vector<u16> sValueSets;
+static std::vector<std::wstring> sCurrWildcardMatches;
+static std::vector<std::wstring> sBestWildcardMatches;
+static std::vector<std::wstring> sLastReadWildcardMatches;
 static BitVector<> sChangedDataSources;
 static BitVector<> sChangedValueSets;
 static ConfigDataReader* sReader;
@@ -948,12 +951,11 @@ public:
 			}
 		}
 
-		// Process the previously read-in data
+		// Return the previously read-in data for parsing
 		syncDebugPrint(
 			"Read %d bytes from config file\n",
 			mBytesRead[mBufferIdx]);
-		result = std::string(
-			(char*)mBuffer[mBufferIdx], mBytesRead[mBufferIdx]);
+		result.assign((char*)&mBuffer[mBufferIdx], mBytesRead[mBufferIdx]);
 
 		// Swap buffer to check for next read
 		mBufferIdx = mBufferIdx ? 0 : 1;
@@ -963,11 +965,8 @@ public:
 
 	virtual void reportResults()
 	{
-		if( !mSourceWasBusy )
-		{
-			syncDebugPrint("Finished parsing '%s'\n",
-				getFileName(narrow(sFiles[mFileID].pathW)).c_str());
-		}
+		syncDebugPrint("Finished parsing '%s'\n",
+			getFileName(narrow(sFiles[mFileID].pathW)).c_str());
 	}
 
 private:
@@ -991,7 +990,8 @@ class SystemRegistryValueReader : public ConfigDataReader
 public:
 	SystemRegistryValueReader(size_t theRegValID) :
 		ConfigDataReader(),
-		mRegValID(theRegValID)
+		mRegValID(theRegValID),
+		mParsePos()
 	{
 		const SystemRegistryValue& aRegVal = sRegVals[mRegValID];
 		if( !aRegVal.hKey )
@@ -1000,152 +1000,242 @@ public:
 			return;
 		}
 
-		// Check for wildcard in value name
+		// If no wildcard in value name, use it directly
 		if( aRegVal.valueNameW.find(L'*') == std::wstring::npos )
 		{
-			mResolvedValueName = aRegVal.valueNameW;
-		}
-		else
-		{
-			DWORD aValueIdx = 0;
-			DWORD aValueNameLen = 0;
-
-			// Query the maximum value name length
-			DWORD aMaxValueNameLen = 0;
-			if( RegQueryInfoKey(
-					aRegVal.hKey, NULL, NULL, NULL, NULL, NULL, NULL,
-					NULL, &aMaxValueNameLen, NULL, NULL, NULL)
-						!= ERROR_SUCCESS )
+			mResolvedValueName.reserve(aRegVal.valueNameW.size()+1);
+			mResolvedValueName.assign(
+				aRegVal.valueNameW.begin(),
+				aRegVal.valueNameW.end());
+			mResolvedValueName.push_back(L'\0');
+			DWORD aDataSize = 0;
+			RegGetValue(aRegVal.hKey, NULL, &mResolvedValueName[0],
+				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
+			if( aDataSize == 0 )
 			{
 				mDoneReading = true;
 				return;
 			}
-			std::vector<WCHAR> aValueName(aMaxValueNameLen + 1);
 
-			while (true)
+			mValueData.resize(aDataSize);
+			if( RegGetValue(aRegVal.hKey, NULL, &mResolvedValueName[0],
+					RRF_RT_REG_BINARY, NULL, &mValueData[0], &aDataSize)
+						!= ERROR_SUCCESS)
 			{
-				aValueNameLen = aMaxValueNameLen + 1;
-				if( RegEnumValue(
-						aRegVal.hKey, aValueIdx, &aValueName[0],
-						&aValueNameLen, NULL, NULL,
-						NULL, NULL) != ERROR_SUCCESS )
-				{
-					mDoneReading = true;
-					return;
-				}
-
-				if( wildcardMatch(&aValueName[0], aRegVal.valueNameW.c_str()) )
-				{
-					mResolvedValueName.assign(&aValueName[0], aValueNameLen);
-					break;
-				}
-
-				++aValueIdx;
+				mDoneReading = true;
+				return;
 			}
+
+			return;
+		}
+
+		// Query the maximum value name length
+		DWORD aMaxValueNameLen = 0;
+		if( RegQueryInfoKey(
+				aRegVal.hKey, NULL, NULL, NULL, NULL, NULL, NULL,
+				NULL, &aMaxValueNameLen, NULL, NULL, NULL)
+					!= ERROR_SUCCESS )
+		{
+			mDoneReading = true;
+			return;
+		}
+		++aMaxValueNameLen;
+
+		// Seach for best candidate if multiple found that match
+		DWORD aValueNameLen;
+		std::vector<WCHAR> aValueName(aMaxValueNameLen);
+		mResolvedValueName.resize(aMaxValueNameLen);
+		std::vector<BYTE> aValueData;
+		u64 aBestValueTimestamp = 0;
+		sBestWildcardMatches.clear();
+		bool madeChangesToRegistry = false;
+
+		for(DWORD aValueIdx = 0; true; ++aValueIdx)
+		{
+			aValueNameLen = aMaxValueNameLen;
+			if( RegEnumValue(
+					aRegVal.hKey, aValueIdx, &aValueName[0],
+					&aValueNameLen, NULL, NULL,
+					NULL, NULL) != ERROR_SUCCESS )
+			{
+				// End of enumeration
+				break;
+			}
+
+			sCurrWildcardMatches.clear();
+			if( !wildcardMatch(
+					&aValueName[0],
+					aRegVal.valueNameW.c_str(),
+					&sCurrWildcardMatches) )
+			{
+				continue;
+			}
+
+			DWORD aDataSize = 0;
+			RegGetValue(aRegVal.hKey, NULL, &aValueName[0],
+				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
+			if( aDataSize == 0 )
+				continue;
+
+			aValueData.reserve(aDataSize + kTimestampSuffixSize);
+			aValueData.resize(aDataSize);
+			if( RegGetValue(aRegVal.hKey, NULL, &aValueName[0],
+					RRF_RT_REG_BINARY, NULL, &aValueData[0], &aDataSize)
+						!= ERROR_SUCCESS)
+			{
+				continue;
+			}
+
+			// When there's more than one match, the preference is the newest.
+			// No way to check that though, so we add timestamps ourselves by
+			// hiding them after the terminating null character. If a value
+			// has no timestamp, it's assumed it was written out by the game
+			// (stripping out our timestamp in the process) and thus is
+			// treated as the newest via default timestamp of max u64 value.
+			// Until that happens though, if more than one match without a
+			// timestamp, our choice becomes essentially random.
+			const u64 aValueTimestamp = extractTimestamp(aValueData);
+			if( aValueTimestamp == 0xFFFFFFFFFFFFFFFFULL )
+			{// No custom time stamp found
+				if( appendTimestamp(aValueData) &&
+					RegSetValueEx(aRegVal.hKey, &aValueName[0], NULL,
+						REG_BINARY, &aValueData[0],
+						DWORD(aValueData.size()))
+							== ERROR_SUCCESS )
+				{
+					madeChangesToRegistry = true;
+				}
+			}
+			bool isBetterMatch = aValueTimestamp > aBestValueTimestamp;
+
+			if( aValueTimestamp == aBestValueTimestamp )
+			{
+				// For a tie breaker, if one of the substrings that matched 
+				// with a * is the same as one used in the last-chosen value
+				// name, prefer that one as they are likely related.
+				for(size_t i = 0; i < sLastReadWildcardMatches.size(); ++i)
+				{
+					for(size_t j = 0; j < sCurrWildcardMatches.size(); ++j)
+					{
+						if( sLastReadWildcardMatches[i] == 
+								sCurrWildcardMatches[j] )
+						{
+							isBetterMatch = true;
+							break;
+						}
+					}
+					if( isBetterMatch )
+						break;
+				}
+			}
+
+			if( isBetterMatch )
+			{
+				aBestValueTimestamp = aValueTimestamp;
+				::swap(aValueName, this->mResolvedValueName);
+				::swap(aValueData, this->mValueData);
+				::swap(sCurrWildcardMatches, sBestWildcardMatches);
+			}
+		}
+
+		if( !mValueData.empty() && !sBestWildcardMatches.empty() )
+			::swap(sBestWildcardMatches, sLastReadWildcardMatches);
+
+		// After initial load, don't actually parse the data if
+		// wrote a timestamp, as that will trigger a re-parse itself,
+		// so no sense doing it twice. Flag as "busy" to make sure
+		// will parse later even if notification fails to trigger.
+		if( sInitialized && madeChangesToRegistry )
+		{
+			mDoneReading = true;
+			mSourceWasBusy = true;
 		}
 	}
 
 	virtual std::string readNextChunk()
 	{
-		// Always done in one step anyway regardless
-		mDoneReading = true;
-
 		std::string result;
-		const SystemRegistryValue& aRegVal = sRegVals[mRegValID];
-		DBG_ASSERT(aRegVal.hKey);
-		if( mResolvedValueName.empty() )
+		if( mDoneReading )
 			return result;
 
-		DWORD aValueType = 0;
-		DWORD aDataSize = 0;
-		const DWORD kValueTypeFlags =
-			RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ |
-			RRF_RT_REG_MULTI_SZ | RRF_RT_REG_BINARY;
+		DBG_ASSERT(mParsePos < mValueData.size());
 
-		RegGetValueW(aRegVal.hKey, null, mResolvedValueName.c_str(),
-			kValueTypeFlags, &aValueType, null, &aDataSize);
-		if( aDataSize == 0 )
-			return result;
+		// Return the previously read-in data for parsing
+		const size_t aBytesToRead = min(
+			mValueData.size() - mParsePos,
+			kConfigFileBufferSize);
+		result.assign((char*)&mValueData[mParsePos], aBytesToRead);
+		mParsePos += aBytesToRead;
+		if( mParsePos >= mValueData.size() )
+			mDoneReading = true;
 
-		std::vector<BYTE> aDataBuff(aDataSize);
-		if( RegGetValueW(aRegVal.hKey, null, mResolvedValueName.c_str(),
-			kValueTypeFlags, &aValueType, &aDataBuff[0], &aDataSize)
-				!= ERROR_SUCCESS)
-		{
-			return result;
-		}
+		syncDebugPrint(
+			"Read %d bytes from system registry data\n",
+			aBytesToRead);
 
-		switch(aValueType)
-		{
-		case REG_SZ:
-		case REG_EXPAND_SZ:
-			result = narrow((wchar_t*)(&aDataBuff[0]));
-			break;
-		case REG_MULTI_SZ:
-			{
-				const wchar_t* ptr = (wchar_t*)(&aDataBuff[0]);
-				while (*ptr)
-				{
-					if (!result.empty()) result += '\n';
-					result += narrow(ptr);
-					ptr += wcslen(ptr) + 1;
-				}
-			}
-			break;
-		case REG_BINARY:
-			// Assume a utf-8 format string was stuffed in here
-			result.assign((const char*)(&aDataBuff[0]), aDataSize);
-			break;
-		}
-		
 		return result;
 	}
 
 	virtual void reportResults() override
 	{
-		if( !mResolvedValueName.empty() )
+		if( !mResolvedValueName.empty() &&
+			mResolvedValueName[0] != '\0' )
 		{
 			syncDebugPrint("Finished parsing '%s'\n",
-				narrow(mResolvedValueName).c_str());
+				narrow(&mResolvedValueName[0]).c_str());
 		}
 	}
 
 private:
+	static const size_t kTimestampMarkerSize = 4;
+	static const size_t kTimestampSize = sizeof(u64);
+	static const size_t kTimestampSuffixSize =
+		kTimestampMarkerSize + sizeof(u64) + 1 /* traling null */;
 
-	inline bool wildcardMatch(
-		const wchar_t* theText,
-		const wchar_t* thePattern)
+	inline u64 extractTimestamp(const std::vector<BYTE>& theData) const
 	{
-		while(*thePattern)
-		{
-			if( *thePattern == '*' )
-			{
-				++thePattern;
-				if( !*thePattern )
-					return true;
-				while(*theText)
-				{
-					if( wildcardMatch(theText, thePattern) )
-						return true;
-					++theText;
-				}
-				return false;
-			}
-			else if( *thePattern == ::towupper(*theText) )
-			{
-				++thePattern;
-				++theText;
-			}
-			else
-			{
-				return false;
-			}
-		}
-		return *theText == 0;
+		u64 result = 0xFFFFFFFFFFFFFFFFULL;
+		if( theData.size() <= 1 + kTimestampSuffixSize )
+			return result;
+
+		const size_t kTimestampOffset = theData.size() -
+			(1 + kTimestampSize);
+		const size_t kMarkerOffset = theData.size() -
+			(1 + kTimestampSize + kTimestampMarkerSize);
+
+		if( theData.back() != '\0' || theData[kMarkerOffset - 1] != '\0')
+			return result;
+
+		memcpy(&result, &theData[kTimestampOffset], sizeof(u64));
+		return result;
+	}
+
+	inline bool appendTimestamp(std::vector<BYTE>& theData)
+	{
+		if( theData.empty() || theData.back() != '\0' )
+			return false;
+
+		const char* kTimestampMarker = "_TS_";
+		theData.insert(theData.end(), kTimestampMarker,
+			kTimestampMarker + kTimestampMarkerSize);
+
+		FILETIME ft;
+		GetSystemTimeAsFileTime(&ft);
+		ULARGE_INTEGER aTimestamp;
+		aTimestamp.LowPart = ft.dwLowDateTime;
+		aTimestamp.HighPart = ft.dwHighDateTime;
+		const BYTE* aTimestampPtr = (const BYTE*)(&aTimestamp.QuadPart);
+		theData.insert(theData.end(), aTimestampPtr,
+			aTimestampPtr + kTimestampSize);
+		theData.push_back('\0');
+
+		return true;
 	}
 
 	const size_t mRegValID;
-	std::wstring mResolvedValueName;
+	size_t mParsePos;
+	std::vector<BYTE> mValueData;
+	std::vector<WCHAR> mResolvedValueName;
 };
 
 
@@ -1848,23 +1938,22 @@ void load()
 					continue;
 				}
 				SystemRegistryKey aNewRegKey;
+				aNewRegKey.hChangedSignal = aNewRegKey.hKey = NULL;
 				if( RegOpenKeyEx(aRootKey, widen(aRegKeyPath).c_str(), 0,
-					KEY_READ | KEY_NOTIFY, &aNewRegKey.hKey) != ERROR_SUCCESS )
+						KEY_READ | KEY_WRITE | KEY_NOTIFY, &aNewRegKey.hKey)
+							!= ERROR_SUCCESS )
 				{
-					logToFile(
-						"Couldn't open System Registry key '%s' "
-						"(does not exist yet?)",
-						getFileDir(aSourcePath).c_str());
-					continue;
-				}
-				// Monitor for future changes to this system registry key
-				if( aNewRegKey.hChangedSignal =
-						CreateEvent(NULL, TRUE, FALSE, NULL) )
-				{
-					RegNotifyChangeKeyValue(
-						aNewRegKey.hKey,
-						FALSE, REG_NOTIFY_CHANGE_LAST_SET,
-						aNewRegKey.hChangedSignal, TRUE);
+					// Try just read/notify access
+					if( RegOpenKeyEx(aRootKey, widen(aRegKeyPath).c_str(), 0,
+							KEY_READ | KEY_NOTIFY, &aNewRegKey.hKey)
+								!= ERROR_SUCCESS )
+					{
+						logToFile(
+							"Couldn't open System Registry key '%s' "
+							"(does not exist yet?)",
+							getFileDir(aSourcePath).c_str());
+						continue;
+					}
 				}
 				sRegKeys.push_back(aNewRegKey);
 			}
@@ -1934,6 +2023,21 @@ void load()
 	sChangedDataSources.set();
 	if( !sFiles.empty() || !sRegVals.empty() )
 		update();
+
+	// Begin monitoring for registry changes only after first load
+	for(size_t aRegKeyID = 0; aRegKeyID < sRegKeys.size(); ++aRegKeyID)
+	{
+		SystemRegistryKey& aRegKey = sRegKeys[aRegKeyID];
+		if( aRegKey.hChangedSignal =
+				CreateEvent(NULL, TRUE, FALSE, NULL) )
+		{
+			RegNotifyChangeKeyValue(
+				aRegKey.hKey,
+				FALSE, REG_NOTIFY_CHANGE_LAST_SET,
+				aRegKey.hChangedSignal, TRUE);
+		}
+	}
+
 	sInitialized = true;
 }
 
@@ -1984,10 +2088,12 @@ void update()
 		sParser->parseNextChunk(sReader->readNextChunk());
 		if( sReader->done() || sParser->done() )
 		{
-			sChangedDataSources.reset(sParser->dataSourceID());
-			sReader->reportResults();
 			if( !sReader->sourceWasBusy() )
+			{
+				sReader->reportResults();
 				sParser->reportResults();
+				sChangedDataSources.reset(sParser->dataSourceID());
+			}
 			delete sReader; sReader = null;
 			delete sParser; sParser = null;
 		}
@@ -2038,6 +2144,9 @@ void update()
 				// Mark all data sources using this key as changed
 				for(size_t i = 0; i < aRegKey.sourceIDs.size(); ++i)
 				{
+					if( sChangedDataSources.test(aRegKey.sourceIDs[i]) )
+						continue;
+
 					sChangedDataSources.set(aRegKey.sourceIDs[i]);
 					syncDebugPrint(
 						"Detected change in registry key value name %s\n",
@@ -2083,10 +2192,12 @@ void update()
 		{
 			while(!sParser->done() && !sReader->done())
 				sParser->parseNextChunk(sReader->readNextChunk());
-			sChangedDataSources.reset(sParser->dataSourceID());
-			sReader->reportResults();
 			if( !sReader->sourceWasBusy() )
+			{
+				sReader->reportResults();
 				sParser->reportResults();
+				sChangedDataSources.reset(sParser->dataSourceID());
+			}
 			delete sReader; sReader = null;
 			delete sParser; sParser = null;
 			continue;
