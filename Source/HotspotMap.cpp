@@ -790,7 +790,7 @@ static void safeLinkHotspotRows(
 	// Replace certain vertical links with horizontal links instead
 	// This will temporarily break the all-rows-linked guarantee above,
 	// which will then be repaired using the skip row list after this
-	std::vector<size_t> aSkipRowList;
+	std::vector<int> aSkipRowList;
 	for(int aRowIdx = theRowRangeBegin; aRowIdx < theRowRangeEnd; ++aRowIdx)
 	{
 		Row& aRow = theRows[aRowIdx];
