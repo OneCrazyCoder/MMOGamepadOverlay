@@ -677,7 +677,7 @@ ECommandDir opposite8Dir(ECommandDir theDir)
 }
 
 
-static inline u8 bitsFor8Dir(ECommandDir theDir)
+static u8 bitsFor8Dir(ECommandDir theDir)
 {
 	switch(theDir)
 	{

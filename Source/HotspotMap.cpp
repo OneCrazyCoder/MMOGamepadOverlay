@@ -5,6 +5,7 @@
 #include "HotspotMap.h"
 
 #include "InputMap.h"
+#include "Profile.h"
 #include "WindowManager.h"
 
 namespace HotspotMap
@@ -27,20 +28,29 @@ kGridSize = (kNormalizedTargetSize >> kNormalizedToGridShift) + 1,
 // Size of each grid cell
 kGridCellSize = (kNormalizedTargetSize + 1) / kGridSize,
 // Maximum (normalized) distance cursor can jump from current position
-kMaxJumpDist = 0x1400,
-kMaxJumpDistSquared = kMaxJumpDist * kMaxJumpDist,
-// Maximum grid squares in each axis to check
-kMaxCheckGridCellsPerAxis = ((kMaxJumpDist * 2 - 1) / kGridCellSize) + 2,
-kMaxCheckGridCells = kMaxCheckGridCellsPerAxis * kMaxCheckGridCellsPerAxis,
+//kDefaultMaxJumpDist = 0x0200,//0x1400,
 // If point is too close, jump FROM it rather than to it
-kMinJumpDist = 0x0100,
-kMinJumpDistSquared = kMinJumpDist * kMinJumpDist,
-// If perpendicular weight exceeds this amount, don't jump to it
-kMaxPerpendicularWeight = 0x07FF,
+kDefaultMinJumpDist = 0x0100,
+// Max leeway in perpindicular direction to still count as "straight"
+kMaxPerpDistForStraightLine = 0x0088,
+// Max leeway for final "columns" step when making link maps
+kMaxLinkMapColumnXDist = 0x0500,
 };
 
-// Higher number = prioritize straighter lines over raw distance
-const int /*float*/ kPerpendicularWeightMult = 2;
+// How much past base jump dest to search for a hotspot to jump to,
+// as a multiplier of Mouse/DefaultHotspotDistance property
+const float kDeviationRadiusMult = 0.75;
+// Higher number = prioritize straighter lines over shorter distances
+const float kPerpPenaltyMult = 1.25;
+// These are used only for generating hotspot link maps, which must
+// guarantee all points can be reached regardless of distance without
+// interim hops so uses a different algorithm than basic jumps
+// Higher number = must be further in X to make a left/right link
+const float kMinSlopeForHorizLink = 0.9f;
+// Higher number = allows for up/down link even when far in X
+const float kMaxSlopeForVertLink = 1.2f;
+// Higher number = prioritize straighter columns over Y distance
+const int /*float*/ kColumnXDistPenaltyMult = 2;
 
 enum ETask
 {
@@ -48,13 +58,19 @@ enum ETask
 	eTask_ActiveArrays,
 	eTask_AddToGrid,
 	eTask_BeginSearch,
-	eTask_FetchFromGrid,
+	eTask_FetchFromGrid, // auto-set by _BeginSearch
 	eTask_NextInDir,
 	// Next 7 are remaining dirs in order from ECommandDir
 
 	eTask_Num = eTask_NextInDir + eCmd8Dir_Num,
 	eTask_None = eTask_Num,
 };
+
+#ifdef HOTSPOT_MAP_DEBUG_PRINT
+#define mapDebugPrint(...) debugPrint("HotspotMap: " __VA_ARGS__)
+#else
+#define mapDebugPrint(...) ((void)0)
+#endif
 
 
 //-----------------------------------------------------------------------------
@@ -82,7 +98,7 @@ static BitVector<> sRequestedArrays;
 static BitVector<> sActiveArrays;
 static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
-static std::vector<GridPos> sFetchGrid(kMaxCheckGridCells);
+static std::vector<GridPos> sFetchGrid;
 static std::vector<u16> sCandidates;
 static std::vector<Links> sLinkMaps;
 static u16 sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
@@ -93,19 +109,227 @@ static POINT sNormalizedCursorPos;
 static BitArray<eTask_Num> sNewTasks;
 static ETask sCurrentTask = eTask_None;
 static int sTaskProgress = 0;
-static u32 sBestCandidateWeight = 0xFFFFFFFF;
-static u16 sIgnorePointInSearch = 0;
+static s32 sBaseJumpDist = 0;
+static s32 sMaxJumpDist = 0;
+static u32 sMaxJumpDistSquared = 0;
+static u32 sMaxDeviationRadiusSquared = 0;
+static u32 sMinJumpDistSquared = kDefaultMinJumpDist * kDefaultMinJumpDist;
+static u32 sBestCandidateDistPenalty = 0xFFFFFFFF;
+
+
+//-----------------------------------------------------------------------------
+// Row class - helper class for generating hotspot link maps
+//-----------------------------------------------------------------------------
+
+enum EHDir { eHDir_L, eHDir_R, eHDir_Num };
+enum EVDir { eVDir_U, eVDir_D, eVDir_Num };
+static EHDir oppositeDir(EHDir theDir)
+{ return theDir == eHDir_L ? eHDir_R : eHDir_L; }
+static EVDir oppositeDir(EVDir theDir)
+{ return theDir == eVDir_U ? eVDir_D : eVDir_U; }
+static int dirDelta(EHDir theDir)
+{ return theDir == eHDir_L ? -1 : 1; }
+static int dirDelta(EVDir theDir)
+{ return theDir == eVDir_U ? -1 : 1; }
+
+class Row
+{
+public:
+	// TYPES & CONSTANTS
+	enum EConnectMethod
+	{
+		eConnectMethod_None,
+		eConnectMethod_Basic,
+		eConnectMethod_Full,
+		eConnectMethod_OffLeftEdge,
+		eConnectMethod_OffRightEdge,
+		eConnectMethod_SplitOut,
+		eConnectMethod_SplitIn,
+	} method[eVDir_Num];
+
+	struct Dot
+	{
+		u16 pointID, x, y, vertLink[eVDir_Num];
+		Dot(u16 thePointID = 0) :
+			pointID(thePointID),
+			x(sPoints[thePointID].x),
+			y(sPoints[thePointID].y),
+			vertLink()
+		{}
+
+		bool operator<(const Dot& rhs) const
+		{ return x <rhs.x; }
+	};
+
+
+	// CONSTRUCTOR
+	Row()
+	{
+		avgY = totalY = 0;
+		for(int i = 0; i < eVDir_Num; ++i)
+			method[i] = eConnectMethod_None;
+		for(int i = 0; i < eHDir_Num; ++i)
+			insideLinkDotIdx[i] = outsideLink[i] = insideLink[i] = 0;
+	}
+
+
+	// MUTATORS
+	void addDot(u16 thePointID)
+	{
+		DBG_ASSERT(thePointID < sPoints.size());
+		mDots.push_back(Dot(thePointID));
+		this->totalY += mDots.back().y;
+		this->avgY = this->totalY / int(mDots.size());
+	}
+	void sortDots() { std::sort(mDots.begin(), mDots.end()); }
+
+
+	// ACCESSORS
+	bool operator<(const Row& rhs) const { return avgY < rhs.avgY; }
+	const Dot& operator[](size_t idx) const { return mDots[idx]; }
+	Dot& operator[](size_t idx) { return mDots[idx]; }
+	bool empty() const { return mDots.empty(); }
+	size_t size() const { return mDots.size(); }
+	const Dot& leftEdgeDot() const { return mDots.front(); }
+	Dot& leftEdgeDot() { return mDots.front(); }
+	const Dot& rightEdgeDot() const { return mDots.back(); }
+	Dot& rightEdgeDot() { return mDots.back(); }
+	Dot& edgeDot(EHDir theDir)
+	{ return theDir == eHDir_L ? leftEdgeDot() : rightEdgeDot(); }
+	const Dot& edgeDot(EHDir theDir) const
+	{ return theDir == eHDir_L ? leftEdgeDot() : rightEdgeDot(); }
+
+	int minX() const { return leftEdgeDot().x; }
+	int maxX() const { return rightEdgeDot().x; }
+	int minXy() const { return leftEdgeDot().y; }
+	int maxXy() const { return rightEdgeDot().y; }
+	int minXp() const { return minX() - kMaxPerpDistForStraightLine; }
+	int maxXp() const { return maxX() + kMaxPerpDistForStraightLine; }
+
+	const size_t closestIdxTo(int theX) const
+	{
+		DBG_ASSERT(!empty());
+		int idx = 0;
+		for(; idx < mDots.size(); ++idx)
+		{
+			if( mDots[idx].x == theX )
+				break;
+			if( mDots[idx].x > theX )
+			{
+				if( idx > 0 && (mDots[idx].x - theX > theX - mDots[idx-1].x) )
+					--idx;
+				break;
+			}
+		}
+		if( idx == mDots.size() )
+			--idx;
+		return idx;
+	}
+
+	size_t nextLeftIdx(int theX) const
+	{
+		DBG_ASSERT(!empty());
+		int idx = int(mDots.size())-1;
+		while(mDots[idx].x > theX)
+			--idx;
+		return max(0, idx);
+	}
+
+	size_t nextRightIdx(int theX) const
+	{
+		DBG_ASSERT(!empty());
+		int idx = 0;
+		while(mDots[idx].x < theX)
+			++idx;
+		return min(mDots.size()-1, idx);
+	}
+	const Dot& nextLeft(int theX) const
+	{ return mDots[nextLeftIdx(theX)]; }
+	const Dot& nextRight(int theX) const
+	{ return mDots[nextRightIdx(theX)]; }
+	Dot& nextLeft(int theX)
+	{ return mDots[nextLeftIdx(theX)]; }
+	Dot& nextRight(int theX)
+	{ return mDots[nextRightIdx(theX)]; }
+	const Dot& closestTo(int theX) const
+	{ return mDots[closestIdxTo(theX)]; }
+	Dot& closestTo(int theX)
+	{ return mDots[closestIdxTo(theX)]; }
+
+	EConnectMethod findConnectMethod(const Row& rhs) const
+	{
+		if( empty() )
+			return eConnectMethod_None;
+
+		if( minX() - rhs.maxX() >
+				abs(minXy() - rhs.maxXy()) * kMinSlopeForHorizLink )
+		{
+			return eConnectMethod_OffLeftEdge;
+		}
+
+		if( rhs.minX() - maxX() >
+				abs(minXy() - rhs.maxXy()) * kMinSlopeForHorizLink )
+		{
+			return eConnectMethod_OffRightEdge;
+		}
+
+		if( minX() >= rhs.minX() && maxX() <= rhs.maxX() )
+		{
+			const size_t aNextR = rhs.nextRightIdx(maxX());
+			const size_t aNextL = rhs.nextLeftIdx(minX());
+			if( aNextR == aNextL + 1 )
+			{
+				if( rhs[aNextR].x - maxX() >
+						abs(rhs[aNextR].y - maxXy()) * kMinSlopeForHorizLink &&
+					minX() - rhs[aNextL].x >
+						abs(rhs[aNextR].y - maxXy()) * kMinSlopeForHorizLink )
+				{ return eConnectMethod_SplitOut; }
+				// Even if not true split out, don't count as "full" either
+				return eConnectMethod_Basic;
+			}
+		}
+
+		if( minX() < rhs.minX() && maxX() > rhs.maxX() )
+		{
+			const size_t aNextR = nextRightIdx(rhs.maxX());
+			const size_t aNextL = nextLeftIdx(rhs.minX());
+			if( aNextR == aNextL + 1 )
+			{
+				if( aNextR - rhs.maxX() >
+						abs(mDots[aNextR].y - rhs.maxXy()) *
+							kMinSlopeForHorizLink &&
+					rhs.minX() - aNextL >
+						abs(mDots[aNextL].y - rhs.minXy()) *
+							kMinSlopeForHorizLink )
+				{ return eConnectMethod_SplitIn; }
+				return eConnectMethod_Basic;
+			}
+		}
+
+		if( min(maxX(), rhs.maxX()) - max(minX(), rhs.minX()) >
+				(maxX() - minX()) * 0.7 )
+		{
+			return eConnectMethod_Full;
+		}
+
+		return eConnectMethod_Basic;
+	}
+
+	// PUBLIC DATA
+	int avgY, totalY;
+	size_t insideLinkDotIdx[eHDir_Num];
+	u16 insideLink[eHDir_Num];
+	u16 outsideLink[eHDir_Num];
+
+private:
+	// PRIVATE DATA
+	std::vector<Dot> mDots;
+};
 
 
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
-
-#ifdef HOTSPOT_MAP_DEBUG_PRINT
-#define mapDebugPrint(...) debugPrint("HotspotMap: " __VA_ARGS__)
-#else
-#define mapDebugPrint(...) ((void)0)
-#endif
 
 static void processTargetSizeTask()
 {
@@ -125,11 +349,28 @@ static void processTargetSizeTask()
 			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
 		}
 		mapDebugPrint(
-			"Updating Hotspot #%d normalized position to %d x %d\n",
-			sTaskProgress, sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
+			"Normalizing Hotspot #%d (%d x %d) position to %d x %d \n",
+			sTaskProgress, anOverlayPos.x, anOverlayPos.y,
+			sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
+	}
+	else if( sTaskProgress == sPoints.size() )
+	{
+		// Calculate jump ranges
+		sBaseJumpDist = max(0, Profile::getInt("Mouse/DefaultHotspotDistance")
+			* sLastUIScale / gWindowUIScale * kNormalizedTargetSize);
+
+		u32 aMaxDeviationRadius = sBaseJumpDist * kDeviationRadiusMult;
+		sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;
+
+		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
+		sBaseJumpDist /= aScaleFactor;
+		sMaxJumpDist /= aScaleFactor;
+		aMaxDeviationRadius /= aScaleFactor;
+		sMaxDeviationRadiusSquared = aMaxDeviationRadius * aMaxDeviationRadius;
+		sMaxJumpDistSquared = sMaxJumpDist * sMaxJumpDist;
 	}
 
-	if( ++sTaskProgress >= sPoints.size() )
+	if( ++sTaskProgress > sPoints.size() )
 		sCurrentTask = eTask_None;
 }
 
@@ -170,7 +411,6 @@ static void processActiveArraysTask()
 			sActiveArrays.set(anArray, enableHotspots);
 			sNewTasks.set(eTask_AddToGrid);
 			sNewTasks.set(eTask_BeginSearch);
-			sNewTasks.set(eTask_FetchFromGrid);
 			for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
 				sNewTasks.set(eTask_NextInDir + aDir);
 			break;
@@ -231,13 +471,13 @@ static void processBeginSearchTask()
 		return;
 	}
 
-	const u32 aMinGridX = u32(clamp(sNormalizedCursorPos.x - kMaxJumpDist,
+	const u32 aMinGridX = u32(clamp(sNormalizedCursorPos.x - sMaxJumpDist,
 		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
-	const u32 aMinGridY = u32(clamp(sNormalizedCursorPos.y - kMaxJumpDist,
+	const u32 aMinGridY = u32(clamp(sNormalizedCursorPos.y - sMaxJumpDist,
 		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
-	const u32 aMaxGridX = u32(clamp(sNormalizedCursorPos.x + kMaxJumpDist,
+	const u32 aMaxGridX = u32(clamp(sNormalizedCursorPos.x + sMaxJumpDist,
 		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
-	const u32 aMaxGridY = u32(clamp(sNormalizedCursorPos.y + kMaxJumpDist,
+	const u32 aMaxGridY = u32(clamp(sNormalizedCursorPos.y + sMaxJumpDist,
 		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
 	GridPos aGridPos = GridPos();
 	for(aGridPos.x = aMinGridX; aGridPos.x <= aMaxGridX; ++aGridPos.x)
@@ -246,6 +486,10 @@ static void processBeginSearchTask()
 			sFetchGrid.push_back(aGridPos);
 	}
 	sCurrentTask = eTask_None;
+	sNewTasks.set(eTask_FetchFromGrid);
+	mapDebugPrint(
+		"Beginning new search starting from %d x %d (normalized)\n",
+		sNormalizedCursorPos.x, sNormalizedCursorPos.y);
 }
 
 
@@ -271,7 +515,7 @@ static void processFetchFromGridTask()
 		const int aDeltaX = aPoint.x - sNormalizedCursorPos.x;
 		const int aDeltaY = aPoint.y - sNormalizedCursorPos.y;
 		const u32 aDist = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
-		if( aDist > kMinJumpDistSquared && aDist < kMaxJumpDistSquared )
+		if( aDist >= sMinJumpDistSquared && aDist < sMaxJumpDistSquared )
 			sCandidates.push_back(aPointIdx);
 	}
 
@@ -283,17 +527,14 @@ static void processFetchFromGridTask()
 static void processNextInDirTask(ECommandDir theDir)
 {
 	if( sTaskProgress == 0 )
-		sBestCandidateWeight = 0xFFFFFFFF;
+		sBestCandidateDistPenalty = 0xFFFFFFFF;
 
 	while(sTaskProgress < sCandidates.size())
 	{
 		const u16 aPointIdx = sCandidates[sTaskProgress++];
-		if( aPointIdx == sIgnorePointInSearch )
-			continue;
-
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		const long dx = aPoint.x - sNormalizedCursorPos.x;
-		const long dy = aPoint.y - sNormalizedCursorPos.y;
+		long dx = aPoint.x - sNormalizedCursorPos.x;
+		long dy = aPoint.y - sNormalizedCursorPos.y;
 		bool inAllowedDir = false;
 		switch(theDir)
 		{
@@ -309,43 +550,62 @@ static void processNextInDirTask(ECommandDir theDir)
 		if( !inAllowedDir )
 			continue;
 
-		u32 aWeight;
+		// Below purposefully skews distances such that x=10, y=10 is just
+		// a distance of 10 instead of the true distance of 14.14~, to act
+		// like a chess board where movement of 1 unit slant-wise is 1x+1y.
+		long aDirDist;
 		switch(theDir)
 		{
-		case eCmd8Dir_L:  aWeight = -dx;					break;
-		case eCmd8Dir_R:  aWeight = dx;						break;
-		case eCmd8Dir_U:  aWeight = -dy;					break;
-		case eCmd8Dir_D:  aWeight = dy;						break;
-		case eCmd8Dir_UL: aWeight = (-dx - dy) / 2;			break;
-		case eCmd8Dir_UR: aWeight = (dx - dy) / 2;			break;
-		case eCmd8Dir_DL: aWeight = (-dx + dy) / 2;			break;
-		case eCmd8Dir_DR: aWeight = (dx + dy) / 2;			break;
+		case eCmd8Dir_L:  aDirDist = -dx;					break;
+		case eCmd8Dir_R:  aDirDist = dx;					break;
+		case eCmd8Dir_U:  aDirDist = -dy;					break;
+		case eCmd8Dir_D:  aDirDist = dy;					break;
+		case eCmd8Dir_UL: aDirDist = (-dx - dy) / 2;		break;
+		case eCmd8Dir_UR: aDirDist = (dx - dy) / 2;			break;
+		case eCmd8Dir_DL: aDirDist = (-dx + dy) / 2;		break;
+		case eCmd8Dir_DR: aDirDist = (dx + dy) / 2;			break;
 		}
-		if( aWeight <= 0 )
+		if( aDirDist <= 0 )
 			continue;
 
-		u32 anAltWeight;
+		long aPerpDist;
 		switch(theDir)
 		{
-		case eCmd8Dir_L:  anAltWeight = abs(dy);			break;
-		case eCmd8Dir_R:  anAltWeight = abs(dy);			break;
-		case eCmd8Dir_U:  anAltWeight = abs(dx);			break;
-		case eCmd8Dir_D:  anAltWeight = abs(dx);			break;
-		case eCmd8Dir_UL: anAltWeight = abs(dx - dy) / 2;	break;
-		case eCmd8Dir_UR: anAltWeight = abs(dx + dy) / 2;	break;
-		case eCmd8Dir_DL: anAltWeight = abs(-dx - dy) / 2;	break;
-		case eCmd8Dir_DR: anAltWeight = abs(dy - dx) / 2;	break;
+		case eCmd8Dir_L:  aPerpDist = abs(dy);				break;
+		case eCmd8Dir_R:  aPerpDist = abs(dy);				break;
+		case eCmd8Dir_U:  aPerpDist = abs(dx);				break;
+		case eCmd8Dir_D:  aPerpDist = abs(dx);				break;
+		case eCmd8Dir_UL: aPerpDist = abs(dx - dy) / 2;		break;
+		case eCmd8Dir_UR: aPerpDist = abs(dx + dy) / 2;		break;
+		case eCmd8Dir_DL: aPerpDist = abs(-dx - dy) / 2;	break;
+		case eCmd8Dir_DR: aPerpDist = abs(dy - dx) / 2;		break;
 		}
-		if( anAltWeight >= aWeight * 2 ||
-			anAltWeight > kMaxPerpendicularWeight )
+
+		// First check if counts as being straight in desired direction,
+		// which gives highest priority (lowest weight), based on dist.
+		if( aPerpDist <= kMaxPerpDistForStraightLine )
+		{
+			if( aDirDist < sBestCandidateDistPenalty )
+			{
+				sNextHotspotInDir[theDir] = aPointIdx;
+				sBestCandidateDistPenalty = aDirDist;
+			}
+			continue;
+		}
+
+		// All others have at least as much penalty as full straight line,
+		// plus their distance from the default no-hotspot-found jump dest.
+		dx = abs(aDirDist - sBaseJumpDist);
+		dy = aPerpDist * kPerpPenaltyMult;
+		const u32 aDistSqFromBaseDest = (dx * dx) + (dy * dy);
+		if( aDistSqFromBaseDest > sMaxDeviationRadiusSquared )
 			continue;
 
-		anAltWeight *= kPerpendicularWeightMult;
-		aWeight += anAltWeight;
-		if( aWeight < sBestCandidateWeight )
+		const u32 aDistPenalty = u32(sMaxJumpDist) + aDistSqFromBaseDest;
+		if( aDistPenalty < sBestCandidateDistPenalty )
 		{
 			sNextHotspotInDir[theDir] = aPointIdx;
-			sBestCandidateWeight = aWeight;
+			sBestCandidateDistPenalty = aDistPenalty;
 		}
 		break;
 	}
@@ -353,7 +613,7 @@ static void processNextInDirTask(ECommandDir theDir)
 	if( sTaskProgress >= sCandidates.size() )
 	{
 		sCurrentTask = eTask_None;
-		if( sNextHotspotInDir[theDir] != 0 && !sIgnorePointInSearch )
+		if( sNextHotspotInDir[theDir] != 0 )
 		{
 			mapDebugPrint("%s hotspot chosen - #%d\n",
 				theDir == eCmd8Dir_L	? "Left":
@@ -401,6 +661,253 @@ static void processTasks()
 }
 
 
+static void safeLinkHotspotRows(
+	std::vector<Row>& theRows,
+	int theRowRangeBegin,
+	int theRowRangeEnd)
+{
+	// Helper function for generating hotspot link map
+	// Guarantees each row has at least one link to adjacent row, so all
+	// points have at least one path to be connected to all others
+	for(int aRowIdx = theRowRangeBegin; aRowIdx < theRowRangeEnd; ++aRowIdx)
+	{
+		Row& aRow = theRows[aRowIdx];
+		for(EVDir aVDir = EVDir(0);
+			aVDir < eVDir_Num; aVDir = EVDir(aVDir+1) )
+		{
+			int aNextRowIdx = aRowIdx + dirDelta(aVDir);
+			if( aNextRowIdx < 0 || aNextRowIdx >= theRows.size() )
+				continue; // leave method as _None
+			Row& aNextRow = theRows[aNextRowIdx];
+			aRow.method[aVDir] = aRow.findConnectMethod(aNextRow);
+
+			switch(aRow.method[aVDir])
+			{
+			case Row::eConnectMethod_None:
+				break;
+			case Row::eConnectMethod_Basic:
+				{// Link points within intersecting X range
+					size_t aFirstDotIdx = 0;
+					size_t aLastDotIdx = aRow.size() - 1;
+					while(aFirstDotIdx < aRow.size() - 1 &&
+						  aRow[aFirstDotIdx].x < aNextRow.minXp())
+					{ ++aFirstDotIdx; }
+					while(aLastDotIdx > 0 &&
+						  aRow[aLastDotIdx].x > aNextRow.maxXp())
+					{ --aLastDotIdx; }
+					if( aFirstDotIdx > aLastDotIdx )
+					{// No dots within intersection area - pick closest
+						const size_t aDotLIdx =
+							aRow.closestIdxTo(aNextRow.minX());
+						const size_t aDotRIdx =
+							aRow.closestIdxTo(aNextRow.maxX());
+						if( abs(aNextRow.maxX() - aRow[aDotRIdx].x) <
+								abs(aNextRow.minX() - aRow[aDotLIdx].x) )
+							{ aFirstDotIdx = aLastDotIdx = aDotRIdx; }
+						else
+							{ aFirstDotIdx = aLastDotIdx = aDotLIdx; }
+					}
+					for(size_t i = aFirstDotIdx; i <= aLastDotIdx; ++i)
+					{
+						if( aRow[i].vertLink[aVDir] == 0 )
+						{
+							const Row::Dot& aLinkDot =
+								aNextRow.closestTo(aRow[i].x);
+							// Don't connect center dots if another is closer
+							if( i <= 0 || i == aRow.size() - 1 ||
+								(aLinkDot.x > aRow[i-1].x &&
+								 aLinkDot.x < aRow[i+1].x) )
+							{
+								aRow[i].vertLink[aVDir] = aLinkDot.pointID;
+							}
+						}
+					}
+				}
+				break;
+			case Row::eConnectMethod_Full:
+				// Link ALL points
+				for(size_t i = 0; i < aRow.size(); ++i)
+				{
+					if( aRow[i].vertLink[aVDir] == 0 )
+					{
+						aRow[i].vertLink[aVDir] =
+							aNextRow.closestTo(aRow[i].x).pointID;
+					}
+				}
+				break;
+			case Row::eConnectMethod_OffLeftEdge:
+				// Link the opposite end points
+				if( aRow.leftEdgeDot().vertLink[aVDir] == 0 &&
+					aRow.outsideLink[eHDir_L] == 0 )
+				{
+					aRow.leftEdgeDot().vertLink[aVDir] =
+						aNextRow.rightEdgeDot().pointID;
+				}
+				break;
+			case Row::eConnectMethod_OffRightEdge:
+				// Link the opposite end points
+				if( aRow.rightEdgeDot().vertLink[aVDir] == 0 &&
+					aRow.outsideLink[eHDir_R] == 0 )
+				{
+					aRow.rightEdgeDot().vertLink[aVDir] =
+						aNextRow.leftEdgeDot().pointID;
+				}
+				break;
+			case Row::eConnectMethod_SplitOut:
+				// Link end points to points just past them on other row
+				if( aRow.leftEdgeDot().vertLink[aVDir] == 0 &&
+					aRow.outsideLink[eHDir_L] == 0 )
+				{
+					aRow.leftEdgeDot().vertLink[aVDir] =
+						aNextRow.nextLeft(aRow.minX()).pointID;
+				}
+				if( aRow.rightEdgeDot().vertLink[aVDir] == 0 &&
+					aRow.outsideLink[eHDir_R] == 0 )
+				{
+					aRow.rightEdgeDot().vertLink[aVDir] =
+						aNextRow.nextRight(aRow.maxX()).pointID;
+				}
+				break;
+			case Row::eConnectMethod_SplitIn:
+				// Link points just outside other row's end points to it
+				if( aRow.nextLeft(aNextRow.minX()).vertLink[aVDir] == 0 &&
+					aRow.insideLink[eHDir_R] == 0 )
+				{
+					aRow.nextLeft(aNextRow.minX()).vertLink[aVDir] =
+						aNextRow.leftEdgeDot().pointID;
+				}
+				if( aRow.nextRight(aNextRow.minX()).vertLink[aVDir] == 0 &&
+					aRow.insideLink[eHDir_L] == 0 )
+				{
+					aRow.nextRight(aNextRow.minX()).vertLink[aVDir] =
+						aNextRow.rightEdgeDot().pointID;
+				}
+				break;
+			}
+		}
+	}
+
+	// Replace certain vertical links with horizontal links instead
+	// This will temporarily break the all-rows-linked guarantee above,
+	// which will then be repaired using the skip row list after this
+	std::vector<size_t> aSkipRowList;
+	for(int aRowIdx = theRowRangeBegin; aRowIdx < theRowRangeEnd; ++aRowIdx)
+	{
+		Row& aRow = theRows[aRowIdx];
+		for(EVDir aVDir = EVDir(0);
+			aVDir < eVDir_Num; aVDir = EVDir(aVDir+1))
+		{
+			if( aRow.method[aVDir] != Row::eConnectMethod_OffLeftEdge &&
+				aRow.method[aVDir] != Row::eConnectMethod_OffRightEdge &&
+				aRow.method[aVDir] != Row::eConnectMethod_SplitOut &&
+				aRow.method[aVDir] != Row::eConnectMethod_SplitIn )
+			{ continue; }
+
+			const int aNextRowIdx = aRowIdx + dirDelta(aVDir);
+			DBG_ASSERT(aNextRowIdx >= 0 && aNextRowIdx < theRows.size());
+			// If same method in both directions, only process closer in Y
+			const bool isBidirectional =
+				aRow.method[aVDir] == aRow.method[oppositeDir(aVDir)];
+			if( isBidirectional && aVDir == 0 )
+			{
+				const int aPrevRowIdx = aRowIdx - dirDelta(aVDir);
+				DBG_ASSERT(aPrevRowIdx >= 0 && aPrevRowIdx < theRows.size());
+				const int aNextYDist =
+					abs(aRow.avgY - theRows[aNextRowIdx].avgY);
+				const int aPrevYDist =
+					abs(aRow.avgY - theRows[aPrevRowIdx].avgY);
+				if( aPrevYDist < aNextYDist )
+					continue; // allow loop to process other dir instead 
+			}
+			Row& aNextRow = theRows[aRowIdx + dirDelta(aVDir)];
+
+			switch(aRow.method[aVDir])
+			{
+			case Row::eConnectMethod_OffLeftEdge:
+			case Row::eConnectMethod_OffRightEdge:
+				{// Horizontally link theRows separated far in X
+					const EHDir aHDir =
+						aRow.method[aVDir] == Row::eConnectMethod_OffLeftEdge
+							? eHDir_L : eHDir_R;
+					if( aRow.outsideLink[aHDir] )
+						break;
+					aRow.outsideLink[aHDir] =
+						aNextRow.edgeDot(oppositeDir(aHDir)).pointID;
+					aRow.edgeDot(aHDir).vertLink[aVDir] = 0;
+					if( isBidirectional )
+						aRow.edgeDot(aHDir).vertLink[oppositeDir(aVDir)] = 0;
+				}
+				break;
+			case Row::eConnectMethod_SplitOut:
+				if( aRow.outsideLink[eHDir_L] ||
+					aRow.outsideLink[eHDir_R] )
+				{ break; }
+
+				// Convert to horizontal links in both directions
+				aRow.outsideLink[eHDir_L] =
+					aNextRow.nextLeft(aRow.minX()).pointID;
+				aRow.outsideLink[eHDir_R] =
+					aNextRow.nextRight(aRow.minX()).pointID;
+				aRow.leftEdgeDot().vertLink[aVDir] = 0;
+				aRow.rightEdgeDot().vertLink[aVDir] = 0;
+				if( isBidirectional )
+				{
+					aRow.leftEdgeDot().vertLink[oppositeDir(aVDir)] = 0;
+					aRow.rightEdgeDot().vertLink[oppositeDir(aVDir)] = 0;
+				}
+				break;
+			case Row::eConnectMethod_SplitIn:
+				if( aRow.insideLink[eHDir_L] ||
+					aRow.insideLink[eHDir_R] )
+				{ break; }
+
+				// Left to smaller row's right-most dot
+				aRow.insideLinkDotIdx[eHDir_L] =
+					aRow.nextRightIdx(aNextRow.maxX());
+				aRow.insideLink[eHDir_L] =
+					aNextRow.rightEdgeDot().pointID;
+				aRow[aRow.insideLinkDotIdx[eHDir_L]].vertLink[aVDir] = 0;
+
+				// Right to smaller row's left-most dot
+				aRow.insideLinkDotIdx[eHDir_R] =
+					aRow.nextLeftIdx(aNextRow.minX());
+				aRow.insideLink[eHDir_R] =
+					aNextRow.leftEdgeDot().pointID;
+				aRow[aRow.insideLinkDotIdx[eHDir_R]].vertLink[aVDir] = 0;
+
+				if( isBidirectional )
+				{
+					aRow[aRow.insideLinkDotIdx[eHDir_L]]
+						.vertLink[oppositeDir(aVDir)] = 0;
+					aRow[aRow.insideLinkDotIdx[eHDir_R]]
+						.vertLink[oppositeDir(aVDir)] = 0;
+				}
+				break;
+			}
+
+			if( isBidirectional )
+			{
+				aSkipRowList.push_back(aRowIdx);
+				break;
+			}
+		}
+	}
+
+	for(size_t i = 0; i < aSkipRowList.size(); ++i)
+	{
+		// Recursively use this function as if this row didn't exist,
+		// allowing rows to link to other rows by skipping over
+		// problematic ones (bi-directional splits and offsets).
+		Row aTmpRow = theRows[aSkipRowList[i]];
+		theRows.erase(theRows.begin() + aSkipRowList[i]);
+		safeLinkHotspotRows(theRows,
+			max(0, aSkipRowList[i]-1),
+			min(int(theRows.size()), aSkipRowList[i]+1));
+		theRows.insert(theRows.begin() + aSkipRowList[i], aTmpRow);
+	}
+}
+
+
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
@@ -410,6 +917,7 @@ void init()
 	DBG_ASSERT(sPoints.empty());
 	const u16 aHotspotsCount = InputMap::hotspotCount();
 	const u16 aHotspotArraysCount = InputMap::hotspotArrayCount();
+	sFetchGrid.reserve(kGridSize * kGridSize);
 	sPoints.reserve(aHotspotsCount);
 	sPoints.resize(aHotspotsCount);
 	sRequestedArrays.clearAndResize(aHotspotArraysCount);
@@ -454,7 +962,6 @@ void update()
 		sNewTasks.set(eTask_TargetSize);
 		sNewTasks.set(eTask_AddToGrid);
 		sNewTasks.set(eTask_BeginSearch);
-		sNewTasks.set(eTask_FetchFromGrid);
 		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
 			sNewTasks.set(eTask_NextInDir + aDir);
 	}
@@ -475,7 +982,6 @@ void update()
 				kNormalizedTargetSize / aScaleFactor;
 		}
 		sNewTasks.set(eTask_BeginSearch);
-		sNewTasks.set(eTask_FetchFromGrid);
 		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
 			sNewTasks.set(eTask_NextInDir + aDir);
 	}
@@ -553,51 +1059,131 @@ const Links& getLinks(u16 theArrayID)
 	const u16 aLastHotspot = InputMap::lastHotspotInArray(theArrayID);
 	const u16 aNodeCount = aLastHotspot - aFirstHotspot + 1;
 	sLinkMaps[theArrayID].resize(aNodeCount);
+	if( aNodeCount == 1 ) return sLinkMaps[theArrayID];
 
-	// Backup some state of normal Hotspot Map search around cursor
-	const BitVector<> oldRequestedArrays = sRequestedArrays;
-	const POINT oldNormalizedCursorPos = sNormalizedCursorPos;
+	// Make sure hotspots' normalized positions have been assigned
+	while(sNewTasks.test(eTask_TargetSize) ||
+		  sCurrentTask == eTask_TargetSize)
+	{ processTasks(); }
 
-	// Setup overall hotspot map as having just this array active
-	sRequestedArrays.reset(); sRequestedArrays.set(theArrayID);
-	sNewTasks.set(eTask_ActiveArrays);
-	while(sCurrentTask != eTask_None || sNewTasks.test(eTask_ActiveArrays))
-		processTasks();
-
-	// Don't use the grid since want full range - manually generate candidates
-	sCandidates.clear();
-	sCandidates.reserve(aNodeCount);
-	sNewTasks.reset();
-	for(u16 i = 0; i < sPoints.size(); ++i)
+	// Assign the hotspots to "dots" in "rows" (nearly-matching Y values)
+	std::vector<Row> aRowVec; aRowVec.reserve(aNodeCount);
+	for(u16 aPointIdx = aFirstHotspot;
+		aPointIdx <= aLastHotspot; ++aPointIdx)
 	{
-		if( sPoints[i].enabled )
-			sCandidates.push_back(i);
+		TrackedPoint& aPoint = sPoints[aPointIdx];
+		bool addedToExistingRow = false;
+		for(size_t aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
+		{
+			Row& aRow = aRowVec[aRowIdx];
+			const int aYDist = abs(aRow.avgY - signed(aPoint.y));
+			if( aYDist <= kMaxPerpDistForStraightLine )
+			{
+				aRow.addDot(aPointIdx);
+				addedToExistingRow = true;
+			}
+		}
+		if( !addedToExistingRow )
+		{
+			aRowVec.push_back(Row());
+			aRowVec.back().addDot(aPointIdx);
+		}
 	}
 
-	// Check each hotspot/node for where mouse would go next
-	for(u16 aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
+	// Sort the dots horizontally in each row
+	for(size_t aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
+		aRowVec[aRowIdx].sortDots();
+
+	// Sort the rows from top to bottom
+	std::sort(aRowVec.begin(), aRowVec.end());
+	
+	// Generate vertical links with guarantee all points can be reached
+	// (even if not always by the most convenient route)
+	safeLinkHotspotRows(aRowVec, 0, int(aRowVec.size()));
+
+	// Add extra vertical links for columns by allowing row skips
+	for(int aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
 	{
-		HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
-		// Make sure not to return the origin hotspot itself
-		sIgnorePointInSearch = aFirstHotspot + aNodeIdx;
-		sNormalizedCursorPos.x = sPoints[sIgnorePointInSearch].x;
-		sNormalizedCursorPos.y = sPoints[sIgnorePointInSearch].y;
-		for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
+		Row& aRow = aRowVec[aRowIdx];
+		for(EVDir aVDir = EVDir(0);
+			aVDir < eVDir_Num; aVDir = EVDir(aVDir+1))
 		{
-			sNextHotspotInDir[aDir] = 0;
-			sNewTasks.set(eTask_NextInDir + aDir);
+			for(size_t aDotIdx = 0; aDotIdx < aRow.size(); ++aDotIdx)
+			{
+				Row::Dot& aFromDot = aRow[aDotIdx];
+				u32 aBestCandidateDistPenalty = 0xFFFFFFFF;
+				if( aFromDot.vertLink[aVDir] != 0 )
+					continue;
+
+				for(int aNextRowIdx = aRowIdx + dirDelta(aVDir);
+					aNextRowIdx >= 0 && aNextRowIdx < aRowVec.size();
+					aNextRowIdx += dirDelta(aVDir))
+				{
+					Row::Dot& aToDot =
+						aRowVec[aNextRowIdx].closestTo(aFromDot.x);
+					const u32 aDistX = abs(aFromDot.x - aToDot.x);
+					const u32 aDistY = abs(aFromDot.y - aToDot.y);
+					if( aDistX > kMaxLinkMapColumnXDist )
+						continue;
+					if( aDistX > aDistY * kMaxSlopeForVertLink )
+						continue;
+					const u32 aDistPenalty =
+						aDistY + aDistX * kColumnXDistPenaltyMult;
+					if( aDistPenalty < aBestCandidateDistPenalty ) 
+					{
+						aFromDot.vertLink[aVDir] = aToDot.pointID;
+						aBestCandidateDistPenalty = aDistPenalty;
+					}
+				}
+			}
 		}
-		while(sCurrentTask != eTask_None || sNewTasks.any())
-			processTasks();
-		for(int i = 0; i < eCmdDir_Num; ++i)
+	}
+
+	// Convert finalized Row data into HotspotLinkNode data
+	for(int aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
+	{
+		Row& aRow = aRowVec[aRowIdx];
+		for(size_t aDotIdx = 0; aDotIdx < aRow.size(); ++aDotIdx )
 		{
-			aNode.next[i] = aNodeIdx;
-			if( sNextHotspotInDir[i] == 0 )
-				aNode.edge[i] = true;
+			Row::Dot& aDot = aRow[aDotIdx];
+			u16 aPointInDir[eCmdDir_Num];
+			aPointInDir[eCmdDir_U] = aDot.vertLink[eVDir_U];
+			aPointInDir[eCmdDir_D] = aDot.vertLink[eVDir_D];
+			if( aDotIdx == 0 )
+				{ aPointInDir[eCmdDir_L] = aRow.outsideLink[eHDir_L]; }
+			else if( aRow.insideLink[eHDir_L] != 0 &&
+					 aRow.insideLinkDotIdx[eHDir_L] == aDotIdx )
+				{ aPointInDir[eCmdDir_L] = aRow.insideLink[eHDir_L]; }
 			else
-				aNode.next[i] = sNextHotspotInDir[i] - aFirstHotspot;
+				{ aPointInDir[eCmdDir_L] = aRow[aDotIdx-1].pointID; }
+
+			if( aDotIdx == aRow.size() - 1 )
+				{ aPointInDir[eCmdDir_R] = aRow.outsideLink[eHDir_R]; }
+			else if( aRow.insideLink[eHDir_R] != 0 &&
+					 aRow.insideLinkDotIdx[eHDir_R] == aDotIdx )
+				{ aPointInDir[eCmdDir_R] = aRow.insideLink[eHDir_R]; }
+			else
+				{ aPointInDir[eCmdDir_R] = aRow[aDotIdx+1].pointID; }
+
+			const u16 aNodeIdx = aDot.pointID - aFirstHotspot;
+			HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
+			for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
+			{
+				if( aPointInDir[aDir] == 0 )
+				{
+					aNode.next[aDir] = aNodeIdx;
+					aNode.edge[aDir] = true;
+				}
+				else
+				{
+					DBG_ASSERT(aPointInDir[aDir] >= aFirstHotspot);
+					aNode.next[aDir] = aPointInDir[aDir] - aFirstHotspot;
+					aNode.edge[aDir] = false;
+				}
+			}
 		}
 	}
+
 	// Add wrap-around options for edge nodes
 	for(u16 aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
@@ -612,19 +1198,6 @@ const Links& getLinks(u16 theArrayID)
 				aWrapNode = sLinkMaps[theArrayID][aWrapNode].next[anOppDir];
 			aNode.next[aDir] = aWrapNode;
 		}
-	}
-
-	// Restore normal functionality of searching around mouse cursor
-	sRequestedArrays = oldRequestedArrays;
-	sNewTasks.set(eTask_ActiveArrays);
-	sNormalizedCursorPos = oldNormalizedCursorPos;
-	sIgnorePointInSearch = 0;
-	sNewTasks.set(eTask_BeginSearch);
-	sNewTasks.set(eTask_FetchFromGrid);
-	for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
-	{
-		sNextHotspotInDir[aDir] = 0;
-		sNewTasks.set(eTask_NextInDir + aDir);
 	}
 
 	return sLinkMaps[theArrayID];

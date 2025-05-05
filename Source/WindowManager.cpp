@@ -1259,8 +1259,8 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 	result.x = u16ToRangeVal(result.x, sTargetSize.cx);
 	result.y = u16ToRangeVal(result.y, sTargetSize.cy);
 	// Add pixel offset w/ UI Scale applied
-	result.x += theHotspot.x.offset * gUIScale;
-	result.y += theHotspot.y.offset * gUIScale;
+	result.x += LONG(theHotspot.x.offset * gUIScale);
+	result.y += LONG(theHotspot.y.offset * gUIScale);
 	// Clamp to within client rect range
 	result.x = clamp(result.x, 0, sTargetSize.cx - 1);
 	result.y = clamp(result.y, 0, sTargetSize.cy - 1);
