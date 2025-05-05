@@ -1915,11 +1915,11 @@ void update()
 			aCmd.type = eCmdType_MoveMouseToHotspot;
 			aCmd.hotspotID = aNextHotspot;
 		}
-		//else
-		//{
-		//	aCmd.type = eCmdType_MoveMouseToOffset;
-		//	aCmd.dir = sResults.selectHotspotDir;
-		//}
+		else
+		{
+			aCmd.type = eCmdType_MoveMouseToOffset;
+			aCmd.dir = sResults.selectHotspotDir;
+		}
 		InputDispatcher::moveMouseTo(aCmd);
 	}
 	InputDispatcher::moveMouse(

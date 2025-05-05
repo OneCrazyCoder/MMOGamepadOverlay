@@ -722,7 +722,7 @@ private:
 	std::string mPath; // Object/array path to current value
 	int mPathsFoundCount;
 
-	inline void pushState(EState theState)
+	void pushState(EState theState)
 	{
 		State aNewState;
 		aNewState.type = theState;
@@ -732,7 +732,7 @@ private:
 		mState.push_back(aNewState);
 	}
 
-	inline void popState()
+	void popState()
 	{
 		mState.pop_back();
 		mPath.resize(mState.back().pathLen);
@@ -1192,7 +1192,7 @@ private:
 	static const size_t kTimestampSuffixSize =
 		kTimestampMarkerSize + sizeof(u64) + 1 /* traling null */;
 
-	inline u64 extractTimestamp(const std::vector<BYTE>& theData) const
+	u64 extractTimestamp(const std::vector<BYTE>& theData) const
 	{
 		u64 result = 0xFFFFFFFFFFFFFFFFULL;
 		if( theData.size() <= 1 + kTimestampSuffixSize )
@@ -1210,7 +1210,7 @@ private:
 		return result;
 	}
 
-	inline bool appendTimestamp(std::vector<BYTE>& theData)
+	bool appendTimestamp(std::vector<BYTE>& theData)
 	{
 		if( theData.empty() || theData.back() != '\0' )
 			return false;
@@ -1243,7 +1243,7 @@ private:
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static inline FILETIME getFileLastModTime(const ConfigFile& theFile)
+static FILETIME getFileLastModTime(const ConfigFile& theFile)
 {
 	WIN32_FILE_ATTRIBUTE_DATA aFileAttr;
 	if( GetFileAttributesEx(theFile.pathW.c_str(),
@@ -1256,7 +1256,7 @@ static inline FILETIME getFileLastModTime(const ConfigFile& theFile)
 }
 
 
-static inline bool isRegistryPath(const std::string thePath)
+static bool isRegistryPath(const std::string thePath)
 {
 	return
 		thePath.size() > 2 &&
@@ -1265,7 +1265,7 @@ static inline bool isRegistryPath(const std::string thePath)
 }
 
 
-static inline std::string normalizedPath(std::string thePath)
+static std::string normalizedPath(std::string thePath)
 {
 	if( thePath.size() >= 4 )
 	{
@@ -1302,7 +1302,7 @@ static inline std::string normalizedPath(std::string thePath)
 }
 
 
-static inline HKEY getRootKeyHandle(const std::string& root)
+static HKEY getRootKeyHandle(const std::string& root)
 {
 	if( root == "HKEY_LOCAL_MACHINE" )	return HKEY_LOCAL_MACHINE;
 	if( root == "HKEY_CURRENT_USER" )	return HKEY_CURRENT_USER;
@@ -1505,7 +1505,7 @@ static bool setConfigValueLinks(
 }
 
 
-static inline EValueSetType funcToValueSetType(EValueFunction theFunc)
+static EValueSetType funcToValueSetType(EValueFunction theFunc)
 {
 	return theFunc == eValueFunc_Base
 		? eValueSetType_Single
@@ -1576,7 +1576,7 @@ static EPropertyType extractPropertyType(const SyncProperty& theProperty)
 }
 
 
-static inline double anchorTypeToSubTypeValue(
+static double anchorTypeToSubTypeValue(
 	const double* theValArray,
 	EValueSetSubType theSubType)
 {
@@ -1613,7 +1613,7 @@ static inline double anchorTypeToSubTypeValue(
 }
 
 
-static inline double getSubTypeValue(
+static double getSubTypeValue(
 	const double* theValArray,
 	EValueSetSubType theSubType)
 {

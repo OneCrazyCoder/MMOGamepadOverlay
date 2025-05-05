@@ -96,8 +96,7 @@ struct Config
 	int moveLookSpeed;
 	int mouseWheelSpeed;
 	int mouseLookAutoRestoreTime;
-	u16 offsetHotspotX;
-	u16 offsetHotspotY;
+	u16 offsetHotspotDist;
 	u16 baseKeyReleaseLockTime;
 	u16 mouseClickLockTime;
 	u16 mouseReClickLockTime;
@@ -150,8 +149,7 @@ struct Config
 		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 50), 0, 100) / 100.0;
 		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad/CancelAutoRunThreshold", 80) / 100.0 * 255.0, 0, 255);
 		mouseLookAutoRestoreTime = Profile::getInt("System/MouseLookAutoRestoreTime");
-		offsetHotspotX = max(0, Profile::getInt("Mouse/DefaultHotspotXDistance"));
-		offsetHotspotY = max(0, Profile::getInt("Mouse/DefaultHotspotXDistance"));
+		offsetHotspotDist = max(0, Profile::getInt("Mouse/DefaultHotspotDistance"));
 
 		std::string aString = Profile::getStr("System/SafeAsyncKeys");
 		if( !aString.empty() )
@@ -2512,31 +2510,40 @@ void moveMouseTo(const Command& theCommand)
 	case eCmdType_MoveMouseToOffset:
 		aDestHotspot =
 			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
-		switch(theCommand.dir)
 		{
-		case eCmd8Dir_L:
-		case eCmd8Dir_UL:
-		case eCmd8Dir_DL:
-			aDestHotspot.x.offset -= kConfig.offsetHotspotX;
-			break;
-		case eCmd8Dir_R:
-		case eCmd8Dir_UR:
-		case eCmd8Dir_DR:
-			aDestHotspot.x.offset += kConfig.offsetHotspotX;
-			break;
-		}
-		switch(theCommand.dir)
-		{
-		case eCmd8Dir_U:
-		case eCmd8Dir_UL:
-		case eCmd8Dir_UR:
-			aDestHotspot.y.offset -= kConfig.offsetHotspotY;
-			break;
-		case eCmd8Dir_D:
-		case eCmd8Dir_DL:
-		case eCmd8Dir_DR:
-			aDestHotspot.y.offset += kConfig.offsetHotspotY;
-			break;
+			// Counter effect of gWindowUIScale on base jump distance
+			const s16 anOffsetDist =
+				gWindowUIScale < 1.0
+					? ceil(kConfig.offsetHotspotDist / gWindowUIScale) :
+				gWindowUIScale > 1.0
+					? floor(kConfig.offsetHotspotDist / gWindowUIScale) :
+				kConfig.offsetHotspotDist;
+			switch(theCommand.dir)
+			{
+			case eCmd8Dir_L:
+			case eCmd8Dir_UL:
+			case eCmd8Dir_DL:
+				aDestHotspot.x.offset -= anOffsetDist;
+				break;
+			case eCmd8Dir_R:
+			case eCmd8Dir_UR:
+			case eCmd8Dir_DR:
+				aDestHotspot.x.offset += anOffsetDist;
+				break;
+			}
+			switch(theCommand.dir)
+			{
+			case eCmd8Dir_U:
+			case eCmd8Dir_UL:
+			case eCmd8Dir_UR:
+				aDestHotspot.y.offset -= anOffsetDist;
+				break;
+			case eCmd8Dir_D:
+			case eCmd8Dir_DL:
+			case eCmd8Dir_DR:
+				aDestHotspot.y.offset += anOffsetDist;
+				break;
+			}
 		}
 		break;
 	default:

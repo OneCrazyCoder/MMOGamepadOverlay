@@ -531,7 +531,7 @@ static void loadBitmapFile(
 }
 
 
-static inline POINT hotspotToPoint(
+static POINT hotspotToPoint(
 	const Hotspot& theHotspot,
 	const SIZE& theTargetSize)
 {
@@ -546,7 +546,7 @@ static inline POINT hotspotToPoint(
 }
 
 
-static inline SIZE hotspotToSize(
+static SIZE hotspotToSize(
 	const Hotspot& theHotspot,
 	const SIZE& theTargetSize)
 {
@@ -2137,7 +2137,7 @@ void init()
 			hi.drawPriority = -127; // Lower than any can be manually set to
 			hi.maxAlpha = Profile::getInt(kHotspotGuideAlpha);
 			hi.delayUntilInactive =
-				max(0, Profile::getInt(kHotspotGuideDisplayTime));
+				max(0, Profile::getInt(kHotspotGuideDisplayTime, 1000));
 			hi.inactiveAlpha = 0;
 			aVal = max(1, u32FromString(
 				getDefaultHUDPropStr(eHUDProp_FadeInTime)));
@@ -2147,10 +2147,10 @@ void init()
 			hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
 			Appearance anAppearance = sAppearances[eAppearanceMode_Normal];
 			anAppearance.itemColor = strToRGB(aHUDBuilder,
-				Profile::getStr(kHotspotGuideRGB));
+				Profile::getStr(kHotspotGuideRGB, "128, 128, 128"));
 			hi.appearanceID[eAppearanceMode_Normal] =
 				getOrCreateAppearanceID(anAppearance);
-			hi.radius = max(1, Profile::getInt(kHotspotGuideSize) / 2);
+			hi.radius = max(1, Profile::getInt(kHotspotGuideSize, 6) / 2);
 			sHotspotGuideHUDElementID = aHUDElementID;
 			continue;
 		}
