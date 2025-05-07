@@ -86,7 +86,7 @@ void cleanup()
 }
 
 
-const Command& selectedMenuItemCommand(u16 theMenuID)
+Command selectedMenuItemCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -118,11 +118,11 @@ const Command& selectedMenuItemCommand(u16 theMenuID)
 		gConfirmedMenuItem[aMenuInfo.hudElementID] = aSelection;
 	}
 
-	return InputMap::commandForMenuItem(aSubMenuID, aSelection);
+	return result;
 }
 
 
-const Command& selectMenuItem(
+Command selectMenuItem(
 	u16 theMenuID,
 	ECommandDir theDir,
 	bool wrap,
@@ -283,7 +283,7 @@ const Command& selectMenuItem(
 }
 
 
-const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID)
+Command openSubMenu(u16 theMenuID, u16 theSubMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theSubMenuID));
@@ -319,7 +319,7 @@ const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID)
 }
 
 
-const Command& swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir)
+Command swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -455,13 +455,14 @@ const Command& swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir)
 }
 
 
-const Command* closeLastSubMenu(u16 theMenuID)
+Command closeLastSubMenu(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
 	DBG_ASSERT(itr != sMenuInfo.end());
 	MenuInfo& aMenuInfo = itr->second;
 	const u16 oldMenuItemCount = itemCount(theMenuID);
+	Command result;
 
 	// Even if no actual change made, mark menu as having been interacted with
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
@@ -471,7 +472,7 @@ const Command* closeLastSubMenu(u16 theMenuID)
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	if( aMenuInfo.subMenuStack.size() == 1 &&
 		aMenuInfo.subMenuStack[0].id == theMenuID )
-		return null;
+		return result;
 
 	const s16 aStackDepth = aMenuInfo.subMenuStack.back().depth;
 	if( aStackDepth == 0 )
@@ -479,14 +480,18 @@ const Command* closeLastSubMenu(u16 theMenuID)
 		if( aMenuInfo.style == eMenuStyle_Slots )
 		{// Swap back to root menu
 			if( aMenuInfo.subMenuStack.back().id == theMenuID )
-				return null;
+				return result;
 			swapMenu(theMenuID, theMenuID, eCmdDir_None);
-			const Command& aCmd =
+			result =
 				InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
-			return &aCmd;
+			// Make sure even if command is empty caller knows change happened
+			if( result.type == eCmdType_Empty )
+				result.type = eCmdType_Unassigned;
+			return result;
 		}
 		// Reset back to root menu
-		return reset(theMenuID);
+		result = reset(theMenuID);
+		return result;
 	}
 
 	// Remove all sub menus at same depth as current to pop back to parent
@@ -498,19 +503,23 @@ const Command* closeLastSubMenu(u16 theMenuID)
 	DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
 	if( oldMenuItemCount != itemCount(theMenuID) )
 		gReshapeHUD.set(aMenuInfo.hudElementID);
-	const Command& aCmd =
+	result =
 		InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
-	return &aCmd;
+	// Make sure even if command is empty caller knows change happened
+	if( result.type == eCmdType_Empty )
+		result.type = eCmdType_Unassigned;
+	return result;
 }
 
 
-const Command* reset(u16 theMenuID, u16 toItemNo)
+Command reset(u16 theMenuID, u16 toItemNo)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
 	DBG_ASSERT(itr != sMenuInfo.end());
 	MenuInfo& aMenuInfo = itr->second;
 	const u16 oldMenuItemCount = itemCount(theMenuID);
+	Command result;
 
 	if( aMenuInfo.subMenuStack.size() > 1 ||
 		aMenuInfo.subMenuStack.back().id != theMenuID ||
@@ -528,16 +537,18 @@ const Command* reset(u16 theMenuID, u16 toItemNo)
 		DBG_ASSERT(aMenuInfo.hudElementID < gReshapeHUD.size());
 		if( oldMenuItemCount != itemCount(theMenuID) )
 			gReshapeHUD.set(aMenuInfo.hudElementID);
-		const Command& aCmd =
+		result =
 			InputMap::menuAutoCommand(theMenuID);
-		return &aCmd;
+		// Make sure even if command is empty caller knows change happened
+		if( result.type == eCmdType_Empty )
+			result.type = eCmdType_Unassigned;
 	}
 
-	return null;
+	return result;
 }
 
 
-const Command& autoCommand(u16 theMenuID)
+Command autoCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -549,7 +560,7 @@ const Command& autoCommand(u16 theMenuID)
 }
 
 
-const Command& backCommand(u16 theMenuID)
+Command backCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	VectorMap<u16, MenuInfo>::iterator itr = sMenuInfo.find(theMenuID);
@@ -561,7 +572,7 @@ const Command& backCommand(u16 theMenuID)
 }
 
 
-const Command& closeCommand(u16 theMenuID)
+Command closeCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
 	return InputMap::menuBackCommand(theMenuID);

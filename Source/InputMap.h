@@ -19,6 +19,9 @@ namespace InputMap
 // Load the input mappings and macro sets from current profile
 void loadProfile();
 
+// COMMANDS
+const char* cmdStr(const Command& theCommand);
+
 // KEYBINDS
 u16 keyForSpecialAction(ESpecialKey theAction);
 const Command& keyBindArrayCommand(u16 theArrayID, u16 theIndex);
@@ -71,10 +74,10 @@ const BitVector<>& layersToAutoAddWith(u16 theLayerID);
 u16 comboLayerID(u16 theLayerID1, u16 theLayerID2);
 
 // MENUS
-const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
-const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir);
-const Command& menuAutoCommand(u16 theMenuID);
-const Command& menuBackCommand(u16 theMenuID);
+Command commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
+Command commandForMenuDir(u16 theMenuID, ECommandDir theDir);
+Command menuAutoCommand(u16 theMenuID);
+Command menuBackCommand(u16 theMenuID);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
 u16 menuHotspotArray(u16 theMenuID); // for eMenuStyle_Hotspots only

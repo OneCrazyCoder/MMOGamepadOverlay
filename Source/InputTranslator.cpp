@@ -998,10 +998,10 @@ static void processCommand(
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuReset:
-		if( const Command* aCmdPtr =
-				Menus::reset(theCmd.menuID, theCmd.menuItemIdx) )
+		aForwardCmd = Menus::reset(theCmd.menuID, theCmd.menuItemIdx);
+		if( aForwardCmd.type != eCmdType_Empty )
 		{
-			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			sResults.menuAutoCommandRun.set(theCmd.menuID);
 		}
 		moveMouseToSelectedMenuItem(theCmd);
@@ -1031,9 +1031,10 @@ static void processCommand(
 	case eCmdType_MenuBack:
 		processCommand(theBtnState,
 			Menus::backCommand(theCmd.menuID), theLayerIdx);
-		if( const Command* aCmdPtr = Menus::closeLastSubMenu(theCmd.menuID) )
+		aForwardCmd = Menus::closeLastSubMenu(theCmd.menuID);
+		if( aForwardCmd.type != eCmdType_Empty )
 		{
-			processCommand(theBtnState, *aCmdPtr, theLayerIdx);
+			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			moveMouseToSelectedMenuItem(theCmd);
 		}
 		break;
@@ -1853,7 +1854,7 @@ void update()
 	// Execute commands by active layers in response to fired signals
 	BitVector<> aFiredSignals(gFiredSignals);
 	gFiredSignals.reset();
-	aFiredSignals.reset(eBtn_None);
+	aFiredSignals.reset(eBtn_None); // dummy signal, ignored
 	if( aFiredSignals.any() )
 	{
 		for(size_t i = 0; i < sState.signalCommands.size(); ++i)

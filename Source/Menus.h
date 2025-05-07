@@ -28,43 +28,43 @@ void cleanup();
 // on the currently-active sub-menu ID.
 
 // Returns Command to execute for the selected menu item of given menu
-const Command& selectedMenuItemCommand(u16 theMenuID);
+Command selectedMenuItemCommand(u16 theMenuID);
 
 // Changes currently selected menu item.
 // In some menu styles, the act of selecting a menu item should also
 // trigger an associated Command to execute immediately, which is returned.
-const Command&
-selectMenuItem(u16 theMenuID, ECommandDir theDir, bool wrap, bool repeat);
+Command selectMenuItem(u16 theMenuID, ECommandDir, bool wrap, bool repeat);
 
 // Opens a sub-menu, meaning all references to the menu ID will actually refer
 // to the sub-menu's data instead untli it is close. Returns its Auto command.
-const Command& openSubMenu(u16 theMenuID, u16 theSubMenuID);
+Command openSubMenu(u16 theMenuID, u16 theSubMenuID);
 
 // Similar result to openSubMenu but replaces current menu entirely instead
 // of adding it to menu stack, changing how closeLastSubMenu() below behaves.
 // Note that this does NOT trigger the "Back" command of replaced menu!
-const Command& swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir);
+Command swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir);
 
 // Removes the most recently-added sub-menu (via openSubMenu), returning to
 // whichever sub-menu (or the root menu) was active before then.
-// Returns NULL if were already at the root menu and thus did nothing,
-// otherwise pointer to Auto command of the now-active parent menu.
-const Command* closeLastSubMenu(u16 theMenuID);
+// Returned command will be _Empty if were already at the root menu and thus
+// did nothing, otherwise will be the Auto command of the now-active parent
+// menu (which will at least be of type _Unassigned rather than _Empty)
+Command closeLastSubMenu(u16 theMenuID);
 
 // Resets menu to its default state (closes all sub-menus & resets selection),
 // but does NOT trigger this as "activating" the menu in terms of alpha fade.
-// Returns menu's Auto command if anything changed, otherwise NULL.
-const Command* reset(u16 theMenuID, u16 toItemNo = 1);
+// Return value works like closeLastSubMenu (returns _Empty if did nothing).
+Command reset(u16 theMenuID, u16 toItemNo = 1);
 
 // Returns Auto command of menu's currently-active sub-menu
-const Command& autoCommand(u16 theMenuID);
+Command autoCommand(u16 theMenuID);
 
 // Returns Back command of menu's currently-active sub-menu
-const Command& backCommand(u16 theMenuID);
+Command backCommand(u16 theMenuID);
 
 // Returns Back command of root menu, which should "close" the menu by
 // removing whatever layer controls it (that's the intent anyway)
-const Command& closeCommand(u16 theMenuID);
+Command closeCommand(u16 theMenuID);
 
 // Prompts user for new label & command for currently selected menu item
 void editMenuItem(u16 theMenuID);

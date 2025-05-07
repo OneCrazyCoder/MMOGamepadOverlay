@@ -9,7 +9,7 @@
 	by multiple modules.
 */
 
-struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
+struct Hotspot
 {
 	struct Coord
 	{
@@ -21,6 +21,7 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 		{ return !(*this == rhs); }
 	} x, y;
 
+	Hotspot() { ZeroMemory(this, sizeof(Hotspot)); }
 	bool operator==(const Hotspot& rhs) const
 	{ return x == rhs.x && y == rhs.y; }
 	bool operator!=(const Hotspot& rhs) const
@@ -28,7 +29,7 @@ struct Hotspot : public ConstructFromZeroInitializedMemory<Hotspot>
 };
 
 
-struct Command : public ConstructFromZeroInitializedMemory<Command>
+struct Command
 {
 	ECommandType type;
 	union
@@ -42,7 +43,7 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 				u16 layerID;
 				u16 subMenuID;
 				u16 hotspotID;
-				u16 keyStringIdx;
+				u16 keyStringID;
 				u16 arrayIdx;
 				u16 menuItemIdx;
 			};
@@ -55,19 +56,20 @@ struct Command : public ConstructFromZeroInitializedMemory<Command>
 				u16 mouseWheelMotionType;
 				bool multiDirAutoRun;
 			};
-			u8 count;
+			s16 count;
 			u8 wrap : 1;
 			u8 withMouse : 1;
 			u8 andClick : 1;
 			u8 atStartup : 1;
 			u8 swapDir : 2;
 			u8 __reserved : 2;
+			u8 __reserved2;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;
-		const char* string;
 		u64 compare;
 	};
 
+	Command() { ZeroMemory(this, sizeof(Command)); }
 	bool operator==(const Command& rhs) const
 	{ return type == rhs.type && compare == rhs.compare; }
 };
