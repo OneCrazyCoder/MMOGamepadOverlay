@@ -204,6 +204,7 @@ struct InputMapBuilder
 	StringToValueMap<std::string> buttonAliases;
 	StringToValueMap<Command> commandAliases;
 	StringToValueMap<Command> specialKeyNameToCommandMap;
+	StringToValueMap<u16> keyStringToIdxMap;
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<u16> hotspotArrayNameToIdxMap;
@@ -560,8 +561,7 @@ static std::string namesToVKeySequence(
 				}
 				if( aCommandAlias->type == eCmdType_TapKey )
 				{
-					if( aCommandAlias->signalID )
-						result += signalIDToString(aCommandAlias->signalID);
+					result += signalIDToString(aCommandAlias->signalID);
 					const u16 aVKey = aCommandAlias->vKey;
 					if( aVKey & kVKeyShiftFlag ) result += VK_SHIFT;
 					if( aVKey & kVKeyCtrlFlag ) result += VK_CONTROL;
@@ -572,9 +572,11 @@ static std::string namesToVKeySequence(
 				}
 				if( aCommandAlias->type == eCmdType_VKeySequence )
 				{
-					DBG_ASSERT(aCommandAlias->keyStringIdx < sKeyStrings.size());
+					result += signalIDToString(aCommandAlias->signalID);
+					DBG_ASSERT(
+						aCommandAlias->keyStringID < sKeyStrings.size());
 					const std::string& anEmbedSeq =
-						sKeyStrings[aCommandAlias->keyStringIdx];
+						sKeyStrings[aCommandAlias->keyStringID];
 					DBG_ASSERT(!anEmbedSeq.empty());
 					if( anEmbedSeq[0] == kVKeySeqHasMouseJump )
 					{
@@ -589,8 +591,11 @@ static std::string namesToVKeySequence(
 				}
 				if( aCommandAlias->type == eCmdType_ChatBoxString )
 				{
+					result += signalIDToString(aCommandAlias->signalID);
+					DBG_ASSERT(
+						aCommandAlias->keyStringID < sKeyStrings.size());
 					result += kVKeyStartChatString;
-					result += sKeyStrings[aCommandAlias->keyStringIdx];
+					result += sKeyStrings[aCommandAlias->keyStringID];
 					continue;
 				}
 			}
@@ -665,7 +670,26 @@ static std::string namesToVKeySequence(
 }
 
 
-static Command parseChatBoxMacro(const std::string& theString)
+static u16 getOrCreateKeyStringID(
+	InputMapBuilder& theBuilder,
+	const std::string& theString)
+{
+	// Check if already exists, and if so return the index
+	if( u16* idx = theBuilder.keyStringToIdxMap.find(theString) )
+		return *idx;
+
+	// Add new string to sKeyStrings and the map
+	theBuilder.keyStringToIdxMap.setValue(theString, u16(sKeyStrings.size()));
+	sKeyStrings.push_back(theString);
+
+	return u16(sKeyStrings.size() - 1);
+	
+}
+
+
+static Command parseChatBoxMacro(
+	InputMapBuilder& theBuilder,
+	const std::string& theString)
 {
 	DBG_ASSERT(!theString.empty());
 	Command result;
@@ -684,9 +708,9 @@ static Command parseChatBoxMacro(const std::string& theString)
 	size_t aLineBreakPos = theString.find("\\n");
 	if( aLineBreakPos == std::string::npos )
 	{
-		sKeyStrings.push_back(theString + "\r");
 		result.type = eCmdType_ChatBoxString;
-		result.keyStringIdx = u16(sKeyStrings.size()-1);
+		result.keyStringID =
+			getOrCreateKeyStringID(theBuilder, theString + "\r");
 		return result;
 	}
 
@@ -720,9 +744,9 @@ static Command parseChatBoxMacro(const std::string& theString)
 		return result;
 	}
 
-	sKeyStrings.push_back(aVKeySeq);
 	result.type = eCmdType_VKeySequence;
-	result.keyStringIdx = u16(sKeyStrings.size()-1);
+	result.keyStringID =
+		getOrCreateKeyStringID(theBuilder, aVKeySeq);
 	return result;
 }
 
@@ -1169,8 +1193,9 @@ static Command wordsToSpecialCommand(
 			break;
 		case eCmdWord_Integer:
 			anIntegerWord = &theWords[i];
-			result.count =
-				clamp(intFromString(theWords[i]), int(result.count), 255);
+			result.count = s16(clamp(
+				intFromString(theWords[i]),
+				result.count, 0x7FFF));
 			// fall through
 		case eCmdWord_Unknown:
 			// Not allowed more than once per command, since
@@ -1888,7 +1913,7 @@ static Command stringToCommand(
 		return result;
 
 	// Check for a chat box macro (message or slash command)
-	result = parseChatBoxMacro(theString);
+	result = parseChatBoxMacro(theBuilder, theString);
 	if( result.type != eCmdType_Empty )
 		return result;
 
@@ -1968,8 +1993,7 @@ static Command stringToCommand(
 		if( !aVKeySeq.empty() )
 		{
 			result.type = eCmdType_VKeySequence;
-			result.keyStringIdx = u16(sKeyStrings.size());
-			sKeyStrings.push_back(aVKeySeq);
+			result.keyStringID = getOrCreateKeyStringID(theBuilder, aVKeySeq);
 		}
 	}
 
@@ -2357,7 +2381,7 @@ static void reportCommandAssignment(
 		break;
 	case eCmdType_ChatBoxString:
 		{
-			std::string aMacroString = sKeyStrings[theCmd.keyStringIdx];
+			std::string aMacroString = sKeyStrings[theCmd.keyStringID];
 			aMacroString.resize(aMacroString.size()-1);
 			if( aMacroString[0] == kVKeyFireSignal )
 				aMacroString = aMacroString.substr(3);
@@ -2421,7 +2445,7 @@ static Command stringToAliasCommand(
 	}
 
 	// Check for a chat box macro
-	aCmd = parseChatBoxMacro(theCmdStr);
+	aCmd = parseChatBoxMacro(theBuilder, theCmdStr);
 	if( aCmd.type == eCmdType_DoNothing )
 	{
 		aCmd.type = eCmdType_SignalOnly;
@@ -2431,9 +2455,6 @@ static Command stringToAliasCommand(
 	if( aCmd.type != eCmdType_Empty )
 	{
 		aCmd.signalID = theSignalID++;
-		sKeyStrings[aCmd.keyStringIdx] =
-			signalIDToString(aCmd.signalID) +
-			sKeyStrings[aCmd.keyStringIdx];
 		return aCmd;
 	}
 
@@ -2464,11 +2485,7 @@ static Command stringToAliasCommand(
 
 	aCmd.type = eCmdType_VKeySequence;
 	aCmd.signalID = theSignalID++;
-	aCmd.keyStringIdx = u16(sKeyStrings.size());
-	aVKeySeq.insert(
-		(aVKeySeq[0] == kVKeySeqHasMouseJump ? 3 : 0),
-		signalIDToString(aCmd.signalID));
-	sKeyStrings.push_back(aVKeySeq);
+	aCmd.keyStringID = getOrCreateKeyStringID(theBuilder, aVKeySeq);
 
 	return aCmd;
 }
@@ -3479,7 +3496,9 @@ static MenuItem stringToMenuItem(
 	if( aMenuItem.cmd.type == eCmdType_Empty )
 	{
 		// Probably just forgot the > at front of a plain string
-		aMenuItem.cmd = parseChatBoxMacro(std::string(">") + theString);
+		aMenuItem.cmd = parseChatBoxMacro(
+			theBuilder,
+			std::string(">") + theString);
 		logError("%s: '%s' unsure of meaning of '%s'. "
 				 "Assigning as a chat box macro. "
 				 "Add > to start of it if this was the intent!",
@@ -3802,26 +3821,6 @@ static void buildLabels(InputMapBuilder& theBuilder)
 }
 
 
-static void setCStringPointerFor(Command* theCommand)
-{
-	// Important that the raw string pointer set here is no longer held
-	// past anything happening to sKeyStrings vector (being resized/etc)
-	// or we'd get a dangling pointer - but passing strings to external
-	// modules this way saves on string copies! It should be fine as
-	// long as external modules release references to this data before
-	// loadProfile() is called again.
-
-	switch(theCommand->type)
-	{
-	case eCmdType_VKeySequence:
-	case eCmdType_ChatBoxString:
-		DBG_ASSERT(theCommand->keyStringIdx < sKeyStrings.size());
-		theCommand->string = sKeyStrings[theCommand->keyStringIdx].c_str();
-		break;
-	}
-}
-
-
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
@@ -3854,7 +3853,7 @@ void loadProfile()
 		buildLabels(anInputMapBuilder);
 	}
 
-	// Finalize elements and trim unused memory now that all sizes are known
+	// Trim unused memory now that all sizes are known
 	for(u16 i = 0; i < sLayers.size(); ++i)
 		sLayers[i].autoLayers.resize(sLayers.size());
 	if( sHotspots.size() < sHotspots.capacity() )
@@ -3873,56 +3872,28 @@ void loadProfile()
 	if( sMenus.size() < sMenus.capacity() )
 		std::vector<Menu>(sMenus).swap(sMenus);
 	sButtonHoldTimes.trim();
-
-	// Now that are done messing with resizing vectors which can invalidate
-	// pointers, can convert Commands with temp keyStringIdx field being a
-	// sKeyStrings index into having direct pointers to the C-strings
-	// ('string' field of the Command) for use in other modules.
-	for(std::vector<KeyBindArray>::iterator itr = sKeyBindArrays.begin();
-		itr != sKeyBindArrays.end(); ++itr)
-	{
-		for(KeyBindArray::iterator itr2 = itr->begin();
-			itr2 != itr->end(); ++itr2)
-		{
-			setCStringPointerFor(&itr2->cmd);
-		}
-	}
 	for(std::vector<Menu>::iterator itr = sMenus.begin();
 		itr != sMenus.end(); ++itr)
 	{
-		setCStringPointerFor(&itr->autoCommand);
-		setCStringPointerFor(&itr->backCommand);
-		// Trim unused memory while here anyway
 		if( itr->items.size() < itr->items.capacity() )
 			std::vector<MenuItem>(itr->items).swap(itr->items);
-		for(std::vector<MenuItem>::iterator itr2 = itr->items.begin();
-			itr2 != itr->items.end(); ++itr2)
-		{
-			setCStringPointerFor(&itr2->cmd);
-		}
-		for(size_t i = 0; i < ARRAYSIZE(itr->dirItems); ++i)
-			setCStringPointerFor(&itr->dirItems[i].cmd);
 	}
-
 	for(std::vector<ControlsLayer>::iterator itr = sLayers.begin();
 		itr != sLayers.end(); ++itr)
 	{
-		// Trim unused memory while here anyway
 		itr->signalCommands.trim();
 		itr->buttonMap.trim();
-		for(ButtonActionsMap::iterator itr2 = itr->buttonMap.begin();
-			itr2 != itr->buttonMap.end(); ++itr2)
-		{
-			for(size_t i = 0; i < eBtnAct_Num; ++i)
-				setCStringPointerFor(&itr2->second.cmd[i]);
-		}
-		for(VectorMap<u16, Command>::iterator itr2 =
-			itr->signalCommands.begin();
-			itr2 != itr->signalCommands.end(); ++itr2)
-		{
-			setCStringPointerFor(&itr2->second);
-		}
 	}
+}
+
+
+const char* cmdStr(const Command& theCommand)
+{
+	DBG_ASSERT(
+		theCommand.type == eCmdType_VKeySequence ||
+		theCommand.type == eCmdType_ChatBoxString);
+	DBG_ASSERT(theCommand.keyStringID < sKeyStrings.size());
+	return sKeyStrings[theCommand.keyStringID].c_str();
 }
 
 
@@ -4081,7 +4052,7 @@ u16 comboLayerID(u16 theLayerID1, u16 theLayerID2)
 }
 
 
-const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
+Command commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	DBG_ASSERT(theMenuItemIdx < sMenus[theMenuID].items.size());
@@ -4089,7 +4060,7 @@ const Command& commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 }
 
 
-const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir)
+Command commandForMenuDir(u16 theMenuID, ECommandDir theDir)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	DBG_ASSERT(theDir < eCmdDir_Num);
@@ -4097,14 +4068,14 @@ const Command& commandForMenuDir(u16 theMenuID, ECommandDir theDir)
 }
 
 
-const Command& menuAutoCommand(u16 theMenuID)
+Command menuAutoCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	return sMenus[theMenuID].autoCommand;
 }
 
 
-const Command& menuBackCommand(u16 theMenuID)
+Command menuBackCommand(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
 	return sMenus[theMenuID].backCommand;

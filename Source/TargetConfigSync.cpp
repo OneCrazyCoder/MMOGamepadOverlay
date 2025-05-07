@@ -327,7 +327,6 @@ static bool sPaused = false;
 //-----------------------------------------------------------------------------
 
 class ConfigDataParser
-	: public ConstructFromZeroInitializedMemory<ConfigDataParser>
 {
 public:
 	ConfigDataParser(size_t theDataSourceID) :

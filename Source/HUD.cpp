@@ -142,7 +142,6 @@ DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 //-----------------------------------------------------------------------------
 
 struct HUDElementInfo
-	: public ConstructFromZeroInitializedMemory<HUDElementInfo>
 {
 	EHUDType type;
 	EHUDType itemType;
@@ -176,16 +175,18 @@ struct HUDElementInfo
 	u8 inactiveAlpha;
 	s8 drawPriority;
 
-	HUDElementInfo() :
-		itemType(eHUDItemType_Rect),
-		fadeInRate(255),
-		fadeOutRate(255),
-		flashing(kInvalidItem),
-		prevFlashing(kInvalidItem),
-		forcedRedrawItemID(kInvalidItem),
-		maxAlpha(255),
-		inactiveAlpha(255)
-	{}
+	HUDElementInfo()
+	{
+		ZeroMemory(this, sizeof(HUDElementInfo));
+		itemType = eHUDItemType_Rect;
+		fadeInRate= 255;
+		fadeOutRate = 255;
+		flashing = kInvalidItem;
+		prevFlashing = kInvalidItem;
+		forcedRedrawItemID = kInvalidItem;
+		maxAlpha = 255;
+		inactiveAlpha = 255;
+	}
 };
 
 
