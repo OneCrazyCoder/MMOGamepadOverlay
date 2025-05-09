@@ -18,6 +18,7 @@ namespace InputMap
 
 // Load the input mappings and macro sets from current profile
 void loadProfile();
+void loadProfileChanges();
 
 // COMMANDS
 const char* cmdStr(const Command& theCommand);
@@ -108,6 +109,7 @@ u16 hudElementForMenu(u16 theMenuID);
 u16 hotspotForHUDElement(u16 theHUDElementID);
 // Only valid for HUD element types that are tied to Key Bind Arrays
 u16 keyBindArrayForHUDElement(u16 theHUDElementID);
+const std::string& hudElementKeyName(u16 theHUDElementID);
 
 // SIZES
 u16 keyBindArrayCount();
@@ -126,8 +128,7 @@ const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& menuItemAltLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir);
-const std::string& hudElementKeyName(u16 theHUDElementID);
-const std::string& hudElementDisplayName(u16 theHUDElementID);
+const std::string& hudElementLabel(u16 theHUDElementID);
 extern const std::string kAutoLayersProperty;
 
 } // InputMap

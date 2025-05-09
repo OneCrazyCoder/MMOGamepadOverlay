@@ -120,7 +120,7 @@ void mainLoopUpdate(HWND theDialog)
 
 void mainModulesUpdate()
 {
-	if( gReloadProfile )
+	if( gLoadNewProfile )
 		return;
 
 	Gamepad::update();
@@ -196,13 +196,13 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	// Load core profile to get system settings
 	Profile::loadCore();
 	gAppTargetFrameTime = max(1,
-		Profile::getInt("System/FrameTime", gAppTargetFrameTime));
+		Profile::getInt("System", "FrameTime", gAppTargetFrameTime));
 
 	// Initiate frame timing
 	timeBeginPeriod(gAppTargetFrameTime / 2);
 	sAppStartTime = sUpdateStartTime = getSystemTime();
 
-	while(gReloadProfile && !gShutdown && !hadFatalError())
+	while(gLoadNewProfile && !gShutdown && !hadFatalError())
 	{
 		// Load current profile
 		Profile::load();
@@ -219,7 +219,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		if( !gShutdown && !hadFatalError() )
 		{
 			gAppTargetFrameTime = max(1,
-				Profile::getInt("System/FrameTime", gAppTargetFrameTime));
+				Profile::getInt("System", "FrameTime", gAppTargetFrameTime));
 			InputMap::loadProfile();
 			HotspotMap::init();
 			Menus::init();
@@ -238,12 +238,23 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 
 			// Launch target app if requested and haven't already
 			TargetApp::autoLaunch();
+
+			// Finalize profile load
+			Profile::applyAndClearChangedSections();
+			Profile::saveChangesToFile();
 		}
 
 		// Main loop
-		gReloadProfile = false;
-		while(!gShutdown && !gReloadProfile && !hadFatalError())
+		gLoadNewProfile = false;
+		while(!gShutdown && !gLoadNewProfile && !hadFatalError())
 		{
+			// Check if need to react to changed Profile data
+			if( !Profile::changedSections().empty() )
+			{
+				InputMap::loadProfileChanges();
+				Profile::applyAndClearChangedSections();
+			}
+
 			// Update frame timers and process windows messages
 			mainLoopUpdate(NULL);
 

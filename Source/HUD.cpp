@@ -30,16 +30,11 @@ kSystemHUDFlashFreq = 125,
 kSystemHUDFlashTime = kSystemHUDFlashFreq * 8,
 };
 
-const char* kMenuPrefix = "Menu";
-const char* kHUDPrefix = "HUD";
-const char* kBitmapsPrefix = "Bitmaps";
-const char* kIconsPrefix = "Icons/";
+const char* kMenuSectionName = "Menu";
+const char* kHUDSectionName = "HUD";
+const char* kBitmapsSectionName = "Bitmaps";
+const char* kIconsSectionName = "Icons";
 const char* kAppVersionString = "Version: " __DATE__;
-const char* kCopyIconRateKey = "System/CopyIconFrameTime";
-const char* kHotspotGuideAlpha = "HUD/HotspotGuideAlpha";
-const char* kHotspotGuideRGB = "HUD/HotspotGuideRGB";
-const char* kHotspotGuideSize = "HUD/HotspotGuideSize";
-const char* kHotspotGuideDisplayTime = "HUD/HotspotGuideDisplayTime";
 
 enum EHUDProperty
 {
@@ -337,26 +332,22 @@ static std::string getNamedHUDPropStr(
 {
 	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
 	std::string result;
-	std::string aKey;
 
 	if( theName.empty() )
 		return result;
 
+	const std::string& aPropName =
+		std::string(kAppearancePrefix[theAppearanceMode]) +
+		kHUDPropStr[theProperty];
+	const std::string& aSectSuffix = "." + theName;
+
 	// Try [Menu.Name] first since most HUD elements are likely Menus
-	aKey = kMenuPrefix;
-	aKey += "."; aKey += theName + "/";
-	aKey += kAppearancePrefix[theAppearanceMode];
-	aKey += kHUDPropStr[theProperty];
-	result = Profile::getStr(aKey);
+	result = Profile::getStr(kMenuSectionName + aSectSuffix, aPropName);
 	if( !result.empty() )
 		return result;
 
 	// Try [HUD.Name] next
-	aKey = kHUDPrefix;
-	aKey += "."; aKey += theName + "/";
-	aKey += kAppearancePrefix[theAppearanceMode];
-	aKey += kHUDPropStr[theProperty];
-	result = Profile::getStr(aKey);
+	result = Profile::getStr(kHUDSectionName + aSectSuffix, aPropName);
 	if( !result.empty() )
 		return result;
 
@@ -396,23 +387,17 @@ static std::string getDefaultHUDPropStr(
 {
 	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
 	std::string result;
-	std::string aKey;
+	const std::string& aPropName =
+		std::string(kAppearancePrefix[theAppearanceMode]) +
+		kHUDPropStr[theProperty];
 
 	// Try just [HUD] for a default value
-	aKey = kHUDPrefix;
-	aKey += "/";
-	aKey += kAppearancePrefix[theAppearanceMode];
-	aKey += kHUDPropStr[theProperty];
-	result = Profile::getStr(aKey);
+	result = Profile::getStr(kHUDSectionName, aPropName);
 	if( !result.empty() )
 		return result;
 
 	// Maybe just [Menu] for default value?
-	aKey = kMenuPrefix;
-	aKey += "/";
-	aKey += kAppearancePrefix[theAppearanceMode];
-	aKey += kHUDPropStr[theProperty];
-	result = Profile::getStr(aKey);
+	result = Profile::getStr(kMenuSectionName, aPropName);
 	if( !result.empty() )
 		return result;
 
@@ -693,7 +678,7 @@ static size_t getOrCreateBuildIconEntry(
 		if( aBitmapName.empty() )
 			aBitmapName = theIconDescription;
 		logError("Could not find a [%s] entry '%s='!",
-			kBitmapsPrefix,
+			kBitmapsSectionName,
 			aBitmapName.c_str());
 		return 0;
 	}
@@ -928,13 +913,13 @@ static IconEntry getOrCreateLabelIcon(
 					aTextLabel + toString(aStartArrayIdx-1);
 				aBaseIcon = getOrCreateLabelIcon(
 					theBuilder, aBaseLabel,
-					Profile::getStr(kIconsPrefix + aBaseLabel));
+					Profile::getStr(kIconsSectionName, aBaseLabel));
 			}
 			else
 			{// Use un-numbered entry as base
 				aBaseIcon = getOrCreateLabelIcon(
 					theBuilder, aTextLabel,
-					Profile::getStr(kIconsPrefix + aTextLabel));
+					Profile::getStr(kIconsSectionName, aTextLabel));
 			}
 			if( aBaseIcon.isUpToDate && aBaseIcon.copyFromTarget )
 			{
@@ -1328,8 +1313,6 @@ static void drawLabelString(
 {
 	if( theStr.empty() )
 		return;
-
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 
 	// Initialize cache entry to get font & height
 	initStringCacheEntry(dd, theRect, theStr, theFormat, theCacheEntry);
@@ -1781,7 +1764,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
 	// just below the top slot, and ending when draw hi.selection last at top
 	for(u16 compIdx = (1 % anItemCount),
-		itemIdx = (hi.selection + 1) % anItemCount; true;
+		itemIdx = (hi.selection + 1) % anItemCount; /*until break*/;
 		itemIdx = (itemIdx + 1) % anItemCount,
 		compIdx = (compIdx + 1) % anItemCount)
 	{
@@ -1853,8 +1836,6 @@ static void draw4DirMenu(HUDDrawData& dd)
 
 static void drawBasicHUD(HUDDrawData& dd)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-
 	if( !dd.firstDraw )
 		eraseRect(dd, dd.components[0]);
 
@@ -2070,7 +2051,7 @@ void init()
 	sHUDElementInfo.resize(InputMap::hudElementCount());
 	sMenuDrawCache.resize(InputMap::menuCount());
 	sCopyIconUpdateRate =
-		Profile::getInt(kCopyIconRateKey, sCopyIconUpdateRate);
+		Profile::getInt("System", "CopyIconFrameTime", sCopyIconUpdateRate);
 
 	// Add dummy 0th entries to some vectors
 	aHUDBuilder.bitmapNameToHandleMap.setValue("", NULL);
@@ -2096,24 +2077,26 @@ void init()
 			aHUDBuilder, getDefaultHUDPropStr(eHUDProp_Bitmap, i));
 	}
 
-	// Load bitmap files
-	Profile::KeyValuePairs aKeyValueList;
-	Profile::getAllKeys(std::string(kBitmapsPrefix) + "/", aKeyValueList);
-	for(size_t i = 0; i < aKeyValueList.size(); ++i)
-	{
-		std::string aBitmapName = aKeyValueList[i].first;
-		std::string aBitmapPath = aKeyValueList[i].second;
-		loadBitmapFile(aHUDBuilder, aBitmapName, aBitmapPath);
+	{// Load bitmap files
+		const Profile::PropertyMap& aPropMap =
+			Profile::getSectionProperties(kBitmapsSectionName);
+		for(size_t i = 0; i < aPropMap.size(); ++i)
+		{
+			loadBitmapFile(aHUDBuilder,
+				aPropMap.vals()[i].name,
+				aPropMap.vals()[i].val);
+		}
 	}
 
-	// Generate text label to icon label map
-	aKeyValueList.clear();
-	Profile::getAllKeys(kIconsPrefix, aKeyValueList);
-	for(size_t i = 0; i < aKeyValueList.size(); ++i)
-	{
-		std::string aTextLabel = aKeyValueList[i].first;
-		std::string anIconDesc = aKeyValueList[i].second;
-		getOrCreateLabelIcon(aHUDBuilder, aTextLabel, anIconDesc);
+	{// Generate text label to icon label map
+		const Profile::PropertyMap& aPropMap =
+			Profile::getSectionProperties(kIconsSectionName);
+		for(size_t i = 0; i < aPropMap.size(); ++i)
+		{
+			getOrCreateLabelIcon(aHUDBuilder,
+				aPropMap.vals()[i].name,
+				aPropMap.vals()[i].val);
+		}
 	}
 
 	// Get information for each HUD Element from Profile
@@ -2136,9 +2119,10 @@ void init()
 		if( hi.type == eHUDType_HotspotGuide )
 		{
 			hi.drawPriority = -127; // Lower than any can be manually set to
-			hi.maxAlpha = Profile::getInt(kHotspotGuideAlpha);
-			hi.delayUntilInactive =
-				max(0, Profile::getInt(kHotspotGuideDisplayTime, 1000));
+			hi.maxAlpha = Profile::getInt(
+				kHUDSectionName, "HotspotGuideAlpha", 0);
+			hi.delayUntilInactive = max(0, Profile::getInt(
+				kHUDSectionName, "HotspotGuideDisplayTime", 1000));
 			hi.inactiveAlpha = 0;
 			aVal = max(1, u32FromString(
 				getDefaultHUDPropStr(eHUDProp_FadeInTime)));
@@ -2148,10 +2132,12 @@ void init()
 			hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
 			Appearance anAppearance = sAppearances[eAppearanceMode_Normal];
 			anAppearance.itemColor = strToRGB(aHUDBuilder,
-				Profile::getStr(kHotspotGuideRGB, "128, 128, 128"));
+				Profile::getStr(
+					kHUDSectionName, "HotspotGuideRGB", "128, 128, 128"));
 			hi.appearanceID[eAppearanceMode_Normal] =
 				getOrCreateAppearanceID(anAppearance);
-			hi.radius = max(1, Profile::getInt(kHotspotGuideSize, 6) / 2);
+			hi.radius = max(1, Profile::getInt(
+				kHUDSectionName, "HotspotGuideSize", 6) / 2);
 			sHotspotGuideHUDElementID = aHUDElementID;
 			continue;
 		}
@@ -2173,7 +2159,8 @@ void init()
 			{
 				logError("Invalid ItemType (%s) for HUD Element %s! "
 					"Defaulting to 'Rectangle'!",
-					aStr.c_str(), aHUDName.c_str());
+					aStr.c_str(),
+					InputMap::hudElementLabel(aHUDElementID).c_str());
 				hi.itemType = eHUDItemType_Rect;
 			}
 		}
@@ -2606,49 +2593,7 @@ void updateScaling()
 
 void reloadCopyIconLabel(const std::string& theCopyIconLabel)
 {
-	// Get root of string in cases where it may be part of an array
-	std::string aRootLabel = condense(theCopyIconLabel);
-	while(!aRootLabel.empty() &&
-		  !isdigit(aRootLabel[0]) &&
-		  (isdigit(aRootLabel[aRootLabel.size()-1]) ||
-		   aRootLabel[aRootLabel.size()-1] == '-'))
-	{
-		aRootLabel.resize(aRootLabel.size()-1);
-	}
-
-	{// Mark any icons with same root string as being out of date
-		StringToValueMap<IconEntry>::IndexVector anIconsToUpdateList;
-		sLabelIcons.findAllWithPrefix(aRootLabel, &anIconsToUpdateList);
-		for(size_t i = 0; i < anIconsToUpdateList.size(); ++i)
-			sLabelIcons.values()[anIconsToUpdateList[i]].isUpToDate = false;
-	}
-
-	// Grab current data from Profile and reassign the copy icons using it
-	Profile::KeyValuePairs aKeyValueList;
-	Profile::getAllKeys(kIconsPrefix + aRootLabel, aKeyValueList, false);
-	if( !aKeyValueList.empty() )
-	{
-		HUDBuilder aHUDBuilder;
-		aHUDBuilder.iconBuilders.push_back(BuildIconEntry());
-		const size_t aTrimPos =
-			posAfterPrefix(aKeyValueList[0].first, kIconsPrefix);
-		for(size_t i = 0; i < aKeyValueList.size(); ++i)
-		{
-			std::string aTextLabel = aKeyValueList[i].first + aTrimPos;
-			std::string anIconDesc = aKeyValueList[i].second;
-			getOrCreateLabelIcon(aHUDBuilder, aTextLabel, anIconDesc);
-		}
-	}
-
-	// Clear any cached copy icon draw data
-	for(size_t i = 0; i < sMenuDrawCache.size(); ++i)
-	{
-		for(size_t j = 0; j < sMenuDrawCache[i].size(); ++j)
-		{
-			if( sMenuDrawCache[i][j].type == eMenuItemLabelType_CopyRect )
-				sMenuDrawCache[i][j] = MenuDrawCacheEntry();
-		}
-	}
+	// TODO - remove with new system?
 }
 
 

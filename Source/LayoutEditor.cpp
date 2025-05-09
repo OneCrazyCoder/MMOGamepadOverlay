@@ -549,7 +549,7 @@ static void processCoordString(
 
 	std::string result = aControlStr;
 	std::string aTempStr = aControlStr;
-	Hotspot::Coord aCoord;
+	Hotspot::Coord aCoord = {};
 	if( theControlID != IDC_EDIT_S )
 		HotspotMap::stringToCoord(aTempStr, aCoord, &result);
 	else if( floatFromString(aControlStr) <= 0 )
@@ -1343,8 +1343,7 @@ static void setEntryParent(
 	if( theEntry.rangeCount == 0 )
 		return;
 	std::string anArrayName = condense(theEntry.item.name);
-	const int anArrayEndIdx = breakOffIntegerSuffix(anArrayName);
-	DBG_ASSERT(anArrayEndIdx >= 0);
+	breakOffIntegerSuffix(anArrayName);
 	if( theEntry.rangeCount == 1 )
 	{// Search for an anchor to act as parent
 		const u32* aParentIdx = theEntryNameMap.find(anArrayName);
@@ -1367,7 +1366,7 @@ static void setEntryParent(
 		return;
 	}
 	StringToValueMap<u32>::IndexVector anIndexSet;
-	theEntryNameMap.findAllWithPrefix(anArrayName, &anIndexSet);
+	theEntryNameMap.findAllWithPrefix(anArrayName, anIndexSet);
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
 	{
 		std::string aHotspotName =
@@ -1398,20 +1397,18 @@ static void addArrayEntries(
 	aNewEntry.type = theEntryType;
 	aNewEntry.item.parentIndex = theCategoryType;
 
-	Profile::KeyValuePairs aPropertySet;
-	Profile::getAllKeys(
-		theEntryList[theCategoryType].posSect + "/",
-		aPropertySet);
+	const Profile::PropertySection* const aPropertySet =
+		Profile::getSection(theEntryList[theCategoryType].posSect);
 	StringToValueMap<u32> anEntryNameToIdxMap;
-	for(size_t i = 0; i < aPropertySet.size(); ++i)
+	for(size_t i = 0; aPropertySet && i < aPropertySet->properties.size(); ++i)
 	{
 		aNewEntry.rangeCount = 0;
-		aNewEntry.item.name = aPropertySet[i].first;
+		aNewEntry.item.name = aPropertySet->properties.vals()[i].name;
 		aNewEntry.propName = aNewEntry.item.name;
 		std::string aKeyName = condense(aNewEntry.item.name);
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
-		std::string aDesc = aPropertySet[i].second;
+		std::string aDesc = aPropertySet->properties.vals()[i].val;
 		Hotspot aHotspot;
 		HotspotMap::stringToCoord(aDesc, aHotspot.x, &aNewEntry.shape.x);
 		HotspotMap::stringToCoord(aDesc, aHotspot.y, &aNewEntry.shape.y);
@@ -1444,7 +1441,6 @@ static void addArrayEntries(
 			aNewEntry.shape.offsetScale.clear();
 		theEntryList.push_back(aNewEntry);
 	}
-	aPropertySet.clear();
 
 	// Link items in arrays with their direct parents
 	for(size_t i = aFirstNewEntryIdx; i < theEntryList.size(); ++i)
@@ -1493,7 +1489,7 @@ static void tryFetchHUDHotspot(
 	}
 	else
 	{
-		std::string aValStr = Profile::getStr(theReadSect + "/" + thePropName);
+		std::string aValStr = Profile::getStr(theReadSect, thePropName);
 		if( !aValStr.empty() )
 		{
 			*aDestSectStr = theWriteSect;

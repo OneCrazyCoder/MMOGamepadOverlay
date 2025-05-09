@@ -110,48 +110,48 @@ struct Config
 	void load()
 	{
 		const float aCursorSpeedMult = sqrt(GetSystemMetrics(SM_CYSCREEN) / 720.0);
-		maxTaskQueuedTime = Profile::getInt("System/MaxKeyQueueTime", 1000);
-		chatBoxPostFirstKeyDelay = Profile::getInt("System/ChatBoxStartDelay", 0);
-		chatBoxPostEnterDelay = Profile::getInt("System/ChatBoxEndDelay", 0);
-		baseKeyReleaseLockTime = Profile::getInt("System/MinKeyHoldTime", 20);
-		minModKeyChangeTime = Profile::getInt("System/MinModKeyChangeTime", 50);
-		mouseClickLockTime = Profile::getInt("Mouse/MinButtonClickTime", 25);
-		mouseReClickLockTime = Profile::getInt("Mouse/MinReClickTime", 0);
-		mouseJumpDelayTime = Profile::getInt("Mouse/JumpDelayTime", 25);
-		mouseLookMoveLockTime = Profile::getInt("Mouse/CameraMoveStartDelay", 25);
-		useScanCodes = Profile::getBool("System/UseScanCodes", false);
-		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse/CursorSpeed", 100);
-		cursorXSpeed = Profile::getInt("Mouse/CursorXSpeed", cursorXSpeed) * aCursorSpeedMult;
-		cursorYSpeed = Profile::getInt("Mouse/CursorYSpeed", cursorYSpeed) * aCursorSpeedMult;
-		cursorDeadzone = clamp(Profile::getInt("Mouse/CursorDeadzone", 25), 0, 100) / 100.0;
-		cursorRange = clamp(Profile::getInt("Mouse/CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
+		maxTaskQueuedTime = Profile::getInt("System", "MaxKeyQueueTime", 1000);
+		chatBoxPostFirstKeyDelay = Profile::getInt("System", "ChatBoxStartDelay", 0);
+		chatBoxPostEnterDelay = Profile::getInt("System", "ChatBoxEndDelay", 0);
+		baseKeyReleaseLockTime = Profile::getInt("System", "MinKeyHoldTime", 20);
+		minModKeyChangeTime = Profile::getInt("System", "MinModKeyChangeTime", 50);
+		mouseClickLockTime = Profile::getInt("Mouse", "MinButtonClickTime", 25);
+		mouseReClickLockTime = Profile::getInt("Mouse", "MinReClickTime", 0);
+		mouseJumpDelayTime = Profile::getInt("Mouse", "JumpDelayTime", 25);
+		mouseLookMoveLockTime = Profile::getInt("Mouse", "CameraMoveStartDelay", 25);
+		useScanCodes = Profile::getBool("System", "UseScanCodes", false);
+		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse", "CursorSpeed", 100);
+		cursorXSpeed = Profile::getInt("Mouse", "CursorXSpeed", cursorXSpeed) * aCursorSpeedMult;
+		cursorYSpeed = Profile::getInt("Mouse", "CursorYSpeed", cursorYSpeed) * aCursorSpeedMult;
+		cursorDeadzone = clamp(Profile::getInt("Mouse", "CursorDeadzone", 25), 0, 100) / 100.0;
+		cursorRange = clamp(Profile::getInt("Mouse", "CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
 		cursorRange = max(0, cursorRange - cursorDeadzone);
-		cursorCurve = max(Profile::getFloat("Mouse/CursorResponseCurve", 1.0), 0.1);
-		cursorAccel = Profile::getInt("Mouse/CursorAccel", 33) * 4.0 / kMouseMaxAccelVel;
-		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse/CameraSpeed", 100);
-		mouseLookXSpeed = Profile::getInt("Mouse/CameraXSpeed", mouseLookXSpeed);
-		mouseLookYSpeed = Profile::getInt("Mouse/CameraYSpeed", mouseLookYSpeed);
-		moveLookSpeed = Profile::getInt("Mouse/MoveLookSpeed", 25);
-		mouseLookDeadzone = clamp(Profile::getInt("Mouse/CameraDeadzone", 25), 0, 100) / 100.0;
-		mouseLookRange = clamp(Profile::getInt("Mouse/CameraSaturation", 100), mouseLookDeadzone, 100) / 100.0;
+		cursorCurve = max(Profile::getFloat("Mouse", "CursorResponseCurve", 1.0), 0.1);
+		cursorAccel = Profile::getInt("Mouse", "CursorAccel", 33) * 4.0 / kMouseMaxAccelVel;
+		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse", "CameraSpeed", 100);
+		mouseLookXSpeed = Profile::getInt("Mouse", "CameraXSpeed", mouseLookXSpeed);
+		mouseLookYSpeed = Profile::getInt("Mouse", "CameraYSpeed", mouseLookYSpeed);
+		moveLookSpeed = Profile::getInt("Mouse", "MoveLookSpeed", 25);
+		mouseLookDeadzone = clamp(Profile::getInt("Mouse", "CameraDeadzone", 25), 0, 100) / 100.0;
+		mouseLookRange = clamp(Profile::getInt("Mouse", "CameraSaturation", 100), mouseLookDeadzone, 100) / 100.0;
 		mouseLookRange = max(0, mouseLookRange - mouseLookDeadzone);
-		mouseLookCurve = max(Profile::getFloat("Mouse/CameraResponseCurve", 1.0), 0.1);
-		mouseLookAccel = Profile::getInt("Mouse/CameraAccel", 0) * 4.0 /  kMouseMaxAccelVel;
-		moveLookDeadzone = clamp(Profile::getInt("Mouse/CameraDeadzone", 25), 0, 100) / 100.0;
-		moveLookRange = clamp(Profile::getInt("Mouse/CameraSaturation", 100), moveLookDeadzone, 100) / 100.0;
+		mouseLookCurve = max(Profile::getFloat("Mouse", "CameraResponseCurve", 1.0), 0.1);
+		mouseLookAccel = Profile::getInt("Mouse", "CameraAccel", 0) * 4.0 /  kMouseMaxAccelVel;
+		moveLookDeadzone = clamp(Profile::getInt("Mouse", "CameraDeadzone", 25), 0, 100) / 100.0;
+		moveLookRange = clamp(Profile::getInt("Mouse", "CameraSaturation", 100), moveLookDeadzone, 100) / 100.0;
 		moveLookRange = max(0, moveLookRange - moveLookDeadzone);
-		mouseDPadAccel = clamp(Profile::getInt("Mouse/DigitalAccel", 50), 0, 255);
-		mouseWheelDeadzone = clamp(Profile::getInt("Mouse/MouseWheelDeadzone", 25), 0, 100) / 100.0;
-		mouseWheelRange = clamp(Profile::getInt("Mouse/MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
+		mouseDPadAccel = clamp(Profile::getInt("Mouse", "DigitalAccel", 50), 0, 255);
+		mouseWheelDeadzone = clamp(Profile::getInt("Mouse", "MouseWheelDeadzone", 25), 0, 100) / 100.0;
+		mouseWheelRange = clamp(Profile::getInt("Mouse", "MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
 		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
-		mouseWheelSpeed = Profile::getInt("Mouse/MouseWheelSpeed", 255);
-		moveDeadzone = clamp(Profile::getInt("Gamepad/MoveCharacterThreshold", 50), 0, 100) / 100.0;
-		moveStraightBias = clamp(Profile::getInt("Gamepad/MoveStraightBias", 50), 0, 100) / 100.0;
-		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad/CancelAutoRunThreshold", 80) / 100.0 * 255.0, 0, 255);
-		mouseLookAutoRestoreTime = Profile::getInt("System/MouseLookAutoRestoreTime");
-		offsetHotspotDist = max(0, Profile::getInt("Mouse/DefaultHotspotDistance"));
+		mouseWheelSpeed = Profile::getInt("Mouse", "MouseWheelSpeed", 255);
+		moveDeadzone = clamp(Profile::getInt("Gamepad", "MoveCharacterThreshold", 50), 0, 100) / 100.0;
+		moveStraightBias = clamp(Profile::getInt("Gamepad", "MoveStraightBias", 50), 0, 100) / 100.0;
+		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad", "CancelAutoRunThreshold", 80) / 100.0 * 255.0, 0, 255);
+		mouseLookAutoRestoreTime = Profile::getInt("System", "MouseLookAutoRestoreTime");
+		offsetHotspotDist = max(0, Profile::getInt("Mouse", "DefaultHotspotDistance"));
 
-		std::string aString = Profile::getStr("System/SafeAsyncKeys");
+		std::string aString = Profile::getStr("System", "SafeAsyncKeys");
 		if( !aString.empty() )
 		{
 			std::vector<std::string> aParsedString;
@@ -728,7 +728,7 @@ static bool isSafeAsyncKey(u16 theVKey)
 }
 
 
-static void offsetMousePos(int x, int y)
+static void offsetMousePos()
 {
 	if( !sTracker.mouseVelX && !sTracker.mouseVelY )
 		return;
@@ -2088,7 +2088,7 @@ void update()
 
 	// Apply normal mouse motion
 	// -------------------------
-	offsetMousePos(sTracker.mouseVelX, sTracker.mouseVelY);
+	offsetMousePos();
 	if( !sTracker.mouseJumpQueued &&
 		!sTracker.mouseJumpToHotspot &&
 		sTracker.mouseMode == eMouseMode_Cursor )

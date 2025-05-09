@@ -127,8 +127,6 @@ static EHDir oppositeDir(EHDir theDir)
 { return theDir == eHDir_L ? eHDir_R : eHDir_L; }
 static EVDir oppositeDir(EVDir theDir)
 { return theDir == eVDir_U ? eVDir_D : eVDir_U; }
-static int dirDelta(EHDir theDir)
-{ return theDir == eHDir_L ? -1 : 1; }
 static int dirDelta(EVDir theDir)
 { return theDir == eVDir_U ? -1 : 1; }
 
@@ -356,7 +354,7 @@ static void processTargetSizeTask()
 	else if( sTaskProgress == sPoints.size() )
 	{
 		// Calculate jump ranges
-		sBaseJumpDist = max(0, Profile::getInt("Mouse/DefaultHotspotDistance")
+		sBaseJumpDist = max(0, Profile::getInt("Mouse", "DefaultHotspotDistance")
 			* sLastUIScale / gWindowUIScale * kNormalizedTargetSize);
 
 		u32 aMaxDeviationRadius = sBaseJumpDist * kDeviationRadiusMult;
