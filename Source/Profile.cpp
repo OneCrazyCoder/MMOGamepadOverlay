@@ -36,8 +36,8 @@ struct ResourceProfile
 {
 	const char* dispName;
 	const char* fileName;
-	const WORD resID;
-	const u8 version;
+	WORD resID;
+	u8 version;
 };
 
 const ResourceProfile kResTemplateCore =
@@ -83,22 +83,12 @@ struct ProfileEntry
 };
 
 typedef void (*ParseINICallback)(
-	const std::string& theKey,
+	const std::string& theSection,
+	const std::string& theName,
 	const std::string& theValue,
 	void* theUserData);
 
-struct ProfileProperty
-{
-	std::string name;
-	std::string val;
-
-	ProfileProperty() {}
-	ProfileProperty(const std::string& name, const std::string& val) :
-		name(name), val(val) {}
-};
-typedef StringToValueMap<ProfileProperty> PropertyMap;
-
-struct ProfileNewProperty
+struct UnsavedProperty
 {
 	std::string section;
 	std::string name;
@@ -130,8 +120,9 @@ struct BaseGameSettings
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static PropertyMap sPropertyMap;
-static std::vector<ProfileNewProperty> sUnsavedChangesList;
+static SectionsMap sSectionsMap;
+static SectionsMap sChangedSectionsMap;
+static std::vector<UnsavedProperty> sUnsavedChangesList;
 static std::vector<ProfileEntry> sKnownProfiles;
 static std::vector< std::vector<int> > sProfilesCanLoad;
 static std::string sLoadedProfileName;
@@ -313,9 +304,7 @@ static void parseINI(
 					else
 					{
 						aState = ePIState_Key;
-						aKey = aSection;
-						if( !aKey.empty() )
-							aKey.push_back('/');
+						aKey.clear();
 						aKey.push_back(c);
 					}
 				}
@@ -363,7 +352,7 @@ static void parseINI(
 				if( c == '\r' || c == '\n' || c == '\0' )
 				{// Value string complete, time to process it!
 					aValue = trim(aValue);
-					theCallbackFunc(aKey, aValue, theUserData);
+					theCallbackFunc(aSection, aKey, aValue, theUserData);
 					aState = ePIState_Whitespace;
 				}
 				else
@@ -685,13 +674,15 @@ static void generateResourceProfile(const ResourceProfile& theResProfile)
 
 
 static void getProfileListCallback(
-   const std::string& theKey,
-   const std::string& theValue,
-   void*)
+	const std::string& theSection,
+	const std::string& theName,
+	const std::string& theValue,
+	void*)
 {
 	if( theValue.empty() )
 		return;
-	const std::string& aProfileNameKey = condense(theKey);
+	DBG_ASSERT(theSection.empty());
+	const std::string& aProfileNameKey = condense(theName);
 	const std::string& aProfileKeyPrefix = condense(kProfileKeyPrefix);
 	if( aProfileNameKey.compare(0,
 			aProfileKeyPrefix.length(), aProfileKeyPrefix) == 0 )
@@ -749,16 +740,18 @@ static void getProfileListCallback(
 
 
 static void addParentCallback(
-   const std::string& theKey,
-   const std::string& theValue,
-   void* theLoadList)
+	const std::string& theSection,
+	const std::string& theName,
+	const std::string& theValue,
+	void* theLoadList)
 {
+	DBG_ASSERT(theSection.empty());
 	if( !theLoadList || theValue.empty() )
 		return;
 
 	std::vector<int>* aLoadPriorityList = (std::vector<int>*)(theLoadList);
 
-	if( condense(theKey) == "PARENTPROFILE" || condense(theKey) == "PARENT" )
+	if( condense(theName) == "PARENTPROFILE" || condense(theName) == "PARENT" )
 	{
 		const std::string& aProfileName = extractProfileName(theValue);
 		ProfileEntry aProfileEntry = profileNameToEntry(aProfileName);
@@ -856,11 +849,9 @@ static void parseProfilesCanLoad()
 		return;
 	}
 
-	{// Add Core as first known profile (profile 0)
-		int aCoreID = getOrAddProfileIdx(aCoreProfile);
-		DBG_ASSERT(aCoreID == 0);
-	}
-
+	// Add Core as first known profile (profile 0)
+	getOrAddProfileIdx(aCoreProfile);
+	
 	// Get list of load-able profiles and auto-load profile from core
 	// Profile '0' reserved for auto-load profile if specified by name
 	sProfilesCanLoad.resize(1);
@@ -872,33 +863,37 @@ static void parseProfilesCanLoad()
 
 
 static void readBaseGameSettingsCallback(
-   const std::string& theKey,
-   const std::string& theValue,
-   void* theAppInfo)
+	const std::string& theSection,
+	const std::string& theName,
+	const std::string& theValue,
+	void* theAppInfo)
 {
 	if( !theAppInfo || theValue.empty() )
 		return;
 
 	BaseGameSettings* aSettings = (BaseGameSettings*)(theAppInfo);
-	const std::string& aSect = condense(kBaseGameSettingsSection) + "/";
-	if( condense(theKey) == aSect + condense(kAutoLaunchAppKey) )
-		aSettings->autoLaunch.path = theValue;
-	if( condense(theKey) == aSect + condense(kAutoLaunchAppParamsKey) )
-		aSettings->autoLaunch.params = theValue;
-	if( condense(theKey) == aSect + condense(kXInputFixKey) )
+	const std::string& aSect = condense(kBaseGameSettingsSection);
+	if( condense(theSection) == aSect )
 	{
-		std::string aStr = theValue;
-		aSettings->xInputFix.shouldUse = !theValue.empty();
-		// Comma separated - bitwidth, path, exeName, launcherName, gameName
-		// "= Notified" will end with aBitWidth == 0 which will skip the rest
-		if( const int aBitWidth = intFromString(breakOffNextItem(aStr)) )
+		if( condense(theName) == condense(kAutoLaunchAppKey) )
+			aSettings->autoLaunch.path = theValue;
+		if( condense(theName) == condense(kAutoLaunchAppParamsKey) )
+			aSettings->autoLaunch.params = theValue;
+		if( condense(theName) == condense(kXInputFixKey) )
 		{
-			aSettings->xInputFix.userWants = true;
-			aSettings->xInputFix.use64BitVersion = (aBitWidth == 64);
-			aSettings->xInputFix.dirPath = breakOffNextItem(aStr);
-			aSettings->xInputFix.exeName = breakOffNextItem(aStr);
-			aSettings->xInputFix.launcherName = breakOffNextItem(aStr);
-			aSettings->xInputFix.gameName = breakOffNextItem(aStr);
+			std::string aStr = theValue;
+			aSettings->xInputFix.shouldUse = !theValue.empty();
+			// Comma separated - bitwidth, path, exeName, launcherName, exeName
+			// "= Notified" will end with aBitWidth == 0, skipping the rest
+			if( const int aBitWidth = intFromString(breakOffNextItem(aStr)) )
+			{
+				aSettings->xInputFix.userWants = true;
+				aSettings->xInputFix.use64BitVersion = (aBitWidth == 64);
+				aSettings->xInputFix.dirPath = breakOffNextItem(aStr);
+				aSettings->xInputFix.exeName = breakOffNextItem(aStr);
+				aSettings->xInputFix.launcherName = breakOffNextItem(aStr);
+				aSettings->xInputFix.gameName = breakOffNextItem(aStr);
+			}
 		}
 	}
 }
@@ -1080,18 +1075,21 @@ static void setAutoLoadProfile(int theProfilesCanLoadIdx)
 }
 
 
+#ifndef _DEBUG
 static void readVersionCallback(
-   const std::string& theKey,
-   const std::string& theValue,
-   void* theVersion)
+	const std::string& theSection,
+	const std::string& theName,
+	const std::string& theValue,
+	void* theVersion)
 {
 	if( !theVersion || theValue.empty() )
 		return;
 
 	int* aVersion = (int*)(theVersion);
-	if( condense(theKey) == condense(kAutoGenVersionKey) )
+	if( condense(theName) == condense(kAutoGenVersionKey) )
 		*aVersion = intFromString(theValue);
 }
+#endif
 
 
 static void checkForOutdatedFileVersion(ProfileEntry& theFile)
@@ -1247,18 +1245,26 @@ static void userEditProfile(int theProfilesCanLoadIdx, bool firstProfile)
 
 
 static void readProfileCallback(
-   const std::string& theKey,
-   const std::string& theValue,
-   void*)
+	const std::string& theSection,
+	const std::string& theName,
+	const std::string& theValue,
+	void*)
 {
-	sPropertyMap.setValue(condense(theKey), ProfileProperty(theKey, theValue));
+	PropertySection& aSection =
+		sSectionsMap.findOrAdd(condense(theSection));
+	if( aSection.name.empty() )
+		aSection.name = theSection;
+	Property& aProperty =
+		aSection.properties.findOrAdd(condense(theName));
+	aProperty.name = theName;
+	aProperty.val = theValue;
 }
 
 
 static void loadProfile(int theProfilesCanLoadIdx)
 {
-	sPropertyMap.clear();
-	sPropertyMap.trim();
+	sSectionsMap.clear();
+	sSectionsMap.trim();
 
 	DBG_ASSERT(theProfilesCanLoadIdx >= 0);
 	DBG_ASSERT(theProfilesCanLoadIdx < sProfilesCanLoad.size());
@@ -1299,7 +1305,7 @@ void loadCore()
 {
 	// Should only be run once at app startup, otherwise core will be
 	// loaded alongside normal ::load()
-	DBG_ASSERT(sPropertyMap.empty());
+	DBG_ASSERT(sSectionsMap.empty());
 
 	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
 	if( !profileExists(aCoreProfile) )
@@ -1761,7 +1767,6 @@ retryQuery:
 		aNewEntry.name);
 	sProfilesCanLoad[aProfileCanLoadIdx].push_back(
 		getOrAddProfileIdx(aNewEntry));
-	size_t aKnownProfilesCount = sKnownProfiles.size();
 	generateProfileLoadPriorityList(aProfileCanLoadIdx);
 	sAutoProfileIdx = -1;
 	setAutoLoadProfile(
@@ -1821,7 +1826,7 @@ retryQuery:
 void queryUserForXInputFixPref(HWND theParentWindow)
 {
 	std::string anXInputFixValue =
-		getStr(kBaseGameSettingsSection + std::string("/") + kXInputFixKey);
+		getStr(kBaseGameSettingsSection, kXInputFixKey);
 	const int aBitWidth = intFromString(breakOffNextItem(anXInputFixValue));
 	bool use64BitVersion = (aBitWidth == 64);
 	std::string aDirPath, anExeName;
@@ -1849,13 +1854,14 @@ void queryUserForXInputFixPref(HWND theParentWindow)
 	{
 		setStr(kBaseGameSettingsSection, kXInputFixKey, "Removed");
 	}
+	saveChangesToFile();
 }
 
 
 void confirmXInputFix(HWND theParentWindow)
 {
 	std::string anXInputFixValue =
-		getStr(kBaseGameSettingsSection + std::string("/") + kXInputFixKey);
+		getStr(kBaseGameSettingsSection, kXInputFixKey);
 	if( anXInputFixValue.empty() )
 		return;
 
@@ -1904,43 +1910,86 @@ void confirmXInputFix(HWND theParentWindow)
 	{
 		setStr(kBaseGameSettingsSection, kXInputFixKey, "Notified");
 	}
+	saveChangesToFile();
 }
 
 
-std::string getStr(const std::string& theKey, const std::string& theDefaultValue)
+std::string getStr(
+	const std::string& theSection,
+	const std::string& thePropertyName,
+	const std::string& theDefaultValue)
 {
-	if( ProfileProperty* aProperty = sPropertyMap.find(condense(theKey)) )
+	if( const PropertySection* aSection = getSection(theSection) )
 	{
-		if( !aProperty->val.empty() )
-			return aProperty->val;
+		if( const Property* aProperty =
+				aSection->properties.find(condense(thePropertyName)) )
+		{
+			if( !aProperty->val.empty() )
+				return aProperty->val;
+		}
 	}
 
 	return theDefaultValue;
 }
 
 
-int getInt(const std::string& theKey, int theDefaultValue)
+int getInt(
+	const std::string& theSection,
+	const std::string& theName,
+	int theDefaultValue)
 {
-	return intFromString(getStr(theKey, toString(theDefaultValue)));
+	const std::string& aStr = getStr(theSection, theName);
+	if( !aStr.empty() )
+		return intFromString(aStr);
+	return theDefaultValue;
 }
 
 
-bool getBool(const std::string& theKey, bool theDefaultValue)
+bool getBool(
+	const std::string& theSection,
+	const std::string& theName,
+	bool theDefaultValue)
 {
-	return boolFromString(getStr(theKey, (theDefaultValue ? "1" : "0")));
+	const std::string& aStr = getStr(theSection, theName);
+	if( !aStr.empty() )
+		return boolFromString(aStr);
+	return theDefaultValue;
 }
 
 
-float getFloat(const std::string& theKey, float theDefaultValue)
+float getFloat(
+	const std::string& theSection,
+	const std::string& theName,
+	float theDefaultValue)
 {
-	return floatFromString(getStr(theKey, toString(theDefaultValue)));
+	const std::string& aStr = getStr(theSection, theName);
+	if( !aStr.empty() )
+		return floatFromString(aStr);
+	return theDefaultValue;
 }
 
 
-void getAllKeys(const std::string& thePrefix, KeyValuePairs& out, bool trimKeys)
+const PropertySection* getSection(const std::string& theSectionName)
+{
+	return sSectionsMap.find(condense(theSectionName));
+}
+
+
+const PropertyMap& getSectionProperties(const std::string& theSectionName)
+{
+	static const PropertyMap kEmptyMap = PropertyMap();
+	if( const PropertySection* aSection = getSection(theSectionName) )
+		return aSection->properties;
+	return kEmptyMap;
+}
+
+
+void getSectionNamesStartingWith(
+	const std::string& thePrefix,
+	std::vector<std::string>& out)
 {
 	PropertyMap::IndexVector anIndexSet;
-	sPropertyMap.findAllWithPrefix(condense(thePrefix), &anIndexSet);
+	sSectionsMap.findAllWithPrefix(condense(thePrefix), anIndexSet);
 
 	#ifndef NDEBUG
 	// Unnecessary but nice for debug output - sort to match order added to map
@@ -1948,50 +1997,77 @@ void getAllKeys(const std::string& thePrefix, KeyValuePairs& out, bool trimKeys)
 	#endif
 
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
-	{
-		out.push_back(std::make_pair(
-			sPropertyMap.values()[anIndexSet[i]].name.c_str() +
-				(trimKeys ? posAfterPrefix(
-					sPropertyMap.values()[anIndexSet[i]].name,
-					thePrefix) : 0),
-			sPropertyMap.values()[anIndexSet[i]].val.c_str()));
-	}
+		out.push_back(sSectionsMap.vals()[i].name);
 }
 
 
 void setStr(const std::string& theSection,
-			const std::string& theProperty,
+			const std::string& thePropertyName,
 			const std::string& theValue,
 			bool saveToFile)
 {
-	const std::string& aPropertyName = theSection + "/" + theProperty;
-	ProfileProperty& aPropertyRef = sPropertyMap.findOrAdd(
-		condense(aPropertyName),
-		ProfileProperty(aPropertyName, ""));
-
-	// Only change map and write to file if new string is actually different
-	if( aPropertyRef.val == theValue )
+	// Make sure this will actually be a change
+	if( getStr(theSection, thePropertyName) == theValue )
 		return;
-	aPropertyRef.val = theValue;
+
+	{// Log as requested change
+		PropertySection& aSection =
+			sChangedSectionsMap.findOrAdd(condense(theSection));
+		if( aSection.name.empty() )
+			aSection.name = theSection;
+		Property& aProperty =
+			aSection.properties.findOrAdd(condense(thePropertyName));
+		aProperty.name = thePropertyName;
+		aProperty.val = theValue;
+	}
 
 	if( saveToFile )
-	{
+	{// Log as change to save to file
 		for(size_t i = 0; i < sUnsavedChangesList.size(); ++i)
 		{
 			if( sUnsavedChangesList[i].section == theSection &&
-				sUnsavedChangesList[i].name == theProperty )
+				sUnsavedChangesList[i].name == thePropertyName )
 			{
 				sUnsavedChangesList[i].val = theValue;
 				return;
 			}
 		}
 
-		ProfileNewProperty aNewProperty;
+		UnsavedProperty aNewProperty;
 		aNewProperty.section = theSection;
-		aNewProperty.name = theProperty;
+		aNewProperty.name = thePropertyName;
 		aNewProperty.val = theValue;
 		sUnsavedChangesList.push_back(aNewProperty);
 	}
+}
+
+
+const SectionsMap& changedSections()
+{
+	return sChangedSectionsMap;
+}
+
+
+void applyAndClearChangedSections()
+{
+	for(size_t aSectIdx = 0; aSectIdx < sChangedSectionsMap.size(); ++aSectIdx)
+	{
+		const PropertySection& aSrcSection =
+			sChangedSectionsMap.vals()[aSectIdx];
+		PropertySection& aDstSection = sSectionsMap.findOrAdd(
+			sChangedSectionsMap.keys()[aSectIdx]);
+		if( aDstSection.name.empty() )
+			aDstSection.name = aSrcSection.name;
+		for(size_t i = 0; i < aSrcSection.properties.size(); ++i)
+		{
+			const Property& aSrcProperty = aSrcSection.properties.vals()[i];
+			Property& aDstProperty = aDstSection.properties.findOrAdd(
+				aSrcSection.properties.keys()[i]);
+			aDstProperty.name = aSrcProperty.name;
+			aDstProperty.val = aSrcProperty.val;
+		}
+	}
+	sChangedSectionsMap.clear();
 }
 
 

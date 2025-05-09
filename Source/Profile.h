@@ -5,19 +5,32 @@
 #pragma once
 
 /*
-	Reads and writes user configuration settings to/from a .ini file.
-	Data is read in all at once and cached, but changes are written out to
-	disk immediately if they are different than cached data!
+	Reads and writes user configuration properties to/from a .ini file.
+	Data is read in all at once and cached.
 
-	Each setting can have a section name associated with it, separated by
-	a forward slash character. For example: "System/FrameTime" would get the
-	value for "FrameTime=" from the [System] section in the .ini file.
+	Each property has a section name, property name, and value string. In the
+	file, sections are designated by [SectionName] followed by each property
+	in the section with PropertyName = PropertyValue.
 */
 
 #include "Common.h"
 
 namespace Profile
 {
+
+struct Property
+{
+	std::string name;
+	std::string val;
+};
+typedef StringToValueMap<Property> PropertyMap;
+
+struct PropertySection
+{
+	std::string name;
+	PropertyMap properties;
+};
+typedef StringToValueMap<PropertySection> SectionsMap;
 
 // Load (and/or generate) .ini files for core profile data only
 void loadCore();
@@ -36,28 +49,33 @@ void queryUserForXInputFixPref(HWND theParentWindow);
 void confirmXInputFix(HWND theParentWindow);
 
 // Access the profile properties
-std::string getStr(const std::string& theKey, const std::string& theDefaultValue = "");
-int getInt(const std::string& theKey, int theDefaultValue = 0);
-bool getBool(const std::string& theKey, bool theDefaultValue = false);
-float getFloat(const std::string& theKey, float theDefaultValue = 0);
-// Directly returns all key/value pairs whose keys start with given prefix (section).
-// Returned key/value pairs will be appended to any data already in 'out' vector.
-// If 'trimKeys', thePrefix will be removed from returned key values.
-// WARNING: Returned pointers may be invalidated with any modifications to profile!
-typedef std::vector<std::pair<const char*, const char*> > KeyValuePairs;
-void getAllKeys(const std::string& thePrefix, KeyValuePairs& out, bool trimKeys = true);
+std::string getStr(const std::string& theSection,
+				   const std::string& thePropertyName,
+				   const std::string& theDefaultValue = "");
+int getInt(const std::string&, const std::string&, int = 0);
+bool getBool(const std::string&, const std::string&, bool = false);
+float getFloat(const std::string&, const std::string&, float = 0);
+const PropertySection* getSection(const std::string& theSectionName);
+const PropertyMap& getSectionProperties(const std::string& theSectionName);
+void getSectionNamesStartingWith(
+	const std::string& thePrefix,
+	std::vector<std::string>& out); // appendeds to any existing vector data
 
-// Add or modify profile properties
-// This requires section name be specified directly, in case there are any
-// forward slash characters in the section or property name.
-// Changes will not be saved to file until saveChangesToFile() is called,
-// which happens when about to un-load a profile (reload/change) or exit app
-// saveToFile = false means the value will only apply until profile is unloaded
+
+// Queue to add or modify profile properties (does nothing if match prev value)
+// These are not applied right away, but added to changedSections() first so
+// other modules can respond to changes until applyAndClearChangedSections().
+// They also will not be saved to file until saveChangesToFile() is called.
+// saveToFile = false means the new value can be applied but NOT saved to file
 void setStr(const std::string& theSection,
-			const std::string& theProperty,
+			const std::string& thePropertyName,
 			const std::string& theValue,
 			bool saveToFile = true);
-// Saves any modifications made using setStr() to .ini file
+// Gets property changes requested by setStr() but not yet applied
+const SectionsMap& changedSections();
+// Applies setStr() changes to getStr() and clears changedSections()
+void applyAndClearChangedSections();
+// Saves any setStr() changed requested with saveToFile to .ini file
 void saveChangesToFile();
 
 } // Profile

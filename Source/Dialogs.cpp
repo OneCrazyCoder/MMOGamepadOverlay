@@ -1897,7 +1897,6 @@ void showError(HWND theParentWindow, const std::string& theError)
 
 	logToFile(theError.c_str());
 
-	EResult result = eResult_Yes;
 	MessageBox(
 		theParentWindow,
 		widen(theError).c_str(),
@@ -1927,7 +1926,6 @@ void showNotice(
 			NULL, NULL, GetModuleHandle(NULL), NULL);
 	}
 
-	EResult result = eResult_Yes;
 	MessageBox(
 		theParentWindow,
 		widen(theNotice).c_str(),

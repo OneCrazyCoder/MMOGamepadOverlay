@@ -68,11 +68,10 @@ void init()
 		aMenuInfo.gridWidth = 1;
 		if( aMenuInfo.style == eMenuStyle_Grid )
 		{
-			std::string aKey = "Menu.";
-			aKey += InputMap::hudElementKeyName(aMenuInfo.hudElementID);
-			aKey += "/GridWidth";
-			aMenuInfo.gridWidth =
-				u8(max(0, intFromString(Profile::getStr(aKey))) & 0xFF);
+			const std::string& aSection = "Menu." +
+				InputMap::hudElementKeyName(aMenuInfo.hudElementID);
+			aMenuInfo.gridWidth = u8(max(0, intFromString
+				(Profile::getStr(aSection, "GridWidth"))) & 0xFF);
 		}
 		if( aMenuInfo.style == eMenuStyle_Hotspots )
 			HotspotMap::getLinks(InputMap::menuHotspotArray(aMenuID));
@@ -592,10 +591,9 @@ void editMenuItem(u16 theMenuID)
 	const std::string& aMenuProfileName =
 		InputMap::menuSectionName(aSubMenuID);
 	std::string aMenuItemCmd = Profile::getStr(
-		aMenuProfileName + "/" + InputMap::menuItemKeyName(anItemIdx));
+		aMenuProfileName, InputMap::menuItemKeyName(anItemIdx));
 	if( Dialogs::editMenuCommand(aMenuItemCmd) == eResult_Ok )
 	{
-		gReloadProfile = true;
 		if( aMenuItemCmd[0] == '+' )
 		{// Insert as new menu item after current
 			aMenuItemCmd = trim(&aMenuItemCmd[1]);
@@ -606,7 +604,7 @@ void editMenuItem(u16 theMenuID)
 				Profile::setStr(
 					aMenuProfileName,
 					InputMap::menuItemKeyName(i),
-					Profile::getStr(aMenuProfileName + "/" +
+					Profile::getStr(aMenuProfileName,
 						InputMap::menuItemKeyName(i-1)));
 			}
 			Profile::setStr(
@@ -624,7 +622,7 @@ void editMenuItem(u16 theMenuID)
 				Profile::setStr(
 					aMenuProfileName,
 					InputMap::menuItemKeyName(i),
-					Profile::getStr(aMenuProfileName + "/" +
+					Profile::getStr(aMenuProfileName,
 						InputMap::menuItemKeyName(i-1)));
 			}
 			Profile::setStr(
@@ -640,7 +638,7 @@ void editMenuItem(u16 theMenuID)
 				Profile::setStr(
 					aMenuProfileName,
 					InputMap::menuItemKeyName(i-1),
-					Profile::getStr(aMenuProfileName + "/" +
+					Profile::getStr(aMenuProfileName,
 						InputMap::menuItemKeyName(i)));
 			}
 			Profile::setStr(
@@ -657,6 +655,8 @@ void editMenuItem(u16 theMenuID)
 		InputMap::menuItemStringToSubMenuName(aMenuItemCmd);
 		if( !aMenuItemCmd.empty() )
 			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "1", ": ..");
+		// Should just save this out immediately
+		Profile::saveChangesToFile();
 	}
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
 	gActiveHUD.set(aMenuInfo.hudElementID);
@@ -675,7 +675,7 @@ void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 	const std::string& aMenuProfileName =
 		InputMap::menuSectionName(aSubMenuID);
 	std::string aMenuItemCmd = Profile::getStr(
-		aMenuProfileName + "/" + InputMap::menuItemDirKeyName(theDir));
+		aMenuProfileName, InputMap::menuItemDirKeyName(theDir));
 	if( Dialogs::editMenuCommand(aMenuItemCmd, true) == eResult_Ok )
 	{
 		if( !aMenuItemCmd.empty() &&
@@ -683,7 +683,6 @@ void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 		{
 			aMenuItemCmd = trim(&aMenuItemCmd[1]);
 		}
-		gReloadProfile = true;
 		Profile::setStr(aMenuProfileName,
 			InputMap::menuItemDirKeyName(theDir), aMenuItemCmd);
 		// See if created a sub-menu, and if so add dummy items for it
@@ -695,6 +694,8 @@ void editMenuItemDir(u16 theMenuID, ECommandDir theDir)
 			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "R", ":");
 			Profile::setStr(aMenuProfileName+"."+aMenuItemCmd, "D", ":");
 		}
+		// Should just save this out immediately
+		Profile::saveChangesToFile();
 	}
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
 	gActiveHUD.set(aMenuInfo.hudElementID);

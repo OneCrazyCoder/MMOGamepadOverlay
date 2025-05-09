@@ -9,7 +9,7 @@
 //-----------------------------------------------------------------------------
 
 bool gShutdown = false;
-bool gReloadProfile = true;
+bool gLoadNewProfile = true;
 u32 gAppRunTime = 0;
 int gAppFrameTime = 0;
 int gAppTargetFrameTime = 14; // allows >= 60 fps without taxing CPU

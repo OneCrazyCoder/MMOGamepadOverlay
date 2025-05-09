@@ -105,10 +105,8 @@ public:
 
 	An alternative to VetorMap that is generally superior when the key values
 	are strings, as opposed to int's or other fast-to-compare data types.
-	Very fast to add and look up keys - often faster than even a hash table
-	(though this can heavily depend on implementation, compiler, and platform).
-	Is particularly well-suited to sets of key strings where many have common
-	sub-strings or prefixes (such as file paths).
+	Very fast to add and look up keys - possibly faster than even a hash table
+	with longer keys that share common prefixes such as file paths.
 
 	Can also take up much less memory than a hash table (or any other trie
 	variant I've come across) and in a more consistent way, with each unique
@@ -119,31 +117,33 @@ public:
 	the cache-efficient performance enhancement of using contiguous memory),
 	but this can be controlled using reserve() and trim().
 
+	Keys and values are stored in vectors in the order in which new keys are
+	created and never sorted. This means that it is index-stable, so you can
+	search by the string key once to get an index and then use the index for
+	even faster access to that key/value pair later on. On the other hand,
+	being unsorted means can't do range searches and such - though can use
+	findAllWithPrefix() to get all keys with a given prefix.
+
 	When it is possible to do, using freeKeys() and then only quickFind() after
 	adding all keys will significantly speed up search times, and greatly
-	reduce memory used, making it much faster and smaller than VectorMap.
+	reduce memory used, but this is only useful when you know for sure that all
+	queries made are for keys that were previously added.
 
 	Some things to be aware of:
 
 	*	There is no way to erase a key/value pairs without erasing everything.
 		I have a function written that does it (contact me if really needed),
-		but it is incredibly complex and slow. This structure was just not
-		designed for random erasing of keys. Instead of attempting to erase
-		keys, just set their associated values to some sentinal value that
-		indicates it is no longer valid (null, -1, etc).
+		but it is incredibly complex and slow, and makes the container no
+		longer index-stable. This structure was just not designed for random
+		erasing of keys. Instead, set their associated values to some sentinal
+		value that indicates it is no longer valid (null, -1, etc).
 
 	*	Searches are case-sensitive, as this depends on direct bit comparisons
 		rather than any form of lexicographical comparisons.
 
-	*	No sorts happen, so although can iterate over the key & value vectors
-		(for serialization and the like), they will be in no particular order
-		(unlike VectorMap or stl map which are sorted). This also means can't
-		do range searches and such, only single key finds (though can use
-		findAllWithPrefix() to get all keys with a given prefix).
-
 	*	Unlike an stl map, existing values can be moved in memory when keys
-		are added or removed, so pointers, iterators, and references to
-		them are "unstable" (can be invalidated or become dangling pointers).
+		are added, so pointers, iterators, and references to them are unstable.
+		As mentioned above, indexes are stable, like with stl vector.
 
 	*	Maximum .size() of a key std::string must be <= 8,190
 
@@ -202,20 +202,24 @@ public:
 	// Like find(), but if key not found, adds it (with default value) first.
 	// Returns a direct reference to the value, since can't return 'null'.
 	V& findOrAdd(const Key& theKey, const V& theDefault = V());
+	// Returns index into values() (and keys() if it hasn't been freed), for
+	// even faster access from then on. Returns size() if key not found.
+	I findIndex(const Key& theKey) const;
+	// Combination of findIndex() and findOrAdd() functionality
+	I findOrAddIndex(const Key& theKey, const V& theDefault = V());
 	// Faster version of find if already know key value is valid and contained,
 	// and only search method that works after use freeKeys(), because it skips
 	// final check for exact matching key. If the requested key is NOT in the
-	// map, returns a valid value from some other key (or asserts if empty()).
+	// map, returns key with closest matching prefix (or asserts if empty())
 	V& quickFind(const Key& theKey);
 	const V& quickFind(const Key& theKey) const;
-	// Acts like quickFind but returns index into values() (and keys() if it
-	// hasn't been freed). Provided largely just for debugging purposes.
-	size_t quickFindIndex(const Key& theKey) const;
+	// Combination of findIndex() and quickFind() functionality
+	I quickFindIndex(const Key& theKey) const;
 	// Appends to a vector of indexes all key/value pairs where the key
 	// starts with the given prefix (in no particular order), which can then
 	// be used to index into keys()/values(). Can be used after freeKeys()
 	// but result will not be valid if no keys actually have given prefix!
-	void findAllWithPrefix(const Key& thePrefix, IndexVector* out) const;
+	void findAllWithPrefix(const Key& thePrefix, IndexVector& out) const;
 	// Access to the internal vectors of keys & values, for direct iteration.
 	// These are not guaranteed to be in any particular order, except in
 	// relation to each other (i.e. keyVector()[idx] returns the key for
@@ -223,13 +227,15 @@ public:
 	const KeyVector& keys() const { return mKeys; }
 	const ValueVector& values() const { return mValues; }
 	ValueVector& values() { return mValues; }
+	const ValueVector& vals() const { return mValues; }
+	ValueVector& vals() { return mValues; }
 	bool empty() const { return mValues.empty(); }
-	size_t size() const { return mValues.size(); }
+	I size() const { return I(mValues.size()); }
 
 private:
 	// PRIVATE FUNCTIONS
 	I addNewNode(const Key& theKey, const V& theValue);
-	V& insertNewPair(const Key&, const V&, I theFoundIndex, I theBackPointer);
+	I insertNewPair(const Key&, const V&, I theFoundIndex, I theBackPointer);
 	I bestNodeIndexForFind(const Key& theKey) const;
 	I bestNodeIndexForInsert(const Key& theKey, I* theBPOut) const;
 	u8 getChar(const Key& theKey, u16 theIndex) const;

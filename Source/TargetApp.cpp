@@ -67,15 +67,15 @@ struct Config
 
 	void load()
 	{
-		targetAppPath = Profile::getStr("System/AutoLaunchApp");
-		targetAppParams = Profile::getStr("System/AutoLaunchAppParams");
-		targetWindowName = widen(Profile::getStr("System/TargetWindow"));
+		targetAppPath = Profile::getStr("System", "AutoLaunchApp");
+		targetAppParams = Profile::getStr("System", "AutoLaunchAppParams");
+		targetWindowName = widen(Profile::getStr("System", "TargetWindow"));
 		if( targetWindowName.empty() )
-			targetWindowName = widen(Profile::getStr("System/TargetWindowName"));
-		autoCloseWithTargetApp = Profile::getBool("System/QuitWhenAutoLaunchAppDoes");
-		autoCloseWithTargetWindow = Profile::getBool("System/QuitWhenTargetWindowCloses");
-		forceFullScreenWindow = Profile::getBool("System/ForceFullScreenWindow");
-		startInFullScreenWindow = Profile::getBool("System/StartInFullScreenWindow");
+			targetWindowName = widen(Profile::getStr("System", "TargetWindowName"));
+		autoCloseWithTargetApp = Profile::getBool("System", "QuitWhenAutoLaunchAppDoes");
+		autoCloseWithTargetWindow = Profile::getBool("System", "QuitWhenTargetWindowCloses");
+		forceFullScreenWindow = Profile::getBool("System", "ForceFullScreenWindow");
+		startInFullScreenWindow = Profile::getBool("System", "StartInFullScreenWindow");
 	}
 };
 
@@ -136,7 +136,7 @@ static void dropTargetWindow()
 
 static void restoreTargetWindow()
 {
-	if( gShutdown || gReloadProfile || WindowManager::toolbarHandle() )
+	if( gShutdown || gLoadNewProfile || WindowManager::toolbarHandle() )
 		return;
 	sRestoreTargetWindow = false;
 	if( !sTargetWindowHandle )

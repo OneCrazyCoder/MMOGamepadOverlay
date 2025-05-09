@@ -32,7 +32,7 @@ void VectorMap<K, V, C>::removeDuplicates()
 
 
 template<class K, class V, class C> template<class P> inline
-void VectorMap<K, V, C>::removeDuplicates(P thePred)
+void VectorMap<K, V, C>::removeDuplicates(P)
 {
 	VectorMapComparator<K, V, P> comp;
 	erase(std::unique(begin(), end(), comp), end());
@@ -177,7 +177,8 @@ V& StringToValueMap<V, I>::setValue(const Key& theKey, const V& theValue)
 	}
 
 	// Key not found, need to insert it into the map w/ specified value
-	return insertNewPair(theKey, theValue, aFoundNodeIdx, aBPNodeIdx);
+	return reinterpret_cast<V&>(mValues[
+		insertNewPair(theKey, theValue, aFoundNodeIdx, aBPNodeIdx)]);
 }
 
 
@@ -288,6 +289,45 @@ V& StringToValueMap<V, I>::findOrAdd(const Key& theKey, const V& theDefault)
 		return reinterpret_cast<V&>(mValues[aFoundNodeIdx]);
 
 	// Key not found, need to insert it into the map w/ default value
+	return reinterpret_cast<V&>(mValues[
+		insertNewPair(theKey, theDefault, aFoundNodeIdx, aBPNodeIdx)]);
+}
+
+
+template<class V, class I> inline
+I StringToValueMap<V, I>::findIndex(const Key& theKey) const
+{
+	if( mTrie.empty() )
+		return 0;
+
+	I idx = bestNodeIndexForFind(theKey);
+	DBG_ASSERT(mKeys.size() == mValues.size());
+	DBG_ASSERT(mValues.size() == mTrie.size());
+	if( theKey == mKeys[idx] )
+		return idx;
+
+	return I(mValues.size());
+}
+
+
+template<class V, class I> inline
+I StringToValueMap<V, I>::findOrAddIndex(
+	const Key& theKey, const V& theDefault)
+{
+	if( mTrie.empty() )
+	{
+		addNewNode(theKey, theDefault);
+		return 0;
+	}
+
+	I aBPNodeIdx;
+	I aFoundNodeIdx = bestNodeIndexForInsert(theKey, &aBPNodeIdx);
+	DBG_ASSERT(mKeys.size() == mValues.size());
+	DBG_ASSERT(mValues.size() == mTrie.size());
+	if( theKey == mKeys[aFoundNodeIdx] )
+		return aFoundNodeIdx;
+
+	// Key not found, need to insert it into the map w/ default value
 	return insertNewPair(theKey, theDefault, aFoundNodeIdx, aBPNodeIdx);
 }
 
@@ -307,7 +347,7 @@ const V& StringToValueMap<V, I>::quickFind(const Key& theKey) const
 
 
 template<class V, class I> inline
-size_t StringToValueMap<V, I>::quickFindIndex(const Key& theKey) const
+I StringToValueMap<V, I>::quickFindIndex(const Key& theKey) const
 {
 	return bestNodeIndexForFind(theKey);
 }
@@ -315,9 +355,9 @@ size_t StringToValueMap<V, I>::quickFindIndex(const Key& theKey) const
 
 template<class V, class I> inline
 void StringToValueMap<V, I>::findAllWithPrefix(
-	const Key& thePrefix, IndexVector* out) const
+	const Key& thePrefix, IndexVector& out) const
 {
-	if( mTrie.empty() || !out )
+	if( mTrie.empty() )
 		return;
 
 	// Walk the tree searching for thePrefix until find a node whose
@@ -363,7 +403,7 @@ void StringToValueMap<V, I>::findAllWithPrefix(
 			}
 
 			addedIndex = true;
-			out->push_back(aCheckNodeIdx);
+			out.push_back(aCheckNodeIdx);
 		}
 		else
 		{// Add node's children to the check queue
@@ -396,7 +436,7 @@ I StringToValueMap<V, I>::addNewNode(const Key& theKey, const V& theValue)
 
 
 template<class V, class I> inline
-V& StringToValueMap<V, I>::insertNewPair(
+I StringToValueMap<V, I>::insertNewPair(
 	const Key& theKey, const V& theValue, I theFoundIndex, I theBPIndex)
 {
 	// Create new node
@@ -482,7 +522,7 @@ V& StringToValueMap<V, I>::insertNewPair(
 		}
 	}
 
-	return reinterpret_cast<V&>(mValues[aNewNodeIdx]);
+	return aNewNodeIdx;
 }
 
 

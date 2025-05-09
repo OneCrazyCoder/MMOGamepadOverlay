@@ -126,7 +126,8 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 	HANDLE hTimer = *(HANDLE*)lpParam;
 	HANDLE handles[] = { hTimer, sModalModeExit };
 
-	while(true)
+	bool isReadyToExit = false;
+	while(!isReadyToExit)
 	{
 		// Wait for the timer to be signaled
 		switch(WaitForMultipleObjects(2, handles, FALSE, INFINITE))
@@ -141,7 +142,7 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 			break;
 		case WAIT_OBJECT_0 + 1:
 			// Exit thread event
-			return 0;
+			isReadyToExit = true;
 		}
 	}
 
@@ -226,7 +227,7 @@ static LRESULT CALLBACK mainWindowProc(
 			PostQuitMessage(0);
 			return 0;
 		case ID_FILE_PROFILE:
-			gReloadProfile = Profile::queryUserForProfile();
+			gLoadNewProfile = Profile::queryUserForProfile();
 			return 0;
 		case ID_EDIT_UILAYOUT:
 			LayoutEditor::init();
@@ -607,9 +608,9 @@ void createMain(HINSTANCE theAppInstanceHandle)
 
 	sHidden = false;
 	const std::wstring& aMainWindowName = widen(
-		Profile::getStr("System/WindowName", "MMO Gamepad Overlay"));
-	u16 aMainWindowWidth = Profile::getInt("System/WindowWidth", 160);
-	u16 aMainWindowHeight = Profile::getInt("System/WindowHeight", 80);
+		Profile::getStr("System", "WindowName", "MMO Gamepad Overlay"));
+	u16 aMainWindowWidth = Profile::getInt("System", "WindowWidth", 160);
+	u16 aMainWindowHeight = Profile::getInt("System", "WindowHeight", 80);
 	const bool isMainWindowHidden =
 		(aMainWindowWidth == 0 || aMainWindowHeight == 0);
 
@@ -666,10 +667,10 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		SystemParametersInfo(SPI_GETWORKAREA, 0, &aWorkRect, 0);
 		sMainWindowPos.x = aWorkRect.right - aMainWindowWidth;
 		sMainWindowPos.y = aWorkRect.bottom - aMainWindowHeight;
-		if( !Profile::getStr("System/WindowXPos").empty() )
-			sMainWindowPos.x = Profile::getInt("System/WindowXPos");
-		if( !Profile::getStr("System/WindowYPos").empty() )
-			sMainWindowPos.x = Profile::getInt("System/WindowYPos");
+		if( !Profile::getStr("System", "WindowXPos").empty() )
+			sMainWindowPos.x = Profile::getInt("System", "WindowXPos");
+		if( !Profile::getStr("System", "WindowYPos").empty() )
+			sMainWindowPos.x = Profile::getInt("System", "WindowYPos");
 		sMainWindowPosInit = true;
 	}
 
@@ -708,7 +709,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 void createOverlays(HINSTANCE theAppInstanceHandle)
 {
 	sIconCopyMethod = EIconCopyMethod(
-		clamp(Profile::getInt("System/IconCopyMethod"),
+		clamp(Profile::getInt("System", "IconCopyMethod"),
 			1, eIconCopyMethod_Num)-1);
 
 	#ifndef WDA_EXCLUDEFROMCAPTURE
@@ -809,7 +810,7 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void update()
 {
-	if( sWindowInModalMode || gReloadProfile || gShutdown )
+	if( sWindowInModalMode || gLoadNewProfile || gShutdown )
 		return;
 
 	sInDialogMode = false;
@@ -1080,20 +1081,20 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	aNewTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
 	if( aNewTargetSize.cx != sTargetSize.cx ||
 		aNewTargetSize.cy != sTargetSize.cy ||
-		gReloadProfile )
+		gLoadNewProfile )
 	{
 		sTargetSize = aNewTargetSize;
 
 		double oldWindowUIScale = gWindowUIScale;
 		const int aUIScaleBaseHeight =
-			Profile::getInt("System/UIScaleBaseHeight");
+			Profile::getInt("System", "UIScaleBaseHeight");
 		if( aUIScaleBaseHeight > 0 )
 			gWindowUIScale *= double(sTargetSize.cy) / aUIScaleBaseHeight;
 		else
 			gWindowUIScale = 1.0;
 		if( gWindowUIScale != oldWindowUIScale )
 		{
-			double aUIScale = Profile::getFloat("System/UIScale", 1.0f);
+			double aUIScale = Profile::getFloat("System", "UIScale", 1.0f);
 			if( aUIScale <= 0 ) aUIScale = 1.0;
 			gUIScale = aUIScale * gWindowUIScale;
 			HUD::updateScaling();
@@ -1172,7 +1173,7 @@ RECT overlayClipRect()
 void updateUIScale()
 {
 	const double oldScale = gUIScale;
-	double aUIScale = Profile::getFloat("System/UIScale", 1.0f);
+	double aUIScale = Profile::getFloat("System", "UIScale", 1.0f);
 	if( aUIScale <= 0 ) aUIScale = 1.0;
 	gUIScale = aUIScale * gWindowUIScale;
 	if( gUIScale != oldScale )

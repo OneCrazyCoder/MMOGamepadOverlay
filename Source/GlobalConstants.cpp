@@ -302,7 +302,6 @@ EButton buttonNameToID(const std::string& theName)
 				{ "XBA",			eBtn_FDown		},
 				{ "PSX",			eBtn_FDown		},
 			};
-			size_t aSize = eBtn_Num + ARRAYSIZE(kEntries);
 			map.reserve(eBtn_Num + ARRAYSIZE(kEntries));
 			for(int i = 0; i < eBtn_Num; ++i)
 				map.setValue(upper(kProfileButtonName[i]), EButton(i));

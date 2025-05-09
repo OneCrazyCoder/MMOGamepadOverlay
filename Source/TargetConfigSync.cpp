@@ -104,10 +104,10 @@ enum EValueFunction
 	eValueFunc_Num
 };
 
-const char* kTargetConfigFilesPrefix = "TargetConfigFiles/";
-const char* kSyncPropertiesPrefix = "TargetSyncProperties/";
-const char* kValueFormatStrPrefix = "TargetConfigFileFormat/";
-const char* kValueFormatInvertPrefix = "TargetConfigFileFormat/Invert";
+const char* kTargetConfigFilesSectionName = "TargetConfigFiles";
+const char* kSyncPropertiesSectionName = "TargetSyncProperties";
+const char* kValueFormatStrSectionName = "TargetConfigFileFormat";
+const char* kValueFormatInvertPrefix = "Invert";
 const char* kValueFormatStringKeys[] =
 {
 	"Value",		// eValueSetSubType_Base
@@ -1049,7 +1049,7 @@ public:
 		sBestWildcardMatches.clear();
 		bool madeChangesToRegistry = false;
 
-		for(DWORD aValueIdx = 0; true; ++aValueIdx)
+		for(DWORD aValueIdx = 0; /*until break*/; ++aValueIdx)
 		{
 			aValueNameLen = aMaxValueNameLen;
 			if( RegEnumValue(
@@ -1175,7 +1175,7 @@ public:
 		return result;
 	}
 
-	virtual void reportResults() override
+	virtual void reportResults()
 	{
 		if( !mResolvedValueName.empty() &&
 			mResolvedValueName[0] != '\0' )
@@ -1842,61 +1842,65 @@ void load()
 		cleanup();
 	TargetConfigSyncBuilder aBuilder;
 
-	// Fetch target config paths potentially containing sync properties
-	Profile::KeyValuePairs aKeyValueList;
-	Profile::getAllKeys(kTargetConfigFilesPrefix, aKeyValueList);
-	aBuilder.nameToLinkMapID.reserve(aKeyValueList.size());
-	aBuilder.pathToLinkMapID.reserve(aKeyValueList.size());
-	aBuilder.valueLinkMaps.reserve(aKeyValueList.size());
-	for(size_t i = 0; i < aKeyValueList.size(); ++i)
-	{
-		const u16 aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
-			normalizedPath(aKeyValueList[i].second),
-			u16(aBuilder.valueLinkMaps.size()));
-		if( aLinkMapID >= aBuilder.valueLinkMaps.size() )
-			aBuilder.valueLinkMaps.push_back(ValueLinkMap());
-		aBuilder.nameToLinkMapID.setValue(
-			condense(aKeyValueList[i].first), aLinkMapID);
+	{// Fetch target config paths potentially containing sync properties
+		const Profile::PropertyMap& aPropMap =
+			Profile::getSectionProperties(kTargetConfigFilesSectionName);
+		aBuilder.nameToLinkMapID.reserve(aPropMap.size());
+		aBuilder.pathToLinkMapID.reserve(aPropMap.size());
+		aBuilder.valueLinkMaps.reserve(aPropMap.size());
+		for(size_t i = 0; i < aPropMap.size(); ++i)
+		{
+			const u16 aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
+				normalizedPath(aPropMap.vals()[i].val),
+				u16(aBuilder.valueLinkMaps.size()));
+			if( aLinkMapID >= aBuilder.valueLinkMaps.size() )
+				aBuilder.valueLinkMaps.push_back(ValueLinkMap());
+			aBuilder.nameToLinkMapID.setValue(
+				condense(aPropMap.vals()[i].name), aLinkMapID);
+		}
 	}
 
 	// Fetch value path formating data
 	for(size_t i = 0; i < eValueSetSubType_Num; ++i)
 	{
 		aBuilder.valueFormatStrings[i] = Profile::getStr(
-			std::string(kValueFormatStrPrefix) +
+			kValueFormatStrSectionName,
 			kValueFormatStringKeys[i]);
 		sInvertAxis[i] = Profile::getBool(
+			kValueFormatStrSectionName,
 			std::string(kValueFormatInvertPrefix) +
 			kValueFormatStringKeys[i]);
 	}
 
-	// Fetch sync property values to read from the data sources
-	aKeyValueList.clear();
-	Profile::getAllKeys(kSyncPropertiesPrefix, aKeyValueList);
-	for(size_t i = 0; i < aKeyValueList.size(); ++i)
-	{
-		aBuilder.debugString = aKeyValueList[i].first;
-		aBuilder.debugString += " = ";
-		aBuilder.debugString += aKeyValueList[i].second;
-		// Separate key into section and property name by > character
-		SyncProperty aProperty;
-		aProperty.section = condense(aKeyValueList[i].first);
-		size_t aPos = aProperty.section.find('>');
-		if( aPos == std::string::npos )
+	{// Fetch sync property values to read from the data sources
+		const Profile::PropertyMap& aPropMap =
+			Profile::getSectionProperties(kSyncPropertiesSectionName);
+		for(size_t i = 0; i < aPropMap.size(); ++i)
 		{
-			logError("Missing '>' between section and property name "
-				"for sync property '%s'",
-				aKeyValueList[i].first);
-			continue;
+			aBuilder.debugString = aPropMap.vals()[i].name;
+			aBuilder.debugString += " = ";
+			aBuilder.debugString += aPropMap.vals()[i].val;
+			// Separate key into section and property name by > character
+			SyncProperty aProperty;
+			aProperty.section = aPropMap.keys()[i];
+			size_t aPos = aProperty.section.find('>');
+			if( aPos == std::string::npos )
+			{
+				logError("Missing '>' between section and property name "
+					"for sync property '%s'",
+					aPropMap.vals()[i].name.c_str());
+				continue;
+			}
+			parsePropertyValueTags(
+				aBuilder, aProperty,
+				aPropMap.vals()[i].val);
+			if( aProperty.valueSetsUsed.none() )
+				continue;
+			aProperty.name = aProperty.section.substr(aPos+1);
+			aProperty.section.resize(aPos);
+			aProperty.type = extractPropertyType(aProperty);
+			sProperties.push_back(aProperty);
 		}
-		parsePropertyValueTags(aBuilder, aProperty, aKeyValueList[i].second);
-		if( aProperty.valueSetsUsed.none() )
-			continue;
-		aProperty.name = aProperty.section.substr(aPos+1);
-		aProperty.section.resize(aPos);
-		aProperty.type = extractPropertyType(aProperty);
-		const u16 aPropertyID = u16(sProperties.size());
-		sProperties.push_back(aProperty);
 	}
 	aBuilder.nameToLinkMapID.clear();
 
@@ -2027,8 +2031,8 @@ void load()
 	for(size_t aRegKeyID = 0; aRegKeyID < sRegKeys.size(); ++aRegKeyID)
 	{
 		SystemRegistryKey& aRegKey = sRegKeys[aRegKeyID];
-		if( aRegKey.hChangedSignal =
-				CreateEvent(NULL, TRUE, FALSE, NULL) )
+		aRegKey.hChangedSignal = CreateEvent(NULL, TRUE, FALSE, NULL);
+		if( aRegKey.hChangedSignal )
 		{
 			RegNotifyChangeKeyValue(
 				aRegKey.hKey,
@@ -2236,7 +2240,7 @@ void update()
 		if( sInitialized )
 		{// After initial load, so need to let other modules know of changes
 			if( propTypeChanged[ePropertyType_Unknown] )
-				gReloadProfile = true;
+				gLoadNewProfile = true;
 			if( propTypeChanged[ePropertyType_UIScale] )
 				WindowManager::updateUIScale();
 			if( propTypeChanged[ePropertyType_Hotspot] )
@@ -2263,7 +2267,7 @@ void update()
 			}
 		}
 		sChangedValueSets.reset();
-		syncDebugPrint("All read properties now applied!\n");
+		syncDebugPrint("All read properties now being applied!\n");
 	}
 }
 

@@ -42,15 +42,15 @@ struct Config
 
 	void load()
 	{
-		tapHoldTime = Profile::getInt("System/ButtonTapTime", 500);
-		autoRepeatDelay = Profile::getInt("System/AutoRepeatDelay", 400);
-		autoRepeatRate = Profile::getInt("System/AutoRepeatRate", 100);
+		tapHoldTime = Profile::getInt("System", "ButtonTapTime", 500);
+		autoRepeatDelay = Profile::getInt("System", "AutoRepeatDelay", 400);
+		autoRepeatRate = Profile::getInt("System", "AutoRepeatRate", 100);
 		hotspotAutoRepeatDelay =
-			Profile::getInt("System/SelectHotspotRepeatDelay", 150);
+			Profile::getInt("System", "SelectHotspotRepeatDelay", 150);
 		hotspotAutoRepeatRate =
-			Profile::getInt("System/SelectHotspotRepeatRate", 75);
+			Profile::getInt("System", "SelectHotspotRepeatRate", 75);
 		u8 aThreshold =
-			clamp(Profile::getInt("Gamepad/LStickThreshold", 40),
+			clamp(Profile::getInt("Gamepad", "LStickThreshold", 40),
 				0, 100) * 255 / 100;
 		Gamepad::setPressThreshold(eBtn_LSLeft, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSRight, aThreshold);
@@ -58,7 +58,7 @@ struct Config
 		Gamepad::setPressThreshold(eBtn_LSDown, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSAny, aThreshold);
 		aThreshold =
-			clamp(Profile::getInt("Gamepad/RStickThreshold", 40),
+			clamp(Profile::getInt("Gamepad", "RStickThreshold", 40),
 				0, 100) * 255 / 100;
 		Gamepad::setPressThreshold(eBtn_RSLeft, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSRight, aThreshold);
@@ -66,7 +66,7 @@ struct Config
 		Gamepad::setPressThreshold(eBtn_RSDown, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSAny, aThreshold);
 		aThreshold =
-			clamp(Profile::getInt("Gamepad/TriggerThreshold", 12),
+			clamp(Profile::getInt("Gamepad", "TriggerThreshold", 12),
 				0, 100) * 255 / 100;
 		Gamepad::setPressThreshold(eBtn_L2, aThreshold);
 		Gamepad::setPressThreshold(eBtn_R2, aThreshold);
@@ -942,7 +942,7 @@ static void processCommand(
 			sResults.charMoveLockMovement = true;
 		break;
 	case eCmdType_ChangeProfile:
-		gReloadProfile = Profile::queryUserForProfile();
+		gLoadNewProfile = Profile::queryUserForProfile();
 		break;
 	case eCmdType_EditLayout:
 		LayoutEditor::init();
