@@ -165,10 +165,10 @@ struct ControlsLayer
 	std::string label;
 	ButtonActionsMap buttonMap;
 	VectorMap<u16, Command> signalCommands;
-	BitVector<> showHUD;
-	BitVector<> hideHUD;
-	BitVector<> enableHotspots;
-	BitVector<> disableHotspots;
+	BitVector<32> showHUD;
+	BitVector<32> hideHUD;
+	BitVector<32> enableHotspots;
+	BitVector<32> disableHotspots;
 	EMouseMode mouseMode;
 	u16 parentLayer;
 	s8 priority;
@@ -196,15 +196,10 @@ struct HotspotArray
 // Data used during parsing/building the map but deleted once done
 struct InputMapBuilder
 {
-	std::vector<std::string> parsedString; // TODO - use assert first clear after technique instead of clear first
-	VectorMap<ECommandKeyWord, size_t> keyWordMap;
-	StringToValueMap<std::string> buttonAliases;
 	StringToValueMap<Command> commandAliases;
-	StringToValueMap<Command> specialKeyNameToCommandMap;
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<u16> hotspotArrayNameToIdxMap;
-	BitVector<> elementsProcessed;
 	std::string debugItemName;
 	std::string debugSubItemName;
 };
@@ -222,6 +217,7 @@ static StringToValueMap<ControlsLayer> sLayers;
 static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static StringToValueMap<Menu> sMenus;
 static StringToValueMap<HUDElement> sHUDElements;
+static StringToValueMap<std::string> sButtonAliases; // TODO: remove?
 static u16 sSpecialKeys[eSpecialKey_Num];
 static VectorMap<std::pair<u16, EButton>, u32> sButtonHoldTimes;
 static u32 sDefaultButtonHoldTime = 400;
@@ -723,46 +719,12 @@ static Command parseChatBoxMacro(const std::string& theString)
 static void createEmptyLayer(const std::string& theName)
 {
 	DBG_ASSERT(!theName.empty());
+	// Layers with + in the name are combo layers and should be skipped here
+	if( theName.find('+') != std::string::npos )
+		return;
 	ControlsLayer& aLayer = sLayers.findOrAdd(condense(theName));
 	if( aLayer.label.empty() )
 		aLayer.label = theName;
-}
-
-
-static void tryCreateComboLayer(const std::string& theComboName)
-{
-	DBG_ASSERT(!theComboName.empty());
-	
-	std::string aSecondLayerName = theComboName;
-	std::string aFirstLayerName = breakOffItemBeforeChar(
-		aSecondLayerName, kComboLayerDeliminator);
-	if( aFirstLayerName.empty() || aSecondLayerName.empty() )
-		return;
-
-	const u16 aComboLayerID = sLayers.findIndex(condense(theComboName));
-	if( aComboLayerID == 0 || aComboLayerID >= sLayers.size() )
-		return;
-
-	const u16 aFirstLayerID = sLayers.findIndex(condense(aFirstLayerName));
-	if( aFirstLayerID == 0 || aFirstLayerID >= sLayers.size() )
-		return;
-
-	createEmptyLayer(aSecondLayerName);
-	tryCreateComboLayer(aSecondLayerName);
-	const u16 aSecondLayerID = sLayers.findIndex(condense(aSecondLayerName));
-	if( aSecondLayerID == 0 || aSecondLayerID >= sLayers.size() )
-		return;
-
-	if( aFirstLayerID == aSecondLayerID )
-	{
-		logError("Specified same layer twice in combo layer name '%s'!",
-			theComboName.c_str());
-		return;
-	}
-
-	sLayers.vals()[aComboLayerID].isComboLayer = true;
-	std::pair<u16, u16> aComboLayerKey(aFirstLayerID, aSecondLayerID);
-	sComboLayers.setValue(aComboLayerKey, aComboLayerID);
 }
 
 
@@ -772,6 +734,54 @@ static u16 getLayerID(const std::string& theName)
 	if( result >= sLayers.size() )
 		result = 0;
 	return result;
+}
+
+
+static void createComboLayer(const std::string& theComboName)
+{
+	DBG_ASSERT(!theComboName.empty());
+	
+	std::string aSecondLayerName = theComboName;
+	std::string aFirstLayerName = breakOffItemBeforeChar(
+		aSecondLayerName, kComboLayerDeliminator);
+	if( aFirstLayerName.empty() || aSecondLayerName.empty() )
+		return;
+
+	const u16 aFirstLayerID = getLayerID(aFirstLayerName);
+	if( !aFirstLayerID )
+	{
+		logError("Base layer [%s] not found for combo layer [%s]",
+			(kLayerPrefix + aFirstLayerName).c_str(),
+			(kLayerPrefix + theComboName).c_str());
+		return;
+	}
+
+	// Second layer may itself be a combo layer (or dummy combo layer)
+	createComboLayer(aSecondLayerName);
+	const u16 aSecondLayerID = getLayerID(aSecondLayerName);
+	if( !aSecondLayerID )
+	{
+		logError("Base layer [%s] not found for combo layer [%s]",
+			(kLayerPrefix + aSecondLayerName).c_str(),
+			(kLayerPrefix + theComboName).c_str());
+		return;
+	}
+
+	if( aFirstLayerID == aSecondLayerID )
+	{
+		logError("Specified same layer twice in combo layer name '%s'!",
+			theComboName.c_str());
+		return;
+	}
+
+	const u16 aComboLayerID =
+		sLayers.findOrAddIndex(condense(theComboName));
+	ControlsLayer& aComboLayer = sLayers.vals()[aComboLayerID];
+	if( aComboLayer.label.empty() )
+		aComboLayer.label = theComboName;
+	aComboLayer.isComboLayer = true;
+	std::pair<u16, u16> aComboLayerKey(aFirstLayerID, aSecondLayerID);
+	sComboLayers.setValue(aComboLayerKey, aComboLayerID);
 }
 
 
@@ -1051,7 +1061,9 @@ static Command wordsToSpecialCommand(
 	}
 
 	// Find all key words that are actually included and their positions
-	theBuilder.keyWordMap.clear();
+	static VectorMap<ECommandKeyWord, size_t> sKeyWordMap;
+	sKeyWordMap.reserve(8);
+	sKeyWordMap.clear();
 	BitArray<eCmdWord_Num> keyWordsFound = { 0 };
 	BitArray<eCmdWord_Num> allowedKeyWords = { 0 };
 	const std::string* anIgnoredWord = null;
@@ -1146,22 +1158,22 @@ static Command wordsToSpecialCommand(
 			if( !keyWordsFound.test(aKeyWordID) )
 			{
 				keyWordsFound.set(aKeyWordID);
-				theBuilder.keyWordMap.addPair(aKeyWordID, i);
+				sKeyWordMap.addPair(aKeyWordID, i);
 			}
 			break;
 		}
 	}
-	if( theBuilder.keyWordMap.empty() )
+	if( sKeyWordMap.empty() )
 		return result;
-	theBuilder.keyWordMap.sort();
+	sKeyWordMap.sort();
 	// If have no "unknown" word (layer name/etc), use "ignored" word as one
 	// This is the only difference between "ignored" and "filler" words
 	if( !keyWordsFound.test(eCmdWord_Unknown) &&
 		keyWordsFound.test(eCmdWord_Ignored) )
 	{
 		keyWordsFound.set(eCmdWord_Unknown);
-		theBuilder.keyWordMap.setValue(eCmdWord_Unknown,
-			theBuilder.keyWordMap.findOrAdd(eCmdWord_Ignored));
+		sKeyWordMap.setValue(eCmdWord_Unknown,
+			sKeyWordMap.findOrAdd(eCmdWord_Ignored));
 	}
 	keyWordsFound.reset(eCmdWord_Ignored);
 
@@ -1234,9 +1246,9 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Move);
 		allowedKeyWords.reset(eCmdWord_Mouse);
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
-			theBuilder.keyWordMap.find(ECommandKeyWord(
+			sKeyWordMap.find(ECommandKeyWord(
 				allowedKeyWords.firstSetBit()));
-		if( itr != theBuilder.keyWordMap.end() )
+		if( itr != sKeyWordMap.end() )
 		{
 			u16* aHotspotIdx = theBuilder.hotspotNameToIdxMap.find(
 				condense(theWords[itr->second]));
@@ -1307,9 +1319,9 @@ static Command wordsToSpecialCommand(
 		(aSecondLayerName && allowedKeyWords.count() == 2) )
 	{
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
-			theBuilder.keyWordMap.find(ECommandKeyWord(
+			sKeyWordMap.find(ECommandKeyWord(
 				allowedKeyWords.firstSetBit()));
-		if( itr != theBuilder.keyWordMap.end() )
+		if( itr != sKeyWordMap.end() )
 			aLayerName = &theWords[itr->second];
 	}
 	if( aSecondLayerName &&
@@ -1319,9 +1331,9 @@ static Command wordsToSpecialCommand(
 		aLayerName = anIgnoredWord;
 		if( !aLayerName ) aLayerName = anIntegerWord;
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
-			theBuilder.keyWordMap.find(ECommandKeyWord(
+			sKeyWordMap.find(ECommandKeyWord(
 				allowedKeyWords.nextSetBit(allowedKeyWords.firstSetBit())));
-		if( itr != theBuilder.keyWordMap.end() )
+		if( itr != sKeyWordMap.end() )
 			aLayerName = &theWords[itr->second];
 	}
 	u16 aLayerID = 0;
@@ -1455,9 +1467,9 @@ static Command wordsToSpecialCommand(
 	if( allowedKeyWords.count() == 1 )
 	{
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
-			theBuilder.keyWordMap.find(
+			sKeyWordMap.find(
 				ECommandKeyWord(allowedKeyWords.firstSetBit()));
-		if( itr != theBuilder.keyWordMap.end() )
+		if( itr != sKeyWordMap.end() )
 			aMenuName = &theWords[itr->second];
 	}
 
@@ -1548,9 +1560,9 @@ static Command wordsToSpecialCommand(
 	if( allowedKeyWords.count() == 1 )
 	{
 		VectorMap<ECommandKeyWord, size_t>::const_iterator itr =
-			theBuilder.keyWordMap.find(
+			sKeyWordMap.find(
 				ECommandKeyWord(allowedKeyWords.firstSetBit()));
-		if( itr != theBuilder.keyWordMap.end() )
+		if( itr != sKeyWordMap.end() )
 			aKeyBindArrayName = &theWords[itr->second];
 	}
 	// In this case, need to confirm key bind name is valid and get ID from it
@@ -1838,6 +1850,49 @@ static Command wordsToSpecialCommand(
 }
 
 
+static Command* specialKeyBindNameToCommand(const std::string& theName)
+{
+	// This intercepts attempts to set a command to certain specific key binds
+	// directly and instead uses the special command associated with it.
+	// For example, using "= TurnLeft" will return eCmdType_MoveTurn w/ _Left
+	// instead of becoming _TapKey w/ whatever TurnLeft is bound to.
+	// This makes sure special code for some of these commands is utilized
+	// when use the key bind name instead of "MoveTurn" and such.
+
+	static StringToValueMap<Command> sSpecialKeyBindMap;
+	if( sSpecialKeyBindMap.empty() )
+	{
+		sSpecialKeyBindMap.reserve(7); // <-- update this if add more!
+		Command aCmd;
+		aCmd.type = eCmdType_StartAutoRun;
+		sSpecialKeyBindMap.setValue(
+			condense(kSpecialKeyNames[eSpecialKey_AutoRun]), aCmd);
+		aCmd.type = eCmdType_MoveTurn;
+		aCmd.dir = eCmdDir_Forward;
+		sSpecialKeyBindMap.setValue(
+			condense(kSpecialKeyNames[eSpecialKey_MoveF]), aCmd);
+		aCmd.dir = eCmdDir_Back;
+		sSpecialKeyBindMap.setValue(
+			condense(kSpecialKeyNames[eSpecialKey_MoveB]), aCmd);
+		aCmd.dir = eCmdDir_Left;
+		sSpecialKeyBindMap.setValue(
+			condense(kSpecialKeyNames[eSpecialKey_TurnL]), aCmd);
+		aCmd.dir = eCmdDir_Right;
+		sSpecialKeyBindMap.setValue(
+			condense(kSpecialKeyNames[eSpecialKey_TurnR]), aCmd);
+		aCmd.type = eCmdType_MoveStrafe;
+		aCmd.dir = eCmdDir_Left;
+		sSpecialKeyBindMap.setValue(
+			condense(kSpecialKeyNames[eSpecialKey_StrafeL]), aCmd);
+		aCmd.dir = eCmdDir_Right;
+		sSpecialKeyBindMap.setValue(
+			condense(kSpecialKeyNames[eSpecialKey_StrafeR]), aCmd);
+	}
+
+	return sSpecialKeyBindMap.find(theName);
+}
+
+
 static Command stringToCommand(
 	InputMapBuilder& theBuilder,
 	const std::string& theString,
@@ -1855,9 +1910,9 @@ static Command stringToCommand(
 		return result;
 
 	// Check for a simple key assignment
-	theBuilder.parsedString.clear();
-	sanitizeSentence(theString, theBuilder.parsedString);
-	if( u16 aVKey = namesToVKey(theBuilder.parsedString) )
+	std::vector<std::string> aParsedString; aParsedString.reserve(16);
+	sanitizeSentence(theString, aParsedString);
+	if( u16 aVKey = namesToVKey(aParsedString) )
 	{
 		result.type = eCmdType_TapKey;
 		result.vKey = aVKey;
@@ -1877,7 +1932,7 @@ static Command stringToCommand(
 	// Check for special command
 	result = wordsToSpecialCommand(
 		theBuilder,
-		theBuilder.parsedString,
+		aParsedString,
 		allowButtonActions,
 		allowHoldActions);
 
@@ -1885,13 +1940,13 @@ static Command stringToCommand(
 	if( result.type == eCmdType_Empty )
 	{
 		std::string aKeyBindName = condense(theString);
-		if( Command* aSpecialKeyCommand =
-				theBuilder.specialKeyNameToCommandMap.find(aKeyBindName) )
+		if( Command* aSpecialKeyBindCommand =
+				specialKeyBindNameToCommand(aKeyBindName) )
 		{
 			if( allowHoldActions ||
-				aSpecialKeyCommand->type < eCmdType_FirstContinuous )
+				aSpecialKeyBindCommand->type < eCmdType_FirstContinuous )
 			{
-				result = *aSpecialKeyCommand;
+				result = *aSpecialKeyBindCommand;
 				return result;
 			}
 		}
@@ -1925,7 +1980,7 @@ static Command stringToCommand(
 	if( result.type == eCmdType_Empty )
 	{
 		const std::string& aVKeySeq =
-			namesToVKeySequence(theBuilder, theBuilder.parsedString);
+			namesToVKeySequence(theBuilder, aParsedString);
 
 		if( !aVKeySeq.empty() )
 		{
@@ -1952,7 +2007,7 @@ static void assignHotspots(
 	}
 
 	// Prepare local data structures
-	BitVector<> aFoundArrays;
+	BitVector<32> aFoundArrays;
 	aFoundArrays.clearAndResize(sHotspotArrays.size());
 	VectorMap<u16, float> aHotspotArrayAnchorOffsetsScaleMap;
 
@@ -2358,9 +2413,9 @@ static Command stringToAliasCommand(
 	}
 
 	// Tap key
-	theBuilder.parsedString.clear();
-	sanitizeSentence(theCmdStr, theBuilder.parsedString);
-	if( u16 aVKey = namesToVKey(theBuilder.parsedString) )
+	std::vector<std::string> aParsedString; aParsedString.reserve(16);
+	sanitizeSentence(theCmdStr, aParsedString);
+	if( u16 aVKey = namesToVKey(aParsedString) )
 	{
 		aCmd.type = eCmdType_TapKey;
 		aCmd.signalID = theSignalID++;
@@ -2370,7 +2425,7 @@ static Command stringToAliasCommand(
 
 	// VKey Sequence
 	std::string aVKeySeq =
-		namesToVKeySequence(theBuilder, theBuilder.parsedString);
+		namesToVKeySequence(theBuilder, aParsedString);
 	if( aVKeySeq.empty() )
 		return aCmd;
 
@@ -2429,7 +2484,7 @@ static void buildButtonAliases(InputMapBuilder& theBuilder)
 		Profile::getSectionProperties(kButtonAliasSectionName);
 	for(size_t i = 0; i < aPropMap.size(); ++i)
 	{
-		theBuilder.buttonAliases.setValue(
+		sButtonAliases.setValue(
 			aPropMap.keys()[i],
 			condense(aPropMap.vals()[i].val));
 	}
@@ -2482,51 +2537,31 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 			condense(kSpecialKeyNames[i]), aCmd);
 	}
 
-	// Generate special-key-to-command map
-	Command aCmd;
-	aCmd.type = eCmdType_StartAutoRun;
-	theBuilder.specialKeyNameToCommandMap.setValue(
-		condense(kSpecialKeyNames[eSpecialKey_AutoRun]), aCmd);
-	aCmd.type = eCmdType_MoveTurn;
-	aCmd.dir = eCmdDir_Forward;
-	theBuilder.specialKeyNameToCommandMap.setValue(
-		condense(kSpecialKeyNames[eSpecialKey_MoveF]), aCmd);
-	aCmd.dir = eCmdDir_Back;
-	theBuilder.specialKeyNameToCommandMap.setValue(
-		condense(kSpecialKeyNames[eSpecialKey_MoveB]), aCmd);
-	aCmd.dir = eCmdDir_Left;
-	theBuilder.specialKeyNameToCommandMap.setValue(
-		condense(kSpecialKeyNames[eSpecialKey_TurnL]), aCmd);
-	aCmd.dir = eCmdDir_Right;
-	theBuilder.specialKeyNameToCommandMap.setValue(
-		condense(kSpecialKeyNames[eSpecialKey_TurnR]), aCmd);
-	aCmd.type = eCmdType_MoveStrafe;
-	aCmd.dir = eCmdDir_Left;
-	theBuilder.specialKeyNameToCommandMap.setValue(
-		condense(kSpecialKeyNames[eSpecialKey_StrafeL]), aCmd);
-	aCmd.dir = eCmdDir_Right;
-	theBuilder.specialKeyNameToCommandMap.setValue(
-		condense(kSpecialKeyNames[eSpecialKey_StrafeR]), aCmd);
-
 	// Now process all the rest of the key binds
 	const Profile::PropertyMap& aPropMap =
 		Profile::getSectionProperties(kCommandAliasSectionName);
 	aNextSignalID = eBtn_Num + eSpecialKey_Num;
-	theBuilder.elementsProcessed.clearAndResize(aPropMap.size());
+	BitVector<128> keyBindsProcessed;
+	keyBindsProcessed.clearAndResize(aPropMap.size());
 	// Mark the already-processed special keys
 	for(size_t i = 0; i < aPropMap.size(); ++i)
 	{
 		if( theBuilder.commandAliases.contains(aPropMap.keys()[i]) )
-			theBuilder.elementsProcessed.set(i);
+			keyBindsProcessed.set(i);
 	}
 
+	// Keep trying to add key binds until a pass doesn't add any at all,
+	// ignoring ones that can't be processed yet due to interdependencies.
+	// Then do one final pass on the remaining ones that allows errors
+	// to be shown (via reportCommandAssignment()), which will also cause
+	// keyBindsProcessed.all() to become true to end this loop.
 	bool newKeyBindAdded = false;
 	bool showErrors = false;
-	while(!theBuilder.elementsProcessed.all())
+	while(!keyBindsProcessed.all())
 	{
 		for(size_t i = 0; i < aPropMap.size(); ++i)
 		{
-			if( theBuilder.elementsProcessed.test(i) )
+			if( keyBindsProcessed.test(i) )
 				continue;
 
 			const std::string& anAlias = aPropMap.vals()[i].name;
@@ -2538,7 +2573,7 @@ static void buildCommandAliases(InputMapBuilder& theBuilder)
 			{
 				theBuilder.commandAliases.setValue(condense(anAlias), aCmd);
 				newKeyBindAdded = true;
-				theBuilder.elementsProcessed.set(i);
+				keyBindsProcessed.set(i);
 				reportCommandAssignment(
 					theBuilder.debugItemName, anAlias, aCmd, aCmdStr, true);
 			}
@@ -2591,7 +2626,7 @@ static EButton buttonNameToID(
 	InputMapBuilder& theBuilder,
 	const std::string& theName)
 {
-	if( std::string* aBtnName = theBuilder.buttonAliases.find(theName) )
+	if( std::string* aBtnName = sButtonAliases.find(theName) )
 		return ::buttonNameToID(*aBtnName);
 	return ::buttonNameToID(theName);
 }
@@ -3055,13 +3090,13 @@ static void buildControlsLayer(
 			theLayer.disableHotspots.reset();
 
 			// Break the string into individual words
-			theBuilder.parsedString.clear();
-			sanitizeSentence(aPropVal, theBuilder.parsedString);
+			std::vector<std::string> aParsedString; aParsedString.reserve(16);
+			sanitizeSentence(aPropVal, aParsedString);
 
 			bool enable = true;
-			for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+			for(size_t i = 0; i < aParsedString.size(); ++i)
 			{
-				const std::string& aName = theBuilder.parsedString[i];
+				const std::string& aName = aParsedString[i];
 				const std::string& aUpperName = upper(aName);
 				if( aUpperName == "HIDE" || aUpperName == "DISABLE" )
 				{
@@ -3156,14 +3191,15 @@ static void buildControlsLayer(
 				{
 					theLayer.parentLayer = aParentLayerID;
 					// Check for infinite parent loop
-					theBuilder.elementsProcessed.clearAndResize(sLayers.size());
+					BitVector<64> layersProcessed;
+					layersProcessed.clearAndResize(sLayers.size());
 					u16 aCheckLayerIdx = theLayerID;
-					theBuilder.elementsProcessed.set(aCheckLayerIdx);
+					layersProcessed.set(aCheckLayerIdx);
 					while(sLayers.vals()[aCheckLayerIdx].parentLayer != 0)
 					{
 						aCheckLayerIdx =
 							sLayers.vals()[aCheckLayerIdx].parentLayer;
-						if( theBuilder.elementsProcessed.test(aCheckLayerIdx) )
+						if( layersProcessed.test(aCheckLayerIdx) )
 						{
 							logError("Infinite parent loop with layer [%s]"
 								" trying to set parent layer to %s!",
@@ -3172,7 +3208,7 @@ static void buildControlsLayer(
 							theLayer.parentLayer = 0;
 							break;
 						}
-						theBuilder.elementsProcessed.set(aCheckLayerIdx);
+						layersProcessed.set(aCheckLayerIdx);
 					}
 					mapDebugPrint("[%s]: Parent layer set to '%s'\n",
 						theBuilder.debugItemName.c_str(),
@@ -3495,9 +3531,6 @@ static void buildHUDElementsForLayer(
 	InputMapBuilder& theBuilder,
 	u16 theLayerID)
 {
-	if( theBuilder.elementsProcessed.test(theLayerID) )
-		return;
-	theBuilder.elementsProcessed.set(theLayerID);
 	theBuilder.debugItemName.clear();
 	if( theLayerID != 0 )
 		theBuilder.debugItemName = kLayerPrefix;
@@ -3513,13 +3546,13 @@ static void buildHUDElementsForLayer(
 		return;
 
 	// Break the string into individual words
-	theBuilder.parsedString.clear();
-	sanitizeSentence(aLayerHUDDescription, theBuilder.parsedString);
+	std::vector<std::string> aParsedString; aParsedString.reserve(16);
+	sanitizeSentence(aLayerHUDDescription, aParsedString);
 
 	bool show = true;
-	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+	for(size_t i = 0; i < aParsedString.size(); ++i)
 	{
-		const std::string& anElementName = theBuilder.parsedString[i];
+		const std::string& anElementName = aParsedString[i];
 		const std::string& anElementUpperName = upper(anElementName);
 		if( anElementUpperName == "HIDE" || anElementUpperName == "DISABLE" )
 		{
@@ -3546,7 +3579,6 @@ static void buildHUDElementsForLayer(
 static void buildHUDElements(InputMapBuilder& theBuilder)
 {
 	// Process the "HUD=" key for each layer
-	theBuilder.elementsProcessed.clearAndResize(sLayers.size());
 	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
 		buildHUDElementsForLayer(theBuilder, aLayerID);
 
@@ -3638,41 +3670,13 @@ static void buildLabels(InputMapBuilder& theBuilder)
 }
 
 
-static void trimMemoryUsage()
-{
-	if( sHotspots.size() < sHotspots.capacity() )
-		std::vector<Hotspot>(sHotspots).swap(sHotspots);
-	if( sHotspotArrays.size() < sHotspotArrays.capacity() )
-		std::vector<HotspotArray>(sHotspotArrays).swap(sHotspotArrays);
-	if( sKeyBindArrays.size() < sKeyBindArrays.capacity() )
-		std::vector<KeyBindArray>(sKeyBindArrays).swap(sKeyBindArrays);
-	sKeyStrings.trim();
-	sLayers.trim();
-	sComboLayers.trim();
-	sHUDElements.trim();
-	sMenus.trim();
-	sButtonHoldTimes.trim();
-	for(std::vector<Menu>::iterator itr = sMenus.vals().begin();
-		itr != sMenus.vals().end(); ++itr)
-	{
-		if( itr->items.size() < itr->items.capacity() )
-			std::vector<MenuItem>(itr->items).swap(itr->items);
-	}
-	for(std::vector<ControlsLayer>::iterator itr = sLayers.vals().begin();
-		itr != sLayers.vals().end(); ++itr)
-	{
-		itr->signalCommands.trim();
-		itr->buttonMap.trim();
-	}
-}
-
-
 //-----------------------------------------------------------------------------
 // Global Functions
 //-----------------------------------------------------------------------------
 
 void loadProfile()
 {
+	// Clear out any data from a previous profile
 	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
 	sHotspots.clear();
 	sHotspotArrays.clear();
@@ -3682,6 +3686,7 @@ void loadProfile()
 	sComboLayers.clear();
 	sMenus.clear();
 	sHUDElements.clear();
+	sButtonAliases.clear();
 	sButtonHoldTimes.clear();
 
 	// Get default button hold time to execute eBtnAct_Hold command
@@ -3690,13 +3695,16 @@ void loadProfile()
 
 	// Create empty objects for each layer, menu, etc
 	std::vector<std::string> aSectionNameList;
+	Profile::getSectionNamesStartingWith(kLayerPrefix, aSectionNameList);
+	sLayers.reserve(aSectionNameList.size() + 10);
 	// Main layer (0 / [Scheme]) also acts as sentinel since can't reference it
 	createEmptyLayer(kMainLayerSectionName);
-	Profile::getSectionNamesStartingWith(kLayerPrefix, aSectionNameList);
 	for(size_t i = 0; i < aSectionNameList.size(); ++i)
 		createEmptyLayer(aSectionNameList[i]);
 	for(size_t i = 0; i < aSectionNameList.size(); ++i)
-		tryCreateComboLayer(aSectionNameList[i]);
+		createComboLayer(aSectionNameList[i]);
+
+	// Fill in the data for each of the above objects
 
 	// Create temp builder object and build everything from the Profile data
 	{
@@ -3709,8 +3717,6 @@ void loadProfile()
 		buildHUDElements(anInputMapBuilder);
 		buildLabels(anInputMapBuilder);
 	}
-
-	trimMemoryUsage();
 }
 
 
@@ -3839,28 +3845,28 @@ EMouseMode mouseMode(u16 theLayerID)
 }
 
 
-const BitVector<>& hudElementsToShow(u16 theLayerID)
+const BitVector<32>& hudElementsToShow(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].showHUD;
 }
 
 
-const BitVector<>& hudElementsToHide(u16 theLayerID)
+const BitVector<32>& hudElementsToHide(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].hideHUD;
 }
 
 
-const BitVector<>& hotspotArraysToEnable(u16 theLayerID)
+const BitVector<32>& hotspotArraysToEnable(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].enableHotspots;
 }
 
 
-const BitVector<>& hotspotArraysToDisable(u16 theLayerID)
+const BitVector<32>& hotspotArraysToDisable(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].disableHotspots;

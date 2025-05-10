@@ -214,7 +214,7 @@ struct TranslatorState
 struct InputResults
 {
 	std::vector<Command> queuedKeys;
-	BitVector<> menuAutoCommandRun;
+	BitVector<32> menuHEAutoCommandRun;
 	ECommandDir selectHotspotDir;
 	s16 charMove;
 	s16 charTurn;
@@ -235,7 +235,7 @@ struct InputResults
 	void clear()
 	{
 		queuedKeys.clear();
-		menuAutoCommandRun.clearAndResize(InputMap::menuCount());
+		menuHEAutoCommandRun.clearAndResize(InputMap::hudElementCount());
 		selectHotspotDir = eCmd8Dir_None;
 		charMove = 0;
 		charTurn = 0;
@@ -923,14 +923,16 @@ static void processCommand(
 	case eCmdType_OpenSubMenu:
 		aForwardCmd = Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		sResults.menuAutoCommandRun.set(theCmd.menuID);
+		sResults.menuHEAutoCommandRun.set(
+			InputMap::hudElementForMenu(theCmd.menuID));
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_SwapMenu:
 		aForwardCmd = Menus::swapMenu(
 			theCmd.menuID, theCmd.subMenuID, ECommandDir(theCmd.swapDir));
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		sResults.menuAutoCommandRun.set(theCmd.menuID);
+		sResults.menuHEAutoCommandRun.set(
+			InputMap::hudElementForMenu(theCmd.menuID));
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuReset:
@@ -938,7 +940,8 @@ static void processCommand(
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			sResults.menuAutoCommandRun.set(theCmd.menuID);
+			sResults.menuHEAutoCommandRun.set(
+				InputMap::hudElementForMenu(theCmd.menuID));
 		}
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
@@ -1617,8 +1620,8 @@ static void processLayerHoldButtons()
 
 static void updateHUDStateForCurrentLayers()
 {
-	BitVector<> aPrevVisibleHUD = gVisibleHUD;
-	BitVector<> aPrevDisabledHUD = gDisabledHUD;
+	BitVector<32> aPrevVisibleHUD = gVisibleHUD;
+	BitVector<32> aPrevDisabledHUD = gDisabledHUD;
 	gVisibleHUD.reset();
 	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 	{
@@ -1679,12 +1682,12 @@ static void updateHUDStateForCurrentLayers()
 		const bool isDisabled = gDisabledHUD.test(i);
 		if( wasDisabled != isDisabled )
 			gRedrawHUD.set(i);
-		if( sResults.menuAutoCommandRun.test(aMenuID) )
+		if( sResults.menuHEAutoCommandRun.test(i) )
 			continue;
 		if( !aPrevVisibleHUD.test(i) || (wasDisabled && !isDisabled) )
 		{
-			processCommand(null,Menus::autoCommand(aMenuID), 0);
-			sResults.menuAutoCommandRun.set(i);
+			processCommand(null, Menus::autoCommand(aMenuID), 0);
+			sResults.menuHEAutoCommandRun.set(i);
 		}
 	}
 }
@@ -1692,7 +1695,7 @@ static void updateHUDStateForCurrentLayers()
 
 static void updateHotspotArraysForCurrentLayers()
 {
-	BitVector<> aHotspotArraysEnabled;
+	BitVector<32> aHotspotArraysEnabled;
 	aHotspotArraysEnabled.clearAndResize(InputMap::hotspotArrayCount());
 	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 	{
@@ -1787,7 +1790,7 @@ void update()
 	}
 
 	// Execute commands by active layers in response to fired signals
-	BitVector<> aFiredSignals(gFiredSignals);
+	BitVector<256> aFiredSignals(gFiredSignals);
 	gFiredSignals.reset();
 	aFiredSignals.reset(eBtn_None); // dummy signal, ignored
 	if( aFiredSignals.any() )

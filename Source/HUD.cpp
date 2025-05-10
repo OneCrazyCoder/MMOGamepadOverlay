@@ -1847,7 +1847,7 @@ static void drawHSGuide(HUDDrawData& dd)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
 	DBG_ASSERT(hi.type == eHUDType_HotspotGuide);
-	const BitVector<>& arraysToShow = HotspotMap::getEnabledHotspotArrays();
+	const BitVector<32>& arraysToShow = HotspotMap::getEnabledHotspotArrays();
 
 	if( !dd.firstDraw )
 		eraseRect(dd, dd.components[0]);

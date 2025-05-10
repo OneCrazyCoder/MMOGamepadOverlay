@@ -25,25 +25,25 @@ extern int gAppFrameTime;
 extern int gAppTargetFrameTime;
 
 // Signals sent out to trigger signal commands
-extern BitVector<> gFiredSignals;
+extern BitVector<256> gFiredSignals;
 
 // Which HUD elements should be visible
-extern BitVector<> gVisibleHUD;
+extern BitVector<32> gVisibleHUD;
 
 // Which HUD elements need to be re-drawn to reflect changes (like selection)
-extern BitVector<> gRedrawHUD;
+extern BitVector<32> gRedrawHUD;
 
 // Which HUD elements need complete erase and re-draw from scratch
-extern BitVector<> gFullRedrawHUD;
+extern BitVector<32> gFullRedrawHUD;
 
 // Which HUD elements need to be moved/resized
-extern BitVector<> gReshapeHUD;
+extern BitVector<32> gReshapeHUD;
 
 // Which HUD elements have recently been interacted with (for inactive fade)
-extern BitVector<> gActiveHUD;
+extern BitVector<32> gActiveHUD;
 
 // Which HUD elements are disabled (i.e. Menu w/o input assigned to control it)
-extern BitVector<> gDisabledHUD;
+extern BitVector<32> gDisabledHUD;
 
 // Flag that all HUD elements containing dynamic strings need redraw
 extern bool gRedrawDynamicHUDStrings;
@@ -57,8 +57,8 @@ extern std::vector<u16> gConfirmedMenuItem;
 // Last-used and default index for Key Bind Arrays, and flags for changing them
 extern std::vector<u8> gKeyBindArrayLastIndex;
 extern std::vector<u8> gKeyBindArrayDefaultIndex;
-extern BitVector<> gKeyBindArrayLastIndexChanged;
-extern BitVector<> gKeyBindArrayDefaultIndexChanged;
+extern BitVector<32> gKeyBindArrayLastIndexChanged;
+extern BitVector<32> gKeyBindArrayDefaultIndexChanged;
 
 // All Hotspots/Positions/Sizes will be scaled by gUIScale
 extern double gUIScale, gWindowUIScale;
