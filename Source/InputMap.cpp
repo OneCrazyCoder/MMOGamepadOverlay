@@ -19,10 +19,9 @@ namespace InputMap
 
 enum {
 kInvalidID = 0xFFFF,
-kComboParentLayer = 0xFFFF,
 };
 
-const char* kMainLayerLabel = "Scheme";
+const char* kMainLayerSectionName = "Scheme";
 const char* kLayerPrefix = "Layer.";
 const char kComboLayerDeliminator = '+';
 const char* kMenuPrefix = "Menu.";
@@ -38,14 +37,12 @@ const char* k4DirCmdSuffix[] = { " Left", " Right", " Up", " Down" };
 DBG_CTASSERT(ARRAYSIZE(k4DirMenuItemLabel) == eCmdDir_Num);
 const char* kHotspotsKeys[] =
 	{ "Hotspots", "Hotspot", "KeyBindArray", "Array", "KeyBinds" };
-const std::string kAutoLayersProperty = "AutoLayers";
 const std::string kActionOnlyPrefix = "Just";
 const std::string kSignalCommandPrefix = "When";
 
 // These need to be in all upper case
 const char* kHUDSettingsKey = "HUD";
 const char* kHotspotArraysKey = "HOTSPOTS";
-const char* kAutoLayersKey = "AUTOLAYERS";
 const char* kMouseModeKey = "MOUSE";
 const char* kParentLayerKey = "PARENT";
 const char* kPriorityKey = "PRIORITY";
@@ -168,7 +165,6 @@ struct ControlsLayer
 	std::string label;
 	ButtonActionsMap buttonMap;
 	VectorMap<u16, Command> signalCommands;
-	BitVector<> autoLayers;
 	BitVector<> showHUD;
 	BitVector<> hideHUD;
 	BitVector<> enableHotspots;
@@ -176,16 +172,17 @@ struct ControlsLayer
 	EMouseMode mouseMode;
 	u16 parentLayer;
 	s8 priority;
+	bool isComboLayer;
 
 	ControlsLayer() :
-		autoLayers(),
 		showHUD(),
 		hideHUD(),
 		enableHotspots(),
 		disableHotspots(),
-		priority(),
 		mouseMode(eMouseMode_Default),
-		parentLayer()
+		parentLayer(),
+		priority(),
+		isComboLayer()
 	{}
 };
 
@@ -199,7 +196,7 @@ struct HotspotArray
 // Data used during parsing/building the map but deleted once done
 struct InputMapBuilder
 {
-	std::vector<std::string> parsedString;
+	std::vector<std::string> parsedString; // TODO - use assert first clear after technique instead of clear first
 	VectorMap<ECommandKeyWord, size_t> keyWordMap;
 	StringToValueMap<std::string> buttonAliases;
 	StringToValueMap<Command> commandAliases;
@@ -207,7 +204,6 @@ struct InputMapBuilder
 	StringToValueMap<u16> keyBindArrayNameToIdxMap;
 	StringToValueMap<u16> hotspotNameToIdxMap;
 	StringToValueMap<u16> hotspotArrayNameToIdxMap;
-	StringToValueMap<u16> comboLayerNameToIdxMap;
 	BitVector<> elementsProcessed;
 	std::string debugItemName;
 	std::string debugSubItemName;
@@ -724,70 +720,58 @@ static Command parseChatBoxMacro(const std::string& theString)
 }
 
 
-static u16 getOrCreateLayerID(const std::string& theName)
+static void createEmptyLayer(const std::string& theName)
 {
 	DBG_ASSERT(!theName.empty());
-
-	// Check if already exists, and if so return the index
-	u16 aLayerID = sLayers.findOrAddIndex(upper(theName));
-	if( !sLayers.vals()[aLayerID].label.empty() )
-		return aLayerID;
-
-	// Initialize new Controls Layer
-	ControlsLayer& aLayer = sLayers.vals()[aLayerID];
-	aLayer.label = theName;
-
-	return u16(sLayers.size() - 1);
+	ControlsLayer& aLayer = sLayers.findOrAdd(condense(theName));
+	if( aLayer.label.empty() )
+		aLayer.label = theName;
 }
 
 
-static u16 getOrCreateComboLayerID(
-	InputMapBuilder& theBuilder,
-	const std::string& theComboName)
+static void tryCreateComboLayer(const std::string& theComboName)
 {
-	if( theComboName.empty() )
-		return 0;
+	DBG_ASSERT(!theComboName.empty());
+	
+	std::string aSecondLayerName = theComboName;
+	std::string aFirstLayerName = breakOffItemBeforeChar(
+		aSecondLayerName, kComboLayerDeliminator);
+	if( aFirstLayerName.empty() || aSecondLayerName.empty() )
+		return;
 
-	std::string aRemainingName = theComboName;
-	std::string aLayerName = breakOffItemBeforeChar(
-		aRemainingName, kComboLayerDeliminator);
-	if( aLayerName.empty() )
-		swap(aLayerName, aRemainingName);
-	u16 aLayerID = sLayers.findIndex(upper(aLayerName));
-	if( aLayerID == 0 || aLayerID >= sLayers.size() )
-		return 0;
-	if( aRemainingName.empty() )
-		return aLayerID;
-	std::pair<u16, u16> aComboLayerKey;
-	aComboLayerKey.first = aLayerID;
-	aComboLayerKey.second = getOrCreateComboLayerID(
-		theBuilder, aRemainingName);
-	if( aComboLayerKey.second == 0 )
-		return 0;
-	if( aComboLayerKey.first == aComboLayerKey.second )
+	const u16 aComboLayerID = sLayers.findIndex(condense(theComboName));
+	if( aComboLayerID == 0 || aComboLayerID >= sLayers.size() )
+		return;
+
+	const u16 aFirstLayerID = sLayers.findIndex(condense(aFirstLayerName));
+	if( aFirstLayerID == 0 || aFirstLayerID >= sLayers.size() )
+		return;
+
+	createEmptyLayer(aSecondLayerName);
+	tryCreateComboLayer(aSecondLayerName);
+	const u16 aSecondLayerID = sLayers.findIndex(condense(aSecondLayerName));
+	if( aSecondLayerID == 0 || aSecondLayerID >= sLayers.size() )
+		return;
+
+	if( aFirstLayerID == aSecondLayerID )
 	{
-		logError("Specified same layer twice in combo layer name '%s+%s'!",
-			sLayers.vals()[aComboLayerKey.first].label.c_str(),
-			sLayers.vals()[aComboLayerKey.second].label.c_str());
-		return 0;
-	}
-	VectorMap<std::pair<u16, u16>, u16>::iterator itr =
-		sComboLayers.find(aComboLayerKey);
-	if( itr != sComboLayers.end() )
-	{
-		theBuilder.comboLayerNameToIdxMap.setValue(
-			theComboName, itr->second);
-		return itr->second;
+		logError("Specified same layer twice in combo layer name '%s'!",
+			theComboName.c_str());
+		return;
 	}
 
-	aLayerName =
-		sLayers.vals()[aComboLayerKey.first].label +
-		kComboLayerDeliminator +
-		sLayers.vals()[aComboLayerKey.second].label;
-	u16 aComboLayerID = getOrCreateLayerID(aLayerName);
-	sLayers.vals()[aComboLayerID].parentLayer = kComboParentLayer;
+	sLayers.vals()[aComboLayerID].isComboLayer = true;
+	std::pair<u16, u16> aComboLayerKey(aFirstLayerID, aSecondLayerID);
 	sComboLayers.setValue(aComboLayerKey, aComboLayerID);
-	return aComboLayerID;
+}
+
+
+static u16 getLayerID(const std::string& theName)
+{
+	u16 result = sLayers.findIndex(condense(theName));
+	if( result >= sLayers.size() )
+		result = 0;
+	return result;
 }
 
 
@@ -1269,7 +1253,6 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Remove);
-	allowedKeyWords.set(eCmdWord_Startup);
 	if( allowButtonActions &&
 		keyWordsFound.test(eCmdWord_Remove) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
@@ -1278,7 +1261,6 @@ static Command wordsToSpecialCommand(
 		// Since can't remove layer 0 (main scheme), 0 acts as a flag
 		// meaning to remove calling layer instead
 		result.layerID = 0;
-		result.atStartup = keyWordsFound.test(eCmdWord_Startup);
 		return result;
 	}
 
@@ -1293,7 +1275,6 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Hold);
 	allowedKeyWords.set(eCmdWord_Replace);
 	allowedKeyWords.set(eCmdWord_Toggle);
-	allowedKeyWords.set(eCmdWord_Startup);
 	// Directionals aren't layer-related but also not allowed as layer names
 	allowedKeyWords.set(eCmdWord_Left);
 	allowedKeyWords.set(eCmdWord_Right);
@@ -1343,56 +1324,73 @@ static Command wordsToSpecialCommand(
 		if( itr != theBuilder.keyWordMap.end() )
 			aLayerName = &theWords[itr->second];
 	}
+	u16 aLayerID = 0;
+	if( aLayerName )
+	{
+		aLayerID = getLayerID(*aLayerName);
+		if( !aLayerID )
+		{
+			// TODO - logError
+		}
+	}
+	u16 aSecondLayerID = 0;
+	if( aSecondLayerName )
+	{
+		aSecondLayerID = getLayerID(*aSecondLayerName);
+		if( !aSecondLayerID )
+		{
+			// TODO - logError
+		}
+		if( aLayerID == aSecondLayerID )
+		{
+			// TODO - logError
+		}
+	}
 	allowedKeyWords.reset();
 
-	if( aLayerName )
+	if( aLayerID && aLayerID < sLayers.size() )
 	{
 		// "= Replace [Layer] <aLayerName> with <aSecondLayerName>"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Layer);
 		allowedKeyWords.set(eCmdWord_Replace);
-		allowedKeyWords.set(eCmdWord_Startup);
 		if( keyWordsFound.test(eCmdWord_Replace) &&
-			aSecondLayerName && aSecondLayerName != aLayerName &&
+			aSecondLayerID && aSecondLayerID < sLayers.size() &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
-			result.layerID = getOrCreateLayerID(*aLayerName);
-			result.replacementLayer = getOrCreateLayerID(*aSecondLayerName);
-			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
+			result.layerID = aLayerID;
+			result.replacementLayer = aSecondLayerID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Replace);
 
 		// "= Add [Layer] <aLayerName>"
-		// allowedKeyWords = Layer & Startup
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Add);
 		if( keyWordsFound.test(eCmdWord_Add) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_AddControlsLayer;
-			result.layerID = getOrCreateLayerID(*aLayerName);
-			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
+			result.layerID = aLayerID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Add);
 
 		// "= Toggle [Layer] <aLayerName>"
-		// allowedKeyWords = Layer & Startup
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Toggle);
 		if( keyWordsFound.test(eCmdWord_Toggle) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ToggleControlsLayer;
-			result.layerID = getOrCreateLayerID(*aLayerName);
-			DBG_ASSERT(result.layerID != 0);
-			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
+			result.layerID = aLayerID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Toggle);
 
 		// "= Replace [this layer with] <aLayerName>"
-		// allowedKeyWords = Layer & Startup
+		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Replace);
 		if( allowButtonActions &&
 			keyWordsFound.test(eCmdWord_Replace) &&
@@ -1402,12 +1400,10 @@ static Command wordsToSpecialCommand(
 			// Since can't remove layer 0 (main scheme), 0 acts as a flag
 			// meaning to remove calling layer instead
 			result.layerID = 0;
-			result.replacementLayer = getOrCreateLayerID(*aLayerName);
-			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
+			result.replacementLayer = aLayerID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Replace);
-		allowedKeyWords.reset(eCmdWord_Startup);
 
 		// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
 		// allowedKeyWords = Layer
@@ -1418,7 +1414,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_HoldControlsLayer;
-			result.layerID = getOrCreateLayerID(*aLayerName);
+			result.layerID = aLayerID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Hold);
@@ -1426,18 +1422,14 @@ static Command wordsToSpecialCommand(
 		// "= Remove [Layer] <aLayerName>"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Remove);
-		allowedKeyWords.set(eCmdWord_Startup);
 		if( keyWordsFound.test(eCmdWord_Remove) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_RemoveControlsLayer;
-			result.layerID = getOrCreateLayerID(*aLayerName);
-			DBG_ASSERT(result.layerID != 0);
-			result.atStartup = keyWordsFound.test(eCmdWord_Startup);
+			result.layerID = aLayerID;
 			return result;
 		}
 		//allowedKeyWords.reset(eCmdWord_Remove);
-		//allowedKeyWords.reset(eCmdWord_Startup);
 	}
 
 	// Same deal as aLayerName for the Menu-related commands needing a name
@@ -2251,60 +2243,6 @@ static void buildHotspots(InputMapBuilder& theBuilder)
 }
 
 
-static void buildHotspotArraysForLayer(
-	InputMapBuilder& theBuilder,
-	u16 theLayerID,
-	const std::string& theLayerHotspotsDesc)
-{
-	DBG_ASSERT(!theLayerHotspotsDesc.empty());
-
-	sLayers.vals()[theLayerID].enableHotspots.
-		clearAndResize(sHotspotArrays.size());
-	sLayers.vals()[theLayerID].disableHotspots.
-		clearAndResize(sHotspotArrays.size());
-
-	// Break the string into individual words
-	theBuilder.parsedString.clear();
-	sanitizeSentence(theLayerHotspotsDesc, theBuilder.parsedString);
-
-	bool enable = true;
-	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
-	{
-		const std::string& aName = theBuilder.parsedString[i];
-		const std::string& aUpperName = upper(aName);
-		if( aUpperName == "HIDE" || aUpperName == "DISABLE" )
-		{
-			enable = false;
-			continue;
-		}
-		if( aUpperName == "SHOW" || aUpperName == "ENABLE" )
-		{
-			enable = true;
-			continue;
-		}
-		if( commandWordToID(aUpperName) == eCmdWord_Filler )
-			continue;
-		if( u16* aHotspotArrayID =
-				theBuilder.hotspotArrayNameToIdxMap.find(aUpperName) )
-		{
-			sLayers.vals()[theLayerID].enableHotspots.
-				set(*aHotspotArrayID, enable);
-			sLayers.vals()[theLayerID].disableHotspots.
-				set(*aHotspotArrayID, !enable);
-		}
-		else
-		{
-			logError(
-				"Could not find Hotspot Array '%s' "
-				"referenced by [%s]/Hotspots = %s",
-				aName.c_str(),
-				theBuilder.debugItemName.c_str(),
-				theLayerHotspotsDesc.c_str());
-		}
-	}
-}
-
-
 static void reportCommandAssignment(
 	const std::string& theSection,
 	const std::string& theItemName,
@@ -3063,275 +3001,208 @@ static void addSignalCommand(
 }
 
 
-static void buildAutoLayersForLayer(
+static void buildControlsLayer(
 	InputMapBuilder& theBuilder,
 	u16 theLayerID,
-	const std::string& theLayersDesc)
+	const Profile::PropertyMap& theProperties)
 {
-	DBG_ASSERT(!theLayersDesc.empty());
+	DBG_ASSERT(theLayerID < sLayers.size());
+	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
+	theBuilder.debugItemName =
+		(theLayerID == 0 ? "" : kLayerPrefix) +
+		theLayer.label;
 
-	// Break the string into individual words
-	theBuilder.parsedString.clear();
-	sanitizeSentence(theLayersDesc, theBuilder.parsedString);
-
-	for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+	for(u16 aPropIdx = 0; aPropIdx < theProperties.size(); ++aPropIdx)
 	{
-		const std::string& aName = theBuilder.parsedString[i];
-		if( commandWordToID(upper(aName)) == eCmdWord_Filler )
-			continue;
-		const u16 anAutoLayerID =
-			getOrCreateLayerID(theBuilder.parsedString[i]);
-		sLayers.vals()[theLayerID].autoLayers.resize(sLayers.size());
-		sLayers.vals()[theLayerID].autoLayers.set(anAutoLayerID);
-	}
-}
+		const Profile::Property& aProperty = theProperties.vals()[aPropIdx];
+		const std::string& aPropKey = theProperties.keys()[aPropIdx];
+		const std::string& aPropName = aProperty.name;
+		const std::string& aPropVal = aProperty.val;
 
-
-static void buildControlsLayer(InputMapBuilder& theBuilder, u16 theLayerIdx)
-{
-	DBG_ASSERT(theLayerIdx < sLayers.size());
-	const bool isComboLayer =
-		sLayers.vals()[theLayerIdx].parentLayer == kComboParentLayer;
-	sLayers.vals()[theLayerIdx].parentLayer = 0;
-
-	// Make local copy of name string since sLayers can reallocate memory here
-	const std::string aLayerName = sLayers.vals()[theLayerIdx].label;
-	theBuilder.debugItemName.clear();
-	if( theLayerIdx != 0 )
-	{
-		theBuilder.debugItemName = kLayerPrefix;
-		mapDebugPrint("Building controls layer: %s\n", aLayerName.c_str());
-	}
-	theBuilder.debugItemName += aLayerName;
-
-	const std::string aLayerSectName =
-		(theLayerIdx == 0 ? "" : kLayerPrefix) + aLayerName;
-
-	{// Get mouse mode layer setting directly
-		const std::string& aMouseModeStr =
-			Profile::getStr(aLayerSectName, kMouseModeKey);
-		if( !aMouseModeStr.empty() )
-		{
+		if( aPropKey == kMouseModeKey )
+		{// MOUSE MODE
 			const EMouseMode aMouseMode =
-				mouseModeNameToID(condense(aMouseModeStr));
+				mouseModeNameToID(condense(aPropVal));
 			if( aMouseMode >= eMouseMode_Num )
 			{
 				logError("Unknown mode for 'Mouse = %s' in Layer [%s]!",
-					aMouseModeStr.c_str(),
+					aPropVal.c_str(),
 					theBuilder.debugItemName.c_str());
 			}
 			else
 			{
-				sLayers.vals()[theLayerIdx].mouseMode = aMouseMode;
+				theLayer.mouseMode = aMouseMode;
+				mapDebugPrint("[%s]: Mouse set to '%s' mode\n",
+					theBuilder.debugItemName.c_str(),
+					aMouseMode == eMouseMode_Cursor ? "Cursor" :
+					aMouseMode == eMouseMode_LookTurn ? "RMB Mouse Look" :
+					aMouseMode == eMouseMode_LookOnly ? "LMB Mouse Look" :
+					aMouseMode == eMouseMode_AutoLook ? "Auto-Look" :
+					aMouseMode == eMouseMode_AutoRunLook ? "Auto-Run-Look" :
+					aMouseMode == eMouseMode_Hide ? "Hide" :
+					/*otherwise*/ "Default (use other laye)" );
 			}
 		}
-	}
-	DBG_ASSERT(sLayers.vals()[theLayerIdx].mouseMode < eMouseMode_Num);
-	if( sLayers.vals()[theLayerIdx].mouseMode != eMouseMode_Default )
-	{
-		mapDebugPrint("[%s]: Mouse set to '%s' mode\n",
-			theBuilder.debugItemName.c_str(),
-			sLayers.vals()[theLayerIdx].mouseMode
-				== eMouseMode_Cursor ? "Cursor" :
-			sLayers.vals()[theLayerIdx].mouseMode
-				== eMouseMode_LookTurn ? "RMB Mouse Look" :
-			sLayers.vals()[theLayerIdx].mouseMode
-				== eMouseMode_LookOnly ? "LMB Mouse Look" :
-			sLayers.vals()[theLayerIdx].mouseMode
-				== eMouseMode_Hide ? "Hidden" :
-			/*otherwise*/ "Hidden OR Mouse Look" );
-	}
+		else if( aPropKey == kHUDSettingsKey )
+		{// HUD VISIBILITY
+			// TODO
+		}
+		else if( aPropKey == kHotspotArraysKey )
+		{// HOTSPOTS
+			DBG_ASSERT(theLayer.enableHotspots.size() == sHotspotArrays.size());
+			DBG_ASSERT(theLayer.disableHotspots.size() == sHotspotArrays.size());
+			theLayer.enableHotspots.reset();
+			theLayer.disableHotspots.reset();
 
-	{// Get auto-add layers setting directly
-		const std::string& anAutoLayersStr =
-			Profile::getStr(aLayerSectName, kAutoLayersProperty);
-		if( !anAutoLayersStr.empty() )
-			buildAutoLayersForLayer(theBuilder, theLayerIdx, anAutoLayersStr);
-	}
+			// Break the string into individual words
+			theBuilder.parsedString.clear();
+			sanitizeSentence(aPropVal, theBuilder.parsedString);
 
-	{// Get hotspot arrays setting directly
-		const std::string& aHotspotsStr =
-			Profile::getStr(aLayerSectName, kHotspotArraysKey);
-		if( !aHotspotsStr.empty() )
-			buildHotspotArraysForLayer(theBuilder, theLayerIdx, aHotspotsStr);
-	}
-
-	{// Get priority setting directly
-		sLayers.vals()[theLayerIdx].priority = Profile::getInt(
-			aLayerSectName, kPriorityKey);
-		if( sLayers.vals()[theLayerIdx].priority )
-		{
-			if( theLayerIdx == 0 )
+			bool enable = true;
+			for(size_t i = 0; i < theBuilder.parsedString.size(); ++i)
+			{
+				const std::string& aName = theBuilder.parsedString[i];
+				const std::string& aUpperName = upper(aName);
+				if( aUpperName == "HIDE" || aUpperName == "DISABLE" )
+				{
+					enable = false;
+					continue;
+				}
+				if( aUpperName == "SHOW" || aUpperName == "ENABLE" )
+				{
+					enable = true;
+					continue;
+				}
+				if( commandWordToID(aUpperName) == eCmdWord_Filler )
+					continue;
+				if( u16* aHotspotArrayID =
+						theBuilder.hotspotArrayNameToIdxMap.find(aUpperName) )
+				{
+					theLayer.enableHotspots.set(*aHotspotArrayID, enable);
+					theLayer.disableHotspots.set(*aHotspotArrayID, !enable);
+				}
+				else
+				{
+					logError(
+						"Could not find Hotspot Array '%s' "
+						"referenced by [%s]/Hotspots = %s",
+						aName.c_str(),
+						theBuilder.debugItemName.c_str(),
+						aPropVal.c_str());
+				}
+			}
+		}
+		else if( aPropKey == kPriorityKey )
+		{// PRIORITY
+			int aPriority = intFromString(aPropVal);
+			if( aPriority < -100 || aPriority > 100 )
+			{
+				logError(
+					"Layer [%s] Priority = %d property "
+					"must be -100 to 100 range!",
+					theBuilder.debugItemName.c_str(),
+					aPropVal.c_str());
+				aPriority = clamp(aPriority, -100, 100);
+			}
+			if( theLayerID == 0 )
 			{
 				logError(
 					"Root layer [%s] is always lowest priority. "
-					"Priority=%d property ignored!",
+					"Priority = %d property ignored!",
 					theBuilder.debugItemName.c_str(),
-					sLayers.vals()[theLayerIdx].priority);
+					aPropVal.c_str());
 			}
-			else if( isComboLayer )
+			else if( theLayer.isComboLayer )
 			{
 				logError(
 					"Combo Layer [%s] ordering is derived automatically "
-					"from base layers, so Priority=%d property is ignored!",
+					"from base layers, so Priority = %d property is ignored!",
 					theBuilder.debugItemName.c_str(),
-					sLayers.vals()[theLayerIdx].priority);
-			}
-		}
-	}
-
-	{// Get parent layer setting directly
-		const std::string& aParentLayerName =
-			Profile::getStr(aLayerSectName, kParentLayerKey);
-		if( !aParentLayerName.empty() )
-		{
-			if( isComboLayer )
-			{
-				logError(
-					"\"Parent=%s\" property ignored for Combo Layer [%s]!",
-					aParentLayerName.c_str(),
-					theBuilder.debugItemName.c_str());
-			}
-			else if( theLayerIdx == 0 )
-			{
-				logError(
-					"Root layer [%s] can not have a Parent= layer set!",
-					theBuilder.debugItemName.c_str(),
-					aParentLayerName.c_str());
+					aPropVal.c_str());
 			}
 			else
 			{
-				sLayers.vals()[theLayerIdx].parentLayer =
-					getOrCreateLayerID(aParentLayerName);
-				// Check for infinite parent loop
-				theBuilder.elementsProcessed.clearAndResize(sLayers.size());
-				u16 aCheckLayerIdx = theLayerIdx;
-				theBuilder.elementsProcessed.set(aCheckLayerIdx);
-				while(sLayers.vals()[aCheckLayerIdx].parentLayer != 0)
+				theLayer.priority = s8(aPriority);
+			}
+		}
+		else if( aPropKey == kParentLayerKey )
+		{// PARENT LAYER
+			u16 aParentLayerID = 0;
+			if( !aPropVal.empty() )
+			{
+				aParentLayerID = getLayerID(aPropVal);
+				if( !aParentLayerID )
 				{
-					aCheckLayerIdx =
-						sLayers.vals()[aCheckLayerIdx].parentLayer;
-					if( theBuilder.elementsProcessed.test(aCheckLayerIdx) )
-					{
-						logError("Infinite parent loop with layer [%s]"
-							" trying to set parent layer to %s!",
-							theBuilder.debugItemName.c_str(),
-							aParentLayerName.c_str());
-						sLayers.vals()[theLayerIdx].parentLayer = 0;
-						break;
-					}
+					// TODO - logError
+				}
+			}
+			if( aParentLayerID )
+			{
+				if( theLayerID == 0 )
+				{
+					logError(
+						"Root layer [%s] can not have a Parent= layer set!",
+						theBuilder.debugItemName.c_str(),
+						aPropVal.c_str());
+				}
+				else if( theLayer.isComboLayer )
+				{
+					logError(
+						"\"Parent=%s\" property ignored for Combo Layer [%s]!",
+						aPropVal.c_str(),
+						theBuilder.debugItemName.c_str());
+				}
+				else
+				{
+					theLayer.parentLayer = aParentLayerID;
+					// Check for infinite parent loop
+					theBuilder.elementsProcessed.clearAndResize(sLayers.size());
+					u16 aCheckLayerIdx = theLayerID;
 					theBuilder.elementsProcessed.set(aCheckLayerIdx);
+					while(sLayers.vals()[aCheckLayerIdx].parentLayer != 0)
+					{
+						aCheckLayerIdx =
+							sLayers.vals()[aCheckLayerIdx].parentLayer;
+						if( theBuilder.elementsProcessed.test(aCheckLayerIdx) )
+						{
+							logError("Infinite parent loop with layer [%s]"
+								" trying to set parent layer to %s!",
+								theBuilder.debugItemName.c_str(),
+								aPropVal.c_str());
+							theLayer.parentLayer = 0;
+							break;
+						}
+						theBuilder.elementsProcessed.set(aCheckLayerIdx);
+					}
+					mapDebugPrint("[%s]: Parent layer set to '%s'\n",
+						theBuilder.debugItemName.c_str(),
+						sLayers.vals()[aParentLayerID].label.c_str());
 				}
 			}
 		}
-	}
-	DBG_ASSERT(sLayers.vals()[theLayerIdx].parentLayer < sLayers.size());
-	if( sLayers.vals()[theLayerIdx].parentLayer != eMouseMode_Default )
-	{
-		mapDebugPrint("[%s]: Parent layer set to '%s'\n",
-			theBuilder.debugItemName.c_str(),
-			sLayers.vals()[sLayers.vals()[theLayerIdx].
-					parentLayer].label.c_str());
-	}
-
-	// Check each property for command assignment requests
-	const Profile::PropertyMap& aPropMap =
-		Profile::getSectionProperties(aLayerSectName);
-	if( aPropMap.empty() && !isComboLayer )
-	{
-		logError("No properties found for Layer [%s]!",
-			theBuilder.debugItemName.c_str());
-	}
-	for(size_t i = 0; i < aPropMap.size(); ++i)
-	{
-		const std::string& aKey = aPropMap.keys()[i];
-		if( aKey == kParentLayerKey ||
-			aKey == kAutoLayersKey ||
-			aKey == kMouseModeKey ||
-			aKey == kHUDSettingsKey ||
-			aKey == kHotspotArraysKey ||
-			aKey == kPriorityKey )
-			continue;
-
-		const std::string& aPropName = aPropMap.vals()[i].name;
-		const std::string& aPropVal = aPropMap.vals()[i].val;
-		theBuilder.debugSubItemName = aPropName;
-		// Check for a signal command
-		if( size_t aStrPos = posAfterPrefix(aPropName, kSignalCommandPrefix) )
-		{
-			theBuilder.debugSubItemName =
-				theBuilder.debugSubItemName.substr(aStrPos);
-			addSignalCommand(theBuilder, theLayerIdx,
+		else if( size_t aStrPos =
+					posAfterPrefix(aPropName, kSignalCommandPrefix) )
+		{// WHEN SIGNAL
+			theBuilder.debugSubItemName = aPropName.substr(aStrPos);
+			addSignalCommand(theBuilder, theLayerID,
 				aPropName.substr(aStrPos),
 				aPropVal);
-			continue;
 		}
-
-		// Parse and add assignment to this layer's commands map
-		if( size_t aStrPos = posAfterPrefix(aPropName, kActionOnlyPrefix) )
-		{
-			theBuilder.debugSubItemName =
-				theBuilder.debugSubItemName.substr(aStrPos);
-			addButtonAction(theBuilder, theLayerIdx,
+		else if( size_t aStrPos =
+					posAfterPrefix(aPropName, kActionOnlyPrefix) )
+		{// "JUST" BUTTON ACTION
+			theBuilder.debugSubItemName = aPropName.substr(aStrPos);
+			addButtonAction(theBuilder, theLayerID,
 				aPropName.substr(aStrPos),
 				aPropVal, true);
-			continue;
 		}
-
-		addButtonAction(theBuilder, theLayerIdx,
-			aPropName, aPropVal, false);
-	}
-	sLayers.vals()[theLayerIdx].buttonMap.trim();
-
-	// Check for possible combo layers based on this layer
-	if( theLayerIdx > 0 && !isComboLayer )
-	{
-		// Find all sections that start with "Layer.aLayerName+" and
-		// convert their name to the string "LayerName1+LayerName2"
-		const std::string aComboLayerPrefix =
-			kLayerPrefix + aLayerName + kComboLayerDeliminator;
-		static std::vector<std::string> sComboLayerNameList;
-		DBG_ASSERT(sComboLayerNameList.empty());
-		Profile::getSectionNamesStartingWith(
-			aComboLayerPrefix, sComboLayerNameList);
-		for(size_t i = 0; i < sComboLayerNameList.size(); ++i)
-		{
-			const std::string& aComboLayerName =
-				condense(aLayerName) + kComboLayerDeliminator +
-				condense(sComboLayerNameList[i].substr(posAfterPrefix(
-					sComboLayerNameList[i],
-					aComboLayerPrefix)));
-			theBuilder.comboLayerNameToIdxMap.findOrAdd(aComboLayerName);
+		else 
+		{// BUTTON COMMAND ASSIGNMENT (?)
+			theBuilder.debugSubItemName = aPropName;
+			addButtonAction(theBuilder, theLayerID,
+				aPropName,
+				aPropVal, false);
 		}
-		sComboLayerNameList.clear();
-	}
-}
-
-
-static void buildRemainingControlsLayers(
-	InputMapBuilder& theBuilder,  u16 aFirstLayer)
-{
-	// Build layers - sLayers size can expand as each layer adds other layers
-	for(u16 aLayerIdx = aFirstLayer; aLayerIdx <= sLayers.size(); ++aLayerIdx)
-	{
-		if( !theBuilder.comboLayerNameToIdxMap.empty() &&
-			aLayerIdx >= sLayers.size() )
-		{// Try creating any combo layers that have all bases available
-			for(u16 i = 0; i < theBuilder.comboLayerNameToIdxMap.size(); ++i)
-			{
-				const std::string aComboLayerName =
-					theBuilder.comboLayerNameToIdxMap.keys()[i];
-				u16 aComboLayerID =
-					theBuilder.comboLayerNameToIdxMap.vals()[i];
-				if( aComboLayerID == 0 )
-				{// Combo layer not yet generated, see if can do so now
-					getOrCreateComboLayerID(theBuilder, aComboLayerName);
-				}
-			}
-		}
-		if( aLayerIdx >= sLayers.size() )
-			break;
-		buildControlsLayer(theBuilder, aLayerIdx);
 	}
 }
 
@@ -3340,10 +3211,19 @@ static void buildControlScheme(InputMapBuilder& theBuilder)
 {
 	mapDebugPrint("Building control scheme layers...\n");
 
-	// Create layer ID 0 for root layer
-	DBG_ASSERT(sLayers.empty());
-	getOrCreateLayerID(kMainLayerLabel);
-	buildRemainingControlsLayers(theBuilder, 0);
+	for(u16 aLayerIdx = 0; aLayerIdx < sLayers.size(); ++aLayerIdx)
+	{
+		ControlsLayer& aLayer = sLayers.vals()[aLayerIdx];
+		mapDebugPrint("Building controls layer: %s\n", aLayer.label.c_str());
+		aLayer.enableHotspots.clearAndResize(sHotspotArrays.size());
+		aLayer.disableHotspots.clearAndResize(sHotspotArrays.size());
+		const std::string aLayerSectName =
+			(aLayerIdx == 0 ? "" : kLayerPrefix) +
+			sLayers.keys()[aLayerIdx];
+		const Profile::PropertyMap& aPropMap =
+			Profile::getSectionProperties(aLayerSectName);
+		buildControlsLayer(theBuilder, aLayerIdx, aPropMap);
+	}
 }
 
 
@@ -3471,12 +3351,6 @@ static void buildMenus(InputMapBuilder& theBuilder)
 	// This loop expects sMenus.size() may grow larger during the loop
 	for(u16 aMenuID = 0; aMenuID < sMenus.size(); ++aMenuID)
 	{
-		// A menu command may add a new Layer with "Add Layer" command,
-		// so need to check to see if sLayers.size() increases to detect
-		// this and make sure to build out the newly-added Layer
-		// (which may itself add even more Menus making sMenus larger).
-		const u16 anOLdLayerCount = u16(sLayers.size());
-
 		const std::string aMenuSectName = kMenuPrefix + sMenus.keys()[aMenuID];
 		const u16 aHUDElementID = sMenus.vals()[aMenuID].hudElementID;
 		DBG_ASSERT(aHUDElementID < sHUDElements.size());
@@ -3604,12 +3478,7 @@ static void buildMenus(InputMapBuilder& theBuilder)
 			}
 		}
 
-		if( hasAtLeastOneMenuItem )
-		{
-			// Buld any new controls layers added by this menu
-			buildRemainingControlsLayers(theBuilder, anOLdLayerCount);
-		}
-		else
+		if( !hasAtLeastOneMenuItem )
 		{
 			logError("[%s]: No menu items found! If empty menu intended, "
 				"Set \"%s = :\" to suppress this error",
@@ -3771,8 +3640,6 @@ static void buildLabels(InputMapBuilder& theBuilder)
 
 static void trimMemoryUsage()
 {
-	for(u16 i = 0; i < sLayers.size(); ++i)
-		sLayers.vals()[i].autoLayers.resize(sLayers.size());
 	if( sHotspots.size() < sHotspots.capacity() )
 		std::vector<Hotspot>(sHotspots).swap(sHotspots);
 	if( sHotspotArrays.size() < sHotspotArrays.capacity() )
@@ -3820,6 +3687,16 @@ void loadProfile()
 	// Get default button hold time to execute eBtnAct_Hold command
 	sDefaultButtonHoldTime =
 		max(0, Profile::getInt("System", "ButtonHoldTime"));
+
+	// Create empty objects for each layer, menu, etc
+	std::vector<std::string> aSectionNameList;
+	// Main layer (0 / [Scheme]) also acts as sentinel since can't reference it
+	createEmptyLayer(kMainLayerSectionName);
+	Profile::getSectionNamesStartingWith(kLayerPrefix, aSectionNameList);
+	for(size_t i = 0; i < aSectionNameList.size(); ++i)
+		createEmptyLayer(aSectionNameList[i]);
+	for(size_t i = 0; i < aSectionNameList.size(); ++i)
+		tryCreateComboLayer(aSectionNameList[i]);
 
 	// Create temp builder object and build everything from the Profile data
 	{
@@ -3987,13 +3864,6 @@ const BitVector<>& hotspotArraysToDisable(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].disableHotspots;
-}
-
-
-const BitVector<>& layersToAutoAddWith(u16 theLayerID)
-{
-	DBG_ASSERT(theLayerID < sLayers.size());
-	return sLayers.vals()[theLayerID].autoLayers;
 }
 
 

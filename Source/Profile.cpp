@@ -1986,7 +1986,8 @@ const PropertyMap& getSectionProperties(const std::string& theSectionName)
 
 void getSectionNamesStartingWith(
 	const std::string& thePrefix,
-	std::vector<std::string>& out)
+	std::vector<std::string>& out,
+	bool trimPrefix)
 {
 	PropertyMap::IndexVector anIndexSet;
 	sSectionsMap.findAllWithPrefix(condense(thePrefix), anIndexSet);
@@ -1997,7 +1998,19 @@ void getSectionNamesStartingWith(
 	#endif
 
 	for(size_t i = 0; i < anIndexSet.size(); ++i)
-		out.push_back(sSectionsMap.vals()[i].name);
+	{
+		if( trimPrefix )
+		{
+			const size_t aPostPrefixPos = posAfterPrefix(
+				sSectionsMap.vals()[anIndexSet[i]].name, thePrefix);
+			out.push_back(sSectionsMap.vals()[anIndexSet[i]]
+				.name.substr(aPostPrefixPos));
+		}
+		else
+		{
+			out.push_back(sSectionsMap.vals()[anIndexSet[i]].name);
+		}
+	}
 }
 
 

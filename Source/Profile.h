@@ -59,8 +59,8 @@ const PropertySection* getSection(const std::string& theSectionName);
 const PropertyMap& getSectionProperties(const std::string& theSectionName);
 void getSectionNamesStartingWith(
 	const std::string& thePrefix,
-	std::vector<std::string>& out); // appendeds to any existing vector data
-
+	std::vector<std::string>& out, // appends to any existing vector data
+	bool trimPrefix = true); // removes thePrefix from front of names
 
 // Queue to add or modify profile properties (does nothing if match prev value)
 // These are not applied right away, but added to changedSections() first so
