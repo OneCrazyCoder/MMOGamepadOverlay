@@ -43,7 +43,8 @@ struct Command
 				u16 layerID;
 				u16 subMenuID;
 				u16 hotspotID;
-				u16 keyStringID;
+				u16 vKeySeqID;
+				u16 stringID;
 				u16 arrayIdx;
 				u16 menuItemIdx;
 			};

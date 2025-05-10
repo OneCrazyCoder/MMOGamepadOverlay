@@ -1090,7 +1090,7 @@ template<size_t C> inline BitVector<C>
 BitVector<C>::operator~() const
 {
 	This r;
-	r.clearAndResize(this->arraySize());
+	r.clearAndResize(this->size());
 	for(size_t i = 0; i < this->arraySize(); ++i)
 		r.bits[i] = ~bits[i];
 	return r;

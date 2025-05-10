@@ -1820,7 +1820,7 @@ void update()
 			break;
 		case eCmdType_VKeySequence:
 			{
-				const u8* aCmdSeq = (const u8*)InputMap::cmdStr(aCmd);
+				const u8* aCmdSeq = InputMap::cmdVKeySeq(aCmd);
 				wasAMouseJumpCommand = aCmdSeq[0] == kVKeySeqHasMouseJump;
 				if( !taskIsPastDue )
 				{
@@ -1835,7 +1835,7 @@ void update()
 			{
 				if( aCurrTask.progress == 0 )
 					fireSignal(aCmd.signalID);
-				aTaskResult = popNextStringChar(InputMap::cmdStr(aCmd));
+				aTaskResult = popNextStringChar(InputMap::cmdString(aCmd));
 			}
 			break;
 		case eCmdType_MoveMouseToHotspot:
@@ -2266,15 +2266,15 @@ void sendKeyCommand(const Command& theCommand)
 		break;
 	case eCmdType_VKeySequence:
 		{// Check if will cause a jump, and if will leave cursor at new pos
-			const char* aCmdStr = InputMap::cmdStr(theCommand);
-			if( aCmdStr[0] == kVKeySeqHasMouseJump )
+			const u8* aVKeySeq = InputMap::cmdVKeySeq(theCommand);
+			if( aVKeySeq[0] == kVKeySeqHasMouseJump )
 			{
 				++sTracker.mouseJumpQueued;
 				u16 aHotspotID = 0;
-				DBG_ASSERT(aCmdStr[1] != '\0');
-				aHotspotID = (aCmdStr[1] & 0x7F) << 7;
-				DBG_ASSERT(aCmdStr[2] != '\0');
-				aHotspotID |= (aCmdStr[2] & 0x7F);
+				DBG_ASSERT(aVKeySeq[1] != '\0');
+				aHotspotID = (aVKeySeq[1] & 0x7F) << 7;
+				DBG_ASSERT(aVKeySeq[2] != '\0');
+				aHotspotID |= (aVKeySeq[2] & 0x7F);
 				if( aHotspotID != 0 )
 				{
 					// Assign _LastCursorPos immediately so that other jump
