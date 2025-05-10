@@ -238,7 +238,7 @@ struct SyncProperty :
 		u16 valueSetID;
 	};
 	std::vector<Segment> valueInserts;
-	BitVector<> valueSetsUsed;
+	BitVector<64> valueSetsUsed;
 	EPropertyType type;
 };
 
@@ -313,8 +313,8 @@ static std::vector<u16> sValueSets;
 static std::vector<std::wstring> sCurrWildcardMatches;
 static std::vector<std::wstring> sBestWildcardMatches;
 static std::vector<std::wstring> sLastReadWildcardMatches;
-static BitVector<> sChangedDataSources;
-static BitVector<> sChangedValueSets;
+static BitVector<32> sChangedDataSources;
+static BitVector<64> sChangedValueSets;
 static ConfigDataReader* sReader;
 static ConfigDataParser* sParser;
 static bool sInvertAxis[eValueSetSubType_Num];
@@ -389,7 +389,7 @@ protected:
 
 protected:
 	const size_t mDataSourceID;
-	BitVector<> mUnfound;
+	BitVector<512> mUnfound;
 	bool mDoneParsing;
 };
 

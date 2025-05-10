@@ -55,18 +55,18 @@ s8 layerPriority(u16 theLayerID);
 EMouseMode mouseMode(u16 theLayerID);
 
 // Gets what HUD elements given layer specifically wants to show
-const BitVector<>& hudElementsToShow(u16 theLayerID);
+const BitVector<32>& hudElementsToShow(u16 theLayerID);
 
 // Gets what HUD elements given layer specifically wants to hide
 // (overrides any lower layers wishing to show these HUD elements)
-const BitVector<>& hudElementsToHide(u16 theLayerID);
+const BitVector<32>& hudElementsToHide(u16 theLayerID);
 
 // Gets what hotspot arrays given layer specifically wants to enable
-const BitVector<>& hotspotArraysToEnable(u16 theLayerID);
+const BitVector<32>& hotspotArraysToEnable(u16 theLayerID);
 
 // Gets what hotspot arrays given layer specifically wants to disable
 // (overrides any lower layers wishing to enable these hotspots)
-const BitVector<>& hotspotArraysToDisable(u16 theLayerID);
+const BitVector<32>& hotspotArraysToDisable(u16 theLayerID);
 
 // Returns a combo layer ID if one exists, otherwise 0
 u16 comboLayerID(u16 theLayerID1, u16 theLayerID2);

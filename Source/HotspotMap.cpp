@@ -94,8 +94,8 @@ struct GridPos
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static BitVector<> sRequestedArrays;
-static BitVector<> sActiveArrays;
+static BitVector<32> sRequestedArrays;
+static BitVector<32> sActiveArrays;
 static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<GridPos> sFetchGrid;
@@ -997,7 +997,7 @@ void reloadPositions()
 }
 
 
-void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
+void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays)
 {
 	if( sRequestedArrays != theHotspotArrays )
 	{
@@ -1009,7 +1009,7 @@ void setEnabledHotspotArrays(const BitVector<>& theHotspotArrays)
 }
 
 
-const BitVector<>& getEnabledHotspotArrays()
+const BitVector<32>& getEnabledHotspotArrays()
 {
 	return sRequestedArrays;
 }
