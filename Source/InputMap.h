@@ -21,7 +21,8 @@ void loadProfile();
 void loadProfileChanges();
 
 // COMMANDS
-const char* cmdStr(const Command& theCommand);
+const char* cmdString(const Command& theCommand);
+const u8* cmdVKeySeq(const Command& theCommand);
 
 // KEYBINDS
 u16 keyForSpecialAction(ESpecialKey theAction);
