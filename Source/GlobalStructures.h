@@ -60,9 +60,8 @@ struct Command
 			u8 wrap : 1;
 			u8 withMouse : 1;
 			u8 andClick : 1;
-			u8 atStartup : 1;
 			u8 swapDir : 2;
-			u8 __reserved : 2;
+			u8 __reserved : 3;
 			u8 __reserved2;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;

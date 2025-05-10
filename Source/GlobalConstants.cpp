@@ -325,6 +325,7 @@ EMouseMode mouseModeNameToID(const std::string& theName)
 		NameToEnumMapper()
 		{
 			struct { const char* str; EMouseMode val; } kEntries[] = {
+				{ "",						eMouseMode_Default		},
 				{ "DEFAULT",				eMouseMode_Default		},
 				{ "CURSOR",					eMouseMode_Cursor		},
 				{ "SHOW",					eMouseMode_Cursor		},
@@ -597,8 +598,6 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "UI",				eCmdWord_Layout		},
 				{ "UILAYOUT",		eCmdWord_Layout		},
 				{ "PROFILE",		eCmdWord_Profile	},
-				{ "STARTUP",		eCmdWord_Startup	},
-				{ "LAUNCH",			eCmdWord_Startup	},
 				{ "APP",			eCmdWord_App		},
 				{ "APPLICATION",	eCmdWord_App		},
 				{ "PROGRAM",		eCmdWord_App		},
