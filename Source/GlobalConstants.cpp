@@ -27,7 +27,8 @@ const char* kProfileButtonName[] =
 	"DRight",	// eBtn_DRight
 	"DUp",		// eBtn_DUp
 	"DDown",	// eBtn_DDown
-	"DPad",		// eBtn_DPad
+	"DPad",		// eBtn_DPadAny
+	"FPad",		// eBtn_FPadAny
 	"FLeft",	// eBtn_FLeft
 	"FRight",	// eBtn_FRight
 	"FUp",		// eBtn_FUp
@@ -229,9 +230,8 @@ EButton buttonNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			// These are in addition to kProfileButtonName above!
 			struct { const char* str; EButton val; } kEntries[] = {
-				{ "LL",				eBtn_LSLeft		},
+			// !!! These are in addition to kProfileButtonName above!!!
 				{ "LSL",			eBtn_LSLeft		},
 				{ "LSTICKLEFT",		eBtn_LSLeft		},
 				{ "LEFTSTICKLEFT",	eBtn_LSLeft		},
@@ -239,64 +239,54 @@ EButton buttonNameToID(const std::string& theName)
 				{ "LSR",			eBtn_LSRight	},
 				{ "LSTICKRIGHT",	eBtn_LSRight	},
 				{ "LEFTSTICKRIGHT",	eBtn_LSRight	},
-				{ "LU",				eBtn_LSUp		},
 				{ "LSU",			eBtn_LSUp		},
 				{ "LSTICKUP",		eBtn_LSUp		},
 				{ "LEFTSTICKUP",	eBtn_LSUp		},
-				{ "LD",				eBtn_LSDown		},
 				{ "LSD",			eBtn_LSDown		},
 				{ "LSTICKDOWN",		eBtn_LSDown		},
 				{ "LEFTSTICKDOWN",	eBtn_LSDown		},
-				{ "RL",				eBtn_RSLeft		},
+				{ "LS",				eBtn_LSAny		},
+				{ "LEFTSTICK",		eBtn_LSAny		},
 				{ "RSL",			eBtn_RSLeft		},
 				{ "RSTICKLEFT",		eBtn_RSLeft		},
 				{ "RIGHTSTICKLEFT",	eBtn_RSLeft		},
-				{ "RR",				eBtn_RSRight	},
 				{ "RSR",			eBtn_RSRight	},
 				{ "RSTICKRIGHT",	eBtn_RSRight	},
 				{ "RIGHTSTICKRIGHT",eBtn_RSRight	},
-				{ "RU",				eBtn_RSUp		},
 				{ "RSU",			eBtn_RSUp		},
 				{ "RSTICKUP",		eBtn_RSUp		},
 				{ "RIGHTSTICKUP",	eBtn_RSUp		},
-				{ "RD",				eBtn_RSDown		},
 				{ "RSD",			eBtn_RSDown		},
 				{ "RSTICKDOWN",		eBtn_RSDown		},
 				{ "RIGHTSTICKDOWN",	eBtn_RSDown		},
-				{ "DL",				eBtn_DLeft		},
+				{ "RS",				eBtn_RSAny		},
+				{ "RIGHTSTICK",		eBtn_RSAny		},
 				{ "DPL",			eBtn_DLeft		},
 				{ "DPLEFT",			eBtn_DLeft		},
 				{ "DPADLEFT",		eBtn_DLeft		},
-				{ "DR",				eBtn_DRight		},
 				{ "DPR",			eBtn_DRight		},
 				{ "DPRIGHT",		eBtn_DRight		},
 				{ "DPADRIGHT",		eBtn_DRight		},
-				{ "DU",				eBtn_DUp		},
 				{ "DPU",			eBtn_DUp		},
 				{ "DPUP",			eBtn_DUp		},
 				{ "DPADUP",			eBtn_DUp		},
-				{ "DD",				eBtn_DDown		},
 				{ "DPD",			eBtn_DDown		},
 				{ "DPDOWN",			eBtn_DDown		},
 				{ "DPADDOWN",		eBtn_DDown		},
-				{ "FL",				eBtn_FLeft		},
 				{ "FPL",			eBtn_FLeft		},
 				{ "FPADLEFT",		eBtn_FLeft		},
 				{ "SQUARE",			eBtn_FLeft		},
 				{ "XBX",			eBtn_FLeft		},
-				{ "FR",				eBtn_FRight		},
 				{ "FPR",			eBtn_FRight		},
 				{ "FPADRIGHT",		eBtn_FRight		},
 				{ "CIRCLE",			eBtn_FRight		},
 				{ "CIRC",			eBtn_FRight		},
 				{ "XBB",			eBtn_FRight		},
-				{ "FU",				eBtn_FUp		},
 				{ "FPU",			eBtn_FUp		},
 				{ "FPADUP",			eBtn_FUp		},
 				{ "TRIANGLE",		eBtn_FUp		},
 				{ "TRI",			eBtn_FUp		},
 				{ "XBY",			eBtn_FUp		},
-				{ "FD",				eBtn_FDown		},
 				{ "FPD",			eBtn_FDown		},
 				{ "FPADDOWN",		eBtn_FDown		},
 				{ "XBA",			eBtn_FDown		},
@@ -382,7 +372,7 @@ EMouseMode mouseModeNameToID(const std::string& theName)
 }
 
 
-EHUDType hudTypeNameToID(const std::string& theName)
+EHUDType menuStyleNameToID(const std::string& theName)
 {
 	struct NameToEnumMapper
 	{
@@ -419,46 +409,69 @@ EHUDType hudTypeNameToID(const std::string& theName)
 				{ "DIRECTIONAL",		eMenuStyle_4Dir			},
 				{ "RING",				eMenuStlye_Ring			},
 				{ "RADIAL",				eMenuStyle_Radial		},
-				{ "RECTANGLE",			eHUDItemType_Rect		},
-				{ "RECT",				eHUDItemType_Rect		},
-				{ "BLOCK",				eHUDItemType_Rect		},
-				{ "SQUARE",				eHUDItemType_Rect		},
-				{ "RNDRECT",			eHUDItemType_RndRect	},
-				{ "ROUNDRECT",			eHUDItemType_RndRect	},
-				{ "ROUNDEDRECT",		eHUDItemType_RndRect	},
-				{ "ROUNDRECTANGLE",		eHUDItemType_RndRect	},
-				{ "ROUNDEDRECTANGLE",	eHUDItemType_RndRect	},
-				{ "BITMAP",				eHUDItemType_Bitmap		},
-				{ "IMAGE",				eHUDItemType_Bitmap		},
-				{ "CIRCLE",				eHUDItemType_Circle		},
-				{ "DOT",				eHUDItemType_Circle		},
-				{ "ELLIPSE",			eHUDItemType_Circle		},
-				{ "ARROWL",				eHUDItemType_ArrowL		},
-				{ "LARROW",				eHUDItemType_ArrowL		},
-				{ "ARROWLEFT",			eHUDItemType_ArrowL		},
-				{ "LEFTARROW",			eHUDItemType_ArrowL		},
-				{ "ARROWR",				eHUDItemType_ArrowR		},
-				{ "RARROW",				eHUDItemType_ArrowR		},
-				{ "ARROWRIGHT",			eHUDItemType_ArrowR		},
-				{ "RIGHTARROW",			eHUDItemType_ArrowR		},
-				{ "ARROWU",				eHUDItemType_ArrowU		},
-				{ "UARROW",				eHUDItemType_ArrowU		},
-				{ "ARROWUP",			eHUDItemType_ArrowU		},
-				{ "UPARROW",			eHUDItemType_ArrowU		},
-				{ "ARROWD",				eHUDItemType_ArrowD		},
-				{ "DARROW",				eHUDItemType_ArrowD		},
-				{ "ARROWDOWN",			eHUDItemType_ArrowD		},
-				{ "DOWNARROW",			eHUDItemType_ArrowD		},
-				{ "KEYBINDARRAYLAST",	eHUDType_KBArrayLast	},
-				{ "KEYBINDARRAY",		eHUDType_KBArrayLast	},
-				{ "KBARRAYLAST",		eHUDType_KBArrayLast	},
-				{ "KBARRAY",			eHUDType_KBArrayLast	},
-				{ "KEYBINDARRAYDEFAULT",eHUDType_KBArrayDefault	},
-				{ "KBARRAYDEFAULT",		eHUDType_KBArrayDefault	},
-				{ "KEYBINDARRAYFAVORITE",eHUDType_KBArrayDefault},
-				{ "KBARRAYFAVORITE",	eHUDType_KBArrayDefault	},
-				{ "KEYBINDARRAYSAVED",	eHUDType_KBArrayDefault	},
-				{ "KBARRAYSAVED",		eHUDType_KBArrayDefault	},
+			};
+			map.reserve(ARRAYSIZE(kEntries));
+			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
+		}
+	};
+	static NameToEnumMapper sNameToEnumMapper;
+
+	EHUDType* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eHUDType_Num;
+}
+
+
+EHUDType hudTypeNameToID(const std::string& theName)
+{
+	struct NameToEnumMapper
+	{
+		typedef StringToValueMap<EHUDType, u8> NameToEnumMap;
+		NameToEnumMap map;
+		NameToEnumMapper()
+		{
+			struct { const char* str; EHUDType val; } kEntries[] = {
+				{ "RECTANGLE",				eHUDItemType_Rect		},
+				{ "RECT",					eHUDItemType_Rect		},
+				{ "BLOCK",					eHUDItemType_Rect		},
+				{ "SQUARE",					eHUDItemType_Rect		},
+				{ "RNDRECT",				eHUDItemType_RndRect	},
+				{ "ROUNDRECT",				eHUDItemType_RndRect	},
+				{ "ROUNDEDRECT",			eHUDItemType_RndRect	},
+				{ "ROUNDRECTANGLE",			eHUDItemType_RndRect	},
+				{ "ROUNDEDRECTANGLE",		eHUDItemType_RndRect	},
+				{ "BITMAP",					eHUDItemType_Bitmap		},
+				{ "IMAGE",					eHUDItemType_Bitmap		},
+				{ "CIRCLE",					eHUDItemType_Circle		},
+				{ "DOT",					eHUDItemType_Circle		},
+				{ "ELLIPSE",				eHUDItemType_Circle		},
+				{ "ARROWL",					eHUDItemType_ArrowL		},
+				{ "LARROW",					eHUDItemType_ArrowL		},
+				{ "ARROWLEFT",				eHUDItemType_ArrowL		},
+				{ "LEFTARROW",				eHUDItemType_ArrowL		},
+				{ "ARROWR",					eHUDItemType_ArrowR		},
+				{ "RARROW",					eHUDItemType_ArrowR		},
+				{ "ARROWRIGHT",				eHUDItemType_ArrowR		},
+				{ "RIGHTARROW",				eHUDItemType_ArrowR		},
+				{ "ARROWU",					eHUDItemType_ArrowU		},
+				{ "UARROW",					eHUDItemType_ArrowU		},
+				{ "ARROWUP",				eHUDItemType_ArrowU		},
+				{ "UPARROW",				eHUDItemType_ArrowU		},
+				{ "ARROWD",					eHUDItemType_ArrowD		},
+				{ "DARROW",					eHUDItemType_ArrowD		},
+				{ "ARROWDOWN",				eHUDItemType_ArrowD		},
+				{ "DOWNARROW",				eHUDItemType_ArrowD		},
+				{ "HOTSPOT",				eHUDType_Hotspot		},
+				{ "KEYBINDARRAYLAST",		eHUDType_KBArrayLast	},
+				{ "KEYBINDARRAY",			eHUDType_KBArrayLast	},
+				{ "KBARRAYLAST",			eHUDType_KBArrayLast	},
+				{ "KBARRAY",				eHUDType_KBArrayLast	},
+				{ "KEYBINDARRAYDEFAULT",	eHUDType_KBArrayDefault	},
+				{ "KBARRAYDEFAULT",			eHUDType_KBArrayDefault	},
+				{ "KEYBINDARRAYFAVORITE",	eHUDType_KBArrayDefault	},
+				{ "KBARRAYFAVORITE",		eHUDType_KBArrayDefault	},
+				{ "KEYBINDARRAYSAVED",		eHUDType_KBArrayDefault	},
+				{ "KBARRAYSAVED",			eHUDType_KBArrayDefault	},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)

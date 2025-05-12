@@ -107,6 +107,7 @@ u16 hudElementForMenu(u16 theMenuID);
 u16 hotspotForHUDElement(u16 theHUDElementID);
 // Only valid for HUD element types that are tied to Key Bind Arrays
 u16 keyBindArrayForHUDElement(u16 theHUDElementID);
+// Does not include HUD. or Menu. prefix
 const std::string& hudElementKeyName(u16 theHUDElementID);
 
 // SIZES
@@ -126,6 +127,5 @@ const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& menuItemAltLabel(u16 theMenuID, u16 theMenuItemIdx);
 const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir);
-const std::string& hudElementLabel(u16 theHUDElementID);
 
 } // InputMap

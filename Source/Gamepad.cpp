@@ -51,7 +51,11 @@ static const u16 kXInputMap[] =
 	XINPUT_GAMEPAD_DPAD_LEFT |
 	XINPUT_GAMEPAD_DPAD_RIGHT |
 	XINPUT_GAMEPAD_DPAD_UP |
-	XINPUT_GAMEPAD_DPAD_DOWN,		// eBtn_DPad
+	XINPUT_GAMEPAD_DPAD_DOWN,		// eBtn_DPadAny
+	XINPUT_GAMEPAD_A |
+	XINPUT_GAMEPAD_B |
+	XINPUT_GAMEPAD_X |
+	XINPUT_GAMEPAD_Y,				// eBtn_FPadAny
 	XINPUT_GAMEPAD_X,				// eBtn_FLeft
 	XINPUT_GAMEPAD_B,				// eBtn_FRight
 	XINPUT_GAMEPAD_Y,				// eBtn_FUp
@@ -369,111 +373,113 @@ static void pollXInputGamepad(int theGamepadID)
 	ZeroMemory( &state, sizeof(XINPUT_STATE) );
 	dwResult = XInputGetState( xInputID, &state );
 
-	if( dwResult == ERROR_SUCCESS )
+	if( dwResult != ERROR_SUCCESS )
 	{
-		// Controller is connected
-		aGamepad.wasConnected = true;
-		if( state.dwPacketNumber != aGamepad.xInputPacketNum )
-		{// New data received!
-			aGamepad.xInputPacketNum = state.dwPacketNumber;
-			for(int i = 1; i < eBtn_Num; ++i)
+		if( aGamepad.wasConnected )
+		{
+			sGamepadData.disconnectDetected = true;
+			gamepadDebugPrint("XInput Gamepad %s (%d) has been disconnected!\n",
+				aGamepad.name.c_str(), aGamepad.xInputID);
+		}
+		return;
+	}
+
+	aGamepad.wasConnected = true;
+	// See if any new data was received
+	if( state.dwPacketNumber == aGamepad.xInputPacketNum )
+		return;
+
+	aGamepad.xInputPacketNum = state.dwPacketNumber;
+	for(int i = 1; i < eBtn_Num; ++i)
+	{
+		bool isDown = false;
+		switch(i)
+		{
+		case eBtn_L2:
+			aGamepad.axisVal[eAxis_LTrig] = state.Gamepad.bLeftTrigger;
+			break;
+		case eBtn_R2:
+			aGamepad.axisVal[eAxis_RTrig] = state.Gamepad.bRightTrigger;
+			break;
+		case eBtn_LSRight:
+			aGamepad.axisVal[eAxis_LSRight] = state.Gamepad.sThumbLX > 0
+				? u8(state.Gamepad.sThumbLX >> 7) : 0;
+			break;
+		case eBtn_LSLeft:
+			aGamepad.axisVal[eAxis_LSLeft] = state.Gamepad.sThumbLX < 0
+				? u8(-(state.Gamepad.sThumbLX +1) >> 7) : 0;
+			break;
+		case eBtn_LSDown:
+			aGamepad.axisVal[eAxis_LSDown] = state.Gamepad.sThumbLY < 0
+				? u8(-(state.Gamepad.sThumbLY +1) >> 7) : 0;
+			break;
+		case eBtn_LSUp:
+			aGamepad.axisVal[eAxis_LSUp] = state.Gamepad.sThumbLY > 0
+				? u8(state.Gamepad.sThumbLY >> 7) : 0;
+			break;
+		case eBtn_LSAny:
+			if( state.Gamepad.sThumbLX || state.Gamepad.sThumbLY )
 			{
-				bool isDown = false;
-				switch(i)
-				{
-				case eBtn_L2:
-					aGamepad.axisVal[eAxis_LTrig] = state.Gamepad.bLeftTrigger;
-					break;
-				case eBtn_R2:
-					aGamepad.axisVal[eAxis_RTrig] = state.Gamepad.bRightTrigger;
-					break;
-				case eBtn_LSRight:
-					aGamepad.axisVal[eAxis_LSRight] = state.Gamepad.sThumbLX > 0
-						? u8(state.Gamepad.sThumbLX >> 7) : 0;
-					break;
-				case eBtn_LSLeft:
-					aGamepad.axisVal[eAxis_LSLeft] = state.Gamepad.sThumbLX < 0
-						? u8(-(state.Gamepad.sThumbLX +1) >> 7) : 0;
-					break;
-				case eBtn_LSDown:
-					aGamepad.axisVal[eAxis_LSDown] = state.Gamepad.sThumbLY < 0
-						? u8(-(state.Gamepad.sThumbLY +1) >> 7) : 0;
-					break;
-				case eBtn_LSUp:
-					aGamepad.axisVal[eAxis_LSUp] = state.Gamepad.sThumbLY > 0
-						? u8(state.Gamepad.sThumbLY >> 7) : 0;
-					break;
-				case eBtn_LSAny:
-					if( state.Gamepad.sThumbLX || state.Gamepad.sThumbLY )
-					{
-						const float dx = state.Gamepad.sThumbLX;
-						const float dy = state.Gamepad.sThumbLY;
-						const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
-						aGamepad.axisVal[eAxis_LSAny] = clamp(m, 0, 255.0);
-					}
-					break;
-				case eBtn_RSRight:
-					aGamepad.axisVal[eAxis_RSRight] = state.Gamepad.sThumbRX > 0
-						? u8(state.Gamepad.sThumbRX >> 7) : 0;
-					break;
-				case eBtn_RSLeft:
-					aGamepad.axisVal[eAxis_RSLeft] = state.Gamepad.sThumbRX < 0
-						? u8(-(state.Gamepad.sThumbRX +1) >> 7) : 0;
-					break;
-				case eBtn_RSDown:
-					aGamepad.axisVal[eAxis_RSDown] = state.Gamepad.sThumbRY < 0
-						? u8(-(state.Gamepad.sThumbRY +1) >> 7) : 0;
-					break;
-				case eBtn_RSUp:
-					aGamepad.axisVal[eAxis_RSUp] = state.Gamepad.sThumbRY > 0
-						? u8(state.Gamepad.sThumbRY >> 7) : 0;
-					break;
-				case eBtn_RSAny:
-					if( state.Gamepad.sThumbRX || state.Gamepad.sThumbRY )
-					{
-						const float dx = state.Gamepad.sThumbRX;
-						const float dy = state.Gamepad.sThumbRY;
-						const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
-						aGamepad.axisVal[eAxis_RSAny] = clamp(m, 0, 255.0);
-					}
-					break;
-				default:
-					isDown = !!(state.Gamepad.wButtons & kXInputMap[i]);
-					break;
-				}
-				const bool wasDown = aGamepad.buttonsDown.test(i);
-				if( const EAxis anAxis = axisForButton(EButton(i)) )
-				{
-					const u8 aThreshold = wasDown
-						? aGamepad.releaseThreshold[anAxis]
-						: sGamepadData.pressThreshold[anAxis];
-					isDown = aGamepad.axisVal[anAxis] > aThreshold;
-					if( isDown && !wasDown )
-					{
-						aGamepad.releaseThreshold[anAxis] =
-							sGamepadData.pressThreshold[anAxis];
-					}
-				}
-				if( isDown )
-				{
-					if( !wasDown )
-						aGamepad.buttonsHit.set(i);
-					aGamepad.buttonsDown.set(i);
-				}
-				else
-				{
-					aGamepad.buttonsDown.reset(i);
-				}
+				const float dx = state.Gamepad.sThumbLX;
+				const float dy = state.Gamepad.sThumbLY;
+				const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
+				aGamepad.axisVal[eAxis_LSAny] = clamp(m, 0, 255.0);
 			}
-			filterInitialInputs(theGamepadID);
+			break;
+		case eBtn_RSRight:
+			aGamepad.axisVal[eAxis_RSRight] = state.Gamepad.sThumbRX > 0
+				? u8(state.Gamepad.sThumbRX >> 7) : 0;
+			break;
+		case eBtn_RSLeft:
+			aGamepad.axisVal[eAxis_RSLeft] = state.Gamepad.sThumbRX < 0
+				? u8(-(state.Gamepad.sThumbRX +1) >> 7) : 0;
+			break;
+		case eBtn_RSDown:
+			aGamepad.axisVal[eAxis_RSDown] = state.Gamepad.sThumbRY < 0
+				? u8(-(state.Gamepad.sThumbRY +1) >> 7) : 0;
+			break;
+		case eBtn_RSUp:
+			aGamepad.axisVal[eAxis_RSUp] = state.Gamepad.sThumbRY > 0
+				? u8(state.Gamepad.sThumbRY >> 7) : 0;
+			break;
+		case eBtn_RSAny:
+			if( state.Gamepad.sThumbRX || state.Gamepad.sThumbRY )
+			{
+				const float dx = state.Gamepad.sThumbRX;
+				const float dy = state.Gamepad.sThumbRY;
+				const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
+				aGamepad.axisVal[eAxis_RSAny] = clamp(m, 0, 255.0);
+			}
+			break;
+		default:
+			isDown = !!(state.Gamepad.wButtons & kXInputMap[i]);
+			break;
+		}
+		const bool wasDown = aGamepad.buttonsDown.test(i);
+		if( const EAxis anAxis = axisForButton(EButton(i)) )
+		{
+			const u8 aThreshold = wasDown
+				? aGamepad.releaseThreshold[anAxis]
+				: sGamepadData.pressThreshold[anAxis];
+			isDown = aGamepad.axisVal[anAxis] > aThreshold;
+			if( isDown && !wasDown )
+			{
+				aGamepad.releaseThreshold[anAxis] =
+					sGamepadData.pressThreshold[anAxis];
+			}
+		}
+		if( isDown )
+		{
+			if( !wasDown )
+				aGamepad.buttonsHit.set(i);
+			aGamepad.buttonsDown.set(i);
+		}
+		else
+		{
+			aGamepad.buttonsDown.reset(i);
 		}
 	}
-	else if( aGamepad.wasConnected )
-	{
-		sGamepadData.disconnectDetected = true;
-		gamepadDebugPrint("XInput Gamepad %s (%d) has been disconnected!\n",
-			aGamepad.name.c_str(), aGamepad.xInputID);
-	}
+	filterInitialInputs(theGamepadID);
 }
 
 
@@ -747,6 +753,18 @@ static void pollGamepad(int theGamepadID)
 					&dwItems,
 					0);
 		}
+	}
+
+	// Treat FPadAny like DPadAny
+	aGamepad.buttonsDown.reset(eBtn_FPadAny);
+	if( aGamepad.buttonsDown.test(eBtn_FLeft) ||
+		aGamepad.buttonsDown.test(eBtn_FRight) ||
+		aGamepad.buttonsDown.test(eBtn_FUp) ||
+		aGamepad.buttonsDown.test(eBtn_FDown) )
+	{
+		if( !aPrevButtonsDown.test(eBtn_FPadAny) )
+			aGamepad.buttonsHit.set(eBtn_FPadAny);
+		aGamepad.buttonsDown.set(eBtn_FPadAny);
 	}
 
 	// Translate individual analog axis into combo axis and digital presses
@@ -1462,6 +1480,7 @@ const char* buttonName(EButton theButton)
 		case eBtn_DUp:		return "D-Pad Up";
 		case eBtn_DDown:	return "D-Pad Down";
 		case eBtn_DPadAny:	return "D-Pad Any Dir";
+		case eBtn_FPadAny:	return "Any face button";
 		case eBtn_FLeft:	return "Button 1";
 		case eBtn_FRight:	return "Button 2";
 		case eBtn_FUp:		return "Button 3";
@@ -1497,6 +1516,7 @@ const char* buttonName(EButton theButton)
 		case eBtn_DUp:		return "D-Pad Up";
 		case eBtn_DDown:	return "D-Pad Down";
 		case eBtn_DPadAny:	return "D-Pad";
+		case eBtn_FPadAny:	return "Any face button";
 		case eBtn_FLeft:	return "Square";
 		case eBtn_FRight:	return "Circle";
 		case eBtn_FUp:		return "Triangle";
@@ -1532,6 +1552,7 @@ const char* buttonName(EButton theButton)
 		case eBtn_DUp:		return "D-Pad Up";
 		case eBtn_DDown:	return "D-Pad Down";
 		case eBtn_DPadAny:	return "D-Pad";
+		case eBtn_FPadAny:	return "Any face button";
 		case eBtn_FLeft:	return "Y Button";
 		case eBtn_FRight:	return "A Button";
 		case eBtn_FUp:		return "X Button";
