@@ -2160,7 +2160,7 @@ void init()
 				logError("Invalid ItemType (%s) for HUD Element %s! "
 					"Defaulting to 'Rectangle'!",
 					aStr.c_str(),
-					InputMap::hudElementLabel(aHUDElementID).c_str());
+					InputMap::hudElementKeyName(aHUDElementID).c_str());
 				hi.itemType = eHUDItemType_Rect;
 			}
 		}

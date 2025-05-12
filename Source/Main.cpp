@@ -240,7 +240,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			TargetApp::autoLaunch();
 
 			// Finalize profile load
-			Profile::applyAndClearChangedSections();
+			Profile::clearChangedSections();
 			Profile::saveChangesToFile();
 		}
 
@@ -252,7 +252,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			if( !Profile::changedSections().empty() )
 			{
 				InputMap::loadProfileChanges();
-				Profile::applyAndClearChangedSections();
+				Profile::clearChangedSections();
 			}
 
 			// Update frame timers and process windows messages

@@ -57,24 +57,23 @@ bool getBool(const std::string&, const std::string&, bool = false);
 float getFloat(const std::string&, const std::string&, float = 0);
 const PropertySection* getSection(const std::string& theSectionName);
 const PropertyMap& getSectionProperties(const std::string& theSectionName);
+const SectionsMap& allSections();
 void getSectionNamesStartingWith(
 	const std::string& thePrefix,
 	std::vector<std::string>& out, // appends to any existing vector data
 	bool trimPrefix = true); // removes thePrefix from front of names
 
-// Queue to add or modify profile properties (does nothing if match prev value)
-// These are not applied right away, but added to changedSections() first so
-// other modules can respond to changes until applyAndClearChangedSections().
-// They also will not be saved to file until saveChangesToFile() is called.
+// Add or modify profile properties (does nothing if match prev value)
+// Any changed values are added to changedSections() as well.
+// Changes will not be saved to file until saveChangesToFile() is called.
 // saveToFile = false means the new value can be applied but NOT saved to file
 void setStr(const std::string& theSection,
 			const std::string& thePropertyName,
 			const std::string& theValue,
 			bool saveToFile = true);
-// Gets property changes requested by setStr() but not yet applied
+// Gets property changes requested by setStr() since last load() or clear
 const SectionsMap& changedSections();
-// Applies setStr() changes to getStr() and clears changedSections()
-void applyAndClearChangedSections();
+void clearChangedSections();
 // Saves any setStr() changed requested with saveToFile to .ini file
 void saveChangesToFile();
 

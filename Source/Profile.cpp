@@ -1975,6 +1975,12 @@ const PropertySection* getSection(const std::string& theSectionName)
 }
 
 
+const SectionsMap& allSections()
+{
+	return sSectionsMap;
+}
+
+
 const PropertyMap& getSectionProperties(const std::string& theSectionName)
 {
 	static const PropertyMap kEmptyMap = PropertyMap();
@@ -2019,18 +2025,30 @@ void setStr(const std::string& theSection,
 			const std::string& theValue,
 			bool saveToFile)
 {
-	// Make sure this will actually be a change
-	if( getStr(theSection, thePropertyName) == theValue )
-		return;
+	{// Add/change main properties map
+		PropertySection& aSection =
+			sSectionsMap.findOrAdd(condense(theSection));
+		if( aSection.name.empty() )
+			aSection.name = theSection;
+		Property& aProperty =
+			aSection.properties.findOrAdd(condense(thePropertyName));
+		if( aProperty.name.empty() )
+			aProperty.name = thePropertyName;
+		// Don't do anything else if the value already matches
+		if( aProperty.val == theValue )
+			return;
+		aProperty.val = theValue;
+	}
 
-	{// Log as requested change
+	{// Log in changed properties map as well
 		PropertySection& aSection =
 			sChangedSectionsMap.findOrAdd(condense(theSection));
 		if( aSection.name.empty() )
 			aSection.name = theSection;
 		Property& aProperty =
 			aSection.properties.findOrAdd(condense(thePropertyName));
-		aProperty.name = thePropertyName;
+		if( aProperty.name.empty() )
+			aProperty.name = thePropertyName;
 		aProperty.val = theValue;
 	}
 
@@ -2061,25 +2079,8 @@ const SectionsMap& changedSections()
 }
 
 
-void applyAndClearChangedSections()
+void clearChangedSections()
 {
-	for(size_t aSectIdx = 0; aSectIdx < sChangedSectionsMap.size(); ++aSectIdx)
-	{
-		const PropertySection& aSrcSection =
-			sChangedSectionsMap.vals()[aSectIdx];
-		PropertySection& aDstSection = sSectionsMap.findOrAdd(
-			sChangedSectionsMap.keys()[aSectIdx]);
-		if( aDstSection.name.empty() )
-			aDstSection.name = aSrcSection.name;
-		for(size_t i = 0; i < aSrcSection.properties.size(); ++i)
-		{
-			const Property& aSrcProperty = aSrcSection.properties.vals()[i];
-			Property& aDstProperty = aDstSection.properties.findOrAdd(
-				aSrcSection.properties.keys()[i]);
-			aDstProperty.name = aSrcProperty.name;
-			aDstProperty.val = aSrcProperty.val;
-		}
-	}
 	sChangedSectionsMap.clear();
 }
 

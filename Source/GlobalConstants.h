@@ -187,6 +187,7 @@ enum EButton
 	eBtn_DPadAny,
 
 	// Face buttons
+	eBtn_FPadAny,
 	eBtn_FLeft,		// Left face button - PS=Sqr, XB=X, N=Y
 	eBtn_FRight,	// Right face button - PS=Cir, XB=B, N=A
 	eBtn_FUp,		// Top face button - PS=Tri, XB=Y, N=X
@@ -264,6 +265,8 @@ enum EHUDType
 
 	eMenuStyle_Begin = 0,
 	eMenuStyle_End = eHUDItemType_Rect,
+	eHUDBaseType_Begin = eHUDItemType_Rect,
+	eHUDBaseType_End = eHUDType_Num,
 	eHUDItemType_Begin = eHUDItemType_Rect,
 	eHUDItemType_End = eHUDType_Hotspot,
 };
@@ -409,6 +412,7 @@ u8 keyNameToVirtualKey(const std::string& theKeyName);
 std::string virtualKeyToName(u8 theVKey);
 EButton buttonNameToID(const std::string& theName);
 EMouseMode mouseModeNameToID(const std::string& theName);
+EHUDType menuStyleNameToID(const std::string& theName);
 EHUDType hudTypeNameToID(const std::string& theName);
 ECommandKeyWord commandWordToID(const std::string& theWord);
 

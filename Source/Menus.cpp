@@ -16,8 +16,6 @@ namespace Menus
 // Const Data
 //-----------------------------------------------------------------------------
 
-const Command kEmptyMenuCommand = Command();
-
 struct SubMenuInfo
 {
 	u16 id;
@@ -96,16 +94,16 @@ Command selectedMenuItemCommand(u16 theMenuID)
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
 	gActiveHUD.set(aMenuInfo.hudElementID);
 
+	Command result;
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	const u16 aSubMenuID = aMenuInfo.subMenuStack.back().id;
 	const u16 aSelection = aMenuInfo.subMenuStack.back().selected;
 	if( aMenuInfo.style == eMenuStyle_4Dir )
-		return kEmptyMenuCommand;
+		return result;
 
 	// Have selected menu item show a confirmation flash if
 	// this command won't change sub-menus
-	const Command& result =
-		InputMap::commandForMenuItem(aSubMenuID, aSelection);
+	result = InputMap::commandForMenuItem(aSubMenuID, aSelection);
 	switch(result.type)
 	{
 	case eCmdType_OpenSubMenu:
@@ -139,7 +137,7 @@ Command selectMenuItem(
 	const u16 anItemCount = InputMap::menuItemCount(aSubMenuID);
 	bool pushedPastEdge = false;
 
-	const Command& aDirCmd = InputMap::commandForMenuDir(aSubMenuID, theDir);
+	Command aDirCmd = InputMap::commandForMenuDir(aSubMenuID, theDir);
 
 	// Even if no actual change made, mark menu as having been interacted with
 	DBG_ASSERT(aMenuInfo.hudElementID < gActiveHUD.size());
@@ -276,9 +274,19 @@ Command selectMenuItem(
 		gRedrawHUD.set(aMenuInfo.hudElementID);
 	}
 
-	if( pushedPastEdge && aDirCmd.type >= eCmdType_FirstValid )
-		return aDirCmd;
-	return kEmptyMenuCommand;
+	if( !pushedPastEdge )
+		aDirCmd = Command();
+
+	if( aDirCmd.type == eCmdType_OpenSubMenu && aMenuStyle != eMenuStyle_4Dir )
+	{
+		// Requests to open sub-menus with directionals in most menu styles
+		// should use swap menu instead, meaning they'll stay on the same
+		// "level" as the previous menu instead of being a "child" menu.
+		aDirCmd.type = eCmdType_SwapMenu;
+		aDirCmd.swapDir = theDir;
+	}
+
+	return aDirCmd;
 }
 
 
@@ -298,7 +306,7 @@ Command openSubMenu(u16 theMenuID, u16 theSubMenuID)
 	// If this is already the active sub-menu, do nothing else
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	if( aMenuInfo.subMenuStack.back().id == theSubMenuID )
-		return kEmptyMenuCommand;
+		return Command();
 
 	// Push new menu on to the stack
 	const s16 aStackDepth = aMenuInfo.subMenuStack.back().depth;
@@ -333,7 +341,7 @@ Command swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir)
 			"but it is not a sub-menu of this root menu!",
 			InputMap::menuLabel(theAltMenuID).c_str(),
 			InputMap::menuLabel(theMenuID).c_str());
-		return kEmptyMenuCommand;
+		return Command();
 	}
 
 	// Even if no actual change made, mark menu as having been interacted with
@@ -343,7 +351,7 @@ Command swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir)
 	// If this is already the active sub-menu, do nothing else
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	if( aMenuInfo.subMenuStack.back().id == theAltMenuID )
-		return kEmptyMenuCommand;
+		return Command();
 
 	// Going to change menus, will need a full redraw
 	DBG_ASSERT(aMenuInfo.hudElementID < gFullRedrawHUD.size());
