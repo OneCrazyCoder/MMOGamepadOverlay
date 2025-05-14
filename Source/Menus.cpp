@@ -24,7 +24,7 @@ struct SubMenuInfo
 	SubMenuInfo(u16 id) : id(id), selected(), depth() {}
 };
 
-struct MenuInfo
+struct ZERO_INIT(MenuInfo)
 {
 	std::vector<SubMenuInfo> subMenuStack;
 	EHUDType style;

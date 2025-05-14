@@ -91,20 +91,21 @@ inline u16 ratioToU16(u32 theNumerator, u32 theDenominator)
 #endif
 
 /*
-	Base class that clears the memory of its derived class before the derived
-	class constructs. Make sure this is the first class derived from or it
-	will zero out any memory initialized in any other derived classes!
-	One may wonder, why not just call memset in the constructor itself?
-	The answer is member variables owned by the class with their own default
-	constructors, which will get called before the body of the owning class's
-	constructor function body, and thus you would be zeroing out the memory of
-	those owned member variables AFTER they have constructed if you did that,
-	which would likely break some of them (especially any stl stuff).
+	Base struct that clears the memory of its derived struct before the derived
+	struct constructs, to avoid issue of using memset in a struct's constructor
+	(to clear POD member variables) and clobbering non-POD member variables and
+	other memory like the vtable in the process. To work properly, this MUST be
+	the FIRST base class derived from or it will clobber the memory of other
+	base classes after they have constructed!
+	
 	Use with the syntax:
-	class MyClass : private/public ConstructFromZeroInitializedMemory<MyClass>
+	struct MyStruct : private ZeroInit<MyStruct>
+	or
+	struct ZERO_INIT(MyStruct)
 */
-template <typename T=void> struct ConstructFromZeroInitializedMemory
-{ ConstructFromZeroInitializedMemory(){ ZeroMemory(this, sizeof(T)); } };
+template <typename T=void> struct ZeroInit
+{ ZeroInit(){ ZeroMemory(this, sizeof(T)); } };
+#define ZERO_INIT(S) S : private ZeroInit<S>
 
 #include "Debug.h"
 

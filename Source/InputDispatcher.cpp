@@ -56,12 +56,11 @@ enum EAutoRunMode
 struct Input : public INPUT
 { Input() { ZeroMemory(this, sizeof(INPUT)); } };
 
-struct DispatchTask
+struct ZERO_INIT(DispatchTask)
 { Command cmd; u32 progress; u32 queuedTime; };
 
-struct KeyWantDownStatus
-{ s8 depth; s8 queued; bool pressed;
-  KeyWantDownStatus() : depth(), queued(), pressed() {} };
+struct ZERO_INIT(KeyWantDownStatus)
+{ s8 depth; s8 queued; bool pressed; };
 typedef VectorMap<u16, KeyWantDownStatus> KeysWantDownMap;
 
 
@@ -69,7 +68,7 @@ typedef VectorMap<u16, KeyWantDownStatus> KeysWantDownMap;
 // Config
 //-----------------------------------------------------------------------------
 
-struct Config
+struct ZERO_INIT(Config)
 {
 	std::vector<u8> safeAsyncKeys;
 	double cursorDeadzone;
@@ -268,8 +267,7 @@ private:
 // DispatchTracker
 //-----------------------------------------------------------------------------
 
-struct DispatchTracker
-	: public ConstructFromZeroInitializedMemory<DispatchTracker>
+struct ZERO_INIT(DispatchTracker)
 {
 	DispatchQueue queue;
 	std::vector<Input> inputs;

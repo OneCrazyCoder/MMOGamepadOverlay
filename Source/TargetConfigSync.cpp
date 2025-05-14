@@ -227,8 +227,7 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct SyncProperty :
-	public ConstructFromZeroInitializedMemory<SyncProperty>
+struct ZERO_INIT(SyncProperty)
 {
 	std::string section, name, valueFormat;
 	struct Segment
@@ -242,14 +241,14 @@ struct SyncProperty :
 	EPropertyType type;
 };
 
-struct ValueLink
+struct ZERO_INIT(ValueLink)
 {
 	u16 setIdx;
 	u16 valueIdx;
 };
 typedef StringToValueMap<ValueLink> ValueLinkMap;
 
-struct DataSource
+struct ZERO_INIT(DataSource)
 {
 	ValueLinkMap values;
 	EConfigDataFormat format;
@@ -257,25 +256,25 @@ struct DataSource
 	union { u16 fileID; u16 regValID; };
 };
 
-struct ConfigFile
+struct ZERO_INIT(ConfigFile)
 {
 	std::wstring pathW;
 	FILETIME lastModTime;
 };
 
-struct ConfigFileFolder
+struct ZERO_INIT(ConfigFileFolder)
 {
 	HANDLE hChangedSignal;
 	std::vector<u16> sourceIDs;
 };
 
-struct SystemRegistryValue
+struct ZERO_INIT(SystemRegistryValue)
 {
 	HKEY hKey;
 	std::wstring valueNameW;
 };
 
-struct SystemRegistryKey
+struct ZERO_INIT(SystemRegistryKey)
 {
 	HKEY hKey;
 	HANDLE hChangedSignal;

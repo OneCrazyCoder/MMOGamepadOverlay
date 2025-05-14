@@ -141,7 +141,7 @@ static const EAxis kDItoEAxis[eVendorID_Num][6][2] =
 // GamepadData
 //-----------------------------------------------------------------------------
 
-struct GamepadData : private ConstructFromZeroInitializedMemory<GamepadData>
+struct ZERO_INIT(GamepadData)
 {
 	LPDIRECTINPUT8 hDirectInput8;
 	int deviceCountForDInput;

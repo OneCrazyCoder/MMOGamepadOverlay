@@ -55,7 +55,7 @@ struct ProfileSelectDialogData
 		{}
 };
 
-struct XInputFixDialogData
+struct ZERO_INIT(XInputFixDialogData)
 {
 	std::wstring destFolder;
 	std::wstring gameExeName;
@@ -69,18 +69,6 @@ struct XInputFixDialogData
 	bool filesExist;
 	bool filesDeleted;
 	bool warnedAboutPatcher;
-	XInputFixDialogData() :
-		bitWidthKnown(),
-		bitWidthIs64Bit(),
-		pathEntered(),
-		readyForPath(),
-		readyForExport(),
-		checkedExists(),
-		pathContainsExe(),
-		filesExist(),
-		filesDeleted(),
-		warnedAboutPatcher()
-		{}
 };
 
 struct PromptDialogData
@@ -92,7 +80,7 @@ struct PromptDialogData
 	std::wstring retryLabel;
 };
 
-struct RTF_StreamData
+struct ZERO_INIT(RTF_StreamData)
 {
 	const char* buffer;
 	LONG remaining;
@@ -442,7 +430,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 		{// Add available items to the tree
 			HWND hTreeView = GetDlgItem(theDialog, IDC_TREE_ITEMS);
 			DBG_ASSERT(hTreeView);
-			TVINSERTSTRUCT tvInsert;
+			TVINSERTSTRUCT tvInsert = {};
 			tvInsert.hInsertAfter = TVI_LAST;
 			std::vector<HTREEITEM> aHandlesList(theItems->size());
 			BitVector<256> anItemHasChildren, anItemWasAdded;
@@ -1995,7 +1983,7 @@ EResult richTextPrompt(
 			NULL, NULL, GetModuleHandle(NULL), NULL);
 	}
 
-	PromptDialogData aDataStruct = PromptDialogData();
+	PromptDialogData aDataStruct;
 	aDataStruct.title = widen(theTitle);
 	aDataStruct.prompt = theRTFPrompt;
 	aDataStruct.okLabel = widen(theOkLabel);

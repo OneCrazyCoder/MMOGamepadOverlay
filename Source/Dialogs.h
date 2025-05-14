@@ -15,7 +15,7 @@
 namespace Dialogs
 {
 
-struct ProfileSelectResult
+struct ZERO_INIT(ProfileSelectResult)
 {
 	std::string newName;
 	int selectedIndex;
@@ -29,7 +29,7 @@ ProfileSelectResult profileSelect(
 	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
 void profileEdit(const std::vector<std::string>& theFileList, bool firstRun);
 
-struct TreeViewDialogItem
+struct ZERO_INIT(TreeViewDialogItem)
 {
 	std::string name;
 	size_t parentIndex;

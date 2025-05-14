@@ -32,7 +32,7 @@ kMaxLayerChangesPerUpdate = 32,
 // Config
 //-----------------------------------------------------------------------------
 
-struct Config
+struct ZERO_INIT(Config)
 {
 	u32 tapHoldTime;
 	u32 autoRepeatDelay;
@@ -100,6 +100,7 @@ struct ButtonCommandSet
 	u16 layer[eBtnAct_Num];
 	u32 holdTimeForAction;
 
+	ButtonCommandSet() { clear(); }
 	void clear()
 	{
 		for(size_t i = 0; i < eBtnAct_Num; ++i)
@@ -174,7 +175,7 @@ struct LayerState
 	}
 };
 
-struct ActiveSignal
+struct ZERO_INIT(ActiveSignal)
 {
 	u16 signalID;
 	u16 layerID;

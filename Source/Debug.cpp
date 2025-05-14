@@ -44,7 +44,7 @@ void logToErrorFile(const std::string& theErrorString)
 	}
 
 	time_t now = time(0);
-	struct tm timeinfo;
+	::tm timeinfo;
 	localtime_s(&timeinfo, &now);
 	char aTimeStamp[32];
 	strftime(aTimeStamp, sizeof(aTimeStamp), "<%Y-%m-%d %H:%M:%S> ", &timeinfo);

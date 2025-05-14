@@ -77,14 +77,14 @@ enum ETask
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct TrackedPoint
+struct ZERO_INIT(TrackedPoint)
 {
 	// 0-32767 so can convert to dist squared without overflowing a u32
 	u16 x, y;
 	bool enabled;
 };
 
-struct GridPos
+struct ZERO_INIT(GridPos)
 {
 	u32 x, y;
 };
@@ -130,7 +130,7 @@ static EVDir oppositeDir(EVDir theDir)
 static int dirDelta(EVDir theDir)
 { return theDir == eVDir_U ? -1 : 1; }
 
-class Row
+class ZERO_INIT(Row)
 {
 public:
 	// TYPES & CONSTANTS
@@ -145,7 +145,7 @@ public:
 		eConnectMethod_SplitIn,
 	} method[eVDir_Num];
 
-	struct Dot
+	struct ZERO_INIT(Dot)
 	{
 		u16 pointID, x, y, vertLink[eVDir_Num];
 		Dot(u16 thePointID = 0) :
@@ -158,18 +158,6 @@ public:
 		bool operator<(const Dot& rhs) const
 		{ return x <rhs.x; }
 	};
-
-
-	// CONSTRUCTOR
-	Row()
-	{
-		avgY = totalY = 0;
-		for(int i = 0; i < eVDir_Num; ++i)
-			method[i] = eConnectMethod_None;
-		for(int i = 0; i < eHDir_Num; ++i)
-			insideLinkDotIdx[i] = outsideLink[i] = insideLink[i] = 0;
-	}
-
 
 	// MUTATORS
 	void addDot(u16 thePointID)
@@ -400,11 +388,9 @@ static void processActiveArraysTask()
 		}
 		if( needChangeMade )
 		{
-			const size_t aFirstHotspot =
-				InputMap::firstHotspotInArray(anArray);
-			const size_t aLastHotspot =
-				InputMap::lastHotspotInArray(anArray);
-			for(size_t i = aFirstHotspot; i <= aLastHotspot; ++i)
+			const int aFirstHotspot = InputMap::firstHotspotInArray(anArray);
+			const int aHotspotCount = InputMap::sizeOfHotspotArray(anArray);
+			for(int i = aFirstHotspot; i < aFirstHotspot + aHotspotCount; ++i)
 				sPoints[i].enabled = enableHotspots;
 			sActiveArrays.set(anArray, enableHotspots);
 			sNewTasks.set(eTask_AddToGrid);
@@ -1054,10 +1040,9 @@ const Links& getLinks(u16 theArrayID)
 	mapDebugPrint("Generating links for hotspot array '%s'\n",
 		InputMap::hotspotArrayLabel(theArrayID).c_str());
 	const u16 aFirstHotspot = InputMap::firstHotspotInArray(theArrayID);
-	const u16 aLastHotspot = InputMap::lastHotspotInArray(theArrayID);
-	const u16 aNodeCount = aLastHotspot - aFirstHotspot + 1;
-	sLinkMaps[theArrayID].resize(aNodeCount);
-	if( aNodeCount == 1 ) return sLinkMaps[theArrayID];
+	const u16 aNodeCount = InputMap::sizeOfHotspotArray(theArrayID);
+	sLinkMaps[theArrayID].resize(max(1, aNodeCount));
+	if( aNodeCount <= 1 ) return sLinkMaps[theArrayID];
 
 	// Make sure hotspots' normalized positions have been assigned
 	while(sNewTasks.test(eTask_TargetSize) ||
@@ -1067,7 +1052,7 @@ const Links& getLinks(u16 theArrayID)
 	// Assign the hotspots to "dots" in "rows" (nearly-matching Y values)
 	std::vector<Row> aRowVec; aRowVec.reserve(aNodeCount);
 	for(u16 aPointIdx = aFirstHotspot;
-		aPointIdx <= aLastHotspot; ++aPointIdx)
+		aPointIdx < aFirstHotspot + aNodeCount; ++aPointIdx)
 	{
 		TrackedPoint& aPoint = sPoints[aPointIdx];
 		bool addedToExistingRow = false;

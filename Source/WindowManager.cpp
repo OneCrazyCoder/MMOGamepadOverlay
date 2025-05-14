@@ -56,8 +56,7 @@ enum EFadeState
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct OverlayWindow
-	: public ConstructFromZeroInitializedMemory<OverlayWindow>
+struct ZERO_INIT(OverlayWindow)
 {
 	HWND handle;
 	HBITMAP bitmap;
@@ -73,12 +72,11 @@ struct OverlayWindow
 };
 
 
-struct OverlayWindowPriority
+struct ZERO_INIT(OverlayWindowPriority)
 {
 	u16 id;
 	s16 priority;
 
-	OverlayWindowPriority() : id(), priority() {}
 	bool operator<(const OverlayWindowPriority& rhs) const
 	{
 		if( priority != rhs.priority )

@@ -55,7 +55,7 @@ const LONG kIgnoredStyleExFlags =
 // Config
 //-----------------------------------------------------------------------------
 
-struct Config
+struct ZERO_INIT(Config)
 {
 	std::string targetAppPath;
 	std::string targetAppParams;

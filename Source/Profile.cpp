@@ -102,7 +102,7 @@ struct BaseGameSettings
 		std::string path;
 		std::string params;
 	} autoLaunch;
-	struct XInputFix
+	struct ZERO_INIT(XInputFix)
 	{
 		std::string dirPath;
 		std::string gameName;
@@ -111,7 +111,6 @@ struct BaseGameSettings
 		bool use64BitVersion;
 		bool shouldUse;
 		bool userWants;
-		XInputFix() : use64BitVersion(), shouldUse(), userWants() {}
 	} xInputFix;
 };
 
