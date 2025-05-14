@@ -75,7 +75,7 @@ const char* kAlignmentStr[][2] =
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct LayoutEntry
+struct ZERO_INIT(LayoutEntry)
 {
 	enum EType
 	{
@@ -121,22 +121,11 @@ struct LayoutEntry
 	u16 hudElementID;
 	u16 rangeCount;
 
-	LayoutEntry() :
-		type(eType_Num),
-		drawnRect(),
-		drawOffX(),
-		drawOffY(),
-		drawOffScale(),
-		hudElementID(),
-		rangeCount()
-	{
-		item.parentIndex = 0;
-		item.isRootCategory = false;
-	}
+	LayoutEntry() : type(eType_Num) {}
 };
 
 
-struct EditorState
+struct ZERO_INIT(EditorState)
 {
 	std::vector<LayoutEntry> entries;
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
@@ -148,15 +137,6 @@ struct EditorState
 	double unappliedDeltaX, unappliedDeltaY;
 	bool needsDrawPosUpdate;
 	bool draggingWithMouse;
-
-	EditorState() :
-		activeEntry(),
-		lastMouseDragPos(),
-		unappliedDeltaX(),
-		unappliedDeltaY(),
-		needsDrawPosUpdate(true),
-		draggingWithMouse(false)
-	{}
 };
 
 

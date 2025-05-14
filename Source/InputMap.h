@@ -89,7 +89,7 @@ void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 // HOTSPOTS
 const Hotspot& getHotspot(u16 theHotspotID);
 u16 firstHotspotInArray(u16 theHotspotArrayID);
-u16 lastHotspotInArray(u16 theHotspotArrayID);
+u16 sizeOfHotspotArray(u16 theHotspotArrayID);
 const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
 void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
 void reloadHotspotKey(const std::string& theHotspotName,

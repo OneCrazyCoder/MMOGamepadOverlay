@@ -136,7 +136,7 @@ DBG_CTASSERT(ARRAYSIZE(kHUDPropStr) == eHUDProp_Num);
 // HUDElementInfo
 //-----------------------------------------------------------------------------
 
-struct HUDElementInfo
+struct ZERO_INIT(HUDElementInfo)
 {
 	EHUDType type;
 	EHUDType itemType;
@@ -172,9 +172,8 @@ struct HUDElementInfo
 
 	HUDElementInfo()
 	{
-		ZeroMemory(this, sizeof(HUDElementInfo));
 		itemType = eHUDItemType_Rect;
-		fadeInRate= 255;
+		fadeInRate = 255;
 		fadeOutRate = 255;
 		flashing = kInvalidItem;
 		prevFlashing = kInvalidItem;
@@ -189,8 +188,7 @@ struct HUDElementInfo
 // Other Local Structures
 //-----------------------------------------------------------------------------
 
-struct HUDDrawData
-	: public ConstructFromZeroInitializedMemory<HUDDrawData>
+struct ZERO_INIT(HUDDrawData)
 {
 	HDC hdc;
 	HDC hCaptureDC;
@@ -205,7 +203,7 @@ struct HUDDrawData
 		: components(theComponents) {}
 };
 
-struct Appearance
+struct ZERO_INIT(Appearance)
 {
 	COLORREF itemColor;
 	COLORREF labelColor;
@@ -219,34 +217,32 @@ struct Appearance
 	{ return std::memcmp(this, &rhs, sizeof(Appearance)) == 0; }
 };
 
-struct BitmapIcon
+struct ZERO_INIT(BitmapIcon)
 {
 	HBITMAP image;
 	HBITMAP mask;
 	SIZE size;
 };
 
-struct CopyIcon
+struct ZERO_INIT(CopyIcon)
 {
 	Hotspot pos;
 	Hotspot size;
 };
 
-struct IconEntry
+struct ZERO_INIT(IconEntry)
 {
 	u16 iconID;
 	bool copyFromTarget;
 	bool isUpToDate;
 };
 
-struct BuildIconEntry
+struct ZERO_INIT(BuildIconEntry)
 {
 	HBITMAP srcFile; // 0 == copy from target window
 	Hotspot pos;
 	Hotspot size;
 	IconEntry result;
-
-	BuildIconEntry() : srcFile(), result() {}
 };
 
 struct CopyRectCacheEntry
@@ -260,8 +256,7 @@ struct StringScaleCacheEntry
 	u16 width, height, fontID;
 };
 
-struct MenuDrawCacheEntry
-	: public ConstructFromZeroInitializedMemory<MenuDrawCacheEntry>
+struct ZERO_INIT(MenuDrawCacheEntry)
 {
 	EMenuItemLabelType type;
 	union
@@ -273,7 +268,7 @@ struct MenuDrawCacheEntry
 	bool isDynamic;
 };
 
-struct AutoRefreshLabelEntry
+struct ZERO_INIT(AutoRefreshLabelEntry)
 {
 	u16 hudElementID;
 	u16 itemIdx;
@@ -1858,14 +1853,14 @@ static void drawHSGuide(HUDDrawData& dd)
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
 	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 
-	for(int anArryIdx = arraysToShow.firstSetBit();
-		anArryIdx < arraysToShow.size();
-		anArryIdx = arraysToShow.nextSetBit(anArryIdx+1))
+	for(int anArrayIdx = arraysToShow.firstSetBit();
+		anArrayIdx < arraysToShow.size();
+		anArrayIdx = arraysToShow.nextSetBit(anArrayIdx+1))
 	{
-		const u16 aFirstHotspot = InputMap::firstHotspotInArray(anArryIdx);
-		const u16 aLastHotspot = InputMap::lastHotspotInArray(anArryIdx);
+		const u16 aHotspotCount = InputMap::sizeOfHotspotArray(anArrayIdx);
+		const u16 aFirstHotspot = InputMap::firstHotspotInArray(anArrayIdx);
 		for(u16 aHotspotID = aFirstHotspot;
-			aHotspotID <= aLastHotspot;
+			aHotspotID < aFirstHotspot + aHotspotCount;
 			++aHotspotID)
 		{
 			const POINT& aHotspotPos = hotspotToPoint(
@@ -1944,8 +1939,7 @@ static void updateHotspotsMenuLayout(
 	const u16 aHotspotArrayID = InputMap::menuHotspotArray(theMenuID);
 	const u16 anItemCount = InputMap::menuItemCount(theMenuID);
 	const u16 aFirstHotspot = InputMap::firstHotspotInArray(aHotspotArrayID);
-	const u16 aLastHotspot = InputMap::lastHotspotInArray(aHotspotArrayID);
-	DBG_ASSERT(anItemCount == aLastHotspot - aFirstHotspot + 1);
+	DBG_ASSERT(anItemCount == InputMap::sizeOfHotspotArray(aHotspotArrayID));
 	theComponents.reserve(anItemCount + 1);
 	theComponents.resize(1);
 	RECT aWinRect = { 0 };
@@ -1953,7 +1947,7 @@ static void updateHotspotsMenuLayout(
 	aWinRect.top = theTargetSize.cy;
 	const SIZE& aCompSize = hotspotToSize(hi.itemSize, theTargetSize);
 	const SIZE aCompHalfSize = { aCompSize.cx / 2, aCompSize.cy / 2 };
-	for(u16 i = aFirstHotspot; i <= aLastHotspot; ++i)
+	for(u16 i = aFirstHotspot; i < aFirstHotspot + anItemCount; ++i)
 	{
 		const POINT& anItemPos = hotspotToPoint(
 			InputMap::getHotspot(i), theTargetSize);

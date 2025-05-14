@@ -9,7 +9,7 @@
 	by multiple modules.
 */
 
-struct Hotspot
+struct ZERO_INIT(Hotspot)
 {
 	struct Coord
 	{
@@ -21,7 +21,6 @@ struct Hotspot
 		{ return !(*this == rhs); }
 	} x, y;
 
-	Hotspot() { ZeroMemory(this, sizeof(Hotspot)); }
 	bool operator==(const Hotspot& rhs) const
 	{ return x == rhs.x && y == rhs.y; }
 	bool operator!=(const Hotspot& rhs) const
@@ -29,7 +28,7 @@ struct Hotspot
 };
 
 
-struct Command
+struct ZERO_INIT(Command)
 {
 	ECommandType type;
 	union
@@ -69,7 +68,6 @@ struct Command
 		u64 compare;
 	};
 
-	Command() { ZeroMemory(this, sizeof(Command)); }
 	bool operator==(const Command& rhs) const
 	{ return type == rhs.type && compare == rhs.compare; }
 };
