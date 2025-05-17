@@ -57,7 +57,7 @@ struct Input : public INPUT
 { Input() { ZeroMemory(this, sizeof(INPUT)); } };
 
 struct ZERO_INIT(DispatchTask)
-{ Command cmd; u32 progress; u32 queuedTime; };
+{ Command cmd; u32 progress; u32 queuedTime; bool hasJump; bool slow; };
 
 struct ZERO_INIT(KeyWantDownStatus)
 { s8 depth; s8 queued; bool pressed; };
@@ -207,30 +207,35 @@ public:
 	DispatchQueue()
 	{
 		// Initial capacity must be a power of 2!
-		mBuffer.resize(4);
+		mBuffer.resize(16);
 		mHead = 0;
 		mTail = 0;
+		mMouseJumpQueueCount = 0;
 	}
 
 
-	void push_back(const Command& theCommand, u32 theProgress = 0)
+	void push_back(const Command& theCommand)
 	{
-		if( ((mTail + 1) & (mBuffer.size() - 1)) == mHead )
-		{// Buffer is full, resize by doubling to keep power-of-2 size
-			std::vector<DispatchTask> newBuffer(mBuffer.size() * 2);
-
-			for(std::size_t i = 0; i < mBuffer.size() - 1; ++i)
-				newBuffer[i] = mBuffer[(mHead + i) & (mBuffer.size() - 1)];
-
-			mHead = 0;
-			mTail = mBuffer.size() - 1;
-			swap(mBuffer, newBuffer);
-		}
-
+		confirmCanFitOneMore();
 		mBuffer[mTail].cmd = theCommand;
-		mBuffer[mTail].progress = theProgress;
-		mBuffer[mTail].queuedTime = gAppRunTime;
+		setDataForNewTask(mBuffer[mTail]);
 		mTail = (mTail + 1) & (mBuffer.size() - 1);
+	}
+
+
+	void push_front(const Command& theCommand)
+	{
+		// Used for embedded commands inside vkey sequences to temporarily
+		// jump them to the front of the queue, so properties set differently
+		DBG_ASSERT(!empty());
+		confirmCanFitOneMore();
+		const bool flagAsSlow = mBuffer[mHead].slow;
+		mHead = (mHead - 1) & (mBuffer.size() - 1);
+		mBuffer[mHead].cmd = theCommand;
+		mBuffer[mHead].progress = 0;
+		mBuffer[mHead].queuedTime = 0xFFFFFFFF;
+		mBuffer[mHead].hasJump = false;
+		mBuffer[mHead].slow = flagAsSlow;
 	}
 
 
@@ -238,7 +243,10 @@ public:
 	{
 		DBG_ASSERT(!empty());
 
+		if( mBuffer[mHead].hasJump )
+			--mMouseJumpQueueCount;
 		mHead = (mHead + 1) & (mBuffer.size() - 1);
+		DBG_ASSERT(!empty() || mMouseJumpQueueCount == 0);
 	}
 
 
@@ -250,6 +258,51 @@ public:
 	}
 
 
+	bool mouseJumpQueued() const
+	{
+		return mMouseJumpQueueCount > 0;
+	}
+
+
+	void setCurrTaskProgress(u32 theProgress)
+	{
+		DBG_ASSERT(!empty());
+		mBuffer[mHead].progress = theProgress;
+	}
+
+
+	bool hasFastTaskReady()
+	{
+		if( empty() )
+			return false;
+		
+		if( !mBuffer[mHead].slow )
+			return true;
+
+		bool foundFastTask = false;
+		const size_t aWrapMask = mBuffer.size() - 1;
+		size_t idx = mHead;
+		for(; idx != mTail; idx = (idx + 1) & aWrapMask)
+		{
+			if( !mBuffer[idx].slow )
+			{
+				foundFastTask = true;
+				break;
+			}
+		}
+		if( !foundFastTask )
+			return false;
+
+		// Shift tasks between mHead and idx to move fast task to front
+		const DispatchTask aFastTask = mBuffer[idx];
+		for(;idx != mHead; idx = (idx - 1) & aWrapMask)
+			mBuffer[idx] = mBuffer[(idx - 1) & aWrapMask];
+		mBuffer[mHead] = aFastTask;
+
+		return true;
+	}
+
+
 	bool empty() const
 	{
 		return mHead == mTail;
@@ -257,9 +310,143 @@ public:
 
 
 private:
+	void confirmCanFitOneMore()
+	{
+		if( ((mTail + 1) & (mBuffer.size() - 1)) == mHead )
+		{// Adding one means head == tail which would report empty()!
+			// Resize by doubling to keep power-of-2 size
+			std::vector<DispatchTask> newBuffer(mBuffer.size() * 2);
+
+			for(std::size_t i = 0; i < mBuffer.size() - 1; ++i)
+				newBuffer[i] = mBuffer[(mHead + i) & (mBuffer.size() - 1)];
+
+			mHead = 0;
+			mTail = mBuffer.size() - 1;
+			swap(mBuffer, newBuffer);
+		}
+	}
+
+	void setDataForNewTask(DispatchTask& theTask)
+	{
+		mBuffer[mTail].progress = 0;
+		mBuffer[mTail].queuedTime = gAppRunTime;			
+		u16 aCurrJumpHotspotID = 0;
+		u16 aFinalJumpHotspotID = 0;
+		Hotspot aJumpDest;
+		switch(theTask.cmd.type)
+		{
+		case eCmdType_VKeySequence:
+			scanVKeySeqForFlags(
+				InputMap::cmdVKeySeq(theTask.cmd),
+				aCurrJumpHotspotID, aFinalJumpHotspotID,
+				theTask.hasJump, theTask.slow);
+			if( aCurrJumpHotspotID )
+				aFinalJumpHotspotID = aCurrJumpHotspotID;
+			if( theTask.hasJump )
+			{
+				++mMouseJumpQueueCount;
+				if( aFinalJumpHotspotID )
+				{// Assign _LastCursorPos now as source point for next jump
+					InputMap::modifyHotspot(
+						eSpecialHotspot_LastCursorPos,
+						InputMap::getHotspot(aFinalJumpHotspotID));
+				}
+			}
+			break;
+		case eCmdType_ChatBoxString:
+			theTask.hasJump = false;
+			theTask.slow = true;
+			break;
+		case eCmdType_MoveMouseToHotspot:
+		case eCmdType_MouseClickAtHotspot:
+		case eCmdType_MoveMouseToMenuItem:
+		case eCmdType_MoveMouseToOffset:
+			theTask.hasJump = true;
+			theTask.slow = true;
+			++mMouseJumpQueueCount;
+			// Assign _LastCursorPos now as source point for next jump
+			aJumpDest.x = theTask.cmd.hotspot.x;
+			aJumpDest.y = theTask.cmd.hotspot.y;
+			InputMap::modifyHotspot(
+				eSpecialHotspot_LastCursorPos, aJumpDest);
+			break;
+		default:
+			theTask.hasJump = false;
+			theTask.slow = false;
+			break;
+		}
+	}
+
+	static void scanVKeySeqForFlags(
+		const u8* theVKeySeq,
+		u16& theCurrJumpHotspotID,
+		u16& theFinalJumpHotspotID,
+		bool& hasJump,
+		bool& isSlow)
+	{
+		DBG_ASSERT(theVKeySeq);
+		// Hotspots that are clicked on immediately do not count as final
+		// destination hotspot since dispatcher will return cursor to previous
+		// position in those cases.
+		for(const u8* c = theVKeySeq; *c != '\0'; ++c)
+		{
+			switch(*c)
+			{
+			case kVKeyMouseJump:
+				hasJump = true;
+				isSlow = true;
+				++c; DBG_ASSERT(*c != '\0');
+				theCurrJumpHotspotID = (*c & 0x7F) << 7;
+				++c; DBG_ASSERT(*c != '\0');
+				theCurrJumpHotspotID |= (*c & 0x7F);
+				break;
+			case VK_LBUTTON: case VK_MBUTTON: case VK_RBUTTON:
+				// Last hotspot jumped to no longer matters if it is clicked
+				theCurrJumpHotspotID = 0;
+				break;
+			case VK_PAUSE:
+				isSlow = true;
+				if( theCurrJumpHotspotID )
+					theFinalJumpHotspotID = theCurrJumpHotspotID;
+				break;
+			case kVKeyTriggerKeyBind:
+				{
+					++c; DBG_ASSERT(*c != '\0');
+					u16 aKeyBindID = (*c & 0x7F) << 7;
+					++c; DBG_ASSERT(*c != '\0');
+					aKeyBindID |= (*c & 0x7F);
+					const Command& aKeyBindCmd =
+						InputMap::keyBindCommand(aKeyBindID);
+					switch(aKeyBindCmd.type)
+					{
+					case eCmdType_TapKey:
+						if( aKeyBindCmd.vKey == VK_LBUTTON ||
+							aKeyBindCmd.vKey == VK_MBUTTON ||
+							aKeyBindCmd.vKey == VK_RBUTTON )
+						{ theCurrJumpHotspotID = 0; }
+						break;
+					case eCmdType_ChatBoxString:
+						isSlow = true;
+						if( theCurrJumpHotspotID )
+							theFinalJumpHotspotID = theCurrJumpHotspotID;
+						break;
+					case eCmdType_VKeySequence:
+						// Use recursion to scan this sequence
+						scanVKeySeqForFlags(InputMap::cmdVKeySeq(aKeyBindCmd),
+							theCurrJumpHotspotID, theFinalJumpHotspotID,
+							hasJump, isSlow);
+						break;
+					}
+				}
+				break;
+			}
+		}
+	}
+
 	std::vector<DispatchTask> mBuffer;
 	std::size_t mHead;
 	std::size_t mTail;
+	s16 mMouseJumpQueueCount;
 };
 
 
@@ -272,7 +459,6 @@ struct ZERO_INIT(DispatchTracker)
 	DispatchQueue queue;
 	std::vector<Input> inputs;
 	u32 currTaskProgress;
-	int embeddedChatBoxStringPos;
 	int queuePauseTime;
 	u32 nonModKeyPressAllowedTime;
 	u32 modKeyChangeAllowedTime;
@@ -287,6 +473,7 @@ struct ZERO_INIT(DispatchTracker)
 	u16 backupQueuedKey;
 	bool typingChatBoxString;
 	bool chatBoxActive;
+	bool allowFastTasksDuringQueuePause;
 
 	Hotspot mouseJumpDest;
 	EMouseMode mouseMode;
@@ -300,7 +487,6 @@ struct ZERO_INIT(DispatchTracker)
 	u32 mouseMoveAllowedTime;
 	u32 mouseJumpAllowedTime;
 	u32 mouseJumpFinishedTime;
-	u16 mouseJumpQueued;
 	bool mouseJumpToHotspot;
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
@@ -334,7 +520,7 @@ static DispatchTracker sTracker;
 static void fireSignal(u16 aSignalID)
 {
 	gFiredSignals.set(aSignalID);
-	switch(aSignalID - eBtn_Num)
+	switch(aSignalID - InputMap::specialKeySignalID(ESpecialKey(0)))
 	{
 	case eSpecialKey_AutoRun:
 		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
@@ -363,20 +549,6 @@ static void fireSignal(u16 aSignalID)
 }
 
 
-static void fireSignalFromString(const u8* theString)
-{
-	DBG_ASSERT(theString && theString[0] == kVKeyFireSignal);
-	u16 aSignalID = 0;
-	++theString;
-	DBG_ASSERT(*theString != '\0');
-	aSignalID = (*theString & 0x7F) << 7;
-	++theString;
-	DBG_ASSERT(*theString != '\0');
-	aSignalID |= (*theString & 0x7F);
-	fireSignal(aSignalID);
-}
-
-
 static EResult popNextStringChar(const char* theString)
 {
 	// Strings should start with '/' or '>'
@@ -384,38 +556,42 @@ static EResult popNextStringChar(const char* theString)
 	DBG_ASSERT(sTracker.currTaskProgress <= strlen(theString));
 
 	if( theString[sTracker.currTaskProgress] == '\0' )
-	{
-		// Trigger restoring mouse look for games like Pantheon that drop it
-		sTracker.mouseLookAutoRestoreTimer = kConfig.mouseLookAutoRestoreTime;
 		return eResult_TaskCompleted;
-	}
 
 	const size_t idx = sTracker.currTaskProgress++;
 	const u16 kPasteKey = InputMap::keyForSpecialAction(eSpecialKey_PasteText);
 
-	if( idx == 0 )
+	if( theString[idx] == '/' || theString[idx] == '>' )
 	{
+		if( sTracker.typingChatBoxString )
+		{// Let this flag from prev string clear first before starting!
+			--sTracker.currTaskProgress;
+			sTracker.queuePauseTime =
+				max(sTracker.queuePauseTime, 1);
+			sTracker.allowFastTasksDuringQueuePause = true;
+			return eResult_Incomplete;
+		}
+
 		// Press initial key to switch to chat box mode ('/' or '\r')
 		sTracker.nextQueuedKey =
-			theString[0] == '/' ? VkKeyScan('/') : VK_RETURN;
+			theString[idx] == '/' ? VkKeyScan('/') : VK_RETURN;
 		// Add a pause to make sure game-side async key checking switches to
 		// direct text input in chat box before 'typing' at full speed
 		sTracker.queuePauseTime =
 			max(sTracker.queuePauseTime,
 				kConfig.chatBoxPostFirstKeyDelay);
+		sTracker.allowFastTasksDuringQueuePause = false;
 		// Flag any movement keys now held down as possibly being "sticky",
 		// meaning the game will treat them as continuously held down now,
 		// even after the keys are released and even after stop using the
 		// chat box (such as in EQ Titanium client)
 		sTracker.stickyMoveKeys |= sTracker.moveKeysHeld;
 		sTracker.chatBoxActive = true;
-		// If can paste, copy the rest of the string into the clipboard now
+		// If can paste, copy the rest of the line into the clipboard now
 		if( kPasteKey && OpenClipboard(NULL) )
 		{
 			std::string aStr(&theString[sTracker.currTaskProgress]);
-			const size_t anEndCharPos = aStr.find('\r');
-			if( anEndCharPos != std::string::npos )
-				aStr.resize(anEndCharPos);
+			aStr.resize(aStr.find_first_of("\n\r"));
 			const std::wstring& aWStr = widen(aStr);
 
 			EmptyClipboard();
@@ -447,7 +623,7 @@ static EResult popNextStringChar(const char* theString)
 			}
 			CloseClipboard();
 
-			// Jump progress to the character just before final return key
+			// Jump progress to the character just before eol char
 			sTracker.currTaskProgress += u32(aStr.size());
 			--sTracker.currTaskProgress;
 		}
@@ -456,14 +632,14 @@ static EResult popNextStringChar(const char* theString)
 	{
 		// Send the string by pressing carriage return
 		sTracker.nextQueuedKey = VK_RETURN;
-		// Add delay after press return before calling this task complete and
-		// allowing other key presses. This prevents the chat box interface
-		// from "absorbing" gameplay-related key presses, which can happen in
-		// some games for a time after the carriage return but before the chat
-		// box closes out completely.
+		// Add delay after press return before allowing any other key presses.
+		// This prevents the chat box interface from "absorbing" gameplay-
+		// related key presses, which can happen in some games for a time after
+		// the carriage return but before the chat box closes out.
 		sTracker.queuePauseTime =
 			max(sTracker.queuePauseTime,
 				kConfig.chatBoxPostEnterDelay);
+		sTracker.allowFastTasksDuringQueuePause = false;
 	}
 	else if( kPasteKey )
 	{
@@ -493,45 +669,25 @@ static EResult popNextKey(const u8* theVKeySequence)
 {
 	DBG_ASSERT(sTracker.nextQueuedKey == 0);
 
-	// After processing an embedded string (signified by -1), need to clear
-	// flags like typingChatBoxString and let other queued commands run before
-	// continuing this one (in case it has multiple strings).
-	if( sTracker.embeddedChatBoxStringPos == -1 )
-	{
-		sTracker.mouseLookAutoRestoreTimer = kConfig.mouseLookAutoRestoreTime;
-		return eResult_Retry;
-	}
-
-	if( sTracker.embeddedChatBoxStringPos )
-	{// Treating this section of key sequence as string until hit \r
-		DBG_ASSERT(theVKeySequence[sTracker.currTaskProgress] != '\0');
-		const bool reachedEmbeddedStringEnd =
-			theVKeySequence[sTracker.currTaskProgress] == '\r';
-		sTracker.currTaskProgress -= sTracker.embeddedChatBoxStringPos;
-		popNextStringChar((const char*)
-			&theVKeySequence[sTracker.embeddedChatBoxStringPos]);
-		sTracker.currTaskProgress += sTracker.embeddedChatBoxStringPos;
-		if( reachedEmbeddedStringEnd )
-			sTracker.embeddedChatBoxStringPos = -1;
-		return eResult_Incomplete;
-	}
-
 	while(theVKeySequence[sTracker.currTaskProgress] != '\0')
 	{
 		const size_t idx = sTracker.currTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];
 
-		if( aVKey == kVKeyFireSignal )
+		if( aVKey == kVKeyTriggerKeyBind )
 		{
-			fireSignalFromString(&theVKeySequence[idx]);
-			sTracker.currTaskProgress += 2;
-			continue;
-		}
-
-		if( aVKey == kVKeyStartChatString )
-		{
-			// Flag to execute an embedded chat box string
-			sTracker.embeddedChatBoxStringPos = int(sTracker.currTaskProgress);
+			// Special 3-byte sequence to execute a key bind
+			u8 c = theVKeySequence[sTracker.currTaskProgress++];
+			DBG_ASSERT(c != '\0');
+			u16 aKeyBindID = (c & 0x7F) << 7;
+			c = theVKeySequence[sTracker.currTaskProgress++];
+			DBG_ASSERT(c != '\0');
+			aKeyBindID |= (c & 0x7F);
+			// Jump this command to the front of the queue, and then
+			// return to where we left off here once it is done
+			sTracker.queue.setCurrTaskProgress(sTracker.currTaskProgress);
+			sTracker.queue.push_front(InputMap::keyBindCommand(aKeyBindID));
+			sTracker.currTaskProgress = 0;
 			return eResult_Incomplete;
 		}
 
@@ -548,6 +704,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
 				return eResult_TaskCompleted;
 			sTracker.queuePauseTime = max(sTracker.queuePauseTime, aDelay);
+			sTracker.allowFastTasksDuringQueuePause = true;
 			return eResult_Incomplete;
 		}
 
@@ -565,14 +722,6 @@ static EResult popNextKey(const u8* theVKeySequence)
 			sTracker.mouseJumpInterpolate = false;
 			sTracker.mouseAllowMidJumpControl = false;
 			sTracker.mouseJumpToMode = eMouseMode_PostJump;
-			continue;
-		}
-
-		if( aVKey == kVKeySeqHasMouseJump )
-		{
-			// Just skip this (signal that this sequence has a mouse jump)
-			++sTracker.currTaskProgress;
-			++sTracker.currTaskProgress;
 			continue;
 		}
 
@@ -712,7 +861,7 @@ static bool isSafeAsyncKey(u16 theVKey)
 		(sTracker.mouseMode == eMouseMode_Hide ||
 		 sTracker.mouseMode == eMouseMode_PostJump ||
 		 sTracker.mouseMode == eMouseMode_JumpClicked ||
-		 sTracker.mouseJumpQueued ||
+		 sTracker.queue.mouseJumpQueued() ||
 		 sTracker.mouseJumpToHotspot) )
 		return false;
 
@@ -888,7 +1037,6 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
 		sTracker.mouseJumpAttempted = true;
 		sTracker.mouseJumpVerified = true;
-		return;
 	#endif
 
 	if( sTracker.mouseJumpAttempted && sTracker.mouseJumpVerified )
@@ -1680,7 +1828,7 @@ void update()
 					sTracker.mouseMode = aMouseModeWanted;
 					sTracker.mouseLookAutoRestoreTimer = 0;
 				}
-				else if( !sTracker.mouseJumpQueued )
+				else if( !sTracker.queue.mouseJumpQueued() )
 				{// Jump cursor to safe spot for initial click
 					sTracker.mouseJumpDest =
 						InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
@@ -1699,7 +1847,7 @@ void update()
 				// Can't actually hide cursor without messing with target app
 				// (or using _Look which can cause undesired side effects)
 				// so just move it out of the way (bottom corner usually)
-				if( !sTracker.mouseJumpQueued )
+				if( !sTracker.queue.mouseJumpQueued() )
 				{
 					sTracker.mouseJumpDest = 
 						InputMap::getHotspot(eSpecialHotspot_MouseHidden);
@@ -1712,7 +1860,7 @@ void update()
 			case eMouseMode_LookReady:
 				// Just jump to mouse look start position and wait until
 				// attempt to move mouse to start actual look mode
-				if( !sTracker.mouseJumpQueued )
+				if( !sTracker.queue.mouseJumpQueued() )
 				{
 					sTracker.mouseJumpDest = 
 						InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
@@ -1734,9 +1882,11 @@ void update()
 	if( sTracker.backupQueuedKey )
 		sTracker.nextQueuedKey = sTracker.backupQueuedKey;
 	sTracker.backupQueuedKey = 0;
-	while(sTracker.queuePauseTime <= 0 &&
-		  sTracker.nextQueuedKey == 0 &&
-		  !sTracker.queue.empty() )
+	while(sTracker.nextQueuedKey == 0 &&
+		  !sTracker.queue.empty() &&
+		  (sTracker.queuePauseTime <= 0 ||
+		   (sTracker.allowFastTasksDuringQueuePause &&
+		    sTracker.queue.hasFastTaskReady())))
 	{
 		const DispatchTask& aCurrTask = sTracker.queue.front();
 		sTracker.currTaskProgress =
@@ -1744,11 +1894,10 @@ void update()
 
 		const bool taskIsPastDue =
 			sTracker.currTaskProgress == 0 &&
-			(aCurrTask.queuedTime + kConfig.maxTaskQueuedTime) < gAppRunTime;
+			aCurrTask.queuedTime < (gAppRunTime - kConfig.maxTaskQueuedTime);
 
 		const Command& aCmd = aCurrTask.cmd;
 		EResult aTaskResult = eResult_TaskCompleted;
-		bool wasAMouseJumpCommand = false;
 
 		switch(aCmd.type)
 		{
@@ -1789,7 +1938,9 @@ void update()
 					// forget ever wanted the key pressed in the first place
 					if( !taskIsPastDue )
 					{
-						sTracker.queuePauseTime = 1;
+						sTracker.queuePauseTime =
+							max(sTracker.queuePauseTime, 1);
+						sTracker.allowFastTasksDuringQueuePause = false;
 						aTaskResult = eResult_Incomplete;
 					}
 					else
@@ -1819,7 +1970,6 @@ void update()
 		case eCmdType_VKeySequence:
 			{
 				const u8* aCmdSeq = InputMap::cmdVKeySeq(aCmd);
-				wasAMouseJumpCommand = aCmdSeq[0] == kVKeySeqHasMouseJump;
 				if( !taskIsPastDue )
 				{
 					if( aCurrTask.progress == 0 )
@@ -1840,10 +1990,11 @@ void update()
 		case eCmdType_MouseClickAtHotspot:
 		case eCmdType_MoveMouseToMenuItem:
 		case eCmdType_MoveMouseToOffset:
-			wasAMouseJumpCommand = true;
 			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
 			{// Finish instant jump first
-				sTracker.queuePauseTime = 1;
+				sTracker.queuePauseTime =
+					max(sTracker.queuePauseTime, 1);
+				sTracker.allowFastTasksDuringQueuePause = false;
 				aTaskResult = eResult_Incomplete;
 			}
 			else if( !taskIsPastDue )
@@ -1874,22 +2025,29 @@ void update()
 			DBG_ASSERT(false && "Command type should not have been queued!");
 			break;
 		}
-		if( aTaskResult == eResult_Retry )
-		{// Bump item to end of queue and repeat it
-			sTracker.queue.push_back(aCurrTask.cmd, sTracker.currTaskProgress);
-			aTaskResult = eResult_TaskCompleted;
-		}
 		if( aTaskResult == eResult_TaskCompleted )
 		{// Move to next item in queue
 			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
+		}
+		else if( sTracker.queuePauseTime > 0 )
+		{
+			sTracker.queue.setCurrTaskProgress(sTracker.currTaskProgress);
+		}
+		// End "chat box active mode" only once finished task ends the loop,
+		// or a is pause requested that allows for other tasks to complete.
+		if( sTracker.chatBoxActive &&
+			(aTaskResult == eResult_TaskCompleted &&
+			 (sTracker.nextQueuedKey || sTracker.queue.empty())) ||
+			(sTracker.queuePauseTime > 0 &&
+			 sTracker.allowFastTasksDuringQueuePause) )
+		{
 			sTracker.typingChatBoxString = false;
 			sTracker.chatBoxActive = false;
-			sTracker.embeddedChatBoxStringPos = 0;
-			if( sTracker.queue.empty() )
-				sTracker.mouseJumpQueued = 0;
-			else if( sTracker.mouseJumpQueued && wasAMouseJumpCommand )
-				--sTracker.mouseJumpQueued;
+			// Trigger restoring mouse look for games like Pantheon
+			// that drop it while using the chat box
+			sTracker.mouseLookAutoRestoreTimer =
+				kConfig.mouseLookAutoRestoreTime;
 		}
 	}
 
@@ -2087,7 +2245,7 @@ void update()
 	// Apply normal mouse motion
 	// -------------------------
 	offsetMousePos();
-	if( !sTracker.mouseJumpQueued &&
+	if( !sTracker.queue.mouseJumpQueued() &&
 		!sTracker.mouseJumpToHotspot &&
 		sTracker.mouseMode == eMouseMode_Cursor )
 	{// Track cursor position changes in cursor mode when not jumping
@@ -2128,8 +2286,8 @@ void update()
 	}
 
 
-	// Send queued event (cursor jump OR queued key)
-	// ---------------------------------------------
+	// Jump mouse cursor if requested
+	// ------------------------------
 	if( readyForMouseJump )
 	{
 		if( sTracker.mouseJumpInterpolate )
@@ -2138,6 +2296,10 @@ void update()
 			jumpMouseToHotspot(sTracker.mouseJumpDest);
 		// .mouseJumpToHotspot flag will be cleared once verified next update
 	}
+
+
+	// Send queued key
+	// ---------------
 	if( readyForQueuedKey )
 	{
 		u16 aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
@@ -2263,27 +2425,6 @@ void sendKeyCommand(const Command& theCommand)
 		sTracker.queue.push_back(theCommand);
 		break;
 	case eCmdType_VKeySequence:
-		{// Check if will cause a jump, and if will leave cursor at new pos
-			const u8* aVKeySeq = InputMap::cmdVKeySeq(theCommand);
-			if( aVKeySeq[0] == kVKeySeqHasMouseJump )
-			{
-				++sTracker.mouseJumpQueued;
-				u16 aHotspotID = 0;
-				DBG_ASSERT(aVKeySeq[1] != '\0');
-				aHotspotID = (aVKeySeq[1] & 0x7F) << 7;
-				DBG_ASSERT(aVKeySeq[2] != '\0');
-				aHotspotID |= (aVKeySeq[2] & 0x7F);
-				if( aHotspotID != 0 )
-				{
-					// Assign _LastCursorPos immediately so that other jump
-					// mouse commands use this dest as source position
-					InputMap::modifyHotspot(
-						eSpecialHotspot_LastCursorPos,
-						InputMap::getHotspot(aHotspotID));
-				}
-			}
-		}
-		// fall through
 	case eCmdType_ChatBoxString:
 		sTracker.queue.push_back(theCommand);
 		break;
@@ -2499,7 +2640,7 @@ void moveMouseTo(const Command& theCommand)
 	case eCmdType_MoveMouseToMenuItem:
 		gHotspotsGuideMode = eHotspotGuideMode_Disabled;
 		aDestHotspot = WindowManager::hotspotForMenuItem(
-			theCommand.menuID, theCommand.menuItemIdx);
+			theCommand.menuID, theCommand.menuItemID);
 		break;
 	case eCmdType_MoveMouseToOffset:
 		aDestHotspot =
@@ -2549,10 +2690,6 @@ void moveMouseTo(const Command& theCommand)
 	aCmd.hotspot.x = aDestHotspot.x;
 	aCmd.hotspot.y = aDestHotspot.y;
 	sTracker.queue.push_back(aCmd);
-	++sTracker.mouseJumpQueued;
-	// Assign _LastCursorPos immediately so that other commands
-	// of this type use this one's dest as source position
-	InputMap::modifyHotspot(eSpecialHotspot_LastCursorPos, aDestHotspot);
 }
 
 

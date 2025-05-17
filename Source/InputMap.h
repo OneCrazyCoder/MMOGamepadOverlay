@@ -25,13 +25,16 @@ const char* cmdString(const Command& theCommand);
 const u8* cmdVKeySeq(const Command& theCommand);
 
 // KEYBINDS
-u16 keyForSpecialAction(ESpecialKey theAction);
-const Command& keyBindArrayCommand(u16 theArrayID, u16 theIndex);
+u16 keyForSpecialAction(ESpecialKey);
+u16 specialKeySignalID(ESpecialKey);
+Command keyBindCommand(u16 theKeyBindID);
+u16 keyBindSignalID(u16 theKeyBindID);
+Command keyBindArrayCommand(u16 theArrayID, u16 theIndex);
 u16 keyBindArraySignalID(u16 theArrayID);
-// Adjust index by theOffset but skipping over any _Empty commands
-// Offset of 0 may still adjust by +1 or more if array[theIndex] is _Empty
+// Adjust index by theSteps but skipping over any invalid (unassigned) keys
+// Steps of 0 may still adjust by +1 or more if array[theIndex] is invalid
 u16 offsetKeyBindArrayIndex(
-	u16 theArrayID, u16 theIndex, s16 theOffset, bool wrap);
+	u16 theArrayID, int theIndex, int theSteps, bool wrap);
 
 // CONTROLS LAYERS
 
@@ -122,6 +125,7 @@ u16 hotspotArrayCount();
 
 // LABELS
 const std::string& layerLabel(u16 theLayerID);
+std::string hotspotLabel(u16 theHotspotID);
 const std::string& hotspotArrayLabel(u16 theHotspotArrayID);
 const std::string& menuLabel(u16 theMenuID);
 const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);

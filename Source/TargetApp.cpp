@@ -445,8 +445,10 @@ static void checkWindowMode()
 		// Use InputDispatcher to send hotkey to the target app
 		Command aCmd;
 		aCmd.type = eCmdType_TapKey;
-		aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
-		aCmd.signalID = eBtn_Num + eSpecialKey_SwapWindowMode;
+		aCmd.vKey =
+			InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
+		aCmd.signalID =
+			InputMap::specialKeySignalID(eSpecialKey_SwapWindowMode);
 		InputDispatcher::sendKeyCommand(aCmd);
 		// Give some time for the target app to respond to the request
 		sNextCheckDelay = 1000;

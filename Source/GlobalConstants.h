@@ -14,11 +14,9 @@ kSwapWindowModeHotkeyID = 0x01,
 kCancelToolbarHotkeyID = 0x02,
 kLabelContainsDynamicText = 0x01, // as first char of string
 kLayerStatusReplaceChar = 0x02, // at point to replace
-kVKeyFireSignal = 0x07, // "reserved" by MS
 kVKeyForceRelease = VK_CANCEL,
 kVKeyMouseJump = VK_SELECT,
-kVKeySeqHasMouseJump = VK_MODECHANGE,
-kVKeyStartChatString = VK_EXECUTE,
+kVKeyTriggerKeyBind = VK_EXECUTE,
 kVKeyModKeyOnlyBase = 0x0F, // unassigned by MS
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,
@@ -49,6 +47,8 @@ enum ECommandType
 	eCmdType_MoveMouseToOffset,
 	eCmdType_MouseClickAtHotspot,
 
+	// This just forwards on the command assigned to .keyBindID
+	eCmdType_TriggerKeyBind,
 	// These active "keybind arrays" which allow a sequence of different keys
 	// to be pressed by a single buton that changes the key pressed each time.
 	// These first 2 do not actually send any input...
@@ -273,6 +273,7 @@ enum EHUDType
 
 enum ESpecialKey
 {
+	eSpecialKey_None,
 	eSpecialKey_SwapWindowMode,
 	eSpecialKey_PasteText,
 	eSpecialKey_AutoRun,
@@ -318,6 +319,7 @@ enum ECommandKeyWord
 	eCmdWord_Unknown,
 
 	eCmdWord_Nothing,
+	eCmdWord_Skip,
 	eCmdWord_Add,
 	eCmdWord_Remove,
 	eCmdWord_Hold,

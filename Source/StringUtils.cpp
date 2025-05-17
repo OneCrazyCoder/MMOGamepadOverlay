@@ -491,7 +491,7 @@ int breakOffIntegerSuffix(std::string& theString)
 {
 	int result = 0;
 	int multiplier = 1;
-	int aStrPos = int(theString.size()-1);
+	int aStrPos = int(theString.size())-1;
 	while(
 		aStrPos >= 0 &&
 		theString[aStrPos] >= '0' &&
@@ -503,17 +503,17 @@ int breakOffIntegerSuffix(std::string& theString)
 	}
 
 	// Don't chop off leading zeroes before the actual integer
-	while(aStrPos < theString.size()-1 && theString[aStrPos+1] == '0' )
+	while(aStrPos < int(theString.size())-1 && theString[aStrPos+1] == '0' )
 		++aStrPos;
 
 	// If stayed at end of string or got all the way to start, invalid as a
 	// string ending in (but not entirely being) an integer
-	if( aStrPos >= theString.size()-1 || aStrPos < 0 )
+	if( aStrPos >= int(theString.size())-1 || aStrPos < 0 )
 		result = -1;
 	else
 		theString.resize(aStrPos+1);
 
-	while(isspace(theString[theString.size()-1]))
+	while(!theString.empty() && isspace(theString[int(theString.size())-1]))
 		theString.resize(theString.size()-1);
 
 	return result;

@@ -1130,14 +1130,14 @@ public:
 			if( isBetterMatch )
 			{
 				aBestValueTimestamp = aValueTimestamp;
-				::swap(aValueName, this->mResolvedValueName);
-				::swap(aValueData, this->mValueData);
-				::swap(sCurrWildcardMatches, sBestWildcardMatches);
+				swap(aValueName, this->mResolvedValueName);
+				swap(aValueData, this->mValueData);
+				swap(sCurrWildcardMatches, sBestWildcardMatches);
 			}
 		}
 
 		if( !mValueData.empty() && !sBestWildcardMatches.empty() )
-			::swap(sBestWildcardMatches, sLastReadWildcardMatches);
+			swap(sBestWildcardMatches, sLastReadWildcardMatches);
 
 		// After initial load, don't actually parse the data if
 		// wrote a timestamp, as that will trigger a re-parse itself,

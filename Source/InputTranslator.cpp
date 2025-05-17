@@ -717,7 +717,7 @@ static void moveMouseToSelectedMenuItem(const Command& theCmd)
 		Command aMoveCmd;
 		aMoveCmd.type = eCmdType_MoveMouseToMenuItem;
 		aMoveCmd.menuID = theCmd.menuID;
-		aMoveCmd.menuItemIdx = Menus::selectedItem(theCmd.menuID);
+		aMoveCmd.menuItemID = Menus::selectedItem(theCmd.menuID);
 		aMoveCmd.andClick = theCmd.andClick;
 		InputDispatcher::moveMouseTo(aMoveCmd);
 		HotspotMap::update();
@@ -745,7 +745,7 @@ static void processCommand(
 		break;
 	case eCmdType_SignalOnly:
 		// Do nothing but fire off signal
-		gFiredSignals.set(theCmd.signalID);
+		sResults.queuedKeys.push_back(theCmd);
 		break;
 	case eCmdType_PressAndHoldKey:
 		DBG_ASSERT(theBtnState);
@@ -776,6 +776,11 @@ static void processCommand(
 		// directly from this spot to a different relative hotspot
 		HotspotMap::update();
 		break;
+	case eCmdType_TriggerKeyBind:
+		// Just forward on the key bind's command
+		aForwardCmd = InputMap::keyBindCommand(theCmd.keyBindID);
+		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		break;
 	case eCmdType_KeyBindArrayResetLast:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
 		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
@@ -795,6 +800,8 @@ static void processCommand(
 		break;
 	case eCmdType_KeyBindArrayPrev:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID,
@@ -805,13 +812,13 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		// Allow holding this button to auto-repeat after a delay
 		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
 	case eCmdType_KeyBindArrayNext:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID,
@@ -822,13 +829,13 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		// Allow holding this button to auto-repeat after a delay
 		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
 	case eCmdType_KeyBindArrayDefault:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID,
@@ -839,11 +846,11 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_KeyBindArrayLast:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID,
@@ -854,12 +861,12 @@ static void processCommand(
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_KeyBindArrayIndex:
 	case eCmdType_KeyBindArrayHoldIndex:
 		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
+		gFiredSignals.set(
+			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID, theCmd.arrayIdx,
@@ -874,8 +881,6 @@ static void processCommand(
 		}
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
 		break;
 	case eCmdType_StartAutoRun:
 		sResults.charMoveStartAutoRun = true;
@@ -937,7 +942,7 @@ static void processCommand(
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuReset:
-		aForwardCmd = Menus::reset(theCmd.menuID, theCmd.menuItemIdx);
+		aForwardCmd = Menus::reset(theCmd.menuID, theCmd.menuItemID);
 		if( aForwardCmd.type != eCmdType_Empty )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
