@@ -165,6 +165,13 @@ struct MenuItem
 	std::string label;
 	std::string altLabel;
 	Command cmd;
+
+	std::string debugLabel()
+	{
+		if( label.empty() ) return "<unnamed>";
+		if( altLabel.empty() ) return label;
+		return label + " (" + altLabel + ")";
+	}
 };
 
 struct Menu
@@ -199,6 +206,7 @@ struct ZERO_INIT(HUDElement)
 
 	HUDElement() :
 		type(eHUDType_Num),
+		menuID(kInvalidID),
 		keyBindArrayID(kInvalidID)
 	{}
 };
@@ -280,8 +288,8 @@ static StringToValueMap<HUDElement> sHUDElements;
 static StringToValueMap<std::string> sButtonAliases; // TODO: remove?
 static VectorMap<std::pair<u16, EButton>, u32> sButtonHoldTimes;
 static u32 sDefaultButtonHoldTime = 400;
-static std::string sDebugItemName; // TODO: remove
-static std::string sDebugSubItemName; // TODO: remove
+static std::string sSectionPrintName;
+static std::string sPropertyPrintName;
 
 
 //-----------------------------------------------------------------------------
@@ -393,7 +401,10 @@ static EResult checkForVKeySeqPause(
 		if( aTime > 0x3FFF )
 		{
 			aTime = 0x3FFF;
-			logError("Pause time in a key sequence can not exceed 16 seconds!");
+			logError("Pause time in a key sequence "
+				"can not exceed 16 seconds (from %s/%s = )",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str());
 			break;
 		}
 	}
@@ -1167,27 +1178,10 @@ static Command wordsToSpecialCommand(
 	}
 	u16 aLayerID = kInvalidID;
 	if( aLayerName )
-	{
 		aLayerID = getLayerID(*aLayerName);
-		if( aLayerID >= sLayers.size() )
-		{
-			// TODO - logError?
-		}
-	}
 	u16 aSecondLayerID = kInvalidID;
 	if( aSecondLayerName )
-	{
 		aSecondLayerID = getLayerID(*aSecondLayerName);
-		if( aSecondLayerID >= sLayers.size() )
-		{
-			// TODO - logError?
-		}
-		if( aLayerID == aSecondLayerID )
-		{
-			aSecondLayerID = kInvalidID;
-			// TODO - logError? - Actually isn't this a fine way to "reload" a layer?
-		}
-	}
 	allowedKeyWords.reset();
 
 	if( aLayerID < sLayers.size() )
@@ -1304,13 +1298,7 @@ static Command wordsToSpecialCommand(
 	}
 	u16 aMenuID = kInvalidID;
 	if( aMenuName )
-	{
 		aMenuID = getRootMenuID(*aMenuName);
-		if( aMenuID >= sMenus.size() )
-		{
-			// TODO - logError?
-		}
-	}
 
 	if( aMenuID < sMenus.size() )
 	{
@@ -1849,7 +1837,8 @@ static void createEmptyHotspotArray(const std::string& theName)
 			aRangeStartIdx = breakOffIntegerSuffix(anArrayKey);
 			if( aRangeStartIdx <= 0 || aRangeStartIdx > aRangeEndIdx )
 			{
-				// TODO - logError - bad range specification
+				logError("Invalid range in '%s', treating as non-array hotspot",
+					theName.c_str());
 				isAnchorHotspot = true;
 			}
 		}
@@ -1894,7 +1883,8 @@ static void createEmptyHotspotArray(const std::string& theName)
 		const HotspotRange& aPrevRange = *(itr - 1);
 		if( aPrevRange.lastIdx() >= aNewRange.firstIdx )
 		{
-			// TODO - logError: overlap with previous range
+			logError("%s overlaps with another hotspot/range!",
+				theName.c_str());
 			return; // skip adding
 		}
 	}
@@ -1905,7 +1895,8 @@ static void createEmptyHotspotArray(const std::string& theName)
 		const HotspotRange& aNextRange = *itr;
 		if( aNewRange.lastIdx() >= aNextRange.firstIdx )
 		{
-			// TODO - logError: overlap with next range
+			logError("%s overlaps with another hotspot/range!",
+				theName.c_str());
 			return; // skip adding
 		}
 	}
@@ -1927,7 +1918,8 @@ static void createEmptyHotspotsForArray(u16 theArrayID)
 	{
 		if( theArray.ranges[i].firstIdx != anExpectedIdx )
 		{
-			// TODO - logError - missing hotspot
+			logError("Hotspot Array '%s' appears to be missing '%s%d'!",
+				theArray.name.c_str(), theArray.name.c_str(), anExpectedIdx);
 			theArray.size = anExpectedIdx - 1;
 			theArray.ranges.resize(i);
 			break;
@@ -2159,8 +2151,6 @@ static void buildHotspots()
 
 
 static void reportCommandAssignment(
-	const std::string& theSection,
-	const std::string& theItemName,
 	const Command& theCmd,
 	const std::string& theCmdStr,
 	u16 theSignalID = 0)
@@ -2168,26 +2158,27 @@ static void reportCommandAssignment(
 	switch(theCmd.type)
 	{
 	case eCmdType_Empty:
-		logError("%s: Not sure how to assign '%s' to '%s'!",
-			theSection.c_str(),
-			theItemName.c_str(),
+		logError("%s: Not sure how to assign '%s' to '%s'! "
+			"Confirm correct spelling of all key words and names!",
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str(),
 			theCmdStr.c_str());
 		break;
 	case eCmdType_Unassigned:
 		mapDebugPrint("%s: '%s' left <unassigned>%s\n",
-			theSection.c_str(),
-			theItemName.c_str(),
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str(),
 			theSignalID ? " (skipped if in key bind array)" : "");
 		break;
 	case eCmdType_DoNothing:
 		mapDebugPrint("%s: Assigned '%s' to <Do Nothing>\n",
-			theSection.c_str(),
-			theItemName.c_str());
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str());
 		break;
 	case eCmdType_SignalOnly:
 		mapDebugPrint("%s: Assigned '%s' to <Signal #%d Only>\n",
-			theSection.c_str(),
-			theItemName.c_str(),
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str(),
 			theSignalID);
 		break;
 	case eCmdType_TriggerKeyBind:
@@ -2195,15 +2186,14 @@ static void reportCommandAssignment(
 		{
 			mapDebugPrint(
 				"%s: Assigned '%s' to use '%s' Key Bind + <signal #%d>\n",
-				theSection.c_str(),
-				theItemName.c_str(),
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str(),
 				sKeyBinds.keys()[theCmd.keyBindID].c_str(),
 				theSignalID);
 		}
 		else
 		{
 			reportCommandAssignment(
-				theSection, theItemName,
 				sKeyBinds.vals()[theCmd.keyBindID],
 				theCmdStr,
 				keyBindSignalID(theCmd.keyBindID));
@@ -2216,8 +2206,8 @@ static void reportCommandAssignment(
 			aMacroString.resize(aMacroString.size()-1);
 			aMacroString = replaceAllStr(aMacroString, "\r", "\\n");
 			mapDebugPrint("%s: Assigned '%s' to macro: %s%s\n",
-				theSection.c_str(),
-				theItemName.c_str(),
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str(),
 				aMacroString.c_str(),
 				theSignalID
 					? (std::string(" <signal #") +
@@ -2229,8 +2219,8 @@ static void reportCommandAssignment(
 	case eCmdType_TapKey:
 	case eCmdType_PressAndHoldKey:
 		mapDebugPrint("%s: Assigned '%s' to: %s%s%s%s%s%s\n",
-			theSection.c_str(),
-			theItemName.c_str(),
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str(),
 			!!(theCmd.vKey & kVKeyShiftFlag) ? "Shift+" : "",
 			!!(theCmd.vKey & kVKeyCtrlFlag) ? "Ctrl+" : "",
 			!!(theCmd.vKey & kVKeyAltFlag) ? "Alt+" : "",
@@ -2243,18 +2233,33 @@ static void reportCommandAssignment(
 		break;
 	case eCmdType_VKeySequence:
 		mapDebugPrint("%s: Assigned '%s' to sequence: %s%s\n",
-			theSection.c_str(),
-			theItemName.c_str(),
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str(),
 			theCmdStr.c_str(),
 			theSignalID
 				? (std::string(" <signal #") +
 					toString(theSignalID) + ">").c_str()
 				: "");
 		break;
+	case eCmdType_OpenSubMenu:
+		mapDebugPrint("%s: Assigned '%s' as a sub-menu\n",
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str());
+		break;
+	case eCmdType_MenuBack:
+		mapDebugPrint("%s: Assigned '%s' to back out of menu\n",
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str());
+		break;
+	case eCmdType_MenuClose:
+		mapDebugPrint("%s: Assigned '%s' to close menu\n",
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str());
+		break;
 	default:
 		mapDebugPrint("%s: Assigned '%s' to command: %s\n",
-			theSection.c_str(),
-			theItemName.c_str(),
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str(),
 			theCmdStr.c_str());
 		break;
 	}
@@ -2295,7 +2300,6 @@ static void createEmptyKeyBind(const std::string& theName)
 
 static u16 applyKeyBindProperty(
 	const std::string& theKey,
-	const std::string& theName,
 	const std::string& theCmdStr)
 {
 	const u16 aKeyBindID = sKeyBinds.findIndex(theKey);
@@ -2378,7 +2382,8 @@ static void validateKeyBind(
 		DBG_ASSERT(aCmd.keyBindID < theReferencedKeyBinds.size());
 		if( theReferencedKeyBinds.test(aCmd.keyBindID) )
 		{
-			// TODO - errorLog - circular dependency found
+			logError("Key Bind %s ends up referencing itself!",
+				sKeyBinds.keys()[theKeyBindID].c_str());
 			// Make calling command do nothing but send signal now
 			aCmd.type = eCmdType_SignalOnly;
 			return;
@@ -2400,7 +2405,8 @@ static void validateKeyBind(
 				DBG_ASSERT(anotherKeyBindID < theReferencedKeyBinds.size());
 				if( theReferencedKeyBinds.test(anotherKeyBindID) )
 				{
-					// TODO - errorLog - circular dependency found
+					logError("Key Bind %s ends up referencing itself!",
+						sKeyBinds.keys()[theKeyBindID].c_str());
 					aCmd.type = eCmdType_SignalOnly;
 					return;
 				}
@@ -2426,18 +2432,16 @@ static void buildButtonAliases()
 
 static void buildKeyBinds()
 {
-	sDebugItemName = "[" + std::string(kKeyBindsSectionName) + "]";
+	sSectionPrintName = "[" + std::string(kKeyBindsSectionName) + "]";
 	const Profile::PropertyMap& aPropMap =
 		Profile::getSectionProperties(kKeyBindsSectionName);
 	for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 	{
+		sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
 		const u16 aKeyBindID = applyKeyBindProperty(
 			aPropMap.keys()[aPropIdx],
-			aPropMap.vals()[aPropIdx].name,
 			aPropMap.vals()[aPropIdx].val);
 		reportCommandAssignment(
-			sDebugItemName,
-			aPropMap.vals()[aPropIdx].name,
 			sKeyBinds.vals()[aKeyBindID],
 			aPropMap.vals()[aPropIdx].val,
 			keyBindSignalID(aKeyBindID));
@@ -2484,41 +2488,20 @@ static EButton buttonNameToID(const std::string& theName)
 }
 
 
-static void reportButtonAssignment(
-	const Command& theCmd,
-	const std::string& theCmdStr,
-	bool onlySpecificAction)
-{
-	#ifndef INPUT_MAP_DEBUG_PRINT
-	if( theCmd.type == eCmdType_Empty )
-	#endif
-	{
-		std::string aSection = "[";
-		aSection += sDebugItemName.c_str();
-		aSection += "]";
-		std::string anItemName = sDebugSubItemName;
-		if( onlySpecificAction )
-			anItemName = std::string("(Just) ") + anItemName;
-		reportCommandAssignment(aSection, anItemName, theCmd, theCmdStr);
-	}
-}
-
-
 static void addButtonAction(
 	u16 theLayerIdx,
-	std::string theBtnName,
+	std::string theBtnKeyName,
 	const std::string& theCmdStr,
 	bool onlySpecificAction)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
-	if( theBtnName.empty() || theCmdStr.empty() )
+	if( theBtnKeyName.empty() || theCmdStr.empty() )
 		return;
 
 	// Determine button & action to assign command to
-	EButtonAction aBtnAct = breakOffButtonAction(theBtnName);
-	int aBtnTime = breakOffIntegerSuffix(theBtnName);
-	std::string aBtnKeyName = condense(theBtnName);
-	EButton aBtnID = buttonNameToID(aBtnKeyName);
+	EButtonAction aBtnAct = breakOffButtonAction(theBtnKeyName);
+	int aBtnTime = breakOffIntegerSuffix(theBtnKeyName);
+	EButton aBtnID = buttonNameToID(theBtnKeyName);
 
 	bool isA4DirMultiAssign =
 		aBtnID == eBtn_LSAny ||
@@ -2537,7 +2520,7 @@ static void addButtonAction(
 		for(size_t i = 0; i < 4; ++i)
 		{
 			// Get true button ID by adding direction key to button name
-			aBtnID = buttonNameToID(aBtnKeyName + k4DirKeySuffix[i]);
+			aBtnID = buttonNameToID(theBtnKeyName + k4DirKeySuffix[i]);
 			DBG_ASSERT(aBtnID < eBtn_Num);
 			// See if can get a different command if append a direction,
 			// if didn't already fail previously
@@ -2602,13 +2585,18 @@ static void addButtonAction(
 						? sDefaultButtonHoldTime
 						: aBtnTime);
 			}
-			std::string anExtPropName =
-				sDebugSubItemName + k4DirCmdSuffix[i];
-			if( isA4DirMultiAssign )
-				swap(sDebugSubItemName, anExtPropName);
-			reportButtonAssignment(aCmd, aCmdStr, onlySpecificAction);
-			if( isA4DirMultiAssign )
-				swap(sDebugSubItemName, anExtPropName);
+			#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
+			if( aCmd.type == eCmdType_Empty ) 
+			#endif
+			{
+				std::string anExtPropName =
+					sPropertyPrintName + k4DirCmdSuffix[i];
+				if( isA4DirMultiAssign )
+					swap(sPropertyPrintName, anExtPropName);
+				reportCommandAssignment(aCmd, aCmdStr);
+				if( isA4DirMultiAssign )
+					swap(sPropertyPrintName, anExtPropName);
+			}
 		}
 		return;
 	}
@@ -2617,10 +2605,9 @@ static void addButtonAction(
 	{// Part of the button's name might have been absorbed into aBtnTime
 		std::string aTimeAsString = toString(aBtnTime);
 		do {
-			theBtnName.push_back(aTimeAsString[0]);
+			theBtnKeyName.push_back(aTimeAsString[0]);
 			aTimeAsString.erase(0, 1);
-			aBtnKeyName = condense(theBtnName);
-			aBtnID = buttonNameToID(aBtnKeyName);
+			aBtnID = buttonNameToID(theBtnKeyName);
 			aBtnTime = aTimeAsString.empty()
 				? -1 : intFromString(aTimeAsString);
 		} while(aBtnID >= eBtn_Num && !aTimeAsString.empty());
@@ -2629,9 +2616,9 @@ static void addButtonAction(
 	// If still no valid button ID, must just be a badly-named action + button key
 	if( aBtnID >= eBtn_Num )
 	{
-		logError("Unable to identify Gamepad Button '%s' requested in [%s]",
-			theBtnName.c_str(),
-			sDebugItemName.c_str());
+		logError("Unable to identify Gamepad Button from '%s' requested in %s",
+			sPropertyPrintName.c_str(),
+			sSectionPrintName.c_str());
 		return;
 	}
 
@@ -2653,22 +2640,21 @@ static void addButtonAction(
 	}
 
 	// Report the results of the assignment
-	reportButtonAssignment(aCmd, theCmdStr, onlySpecificAction);
+	reportCommandAssignment(aCmd, theCmdStr);
 }
 
 
 static void addWhenSignalCommand(
 	u16 theLayerIdx,
-	std::string theSignalName,
+	std::string theSignalKeyName,
 	const std::string& theCmdStr)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
-	if( theSignalName.empty() || theCmdStr.empty() )
+	if( theSignalKeyName.empty() || theCmdStr.empty() )
 		return;
 
 	// Check for responding to use of any key in a key bind array
-	const std::string& aSignalKey = condense(theSignalName);
-	u16 anEntryIdx = sKeyBindArrays.findIndex(aSignalKey);
+	u16 anEntryIdx = sKeyBindArrays.findIndex(theSignalKeyName);
 	if( anEntryIdx < sKeyBindArrays.size() )
 	{
 		Command aCmd = stringToCommand(theCmdStr, true);
@@ -2683,22 +2669,18 @@ static void addWhenSignalCommand(
 		if( aCmd.type == eCmdType_Empty ) 
 		#endif
 		{
-			std::string aSection = "[";
-			aSection += sDebugItemName;
-			aSection += "]";
-			std::string anItemName = kSignalCommandPrefix;
-			anItemName += " ";
-			anItemName += sDebugSubItemName;
-			anItemName += " (signal #";
-			anItemName += toString(keyBindArraySignalID(anEntryIdx));
-			anItemName += ")";
-			reportCommandAssignment(aSection, anItemName, aCmd, theCmdStr);
+			std::string anExtPropName = kSignalCommandPrefix;
+			anExtPropName += " " + sPropertyPrintName + " (signal #";
+			anExtPropName += toString(keyBindArraySignalID(anEntryIdx)) + ")";
+			swap(sPropertyPrintName, anExtPropName);
+			reportCommandAssignment(aCmd, theCmdStr);
+			swap(sPropertyPrintName, anExtPropName);
 		}
 		return;
 	}
 
 	// Check for responding to use of a key bind
-	anEntryIdx = sKeyBinds.findIndex(aSignalKey);
+	anEntryIdx = sKeyBinds.findIndex(theSignalKeyName);
 	if( anEntryIdx < sKeyBinds.size() )
 	{
 		Command aCmd = stringToCommand(theCmdStr, true);
@@ -2713,22 +2695,18 @@ static void addWhenSignalCommand(
 		if( aCmd.type == eCmdType_Empty )
 		#endif
 		{
-			std::string aSection = "[";
-			aSection += sDebugItemName;
-			aSection += "]";
-			std::string anItemName = kSignalCommandPrefix;
-			anItemName += " ";
-			anItemName += sDebugSubItemName;
-			anItemName += " (signal #";
-			anItemName += toString(keyBindSignalID(anEntryIdx));
-			anItemName += ")";
-			reportCommandAssignment(aSection, anItemName, aCmd, theCmdStr);
+			std::string anExtPropName = kSignalCommandPrefix;
+			anExtPropName += " " + sPropertyPrintName + " (signal #";
+			anExtPropName += toString(keyBindSignalID(anEntryIdx)) + ")";
+			swap(sPropertyPrintName, anExtPropName);
+			reportCommandAssignment(aCmd, theCmdStr);
+			swap(sPropertyPrintName, anExtPropName);
 		}
 		return;
 	}
 
 	// Check for responding to use of of "Move", "MoveTurn", and "MoveStrafe"
-	switch(commandWordToID(aSignalKey))
+	switch(commandWordToID(theSignalKeyName))
 	{
 	case eCmdWord_Move:
 		addWhenSignalCommand(theLayerIdx,
@@ -2760,10 +2738,9 @@ static void addWhenSignalCommand(
 
 	// For button press signals, need to actually use the word "press"
 	// Other button actions (tap, hold, release) are not supported as signals
-	if( breakOffButtonAction(theSignalName) == eBtnAct_Press )
+	if( breakOffButtonAction(theSignalKeyName) == eBtnAct_Press )
 	{
-		const std::string& aBtnSignalKey = condense(theSignalName);
-		EButton aBtnID = buttonNameToID(aBtnSignalKey);
+		EButton aBtnID = buttonNameToID(theSignalKeyName);
 		const bool isA4DirMultiAssign =
 			aBtnID == eBtn_LSAny ||
 			aBtnID == eBtn_RSAny ||
@@ -2778,7 +2755,7 @@ static void addWhenSignalCommand(
 			bool dirCommandFailed = false;
 			for(size_t i = 0; i < 4; ++i)
 			{
-				aBtnID = buttonNameToID(aBtnSignalKey + k4DirKeySuffix[i]);
+				aBtnID = buttonNameToID(theSignalKeyName + k4DirKeySuffix[i]);
 				DBG_ASSERT(aBtnID < eBtn_Num);
 				std::string aCmdStr = theCmdStr;
 				Command aCmd;
@@ -2802,18 +2779,12 @@ static void addWhenSignalCommand(
 				if( aCmd.type == eCmdType_Empty )
 				#endif
 				{
-					std::string aSection = "[";
-					aSection += sDebugItemName.c_str();
-					aSection += "]";
-					std::string anItemName = kSignalCommandPrefix;
-					anItemName += " ";
-					anItemName += sDebugSubItemName;
-					anItemName += k4DirCmdSuffix[i];
-					anItemName += " (signal #";
-					anItemName += toString(aBtnID);
-					anItemName += ")";
-					reportCommandAssignment(
-						aSection, anItemName, aCmd, theCmdStr);
+					std::string anExtPropName = kSignalCommandPrefix;
+					anExtPropName += " " + sPropertyPrintName + k4DirCmdSuffix[i];
+					anExtPropName += " (signal #" + toString(aBtnID) + ")";
+					swap(sPropertyPrintName, anExtPropName);
+					reportCommandAssignment(aCmd, theCmdStr);
+					swap(sPropertyPrintName, anExtPropName);
 				}
 			}
 			return;
@@ -2835,33 +2806,27 @@ static void addWhenSignalCommand(
 			if( aCmd.type == eCmdType_Empty )
 			#endif
 			{
-				std::string aSection = "[";
-				aSection += sDebugItemName.c_str();
-				aSection += "]";
-				std::string anItemName = kSignalCommandPrefix;
-				anItemName += " ";
-				anItemName += sDebugSubItemName;
-				anItemName += " (signal #";
-				anItemName += toString(aBtnID);
-				anItemName += ")";
-				reportCommandAssignment(
-					aSection, anItemName, aCmd, theCmdStr);
+				std::string anExtPropName = kSignalCommandPrefix;
+				anExtPropName += " " + sPropertyPrintName;
+				anExtPropName += " (signal #" + toString(aBtnID) + ")";
+				swap(sPropertyPrintName, anExtPropName);
+				reportCommandAssignment(aCmd, theCmdStr);
+				swap(sPropertyPrintName, anExtPropName);
 			}
 			return;
 		}
 	}
 
-	logError("Unrecognized signal name for '%s %s' requested in [%s]",
+	logError("Unrecognized signal name for '%s %s' requested in %s",
 		kSignalCommandPrefix.c_str(),
-		theSignalName.c_str(),
-		sDebugItemName.c_str());
+		sPropertyPrintName.c_str(),
+		sSectionPrintName.c_str());
 }
 
 
 static void applyControlsLayerProperty(
 	ControlsLayer& theLayer, u16 theLayerID,
 	const std::string& thePropKey,
-	const std::string& thePropName,
 	const std::string& thePropVal)
 {
 	const EPropertyType aPropType = propKeyToType(thePropKey);
@@ -2873,16 +2838,16 @@ static void applyControlsLayerProperty(
 				mouseModeNameToID(condense(thePropVal));
 			if( aMouseMode >= eMouseMode_Num )
 			{
-				logError("Unknown mode for '%s = %s' in Layer [%s]!",
-					thePropName.c_str(),
+				logError("Unknown mode for '%s = %s' in Layer %s!",
+					sPropertyPrintName.c_str(),
 					thePropVal.c_str(),
-					sDebugItemName.c_str());
+					sSectionPrintName.c_str());
 			}
 			else
 			{
 				theLayer.mouseMode = aMouseMode;
-				mapDebugPrint("[%s]: Mouse set to '%s' mode\n",
-					sDebugItemName.c_str(),
+				mapDebugPrint("%s: Mouse set to '%s' mode\n",
+					sSectionPrintName.c_str(),
 					aMouseMode == eMouseMode_Cursor ? "Cursor" :
 					aMouseMode == eMouseMode_LookTurn ? "RMB Mouse Look" :
 					aMouseMode == eMouseMode_LookOnly ? "LMB Mouse Look" :
@@ -2960,10 +2925,10 @@ static void applyControlsLayerProperty(
 				if( !foundItem )
 				{
 					logError(
-						"Could not find '%s' referenced by [%s]/%s = %s",
+						"Could not find '%s' referenced by %s/%s = %s",
 						aName.c_str(),
-						sDebugItemName.c_str(),
-						thePropName.c_str(),
+						sSectionPrintName.c_str(),
+						sPropertyPrintName.c_str(),
 						thePropVal.c_str());
 				}
 			}
@@ -2973,32 +2938,32 @@ static void applyControlsLayerProperty(
 	case ePropType_Priority:
 		{
 			int aPriority = intFromString(thePropVal);
-			if( aPriority < -100 || aPriority > 100 )
-			{
-				logError(
-					"Layer [%s] %s = %d property "
-					"must be -100 to 100 range!",
-					sDebugItemName.c_str(),
-					thePropName.c_str(),
-					thePropVal.c_str());
-				aPriority = clamp(aPriority, -100, 100);
-			}
 			if( theLayerID == 0 )
 			{
 				logError(
-					"Root layer [%s] is always lowest priority. "
-					"%s = %d property ignored!",
-					sDebugItemName.c_str(),
-					thePropName.c_str(),
+					"Root layer %s is always lowest priority. "
+					"%s = %s property ignored!",
+					sSectionPrintName.c_str(),
+					sPropertyPrintName.c_str(),
 					thePropVal.c_str());
 			}
 			else if( theLayer.isComboLayer )
 			{
 				logError(
-					"Combo Layer [%s] ordering is derived automatically "
-					"from base layers, so Priority = %d property is ignored!",
-					sDebugItemName.c_str(),
+					"Combo Layer %s ordering is derived automatically "
+					"from base layers, so Priority = %s property is ignored!",
+					sSectionPrintName.c_str(),
 					thePropVal.c_str());
+			}
+			else if( aPriority < -100 || aPriority > 100 )
+			{
+				logError(
+					"Layer %s %s = %s property "
+					"must be -100 to 100 range!",
+					sSectionPrintName.c_str(),
+					sPropertyPrintName.c_str(),
+					thePropVal.c_str());
+				theLayer.priority = clamp(aPriority, -100, 100);
 			}
 			else
 			{
@@ -3015,29 +2980,31 @@ static void applyControlsLayerProperty(
 				aParentLayerID = getLayerID(thePropVal);
 				if( aParentLayerID >= sLayers.size() )
 				{
-					// TODO - logError
+					logError("Unrecognized parent layer name '%s' for layer %s",
+						thePropVal.c_str(),
+						sSectionPrintName.c_str());		
 					return;
 				}
 			}
 			if( aParentLayerID == 0 )
 			{
 				theLayer.parentLayer = 0;
-				mapDebugPrint("[%s]: Parent layer reset to none\n",
-					sDebugItemName.c_str());
+				mapDebugPrint("%s: Parent layer reset to none\n",
+					sSectionPrintName.c_str());
 			}
 			else if( theLayerID == 0 )
 			{
 				logError(
-					"Root layer [%s] can not have a Parent= layer set!",
-					sDebugItemName.c_str(),
+					"Root layer %s can not have a Parent= layer set!",
+					sSectionPrintName.c_str(),
 					thePropVal.c_str());
 			}
 			else if( theLayer.isComboLayer )
 			{
 				logError(
-					"\"Parent=%s\" property ignored for Combo Layer [%s]!",
+					"\"Parent=%s\" property ignored for Combo Layer %s!",
 					thePropVal.c_str(),
-					sDebugItemName.c_str());
+					sSectionPrintName.c_str());
 			}
 			else
 			{
@@ -3053,48 +3020,49 @@ static void applyControlsLayerProperty(
 						sLayers.vals()[aCheckLayerIdx].parentLayer;
 					if( layersProcessed.test(aCheckLayerIdx) )
 					{
-						logError("Infinite parent loop with layer [%s]"
+						logError("Infinite parent loop with layer %s"
 							" trying to set parent layer to %s!",
-							sDebugItemName.c_str(),
+							sSectionPrintName.c_str(),
 							thePropVal.c_str());
 						theLayer.parentLayer = 0;
 						break;
 					}
 					layersProcessed.set(aCheckLayerIdx);
 				}
-				mapDebugPrint("[%s]: Parent layer set to '%s'\n",
-					sDebugItemName.c_str(),
+				mapDebugPrint("%s: Parent layer set to '%s'\n",
+					sSectionPrintName.c_str(),
 					sLayers.vals()[aParentLayerID].name.c_str());
 			}
 		}
 		return;
 	}
 
-	if( size_t aStrPos = posAfterPrefix(thePropName, kSignalCommandPrefix) )
+	if( size_t aStrPos = posAfterPrefix(thePropKey, kSignalCommandPrefix) )
 	{// WHEN SIGNAL
-		sDebugSubItemName = thePropName.substr(aStrPos);
+		sPropertyPrintName = sPropertyPrintName.substr(
+			posAfterPrefix(sPropertyPrintName, kSignalCommandPrefix));
 		addWhenSignalCommand(
 			theLayerID,
-			thePropName.substr(aStrPos),
+			thePropKey.substr(aStrPos),
 			thePropVal);
 		return;
 	}
 	
-	if( size_t aStrPos = posAfterPrefix(thePropName, kActionOnlyPrefix) )
+	if( size_t aStrPos = posAfterPrefix(thePropKey, kActionOnlyPrefix) )
 	{// "JUST" BUTTON ACTION
-		sDebugSubItemName = thePropName.substr(aStrPos);
+		sPropertyPrintName = "(Just) " + sPropertyPrintName.substr(
+			posAfterPrefix(sPropertyPrintName, kActionOnlyPrefix));
 		addButtonAction(
 			theLayerID,
-			thePropName.substr(aStrPos),
+			thePropKey.substr(aStrPos),
 			thePropVal, true);
 		return;
 	}
 
 	// BUTTON COMMAND ASSIGNMENT
-	sDebugSubItemName = thePropName;
 	addButtonAction(
 		theLayerID,
-		thePropName,
+		thePropKey,
 		thePropVal, false);
 }
 
@@ -3108,16 +3076,18 @@ static void buildControlScheme()
 		aLayer.disableHotspots.clearAndResize(sHotspotArrays.size());
 		const std::string& aLayerSectName =
 			(i == 0 ? "" : kLayerPrefix) + sLayers.keys()[i];
-		sDebugItemName =
-			(i == 0 ? "" : kLayerPrefix) + aLayer.name;
+		sSectionPrintName = "[";
+		if( i != 0 ) sSectionPrintName += kLayerPrefix;
+		sSectionPrintName += aLayer.name;
+		sSectionPrintName += "]";
 		const Profile::PropertyMap& aPropMap =
 			Profile::getSectionProperties(aLayerSectName);
 		for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 		{
+			sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
 			applyControlsLayerProperty(
 				aLayer, i,
 				aPropMap.keys()[aPropIdx],
-				aPropMap.vals()[aPropIdx].name,
 				aPropMap.vals()[aPropIdx].val);
 		}
 	}
@@ -3127,7 +3097,6 @@ static void buildControlScheme()
 static void applyHUDElementProperty(
 	HUDElement& theElement,
 	const std::string& thePropKey,
-	const std::string& thePropName,
 	const std::string& thePropVal)
 {
 	// This is only for non-menu HUD elements
@@ -3137,16 +3106,13 @@ static void applyHUDElementProperty(
 	case ePropType_Type:
 		theElement.type =
 			hudTypeNameToID(condense(thePropVal));
-		// TODO - logError if unrecognized type
 		return;
 	case ePropType_Hotspot:
 		theElement.hotspotID = getHotspotID(condense(thePropVal));
-		// TODO - logError if unrecognized hotspot name (0)
 		return;
 	case ePropType_KBArray:
 		theElement.keyBindArrayID =
 			sKeyBindArrays.findIndex(condense(thePropVal));
-		// TODO - logError if unrecognized key bind array name
 		return;
 	}
 	// Other properties are for visuals and handled in HUD.cpp
@@ -3159,7 +3125,9 @@ static void validateHUDElement(HUDElement& theHUDElement)
 
 	if( aHUDType < eHUDBaseType_Begin || aHUDType >= eHUDBaseType_End )
 	{// Guarantee HUD Element has a valid type
-		// TODO - logError - hud type not set correctly
+		logError("%s: Type = missing, not recognized, or not allowed! "
+			"Setting to Type = Rect!",
+			sSectionPrintName.c_str());
 		aHUDType = eHUDItemType_Rect;
 	}
 
@@ -3168,7 +3136,10 @@ static void validateHUDElement(HUDElement& theHUDElement)
 	{// Confirm has a key bind array specified
 		if( theHUDElement.keyBindArrayID >= sKeyBinds.size() )
 		{
-			// TODO - logError - no key bind array set
+			logError("%s: Type requires KeyBindArray = property but it is "
+				" missing or given name did not match a known array! "
+				"Setting to Type = Rect!",
+				sSectionPrintName.c_str());
 			aHUDType = eHUDItemType_Rect;
 		}
 	}
@@ -3177,7 +3148,10 @@ static void validateHUDElement(HUDElement& theHUDElement)
 		if( !theHUDElement.hotspotID ||
 			theHUDElement.hotspotID >= sHotspots.size() )
 		{
-			// TODO - logError - no proper hotspot set
+			logError("%s: Type requires Hotspot = property but it is "
+				" missing or given name did not match a known hotspot! "
+				"Setting to Type = Rect!",
+				sSectionPrintName.c_str());
 			aHUDType = eHUDItemType_Rect;
 		}
 	}
@@ -3193,17 +3167,20 @@ static void buildHUDElements()
 	for(u16 i = 2; i < sHUDElements.size(); ++i)
 	{
 		HUDElement& aHUDElement = sHUDElements.vals()[i];
+		if( aHUDElement.menuID < sMenus.size() )
+			continue;
 		const std::string& aHUDElementSectName =
 			kHUDPrefix + sHUDElements.keys()[i];
-		sDebugItemName = kHUDPrefix + aHUDElement.name;
+		sSectionPrintName = "[";
+		sSectionPrintName += kHUDPrefix + aHUDElement.name + "]";
 		const Profile::PropertyMap& aPropMap =
 			Profile::getSectionProperties(aHUDElementSectName);
 		for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 		{
+			sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
 			applyHUDElementProperty(
 				aHUDElement,
 				aPropMap.keys()[aPropIdx],
-				aPropMap.vals()[aPropIdx].name,
 				aPropMap.vals()[aPropIdx].val);
 		}
 		validateHUDElement(aHUDElement);
@@ -3229,35 +3206,35 @@ static MenuItem stringToMenuItem(u16 theMenuID, std::string theString)
 	MenuItem aMenuItem;
 	aMenuItem.cmd.type = eCmdType_Unassigned;
 	if( theString.empty() )
-	{
-		mapDebugPrint("%s: Left <unnamed> and <unassigned>!\n",
-			sDebugSubItemName.c_str());
 		return aMenuItem;
-	}
 
 	std::string aLabel = breakOffMenuItemLabel(theString);
 	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
 	{// Having no : character means this points to a sub-menu
-		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
 		aMenuItem.cmd.subMenuID = getMenuID(theString, theMenuID);
 		if( aMenuItem.cmd.subMenuID >= sMenus.size() )
 		{
-			// TODO - log error & change to do nothing command
+			logError("'%s / %s = %s' should be a sub-menu "
+				"(no ':' character to separate label and command), "
+				"but no sub-menu by that name was found! "
+				"Changing to '= %s : Do Nothing'!",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str(),
+				theString.c_str(), theString.c_str());
+			aMenuItem.label = theString;
+			return aMenuItem;
 		}
+		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
 		aMenuItem.cmd.menuID =
 			sMenus.vals()[aMenuItem.cmd.subMenuID].rootMenuID;
 		aMenuItem.label =
 			sMenus.vals()[aMenuItem.cmd.subMenuID].label;
-		mapDebugPrint("%s: Sub-Menu: '%s'\n",
-			sDebugSubItemName.c_str(),
-			aMenuItem.label.c_str());
 		return aMenuItem;
 	}
 
 	if( aLabel.empty() && !theString.empty() && theString[0] == ':' )
 	{// Possibly valid command with just an empty label
 		theString = trim(&theString[1]);
-		aLabel = "<unnamed>";
 	}
 	else
 	{// Has a label, but may actually be 2 labels separated by '|'
@@ -3265,26 +3242,16 @@ static MenuItem stringToMenuItem(u16 theMenuID, std::string theString)
 		if( aLabel[0] == '|' )
 			aLabel = aLabel.substr(1);
 		aMenuItem.label = aLabel;
-		if( !aMenuItem.altLabel.empty() )
-			aLabel += std::string(" (") + aMenuItem.altLabel + ")";
 	}
 
 	if( theString.empty() )
-	{
-		mapDebugPrint("%s: '%s' left <unassigned>!\n",
-			sDebugSubItemName.c_str(),
-			aLabel.c_str());
 		return aMenuItem;
-	}
 
 	if( theString == ".." ||
 		commandWordToID(condense(theString)) == eCmdWord_Back )
 	{// Go back one sub-menu
 		aMenuItem.cmd.type = eCmdType_MenuBack;
 		aMenuItem.cmd.menuID = sMenus.vals()[theMenuID].rootMenuID;
-		mapDebugPrint("%s: '%s' assigned to back out of menu\n",
-			sDebugSubItemName.c_str(),
-			aLabel.c_str());
 		return aMenuItem;
 	}
 
@@ -3292,27 +3259,21 @@ static MenuItem stringToMenuItem(u16 theMenuID, std::string theString)
 	{// Close menu
 		aMenuItem.cmd.type = eCmdType_MenuClose;
 		aMenuItem.cmd.menuID = sMenus.vals()[theMenuID].rootMenuID;
-		mapDebugPrint("%s: '%s' assigned to close menu\n",
-			sDebugSubItemName.c_str(),
-			aLabel.c_str());
 		return aMenuItem;
 	}
 
 	aMenuItem.cmd = stringToCommand(theString);
 	if( aMenuItem.cmd.type == eCmdType_Empty )
 	{
-		// Probably just forgot the > at front of a plain string
-		aMenuItem.cmd = parseChatBoxMacro(std::string(">") + theString);
-		logError("%s: '%s' unsure of meaning of '%s'. "
+		// Possibly just forgot the > at front of a plain string
+		aMenuItem.cmd = parseChatBoxMacro(">" + theString);
+		logError("%s (%s): '%s' unsure of meaning of '%s'. "
 				 "Assigning as a chat box macro. "
 				 "Add > to start of it if this was the intent!",
-				sDebugSubItemName.c_str(),
-				aLabel.c_str(), theString.c_str());
-	}
-	else
-	{
-		reportCommandAssignment(sDebugSubItemName,
-			aLabel, aMenuItem.cmd, theString);
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str(),
+				aMenuItem.debugLabel().c_str(),
+				theString.c_str());
 	}
 
 	return aMenuItem;
@@ -3322,10 +3283,10 @@ static MenuItem stringToMenuItem(u16 theMenuID, std::string theString)
 static void applyMenuProperty(
 	Menu& theMenu, u16 theMenuID,
 	const std::string& thePropKey,
-	const std::string& thePropName,
 	const std::string& thePropVal)
 {
 	const EPropertyType aPropType = propKeyToType(thePropKey);
+	MenuItem* aMenuItem = null;
 	switch(aPropType)
 	{
 	case ePropType_Label:
@@ -3338,68 +3299,75 @@ static void applyMenuProperty(
 			DBG_ASSERT(theMenu.hudElementID < sHUDElements.size());
 			sHUDElements.vals()[theMenu.hudElementID].type =
 				menuStyleNameToID(condense(thePropVal));
-			// TODO - logError if unrecognized type
 		}
 		else
 		{
-			// TODO - logError (can't set on sub-type)
-		}
-		return;
-
-	case ePropType_Auto:
-	case ePropType_Back:
-		{
-			Command aCmd = stringToCommand(thePropVal);
-			if( aCmd.type == eCmdType_Empty ||
-				(aCmd.type >= eCmdType_FirstMenuControl &&
-				 aCmd.type <= eCmdType_LastMenuControl) )
-			{
-				// TODO - logError - invalid command
-				return;
-			}
-			if( aPropType == ePropType_Auto )
-				theMenu.autoCommand = aCmd;
-			else
-				theMenu.backCommand = aCmd;
-			mapDebugPrint("[%s] (%s): Assigned to command: %s\n",
-				sDebugItemName.c_str(),
-				thePropName.c_str(),
-				thePropVal.c_str());
+			logError("'%s = %s' property is ignored on sub-menus like %s!",
+				sPropertyPrintName.c_str(),
+				thePropVal.c_str(),
+				sSectionPrintName.c_str());
 		}
 		return;
 
 	case ePropType_HotspotArray:
 		theMenu.hotspotArrayID =
 			sHotspotArrays.findIndex(condense(thePropVal));
-		// TODO - logError if unrecognized hotspot array name
+		return;
+
+	case ePropType_Auto:
+	case ePropType_Back:
+		{
+			Command aCmd = stringToCommand(thePropVal);
+			// Don't allow assigning menu control commands to menu items
+			if( aCmd.type >= eCmdType_FirstMenuControl &&
+				aCmd.type <= eCmdType_LastMenuControl )
+			{ aCmd = Command(); }
+			if( aPropType == ePropType_Auto )
+				theMenu.autoCommand = aCmd;
+			else
+				theMenu.backCommand = aCmd;
+			reportCommandAssignment(aCmd, thePropVal);
+		}
 		return;
 
 	case ePropType_MenuItemLeft:
 	case ePropType_MenuItemRight:
 	case ePropType_MenuItemUp:
 	case ePropType_MenuItemDown:
-		sDebugSubItemName =
-			"[" + sDebugItemName + "] (" + thePropName + ")";
-		theMenu.dirItems[aPropType] =
-			stringToMenuItem(theMenuID, thePropVal);
-		return;
+		aMenuItem = &theMenu.dirItems[aPropType];
+		*aMenuItem = stringToMenuItem(theMenuID, thePropVal);
+		break;
 
 	case ePropType_MenuItemNumber:
 		{
-			const int aMenuItemIdx = intFromString(thePropKey);
-			if( aMenuItemIdx < 1 )
+			const int aMenuItemID = intFromString(thePropKey);
+			if( aMenuItemID < 1 )
 			{
-				// TODO - logError
+				logError("Menu items in %s should start with "
+					"\"1 = Label : Command\", not %d!",
+					sSectionPrintName.c_str(),
+					aMenuItemID);
 				return;
 			}
-			sDebugSubItemName =
-				"[" + sDebugItemName + "] (" + thePropName + ")";
-			if( aMenuItemIdx > theMenu.items.size() )
-				theMenu.items.resize(aMenuItemIdx);
-			theMenu.items[aMenuItemIdx-1] =
-				stringToMenuItem(theMenuID, thePropVal);
+			if( aMenuItemID > theMenu.items.size() )
+				theMenu.items.resize(aMenuItemID);
+			aMenuItem = &theMenu.items[aMenuItemID-1];
 		}
-		return;
+		*aMenuItem = stringToMenuItem(theMenuID, thePropVal);
+		break;
+	}
+
+	if( aMenuItem )
+	{// Final error check and report results for menu item assignments
+		std::string anOldSectionName;
+		std::string anOldPropertyName;
+		swap(anOldSectionName, sSectionPrintName);
+		swap(anOldPropertyName, sPropertyPrintName);
+		sSectionPrintName = anOldSectionName + " (" + anOldPropertyName + ")";
+		sPropertyPrintName = aMenuItem->debugLabel();
+		reportCommandAssignment(aMenuItem->cmd, thePropVal);
+		swap(anOldSectionName, sSectionPrintName);
+		swap(anOldPropertyName, sPropertyPrintName);
 	}
 }
 
@@ -3413,7 +3381,9 @@ static void validateMenu(Menu& theMenu, u16 theMenuID)
 		aMenuStyle = eMenuStyle_List;
 		if( theMenu.rootMenuID == theMenuID )
 		{
-			// TODO - logError - menu style not set correctly
+			logError("%s: Style = missing, not recognized, or not allowed! "
+				"Setting to Style = List!",
+				sSectionPrintName.c_str());
 		}
 	}
 
@@ -3423,9 +3393,14 @@ static void validateMenu(Menu& theMenu, u16 theMenuID)
 		if( anArrayID >= sHotspotArrays.size() )
 		{
 			aMenuStyle = eMenuStyle_List;
+			if( theMenu.items.empty() )
+				theMenu.items.push_back(MenuItem());
 			if( theMenu.rootMenuID == theMenuID )
 			{
-				// TODO errorLog - need valid array specified
+				logError("%s: Style requires Hotspots = property but it is "
+					"missing or did not match a known hotspot array! "
+					"Setting to Type = List!",
+					sSectionPrintName.c_str());
 			}
 		}
 		else if( sHotspotArrays.vals()[anArrayID].size < 1 )
@@ -3433,7 +3408,10 @@ static void validateMenu(Menu& theMenu, u16 theMenuID)
 			aMenuStyle = eMenuStyle_List;
 			if( theMenu.rootMenuID == theMenuID )
 			{
-				// TODO errorLog - need array with at least 1 hotspot
+				logError("%s: Style requires a hotspot array but Hospots = "
+					"value was for an individual hospot and not an array! "
+					"Setting to Type = List!",
+					sSectionPrintName.c_str());
 			}
 		}
 		else
@@ -3443,19 +3421,31 @@ static void validateMenu(Menu& theMenu, u16 theMenuID)
 				theMenu.items.resize(anArray.size);
 		}
 	}
-
-	if( theMenu.items.empty() &&
-		theMenu.dirItems[eCmdDir_L].cmd.type == eCmdType_Empty &&
-		theMenu.dirItems[eCmdDir_R].cmd.type == eCmdType_Empty &&
-		theMenu.dirItems[eCmdDir_U].cmd.type == eCmdType_Empty &&
-		theMenu.dirItems[eCmdDir_D].cmd.type == eCmdType_Empty )
-	{// Guarantee at least 1 menu item
-		logError("[%s]: No menu items found! If empty menu intended, "
-			"Set \"%s = :\" to suppress this error",
-			(kMenuPrefix + theMenu.name).c_str(),
-			aMenuStyle == eMenuStyle_4Dir ? "U" : "1");
-		if( aMenuStyle != eMenuStyle_4Dir )
+	
+	if( aMenuStyle != eMenuStyle_4Dir && aMenuStyle != eMenuStyle_Hotspots )
+	{// Guarantee at least 1 menu item and no gaps in menu items
+		if( theMenu.items.empty() )
+		{
+			logError("%s: No menu items found! If empty menu intended, "
+				"Set \"1 = :\" to suppress this error",
+				sSectionPrintName.c_str());
 			theMenu.items.push_back(MenuItem());
+		}
+		// Silently trim off any empty items on the end of the menu
+		while(theMenu.items.size() > 1 &&
+			  theMenu.items.back().cmd.type == eCmdType_Empty )
+		{ theMenu.items.resize(theMenu.items.size()-1); }
+		// Any empty items between first and last must be a missing gap
+		for(u16 i = 1; i < theMenu.items.size()-1; ++i)
+		{
+			if( theMenu.items[i].cmd.type == eCmdType_Empty )
+			{
+				logError(" %s is missing menu item #%d! "
+					"Set \"%d = : \" to suppress this error",
+					sSectionPrintName.c_str(), i+1, i+1);
+				break;
+			}
+		}
 	}
 
 	// If any of above had to force a style, apply it now
@@ -3474,15 +3464,16 @@ static void buildMenus()
 		Menu& aMenu = sMenus.vals()[i];
 		const std::string& aMenuSectName =
 			kMenuPrefix + sMenus.keys()[i];
-		sDebugItemName = kMenuPrefix + aMenu.name;
+		sSectionPrintName = "[";
+		sSectionPrintName += kMenuPrefix + aMenu.name + "]";
 		const Profile::PropertyMap& aPropMap =
 			Profile::getSectionProperties(aMenuSectName);
 		for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 		{
+			sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
 			applyMenuProperty(
 				aMenu, i,
 				aPropMap.keys()[aPropIdx],
-				aPropMap.vals()[aPropIdx].name,
 				aPropMap.vals()[aPropIdx].val);
 		}
 		validateMenu(aMenu, i);
@@ -3926,7 +3917,6 @@ u16 menuHotspotArray(u16 theMenuID)
 	{// Maybe root menu has a proper array to use?
 		anArrayID = menuHotspotArray(sMenus.vals()[theMenuID].rootMenuID);
 	}
-	DBG_ASSERT(anArrayID < sHotspotArrays.size());
 	return anArrayID;
 }
 
