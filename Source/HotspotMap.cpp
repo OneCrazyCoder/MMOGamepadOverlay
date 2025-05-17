@@ -335,8 +335,9 @@ static void processTargetSizeTask()
 			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
 		}
 		mapDebugPrint(
-			"Normalizing Hotspot #%d (%d x %d) position to %d x %d \n",
-			sTaskProgress, anOverlayPos.x, anOverlayPos.y,
+			"Normalizing Hotspot '%s' (%d x %d) position to %d x %d \n",
+			InputMap::hotspotLabel(aHotspotID).c_str(),
+			anOverlayPos.x, anOverlayPos.y,
 			sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
 	}
 	else if( sTaskProgress == sPoints.size() )
@@ -429,8 +430,9 @@ static void processAddToGridTask()
 		DBG_ASSERT(aGridX < kGridSize);
 		DBG_ASSERT(aGridY < kGridSize);
 		mapDebugPrint(
-			"Adding Hotspot #%d to grid cell %d x %d\n",
-			aPointIdx, aGridX, aGridY);
+			"Adding Hotspot '%s' to grid cell %d x %d\n",
+			InputMap::hotspotLabel(aPointIdx).c_str(),
+			aGridX, aGridY);
 		sActiveGrid[aGridX][aGridY].push_back(aPointIdx);
 		break;
 	}
@@ -599,7 +601,7 @@ static void processNextInDirTask(ECommandDir theDir)
 		sCurrentTask = eTask_None;
 		if( sNextHotspotInDir[theDir] != 0 )
 		{
-			mapDebugPrint("%s hotspot chosen - #%d\n",
+			mapDebugPrint("%s hotspot chosen - '%s'\n",
 				theDir == eCmd8Dir_L	? "Left":
 				theDir == eCmd8Dir_R	? "Right":
 				theDir == eCmd8Dir_U	? "Up":
@@ -608,7 +610,7 @@ static void processNextInDirTask(ECommandDir theDir)
 				theDir == eCmd8Dir_UR	? "UpRight":
 				theDir == eCmd8Dir_DL	? "DownLeft":
 				/*eCmd8Dir_DR*/			  "DownRight",
-				sNextHotspotInDir[theDir]);
+				InputMap::hotspotLabel(sNextHotspotInDir[theDir]).c_str());
 		}
 	}
 }

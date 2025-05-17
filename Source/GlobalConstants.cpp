@@ -505,6 +505,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "UNUSED",			eCmdWord_Nothing	},
 				{ "UNASSIGNED",		eCmdWord_Nothing	},
 				{ "TBD",			eCmdWord_Nothing	},
+				{ "SKIP",			eCmdWord_Skip		},
 				{ "ADD",			eCmdWord_Add		},
 				{ "REMOVE",			eCmdWord_Remove		},
 				{ "HOLD",			eCmdWord_Hold		},

@@ -54,8 +54,9 @@ const char* kButtonActionPrefx[] =
 };
 DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
 
-const char* kSpecialKeyNames[] =
+const char* kSpecialKeyBindNames[] =
 {
+	"",						// eSpecialKey_None
 	"SwapWindowMode",		// eSpecialKey_SwapWindowMode
 	"PasteText",			// eSpecialKey_PasteText
 	"AutoRun",				// eSpecialKey_AutoRun
@@ -66,7 +67,7 @@ const char* kSpecialKeyNames[] =
 	"StrafeLeft",			// eSpecialKey_StrafeL
 	"StrafeRight",			// eSpecialKey_StrafeR
 };
-DBG_CTASSERT(ARRAYSIZE(kSpecialKeyNames) == eSpecialKey_Num);
+DBG_CTASSERT(ARRAYSIZE(kSpecialKeyBindNames) == eSpecialKey_Num);
 
 enum EPropertyType
 {
@@ -154,16 +155,10 @@ EPropertyType propKeyToType(const std::string& theName)
 
 struct ZERO_INIT(KeyBindArrayEntry)
 {
-	Command cmd;
+	u16 keyBindID;
 	u16 hotspotID;
 };
-
-struct KeyBindArray : public std::vector<KeyBindArrayEntry>
-{
-	u16 signalID;
-
-	KeyBindArray() : signalID() {}
-};
+typedef std::vector<KeyBindArrayEntry> KeyBindArray;
 
 struct MenuItem
 {
@@ -263,6 +258,9 @@ struct ZERO_INIT(HotspotArray)
 	u16 size : 15; // not including anchor
 
 	HotspotArray() : offsetScale(1.0) {}
+	bool operator<(const HotspotArray& rhs) const
+	{ return (anchorIdx + (hasAnchor ? 0 : 1)) <
+		(rhs.anchorIdx + (rhs.hasAnchor ? 0 : 1)); }
 };
 
 
@@ -280,7 +278,6 @@ static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static StringToValueMap<Menu> sMenus;
 static StringToValueMap<HUDElement> sHUDElements;
 static StringToValueMap<std::string> sButtonAliases; // TODO: remove?
-static u16 sSpecialKeys[eSpecialKey_Num];
 static VectorMap<std::pair<u16, EButton>, u32> sButtonHoldTimes;
 static u32 sDefaultButtonHoldTime = 400;
 static std::string sDebugItemName; // TODO: remove
@@ -480,23 +477,6 @@ static EResult checkForVKeyHotspotPos(
 }
 
 
-static std::string signalIDToString(u16 theSignalID)
-{
-	std::string result;
-	if( theSignalID > 0 )
-	{
-		// Add the signal flag character
-		result.push_back(kVKeyFireSignal);
-
-		// Encode the signal ID into 14-bit as in checkForVKeySeqPause()
-		result.push_back(u8(((theSignalID >> 7) & 0x7F) | 0x80));
-		result.push_back(u8((theSignalID & 0x7F) | 0x80));
-	}
-
-	return result;
-}
-
-
 static u16 namesToVKey(const std::vector<std::string>& theNames)
 {
 	u16 result = 0;
@@ -531,12 +511,8 @@ static u16 namesToVKey(const std::vector<std::string>& theNames)
 		case VK_LWIN:
 			result |= kVKeyWinFlag;
 			break;
-		case VK_PAUSE:
-		case kVKeyFireSignal:
 		case kVKeyForceRelease:
 		case kVKeyMouseJump:
-		case kVKeySeqHasMouseJump:
-		case kVKeyStartChatString:
 			result = 0;
 			return result;
 		default:
@@ -561,7 +537,6 @@ static std::string namesToVKeySequence(
 	if( theNames.empty() )
 		return result;
 
-	bool hasMouseJump = false;
 	bool expectingWaitTime = false;
 	bool expectingJumpPos = false;
 	for(int aNameIdx = 0; aNameIdx < theNames.size(); ++aNameIdx)
@@ -586,7 +561,6 @@ static std::string namesToVKeySequence(
 				continue;
 			if( aResult == eResult_Ok )
 			{
-				hasMouseJump = true;
 				expectingJumpPos = false;
 				continue;
 			}
@@ -606,8 +580,6 @@ static std::string namesToVKeySequence(
 			{
 				aResult = checkForVKeyHotspotPos(
 					aName, result, true);
-				if( aResult == eResult_Ok )
-					hasMouseJump = true;
 				if( aResult != eResult_NotFound )
 					continue;
 			}
@@ -620,53 +592,15 @@ static std::string namesToVKeySequence(
 			if( aResult != eResult_NotFound )
 				continue;
 
-			// Check if it is an alias to another sequence (key bind)
-			if( Command* aKeyBind = sKeyBinds.find(aName) )
+			// Check if it is the name of a key bind
+			const u16 aKeyBindID = sKeyBinds.findIndex(aName);
+			if( aKeyBindID < sKeyBinds.size() )
 			{
-				if( aKeyBind->type == eCmdType_SignalOnly )
-				{
-					result += signalIDToString(aKeyBind->signalID);
-					continue;
-				}
-				if( aKeyBind->type == eCmdType_TapKey )
-				{
-					result += signalIDToString(aKeyBind->signalID);
-					const u16 aVKey = aKeyBind->vKey;
-					if( aVKey & kVKeyShiftFlag ) result += VK_SHIFT;
-					if( aVKey & kVKeyCtrlFlag ) result += VK_CONTROL;
-					if( aVKey & kVKeyAltFlag ) result += VK_MENU;
-					if( aVKey & kVKeyWinFlag ) result += VK_LWIN;
-					if( aVKey & kVKeyMask ) result += u8(aVKey & kVKeyMask);
-					continue;
-				}
-				if( aKeyBind->type == eCmdType_VKeySequence )
-				{
-					result += signalIDToString(aKeyBind->signalID);
-					DBG_ASSERT(
-						aKeyBind->vKeySeqID < sCmdStrings.size());
-					const std::string& anEmbedSeq =
-						sCmdStrings.keys()[aKeyBind->vKeySeqID];
-					DBG_ASSERT(!anEmbedSeq.empty());
-					if( anEmbedSeq[0] == kVKeySeqHasMouseJump )
-					{
-						result += anEmbedSeq.substr(3);
-						hasMouseJump = true;
-					}
-					else
-					{
-						result += anEmbedSeq;
-					}
-					continue;
-				}
-				if( aKeyBind->type == eCmdType_ChatBoxString )
-				{
-					result += signalIDToString(aKeyBind->signalID);
-					DBG_ASSERT(
-						aKeyBind->stringID < sCmdStrings.size());
-					result += kVKeyStartChatString;
-					result += sCmdStrings.keys()[aKeyBind->stringID];
-					continue;
-				}
+				// Encode the ID into 14-bit as in checkForVKeySeqPause()
+				result.push_back(kVKeyTriggerKeyBind);
+				result.push_back(u8(((aKeyBindID >> 7) & 0x7F) | 0x80));
+				result.push_back(u8((aKeyBindID & 0x7F) | 0x80));
+				continue;
 			}
 
 			// Check if it's a modifier+key in one word like Shift2 or Alt1
@@ -700,46 +634,11 @@ static std::string namesToVKeySequence(
 		}
 	}
 
-	if( hasMouseJump )
-	{
-		std::string aStr;
-		aStr.push_back(kVKeySeqHasMouseJump);
-		aStr.push_back(char(u8(0x80)));
-		aStr.push_back(char(u8(0x80)));
-		// Determine if running this sequence will leave cursor in a different
-		// position, which means jumping to a hotspot and NOT clicking on it.
-		bool usesClick = false;
-		for(int i = int(result.size()-1); i >= 0; --i)
-		{
-			switch(result[i])
-			{
-			case kVKeyMouseJump:
-				if( !usesClick )
-				{
-					aStr[1] = result[i+1];
-					aStr[2] = result[i+2];
-					i = 0; // to break out of loop
-				}
-				break;
-			case VK_LBUTTON:
-			case VK_MBUTTON:
-			case VK_RBUTTON:
-				usesClick = true;
-				break;
-			case VK_PAUSE:
-			case kVKeyStartChatString:
-				usesClick = false;
-				break;
-			}
-		}
-		result = aStr + result;
-	}
-
 	return result;
 }
 
 
-static Command parseChatBoxMacro(const std::string& theString)
+static Command parseChatBoxMacro(std::string theString)
 {
 	DBG_ASSERT(!theString.empty());
 	Command result;
@@ -754,47 +653,39 @@ static Command parseChatBoxMacro(const std::string& theString)
 		return result;
 	}
 
-	// If have no \n in string, set as normal ChatBoxString command
-	size_t aLineBreakPos = theString.find("\\n");
-	if( aLineBreakPos == std::string::npos )
+	// Handle multi-line macros such as ">Hello!\n /wave"
+	std::string aTmpStr;
+	for(size_t i = 1; i < theString.size()-1; ++i)
 	{
-		result.type = eCmdType_ChatBoxString;
-		result.stringID = sCmdStrings.findOrAddIndex(theString + "\r");
-		return result;
-	}
-
-	// Treat multi-line macros as a VKey sequence of embedded strings
-	std::string aVKeySeq;
-	std::string aStrLeft = theString;
-	for(;;)
-	{
-		std::string aStrToAdd = aStrLeft.substr(0, aLineBreakPos);
-		if( aStrToAdd.length() > 1 )
-		{
-			aVKeySeq.push_back(kVKeyStartChatString);
-			aVKeySeq += aStrToAdd + "\r";
-		}
-
-		if( aLineBreakPos == std::string::npos )
+		// Only care about character sequence '\' followed by 'n'
+		if( theString[i] != '\\' || ::tolower(theString[i+1]) != 'n' )
+			continue;
+		// Chop into two strings temporarily, before and after "\\n",
+		// and trim any whitespace that was surrounding it
+		aTmpStr = trim(theString.substr(i+2));
+		theString.resize(i); theString = trim(theString);
+		// Strip extra redundant "\\n" from start of second half
+		while(aTmpStr.size() >= 2 && aTmpStr[0] == '\\' && aTmpStr[1] == 'n' )
+			aTmpStr = trim(aTmpStr.substr(2));
+		if( aTmpStr.empty() )
 			break;
 
-		aStrLeft = aStrLeft.substr(aLineBreakPos+2);
-		if( aStrLeft.empty() )
-			break;
-
-		if( aStrLeft[0] != '<' && aStrLeft[0] != '/' )
-			aStrLeft = std::string(">") + aStrLeft;
-		aLineBreakPos = aStrLeft.find("\\n");
+		// Add '\r' to have macro send carriage return for this line
+		theString.push_back('\r');
+		// If second segment is missing '>' (or '/'), add it now
+		if( aTmpStr[0] != '/' && aTmpStr[0] != '>' )
+			theString.push_back('>');
+		// Make sure loop continues from correct position after trims/adds
+		i = theString.size();
+		// Join the two string segments back together
+		theString += aTmpStr;
 	}
 
-	if( aVKeySeq.empty() )
-	{
-		result.type = eCmdType_DoNothing;
-		return result;
-	}
+	// Add final '\r' to send last line of chat box text
+	theString.push_back('\r');
+	result.type = eCmdType_ChatBoxString;
+	result.stringID = sCmdStrings.findOrAddIndex(theString);
 
-	result.type = eCmdType_VKeySequence;
-	result.vKeySeqID = sCmdStrings.findOrAddIndex(aVKeySeq);
 	return result;
 }
 
@@ -1446,7 +1337,7 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuReset;
 			result.menuID = aMenuID;
-			result.menuItemIdx = result.count;
+			result.menuItemID = result.count;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
@@ -1803,9 +1694,9 @@ static Command* specialKeyBindNameToCommand(const std::string& theName)
 	// This intercepts attempts to set a command to certain specific key binds
 	// directly and instead uses the special command associated with it.
 	// For example, using "= TurnLeft" will return eCmdType_MoveTurn w/ _Left
-	// instead of becoming _TapKey w/ whatever TurnLeft is bound to.
+	// instead of becoming _TapKey with whatever TurnLeft is bound to.
 	// This makes sure special code for some of these commands is utilized
-	// when use the key bind name instead of "MoveTurn" and such.
+	// when assign to the key bind name directly intead of the command name.
 
 	static StringToValueMap<Command> sSpecialKeyBindMap;
 	if( sSpecialKeyBindMap.empty() )
@@ -1814,27 +1705,27 @@ static Command* specialKeyBindNameToCommand(const std::string& theName)
 		Command aCmd;
 		aCmd.type = eCmdType_StartAutoRun;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyNames[eSpecialKey_AutoRun]), aCmd);
+			condense(kSpecialKeyBindNames[eSpecialKey_AutoRun]), aCmd);
 		aCmd.type = eCmdType_MoveTurn;
 		aCmd.dir = eCmdDir_Forward;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyNames[eSpecialKey_MoveF]), aCmd);
+			condense(kSpecialKeyBindNames[eSpecialKey_MoveF]), aCmd);
 		aCmd.dir = eCmdDir_Back;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyNames[eSpecialKey_MoveB]), aCmd);
+			condense(kSpecialKeyBindNames[eSpecialKey_MoveB]), aCmd);
 		aCmd.dir = eCmdDir_Left;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyNames[eSpecialKey_TurnL]), aCmd);
+			condense(kSpecialKeyBindNames[eSpecialKey_TurnL]), aCmd);
 		aCmd.dir = eCmdDir_Right;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyNames[eSpecialKey_TurnR]), aCmd);
+			condense(kSpecialKeyBindNames[eSpecialKey_TurnR]), aCmd);
 		aCmd.type = eCmdType_MoveStrafe;
 		aCmd.dir = eCmdDir_Left;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyNames[eSpecialKey_StrafeL]), aCmd);
+			condense(kSpecialKeyBindNames[eSpecialKey_StrafeL]), aCmd);
 		aCmd.dir = eCmdDir_Right;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyNames[eSpecialKey_StrafeR]), aCmd);
+			condense(kSpecialKeyBindNames[eSpecialKey_StrafeR]), aCmd);
 	}
 
 	return sSpecialKeyBindMap.find(theName);
@@ -1881,54 +1772,56 @@ static Command stringToCommand(
 		aParsedString,
 		allowButtonActions,
 		allowHoldActions);
+	if( result.type != eCmdType_Empty )
+		return result;
 
 	// Check for alias to a keybind
-	if( result.type == eCmdType_Empty )
+	std::string aKeyBindName = condense(theString);
+	if( Command* aSpecialKeyBindCommand =
+			specialKeyBindNameToCommand(aKeyBindName) )
 	{
-		std::string aKeyBindName = condense(theString);
-		if( Command* aSpecialKeyBindCommand =
-				specialKeyBindNameToCommand(aKeyBindName) )
+		if( allowHoldActions ||
+			aSpecialKeyBindCommand->type < eCmdType_FirstContinuous )
 		{
-			if( allowHoldActions ||
-				aSpecialKeyBindCommand->type < eCmdType_FirstContinuous )
-			{
-				result = *aSpecialKeyBindCommand;
-				return result;
-			}
-		}
-
-		if( Command* aKeyBindCommand = sKeyBinds.find(aKeyBindName) )
-		{
-			result = *aKeyBindCommand;
-			// Check if this keybind is part of an array, and if so, use
-			// eCmdType_KeyBindArrayIndex instead so "last" will update
-			const int anArrayIdx = breakOffIntegerSuffix(aKeyBindName);
-			if( anArrayIdx >= 0 )
-			{
-				u16 aKeyBindArrayID = sKeyBindArrays.findIndex(aKeyBindName);
-				if( aKeyBindArrayID < sKeyBindArrays.size() )
-				{
-					// Comment on _PressAndHoldKey above explains this
-					if( result.type == eCmdType_TapKey && allowHoldActions )
-						result.type = eCmdType_KeyBindArrayHoldIndex;
-					else
-						result.type = eCmdType_KeyBindArrayIndex;
-					result.keybindArrayID = aKeyBindArrayID;
-					result.arrayIdx = anArrayIdx;
-				}
-			}
+			result = *aSpecialKeyBindCommand;
+			return result;
 		}
 	}
 
-	// Check for Virtual-Key Code sequence
-	if( result.type == eCmdType_Empty )
+	const u16 aKeyBindID = sKeyBinds.findIndex(aKeyBindName);
+	if( aKeyBindID < sKeyBinds.size() )
 	{
-		const std::string& aVKeySeq = namesToVKeySequence(aParsedString);
-		if( !aVKeySeq.empty() )
+		// Check if this keybind is part of an array, and if so, use
+		// eCmdType_KeyBindArrayIndex instead so "last" will update
+		const int anArrayIdx = breakOffIntegerSuffix(aKeyBindName);
+		if( anArrayIdx >= 0 )
 		{
-			result.type = eCmdType_VKeySequence;
-			result.vKeySeqID = sCmdStrings.findOrAddIndex(aVKeySeq);
+			u16 aKeyBindArrayID = sKeyBindArrays.findIndex(aKeyBindName);
+			if( aKeyBindArrayID < sKeyBindArrays.size() &&
+				sKeyBindArrays.vals()[aKeyBindArrayID][anArrayIdx].
+					keyBindID == aKeyBindID )
+			{
+				// Comment on _PressAndHoldKey above explains this
+				if( result.type == eCmdType_TapKey && allowHoldActions )
+					result.type = eCmdType_KeyBindArrayHoldIndex;
+				else
+					result.type = eCmdType_KeyBindArrayIndex;
+				result.keybindArrayID = aKeyBindArrayID;
+				result.arrayIdx = anArrayIdx;
+				return result;
+			}
 		}
+		result.type = eCmdType_TriggerKeyBind;
+		result.keyBindID = aKeyBindID;
+		return result;
+	}
+
+	// Check for Virtual-Key Code sequence
+	const std::string& aVKeySeq = namesToVKeySequence(aParsedString);
+	if( !aVKeySeq.empty() )
+	{
+		result.type = eCmdType_VKeySequence;
+		result.vKeySeqID = sCmdStrings.findOrAddIndex(aVKeySeq);
 	}
 
 	return result;
@@ -2253,9 +2146,7 @@ static void applyHotspotProperty(
 
 static void buildHotspots()
 {
-	mapDebugPrint("Assigning hotspots...\n");
-
-	Profile::PropertyMap aPropMap =
+	const Profile::PropertyMap& aPropMap =
 		Profile::getSectionProperties(kHotspotsSectionName);
 	for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 	{
@@ -2272,7 +2163,7 @@ static void reportCommandAssignment(
 	const std::string& theItemName,
 	const Command& theCmd,
 	const std::string& theCmdStr,
-	bool isKeyBind = false)
+	u16 theSignalID = 0)
 {
 	switch(theCmd.type)
 	{
@@ -2283,6 +2174,11 @@ static void reportCommandAssignment(
 			theCmdStr.c_str());
 		break;
 	case eCmdType_Unassigned:
+		mapDebugPrint("%s: '%s' left <unassigned>%s\n",
+			theSection.c_str(),
+			theItemName.c_str(),
+			theSignalID ? " (skipped if in key bind array)" : "");
+		break;
 	case eCmdType_DoNothing:
 		mapDebugPrint("%s: Assigned '%s' to <Do Nothing>\n",
 			theSection.c_str(),
@@ -2292,22 +2188,42 @@ static void reportCommandAssignment(
 		mapDebugPrint("%s: Assigned '%s' to <Signal #%d Only>\n",
 			theSection.c_str(),
 			theItemName.c_str(),
-			theCmd.signalID);
+			theSignalID);
+		break;
+	case eCmdType_TriggerKeyBind:
+		if( theSignalID )
+		{
+			mapDebugPrint(
+				"%s: Assigned '%s' to use '%s' Key Bind + <signal #%d>\n",
+				theSection.c_str(),
+				theItemName.c_str(),
+				sKeyBinds.keys()[theCmd.keyBindID].c_str(),
+				theSignalID);
+		}
+		else
+		{
+			reportCommandAssignment(
+				theSection, theItemName,
+				sKeyBinds.vals()[theCmd.keyBindID],
+				theCmdStr,
+				keyBindSignalID(theCmd.keyBindID));
+		}
 		break;
 	case eCmdType_ChatBoxString:
 		{
+			#ifndef NDEBUG
 			std::string aMacroString = sCmdStrings.keys()[theCmd.stringID];
 			aMacroString.resize(aMacroString.size()-1);
-			if( aMacroString[0] == kVKeyFireSignal )
-				aMacroString = aMacroString.substr(3);
+			aMacroString = replaceAllStr(aMacroString, "\r", "\\n");
 			mapDebugPrint("%s: Assigned '%s' to macro: %s%s\n",
 				theSection.c_str(),
 				theItemName.c_str(),
 				aMacroString.c_str(),
-				isKeyBind
+				theSignalID
 					? (std::string(" <signal #") +
-						toString(theCmd.signalID) + ">").c_str()
+						toString(theSignalID) + ">").c_str()
 					: "");
+			#endif
 		}
 		break;
 	case eCmdType_TapKey:
@@ -2320,9 +2236,9 @@ static void reportCommandAssignment(
 			!!(theCmd.vKey & kVKeyAltFlag) ? "Alt+" : "",
 			!!(theCmd.vKey & kVKeyWinFlag) ? "Win+" : "",
 			virtualKeyToName(theCmd.vKey & kVKeyMask).c_str(),
-			isKeyBind
+			theSignalID
 				? (std::string(" <signal #") +
-					toString(theCmd.signalID) + ">").c_str()
+					toString(theSignalID) + ">").c_str()
 				: "");
 		break;
 	case eCmdType_VKeySequence:
@@ -2330,9 +2246,9 @@ static void reportCommandAssignment(
 			theSection.c_str(),
 			theItemName.c_str(),
 			theCmdStr.c_str(),
-			isKeyBind
+			theSignalID
 				? (std::string(" <signal #") +
-					toString(theCmd.signalID) + ">").c_str()
+					toString(theSignalID) + ">").c_str()
 				: "");
 		break;
 	default:
@@ -2345,102 +2261,158 @@ static void reportCommandAssignment(
 }
 
 
-static Command stringToKeyBindCommand(
-	const std::string& theCmdStr,
-	u16& theSignalID)
+static void createEmptyKeyBind(const std::string& theName)
 {
+	std::string aKeyName = condense(theName);
+	const u16 aPrevKeyBindsSize = sKeyBinds.size();
+	const u16 aKeyBindID = sKeyBinds.findOrAddIndex(aKeyName, Command());
+	if( sKeyBinds.size() > aPrevKeyBindsSize )
+	{
+		// Check if should also be part of a Key Bind Array
+		const int anArrayIdx = breakOffIntegerSuffix(aKeyName);
+		if( anArrayIdx >= 0 )
+		{
+			KeyBindArray& aKeyBindArray = sKeyBindArrays.findOrAdd(aKeyName);
+
+			// Add this key bind as an entry in the array
+			if( aKeyBindArray.size() <= anArrayIdx )
+				aKeyBindArray.resize(anArrayIdx+1);
+			aKeyBindArray[anArrayIdx].keyBindID = aKeyBindID;
+			aKeyBindArray[anArrayIdx].hotspotID =
+				getHotspotID(aKeyName + toString(anArrayIdx));
+			if( aKeyBindArray[anArrayIdx].hotspotID )
+			{
+				mapDebugPrint(
+					"[%s]: Linked array entry '%s' to hotspot '%s'\n",
+					kKeyBindsSectionName,
+					theName.c_str(),
+					hotspotLabel(aKeyBindArray[anArrayIdx].hotspotID).c_str());
+			}
+		}
+	}
+}
+
+
+static u16 applyKeyBindProperty(
+	const std::string& theKey,
+	const std::string& theName,
+	const std::string& theCmdStr)
+{
+	const u16 aKeyBindID = sKeyBinds.findIndex(theKey);
+	DBG_ASSERT(aKeyBindID < sKeyBinds.size());
+	Command& aCmd = sKeyBinds.vals()[aKeyBindID];
+
 	// Keybinds can only be assigned to direct input - not special commands
-	Command aCmd;
 	if( theCmdStr.empty() )
-	{// Do nothing but send a signal
-		aCmd.type = eCmdType_SignalOnly;
-		aCmd.signalID = theSignalID++;
-		return aCmd;
+	{
+		aCmd.type = eCmdType_Unassigned;
+		return aKeyBindID;
 	}
 
-	// Check for a chat box macro
+	// Chat box macro
 	aCmd = parseChatBoxMacro(theCmdStr);
-	if( aCmd.type == eCmdType_DoNothing )
-	{
-		aCmd.type = eCmdType_SignalOnly;
-		aCmd.signalID = theSignalID++;
-		return aCmd;
-	}
 	if( aCmd.type != eCmdType_Empty )
-	{
-		aCmd.signalID = theSignalID++;
-		return aCmd;
-	}
+		return aKeyBindID;
 
+	// Signal Only
 	ECommandKeyWord aKeyWord = commandWordToID(condense(theCmdStr));
 	if( aKeyWord == eCmdWord_Nothing )
-	{// Specifically requested signal only
+	{
 		aCmd.type = eCmdType_SignalOnly;
-		aCmd.signalID = theSignalID++;
-		return aCmd;
+		return aKeyBindID;
 	}
 
+	// Skip in key bind arrays (same as empty string)
+	if( aKeyWord == eCmdWord_Skip )
+	{
+		aCmd.type = eCmdType_Unassigned;
+		return aKeyBindID;
+	}
+	
 	// Tap key
 	std::vector<std::string> aParsedString; aParsedString.reserve(16);
 	sanitizeSentence(theCmdStr, aParsedString);
 	if( u16 aVKey = namesToVKey(aParsedString) )
 	{
 		aCmd.type = eCmdType_TapKey;
-		aCmd.signalID = theSignalID++;
 		aCmd.vKey = aVKey;
-		return aCmd;
+		return aKeyBindID;
+	}
+
+	// Other Key Bind
+	const u16 anotherKeyBindID = sKeyBinds.findIndex(condense(theCmdStr));
+	if( anotherKeyBindID < sKeyBinds.size() )
+	{
+		aCmd.type = eCmdType_TriggerKeyBind;
+		aCmd.keyBindID = anotherKeyBindID;
+		return aKeyBindID;
 	}
 
 	// VKey Sequence
 	const std::string& aVKeySeq = namesToVKeySequence(aParsedString);
-	if( aVKeySeq.empty() )
-		return aCmd;
+	if( !aVKeySeq.empty() )
+	{
+		aCmd.type = eCmdType_VKeySequence;
+		aCmd.vKeySeqID = sCmdStrings.findOrAddIndex(aVKeySeq);
+		return aKeyBindID;
+	}
 
-	aCmd.type = eCmdType_VKeySequence;
-	aCmd.signalID = theSignalID++;
-	aCmd.vKeySeqID = sCmdStrings.findOrAddIndex(aVKeySeq);
-
-	return aCmd;
+	// Couldn't figure out what it was - _Empty will result in error report
+	aCmd.type = eCmdType_Empty;
+	return aKeyBindID;
 }
 
 
-static Command createKeyBindEntry(
-	const std::string& theAlias,
-	const std::string& theCmdStr,
-	u16& theSignalID)
+static void validateKeyBind(
+	u16 theKeyBindID,
+	BitVector<256>& theReferencedKeyBinds)
 {
-	const Command& aCmd = stringToKeyBindCommand(theCmdStr, theSignalID);
+	DBG_ASSERT(theKeyBindID < sKeyBinds.size());
+	DBG_ASSERT(theReferencedKeyBinds.size() == sKeyBinds.size());
 
-	// Check if could be part of a keybind array
-	std::string aKeyBindArrayName = theAlias;
-	const int anArrayIdx = breakOffIntegerSuffix(aKeyBindArrayName);
-	if( anArrayIdx >= 0 )
+	theReferencedKeyBinds.set(theKeyBindID);
+	Command& aCmd = sKeyBinds.vals()[theKeyBindID];
+	if( aCmd.type == eCmdType_TriggerKeyBind )
 	{
-		KeyBindArray& aKeyBindArray =
-			sKeyBindArrays.findOrAdd(condense(aKeyBindArrayName));
-		if( anArrayIdx >= aKeyBindArray.size() )
-			aKeyBindArray.resize(anArrayIdx+1);
-		aKeyBindArray[anArrayIdx].cmd = aCmd;
-		// Check for a matching named hotspot
-		u16 aHotspotID = getHotspotID(
-			condense(aKeyBindArrayName) + toString(anArrayIdx));
-		if( aHotspotID )
-			aKeyBindArray[anArrayIdx].hotspotID = aHotspotID;
-		mapDebugPrint("%s: Assigned '%s' Key Bind Array index #%d to %s%s\n",
-			sDebugItemName.c_str(),
-			aKeyBindArrayName.c_str(),
-			anArrayIdx,
-			theAlias.c_str(),
-			aHotspotID ? " (+ hotspot)" : "");
+		// Direct reference to another key bind
+		DBG_ASSERT(aCmd.keyBindID < theReferencedKeyBinds.size());
+		if( theReferencedKeyBinds.test(aCmd.keyBindID) )
+		{
+			// TODO - errorLog - circular dependency found
+			// Make calling command do nothing but send signal now
+			aCmd.type = eCmdType_SignalOnly;
+			return;
+		}
+		validateKeyBind(aCmd.keyBindID, theReferencedKeyBinds);
 	}
-
-	return aCmd;
+	else if( aCmd.type == eCmdType_VKeySequence )
+	{
+		// VKey Sequence may have an embedded reference to a key bind
+		DBG_ASSERT(aCmd.stringID < sCmdStrings.size());
+		const std::string& aStr = sCmdStrings.keys()[aCmd.stringID];
+		for(size_t i = 0; i < aStr.size(); ++i)
+		{
+			if( aStr[i] == kVKeyTriggerKeyBind )
+			{
+				DBG_ASSERT(aStr.size() >= i + 2);
+				u16 anotherKeyBindID = (u8(aStr[++i]) & 0x7F) << 7;
+				anotherKeyBindID |= (u8(aStr[++i]) & 0x7F);
+				DBG_ASSERT(anotherKeyBindID < theReferencedKeyBinds.size());
+				if( theReferencedKeyBinds.test(anotherKeyBindID) )
+				{
+					// TODO - errorLog - circular dependency found
+					aCmd.type = eCmdType_SignalOnly;
+					return;
+				}
+				validateKeyBind(anotherKeyBindID, theReferencedKeyBinds);	
+			}
+		}
+	}
 }
 
 
 static void buildButtonAliases()
 {
-	mapDebugPrint("Assigning custom button names...\n");
 	const Profile::PropertyMap& aPropMap =
 		Profile::getSectionProperties(kButtonAliasSectionName);
 	for(size_t i = 0; i < aPropMap.size(); ++i)
@@ -2454,107 +2426,29 @@ static void buildButtonAliases()
 
 static void buildKeyBinds()
 {
-	mapDebugPrint("Assigning Key Binds...\n");
-	sDebugItemName = "[";
-	sDebugItemName += kKeyBindsSectionName;
-	sDebugItemName[sDebugItemName.size()-1] = ']';
-
-	// Directly fetch all the special keys first
-	u16 aNextSignalID;
-	for(u16 i = 0; i < eSpecialKey_Num; ++i)
-	{
-		const std::string anAlias = kSpecialKeyNames[i];
-		std::string aCmdStr =
-			Profile::getStr(kKeyBindsSectionName, anAlias);
-		aNextSignalID = eBtn_Num + i;
-		Command aCmd = createKeyBindEntry(anAlias, aCmdStr, aNextSignalID);
-		if( aCmd.type != eCmdType_SignalOnly &&
-			aCmd.type != eCmdType_TapKey )
-		{
-			logError(
-				"Special key bind '%s' may only be assigned to a "
-				"single key or modifier+key (or nothing)! "
-				"Could not assign %s!",
-				anAlias.c_str(), aCmdStr.c_str());
-			aCmd.type = eCmdType_SignalOnly;
-			aCmd.signalID = eBtn_Num + i;
-		}
-		else
-		{
-			reportCommandAssignment(
-				sDebugItemName, anAlias, aCmd, aCmdStr, true);
-		}
-		DBG_ASSERT(aCmd.signalID == eBtn_Num + i);
-		sSpecialKeys[i] = aCmd.type == eCmdType_TapKey ? aCmd.vKey : 0;
-	}
-	// Add the special keys to the key binds map
-	for(u16 i = 0; i < eSpecialKey_Num; ++i)
-	{
-		Command aCmd; aCmd.vKey = sSpecialKeys[i];
-		aCmd.type = aCmd.vKey ? eCmdType_TapKey : eCmdType_SignalOnly;
-		aCmd.signalID = eBtn_Num + i;
-		sKeyBinds.setValue(
-			condense(kSpecialKeyNames[i]), aCmd);
-	}
-
-	// Now process all the rest of the key binds
+	sDebugItemName = "[" + std::string(kKeyBindsSectionName) + "]";
 	const Profile::PropertyMap& aPropMap =
 		Profile::getSectionProperties(kKeyBindsSectionName);
-	aNextSignalID = eBtn_Num + eSpecialKey_Num;
-	BitVector<128> keyBindsProcessed;
-	keyBindsProcessed.clearAndResize(aPropMap.size());
-	// Mark the already-processed special keys
-	for(size_t i = 0; i < aPropMap.size(); ++i)
+	for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 	{
-		if( sKeyBinds.contains(aPropMap.keys()[i]) )
-			keyBindsProcessed.set(i);
+		const u16 aKeyBindID = applyKeyBindProperty(
+			aPropMap.keys()[aPropIdx],
+			aPropMap.vals()[aPropIdx].name,
+			aPropMap.vals()[aPropIdx].val);
+		reportCommandAssignment(
+			sDebugItemName,
+			aPropMap.vals()[aPropIdx].name,
+			sKeyBinds.vals()[aKeyBindID],
+			aPropMap.vals()[aPropIdx].val,
+			keyBindSignalID(aKeyBindID));
 	}
-
-	// Keep trying to add key binds until a pass doesn't add any at all,
-	// ignoring ones that can't be processed yet due to interdependencies.
-	// Then do one final pass on the remaining ones that allows errors
-	// to be shown (via reportCommandAssignment()), which will also cause
-	// keyBindsProcessed.all() to become true to end this loop.
-	bool newKeyBindAdded = false;
-	bool showErrors = false;
-	while(!keyBindsProcessed.all())
+	BitVector<256> aCircDependencyChecker;
+	aCircDependencyChecker.clearAndResize(sKeyBinds.size());
+	for(u16 aKeyBindID = 0; aKeyBindID < sKeyBinds.size(); ++aKeyBindID)
 	{
-		for(size_t i = 0; i < aPropMap.size(); ++i)
-		{
-			if( keyBindsProcessed.test(i) )
-				continue;
-
-			const std::string& anAlias = aPropMap.vals()[i].name;
-			const std::string& aCmdStr = aPropMap.vals()[i].val;
-
-			const Command& aCmd = createKeyBindEntry(
-					anAlias, aCmdStr, aNextSignalID);
-			if( aCmd.type != eCmdType_Empty || showErrors )
-			{
-				sKeyBinds.setValue(condense(anAlias), aCmd);
-				newKeyBindAdded = true;
-				keyBindsProcessed.set(i);
-				reportCommandAssignment(
-					sDebugItemName, anAlias, aCmd, aCmdStr, true);
-			}
-		}
-		showErrors = !newKeyBindAdded;
-		newKeyBindAdded = false;
+		aCircDependencyChecker.reset();
+		validateKeyBind(aKeyBindID, aCircDependencyChecker);
 	}
-
-	// Assign signal ID's to key bind arrays, which fire whenever ANY key in
-	// the array is used, in addition to the specific key's signal
-	for(u16 i = 0; i < sKeyBindArrays.size(); ++i)
-		sKeyBindArrays.vals()[i].signalID = aNextSignalID++;
-
-	// Can now also set size of global variables related to key binds
-	gKeyBindArrayLastIndex.reserve(sKeyBindArrays.size());
-	gKeyBindArrayLastIndex.resize(sKeyBindArrays.size());
-	gKeyBindArrayDefaultIndex.reserve(sKeyBindArrays.size());
-	gKeyBindArrayDefaultIndex.resize(sKeyBindArrays.size());
-	gKeyBindArrayLastIndexChanged.clearAndResize(sKeyBindArrays.size());
-	gKeyBindArrayDefaultIndexChanged.clearAndResize(sKeyBindArrays.size());
-	gFiredSignals.clearAndResize(aNextSignalID);
 }
 
 
@@ -2655,9 +2549,7 @@ static void addButtonAction(
 				aCmd = stringToCommand(
 					aCmdStr, true, aBtnAct == eBtnAct_Down);
 			}
-			// Get destination of command. Note that we do this AFTER
-			// parsing the command because stringToCommand() can lead to
-			// resizing sLayers and thus make this pointer invalid!
+			// Get destination of command
 			ButtonActions* aDestBtn =
 				&sLayers.vals()[theLayerIdx].buttonMap.findOrAdd(aBtnID);
 			if( !onlySpecificAction ) aDestBtn->initIfEmpty();
@@ -2765,7 +2657,7 @@ static void addButtonAction(
 }
 
 
-static void addSignalCommand(
+static void addWhenSignalCommand(
 	u16 theLayerIdx,
 	std::string theSignalName,
 	const std::string& theCmdStr)
@@ -2775,14 +2667,15 @@ static void addSignalCommand(
 		return;
 
 	// Check for responding to use of any key in a key bind array
-	std::string aSignalKey = condense(theSignalName);
-	if( KeyBindArray* aKeyBindArray = sKeyBindArrays.find(aSignalKey) )
+	const std::string& aSignalKey = condense(theSignalName);
+	u16 anEntryIdx = sKeyBindArrays.findIndex(aSignalKey);
+	if( anEntryIdx < sKeyBindArrays.size() )
 	{
 		Command aCmd = stringToCommand(theCmdStr, true);
 		if( aCmd.type != eCmdType_Empty )
 		{
 			sLayers.vals()[theLayerIdx].signalCommands.setValue(
-				aKeyBindArray->signalID, aCmd);
+				keyBindArraySignalID(anEntryIdx), aCmd);
 		}
 
 		// Report the results of the assignment
@@ -2797,7 +2690,7 @@ static void addSignalCommand(
 			anItemName += " ";
 			anItemName += sDebugSubItemName;
 			anItemName += " (signal #";
-			anItemName += toString(aKeyBindArray->signalID);
+			anItemName += toString(keyBindArraySignalID(anEntryIdx));
 			anItemName += ")";
 			reportCommandAssignment(aSection, anItemName, aCmd, theCmdStr);
 		}
@@ -2805,13 +2698,14 @@ static void addSignalCommand(
 	}
 
 	// Check for responding to use of a key bind
-	if( Command* aKeyBind = sKeyBinds.find(aSignalKey) )
+	anEntryIdx = sKeyBinds.findIndex(aSignalKey);
+	if( anEntryIdx < sKeyBinds.size() )
 	{
 		Command aCmd = stringToCommand(theCmdStr, true);
 		if( aCmd.type != eCmdType_Empty )
 		{
 			sLayers.vals()[theLayerIdx].signalCommands.setValue(
-				aKeyBind->signalID, aCmd);
+				keyBindSignalID(anEntryIdx), aCmd);
 		}
 
 		// Report the results of the assignment
@@ -2826,7 +2720,7 @@ static void addSignalCommand(
 			anItemName += " ";
 			anItemName += sDebugSubItemName;
 			anItemName += " (signal #";
-			anItemName += toString(aKeyBind->signalID);
+			anItemName += toString(keyBindSignalID(anEntryIdx));
 			anItemName += ")";
 			reportCommandAssignment(aSection, anItemName, aCmd, theCmdStr);
 		}
@@ -2837,30 +2731,30 @@ static void addSignalCommand(
 	switch(commandWordToID(aSignalKey))
 	{
 	case eCmdWord_Move:
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_StrafeL], theCmdStr);
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_StrafeR], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_StrafeL], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_StrafeR], theCmdStr);
 		// fall through
 	case eCmdWord_Turn:
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_MoveF], theCmdStr);
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_MoveB], theCmdStr);
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_TurnL], theCmdStr);
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_TurnR], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_MoveF], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_MoveB], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_TurnL], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_TurnR], theCmdStr);
 		return;
 	case eCmdWord_Strafe:
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_MoveF], theCmdStr);
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_MoveB], theCmdStr);
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_StrafeL], theCmdStr);
-		addSignalCommand(theLayerIdx,
-			kSpecialKeyNames[eSpecialKey_StrafeR], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_MoveF], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_MoveB], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_StrafeL], theCmdStr);
+		addWhenSignalCommand(theLayerIdx,
+			kSpecialKeyBindNames[eSpecialKey_StrafeR], theCmdStr);
 		return;
 	}
 
@@ -2868,8 +2762,8 @@ static void addSignalCommand(
 	// Other button actions (tap, hold, release) are not supported as signals
 	if( breakOffButtonAction(theSignalName) == eBtnAct_Press )
 	{
-		aSignalKey = condense(theSignalName);
-		EButton aBtnID = buttonNameToID(aSignalKey);
+		const std::string& aBtnSignalKey = condense(theSignalName);
+		EButton aBtnID = buttonNameToID(aBtnSignalKey);
 		const bool isA4DirMultiAssign =
 			aBtnID == eBtn_LSAny ||
 			aBtnID == eBtn_RSAny ||
@@ -2884,7 +2778,7 @@ static void addSignalCommand(
 			bool dirCommandFailed = false;
 			for(size_t i = 0; i < 4; ++i)
 			{
-				aBtnID = buttonNameToID(aSignalKey + k4DirKeySuffix[i]);
+				aBtnID = buttonNameToID(aBtnSignalKey + k4DirKeySuffix[i]);
 				DBG_ASSERT(aBtnID < eBtn_Num);
 				std::string aCmdStr = theCmdStr;
 				Command aCmd;
@@ -3179,7 +3073,7 @@ static void applyControlsLayerProperty(
 	if( size_t aStrPos = posAfterPrefix(thePropName, kSignalCommandPrefix) )
 	{// WHEN SIGNAL
 		sDebugSubItemName = thePropName.substr(aStrPos);
-		addSignalCommand(
+		addWhenSignalCommand(
 			theLayerID,
 			thePropName.substr(aStrPos),
 			thePropVal);
@@ -3207,8 +3101,6 @@ static void applyControlsLayerProperty(
 
 static void buildControlScheme()
 {
-	mapDebugPrint("Building control scheme layers...\n");
-
 	for(u16 i = 0; i < sLayers.size(); ++i)
 	{
 		ControlsLayer& aLayer = sLayers.vals()[i];
@@ -3291,14 +3183,12 @@ static void validateHUDElement(HUDElement& theHUDElement)
 	}
 
 	// If any of above had to enforce a type, apply it now
-	theHUDElement.type = eHUDItemType_Rect;
+	theHUDElement.type = aHUDType;
 }
 
 
 static void buildHUDElements()
 {
-	mapDebugPrint("Building Non-Menu HUD Elements...\n");
-
 	// Skip first 2 HUD elements (internal use only)
 	for(u16 i = 2; i < sHUDElements.size(); ++i)
 	{
@@ -3579,8 +3469,6 @@ static void validateMenu(Menu& theMenu, u16 theMenuID)
 
 static void buildMenus()
 {
-	mapDebugPrint("Building Menus...\n");
-
 	for(u16 i = 0; i < sMenus.size(); ++i)
 	{
 		Menu& aMenu = sMenus.vals()[i];
@@ -3645,7 +3533,6 @@ static void parseLabel(std::string& theLabel)
 
 static void buildLabels()
 {
-	mapDebugPrint("Parsing labels for text replacements...\n");
 	for(u16 i = 0; i < sMenus.size(); ++i)
 	{
 		parseLabel(sMenus.vals()[i].label);
@@ -3670,7 +3557,6 @@ static void buildLabels()
 void loadProfile()
 {
 	// Clear out any data from a previous profile
-	ZeroMemory(&sSpecialKeys, sizeof(sSpecialKeys));
 	sHotspots.clear();
 	sHotspotArrays.clear();
 	sCmdStrings.clear();
@@ -3686,6 +3572,33 @@ void loadProfile()
 	// Get default button hold time to execute eBtnAct_Hold command
 	sDefaultButtonHoldTime =
 		max(0, Profile::getInt("System", "ButtonHoldTime"));
+
+	// Allocate hotspot arrays
+	// Start with the the special named hotspots so they get correct IDs
+	for(u16 i = 0; i < eSpecialHotspot_Num - eSpecialHotspot_FirstNamed; ++i)
+		createEmptyHotspotArray(kSpecialNamedHotspots[i]);
+	 const Profile::PropertyMap* aPropMapPtr =
+		 &Profile::getSectionProperties(kHotspotsSectionName);
+	for(u16 i = 0; i < aPropMapPtr->size(); ++i)
+		createEmptyHotspotArray(aPropMapPtr->vals()[i].name);
+	sHotspotArrays.trim();
+
+	// Allocate hotspots and link arrays to them
+	for(u16 i = 0; i < eSpecialHotspot_FirstNamed; ++i)
+		sHotspots.push_back(Hotspot()); // un-named special hotspots
+	for(u16 i = 0; i < sHotspotArrays.size(); ++i)
+		createEmptyHotspotsForArray(i);
+	if( sHotspots.size() < sHotspots.capacity() )
+		std::vector<Hotspot>(sHotspots).swap(sHotspots);
+
+	// Allocate key binds and key bind arrays, and assign signal ID's
+	// Start with the special keys so they get correct IDs and signal ID's
+	for(u16 i = 0; i < eSpecialKey_Num; ++i)
+		createEmptyKeyBind(kSpecialKeyBindNames[i]);
+	aPropMapPtr =
+		 &Profile::getSectionProperties(kKeyBindsSectionName);
+	for(u16 i = 0; i < aPropMapPtr->size(); ++i)
+		createEmptyKeyBind(aPropMapPtr->vals()[i].name);
 
 	// Allocate controls layers
 	std::vector<std::string> aSectionNameList;
@@ -3716,23 +3629,6 @@ void loadProfile()
 		setupRootMenu(i);
 	sHUDElements.trim();
 
-	// Allocate hotspot arrays
-	// Start with the the special named hotspots so they get correct IDs
-	for(u16 i = 0; i < eSpecialHotspot_Num - eSpecialHotspot_FirstNamed; ++i)
-		createEmptyHotspotArray(kSpecialNamedHotspots[i]);
-	const Profile::PropertySection* const aHotspotsSection =
-		Profile::getSection(kHotspotsSectionName);
-	for(u16 i = 0; i < aHotspotsSection->properties.size(); ++i)
-		createEmptyHotspotArray(aHotspotsSection->properties.vals()[i].name);
-
-	// Allocate hotspots and link arrays to them
-	for(u16 i = 0; i < eSpecialHotspot_FirstNamed; ++i)
-		sHotspots.push_back(Hotspot()); // un-named special hotspots
-	for(u16 i = 0; i < sHotspotArrays.size(); ++i)
-		createEmptyHotspotsForArray(i);
-	if( sHotspots.size() < sHotspots.capacity() )
-		std::vector<Hotspot>(sHotspots).swap(sHotspots);
-
 	// Set sizes of other data structures that need to match above
 	for(u16 aLayerID = 0; aLayerID < sLayers.size(); ++aLayerID)
 	{
@@ -3748,6 +3644,12 @@ void loadProfile()
 	gConfirmedMenuItem.resize(sHUDElements.size());
 	for(size_t i = 0; i < gConfirmedMenuItem.size(); ++i)
 		gConfirmedMenuItem[i] = kInvalidItem;
+	gKeyBindArrayLastIndex.resize(sKeyBindArrays.size());
+	gKeyBindArrayDefaultIndex.resize(sKeyBindArrays.size());
+	gKeyBindArrayLastIndexChanged.clearAndResize(sKeyBindArrays.size());
+	gKeyBindArrayDefaultIndexChanged.clearAndResize(sKeyBindArrays.size());
+	gFiredSignals.clearAndResize(
+		eBtn_Num + sKeyBinds.size() + sKeyBindArrays.size());
 
 	// Fill in the data
 	buildHotspots();
@@ -3782,55 +3684,95 @@ const u8* cmdVKeySeq(const Command& theCommand)
 }
 
 
-u16 keyForSpecialAction(ESpecialKey theAction)
+u16 keyForSpecialAction(ESpecialKey theSpecialKeyID)
 {
-	DBG_ASSERT(theAction < eSpecialKey_Num);
-	return sSpecialKeys[theAction];
+	DBG_ASSERT(theSpecialKeyID < eSpecialKey_Num);
+	DBG_ASSERT(theSpecialKeyID < sKeyBinds.size());
+	if( sKeyBinds.vals()[theSpecialKeyID].type == eCmdType_TapKey )
+		return sKeyBinds.vals()[theSpecialKeyID].vKey;
+	return 0;
 }
 
 
-const Command& keyBindArrayCommand(u16 theArrayID, u16 theIndex)
+u16 specialKeySignalID(ESpecialKey theSpecialKeyID)
+{
+	return keyBindSignalID(theSpecialKeyID);
+}
+
+
+Command keyBindCommand(u16 theKeyBindID)
+{
+	DBG_ASSERT(theKeyBindID < sKeyBinds.size());
+	sKeyBinds.vals()[theKeyBindID].signalID = keyBindSignalID(theKeyBindID);
+	return sKeyBinds.vals()[theKeyBindID];
+}
+
+
+u16 keyBindSignalID(u16 theKeyBindID)
+{
+	return eBtn_Num + theKeyBindID;
+}
+
+
+Command keyBindArrayCommand(u16 theArrayID, u16 theIndex)
 {
 	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
 	DBG_ASSERT(theIndex < sKeyBindArrays.vals()[theArrayID].size());
-	return sKeyBindArrays.vals()[theArrayID][theIndex].cmd;
+	return keyBindCommand(
+		sKeyBindArrays.vals()[theArrayID][theIndex].keyBindID);
 }
 
 
 u16 keyBindArraySignalID(u16 theArrayID)
 {
-	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
-	return sKeyBindArrays.vals()[theArrayID].signalID;
+	return eBtn_Num + sKeyBinds.size() + theArrayID;
 }
 
 
 u16 offsetKeyBindArrayIndex(
-	u16 theArrayID, u16 theIndex, s16 theOffset, bool wrap)
+	u16 theArrayID, int theIndex, int theSteps, bool wrap)
 {
 	DBG_ASSERT(theArrayID < sKeyBindArrays.size());
-	DBG_ASSERT(theIndex < sKeyBindArrays.vals()[theArrayID].size());
-	KeyBindArray& aKeyBindArray = sKeyBindArrays.vals()[theArrayID];
-	// The last command in the array should never be empty
-	DBG_ASSERT(aKeyBindArray.back().cmd.type != eCmdType_Empty);
-	while(aKeyBindArray[theIndex].cmd.type == eCmdType_Empty)
-		++theIndex;
-	while(theOffset < 0 && (wrap || theIndex > 0) )
+	
+	const KeyBindArray& aKeyBindArray = sKeyBindArrays.vals()[theArrayID];
+	int dir = theSteps < 0 ? -1 : 1;
+	theSteps = abs(theSteps) + 1; // +1 is to check initial index for validity
+	theIndex = clamp(theIndex, 0, int(aKeyBindArray.size())-1);
+
+	// Try up to 2 full passes (one per direction if !wrap) to find valid entry
+	for(int aCycleCount = 0; aCycleCount < 2; ++aCycleCount)
 	{
-		if( theIndex-- == 0 )
-			theIndex = wrap ? u16(aKeyBindArray.size()-1) : 0;
-		if( aKeyBindArray[theIndex].cmd.type != eCmdType_Empty )
-			++theOffset;
+		// Iterate in dir until hit edge of array or find target entry
+		for(;theIndex >= 0 && theIndex < aKeyBindArray.size(); theIndex += dir)
+		{
+			// Entry is valid if .keyBindID != 0 and its command is valid
+			if( const u16 aKeyBindID = aKeyBindArray[theIndex].keyBindID )
+			{
+				DBG_ASSERT(aKeyBindID < sKeyBinds.size());
+				if( sKeyBinds.vals()[aKeyBindID].type > eCmdType_Unassigned )
+				{
+					if( --theSteps == 0 )
+						return u16(theIndex);
+					// Keep outer loop active as long as finding valid entries
+					aCycleCount = 0;
+				}
+			}
+		}
+
+		// Hit array edge with steps still left...
+		// If wrap, search will continue from opposite edge in same dir
+		if( !wrap )
+		{
+			// Search in opposite direction from same edge of the array,
+			// but stop at the first valid index found (likely this one)
+			dir *= -1;
+			theSteps = 1;
+		}
+		theIndex = dir < 0 ? int(aKeyBindArray.size()) - 1 : 0;
 	}
-	while(theOffset > 0)
-	{
-		if( theIndex++ >= aKeyBindArray.size()-1 )
-			theIndex = wrap ? 0 : u16(aKeyBindArray.size()-1);
-		if( aKeyBindArray[theIndex].cmd.type != eCmdType_Empty )
-			--theOffset;
-	}
-	while(aKeyBindArray[theIndex].cmd.type == eCmdType_Empty)
-		++theIndex;
-	return theIndex;
+
+	// No valid entries found after 2 full passes through array!
+	return 0;
 }
 
 
@@ -4193,6 +4135,43 @@ const std::string& layerLabel(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].name;
+}
+
+
+std::string hotspotLabel(u16 theHotspotID)
+{
+	std::string result;
+	DBG_ASSERT(theHotspotID < sHotspots.size());
+	if( theHotspotID < eSpecialHotspot_FirstNamed )
+	{// Internal un-named hotspot
+		result = toString(theHotspotID); // internal un-named hotspot
+	}
+	else if( theHotspotID < eSpecialHotspot_Num )
+	{// Special-use named hotspot
+		result = kSpecialNamedHotspots[
+			theHotspotID - eSpecialHotspot_FirstNamed];
+	}
+	else if( sHotspotArrays.empty() )
+	{// Shouldn't be possible...
+		result = "ERROR - UNKNOWN";
+	}
+	else
+	{// Should be in one of the arrays
+		HotspotArray aSearchArray;
+		aSearchArray.anchorIdx = theHotspotID;
+		aSearchArray.hasAnchor = true;
+		std::vector<HotspotArray>::iterator itr = std::upper_bound(
+			sHotspotArrays.vals().begin(),
+			sHotspotArrays.vals().end(),
+			aSearchArray);
+		DBG_ASSERT(itr > sHotspotArrays.vals().begin());
+		--itr;
+		result = itr->name;
+		if( theHotspotID > itr->anchorIdx )
+			result += toString(theHotspotID - itr->anchorIdx);
+	}
+	
+	return result;
 }
 
 

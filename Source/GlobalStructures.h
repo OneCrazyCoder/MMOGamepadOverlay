@@ -39,29 +39,30 @@ struct ZERO_INIT(Command)
 			{
 				u16 dir;
 				u16 vKey;
-				u16 layerID;
-				u16 subMenuID;
-				u16 hotspotID;
 				u16 vKeySeqID;
 				u16 stringID;
+				u16 subMenuID;
+				u16 menuItemID;
+				u16 keyBindID;
 				u16 arrayIdx;
-				u16 menuItemIdx;
+				u16 layerID;
 			};
 			union
 			{
 				u16 signalID;
+				u16 hotspotID;
 				u16 menuID;
 				u16 keybindArrayID;
 				u16 replacementLayer;
 				u16 mouseWheelMotionType;
-				bool multiDirAutoRun;
 			};
 			s16 count;
+			u8 swapDir : 2;
 			u8 wrap : 1;
 			u8 withMouse : 1;
 			u8 andClick : 1;
-			u8 swapDir : 2;
-			u8 __reserved : 3;
+			u8 multiDirAutoRun : 1;
+			u8 __reserved : 2;
 			u8 __reserved2;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;
