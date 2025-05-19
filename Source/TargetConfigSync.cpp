@@ -2044,6 +2044,20 @@ void load()
 }
 
 
+void loadProfileChanges()
+{
+	if( Profile::changedSections().contains(
+			condense(kTargetConfigFilesSectionName)) ||
+		Profile::changedSections().contains(
+			condense(kSyncPropertiesSectionName)) ||
+		Profile::changedSections().contains(
+			condense(kValueFormatStrSectionName)) )
+	{
+		load();
+	}
+}
+
+
 void cleanup()
 {
 	delete sReader; sReader = null;
@@ -2228,7 +2242,7 @@ void update()
 							aProp.valueInserts[i].funcType,
 							aProp.valueInserts[i].valueSetID));
 				}
-				syncDebugPrint("Setting %s/%s to %s\n",
+				syncDebugPrint("Setting [%s] %s = %s\n",
 					aProp.section.c_str(),
 					aProp.name.c_str(),
 					aValueStr.c_str());
@@ -2240,23 +2254,6 @@ void update()
 		{// After initial load, so need to let other modules know of changes
 			if( propTypeChanged[ePropertyType_Unknown] )
 				gLoadNewProfile = true;
-			if( propTypeChanged[ePropertyType_UIScale] )
-				WindowManager::updateUIScale();
-			if( propTypeChanged[ePropertyType_Hotspot] )
-			{
-				InputMap::reloadAllHotspots();
-				HotspotMap::reloadPositions();
-				for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
-				{
-					if( InputMap::hudElementType(i) == eMenuStyle_Hotspots ||
-						InputMap::hudElementType(i) == eHUDType_Hotspot ||
-						InputMap::hudElementType(i) == eHUDType_HotspotGuide )
-					{
-						gReshapeHUD.set(i);
-						gFullRedrawHUD.set(i);
-					}
-				}
-			}
 			if( propTypeChanged[ePropertyType_CopyIcon] )
 				HUD::reloadCopyIconLabel("");
 			if( propTypeChanged[ePropertyType_HUDElement] )

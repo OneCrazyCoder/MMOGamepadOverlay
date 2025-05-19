@@ -17,14 +17,14 @@ namespace HotspotMap
 // Initialize hotspot tracking based on data parsed by InputMap
 void init();
 
+// Update map to reflect changes to any hotspots
+void loadProfileChanges();
+
 // Deactivate all hotspots and free memory
 void cleanup();
 
 // Updates hotspot tracking from changes to cursor, target size, etc.
 void update();
-
-// Reload hotspot positions from InputMap
-void reloadPositions();
 
 // Set which hotspot arrays should be active
 void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays);
@@ -49,10 +49,10 @@ EResult stringToCoord(std::string& theString,
 					  Hotspot::Coord& out,
 					  std::string* theValidatedString = null);
 // Reverse of above - converts a hotspot into a Profile string
-enum EHotspotNamingConvention
-{	eHNC_XY, eHNC_XY_Off, eHNC_WH, eHNC_X, eHNC_Y,
-	eHNC_W, eHNC_H, eHNC_X_Off, eHNC_Y_Off, eHNC_Num };
-std::string hotspotToString(const Hotspot&, EHotspotNamingConvention);
-std::string coordToString(const Hotspot::Coord&, EHotspotNamingConvention);
+enum EHotspotNamingStyle
+{	eHNS_XY, eHNS_XY_Off, eHNS_WH, eHNS_X, eHNS_Y,
+	eHNS_W, eHNS_H, eHNS_X_Off, eHNS_Y_Off, eHNS_Num };
+std::string hotspotToString(const Hotspot&, EHotspotNamingStyle = eHNS_XY);
+std::string coordToString(const Hotspot::Coord&, EHotspotNamingStyle);
 
 } // HotspotMap

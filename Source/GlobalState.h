@@ -30,8 +30,8 @@ extern BitVector<256> gFiredSignals;
 // Which HUD elements should be visible
 extern BitVector<32> gVisibleHUD;
 
-// Which HUD elements need to be re-drawn to reflect changes (like selection)
-extern BitVector<32> gRedrawHUD;
+// Which HUD elements need to redraw selection, confirmation, or disabled state
+extern BitVector<32> gRefreshHUD;
 
 // Which HUD elements need complete erase and re-draw from scratch
 extern BitVector<32> gFullRedrawHUD;

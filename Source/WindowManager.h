@@ -34,6 +34,9 @@ void createOverlays(HINSTANCE);
 // Destroy all windows
 void destroyAll(HINSTANCE);
 
+// Load profile changes that might affect windows (UIScale in particular!)
+void loadProfileChanges();
+
 // Update window contents as needed
 void update();
 
@@ -69,7 +72,7 @@ SIZE overlayTargetSize();
 RECT overlayClipRect();
 
 // Updates gUIScale read in from Profile and possibly window size
-void updateUIScale();
+//void updateUIScale();
 
 // Displays a visual indicater that are tracking a target window now
 void showTargetWindowFound();
@@ -83,7 +86,7 @@ void destroyToolbarWindow();
 // Adds callback functions for drawing and getting messages for the System
 // overlay window (the top-most, full-sized one) for editor functionality.
 // Allows non-transparent pixels of the overlay to get mouse click messages.
-// Said overlay will stay visible, but gRedrawHUD must be used for redraws.
+// Said overlay will stay visible, but gRefreshHUD must be used for redraws.
 // Set the callbacks to NULL to stop this behaviour and clear/hide the window.
 typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
 void setSystemOverlayCallbacks(WNDPROC, SystemPaintFunc);

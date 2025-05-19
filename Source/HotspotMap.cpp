@@ -916,6 +916,18 @@ void init()
 }
 
 
+void loadProfileChanges()
+{
+	if( Profile::changedSections().contains("HOTSPOTS") ||
+		Profile::changedSections().contains("MOUSE") )
+	{
+		sNewTasks.set();
+		for(size_t i = 0; i < sLinkMaps.size(); ++i)
+			sLinkMaps[i].clear();
+	}
+}
+
+
 void cleanup()
 {
 	sRequestedArrays.clear();
@@ -974,14 +986,6 @@ void update()
 
 	// Continue progress on any current tasks
 	processTasks();
-}
-
-
-void reloadPositions()
-{
-	sNewTasks.set();
-	for(size_t i = 0; i < sLinkMaps.size(); ++i)
-		sLinkMaps[i].clear();
 }
 
 
@@ -1517,33 +1521,33 @@ EResult stringToCoord(std::string& theString,
 
 std::string hotspotToString(
 	const Hotspot& theHotspot,
-	EHotspotNamingConvention theConvention)
+	EHotspotNamingStyle theStyle)
 {
 	std::string result;
-	EHotspotNamingConvention aCoordConvention;
-	switch(theConvention)
+	EHotspotNamingStyle aCoordStyle;
+	switch(theStyle)
 	{
-	case eHNC_XY:		aCoordConvention = eHNC_X; break;
-	case eHNC_XY_Off:	aCoordConvention = eHNC_X_Off; break;
-	case eHNC_WH:		aCoordConvention = eHNC_W; break;
+	case eHNS_XY:		aCoordStyle = eHNS_X;		break;
+	case eHNS_XY_Off:	aCoordStyle = eHNS_X_Off;	break;
+	case eHNS_WH:		aCoordStyle = eHNS_W;		break;
 	default: DBG_ASSERT(false);
 	}
-	result = coordToString(theHotspot.x, aCoordConvention) + ", ";
-	switch(theConvention)
+	result = coordToString(theHotspot.x, aCoordStyle) + ", ";
+	switch(theStyle)
 	{
-	case eHNC_XY:		aCoordConvention = eHNC_Y; break;
-	case eHNC_XY_Off:	aCoordConvention = eHNC_Y_Off; break;
-	case eHNC_WH:		aCoordConvention = eHNC_H; break;
+	case eHNS_XY:		aCoordStyle = eHNS_Y;		break;
+	case eHNS_XY_Off:	aCoordStyle = eHNS_Y_Off;	break;
+	case eHNS_WH:		aCoordStyle = eHNS_H;		break;
 	default: DBG_ASSERT(false);
 	}
-	result += coordToString(theHotspot.x, aCoordConvention);
+	result += coordToString(theHotspot.y, aCoordStyle);
 	return result;
 }
 
 
 std::string coordToString(
 	const Hotspot::Coord& theCoord,
-	EHotspotNamingConvention theConvention)
+	EHotspotNamingStyle theStyle)
 {
 	const u16 kPercentResolution = 10000; // Must be evenly divisible by 10
 	std::string result;
@@ -1553,23 +1557,23 @@ std::string coordToString(
 		// Leave blank
 		break;
 	case 0x8000:
-		switch(theConvention)
+		switch(theStyle)
 		{
-		case eHNC_X: case eHNC_W: case eHNC_X_Off:
+		case eHNS_X: case eHNS_W: case eHNS_X_Off:
 			result = "CX";
 			break;
-		case eHNC_Y: case eHNC_H: case eHNC_Y_Off:
+		case eHNS_Y: case eHNS_H: case eHNS_Y_Off:
 			result = "CY";
 			break;
 		}
 		break;
 	case 0xFFFF:
-		switch(theConvention)
+		switch(theStyle)
 		{
-		case eHNC_X: case eHNC_W: case eHNC_X_Off:
+		case eHNS_X: case eHNS_W: case eHNS_X_Off:
 			result = "R";
 			break;
-		case eHNC_Y: case eHNC_H: case eHNC_Y_Off:
+		case eHNS_Y: case eHNS_H: case eHNS_Y_Off:
 			result = "B";
 			break;
 		}
@@ -1577,7 +1581,7 @@ std::string coordToString(
 	}
 
 	if( result.empty() &&
-		(theCoord.anchor != 0 || theConvention == eHNC_Num) )
+		(theCoord.anchor != 0 || theStyle == eHNS_Num) )
 	{// Convert to a XX.XXX% string
 		u32 anInt = u16ToRangeVal(theCoord.anchor, kPercentResolution);
 		if( ratioToU16(anInt, kPercentResolution) < theCoord.anchor )
@@ -1603,8 +1607,8 @@ std::string coordToString(
 
 	if( theCoord.offset > 0 &&
 		(!result.empty() ||
-		 theConvention == eHNC_X_Off ||
-		 theConvention == eHNC_Y_Off) )
+		 theStyle == eHNS_X_Off ||
+		 theStyle == eHNS_Y_Off) )
 	{
 		result += "+";
 	}
@@ -1612,20 +1616,20 @@ std::string coordToString(
 		result += toString(theCoord.offset);
 	if( result.empty() )
 	{
-		switch(theConvention)
+		switch(theStyle)
 		{
-		case eHNC_X:
+		case eHNS_X:
 			result = "L";
 			break;
-		case eHNC_Y:
+		case eHNS_Y:
 			result = "T";
 			break;
-		case eHNC_W:
-		case eHNC_H:
+		case eHNS_W:
+		case eHNS_H:
 			result = "0";
 			break;
-		case eHNC_X_Off:
-		case eHNC_Y_Off:
+		case eHNS_X_Off:
+		case eHNS_Y_Off:
 			result = "+0";
 			break;
 		}

@@ -300,20 +300,6 @@ static void applyNewPosition()
 
 	switch(anEntry.type)
 	{
-	case LayoutEntry::eType_Hotspot:
-		InputMap::reloadHotspotKey(anEntry.item.name,
-			sState->hotspotNameMapCache,
-			sState->hotspotArrayNameMapCache);
-		HotspotMap::reloadPositions();
-		for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
-		{
-			if( InputMap::hudElementType(i) == eMenuStyle_Hotspots ||
-				InputMap::hudElementType(i) == eHUDType_Hotspot )
-			{
-				gReshapeHUD.set(i);
-			}
-		}
-		break;
 	case LayoutEntry::eType_CopyIcon:
 		HUD::reloadCopyIconLabel(anEntry.item.name);
 		break;
@@ -358,26 +344,26 @@ static void saveNewPosition()
 }
 
 
-static HotspotMap::EHotspotNamingConvention formatForCoord(
+static HotspotMap::EHotspotNamingStyle formatForCoord(
 	const LayoutEntry& theEntry, int theEditControlID)
 {
 	switch(theEditControlID)
 	{
 	case IDC_EDIT_X:
 		return entryIsAnOffset(theEntry)
-			? HotspotMap::eHNC_X_Off
-			: HotspotMap::eHNC_X;
+			? HotspotMap::eHNS_X_Off
+			: HotspotMap::eHNS_X;
 	case IDC_EDIT_Y:
 		return entryIsAnOffset(theEntry)
-			? HotspotMap::eHNC_Y_Off
-			: HotspotMap::eHNC_Y;
+			? HotspotMap::eHNS_Y_Off
+			: HotspotMap::eHNS_Y;
 	case IDC_EDIT_W:
-		return HotspotMap::eHNC_W;
+		return HotspotMap::eHNS_W;
 	case IDC_EDIT_H:
-		return HotspotMap::eHNC_H;
+		return HotspotMap::eHNS_H;
 	}
 
-	return HotspotMap::eHNC_Num;
+	return HotspotMap::eHNS_Num;
 }
 
 
@@ -580,7 +566,7 @@ static void processCoordString(
 					result = "0%";
 				else
 					result = HotspotMap::coordToString(
-						aHotspot.x, HotspotMap::eHNC_Num);
+						aHotspot.x, HotspotMap::eHNS_Num);
 				break;
 			case IDC_EDIT_Y: case IDC_EDIT_H:
 				if( aWinPos.y >= WindowManager::overlayTargetSize().cy-1 )
@@ -589,7 +575,7 @@ static void processCoordString(
 					result = "0%";
 				else
 					result = HotspotMap::coordToString(
-						aHotspot.y, HotspotMap::eHNC_Num);
+						aHotspot.y, HotspotMap::eHNS_Num);
 				break;
 			}
 		}

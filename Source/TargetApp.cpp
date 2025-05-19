@@ -580,6 +580,29 @@ void loadProfile()
 }
 
 
+void loadProfileChanges()
+{
+	if( Profile::changedSections().contains("SYSTEM") )
+	{
+		const std::wstring oldTargetWindowName = kConfig.targetWindowName;
+		kConfig.targetWindowName.clear();
+		kConfig.load();
+		if( kConfig.targetWindowName != oldTargetWindowName )
+		{
+			if( sTargetWindowHandle && !sRestoreTargetWindow )
+				dropTargetWindow();
+			if( !sTargetWindowHandle )
+			{
+				if( kConfig.startInFullScreenWindow )
+					sDesiredTargetMode = eWindowMode_FullScreenWindow;
+				else
+					sDesiredTargetMode = eWindowMode_Unknown;
+			}
+		}
+	}
+}
+
+
 void autoLaunch()
 {
 	// Only ever want to try this once, even if load alternate profile

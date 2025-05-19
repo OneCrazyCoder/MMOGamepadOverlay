@@ -1687,7 +1687,7 @@ static void updateHUDStateForCurrentLayers()
 		const bool wasDisabled = aPrevDisabledHUD.test(i);
 		const bool isDisabled = gDisabledHUD.test(i);
 		if( wasDisabled != isDisabled )
-			gRedrawHUD.set(i);
+			gRefreshHUD.set(i);
 		if( sResults.menuHEAutoCommandRun.test(i) )
 			continue;
 		if( !aPrevVisibleHUD.test(i) || (wasDisabled && !isDisabled) )
@@ -1701,8 +1701,7 @@ static void updateHUDStateForCurrentLayers()
 
 static void updateHotspotArraysForCurrentLayers()
 {
-	BitVector<32> aHotspotArraysEnabled;
-	aHotspotArraysEnabled.clearAndResize(InputMap::hotspotArrayCount());
+	BitVector<32> aHotspotArraysEnabled(InputMap::hotspotArrayCount());
 	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
 	{
 		aHotspotArraysEnabled |=
@@ -1753,6 +1752,24 @@ void loadProfile()
 	loadCommandsForCurrentLayers();
 	updateHUDStateForCurrentLayers();
 	updateMouseModeForCurrentLayers();
+}
+
+
+void loadProfileChanges()
+{
+	if( Profile::changedSections().contains("GAMEPAD") ||
+		Profile::changedSections().contains("SYSTEM") )
+	{
+		kConfig.load();
+	}
+
+	if( Profile::changedSections().contains("SCHEME") ||
+		Profile::changedSections().containsPrefix("LAYER.") )
+	{
+		loadCommandsForCurrentLayers();
+		updateHUDStateForCurrentLayers();
+		updateHotspotArraysForCurrentLayers();
+	}
 }
 
 
