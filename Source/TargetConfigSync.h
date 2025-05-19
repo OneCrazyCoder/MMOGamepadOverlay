@@ -18,6 +18,7 @@ namespace TargetConfigSync
 
 // Load data from target app's config files and begin monitoring for changes
 void load();
+void loadProfileChanges();
 
 // Stop monitoring for file changes and free memory
 void cleanup();

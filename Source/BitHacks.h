@@ -161,7 +161,7 @@ public:
 
 	bool empty() const { return mSizeInBits == 0; }
 	size_t size() const { return mSizeInBits; }
-	size_t arraySize() const { return (mSizeInBits + 31) / 32; }
+	size_t arraySize() const { return max(1, (mSizeInBits + 31) / 32); }
 	size_t capacity() const { return mCapacityInU32s * 32; }
 
 	bool test(size_t pos) const; // returns true/false state of bit at position

@@ -196,7 +196,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 	// Load core profile to get system settings
 	Profile::loadCore();
 	gAppTargetFrameTime = max(1,
-		Profile::getInt("System", "FrameTime", gAppTargetFrameTime));
+		Profile::getInt("System", "FrameTime",
+		gAppTargetFrameTime));
 
 	// Initiate frame timing
 	timeBeginPeriod(gAppTargetFrameTime / 2);
@@ -219,7 +220,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		if( !gShutdown && !hadFatalError() )
 		{
 			gAppTargetFrameTime = max(1,
-				Profile::getInt("System", "FrameTime", gAppTargetFrameTime));
+				Profile::getInt("System", "FrameTime",
+				gAppTargetFrameTime));
 			InputMap::loadProfile();
 			HotspotMap::init();
 			Menus::init();
@@ -251,7 +253,15 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 			// Check if need to react to changed Profile data
 			if( !Profile::changedSections().empty() )
 			{
+				TargetConfigSync::loadProfileChanges();
 				InputMap::loadProfileChanges();
+				HotspotMap::loadProfileChanges();
+				Menus::loadProfileChanges();
+				InputTranslator::loadProfileChanges();
+				InputDispatcher::loadProfileChanges();
+				TargetApp::loadProfile();
+				HUD::loadProfileChanges();
+				WindowManager::loadProfileChanges();
 				Profile::clearChangedSections();
 			}
 

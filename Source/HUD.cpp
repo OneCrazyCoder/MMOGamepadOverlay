@@ -1641,6 +1641,7 @@ static void drawBasicMenu(HUDDrawData& dd)
 	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	sMenuDrawCache.resize(max(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
 	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
@@ -1708,6 +1709,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	sMenuDrawCache.resize(max(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(
 		anItemCount + hasTitle + (hi.altLabelWidth ? anItemCount : 0));
 
@@ -1799,6 +1801,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 	hi.selection = kInvalidItem;
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
+	sMenuDrawCache.resize(max(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
 
 	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
@@ -2286,6 +2289,12 @@ void init()
 }
 
 
+void loadProfileChanges()
+{
+	// TODO
+}
+
+
 void cleanup()
 {
 	for(size_t i = 0; i < sFonts.size(); ++i)
@@ -2379,7 +2388,7 @@ void update()
 			((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0;
 		sSystemBorderFlashTimer = max(0, sSystemBorderFlashTimer - gAppFrameTime);
 		if( gVisibleHUD.test(sSystemHUDElementID) != showSystemBorder )
-			gRedrawHUD.set(sSystemHUDElementID);
+			gRefreshHUD.set(sSystemHUDElementID);
 	}
 
 	#ifdef DEBUG_DRAW_OVERLAY_FRAME
@@ -2426,7 +2435,7 @@ void update()
 			{
 				hi.flashing = gConfirmedMenuItem[i];
 				hi.flashStartTime = gAppRunTime;
-				gRedrawHUD.set(i);
+				gRefreshHUD.set(i);
 			}
 			gConfirmedMenuItem[i] = kInvalidItem;
 		}
@@ -2434,10 +2443,10 @@ void update()
 				 (gAppRunTime - hi.flashStartTime) > hi.flashMaxTime )
 		{
 			hi.flashing = kInvalidItem;
-			gRedrawHUD.set(i);
+			gRefreshHUD.set(i);
 		}
 
-		if( gRedrawDynamicHUDStrings && !gRedrawHUD.test(i) )
+		if( gRedrawDynamicHUDStrings && !gRefreshHUD.test(i) )
 		{// Possibly redraw any dynamic strings (text replacements)
 			for(size_t aCacheEntryIdx = 0;
 				aCacheEntryIdx < sMenuDrawCache[i].size();
@@ -2445,7 +2454,7 @@ void update()
 			{
 				if( sMenuDrawCache[i][aCacheEntryIdx].isDynamic )
 				{
-					gRedrawHUD.set(i);
+					gRefreshHUD.set(i);
 					break;
 				}
 			}
@@ -2458,7 +2467,7 @@ void update()
 		gVisibleHUD.reset(sHotspotGuideHUDElementID);
 		break;
 	case eHotspotGuideMode_Redraw:
-		gRedrawHUD.set(sHotspotGuideHUDElementID);
+		gRefreshHUD.set(sHotspotGuideHUDElementID);
 		// fall through
 	case eHotspotGuideMode_Redisplay:
 		gActiveHUD.set(sHotspotGuideHUDElementID);
@@ -2501,7 +2510,7 @@ void update()
 				next_itr = sAutoRefreshLabels.erase(itr);
 				continue;
 			}
-			gRedrawHUD.set(itr->hudElementID);
+			gRefreshHUD.set(itr->hudElementID);
 			u16& aDestItemID = hi.forcedRedrawItemID;
 			// If aDestItemID is already set as a valid entry, it means still
 			// waiting for it to refresh (might be currently hidden), so don't
@@ -3087,8 +3096,8 @@ void redrawSystemOverlay(bool fullRedraw)
 	}
 	else
 	{
-		if( sSystemHUDElementID < gRedrawHUD.size() )
-			gRedrawHUD.set(sSystemHUDElementID);
+		if( sSystemHUDElementID < gRefreshHUD.size() )
+			gRefreshHUD.set(sSystemHUDElementID);
 	}
 }
 

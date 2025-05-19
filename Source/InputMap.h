@@ -83,6 +83,8 @@ Command menuBackCommand(u16 theMenuID);
 EHUDType menuStyle(u16 theMenuID);
 u16 rootMenuOfMenu(u16 theMenuID);
 u16 menuHotspotArray(u16 theMenuID); // for eMenuStyle_Hotspots only
+u8 menuGridWidth(u16 theMenuID); // for eMenuStyle_Grid
+u8 menuGridHeight(u16 theMenuID); // for eMenuStyle_Grid
 // Strings used for Profile getStr()/setStr() functions
 std::string menuSectionName(u16 theMenuID);
 std::string menuItemKeyName(u16 theMenuItemIdx);
@@ -95,10 +97,6 @@ u16 firstHotspotInArray(u16 theHotspotArrayID);
 u16 sizeOfHotspotArray(u16 theHotspotArrayID);
 const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
 void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
-void reloadHotspotKey(const std::string& theHotspotName,
-	StringToValueMap<u16>& theHotspotNameMapCache,
-	StringToValueMap<u16>& theHotspotArrayNameMapCache);
-void reloadAllHotspots();
 
 // HUD ELEMENTS
 EHUDType hudElementType(u16 theHUDElementID);

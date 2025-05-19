@@ -18,6 +18,7 @@ namespace TargetApp
 
 // Load configuration settings from current profile
 void loadProfile();
+void loadProfileChanges();
 
 // Attempt to launch the target application if one was specified
 void autoLaunch();

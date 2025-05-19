@@ -67,8 +67,8 @@ struct ZERO_INIT(OverlayWindow)
 	float fadeValue;
 	EFadeState fadeState;
 	u8 alpha;
-	bool windowUpdated;
-	bool layoutUpdated;
+	bool windowReady;
+	bool layoutReady;
 };
 
 
@@ -342,7 +342,7 @@ static LRESULT CALLBACK overlayWindowProc(
 	switch(theMessage)
 	{
 	case WM_PAINT:
-		gRedrawHUD.set(aHUDElementID);
+		gRefreshHUD.set(aHUDElementID);
 		break;
 	}
 
@@ -357,7 +357,7 @@ static LRESULT CALLBACK systemOverlayWindowProc(
 	switch(theMessage)
 	{
 	case WM_PAINT:
-		gRedrawHUD.set(aHUDElementID);
+		gRefreshHUD.set(aHUDElementID);
 		break;
 	case WM_MOUSEACTIVATE:
 		return MA_NOACTIVATE;
@@ -591,7 +591,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 	if( aNewAlpha != theWindow.alpha )
 	{
 		theWindow.alpha = aNewAlpha;
-		theWindow.windowUpdated = false;
+		theWindow.windowReady = false;
 	}
 }
 
@@ -657,7 +657,6 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.lpszClassName = kSystemOverlayWindowClassName;
 	RegisterClassExW(&aWindowClass);
 
-
 	// Determine main app window position if haven't yet
 	if( !sMainWindowPosInit )
 	{
@@ -700,7 +699,6 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		GetSystemMetrics(SM_CXSCREEN),
 		GetSystemMetrics(SM_CYSCREEN) };
 	resize(aScreenRect, false);
-	updateUIScale();
 }
 
 
@@ -751,8 +749,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 			sTargetSize, aWindow.components,
 			aWindow.position, aWindow.size,
 			sTargetClipRect);
-		aWindow.layoutUpdated = true;
-		aWindow.windowUpdated = false;
+		aWindow.layoutReady = true;
+		aWindow.windowReady = false;
 		gReshapeHUD.reset(aHUDElementID);
 
 		aWindow.handle = CreateWindowExW(
@@ -806,6 +804,47 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 }
 
 
+void loadProfileChanges()
+{
+	const Profile::PropertySection* aPropSect =
+		Profile::changedSections().find("SYSTEM");
+	if( !aPropSect )
+		return;
+
+	gAppTargetFrameTime = max(1,
+		Profile::getInt("System", "FrameTime",
+		gAppTargetFrameTime));
+
+	const Profile::PropertyMap& aPropMap = aPropSect->properties;
+	if( aPropMap.contains("ICONCOPYMETHOD") ||
+		aPropMap.contains("WINDOWNAME") ||
+		aPropMap.contains("WINDOWWIDTH") ||
+		aPropMap.contains("WINDOWHEIGHT") ||
+		aPropMap.contains("WINDOWXPOS") ||
+		aPropMap.contains("WINDOWYPOS") ||
+		aPropMap.contains("UISCALEBASEHEIGHT") )
+	{// These properties can't be changed safely at runtime
+		logError(
+			"Attempted [System] property change that does not "
+			"allow dynamic runtime changes!");
+	}
+
+	if( const Profile::Property* aUIScaleProp = aPropMap.find("UISCALE") )
+	{
+		const double oldUIScale = gUIScale;
+		double aUIScale = doubleFromString(aUIScaleProp->val);
+		if( aUIScale <= 0 ) aUIScale = 1.0;
+		gUIScale = aUIScale * gWindowUIScale;
+		if( gUIScale != oldUIScale )
+		{
+			HUD::updateScaling();
+			for(u16 i = 0; i < sOverlayWindows.size(); ++i)
+				sOverlayWindows[i].layoutReady = false;
+		}
+	}
+}
+
+
 void update()
 {
 	if( sWindowInModalMode || gLoadNewProfile || gShutdown )
@@ -838,7 +877,7 @@ void update()
 		// Check for flag that need to update layout
 		if( gReshapeHUD.test(aHUDElementID) )
 		{
-			aWindow.layoutUpdated = false;
+			aWindow.layoutReady = false;
 			gReshapeHUD.reset(aHUDElementID);
 		}
 
@@ -847,8 +886,8 @@ void update()
 
 		// Check visibility status so can mostly ignore hidden windows
 		if( sHidden || aWindow.alpha == 0 ||
-			(aWindow.layoutUpdated && aWindow.size.cx <= 0) ||
-			(aWindow.layoutUpdated && aWindow.size.cy <= 0) )
+			(aWindow.layoutReady && aWindow.size.cx <= 0) ||
+			(aWindow.layoutReady && aWindow.size.cy <= 0) )
 		{
 			if( IsWindowVisible(aWindow.handle) )
 				ShowWindow(aWindow.handle, SW_HIDE);
@@ -863,13 +902,13 @@ void update()
 		}
 
 		// Check for possible update to window layout
-		if( !aWindow.layoutUpdated )
+		if( !aWindow.layoutReady )
 		{
 			HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 				aWindow.components, aWindow.position,
 				aWindow.size, sTargetClipRect);
-			aWindow.layoutUpdated = true;
-			aWindow.windowUpdated = false;
+			aWindow.layoutReady = true;
+			aWindow.windowReady = false;
 		}
 
 		// Delete bitmap if bitmap size doesn't match window size
@@ -913,20 +952,20 @@ void update()
 			continue;
 		}
 		SelectObject(aWindowDC, aWindow.bitmap);
-		if( gRedrawHUD.test(aHUDElementID) ||
+		if( gRefreshHUD.test(aHUDElementID) ||
 			gFullRedrawHUD.test(aHUDElementID) )
 		{
 			HUD::drawElement(
 				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
 				aHUDElementID, aWindow.components,
 				gFullRedrawHUD.test(aHUDElementID));
-			aWindow.windowUpdated = false;
-			gRedrawHUD.reset(aHUDElementID);
+			aWindow.windowReady = false;
+			gRefreshHUD.reset(aHUDElementID);
 			gFullRedrawHUD.reset(aHUDElementID);
 		}
 
 		// Update window
-		if( !aWindow.windowUpdated )
+		if( !aWindow.windowReady )
 		{
 			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
 			POINT aWindowScreenPos;
@@ -937,7 +976,7 @@ void update()
 				aWindowDC, &anOriginPoint,
 				HUD::transColor(aHUDElementID),
 				&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
-			aWindow.windowUpdated = true;
+			aWindow.windowReady = true;
 		}
 		gActiveHUD.reset(aHUDElementID);
 
@@ -1083,25 +1122,23 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	{
 		sTargetSize = aNewTargetSize;
 
-		double oldWindowUIScale = gWindowUIScale;
 		const int aUIScaleBaseHeight =
 			Profile::getInt("System", "UIScaleBaseHeight");
 		if( aUIScaleBaseHeight > 0 )
 			gWindowUIScale *= double(sTargetSize.cy) / aUIScaleBaseHeight;
 		else
 			gWindowUIScale = 1.0;
-		if( gWindowUIScale != oldWindowUIScale )
-		{
-			double aUIScale = Profile::getFloat("System", "UIScale", 1.0f);
-			if( aUIScale <= 0 ) aUIScale = 1.0;
-			gUIScale = aUIScale * gWindowUIScale;
+		const double oldUIScale = gUIScale;
+		double aUIScale = Profile::getFloat("System", "UIScale", 1.0f);
+		if( aUIScale <= 0 ) aUIScale = 1.0;
+		gUIScale = aUIScale * gWindowUIScale;
+		if( gUIScale != oldUIScale )
 			HUD::updateScaling();
-		}
 	}
 
 	// Flag all overlay windows to update position & size accordingly
 	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
-		sOverlayWindows[i].layoutUpdated = false;
+		sOverlayWindows[i].layoutReady = false;
 }
 
 
@@ -1165,17 +1202,6 @@ SIZE overlayTargetSize()
 RECT overlayClipRect()
 {
 	return sTargetClipRect;
-}
-
-
-void updateUIScale()
-{
-	const double oldScale = gUIScale;
-	double aUIScale = Profile::getFloat("System", "UIScale", 1.0f);
-	if( aUIScale <= 0 ) aUIScale = 1.0;
-	gUIScale = aUIScale * gWindowUIScale;
-	if( gUIScale != oldScale )
-		HUD::updateScaling();
 }
 
 
@@ -1330,13 +1356,13 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 
 	const size_t aCompIndex =
 		min(aWindow.components.size()-1, theMenuItemIdx + 1);
-	if( !aWindow.layoutUpdated || gReshapeHUD.test(aHUDElementID) )
+	if( !aWindow.layoutReady || gReshapeHUD.test(aHUDElementID) )
 	{
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
 			aWindow.components, aWindow.position,
 			aWindow.size, sTargetClipRect);
-		aWindow.layoutUpdated = true;
-		aWindow.windowUpdated = false;
+		aWindow.layoutReady = true;
+		aWindow.windowReady = false;
 		gReshapeHUD.reset(aHUDElementID);
 	}
 	POINT aPos;
@@ -1356,13 +1382,13 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 RECT hudElementRect(u16 theHUDElementID)
 {
 	OverlayWindow& aWindow = sOverlayWindows[theHUDElementID];
-	if( !aWindow.layoutUpdated || gReshapeHUD.test(theHUDElementID) )
+	if( !aWindow.layoutReady || gReshapeHUD.test(theHUDElementID) )
 	{
 		HUD::updateWindowLayout(theHUDElementID, sTargetSize,
 			aWindow.components, aWindow.position,
 			aWindow.size, sTargetClipRect);
-		aWindow.layoutUpdated = true;
-		aWindow.windowUpdated = false;
+		aWindow.layoutReady = true;
+		aWindow.windowReady = false;
 		gReshapeHUD.reset(theHUDElementID);
 	}
 

@@ -19,6 +19,9 @@ namespace HUD
 // Load Profile data and create fonts, bitmaps, etc.
 void init();
 
+// Load profile changes and update HUD visuals to match
+void loadProfileChanges();
+
 // Free resources such as pens and fonts
 void cleanup();
 

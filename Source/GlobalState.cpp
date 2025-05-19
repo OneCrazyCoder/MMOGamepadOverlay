@@ -15,7 +15,7 @@ int gAppFrameTime = 0;
 int gAppTargetFrameTime = 14; // allows >= 60 fps without taxing CPU
 BitVector<256> gFiredSignals;
 BitVector<32> gVisibleHUD;
-BitVector<32> gRedrawHUD;
+BitVector<32> gRefreshHUD;
 BitVector<32> gFullRedrawHUD;
 BitVector<32> gReshapeHUD;
 BitVector<32> gActiveHUD;

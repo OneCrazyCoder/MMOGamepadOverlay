@@ -433,9 +433,8 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 			TVINSERTSTRUCT tvInsert = {};
 			tvInsert.hInsertAfter = TVI_LAST;
 			std::vector<HTREEITEM> aHandlesList(theItems->size());
-			BitVector<256> anItemHasChildren, anItemWasAdded;
-			anItemHasChildren.clearAndResize(theItems->size());
-			anItemWasAdded.clearAndResize(theItems->size());
+			BitVector<256> anItemHasChildren(theItems->size());
+			BitVector<256> anItemWasAdded(theItems->size());
 			for(size_t i = 1; i < theItems->size(); ++i)
 				anItemHasChildren.set((*theItems)[i]->parentIndex);
 			aHandlesList[0] = TVI_ROOT;

@@ -1645,6 +1645,17 @@ void loadProfile()
 }
 
 
+void loadProfileChanges()
+{
+	if( Profile::changedSections().contains("GAMEPAD") ||
+		Profile::changedSections().contains("MOUSE") ||
+		Profile::changedSections().contains("SYSTEM") )
+	{
+		kConfig.load();
+	}
+}
+
+
 void cleanup()
 {
 	sTracker.keysLockedDown.clear();

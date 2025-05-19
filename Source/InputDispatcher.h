@@ -17,6 +17,7 @@ namespace InputDispatcher
 
 // Load configuration settings from current profile
 void loadProfile();
+void loadProfileChanges();
 
 // Clean up and prepares for app shutdown
 void cleanup();

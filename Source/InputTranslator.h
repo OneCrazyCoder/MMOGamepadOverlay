@@ -19,6 +19,7 @@ namespace InputTranslator
 
 // Load configuration settings from current profile
 void loadProfile();
+void loadProfileChanges();
 
 // Clean up any state and pointers (be sure to use before reloading profile)
 void cleanup();

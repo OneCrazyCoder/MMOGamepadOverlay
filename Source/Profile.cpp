@@ -2019,10 +2019,11 @@ void getSectionNamesStartingWith(
 }
 
 
-void setStr(const std::string& theSection,
-			const std::string& thePropertyName,
-			const std::string& theValue,
-			bool saveToFile)
+void setStr(
+	const std::string& theSection,
+	const std::string& thePropertyName,
+	const std::string& theValue,
+	bool saveToFile)
 {
 	{// Add/change main properties map
 		PropertySection& aSection =
@@ -2069,6 +2070,16 @@ void setStr(const std::string& theSection,
 		aNewProperty.val = theValue;
 		sUnsavedChangesList.push_back(aNewProperty);
 	}
+}
+
+
+void setNewStr(
+	const std::string& theSection,
+	const std::string& thePropertyName,
+	const std::string& theValue)
+{
+	if( getStr(theSection, thePropertyName) == "" )
+		setStr(theSection, thePropertyName, theValue);
 }
 
 

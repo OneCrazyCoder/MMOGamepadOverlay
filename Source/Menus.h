@@ -23,6 +23,9 @@ void init();
 // Resets all menu's states
 void cleanup();
 
+// Update current menu status if profile changes at runtime
+void loadProfileChanges();
+
 // NOTE: theMenuID should refer to a ROOT menu in all of the below,
 // meaning the menu ID used in any commands that act on menus, not
 // on the currently-active sub-menu ID.
