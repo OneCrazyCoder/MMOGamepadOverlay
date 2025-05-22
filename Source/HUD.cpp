@@ -2080,8 +2080,8 @@ void init()
 		for(size_t i = 0; i < aPropMap.size(); ++i)
 		{
 			loadBitmapFile(aHUDBuilder,
-				aPropMap.vals()[i].name,
-				aPropMap.vals()[i].val);
+				aPropMap.keys()[i],
+				aPropMap.vals()[i]);
 		}
 	}
 
@@ -2091,8 +2091,8 @@ void init()
 		for(size_t i = 0; i < aPropMap.size(); ++i)
 		{
 			getOrCreateLabelIcon(aHUDBuilder,
-				aPropMap.vals()[i].name,
-				aPropMap.vals()[i].val);
+				aPropMap.keys()[i],
+				aPropMap.vals()[i]);
 		}
 	}
 
@@ -2405,7 +2405,7 @@ void update()
 		gActiveHUD.set(sSystemHUDElementID);
 
 	// Check for updates to other HUD elements
-	for(size_t i = 0; i < sHUDElementInfo.size(); ++i)
+	for(u16 i = 0; i < sHUDElementInfo.size(); ++i)
 	{
 		HUDElementInfo& hi = sHUDElementInfo[i];
 		switch(hi.type)
@@ -2446,15 +2446,18 @@ void update()
 			gRefreshHUD.set(i);
 		}
 
-		if( gRedrawDynamicHUDStrings && !gRefreshHUD.test(i) )
+		if( gRedrawDynamicHUDStrings && !gRefreshHUD.test(i) &&
+			InputMap::hudElementIsAMenu(i) )
 		{// Possibly redraw any dynamic strings (text replacements)
+			const u16 aMenuID = InputMap::menuForHUDElement(i);
+			sMenuDrawCache.resize(max(sMenuDrawCache.size(), aMenuID+1));
 			for(size_t aCacheEntryIdx = 0;
-				aCacheEntryIdx < sMenuDrawCache[i].size();
+				aCacheEntryIdx < sMenuDrawCache[aMenuID].size();
 				++aCacheEntryIdx)
 			{
-				if( sMenuDrawCache[i][aCacheEntryIdx].isDynamic )
+				if( sMenuDrawCache[aMenuID][aCacheEntryIdx].isDynamic )
 				{
-					gRefreshHUD.set(i);
+					gRefreshHUD.set(aMenuID);
 					break;
 				}
 			}
@@ -2609,7 +2612,8 @@ void reloadElementShape(u16 theHUDElementID)
 		InputMap::hudElementKeyName(theHUDElementID),
 		sHUDElementInfo[theHUDElementID].type >= eMenuStyle_Begin &&
 		sHUDElementInfo[theHUDElementID].type < eMenuStyle_End);
-	sMenuDrawCache[theHUDElementID].clear();
+	if( InputMap::hudElementIsAMenu(theHUDElementID) )
+		sMenuDrawCache[InputMap::menuForHUDElement(theHUDElementID)].clear();
 	gReshapeHUD.set(theHUDElementID);
 	// Some aspects, like title bar, need full redraw with X align change
 	if( anOldAlignmentX != sHUDElementInfo[theHUDElementID].alignmentX )

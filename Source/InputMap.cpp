@@ -714,15 +714,20 @@ static Command parseChatBoxMacro(std::string theString)
 }
 
 
-static void createEmptyLayer(const std::string& theName)
+static bool createEmptyLayer(
+	u16 theSectionID, const std::string& thePrefix, void*)
 {
-	DBG_ASSERT(!theName.empty());
-	// Layers with + in the name are combo layers and should be skipped here
-	if( theName.find('+') != std::string::npos )
-		return;
-	ControlsLayer& aLayer = sLayers.findOrAdd(condense(theName));
+	const std::string& aSectionName =
+		Profile::allSections().keys()[theSectionID];
+	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
+	const std::string& aLayerName = aSectionName.substr(aPostPrefixPos);
+	DBG_ASSERT(!aLayerName.empty());
+	ControlsLayer& aLayer = sLayers.findOrAdd(condense(aLayerName));
 	if( aLayer.name.empty() )
-		aLayer.name = theName;
+		aLayer.name = aLayerName;
+	aLayer.isComboLayer =
+		aLayerName.find(kComboLayerDeliminator) != std::string::npos;
+	return true;
 }
 
 
@@ -732,11 +737,13 @@ static u16 getLayerID(const std::string& theName)
 }
 
 
-static void createComboLayer(const std::string& theComboName)
+static void linkComboLayers(u16 theLayerID)
 {
-	DBG_ASSERT(!theComboName.empty());
-	
-	std::string aSecondLayerName = theComboName;
+	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
+	if( !theLayer.isComboLayer )
+		return;
+
+	std::string aSecondLayerName = sLayers.vals()[theLayerID].name;
 	std::string aFirstLayerName = breakOffItemBeforeChar(
 		aSecondLayerName, kComboLayerDeliminator);
 	if( aFirstLayerName.empty() || aSecondLayerName.empty() )
@@ -747,50 +754,59 @@ static void createComboLayer(const std::string& theComboName)
 	{
 		logError("Base layer [%s] not found for combo layer [%s]",
 			(kLayerPrefix + aFirstLayerName).c_str(),
-			(kLayerPrefix + theComboName).c_str());
+			(kLayerPrefix + sLayers.vals()[theLayerID].name).c_str());
 		return;
 	}
 
-	// Second layer may itself be a combo layer (or dummy combo layer)
-	createComboLayer(aSecondLayerName);
-	const u16 aSecondLayerID = getLayerID(aSecondLayerName);
+	u16 aSecondLayerID = getLayerID(aSecondLayerName);
 	if( aSecondLayerID >= sLayers.size() )
 	{
-		logError("Base layer [%s] not found for combo layer [%s]",
-			(kLayerPrefix + aSecondLayerName).c_str(),
-			(kLayerPrefix + theComboName).c_str());
-		return;
+		// Second layer may actually be a combo layer itself, including
+		// possibly a combo layer that is not explicitly declared in
+		// the profile but needs to be created purely for creating combo
+		// layers of any arbitrary number of base layers.
+		const bool secondLayerIsComboLayer =
+			aSecondLayerName.find(kComboLayerDeliminator) != std::string::npos;
+		if( !secondLayerIsComboLayer )
+		{
+			logError("Base layer [%s] not found for combo layer [%s]",
+				(kLayerPrefix + aSecondLayerName).c_str(),
+				(kLayerPrefix + sLayers.vals()[theLayerID].name).c_str());
+			return;
+		}
+		// Create placeholder second combo layer
+		ControlsLayer& aSecondLayer =
+			sLayers.setValue(condense(aSecondLayerName), ControlsLayer());
+		aSecondLayer.name = aSecondLayerName;
+		aSecondLayer.isComboLayer = true;
 	}
 
 	if( aFirstLayerID == aSecondLayerID )
 	{
 		logError("Specified same layer twice in combo layer name '%s'!",
-			theComboName.c_str());
+			sLayers.vals()[theLayerID].name.c_str());
 		return;
 	}
 
-	const u16 aComboLayerID =
-		sLayers.findOrAddIndex(condense(theComboName));
-	ControlsLayer& aComboLayer = sLayers.vals()[aComboLayerID];
-	if( aComboLayer.name.empty() )
-		aComboLayer.name = theComboName;
-	aComboLayer.isComboLayer = true;
+	// Link combo layer to its base layers
 	std::pair<u16, u16> aComboLayerKey(aFirstLayerID, aSecondLayerID);
-	sComboLayers.setValue(aComboLayerKey, aComboLayerID);
+	sComboLayers.addPair(aComboLayerKey, theLayerID);
 }
 
 
-static void createEmptyHUDElement(
-	const std::string& theName,
-	EHUDType theType = eHUDType_Num)
+static bool createEmptyHUDElement(
+	u16 theSectionID, const std::string& thePrefix, void*)
 {
-	DBG_ASSERT(!theName.empty());
-	HUDElement& aHUDElement = sHUDElements.findOrAdd(condense(theName));
+	const std::string& aSectionName =
+		Profile::allSections().keys()[theSectionID];
+	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
+	const std::string& aHUDElementName = aSectionName.substr(aPostPrefixPos);
+	DBG_ASSERT(!aHUDElementName.empty());
+	HUDElement& aHUDElement =
+		sHUDElements.findOrAdd(condense(aHUDElementName));
 	if( aHUDElement.name.empty() )
-	{
-		aHUDElement.name = theName;
-		aHUDElement.type = theType;
-	}
+		aHUDElement.name = aHUDElementName;
+	return true;
 }
 
 
@@ -800,12 +816,37 @@ static u16 getHUDElementID(const std::string& theName)
 }
 
 
-static void createEmptyMenu(const std::string& theName)
+static bool createEmptyMenu(
+	u16 theSectionID, const std::string& thePrefix, void*)
 {
-	DBG_ASSERT(!theName.empty());
-	Menu& aMenu = sMenus.findOrAdd(condense(theName));
+	const std::string& aSectionName =
+		Profile::allSections().keys()[theSectionID];
+	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
+	const std::string& aMenuName = aSectionName.substr(aPostPrefixPos);
+	DBG_ASSERT(!aMenuName.empty());
+	Menu& aMenu = sMenus.findOrAdd(condense(aMenuName));
 	if( aMenu.name.empty() )
-		aMenu.name = theName;
+		aMenu.name = aMenuName;
+	return true;
+}
+
+
+static bool setMenuAsChildOf(
+	u16 theChildMenuID, const std::string& thePrefix, void* theParentMenuIDPtr)
+{
+	Menu& aSubMenu = sMenus.vals()[theChildMenuID];
+	const std::string& aPotentialLabel =
+		aSubMenu.name.substr(posAfterPrefix(aSubMenu.name, thePrefix));
+	if( aPotentialLabel.empty() )
+		return true;
+	if( aSubMenu.label.empty() ||
+		aSubMenu.label.size() > aPotentialLabel.size() )
+	{
+		aSubMenu.parentMenuID = *((u16*)theParentMenuIDPtr);
+		aSubMenu.label = aPotentialLabel;
+	}
+
+	return true;
 }
 
 
@@ -814,22 +855,7 @@ static void linkMenuToSubMenus(u16 theMenuID)
 	// Find all menus whose key starts with this menu's key (and . at end)
 	const std::string& aPrefix =
 		sMenus.keys()[theMenuID] + kSubMenuDeliminator;
-	StringToValueMap<Menu>::IndexVector aVec;
-	sMenus.findAllWithPrefix(aPrefix, aVec);
-	for(size_t i = 0; i < aVec.size(); ++i)
-	{
-		Menu& aSubMenu = sMenus.vals()[aVec[i]];
-		const std::string& aPotentialLabel =
-			aSubMenu.name.substr(posAfterPrefix(aSubMenu.name, aPrefix));
-		if( aPotentialLabel.empty() )
-			continue;
-		if( aSubMenu.label.empty() || 
-			aSubMenu.label.size() > aPotentialLabel.size() )
-		{
-			aSubMenu.parentMenuID = theMenuID;
-			aSubMenu.label = aPotentialLabel;
-		}
-	}
+	sMenus.findAllWithPrefix(aPrefix, setMenuAsChildOf, &theMenuID);
 }
 
 
@@ -3460,25 +3486,23 @@ static void loadDataFromProfile(
 		loadedHUDElements.set();
 	}
 
-	for(size_t aSectionID = 0; aSectionID < theProfileMap.size(); ++aSectionID)
+	for(size_t aSectID = 0; aSectID < theProfileMap.size(); ++aSectID)
 	{
 		// Check if is a subsection, like Layer.Name or Menu.Name, etc
 		const size_t aSectionKeySplit =
-			theProfileMap.keys()[aSectionID].find('.');
+			theProfileMap.keys()[aSectID].find('.');
 		const bool isSubSection = aSectionKeySplit != std::string::npos;
-		const std::string& aSectionKey =
+		const std::string& aSectionKey = condense(
 			isSubSection
-				? theProfileMap.keys()[aSectionID].substr(aSectionKeySplit+1)
-				: theProfileMap.keys()[aSectionID];
-		const std::string& aSectionTypeName =
+				? theProfileMap.keys()[aSectID].substr(aSectionKeySplit+1)
+				: theProfileMap.keys()[aSectID]);
+		const std::string& aSectionTypeName = condense(
 			isSubSection
-				? theProfileMap.keys()[aSectionID].substr(0, aSectionKeySplit)
-				: theProfileMap.keys()[aSectionID];
+				? theProfileMap.keys()[aSectID].substr(0, aSectionKeySplit)
+				: theProfileMap.keys()[aSectID]);
 		const EPropertyType aPropType = propKeyToType(aSectionTypeName);
-		const Profile::PropertySection& aPropSection =
-			theProfileMap.vals()[aSectionID];
-		const Profile::PropertyMap& aPropMap = aPropSection.properties;
-		sSectionPrintName = "[" + aPropSection.name + "]";
+		const Profile::PropertyMap& aPropMap = theProfileMap.vals()[aSectID];
+		sSectionPrintName = "[" + theProfileMap.keys()[aSectID] + "]";
 
 		u16 aComponentID = kInvalidID;
 		switch(aPropType)
@@ -3486,10 +3510,10 @@ static void loadDataFromProfile(
 		case ePropType_Hotspots:
 			for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
+				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyHotspotProperty(
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].val,
+					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.vals()[aPropIdx],
 					loadedHotspotArrays,
 					loadedHotspots);
 			}
@@ -3497,13 +3521,13 @@ static void loadDataFromProfile(
 		case ePropType_KeyBinds:
 			for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
+				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				const u16 aKeyBindID = applyKeyBindProperty(
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].val);
+					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.vals()[aPropIdx]);
 				reportCommandAssignment(
 					sKeyBinds.vals()[aKeyBindID],
-					aPropMap.vals()[aPropIdx].val,
+					aPropMap.vals()[aPropIdx],
 					keyBindSignalID(aKeyBindID));
 			}
 			break;
@@ -3517,11 +3541,11 @@ static void loadDataFromProfile(
 				break;
 			for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
+				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyControlsLayerProperty(
 					aComponentID,
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].val);
+					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.vals()[aPropIdx]);
 			}
 			break;
 		case ePropType_Menu:
@@ -3532,11 +3556,11 @@ static void loadDataFromProfile(
 				break;
 			for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
+				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyMenuProperty(
 					aComponentID,
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].val);
+					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.vals()[aPropIdx]);
 			}
 			loadedMenus.set(aComponentID);
 			loadedHUDElements.set(hudElementForMenu(aComponentID));
@@ -3549,11 +3573,11 @@ static void loadDataFromProfile(
 				break;
 			for(u16 aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.vals()[aPropIdx].name;
+				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyHUDElementProperty(
 					aComponentID,
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].val);
+					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.vals()[aPropIdx]);
 			}
 			loadedHUDElements.set(aComponentID);
 			if( sHUDElements.vals()[aComponentID].menuID < sMenus.size() )
@@ -3590,6 +3614,7 @@ static void loadDataFromProfile(
 		HUDElement& aHUDElement = sHUDElements.vals()[i];
 		if( loadedHUDElements.test(i) )
 		{
+			sSectionPrintName = "[" + sHUDElements.vals()[i].name + "]";
 			validateHUDElement(aHUDElement);
 			gFullRedrawHUD.set(i);
 			gReshapeHUD.set(i);
@@ -3624,6 +3649,7 @@ static void loadDataFromProfile(
 		aMenuID < loadedMenus.size();
 		aMenuID = loadedMenus.nextSetBit(aMenuID+1))
 	{
+		sSectionPrintName = "[" + sMenus.vals()[aMenuID].name + "]";
 		validateMenu(aMenuID);
 		Menu& aMenu = sMenus.vals()[aMenuID];
 		parseLabel(aMenu.label);
@@ -3666,7 +3692,7 @@ void loadProfile()
 	 const Profile::PropertyMap* aPropMapPtr =
 		 &Profile::getSectionProperties(kHotspotsSectionName);
 	for(u16 i = 0; i < aPropMapPtr->size(); ++i)
-		createEmptyHotspotArray(aPropMapPtr->vals()[i].name);
+		createEmptyHotspotArray(aPropMapPtr->keys()[i]);
 	sHotspotArrays.trim();
 
 	// Allocate hotspots and link arrays to them
@@ -3684,33 +3710,31 @@ void loadProfile()
 	aPropMapPtr =
 		 &Profile::getSectionProperties(kKeyBindsSectionName);
 	for(u16 i = 0; i < aPropMapPtr->size(); ++i)
-		createEmptyKeyBind(aPropMapPtr->vals()[i].name);
+		createEmptyKeyBind(aPropMapPtr->keys()[i]);
 	sKeyBinds.trim();
 	sKeyBindArrays.trim();
 
 	// Allocate controls layers
-	std::vector<std::string> aSectionNameList;
-	Profile::getSectionNamesStartingWith(kLayerPrefix, aSectionNameList);
-	createEmptyLayer(kMainLayerSectionName); // Main layer - [Scheme]
-	for(size_t i = 0; i < aSectionNameList.size(); ++i)
-		createEmptyLayer(aSectionNameList[i]);
-	for(size_t i = 0; i < aSectionNameList.size(); ++i)
-		createComboLayer(aSectionNameList[i]);
+	sLayers.setValue(condense(kMainLayerSectionName), ControlsLayer());
+	sLayers.vals().back().name = kMainLayerSectionName;
+	Profile::allSections().findAllWithPrefix(
+		kLayerPrefix, createEmptyLayer);
+	for(u16 i = 0; i < sLayers.size(); ++i)
+		linkComboLayers(i);
+	sComboLayers.sort(); sComboLayers.removeDuplicates(); sComboLayers.trim();
 	sLayers.trim();
 
 	// Allocate non-menu HUD elements
-	createEmptyHUDElement("~", eHUDType_System);
-	createEmptyHUDElement("~~", eHUDType_HotspotGuide);
-	aSectionNameList.clear();
-	Profile::getSectionNamesStartingWith(kHUDPrefix, aSectionNameList);
-	for(size_t i = 0; i < aSectionNameList.size(); ++i)
-		createEmptyHUDElement(aSectionNameList[i]);
+	sHUDElements.setValue("~", HUDElement());
+	sHUDElements.vals().back().type = eHUDType_System;
+	sHUDElements.setValue("~~", HUDElement());
+	sHUDElements.vals().back().type = eHUDType_HotspotGuide;
+	Profile::allSections().findAllWithPrefix(
+		kHUDPrefix, createEmptyHUDElement);
 
 	// Allocate menus
-	aSectionNameList.clear();
-	Profile::getSectionNamesStartingWith(kMenuPrefix, aSectionNameList);
-	for(size_t i = 0; i < aSectionNameList.size(); ++i)
-		createEmptyMenu(aSectionNameList[i]);
+	Profile::allSections().findAllWithPrefix(
+		kMenuPrefix, createEmptyMenu);
 	for(u16 i = 0; i < sMenus.size(); ++i)
 		linkMenuToSubMenus(i);
 	for(u16 i = 0; i < sMenus.size(); ++i)
@@ -3755,14 +3779,12 @@ void loadProfileChanges()
 		max(0, Profile::getInt("System", "ButtonHoldTime"));
 
 	// Check for any newly-created sub-menus
-	for(u16 aSectionIdx = 0; aSectionIdx < theProfileMap.size(); ++aSectionIdx)
+	for(u16 aSectID = 0; aSectID < theProfileMap.size(); ++aSectID)
 	{
-		const Profile::PropertySection& aPropSect = 
-			theProfileMap.vals()[aSectionIdx];
-
-		if( size_t aPrefixEnd = posAfterPrefix(aPropSect.name, kMenuPrefix) )
+		const std::string& aSectName = theProfileMap.keys()[aSectID];
+		if( size_t aPrefixEnd = posAfterPrefix(aSectName, kMenuPrefix) )
 		{
-			const std::string& aMenuName = aPropSect.name.substr(aPrefixEnd);
+			const std::string& aMenuName = aSectName.substr(aPrefixEnd);
 			const std::string& aMenuKey = condense(aMenuName);
 			DBG_ASSERT(!aMenuKey.empty());
 			const u16 aMenuID = sMenus.findOrAddIndex(aMenuKey);

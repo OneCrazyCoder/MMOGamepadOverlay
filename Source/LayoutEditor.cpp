@@ -1332,20 +1332,20 @@ static void setEntryParent(
 		return;
 	}
 	StringToValueMap<u32>::IndexVector anIndexSet;
-	theEntryNameMap.findAllWithPrefix(anArrayName, anIndexSet);
-	for(size_t i = 0; i < anIndexSet.size(); ++i)
-	{
-		std::string aHotspotName =
-			theEntryNameMap.keys()[anIndexSet[i]];
-		const int aHotspotEndIdx =
-			breakOffIntegerSuffix(aHotspotName);
-		if( aHotspotEndIdx == anArrayPrevIdx )
-		{
-			theEntry.item.parentIndex =
-				theEntryNameMap.values()[anIndexSet[i]];
-			return;
-		}
-	}
+	//theEntryNameMap.findAllWithPrefix(anArrayName, anIndexSet);
+	//for(size_t i = 0; i < anIndexSet.size(); ++i)
+	//{
+	//	std::string aHotspotName =
+	//		theEntryNameMap.keys()[anIndexSet[i]];
+	//	const int aHotspotEndIdx =
+	//		breakOffIntegerSuffix(aHotspotName);
+	//	if( aHotspotEndIdx == anArrayPrevIdx )
+	//	{
+	//		theEntry.item.parentIndex =
+	//			theEntryNameMap.values()[anIndexSet[i]];
+	//		return;
+	//	}
+	//}
 	aParentIdx = theEntryNameMap.find(anArrayName);
 	if( aParentIdx )
 		theEntry.item.parentIndex = *aParentIdx;
@@ -1363,18 +1363,18 @@ static void addArrayEntries(
 	aNewEntry.type = theEntryType;
 	aNewEntry.item.parentIndex = theCategoryType;
 
-	const Profile::PropertySection* const aPropertySet =
-		Profile::getSection(theEntryList[theCategoryType].posSect);
+	const Profile::PropertyMap& aPropertyMap =
+		Profile::getSectionProperties(theEntryList[theCategoryType].posSect);
 	StringToValueMap<u32> anEntryNameToIdxMap;
-	for(size_t i = 0; aPropertySet && i < aPropertySet->properties.size(); ++i)
+	for(size_t i = 0; aPropertyMap.size(); ++i)
 	{
 		aNewEntry.rangeCount = 0;
-		aNewEntry.item.name = aPropertySet->properties.vals()[i].name;
+		aNewEntry.item.name = aPropertyMap.keys()[i];
 		aNewEntry.propName = aNewEntry.item.name;
 		std::string aKeyName = condense(aNewEntry.item.name);
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
-		std::string aDesc = aPropertySet->properties.vals()[i].val;
+		std::string aDesc = aPropertyMap.vals()[i];
 		Hotspot aHotspot;
 		HotspotMap::stringToCoord(aDesc, aHotspot.x, &aNewEntry.shape.x);
 		HotspotMap::stringToCoord(aDesc, aHotspot.y, &aNewEntry.shape.y);
