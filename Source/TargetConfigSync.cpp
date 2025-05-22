@@ -1850,12 +1850,12 @@ void load()
 		for(size_t i = 0; i < aPropMap.size(); ++i)
 		{
 			const u16 aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
-				normalizedPath(aPropMap.vals()[i].val),
+				normalizedPath(aPropMap.vals()[i]),
 				u16(aBuilder.valueLinkMaps.size()));
 			if( aLinkMapID >= aBuilder.valueLinkMaps.size() )
 				aBuilder.valueLinkMaps.push_back(ValueLinkMap());
 			aBuilder.nameToLinkMapID.setValue(
-				condense(aPropMap.vals()[i].name), aLinkMapID);
+				condense(aPropMap.keys()[i]), aLinkMapID);
 		}
 	}
 
@@ -1876,9 +1876,9 @@ void load()
 			Profile::getSectionProperties(kSyncPropertiesSectionName);
 		for(size_t i = 0; i < aPropMap.size(); ++i)
 		{
-			aBuilder.debugString = aPropMap.vals()[i].name;
+			aBuilder.debugString = aPropMap.keys()[i];
 			aBuilder.debugString += " = ";
-			aBuilder.debugString += aPropMap.vals()[i].val;
+			aBuilder.debugString += aPropMap.vals()[i];
 			// Separate key into section and property name by > character
 			SyncProperty aProperty;
 			aProperty.section = aPropMap.keys()[i];
@@ -1887,12 +1887,12 @@ void load()
 			{
 				logError("Missing '>' between section and property name "
 					"for sync property '%s'",
-					aPropMap.vals()[i].name.c_str());
+					aPropMap.keys()[i].c_str());
 				continue;
 			}
 			parsePropertyValueTags(
 				aBuilder, aProperty,
-				aPropMap.vals()[i].val);
+				aPropMap.vals()[i]);
 			if( aProperty.valueSetsUsed.none() )
 				continue;
 			aProperty.name = aProperty.section.substr(aPos+1);

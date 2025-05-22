@@ -806,33 +806,32 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void loadProfileChanges()
 {
-	const Profile::PropertySection* aPropSect =
+	const Profile::PropertyMap* aPropMap =
 		Profile::changedSections().find("SYSTEM");
-	if( !aPropSect )
+	if( !aPropMap )
 		return;
 
 	gAppTargetFrameTime = max(1,
 		Profile::getInt("System", "FrameTime",
 		gAppTargetFrameTime));
 
-	const Profile::PropertyMap& aPropMap = aPropSect->properties;
-	if( aPropMap.contains("ICONCOPYMETHOD") ||
-		aPropMap.contains("WINDOWNAME") ||
-		aPropMap.contains("WINDOWWIDTH") ||
-		aPropMap.contains("WINDOWHEIGHT") ||
-		aPropMap.contains("WINDOWXPOS") ||
-		aPropMap.contains("WINDOWYPOS") ||
-		aPropMap.contains("UISCALEBASEHEIGHT") )
+	if( aPropMap->contains("ICONCOPYMETHOD") ||
+		aPropMap->contains("WINDOWNAME") ||
+		aPropMap->contains("WINDOWWIDTH") ||
+		aPropMap->contains("WINDOWHEIGHT") ||
+		aPropMap->contains("WINDOWXPOS") ||
+		aPropMap->contains("WINDOWYPOS") ||
+		aPropMap->contains("UISCALEBASEHEIGHT") )
 	{// These properties can't be changed safely at runtime
 		logError(
 			"Attempted [System] property change that does not "
 			"allow dynamic runtime changes!");
 	}
 
-	if( const Profile::Property* aUIScaleProp = aPropMap.find("UISCALE") )
+	if( const std::string* aUIScaleStr = aPropMap->find("UISCALE") )
 	{
 		const double oldUIScale = gUIScale;
-		double aUIScale = doubleFromString(aUIScaleProp->val);
+		double aUIScale = doubleFromString(*aUIScaleStr);
 		if( aUIScale <= 0 ) aUIScale = 1.0;
 		gUIScale = aUIScale * gWindowUIScale;
 		if( gUIScale != oldUIScale )

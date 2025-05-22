@@ -1249,14 +1249,7 @@ static void readProfileCallback(
 	const std::string& theValue,
 	void*)
 {
-	PropertySection& aSection =
-		sSectionsMap.findOrAdd(condense(theSection));
-	if( aSection.name.empty() )
-		aSection.name = theSection;
-	Property& aProperty =
-		aSection.properties.findOrAdd(condense(theName));
-	aProperty.name = theName;
-	aProperty.val = theValue;
+	sSectionsMap.findOrAdd(theSection).setValue(theName, theValue);
 }
 
 
@@ -1918,13 +1911,12 @@ std::string getStr(
 	const std::string& thePropertyName,
 	const std::string& theDefaultValue)
 {
-	if( const PropertySection* aSection = getSection(theSection) )
+	if( const PropertyMap* aSection = getSection(theSection) )
 	{
-		if( const Property* aProperty =
-				aSection->properties.find(condense(thePropertyName)) )
+		if( const std::string* aPropStr = aSection->find(thePropertyName) )
 		{
-			if( !aProperty->val.empty() )
-				return aProperty->val;
+			if( !aPropStr->empty() )
+				return *aPropStr;
 		}
 	}
 
@@ -1968,9 +1960,18 @@ float getFloat(
 }
 
 
-const PropertySection* getSection(const std::string& theSectionName)
+const PropertyMap* getSection(const std::string& theSectionName)
 {
-	return sSectionsMap.find(condense(theSectionName));
+	return sSectionsMap.find(theSectionName);
+}
+
+
+const PropertyMap& getSectionProperties(const std::string& theSectionName)
+{
+	static const PropertyMap kEmptyMap = PropertyMap();
+	if( const PropertyMap* aSection = getSection(theSectionName) )
+		return *aSection;
+	return kEmptyMap;
 }
 
 
@@ -1980,77 +1981,22 @@ const SectionsMap& allSections()
 }
 
 
-const PropertyMap& getSectionProperties(const std::string& theSectionName)
-{
-	static const PropertyMap kEmptyMap = PropertyMap();
-	if( const PropertySection* aSection = getSection(theSectionName) )
-		return aSection->properties;
-	return kEmptyMap;
-}
-
-
-void getSectionNamesStartingWith(
-	const std::string& thePrefix,
-	std::vector<std::string>& out,
-	bool trimPrefix)
-{
-	PropertyMap::IndexVector anIndexSet;
-	sSectionsMap.findAllWithPrefix(condense(thePrefix), anIndexSet);
-
-	#ifndef NDEBUG
-	// Unnecessary but nice for debug output - sort to match order added to map
-	std::sort(anIndexSet.begin(), anIndexSet.end());
-	#endif
-
-	for(size_t i = 0; i < anIndexSet.size(); ++i)
-	{
-		if( trimPrefix )
-		{
-			const size_t aPostPrefixPos = posAfterPrefix(
-				sSectionsMap.vals()[anIndexSet[i]].name, thePrefix);
-			out.push_back(sSectionsMap.vals()[anIndexSet[i]]
-				.name.substr(aPostPrefixPos));
-		}
-		else
-		{
-			out.push_back(sSectionsMap.vals()[anIndexSet[i]].name);
-		}
-	}
-}
-
-
 void setStr(
 	const std::string& theSection,
 	const std::string& thePropertyName,
 	const std::string& theValue,
 	bool saveToFile)
 {
-	{// Add/change main properties map
-		PropertySection& aSection =
-			sSectionsMap.findOrAdd(condense(theSection));
-		if( aSection.name.empty() )
-			aSection.name = theSection;
-		Property& aProperty =
-			aSection.properties.findOrAdd(condense(thePropertyName));
-		if( aProperty.name.empty() )
-			aProperty.name = thePropertyName;
-		// Don't do anything else if the value already matches
-		if( aProperty.val == theValue )
-			return;
-		aProperty.val = theValue;
-	}
+	// Add/change main properties map
+	std::string& aVal =
+		sSectionsMap.findOrAdd(theSection).findOrAdd(thePropertyName);
+	if( aVal == theValue )
+		return;
+	aVal = theValue;
 
-	{// Log in changed properties map as well
-		PropertySection& aSection =
-			sChangedSectionsMap.findOrAdd(condense(theSection));
-		if( aSection.name.empty() )
-			aSection.name = theSection;
-		Property& aProperty =
-			aSection.properties.findOrAdd(condense(thePropertyName));
-		if( aProperty.name.empty() )
-			aProperty.name = thePropertyName;
-		aProperty.val = theValue;
-	}
+	// Log in changed properties map as well
+	sChangedSectionsMap.findOrAdd(theSection)
+		.setValue(thePropertyName, theValue);
 
 	if( saveToFile )
 	{// Log as change to save to file

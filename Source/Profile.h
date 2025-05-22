@@ -18,19 +18,8 @@
 namespace Profile
 {
 
-struct Property
-{
-	std::string name;
-	std::string val;
-};
-typedef StringToValueMap<Property> PropertyMap;
-
-struct PropertySection
-{
-	std::string name;
-	PropertyMap properties;
-};
-typedef StringToValueMap<PropertySection> SectionsMap;
+typedef StringToValueMap<std::string, u16, condense> PropertyMap;
+typedef StringToValueMap<PropertyMap, u16, condense> SectionsMap;
 
 // Load (and/or generate) .ini files for core profile data only
 void loadCore();
@@ -55,13 +44,9 @@ std::string getStr(const std::string& theSection,
 int getInt(const std::string&, const std::string&, int = 0);
 bool getBool(const std::string&, const std::string&, bool = false);
 float getFloat(const std::string&, const std::string&, float = 0);
-const PropertySection* getSection(const std::string& theSectionName);
+const PropertyMap* getSection(const std::string& theSectionName);
 const PropertyMap& getSectionProperties(const std::string& theSectionName);
 const SectionsMap& allSections();
-void getSectionNamesStartingWith(
-	const std::string& thePrefix,
-	std::vector<std::string>& out, // appends to any existing vector data
-	bool trimPrefix = true); // removes thePrefix from front of names
 
 // Add or modify profile properties (does nothing if match prev value)
 // Any changed values are added to changedSections() as well.

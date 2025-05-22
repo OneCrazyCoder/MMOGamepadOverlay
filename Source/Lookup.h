@@ -138,9 +138,6 @@ public:
 		erasing of keys. Instead, set their associated values to some sentinal
 		value that indicates it is no longer valid (null, -1, etc).
 
-	*	Searches are case-sensitive, as this depends on direct bit comparisons
-		rather than any form of lexicographical comparisons.
-
 	*	Unlike an stl map, existing values can be moved in memory when keys
 		are added, so pointers, iterators, and references to them are unstable.
 		As mentioned above, indexes are stable, like with stl vector.
@@ -153,8 +150,16 @@ public:
 		indexes, which thus determines the size of each node (2 I's + a u16)
 		and maximum key/value pairs that can be stored (u8 = 256 keys/values,
 		u16 = 65,536 keys/values, etc).
+
+	*	'F' will be used to convert keys before comparison, though the keys
+		will still be stored in their first-used form. Left as null, all keys
+		must match bit-by-bit (i.e. fully case-sensitive), but this can be
+		used to temporarily convert keys to, for example, be all upper-case
+		for key comparisons, effectively making searches case-insensitive.
+		This will obviously lower performance if it is not left as null.
 //---------------------------------------------------------------------------*/
-template<class V, class I = u16>
+typedef std::string (*KeyConvFunc)(const std::string&);
+template<class V, class I = u16, KeyConvFunc F = null>
 class StringToValueMap
 {
 public:
@@ -169,6 +174,7 @@ public:
 	typedef typename ValueTrait<V>::Type StoredValueType;
 	typedef std::vector<StoredValueType> ValueVector;
 	typedef std::vector<IndexType> IndexVector;
+	typedef bool (*FoundIndexCallback)(I, const std::string&, void*);
 
 	// CONSTRUCTOR/DESTRUCTOR
 	StringToValueMap();
@@ -197,8 +203,6 @@ public:
 	const V* find(const Key& theKey) const;
 	// Just returns true if theKey is found, if that's all that's needed
 	bool contains(const Key& theKey) const { return find(theKey) != null; }
-	// Returns true if any keys contain the given prefix
-	bool containsPrefix(const Key& thePrefix) const;
 	// Like find(), but if key not found, adds it (with default value) first.
 	// Returns a direct reference to the value, since can't return 'null'.
 	V& findOrAdd(const Key& theKey, const V& theDefault = V());
@@ -215,15 +219,14 @@ public:
 	const V& quickFind(const Key& theKey) const;
 	// Combination of findIndex() and quickFind() functionality
 	I quickFindIndex(const Key& theKey) const;
-	// Appends to a vector of indexes all key/value pairs where the key
-	// starts with the given prefix (in no particular order), which can then
-	// be used to index into keys()/values(). Can be used after freeKeys()
-	// but result will not be valid if no keys actually have given prefix!
-	void findAllWithPrefix(const Key& thePrefix, IndexVector& out) const;
-	// Access to the internal vectors of keys & values, for direct iteration.
-	// These are not guaranteed to be in any particular order, except in
-	// relation to each other (i.e. keyVector()[idx] returns the key for
-	// the associated value valueVector()[idx]).
+	// Returns true if any keys start with thePrefix
+	bool containsPrefix(const Key& thePrefix) const;
+	// Calls theCallback for each key that starts with thePrefix, or until the
+	// callback returns false. Can be used after freeKeys() with known prefix.
+	void findAllWithPrefix(const Key& thePrefix,
+		FoundIndexCallback theCallback, void* theUserData = null) const;
+	// Direct access to the vectors of keys & values for lookup by index.
+	// These are in the order new keys were added and are never sorted.
 	const KeyVector& keys() const { return mKeys; }
 	const ValueVector& values() const { return mValues; }
 	ValueVector& values() { return mValues; }
@@ -235,18 +238,22 @@ public:
 private:
 	// PRIVATE FUNCTIONS
 	I addNewNode(const Key& theKey, const V& theValue);
-	I insertNewPair(const Key&, const V&, I theFoundIndex, I theBackPointer);
+	void insertNode(const Key&, I theNewNode, I theFoundNode, I theBackPtr);
 	I bestNodeIndexForFind(const Key& theKey) const;
 	I bestNodeIndexForInsert(const Key& theKey, I* theBPOut) const;
 	u8 getChar(const Key& theKey, u16 theIndex) const;
 	u8 getBitAtPos(const Key& theKey, u16 theBitPos) const;
 	u16 getFirstBitDiff(const Key& theNewKey, const Key& theOldKey) const;
+	struct PrefixFindData { const Key* origPrefix; const Key* convPrefix;
+		FoundIndexCallback callback; void* cbData; bool valid; bool halted; };
+	void findPrefixRecursive(I, int theBitPos, PrefixFindData& thePFD) const;
+	static bool reportContainsPrefix(I, const std::string&, void* theFlagPtr);
 
 	// PRIVATE DATA
 	struct Node { u16 bitPos; I left, right; };
-	std::vector<Node> mTrie;
-	ValueVector mValues;
 	KeyVector mKeys;
+	ValueVector mValues;
+	std::vector<Node> mTrie;
 	u16 mHeadNodeIndex;
 };
 
