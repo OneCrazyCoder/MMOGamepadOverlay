@@ -186,7 +186,6 @@ struct MenuItem
 
 struct Menu
 {
-	std::string name;
 	std::string label;
 	std::vector<MenuItem> items;
 	MenuItem dirItems[eCmdDir_Num];
@@ -209,7 +208,6 @@ struct Menu
 
 struct ZERO_INIT(HUDElement)
 {
-	std::string name; // TODO - Remove?
 	EHUDType type;
 	u16 menuID;
 	u16 hotspotID;
@@ -225,7 +223,6 @@ struct ZERO_INIT(HUDElement)
 
 struct ButtonActions
 {
-	//std::string label[eBtnAct_Num]; // TODO
 	Command cmd[eBtnAct_Num];
 	void initIfEmpty()
 	{
@@ -240,7 +237,6 @@ typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
 
 struct ZERO_INIT(ControlsLayer)
 {
-	std::string name;
 	ButtonActionsMap buttonMap;
 	VectorMap<u16, Command> signalCommands;
 	BitVector<32> showHUD;
@@ -270,7 +266,6 @@ struct ZERO_INIT(HotspotRange)
 
 struct ZERO_INIT(HotspotArray)
 {
-	std::string name; // TODO - remove (just use key)?
 	std::vector<HotspotRange> ranges;
 	float offsetScale;
 	u16 anchorIdx; // set to first hotspot idx - 1 if !hasAnchor
@@ -722,8 +717,6 @@ static bool createEmptyLayer(
 	const std::string& aLayerName = aSectionName.substr(aPostPrefixPos);
 	DBG_ASSERT(!aLayerName.empty());
 	ControlsLayer& aLayer = sLayers.findOrAdd(aLayerName);
-	if( aLayer.name.empty() )
-		aLayer.name = aLayerName;
 	aLayer.isComboLayer =
 		aLayerName.find(kComboLayerDeliminator) != std::string::npos;
 	return true;
@@ -736,7 +729,7 @@ static void linkComboLayers(u16 theLayerID)
 	if( !theLayer.isComboLayer )
 		return;
 
-	std::string aSecondLayerName = sLayers.vals()[theLayerID].name;
+	std::string aSecondLayerName = sLayers.keys()[theLayerID];
 	std::string aFirstLayerName = breakOffItemBeforeChar(
 		aSecondLayerName, kComboLayerDeliminator);
 	if( aFirstLayerName.empty() || aSecondLayerName.empty() )
@@ -747,7 +740,7 @@ static void linkComboLayers(u16 theLayerID)
 	{
 		logError("Base layer [%s] not found for combo layer [%s]",
 			(kLayerPrefix + aFirstLayerName).c_str(),
-			(kLayerPrefix + sLayers.vals()[theLayerID].name).c_str());
+			(kLayerPrefix + sLayers.keys()[theLayerID]).c_str());
 		return;
 	}
 
@@ -764,20 +757,17 @@ static void linkComboLayers(u16 theLayerID)
 		{
 			logError("Base layer [%s] not found for combo layer [%s]",
 				(kLayerPrefix + aSecondLayerName).c_str(),
-				(kLayerPrefix + sLayers.vals()[theLayerID].name).c_str());
+				(kLayerPrefix + sLayers.keys()[theLayerID]).c_str());
 			return;
 		}
 		// Create placeholder second combo layer
-		ControlsLayer& aSecondLayer =
-			sLayers.setValue(aSecondLayerName, ControlsLayer());
-		aSecondLayer.name = aSecondLayerName;
-		aSecondLayer.isComboLayer = true;
+		sLayers.findOrAdd(aSecondLayerName).isComboLayer = true;
 	}
 
 	if( aFirstLayerID == aSecondLayerID )
 	{
 		logError("Specified same layer twice in combo layer name '%s'!",
-			sLayers.vals()[theLayerID].name.c_str());
+			sLayers.keys()[theLayerID].c_str());
 		return;
 	}
 
@@ -796,10 +786,7 @@ static bool createEmptyHUDElement(
 	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
 	const std::string& aHUDElementName = aSectionName.substr(aPostPrefixPos);
 	DBG_ASSERT(!aHUDElementName.empty());
-	HUDElement& aHUDElement =
-		sHUDElements.findOrAdd(aHUDElementName);
-	if( aHUDElement.name.empty() )
-		aHUDElement.name = aHUDElementName;
+	sHUDElements.findOrAdd(aHUDElementName);
 	return true;
 }
 
@@ -813,9 +800,7 @@ static bool createEmptyMenu(
 	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
 	const std::string& aMenuName = aSectionName.substr(aPostPrefixPos);
 	DBG_ASSERT(!aMenuName.empty());
-	Menu& aMenu = sMenus.findOrAdd(aMenuName);
-	if( aMenu.name.empty() )
-		aMenu.name = aMenuName;
+	sMenus.findOrAdd(aMenuName);
 	return true;
 }
 
@@ -825,8 +810,9 @@ static bool setMenuAsChildOf(
 	u16 theChildMenuID, const std::string& thePrefix, void* theParentMenuIDPtr)
 {
 	Menu& aSubMenu = sMenus.vals()[theChildMenuID];
+	const std::string& aSubMenuName = sMenus.keys()[theChildMenuID];
 	const std::string& aPotentialLabel =
-		aSubMenu.name.substr(posAfterPrefix(aSubMenu.name, thePrefix));
+		aSubMenuName.substr(posAfterPrefix(aSubMenuName, thePrefix));
 	if( aPotentialLabel.empty() )
 		return true;
 	if( aSubMenu.label.empty() ||
@@ -860,8 +846,6 @@ static void setupRootMenu(u16 theMenuID)
 		const u16 aHUDElementID = sHUDElements.findOrAddIndex(
 			sMenus.keys()[theMenuID]);
 		theMenu.hudElementID = aHUDElementID;
-		sHUDElements.vals()[aHUDElementID].name =
-			theMenu.name;
 		sHUDElements.vals()[aHUDElementID].menuID = theMenuID;
 	}
 	else
@@ -1876,15 +1860,6 @@ static void createEmptyHotspotArray(const std::string& theName)
 
 	// Create hotspot array object
 	HotspotArray& anArray = sHotspotArrays.findOrAdd(anArrayKey);
-	if( anArray.name.empty() )
-	{
-		anArray.name = theName;
-		if( !isAnchorHotspot )
-		{// Strip number(s) off end of name
-			anArray.name.resize(posAfterPrefix(
-				anArray.name, anArrayKey));
-		}
-	}
 	if( isAnchorHotspot )
 	{
 		anArray.hasAnchor = true;
@@ -1945,7 +1920,8 @@ static void createEmptyHotspotsForArray(u16 theArrayID)
 		if( theArray.ranges[i].firstIdx != anExpectedIdx )
 		{
 			logError("Hotspot Array '%s' appears to be missing '%s%d'!",
-				theArray.name.c_str(), theArray.name.c_str(), anExpectedIdx);
+				sHotspotArrays.keys()[theArrayID].c_str(),
+				sHotspotArrays.keys()[theArrayID].c_str(), anExpectedIdx);
 			theArray.size = anExpectedIdx - 1;
 			theArray.ranges.resize(i);
 			break;
@@ -3595,7 +3571,7 @@ static void loadDataFromProfile(
 		HUDElement& aHUDElement = sHUDElements.vals()[i];
 		if( loadedHUDElements.test(i) )
 		{
-			sSectionPrintName = "[" + sHUDElements.vals()[i].name + "]";
+			sSectionPrintName = "[" + sHUDElements.keys()[i] + "]";
 			validateHUDElement(aHUDElement);
 			gFullRedrawHUD.set(i);
 			gReshapeHUD.set(i);
@@ -3630,7 +3606,7 @@ static void loadDataFromProfile(
 		aMenuID < loadedMenus.size();
 		aMenuID = loadedMenus.nextSetBit(aMenuID+1))
 	{
-		sSectionPrintName = "[" + sMenus.vals()[aMenuID].name + "]";
+		sSectionPrintName = "[" + sMenus.keys()[aMenuID] + "]";
 		validateMenu(aMenuID);
 		Menu& aMenu = sMenus.vals()[aMenuID];
 		parseLabel(aMenu.label);
@@ -3697,7 +3673,6 @@ void loadProfile()
 
 	// Allocate controls layers
 	sLayers.setValue(kMainLayerSectionName, ControlsLayer());
-	sLayers.vals().back().name = kMainLayerSectionName;
 	Profile::allSections().findAllWithPrefix(
 		kLayerPrefix, createEmptyLayer);
 	for(u16 i = 0; i < sLayers.size(); ++i)
@@ -3767,11 +3742,11 @@ void loadProfileChanges()
 		{
 			const std::string& aMenuName = aSectName.substr(aPrefixEnd);
 			DBG_ASSERT(!aMenuName.empty());
+			const u16 aMenuCount = sMenus.size();
 			const u16 aMenuID = sMenus.findOrAddIndex(aMenuName);
-			Menu& aMenu = sMenus.vals()[aMenuID];
-			if( !aMenu.name.empty() )
+			if( aMenuCount == sMenus.size() )
 				continue;
-			aMenu.name = aMenuName;
+			Menu& aMenu = sMenus.vals()[aMenuID];
 			for(u16 i = 0; i < sMenus.size(); ++i)
 				linkMenuToSubMenus(i);
 			// Only valid to add sub-menus, not root menus
@@ -4080,7 +4055,7 @@ u8 menuGridHeight(u16 theMenuID)
 std::string menuSectionName(u16 theMenuID)
 {
 	DBG_ASSERT(theMenuID < sMenus.size());
-	return kMenuPrefix + sMenus.vals()[theMenuID].name;
+	return kMenuPrefix + sMenus.keys()[theMenuID];
 }
 
 
@@ -4276,7 +4251,7 @@ u16 hotspotArrayCount()
 const std::string& layerLabel(u16 theLayerID)
 {
 	DBG_ASSERT(theLayerID < sLayers.size());
-	return sLayers.vals()[theLayerID].name;
+	return sLayers.keys()[theLayerID];
 }
 
 
@@ -4312,7 +4287,7 @@ std::string hotspotLabel(u16 theHotspotID)
 			aSearchArray);
 		DBG_ASSERT(itr > sHotspotArrays.vals().begin());
 		--itr;
-		result = itr->name;
+		result = sHotspotArrays.keys()[itr - sHotspotArrays.vals().begin()];
 		if( theHotspotID > itr->anchorIdx )
 			result += toString(theHotspotID - itr->anchorIdx);
 	}
@@ -4324,7 +4299,7 @@ std::string hotspotLabel(u16 theHotspotID)
 const std::string& hotspotArrayLabel(u16 theHotspotArrayID)
 {
 	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
-	return sHotspotArrays.vals()[theHotspotArrayID].name;
+	return sHotspotArrays.keys()[theHotspotArrayID];
 }
 
 
@@ -4333,7 +4308,7 @@ const std::string& menuLabel(u16 theMenuID)
 	DBG_ASSERT(theMenuID < sMenus.size());
 	if( !sMenus.vals()[theMenuID].label.empty() )
 		return sMenus.vals()[theMenuID].label;
-	return sMenus.vals()[theMenuID].name;
+	return sMenus.keys()[theMenuID];
 }
 
 
