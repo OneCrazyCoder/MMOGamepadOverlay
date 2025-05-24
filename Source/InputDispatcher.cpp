@@ -157,7 +157,7 @@ struct ZERO_INIT(Config)
 			sanitizeSentence(aString, aParsedString);
 			for( size_t i = 0; i < aParsedString.size(); ++i)
 			{
-				u8 aVKey = keyNameToVirtualKey(upper(aParsedString[i]));
+				u8 aVKey = keyNameToVirtualKey(aParsedString[i]);
 				if( aVKey == 0 )
 				{
 					logError("Unrecognized key name for safeAsyncKeys: %s",

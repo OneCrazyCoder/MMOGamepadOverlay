@@ -277,7 +277,7 @@ struct ZERO_INIT(AutoRefreshLabelEntry)
 struct HUDBuilder
 {
 	std::vector<std::string> parsedString;
-	StringToValueMap<u16> fontInfoToFontIDMap;
+	StringToValueMap<u16, u8> fontInfoToFontIDMap;
 	typedef std::pair< COLORREF, std::pair<int, int> > PenDef;
 	VectorMap<PenDef, u16> penDefToPenMap;
 	StringToValueMap<HBITMAP> bitmapNameToHandleMap;
@@ -507,8 +507,7 @@ static void loadBitmapFile(
 		return;
 	}
 
-	theBuilder.bitmapNameToHandleMap.setValue(
-		condense(theBitmapName), aBitmapHandle);
+	theBuilder.bitmapNameToHandleMap.setValue(theBitmapName, aBitmapHandle);
 }
 
 
@@ -592,7 +591,7 @@ static u16 getOrCreateFontID(
 {
 	// Check for and return existing font
 	const std::string& aKeyStr =
-		upper(theFontName) + "_" + theFontSize + "_" + theFontWeight;
+		theFontName + "_" + theFontSize + "_" + theFontWeight;
 	u16 result = theBuilder.fontInfoToFontIDMap.findOrAdd(
 		aKeyStr, u16(sFonts.size()));
 	if( result < sFonts.size() )
@@ -653,8 +652,8 @@ static size_t getOrCreateBuildIconEntry(
 	std::string aRectDesc = theIconDescription;
 	std::string aBitmapName = breakOffItemBeforeChar(aRectDesc, ':');
 	HBITMAP* hBitmapPtr = aBitmapName.empty()
-		? theBuilder.bitmapNameToHandleMap.find(condense(theIconDescription))
-		: theBuilder.bitmapNameToHandleMap.find(condense(aBitmapName));
+		? theBuilder.bitmapNameToHandleMap.find(theIconDescription)
+		: theBuilder.bitmapNameToHandleMap.find(aBitmapName);
 	BuildIconEntry aBuildEntry = BuildIconEntry();
 	aBuildEntry.srcFile = hBitmapPtr ? *hBitmapPtr : 0;
 
@@ -875,7 +874,7 @@ static IconEntry getOrCreateLabelIcon(
 	const std::string& theIconDescription,
 	bool usePrevIdxAsBase = false)
 {
-	std::string aTextLabel = condense(theTextLabel);
+	std::string aTextLabel = theTextLabel;
 
 	// Check if might just be an offset from another copy icon
 	int anArrayIdx = breakOffIntegerSuffix(aTextLabel);
@@ -929,7 +928,7 @@ static IconEntry getOrCreateLabelIcon(
 			}
 		}
 		// Restore full label
-		aTextLabel = condense(theTextLabel);
+		aTextLabel = theTextLabel;
 	}
 
 	IconEntry& anEntry = sLabelIcons.findOrAdd(aTextLabel, IconEntry());
@@ -1363,7 +1362,7 @@ static void drawMenuItemLabel(
 
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{// Initialize cache entry
-		IconEntry* anIconEntry = sLabelIcons.find(condense(theLabel));
+		IconEntry* anIconEntry = sLabelIcons.find(theLabel);
 		if( anIconEntry && anIconEntry->copyFromTarget )
 		{
 			theCacheEntry.type = eMenuItemLabelType_CopyRect;
@@ -2150,7 +2149,7 @@ void init()
 		{
 			aStr = getHUDPropStr(aHUDName, eHUDProp_ItemType);
 			if( !aStr.empty() )
-				hi.itemType = hudTypeNameToID(upper(aStr));
+				hi.itemType = hudTypeNameToID(aStr);
 			if( hi.itemType < eHUDItemType_Begin ||
 				hi.itemType >= eHUDItemType_End )
 			{

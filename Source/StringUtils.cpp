@@ -173,15 +173,28 @@ std::string condense(const std::string& theString)
 	std::string aString;
 	aString.reserve(theString.size());
 
-	bool allowDash = true;
-	for(size_t i = 0; i < theString.length(); ++i)
+	bool lastWasDigit = false;
+	bool pendingDash = false;
+	for(const char* c = theString.c_str(); *c; ++c)
 	{
-		if( (unsigned)theString[i] > ' ' && theString[i] != '_' &&
-			(theString[i] != '-' || allowDash) )
+		u8 ch(*c);
+		if( ch <= ' ' || ch == '_' )
+			continue;
+		if( ch == '-' )
 		{
-			aString += (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
-			allowDash = theString[i] >= '0' && theString[i] <= '9';
+			if( lastWasDigit )
+				pendingDash = true;
+			lastWasDigit = false;
+			continue;
 		}
+		const bool isDigit = (ch >= '0' && ch <= '9');
+		if( pendingDash && isDigit )
+			aString += '-';
+		pendingDash = false;
+		lastWasDigit = isDigit;
+		if( (ch & 0x80) == 0 )
+			ch = ::toupper(ch);
+		aString += ch;
 	}
 
 	return aString;
@@ -553,27 +566,92 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 }
 
 
-size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix)
+size_t posAfterPrefix(
+	const std::string& theString, const std::string& thePrefix)
 {
-	const std::string& aPrefix = condense(thePrefix);
-	size_t aPrefixIdx = 0;
-	// Use the same logic as condense() while searching the string
-	bool allowDash = true;
-	for(size_t i = 0; i < theString.length(); ++i)
+	if( thePrefix.empty() )
+		return 0;
+
+	const char* str = theString.c_str();
+	const char* pre = thePrefix.c_str();
+	size_t i = 0, pi = 0;
+
+	bool lastWasDigitStr = false, lastWasDigitPre = false;
+	bool pendingDashStr = false, pendingDashPre = false;
+
+	while(str[i] && pre[pi])
 	{
-		if( (unsigned)theString[i] > ' ' && theString[i] != '_' &&
-			(theString[i] != '-' || allowDash) )
+		u8 sc = (u8)str[i];
+		u8 pc = (u8)pre[pi];
+
+		// Skip condensible characters in theString
+		if( sc <= ' ' || sc == '_' ) { ++i; continue; }
+		if( sc == '-' )
 		{
-			char c = (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
-			if( aPrefixIdx == aPrefix.length() )
-				return i;
-			if( aPrefix[aPrefixIdx++] != c )
-				return 0; // not a matching prefix!
-			allowDash = c >= '0' && c <= '9';
+			if( lastWasDigitStr )
+				pendingDashStr = true;
+			lastWasDigitStr = false;
+			++i;
+			continue;
 		}
+
+		// Skip condensible characters in thePrefix
+		if( pc <= ' ' || pc == '_' ) { ++pi; continue; }
+		if( pc == '-' )
+		{
+			if( lastWasDigitPre )
+				pendingDashPre = true;
+			lastWasDigitPre = false;
+			++pi;
+			continue;
+		}
+
+		bool isDigitStr = (sc >= '0' && sc <= '9');
+		bool isDigitPre = (pc >= '0' && pc <= '9');
+
+		if( pendingDashStr && isDigitStr )
+		{
+			if( !(pendingDashPre && isDigitPre) )
+				return 0;
+			pendingDashStr = pendingDashPre = false;
+		}
+		else if( pendingDashPre && isDigitPre )
+		{
+			return 0;
+		}
+
+		lastWasDigitStr = isDigitStr;
+		lastWasDigitPre = isDigitPre;
+
+		if( !(sc & 0x80) ) sc = ::toupper(sc);
+		if( !(pc & 0x80) ) pc = ::toupper(pc);
+
+		if( sc != pc )
+			return 0;
+
+		++i;
+		++pi;
 	}
 
-	return aPrefixIdx == aPrefix.length() ? theString.length() : 0;
+	// If we didn't finish prefix, fail
+	while (pre[pi])
+	{
+		u8 pc = (u8)pre[pi];
+		if( pc > ' ' && pc != '_' && pc != '-' )
+			return 0;
+		++pi;
+	}
+
+	// Now skip trailing junk in theString
+	while(str[i])
+	{
+		u8 c = (u8)str[i];
+		if( c > ' ' && c != '-' && c != '_' )
+			break;
+		++i;
+	}
+
+	return i;
 }
 
 

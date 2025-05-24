@@ -18,8 +18,8 @@
 namespace Profile
 {
 
-typedef StringToValueMap<std::string, u16, condense> PropertyMap;
-typedef StringToValueMap<PropertyMap, u16, condense> SectionsMap;
+typedef StringToValueMap<std::string> PropertyMap;
+typedef StringToValueMap<PropertyMap> SectionsMap;
 
 // Load (and/or generate) .ini files for core profile data only
 void loadCore();
