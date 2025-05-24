@@ -286,7 +286,7 @@ struct TargetConfigSyncBuilder
 {
 	std::vector<ValueLinkMap> valueLinkMaps;
 	StringToValueMap<u16> nameToLinkMapID;
-	StringToValueMap<u16> pathToLinkMapID;
+	StringToValueMap<u16, u16, true> pathToLinkMapID;
 	StringToValueMap<u16> valueSetNameToIDMap;
 	std::string valueFormatStrings[eValueSetSubType_Num];
 	std::string debugString;
@@ -1404,7 +1404,7 @@ static bool setFetchValueFromDataSource(
 		return false;
 	}
 	u16* const aValueLinkMapID =
-		theBuilder.nameToLinkMapID.find(condense(aDataSourceKey));
+		theBuilder.nameToLinkMapID.find(aDataSourceKey);
 	if( !aValueLinkMapID )
 	{
 		// It may be intentional that syncing was disabled by not defining the
@@ -1530,7 +1530,7 @@ static void parsePropertyValueTags(
 		aSegment.insertPos = aTagCoords.first;
 		// Get function identifier (empty is valid as "base" function)
 		const std::string& aFuncName = breakOffItemBeforeChar(aTag, ':');
-		aSegment.funcType = valueFuncNameToID(condense(aFuncName));
+		aSegment.funcType = valueFuncNameToID(aFuncName);
 		if( aSegment.funcType == eValueFunc_Num )
 		{
 			logError("Unknown function name '%s' in sync property '%s'",
@@ -1855,7 +1855,7 @@ void load()
 			if( aLinkMapID >= aBuilder.valueLinkMaps.size() )
 				aBuilder.valueLinkMaps.push_back(ValueLinkMap());
 			aBuilder.nameToLinkMapID.setValue(
-				condense(aPropMap.keys()[i]), aLinkMapID);
+				aPropMap.keys()[i], aLinkMapID);
 		}
 	}
 
@@ -2046,12 +2046,9 @@ void load()
 
 void loadProfileChanges()
 {
-	if( Profile::changedSections().contains(
-			condense(kTargetConfigFilesSectionName)) ||
-		Profile::changedSections().contains(
-			condense(kSyncPropertiesSectionName)) ||
-		Profile::changedSections().contains(
-			condense(kValueFormatStrSectionName)) )
+	if( Profile::changedSections().contains(kTargetConfigFilesSectionName) ||
+		Profile::changedSections().contains(kSyncPropertiesSectionName) ||
+		Profile::changedSections().contains(kValueFormatStrSectionName) )
 	{
 		load();
 	}

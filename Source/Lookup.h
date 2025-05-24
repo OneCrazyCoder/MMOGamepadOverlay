@@ -151,19 +151,21 @@ public:
 		and maximum key/value pairs that can be stored (u8 = 256 keys/values,
 		u16 = 65,536 keys/values, etc).
 
-	*	'F' will be used to convert keys before comparison, though the keys
-		will still be stored in their first-used form. Left as null, all keys
-		must match bit-by-bit (i.e. fully case-sensitive), but this can be
-		used to temporarily convert keys to, for example, be all upper-case
-		for key comparisons, effectively making searches case-insensitive.
-		This will obviously lower performance if it is not left as null.
+	*	'S' stands for "strict mode" and, if true, will only allow exact
+		key matches byte-by-byte. If false, keys can differ in casing (for
+		plain ANSI 0 to 0x7F chars anyway) and include different whitespace
+		and underscores and hyphens, yet still count as the same key (except
+		for hyphens following a number). Therefore keys 'user-friendly',
+		'UserFriendly', and 'USER_FRIENDLY' would all count as the same key,
+		but 'Range10-12' and 'Range1012' would not. Strict mode offers faster
+		performance, however.
 //---------------------------------------------------------------------------*/
-typedef std::string (*KeyConvFunc)(const std::string&);
-template<class V, class I = u16, KeyConvFunc F = null>
+template<class V, class I = u16, bool S = false>
 class StringToValueMap
 {
 public:
 	// TYPES & CONSTANTS
+	typedef StringToValueMap<V, I, S> This;
 	typedef std::string Key;
 	typedef V Value;
 	typedef I IndexType;
@@ -174,7 +176,8 @@ public:
 	typedef typename ValueTrait<V>::Type StoredValueType;
 	typedef std::vector<StoredValueType> ValueVector;
 	typedef std::vector<IndexType> IndexVector;
-	typedef bool (*FoundIndexCallback)(I, const std::string&, void*);
+	typedef bool (*FoundIndexCallback)(
+		const This&, I theIndex, const std::string& thePrefix, void* theUserData);
 
 	// CONSTRUCTOR/DESTRUCTOR
 	StringToValueMap();
@@ -236,21 +239,49 @@ public:
 	I size() const { return I(mValues.size()); }
 
 private:
+	// PRIVATE STRUCTURES
+	struct Node { u16 bitPos; I left, right; };
+	struct StrictKey
+	{
+		StrictKey(const Key& theKey);
+		bool matches(const Key& theKey, bool asPrefixOnly = false) const;
+		bool operator==(const Key& theKey) const { return theKey == ptr; }
+		const char* ptr; size_t size;
+	};
+	struct LenientKey
+	{
+		LenientKey(const Key& theKey);
+		~LenientKey() { if( dynamic ) delete[] ptr; }
+		bool matches(const Key& theKey, bool asPrefixOnly = false) const;
+		bool operator==(const Key& theKey) const { return matches(theKey); }
+		char* ptr; size_t size; char buf[256]; bool dynamic;
+	};
+	typedef typename conditional<S, StrictKey, LenientKey>::type FindKey;
+	struct PrefixFindData
+	{
+		const Key& rawPrefix; const FindKey& prefix;
+		FoundIndexCallback cb; void* cbData;
+		bool valid; bool halted;
+		PrefixFindData(
+			const Key& rawPrefix, const FindKey& prefix,
+			FoundIndexCallback cb, void* cbData)
+			:
+			rawPrefix(rawPrefix), prefix(prefix),
+			cb(cb), cbData(cbData), valid(), halted()
+		{}
+	};
+
 	// PRIVATE FUNCTIONS
 	I addNewNode(const Key& theKey, const V& theValue);
-	void insertNode(const Key&, I theNewNode, I theFoundNode, I theBackPtr);
-	I bestNodeIndexForFind(const Key& theKey) const;
-	I bestNodeIndexForInsert(const Key& theKey, I* theBPOut) const;
-	u8 getChar(const Key& theKey, u16 theIndex) const;
-	u8 getBitAtPos(const Key& theKey, u16 theBitPos) const;
-	u16 getFirstBitDiff(const Key& theNewKey, const Key& theOldKey) const;
-	struct PrefixFindData { const Key* origPrefix; const Key* convPrefix;
-		FoundIndexCallback callback; void* cbData; bool valid; bool halted; };
+	void linkNode(const FindKey&, I theNewNode, I theFoundNode, I theBackPtr);
+	I bestNodeIndexForFind(const FindKey& theKey) const;
+	I bestNodeIndexForInsert(const FindKey& theKey, I* theBPOut) const;
+	u8 getChar(const FindKey& theKey, u16 theIndex) const;
+	u8 bitAtPos(const FindKey& theKey, u16 theBitPos) const;
 	void findPrefixRecursive(I, int theBitPos, PrefixFindData& thePFD) const;
-	static bool reportContainsPrefix(I, const std::string&, void* theFlagPtr);
+	static bool reportHasPrefix(const This&, I, const std::string&, void*);
 
 	// PRIVATE DATA
-	struct Node { u16 bitPos; I left, right; };
 	KeyVector mKeys;
 	ValueVector mValues;
 	std::vector<Node> mTrie;

@@ -32,7 +32,7 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun);
 struct ZERO_INIT(TreeViewDialogItem)
 {
 	std::string name;
-	size_t parentIndex;
+	int parentIndex;
 	bool isRootCategory;
 };
 size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);

@@ -138,6 +138,12 @@ inline u16 ratioToU16(u32 theNumerator, u32 theDenominator)
 #define M_PI (3.1415926535897932384626433832795028841971)
 #endif
 
+// Returns one of two types based on boolean parameter - useful in templates
+template<bool B, typename T, typename F>
+struct conditional { typedef T type; };
+template<typename T, typename F>
+struct conditional<false, T, F> { typedef F type; };
+
 /*
 	Base struct that clears the memory of its derived struct before the derived
 	struct constructs, to avoid issue of using memset in a struct's constructor

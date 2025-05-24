@@ -129,8 +129,6 @@ struct ZERO_INIT(EditorState)
 {
 	std::vector<LayoutEntry> entries;
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
-	StringToValueMap<u16> hotspotNameMapCache;
-	StringToValueMap<u16> hotspotArrayNameMapCache;
 	LayoutEntry::Shape entered, applied;
 	size_t activeEntry;
 	POINT lastMouseDragPos;
@@ -1268,7 +1266,7 @@ static void promptForEditEntry()
 	DBG_ASSERT(sState);
 	// Set root's parent to be last-selected item if there was one
 	// This signals to the dialog which item to start out already selected
-	sState->entries[0].item.parentIndex = sState->activeEntry;
+	sState->entries[0].item.parentIndex = int(sState->activeEntry);
 	sState->activeEntry = Dialogs::layoutItemSelect(sState->dialogItems);
 	DBG_ASSERT(sState->activeEntry < sState->entries.size());
 	if( sState->activeEntry )
@@ -1302,13 +1300,33 @@ static void promptForEditEntry()
 }
 
 
+static bool setEntryParentFromMap(
+	const StringToValueMap<u32>& theEntryNameMap,
+	u16 theIndex, const std::string& thePrefix, void* theEntryPtr)
+{
+	LayoutEntry& theEntry = *((LayoutEntry*)theEntryPtr);
+	std::string aHotspotName =
+		theEntryNameMap.keys()[theIndex];
+	const int aHotspotEndIdx =
+		breakOffIntegerSuffix(aHotspotName);
+	const int anArrayPrevIdx = -theEntry.item.parentIndex;
+	if( aHotspotEndIdx == anArrayPrevIdx )
+	{
+		theEntry.item.parentIndex = theEntryNameMap.values()[theIndex];
+		return false;
+	}
+
+	return true;
+}
+
+
 static void setEntryParent(
 	LayoutEntry& theEntry,
 	const StringToValueMap<u32>& theEntryNameMap)
 {
 	if( theEntry.rangeCount == 0 )
 		return;
-	std::string anArrayName = condense(theEntry.item.name);
+	std::string anArrayName = theEntry.item.name;
 	breakOffIntegerSuffix(anArrayName);
 	if( theEntry.rangeCount == 1 )
 	{// Search for an anchor to act as parent
@@ -1331,21 +1349,13 @@ static void setEntryParent(
 		theEntry.item.parentIndex = *aParentIdx;
 		return;
 	}
-	StringToValueMap<u32>::IndexVector anIndexSet;
-	//theEntryNameMap.findAllWithPrefix(anArrayName, anIndexSet);
-	//for(size_t i = 0; i < anIndexSet.size(); ++i)
-	//{
-	//	std::string aHotspotName =
-	//		theEntryNameMap.keys()[anIndexSet[i]];
-	//	const int aHotspotEndIdx =
-	//		breakOffIntegerSuffix(aHotspotName);
-	//	if( aHotspotEndIdx == anArrayPrevIdx )
-	//	{
-	//		theEntry.item.parentIndex =
-	//			theEntryNameMap.values()[anIndexSet[i]];
-	//		return;
-	//	}
-	//}
+	const int oldParentIndex = theEntry.item.parentIndex;
+	theEntry.item.parentIndex = -anArrayPrevIdx;
+	theEntryNameMap.findAllWithPrefix(anArrayName, setEntryParentFromMap);
+	if( theEntry.item.parentIndex < 0 )
+		theEntry.item.parentIndex = oldParentIndex;
+	else
+		return;
 	aParentIdx = theEntryNameMap.find(anArrayName);
 	if( aParentIdx )
 		theEntry.item.parentIndex = *aParentIdx;
@@ -1371,7 +1381,7 @@ static void addArrayEntries(
 		aNewEntry.rangeCount = 0;
 		aNewEntry.item.name = aPropertyMap.keys()[i];
 		aNewEntry.propName = aNewEntry.item.name;
-		std::string aKeyName = condense(aNewEntry.item.name);
+		std::string aKeyName = aNewEntry.item.name;
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
 		std::string aDesc = aPropertyMap.vals()[i];

@@ -30,7 +30,6 @@ const char* kHUDPrefix = "HUD.";
 const char* kKeyBindsSectionName = "KeyBinds";
 const char* kHotspotsSectionName = "Hotspots";
 const char* k4DirCmdSuffix[] = { " Left", " Right", " Up", " Down" };
-const char* k4DirKeySuffix[] = { "LEFT", "RIGHT", "UP", "DOWN" };
 const std::string kActionOnlyPrefix = "Just";
 const std::string kSignalCommandPrefix = "When";
 
@@ -115,36 +114,35 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "R",				ePropType_MenuItemRight	},
 				{ "U",				ePropType_MenuItemUp	},
 				{ "D",				ePropType_MenuItemDown	},
-				{ "HOTSPOTS",		ePropType_Hotspots		},
-				{ "KEYBINDS",		ePropType_KeyBinds		},
-				{ "SCHEME",			ePropType_Scheme		},
-				{ "LAYER",			ePropType_Layer			},
-				{ "MENU",			ePropType_Menu			},
+				{ "Hotspots",		ePropType_Hotspots		},
+				{ "Keybinds",		ePropType_KeyBinds		},
+				{ "Scheme",			ePropType_Scheme		},
+				{ "Layer",			ePropType_Layer			},
+				{ "Menu",			ePropType_Menu			},
 				{ "HUD",			ePropType_HUD			},
-				{ "MOUSE",			ePropType_Mouse			},
-				{ "CURSOR",			ePropType_Mouse			},
-				{ "HOTSPOT",		ePropType_Hotspot		},
-				{ "HOT",			ePropType_Hotspot		},
-				{ "SPOT",			ePropType_Hotspot		},
-				{ "POINT",			ePropType_Hotspot		},
-				{ "PARENT",			ePropType_Parent		},
-				{ "PRIORITY",		ePropType_Priority		},
-				{ "AUTO",			ePropType_Auto			},
-				{ "BACK",			ePropType_Back			},
-				{ "TYPE",			ePropType_Type			},
-				{ "STYLE",			ePropType_Type			},
-				{ "KEYBINDARRAY",	ePropType_KBArray		},
-				{ "KBARRAY",		ePropType_KBArray		},
-				{ "KEYBINDARRAY",	ePropType_KBArray		},
-				{ "ARRAY",			ePropType_KBArray		},
-				{ "GRIDWIDTH",		ePropType_GridWidth		},
-				{ "LABEL",			ePropType_Label			},
-				{ "TITLE",			ePropType_Label			},
-				{ "NAME",			ePropType_Label			},
-				{ "STRING",			ePropType_Label			},
-				{ "TO",				ePropType_Filler		},
-				{ "AT",				ePropType_Filler		},
-				{ "ON",				ePropType_Filler		},
+				{ "Mouse",			ePropType_Mouse			},
+				{ "Cursor",			ePropType_Mouse			},
+				{ "Hotspot",		ePropType_Hotspot		},
+				{ "Hot",			ePropType_Hotspot		},
+				{ "Spot",			ePropType_Hotspot		},
+				{ "Point",			ePropType_Hotspot		},
+				{ "ParenT",			ePropType_Parent		},
+				{ "Priority",		ePropType_Priority		},
+				{ "Auto",			ePropType_Auto			},
+				{ "Back",			ePropType_Back			},
+				{ "Type",			ePropType_Type			},
+				{ "Style",			ePropType_Type			},
+				{ "KeyBindArray",	ePropType_KBArray		},
+				{ "KBArray",		ePropType_KBArray		},
+				{ "Array",			ePropType_KBArray		},
+				{ "GridWidth",		ePropType_GridWidth		},
+				{ "Label",			ePropType_Label			},
+				{ "Title",			ePropType_Label			},
+				{ "Name",			ePropType_Label			},
+				{ "String",			ePropType_Label			},
+				{ "to",				ePropType_Filler		},
+				{ "at",				ePropType_Filler		},
+				{ "on",				ePropType_Filler		},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
@@ -292,7 +290,7 @@ struct ZERO_INIT(HotspotArray)
 
 static std::vector<Hotspot> sHotspots;
 static StringToValueMap<HotspotArray> sHotspotArrays;
-static StringToValueMap<bool> sCmdStrings;
+static StringToValueMap<bool, u16, true> sCmdStrings;
 static StringToValueMap<Command> sKeyBinds;
 static StringToValueMap<KeyBindArray> sKeyBindArrays;
 static StringToValueMap<ControlsLayer> sLayers;
@@ -715,25 +713,20 @@ static Command parseChatBoxMacro(std::string theString)
 
 
 static bool createEmptyLayer(
+	const Profile::SectionsMap& theSectionsMap,
 	u16 theSectionID, const std::string& thePrefix, void*)
 {
 	const std::string& aSectionName =
-		Profile::allSections().keys()[theSectionID];
+		theSectionsMap.keys()[theSectionID];
 	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
 	const std::string& aLayerName = aSectionName.substr(aPostPrefixPos);
 	DBG_ASSERT(!aLayerName.empty());
-	ControlsLayer& aLayer = sLayers.findOrAdd(condense(aLayerName));
+	ControlsLayer& aLayer = sLayers.findOrAdd(aLayerName);
 	if( aLayer.name.empty() )
 		aLayer.name = aLayerName;
 	aLayer.isComboLayer =
 		aLayerName.find(kComboLayerDeliminator) != std::string::npos;
 	return true;
-}
-
-
-static u16 getLayerID(const std::string& theName)
-{
-	return sLayers.findIndex(condense(theName));
 }
 
 
@@ -749,7 +742,7 @@ static void linkComboLayers(u16 theLayerID)
 	if( aFirstLayerName.empty() || aSecondLayerName.empty() )
 		return;
 
-	const u16 aFirstLayerID = getLayerID(aFirstLayerName);
+	const u16 aFirstLayerID = sLayers.findIndex(aFirstLayerName);
 	if( aFirstLayerID >= sLayers.size() )
 	{
 		logError("Base layer [%s] not found for combo layer [%s]",
@@ -758,7 +751,7 @@ static void linkComboLayers(u16 theLayerID)
 		return;
 	}
 
-	u16 aSecondLayerID = getLayerID(aSecondLayerName);
+	u16 aSecondLayerID = sLayers.findIndex(aSecondLayerName);
 	if( aSecondLayerID >= sLayers.size() )
 	{
 		// Second layer may actually be a combo layer itself, including
@@ -776,7 +769,7 @@ static void linkComboLayers(u16 theLayerID)
 		}
 		// Create placeholder second combo layer
 		ControlsLayer& aSecondLayer =
-			sLayers.setValue(condense(aSecondLayerName), ControlsLayer());
+			sLayers.setValue(aSecondLayerName, ControlsLayer());
 		aSecondLayer.name = aSecondLayerName;
 		aSecondLayer.isComboLayer = true;
 	}
@@ -795,36 +788,32 @@ static void linkComboLayers(u16 theLayerID)
 
 
 static bool createEmptyHUDElement(
+	const Profile::SectionsMap& theSectionsMap,
 	u16 theSectionID, const std::string& thePrefix, void*)
 {
 	const std::string& aSectionName =
-		Profile::allSections().keys()[theSectionID];
+		theSectionsMap.keys()[theSectionID];
 	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
 	const std::string& aHUDElementName = aSectionName.substr(aPostPrefixPos);
 	DBG_ASSERT(!aHUDElementName.empty());
 	HUDElement& aHUDElement =
-		sHUDElements.findOrAdd(condense(aHUDElementName));
+		sHUDElements.findOrAdd(aHUDElementName);
 	if( aHUDElement.name.empty() )
 		aHUDElement.name = aHUDElementName;
 	return true;
 }
 
 
-static u16 getHUDElementID(const std::string& theName)
-{
-	return sHUDElements.findIndex(condense(theName));
-}
-
-
 static bool createEmptyMenu(
+	const Profile::SectionsMap& theSectionsMap,
 	u16 theSectionID, const std::string& thePrefix, void*)
 {
 	const std::string& aSectionName =
-		Profile::allSections().keys()[theSectionID];
+		theSectionsMap.keys()[theSectionID];
 	const size_t aPostPrefixPos = posAfterPrefix(aSectionName, thePrefix);
 	const std::string& aMenuName = aSectionName.substr(aPostPrefixPos);
 	DBG_ASSERT(!aMenuName.empty());
-	Menu& aMenu = sMenus.findOrAdd(condense(aMenuName));
+	Menu& aMenu = sMenus.findOrAdd(aMenuName);
 	if( aMenu.name.empty() )
 		aMenu.name = aMenuName;
 	return true;
@@ -832,6 +821,7 @@ static bool createEmptyMenu(
 
 
 static bool setMenuAsChildOf(
+	const StringToValueMap<Menu>&,
 	u16 theChildMenuID, const std::string& thePrefix, void* theParentMenuIDPtr)
 {
 	Menu& aSubMenu = sMenus.vals()[theChildMenuID];
@@ -887,7 +877,7 @@ static void setupRootMenu(u16 theMenuID)
 
 static u16 getRootMenuID(const std::string& theName)
 {
-	u16 result = sMenus.findIndex(condense(theName));
+	u16 result = sMenus.findIndex(theName);
 	if( result < sMenus.size() &&
 		sMenus.vals()[result].parentMenuID < sMenus.size() )
 	{// Found a menu but it's a sub-menu
@@ -916,7 +906,7 @@ static u16 getMenuID(std::string theMenuName, u16 theParentMenuID)
 		theMenuName = theMenuName.substr(1);
 	}
 
-	return sMenus.findIndex(aParentPath + "." + condense(theMenuName));
+	return sMenus.findIndex(aParentPath + "." + theMenuName);
 }
 
 
@@ -937,7 +927,7 @@ static Command wordsToSpecialCommand(
 	// The exception are the "nothing" and "unassigned" key words.
 	if( theWords.size() <= 1 )
 	{
-		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[0]));
+		ECommandKeyWord aKeyWordID = commandWordToID(theWords[0]);
 		if( aKeyWordID != eCmdWord_Nothing )
 			return result;
 	}
@@ -955,7 +945,7 @@ static Command wordsToSpecialCommand(
 	result.count = 1;
 	for(size_t i = 0; i < theWords.size(); ++i)
 	{
-		ECommandKeyWord aKeyWordID = commandWordToID(upper(theWords[i]));
+		ECommandKeyWord aKeyWordID = commandWordToID(theWords[i]);
 		// Convert LeftWrap/NextNoWrap/etc into just dir & wrap flag
 		switch(aKeyWordID)
 		{
@@ -1132,7 +1122,7 @@ static Command wordsToSpecialCommand(
 				allowedKeyWords.firstSetBit()));
 		if( itr != sKeyWordMap.end() )
 		{
-			u16 aHotspotID = getHotspotID(condense(theWords[itr->second]));
+			u16 aHotspotID = getHotspotID(theWords[itr->second]);
 			if( aHotspotID )
 			{
 				result.type = eCmdType_MoveMouseToHotspot;
@@ -1177,7 +1167,7 @@ static Command wordsToSpecialCommand(
 	if( aSecondLayerName )
 	{
 		allowedKeyWords.set(eCmdWord_Filler);
-		ECommandKeyWord aKeyWordID = commandWordToID(upper(*aSecondLayerName));
+		ECommandKeyWord aKeyWordID = commandWordToID(*aSecondLayerName);
 		while(aSecondLayerName && allowedKeyWords.test(aKeyWordID))
 		{
 			if( aSecondLayerName == &theWords.back() )
@@ -1186,7 +1176,7 @@ static Command wordsToSpecialCommand(
 				break;
 			}
 			++aSecondLayerName;
-			aKeyWordID = commandWordToID(upper(*aSecondLayerName));
+			aKeyWordID = commandWordToID(*aSecondLayerName);
 		}
 		allowedKeyWords.reset(eCmdWord_Filler);
 	}
@@ -1219,10 +1209,10 @@ static Command wordsToSpecialCommand(
 	}
 	u16 aLayerID = kInvalidID;
 	if( aLayerName )
-		aLayerID = getLayerID(*aLayerName);
+		aLayerID = sLayers.findIndex(*aLayerName);
 	u16 aSecondLayerID = kInvalidID;
 	if( aSecondLayerName )
-		aSecondLayerID = getLayerID(*aSecondLayerName);
+		aSecondLayerID = sLayers.findIndex(*aSecondLayerName);
 	allowedKeyWords.reset();
 
 	if( aLayerID < sLayers.size() )
@@ -1436,10 +1426,7 @@ static Command wordsToSpecialCommand(
 	// In this case, need to confirm key bind name is valid and get ID from it
 	u16 aKeyBindArrayID = sKeyBindArrays.size();
 	if( aKeyBindArrayName )
-	{
-		aKeyBindArrayID = sKeyBindArrays.findIndex(
-			condense(*aKeyBindArrayName));
-	}
+		aKeyBindArrayID = sKeyBindArrays.findIndex(*aKeyBindArrayName);
 
 	if( aKeyBindArrayID < sKeyBindArrays.size() )
 	{
@@ -1727,34 +1714,34 @@ static Command* specialKeyBindNameToCommand(const std::string& theName)
 	// This makes sure special code for some of these commands is utilized
 	// when assign to the key bind name directly intead of the command name.
 
-	static StringToValueMap<Command> sSpecialKeyBindMap;
+	static StringToValueMap<Command, u8> sSpecialKeyBindMap;
 	if( sSpecialKeyBindMap.empty() )
 	{
 		sSpecialKeyBindMap.reserve(7); // <-- update this if add more!
 		Command aCmd;
 		aCmd.type = eCmdType_StartAutoRun;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyBindNames[eSpecialKey_AutoRun]), aCmd);
+			kSpecialKeyBindNames[eSpecialKey_AutoRun], aCmd);
 		aCmd.type = eCmdType_MoveTurn;
 		aCmd.dir = eCmdDir_Forward;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyBindNames[eSpecialKey_MoveF]), aCmd);
+			kSpecialKeyBindNames[eSpecialKey_MoveF], aCmd);
 		aCmd.dir = eCmdDir_Back;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyBindNames[eSpecialKey_MoveB]), aCmd);
+			kSpecialKeyBindNames[eSpecialKey_MoveB], aCmd);
 		aCmd.dir = eCmdDir_Left;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyBindNames[eSpecialKey_TurnL]), aCmd);
+			kSpecialKeyBindNames[eSpecialKey_TurnL], aCmd);
 		aCmd.dir = eCmdDir_Right;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyBindNames[eSpecialKey_TurnR]), aCmd);
+			kSpecialKeyBindNames[eSpecialKey_TurnR], aCmd);
 		aCmd.type = eCmdType_MoveStrafe;
 		aCmd.dir = eCmdDir_Left;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyBindNames[eSpecialKey_StrafeL]), aCmd);
+			kSpecialKeyBindNames[eSpecialKey_StrafeL], aCmd);
 		aCmd.dir = eCmdDir_Right;
 		sSpecialKeyBindMap.setValue(
-			condense(kSpecialKeyBindNames[eSpecialKey_StrafeR]), aCmd);
+			kSpecialKeyBindNames[eSpecialKey_StrafeR], aCmd);
 	}
 
 	return sSpecialKeyBindMap.find(theName);
@@ -1805,9 +1792,8 @@ static Command stringToCommand(
 		return result;
 
 	// Check for alias to a keybind
-	std::string aKeyBindName = condense(theString);
 	if( Command* aSpecialKeyBindCommand =
-			specialKeyBindNameToCommand(aKeyBindName) )
+			specialKeyBindNameToCommand(theString) )
 	{
 		if( allowHoldActions ||
 			aSpecialKeyBindCommand->type < eCmdType_FirstContinuous )
@@ -1817,11 +1803,12 @@ static Command stringToCommand(
 		}
 	}
 
-	const u16 aKeyBindID = sKeyBinds.findIndex(aKeyBindName);
+	const u16 aKeyBindID = sKeyBinds.findIndex(theString);
 	if( aKeyBindID < sKeyBinds.size() )
 	{
 		// Check if this keybind is part of an array, and if so, use
 		// eCmdType_KeyBindArrayIndex instead so "last" will update
+		std::string aKeyBindName = theString;
 		const int anArrayIdx = breakOffIntegerSuffix(aKeyBindName);
 		if( anArrayIdx >= 0 )
 		{
@@ -1859,10 +1846,8 @@ static Command stringToCommand(
 
 static void createEmptyHotspotArray(const std::string& theName)
 {
-	const std::string& theKey = condense(theName);
-
 	// Check if name ends in a number and thus could be part of an array
-	std::string anArrayKey = theKey;
+	std::string anArrayKey = theName;
 	int aRangeEndIdx = breakOffIntegerSuffix(anArrayKey);
 	int aRangeStartIdx = aRangeEndIdx;
 	bool isAnchorHotspot = aRangeEndIdx <= 0;
@@ -1887,7 +1872,7 @@ static void createEmptyHotspotArray(const std::string& theName)
 
 	// Restore full key string for an anchor name that may have been modified
 	if( isAnchorHotspot && aRangeEndIdx >= 0 )
-		anArrayKey = theKey;
+		anArrayKey = theName;
 
 	// Create hotspot array object
 	HotspotArray& anArray = sHotspotArrays.findOrAdd(anArrayKey);
@@ -2314,12 +2299,12 @@ static void reportCommandAssignment(
 
 static void createEmptyKeyBind(const std::string& theName)
 {
-	std::string aKeyName = condense(theName);
 	const u16 aPrevKeyBindsSize = sKeyBinds.size();
-	const u16 aKeyBindID = sKeyBinds.findOrAddIndex(aKeyName, Command());
+	const u16 aKeyBindID = sKeyBinds.findOrAddIndex(theName, Command());
 	if( sKeyBinds.size() > aPrevKeyBindsSize )
 	{
 		// Check if should also be part of a Key Bind Array
+		std::string aKeyName = theName;
 		const int anArrayIdx = breakOffIntegerSuffix(aKeyName);
 		if( anArrayIdx >= 0 )
 		{
@@ -2362,7 +2347,7 @@ static u16 applyKeyBindProperty(
 		return aKeyBindID;
 
 	// Signal Only
-	ECommandKeyWord aKeyWord = commandWordToID(condense(theCmdStr));
+	ECommandKeyWord aKeyWord = commandWordToID(theCmdStr);
 	if( aKeyWord == eCmdWord_Nothing )
 	{
 		aCmd.type = eCmdType_SignalOnly;
@@ -2387,7 +2372,7 @@ static u16 applyKeyBindProperty(
 	}
 
 	// Other Key Bind
-	const u16 anotherKeyBindID = sKeyBinds.findIndex(condense(theCmdStr));
+	const u16 anotherKeyBindID = sKeyBinds.findIndex(theCmdStr);
 	if( anotherKeyBindID < sKeyBinds.size() )
 	{
 		aCmd.type = eCmdType_TriggerKeyBind;
@@ -2516,7 +2501,7 @@ static void addButtonAction(
 		for(size_t i = 0; i < 4; ++i)
 		{
 			// Get true button ID by adding direction key to button name
-			aBtnID = buttonNameToID(theBtnKeyName + k4DirKeySuffix[i]);
+			aBtnID = buttonNameToID(theBtnKeyName + k4DirCmdSuffix[i]);
 			DBG_ASSERT(aBtnID < eBtn_Num);
 			// See if can get a different command if append a direction,
 			// if didn't already fail previously
@@ -2751,7 +2736,7 @@ static void addWhenSignalCommand(
 			bool dirCommandFailed = false;
 			for(size_t i = 0; i < 4; ++i)
 			{
-				aBtnID = buttonNameToID(theSignalKeyName + k4DirKeySuffix[i]);
+				aBtnID = buttonNameToID(theSignalKeyName + k4DirCmdSuffix[i]);
 				DBG_ASSERT(aBtnID < eBtn_Num);
 				std::string aCmdStr = theCmdStr;
 				Command aCmd;
@@ -2831,8 +2816,7 @@ static void applyControlsLayerProperty(
 	{
 	case ePropType_Mouse:
 		{
-			const EMouseMode aMouseMode =
-				mouseModeNameToID(condense(thePropVal));
+			const EMouseMode aMouseMode = mouseModeNameToID(thePropVal);
 			if( aMouseMode >= eMouseMode_Num )
 			{
 				logError("Unknown mode for '%s = %s' in Layer %s!",
@@ -2895,12 +2879,12 @@ static void applyControlsLayerProperty(
 					enable = true;
 					continue;
 				}
-				if( commandWordToID(aUpperName) == eCmdWord_Filler )
+				if( commandWordToID(aName) == eCmdWord_Filler )
 					continue;
 				bool foundItem = false;
 				if( aPropType == ePropType_HUD )
 				{
-					const u16 aHUDElementID = getHUDElementID(aUpperName);
+					const u16 aHUDElementID = sHUDElements.findIndex(aName);
 					if( aHUDElementID < theLayer.showHUD.size() )
 					{
 						theLayer.showHUD.set(aHUDElementID, enable);
@@ -2974,7 +2958,7 @@ static void applyControlsLayerProperty(
 			u16 aParentLayerID = 0;
 			if( !thePropVal.empty() )
 			{
-				aParentLayerID = getLayerID(thePropVal);
+				aParentLayerID = sLayers.findIndex(thePropVal);
 				if( aParentLayerID >= sLayers.size() )
 				{
 					logError("Unrecognized parent layer name '%s' for layer %s",
@@ -3122,15 +3106,14 @@ static MenuItem stringToMenuItem(u16 theMenuID, std::string theString)
 	if( theString.empty() )
 		return aMenuItem;
 
-	if( theString == ".." ||
-		commandWordToID(condense(theString)) == eCmdWord_Back )
+	if( theString == ".." || commandWordToID(theString) == eCmdWord_Back )
 	{// Go back one sub-menu
 		aMenuItem.cmd.type = eCmdType_MenuBack;
 		aMenuItem.cmd.menuID = sMenus.vals()[theMenuID].rootMenuID;
 		return aMenuItem;
 	}
 
-	if( commandWordToID(condense(theString)) == eCmdWord_Close )
+	if( commandWordToID(theString) == eCmdWord_Close )
 	{// Close menu
 		aMenuItem.cmd.type = eCmdType_MenuClose;
 		aMenuItem.cmd.menuID = sMenus.vals()[theMenuID].rootMenuID;
@@ -3175,7 +3158,7 @@ static void applyMenuProperty(
 		{
 			DBG_ASSERT(theMenu.hudElementID < sHUDElements.size());
 			sHUDElements.vals()[theMenu.hudElementID].type =
-				menuStyleNameToID(condense(thePropVal));
+				menuStyleNameToID(thePropVal);
 		}
 		else
 		{
@@ -3187,8 +3170,7 @@ static void applyMenuProperty(
 		return;
 
 	case ePropType_Hotspots:
-		theMenu.hotspotArrayID =
-			sHotspotArrays.findIndex(condense(thePropVal));
+		theMenu.hotspotArrayID = sHotspotArrays.findIndex(thePropVal);
 		return;
 
 	case ePropType_GridWidth:
@@ -3365,16 +3347,15 @@ static void applyHUDElementProperty(
 	switch(aPropType)
 	{
 	case ePropType_Type:
-		theHUDElement.type =
-			hudTypeNameToID(condense(thePropVal));
+		theHUDElement.type = hudTypeNameToID(thePropVal);
 		return;
 	case ePropType_Hotspot:
-		theHUDElement.hotspotID = getHotspotID(condense(thePropVal));
+		theHUDElement.hotspotID = getHotspotID(thePropVal);
 		return;
 	case ePropType_KeyBinds:
 	case ePropType_KBArray:
 		theHUDElement.keyBindArrayID =
-			sKeyBindArrays.findIndex(condense(thePropVal));
+			sKeyBindArrays.findIndex(thePropVal);
 		return;
 	}
 	// Other properties are for visuals and handled in HUD.cpp
@@ -3438,8 +3419,8 @@ static void parseLabel(std::string& theLabel)
 		findStringTag(theLabel);
 	while(aTagCoords.first != std::string::npos )
 	{
-		const std::string& aTag = condense(theLabel.substr(
-			aTagCoords.first + 1, aTagCoords.second - 2));
+		const std::string& aTag = theLabel.substr(
+			aTagCoords.first + 1, aTagCoords.second - 2);
 
 		// Generate the replacement character sequence
 		std::string aNewStr;
@@ -3492,14 +3473,14 @@ static void loadDataFromProfile(
 		const size_t aSectionKeySplit =
 			theProfileMap.keys()[aSectID].find('.');
 		const bool isSubSection = aSectionKeySplit != std::string::npos;
-		const std::string& aSectionKey = condense(
+		const std::string& aSectionKey =
 			isSubSection
 				? theProfileMap.keys()[aSectID].substr(aSectionKeySplit+1)
-				: theProfileMap.keys()[aSectID]);
-		const std::string& aSectionTypeName = condense(
+				: theProfileMap.keys()[aSectID];
+		const std::string& aSectionTypeName =
 			isSubSection
 				? theProfileMap.keys()[aSectID].substr(0, aSectionKeySplit)
-				: theProfileMap.keys()[aSectID]);
+				: theProfileMap.keys()[aSectID];
 		const EPropertyType aPropType = propKeyToType(aSectionTypeName);
 		const Profile::PropertyMap& aPropMap = theProfileMap.vals()[aSectID];
 		sSectionPrintName = "[" + theProfileMap.keys()[aSectID] + "]";
@@ -3512,7 +3493,7 @@ static void loadDataFromProfile(
 			{
 				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyHotspotProperty(
-					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.keys()[aPropIdx],
 					aPropMap.vals()[aPropIdx],
 					loadedHotspotArrays,
 					loadedHotspots);
@@ -3523,7 +3504,7 @@ static void loadDataFromProfile(
 			{
 				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				const u16 aKeyBindID = applyKeyBindProperty(
-					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.keys()[aPropIdx],
 					aPropMap.vals()[aPropIdx]);
 				reportCommandAssignment(
 					sKeyBinds.vals()[aKeyBindID],
@@ -3544,7 +3525,7 @@ static void loadDataFromProfile(
 				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyControlsLayerProperty(
 					aComponentID,
-					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.keys()[aPropIdx],
 					aPropMap.vals()[aPropIdx]);
 			}
 			break;
@@ -3559,7 +3540,7 @@ static void loadDataFromProfile(
 				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyMenuProperty(
 					aComponentID,
-					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.keys()[aPropIdx],
 					aPropMap.vals()[aPropIdx]);
 			}
 			loadedMenus.set(aComponentID);
@@ -3576,7 +3557,7 @@ static void loadDataFromProfile(
 				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyHUDElementProperty(
 					aComponentID,
-					condense(aPropMap.keys()[aPropIdx]),
+					aPropMap.keys()[aPropIdx],
 					aPropMap.vals()[aPropIdx]);
 			}
 			loadedHUDElements.set(aComponentID);
@@ -3715,7 +3696,7 @@ void loadProfile()
 	sKeyBindArrays.trim();
 
 	// Allocate controls layers
-	sLayers.setValue(condense(kMainLayerSectionName), ControlsLayer());
+	sLayers.setValue(kMainLayerSectionName, ControlsLayer());
 	sLayers.vals().back().name = kMainLayerSectionName;
 	Profile::allSections().findAllWithPrefix(
 		kLayerPrefix, createEmptyLayer);
@@ -3785,9 +3766,8 @@ void loadProfileChanges()
 		if( size_t aPrefixEnd = posAfterPrefix(aSectName, kMenuPrefix) )
 		{
 			const std::string& aMenuName = aSectName.substr(aPrefixEnd);
-			const std::string& aMenuKey = condense(aMenuName);
-			DBG_ASSERT(!aMenuKey.empty());
-			const u16 aMenuID = sMenus.findOrAddIndex(aMenuKey);
+			DBG_ASSERT(!aMenuName.empty());
+			const u16 aMenuID = sMenus.findOrAddIndex(aMenuName);
 			Menu& aMenu = sMenus.vals()[aMenuID];
 			if( !aMenu.name.empty() )
 				continue;
