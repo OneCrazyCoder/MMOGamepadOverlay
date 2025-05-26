@@ -1384,7 +1384,7 @@ static void addArrayEntries(
 		std::string aKeyName = aNewEntry.item.name;
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
-		std::string aDesc = aPropertyMap.vals()[i];
+		std::string aDesc = aPropertyMap.vals()[i].str;
 		Hotspot aHotspot;
 		HotspotMap::stringToCoord(aDesc, aHotspot.x, &aNewEntry.shape.x);
 		HotspotMap::stringToCoord(aDesc, aHotspot.y, &aNewEntry.shape.y);

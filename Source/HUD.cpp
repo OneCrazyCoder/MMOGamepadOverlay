@@ -2080,7 +2080,7 @@ void init()
 		{
 			loadBitmapFile(aHUDBuilder,
 				aPropMap.keys()[i],
-				aPropMap.vals()[i]);
+				aPropMap.vals()[i].str);
 		}
 	}
 
@@ -2091,7 +2091,7 @@ void init()
 		{
 			getOrCreateLabelIcon(aHUDBuilder,
 				aPropMap.keys()[i],
-				aPropMap.vals()[i]);
+				aPropMap.vals()[i].str);
 		}
 	}
 

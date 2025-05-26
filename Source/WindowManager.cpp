@@ -828,10 +828,11 @@ void loadProfileChanges()
 			"allow dynamic runtime changes!");
 	}
 
-	if( const std::string* aUIScaleStr = aPropMap->find("UISCALE") )
+	if( const Profile::Property* aUIScalePtr = aPropMap->find("UISCALE") )
 	{
+		const std::string& aUIScaleStr = aUIScalePtr->str;
 		const double oldUIScale = gUIScale;
-		double aUIScale = doubleFromString(*aUIScaleStr);
+		double aUIScale = doubleFromString(aUIScaleStr);
 		if( aUIScale <= 0 ) aUIScale = 1.0;
 		gUIScale = aUIScale * gWindowUIScale;
 		if( gUIScale != oldUIScale )
