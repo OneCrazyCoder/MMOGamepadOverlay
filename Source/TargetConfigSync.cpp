@@ -1377,9 +1377,7 @@ static bool setFetchValueFromDataSource(
 					theDestValueSetSubType].clear();
 				return false;
 			}
-			aTagCoords = findStringTag(
-				aConfigDataPath,
-				aTagCoords.first + aTagCoords.second);
+			aTagCoords = findStringTag(aConfigDataPath, aTagCoords.first + 1);
 		}
 	}
 	else if( theValueSetType != eValueSetType_Single )
@@ -1850,7 +1848,7 @@ void load()
 		for(size_t i = 0; i < aPropMap.size(); ++i)
 		{
 			const u16 aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
-				normalizedPath(aPropMap.vals()[i]),
+				normalizedPath(aPropMap.vals()[i].str),
 				u16(aBuilder.valueLinkMaps.size()));
 			if( aLinkMapID >= aBuilder.valueLinkMaps.size() )
 				aBuilder.valueLinkMaps.push_back(ValueLinkMap());
@@ -1878,7 +1876,7 @@ void load()
 		{
 			aBuilder.debugString = aPropMap.keys()[i];
 			aBuilder.debugString += " = ";
-			aBuilder.debugString += aPropMap.vals()[i];
+			aBuilder.debugString += aPropMap.vals()[i].str;
 			// Separate key into section and property name by > character
 			SyncProperty aProperty;
 			aProperty.section = aPropMap.keys()[i];
@@ -1892,7 +1890,7 @@ void load()
 			}
 			parsePropertyValueTags(
 				aBuilder, aProperty,
-				aPropMap.vals()[i]);
+				aPropMap.vals()[i].str);
 			if( aProperty.valueSetsUsed.none() )
 				continue;
 			aProperty.name = aProperty.section.substr(aPos+1);

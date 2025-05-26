@@ -3470,7 +3470,7 @@ static void loadDataFromProfile(
 				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				applyHotspotProperty(
 					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx],
+					aPropMap.vals()[aPropIdx].str,
 					loadedHotspotArrays,
 					loadedHotspots);
 			}
@@ -3481,10 +3481,10 @@ static void loadDataFromProfile(
 				sPropertyPrintName = aPropMap.keys()[aPropIdx];
 				const u16 aKeyBindID = applyKeyBindProperty(
 					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx]);
+					aPropMap.vals()[aPropIdx].str);
 				reportCommandAssignment(
 					sKeyBinds.vals()[aKeyBindID],
-					aPropMap.vals()[aPropIdx],
+					aPropMap.vals()[aPropIdx].str,
 					keyBindSignalID(aKeyBindID));
 			}
 			break;
@@ -3502,7 +3502,7 @@ static void loadDataFromProfile(
 				applyControlsLayerProperty(
 					aComponentID,
 					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx]);
+					aPropMap.vals()[aPropIdx].str);
 			}
 			break;
 		case ePropType_Menu:
@@ -3517,7 +3517,7 @@ static void loadDataFromProfile(
 				applyMenuProperty(
 					aComponentID,
 					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx]);
+					aPropMap.vals()[aPropIdx].str);
 			}
 			loadedMenus.set(aComponentID);
 			loadedHUDElements.set(hudElementForMenu(aComponentID));
@@ -3534,7 +3534,7 @@ static void loadDataFromProfile(
 				applyHUDElementProperty(
 					aComponentID,
 					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx]);
+					aPropMap.vals()[aPropIdx].str);
 			}
 			loadedHUDElements.set(aComponentID);
 			if( sHUDElements.vals()[aComponentID].menuID < sMenus.size() )
@@ -3746,11 +3746,10 @@ void loadProfileChanges()
 			const u16 aMenuID = sMenus.findOrAddIndex(aMenuName);
 			if( aMenuCount == sMenus.size() )
 				continue;
-			Menu& aMenu = sMenus.vals()[aMenuID];
 			for(u16 i = 0; i < sMenus.size(); ++i)
 				linkMenuToSubMenus(i);
 			// Only valid to add sub-menus, not root menus
-			DBG_ASSERT(aMenu.parentMenuID != kInvalidID);
+			DBG_ASSERT(sMenus.vals()[aMenuID].parentMenuID != kInvalidID);
 			setupRootMenu(aMenuID);	
 		}
 	}

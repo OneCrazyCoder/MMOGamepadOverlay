@@ -65,11 +65,12 @@ void sanitizeSentence(const std::string& theString, std::vector<std::string>& ou
 // Returns 0 if theString does not start with entire prefix or the prefix is empty
 size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix);
 bool hasPrefix(const std::string& theString, const std::string& thePrefix);
-// Finds next string "tag" in format <tagName> and returns its start pos and length
-// (which include the '<' and '>' chars). .subStr(.first+1, .second-2) == tagName.
+// Finds the first most-nested string "tag" such as ${TagContents} or <TagContents>
+// and returns its start pos and length (which include theTagSttart/End chars).
 // If no tags are found, .first will be set to std::string::npos and .second to 0
 std::pair<std::string::size_type, std::string::size_type>
-findStringTag(const std::string& theString, std::string::size_type theStartPos = 0);
+findStringTag(const std::string& theString, std::string::size_type theStartPos = 0,
+			  const char* theTagStart = "<", const char theTagEnd = '>');
 
 // Conversion between numbers and (pure ASCII) strings
 std::string commaSeparate(u32 theValue);

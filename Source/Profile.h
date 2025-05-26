@@ -18,7 +18,12 @@
 namespace Profile
 {
 
-typedef StringToValueMap<std::string> PropertyMap;
+struct Property
+{
+	std::string pattern;
+	std::string str;
+};
+typedef StringToValueMap<Property> PropertyMap;
 typedef StringToValueMap<PropertyMap> SectionsMap;
 
 // Load (and/or generate) .ini files for core profile data only

@@ -656,19 +656,23 @@ size_t posAfterPrefix(
 
 
 std::pair<std::string::size_type, std::string::size_type>
-findStringTag(const std::string& theString, std::string::size_type theStartPos)
+findStringTag(
+	const std::string& theString,
+	std::string::size_type theStartPos,
+	const char* theTagStart, char theTagEnd)
 {
 	std::pair<std::string::size_type, std::string::size_type> result;
 	result.second = 0;
-	result.first = theString.find('<', theStartPos);
+	result.first = theString.find(theTagStart, theStartPos);
 	if( result.first != std::string::npos )
 	{
-		// Find the closing '>' (or if none found, we're done)
-		std::string::size_type anEndPos = theString.find('>', result.first);
+		// Find the closing theTagEnd (or if none found, not valid tag!)
+		std::string::size_type anEndPos = theString.find(
+			theTagEnd, result.first);
 		if( anEndPos != std::string::npos )
 		{
-			// Only use the last '<' found before the closing '>'
-			result.first = theString.rfind('<', anEndPos);
+			// Only use the last theTagStart found before the closing theTagEnd
+			result.first = theString.rfind(theTagStart, anEndPos);
 			result.second = anEndPos - result.first + 1;
 		}
 	}
