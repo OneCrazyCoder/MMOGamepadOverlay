@@ -495,7 +495,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 				break;
 			}
 			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
-			aNewAlpha = u8(max(theWindow.fadeValue, anInactiveAlpha));
+			aNewAlpha = u8(max<float>(theWindow.fadeValue, anInactiveAlpha));
 			if( gActiveHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
@@ -1317,8 +1317,8 @@ POINT overlayPosToNormalizedMousePos(POINT theMousePos)
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
 	// Convert to virtual desktop pixel coordinate
-	theMousePos.x = max(0, theMousePos.x + sDesktopTargetRect.left);
-	theMousePos.y = max(0, theMousePos.y + sDesktopTargetRect.top);
+	theMousePos.x = max(0L, theMousePos.x + sDesktopTargetRect.left);
+	theMousePos.y = max(0L, theMousePos.y + sDesktopTargetRect.top);
 	// Convert to % of virtual desktop size as normalized 0-65535
 	theMousePos.x = ratioToU16(theMousePos.x, kDesktopWidth);
 	theMousePos.y = ratioToU16(theMousePos.y, kDesktopHeight);
@@ -1355,7 +1355,7 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 	}
 
 	const size_t aCompIndex =
-		min(aWindow.components.size()-1, theMenuItemIdx + 1);
+		min<size_t>(aWindow.components.size()-1, theMenuItemIdx + 1);
 	if( !aWindow.layoutReady || gReshapeHUD.test(aHUDElementID) )
 	{
 		HUD::updateWindowLayout(aHUDElementID, sTargetSize,

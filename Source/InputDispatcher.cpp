@@ -124,7 +124,7 @@ struct ZERO_INIT(Config)
 		cursorYSpeed = Profile::getInt("Mouse", "CursorYSpeed", cursorYSpeed) * aCursorSpeedMult;
 		cursorDeadzone = clamp(Profile::getInt("Mouse", "CursorDeadzone", 25), 0, 100) / 100.0;
 		cursorRange = clamp(Profile::getInt("Mouse", "CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
-		cursorRange = max(0, cursorRange - cursorDeadzone);
+		cursorRange = max(0.0, cursorRange - cursorDeadzone);
 		cursorCurve = max(Profile::getFloat("Mouse", "CursorResponseCurve", 1.0), 0.1);
 		cursorAccel = Profile::getInt("Mouse", "CursorAccel", 33) * 4.0 / kMouseMaxAccelVel;
 		mouseLookXSpeed = mouseLookYSpeed = Profile::getInt("Mouse", "CameraSpeed", 100);
@@ -133,16 +133,16 @@ struct ZERO_INIT(Config)
 		moveLookSpeed = Profile::getInt("Mouse", "MoveLookSpeed", 25);
 		mouseLookDeadzone = clamp(Profile::getInt("Mouse", "CameraDeadzone", 25), 0, 100) / 100.0;
 		mouseLookRange = clamp(Profile::getInt("Mouse", "CameraSaturation", 100), mouseLookDeadzone, 100) / 100.0;
-		mouseLookRange = max(0, mouseLookRange - mouseLookDeadzone);
+		mouseLookRange = max(0.0, mouseLookRange - mouseLookDeadzone);
 		mouseLookCurve = max(Profile::getFloat("Mouse", "CameraResponseCurve", 1.0), 0.1);
 		mouseLookAccel = Profile::getInt("Mouse", "CameraAccel", 0) * 4.0 /  kMouseMaxAccelVel;
 		moveLookDeadzone = clamp(Profile::getInt("Mouse", "CameraDeadzone", 25), 0, 100) / 100.0;
 		moveLookRange = clamp(Profile::getInt("Mouse", "CameraSaturation", 100), moveLookDeadzone, 100) / 100.0;
-		moveLookRange = max(0, moveLookRange - moveLookDeadzone);
+		moveLookRange = max(0.0, moveLookRange - moveLookDeadzone);
 		mouseDPadAccel = clamp(Profile::getInt("Mouse", "DigitalAccel", 50), 0, 255);
 		mouseWheelDeadzone = clamp(Profile::getInt("Mouse", "MouseWheelDeadzone", 25), 0, 100) / 100.0;
 		mouseWheelRange = clamp(Profile::getInt("Mouse", "MouseWheelSaturation", 100), mouseWheelDeadzone, 100) / 100.0;
-		mouseWheelRange = max(0, mouseWheelRange - mouseWheelDeadzone);
+		mouseWheelRange = max(0.0, mouseWheelRange - mouseWheelDeadzone);
 		mouseWheelSpeed = Profile::getInt("Mouse", "MouseWheelSpeed", 255);
 		moveDeadzone = clamp(Profile::getInt("Gamepad", "MoveCharacterThreshold", 50), 0, 100) / 100.0;
 		moveStraightBias = clamp(Profile::getInt("Gamepad", "MoveStraightBias", 50), 0, 100) / 100.0;
@@ -703,7 +703,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			// Delays at end of sequence are ignored
 			if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
 				return eResult_TaskCompleted;
-			sTracker.queuePauseTime = max(sTracker.queuePauseTime, aDelay);
+			sTracker.queuePauseTime = MAX(sTracker.queuePauseTime, aDelay);
 			sTracker.allowFastTasksDuringQueuePause = true;
 			return eResult_Incomplete;
 		}
@@ -2513,7 +2513,7 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 		// Apply adjustments to allow for low-speed fine control
 		if( digital && kConfig.mouseDPadAccel )
 		{// Apply acceleration to magnitude
-			sTracker.mouseDigitalVel = min(
+			sTracker.mouseDigitalVel = min<int>(
 				kMouseMaxAccelVel,
 				sTracker.mouseDigitalVel +
 					kConfig.mouseDPadAccel * 4 * gAppFrameTime);
@@ -2718,7 +2718,7 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	// Apply adjustments to allow for low-speed fine control
 	if( digital && kConfig.mouseDPadAccel )
 	{// Apply acceleration to magnitude
-		sTracker.mouseDigitalVel = min(
+		sTracker.mouseDigitalVel = min<int>(
 			kMouseMaxAccelVel,
 			sTracker.mouseDigitalVel +
 				kConfig.mouseDPadAccel * 4 * gAppFrameTime);

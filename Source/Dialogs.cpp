@@ -232,7 +232,7 @@ static INT_PTR CALLBACK profileSelectProc(
 				// Add selected item from the list box to result
 				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
 				DBG_ASSERT(hListBox);
-				theData->result.selectedIndex = max(0,
+				theData->result.selectedIndex = max<int>(0,
 					SendMessage(hListBox, LB_GETCURSEL, 0, 0));
 				// Add auto-load checkbox status to result
 				theData->result.autoLoadRequested =
@@ -336,7 +336,8 @@ static INT_PTR CALLBACK editProfileSelectProc(
 				// Get selected item and open it w/ user's text editor
 				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
 				DBG_ASSERT(hListBox);
-				int aFile = max(0, SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+				int aFile =
+					max<int>(0, SendMessage(hListBox, LB_GETCURSEL, 0, 0));
 				ShellExecute(NULL, L"open",
 					widen((*theFiles)[aFile]).c_str(),
 					NULL, NULL, SW_SHOWNORMAL);

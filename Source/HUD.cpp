@@ -532,8 +532,8 @@ static SIZE hotspotToSize(
 {
 	POINT aPoint = hotspotToPoint(theHotspot, theTargetSize);
 	SIZE result;
-	result.cx = max(1, aPoint.x);
-	result.cy = max(1, aPoint.y);
+	result.cx = max(1L, aPoint.x);
+	result.cy = max(1L, aPoint.y);
 	return result;
 }
 
@@ -988,8 +988,8 @@ static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
 	int aRadius = hi.scaledRadius;
-	aRadius = min(aRadius, (theRect.right-theRect.left) * 3 / 4);
-	aRadius = min(aRadius, (theRect.bottom-theRect.top) * 3 / 4);
+	aRadius = min<int>(aRadius, (theRect.right-theRect.left) * 3 / 4);
+	aRadius = min<int>(aRadius, (theRect.bottom-theRect.top) * 3 / 4);
 
 	RoundRect(dd.hdc,
 		theRect.left, theRect.top,
@@ -1259,8 +1259,8 @@ static void initStringCacheEntry(
 		}
 	}
 
-	theCacheEntry.width = max(1, aNeededRect.right - aNeededRect.left);
-	theCacheEntry.height = max(1, aNeededRect.bottom - aNeededRect.top);
+	theCacheEntry.width = max(1L, aNeededRect.right - aNeededRect.left);
+	theCacheEntry.height = max(1L, aNeededRect.bottom - aNeededRect.top);
 }
 
 
@@ -1609,10 +1609,10 @@ static void drawMenuItem(
 	RECT aLabelRect = theRect;
 	int aBorderSize = hi.scaledRadius / 4;
 	int aMaxBorderSize = aBorderSize;
-	aBorderSize = max(aBorderSize, appearance.borderSize);
+	aBorderSize = max(aBorderSize, int(appearance.borderSize));
 	for(int i = 0; i < eAppearanceMode_Num; ++i)
 	{
-		aMaxBorderSize = max(aMaxBorderSize,
+		aMaxBorderSize = max<int>(aMaxBorderSize,
 			sAppearances[hi.appearanceID[i]].borderSize);
 	}
 	drawMenuItemLabel(
@@ -1640,7 +1640,7 @@ static void drawBasicMenu(HUDDrawData& dd)
 	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	sMenuDrawCache.resize(max(sMenuDrawCache.size(), aSubMenuID+1));
+	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
 	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
@@ -1708,7 +1708,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	DBG_ASSERT(hi.selection < anItemCount);
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	sMenuDrawCache.resize(max(sMenuDrawCache.size(), aSubMenuID+1));
+	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(
 		anItemCount + hasTitle + (hi.altLabelWidth ? anItemCount : 0));
 
@@ -1800,7 +1800,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 	hi.selection = kInvalidItem;
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	sMenuDrawCache.resize(max(sMenuDrawCache.size(), aSubMenuID+1));
+	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
 
 	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
@@ -2120,10 +2120,10 @@ void init()
 			hi.delayUntilInactive = max(0, Profile::getInt(
 				kHUDSectionName, "HotspotGuideDisplayTime", 1000));
 			hi.inactiveAlpha = 0;
-			aVal = max(1, u32FromString(
+			aVal = max(1U, u32FromString(
 				getDefaultHUDPropStr(eHUDProp_FadeInTime)));
 			hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
-			aVal = max(200, u32FromString(
+			aVal = max(200U, u32FromString(
 				getDefaultHUDPropStr(eHUDProp_FadeOutTime)));
 			hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
 			Appearance anAppearance = sAppearances[eAppearanceMode_Normal];
@@ -2176,14 +2176,14 @@ void init()
 		hi.fadeInDelay = max(0, intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInDelay)));
 		// hi.fadeInRate = eHUDProp_FadeInTime
-		aVal = max(1, u32FromString(
+		aVal = max(u32(1), u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInTime)));
 		hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
 		// hi.fadeOutDelay = eHUDProp_FadeOutDelay
 		hi.fadeOutDelay = max(0, intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeOutDelay)));
 		// hi.fadeOutRate = eHUDProp_FadeOutTime
-		aVal = max(1, u32FromString(
+		aVal = max(1U, u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeOutTime)));
 		hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
 		// hi.delayUntilInactive = eHUDProp_InactiveDelay
@@ -2350,7 +2350,7 @@ void update()
 			widen("MMOGO ERROR: ") +
 			gErrorString +
 			widen("\nCheck MMOGO_ErrorLog.txt for other possible errors!");
-		sErrorMessageTimer = max(
+		sErrorMessageTimer = max<int>(
 			kNoticeStringMinTime,
 			int(kNoticeStringDisplayTimePerChar *
 				sErrorMessage.size()));
@@ -2371,7 +2371,7 @@ void update()
 	if( !gNoticeString.empty() )
 	{
 		sNoticeMessage = gNoticeString;
-		sNoticeMessageTimer = max(
+		sNoticeMessageTimer = max<int>(
 			kNoticeStringMinTime,
 			int(kNoticeStringDisplayTimePerChar *
 				sNoticeMessage.size()));
@@ -2449,7 +2449,8 @@ void update()
 			InputMap::hudElementIsAMenu(i) )
 		{// Possibly redraw any dynamic strings (text replacements)
 			const u16 aMenuID = InputMap::menuForHUDElement(i);
-			sMenuDrawCache.resize(max(sMenuDrawCache.size(), aMenuID+1));
+			sMenuDrawCache.resize(
+				max<size_t>(sMenuDrawCache.size(), aMenuID+1));
 			for(size_t aCacheEntryIdx = 0;
 				aCacheEntryIdx < sMenuDrawCache[aMenuID].size();
 				++aCacheEntryIdx)
@@ -2588,7 +2589,7 @@ void updateScaling()
 		if( appearance.baseBorderSize > 0 )
 		{
 			appearance.borderSize =
-				max(1, appearance.baseBorderSize * gUIScale);
+				max(1.0, appearance.baseBorderSize * gUIScale);
 		}
 		appearance.borderPenID = getOrCreatePenID(aHUDBuilder,
 			appearance.borderColor, appearance.borderSize);
@@ -2855,8 +2856,8 @@ void updateWindowLayout(
 	}
 
 	// Add together base and scaling portions and round off
-	int aWinSizeX = max(0, ceil(aWinBaseSizeX + aWinScalingSizeX));
-	int aWinSizeY = max(0, ceil(aWinBaseSizeY + aWinScalingSizeY));
+	int aWinSizeX = max(0.0, ceil(aWinBaseSizeX + aWinScalingSizeX));
+	int aWinSizeY = max(0.0, ceil(aWinBaseSizeY + aWinScalingSizeY));
 	int aWinPosX = floor(aWinBasePosX + aWinScalingPosX);
 	int aWinPosY = floor(aWinBasePosY + aWinScalingPosY);
 
@@ -2910,7 +2911,7 @@ void updateWindowLayout(
 	case eMenuStyle_Grid:
 		for(int y = 0; y < aMenuItemYCount; ++y)
 		{
-			anItemRect.top = max(aCompTopLeft.y,
+			anItemRect.top = max<LONG>(aCompTopLeft.y,
 				aCompTopLeft.y + (aCompBaseSizeY * y) + gUIScale *
 				(hi.titleHeight + y * (aCompScalingSizeY + hi.gapSizeY)));
 			anItemRect.bottom = aCompBotRight.y;
@@ -2970,7 +2971,7 @@ void updateWindowLayout(
 			switch(itemIdx)
 			{
 			case eCmdDir_Up:
-				anItemRect.top = max(aCompTopLeft.y,
+				anItemRect.top = max<LONG>(aCompTopLeft.y,
 					aCompTopLeft.y + gUIScale * hi.titleHeight);
 				anItemRect.bottom =
 					aCompTopLeft.y + aCompBaseSizeY + gUIScale *
@@ -2990,7 +2991,7 @@ void updateWindowLayout(
 				anItemRect.top =
 					aCompTopLeft.y + aCompBaseSizeY * 2 + gUIScale *
 					(hi.titleHeight + (aCompScalingSizeY + hi.gapSizeY) * 2);
-				anItemRect.bottom = min(aCompBotRight.y,
+				anItemRect.bottom = min<LONG>(aCompBotRight.y,
 					aCompTopLeft.y + (aCompBaseSizeY * 3) + gUIScale *
 					(hi.titleHeight +
 						aCompScalingSizeY * 3 + hi.gapSizeY * 2));

@@ -143,7 +143,7 @@ public:
 
 	bool empty() const { return mSizeInBits == 0; }
 	size_t size() const { return mSizeInBits; }
-	size_t arraySize() const { return max(1, u32(mSizeInBits + 31) / 32); }
+	size_t arraySize() const { return max<size_t>(1, (size() + 31) / 32); }
 	size_t capacity() const { return mCapacityInU32s * 32; }
 
 	bool test(size_t pos) const; // returns true/false state of bit at position
@@ -897,7 +897,7 @@ BitVector<C>::operator~() const
 template<size_t C> template<size_t C2> inline BitVector<C>
 BitVector<C>::operator|(const BitVector<C2>& rhs) const
 {
-	This r(this->size() > rhs.size() ? this->size() : rhs.size());
+	This r(max(this->size(), rhs.size()));
 
 	for(size_t i = 0; i < this->arraySize() - 1; ++i)
 		r.bits[i] = this->bits[i];
@@ -920,7 +920,7 @@ BitVector<C>::operator|(const BitVector<C2>& rhs) const
 template<size_t C> template<size_t C2> inline BitVector<C>
 BitVector<C>::operator&(const BitVector<C2>& rhs) const
 {
-	This r(this->size() > rhs.size() ? this->size() : rhs.size());
+	This r(max(this->size(), rhs.size()));
 
 	for(size_t i = 0; i < this->arraySize() - 1; ++i)
 		r.bits[i] = this->bits[i];
@@ -943,7 +943,7 @@ BitVector<C>::operator&(const BitVector<C2>& rhs) const
 template<size_t C> template<size_t C2> inline BitVector<C>
 BitVector<C>::operator^(const BitVector<C2>& rhs) const
 {
-	This r(this->size() > rhs.size() ? this->size() : rhs.size());
+	This r(max(this->size(), rhs.size()));
 
 	for(size_t i = 0; i < this->arraySize() - 1; ++i)
 		r.bits[i] = this->bits[i];

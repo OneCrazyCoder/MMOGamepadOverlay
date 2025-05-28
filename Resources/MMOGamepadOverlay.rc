@@ -27,18 +27,18 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 // TEXTINCLUDE
 //
 
-1 TEXTINCLUDE
+1 TEXTINCLUDE 
 BEGIN
     "resource.h\0"
 END
 
-2 TEXTINCLUDE
+2 TEXTINCLUDE 
 BEGIN
     "#include ""afxres.h""\r\n"
     "\0"
 END
 
-3 TEXTINCLUDE
+3 TEXTINCLUDE 
 BEGIN
     "\r\n"
     "\0"
@@ -163,7 +163,7 @@ FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
     EDITTEXT        IDC_EDIT_COMMAND,7,34,229,12,ES_AUTOHSCROLL
     DEFPUSHBUTTON   "OK",IDOK,238,34,50,12
-    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.\nChat box macro Commands start with "">"" or ""/"" and use ""\\n"" for line breaks.",IDC_STATIC_PROMPT,7,7,281,26
+    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Label name can be in quotes, like ""A: B"":cmd.\nChat box macro Commands start with "">"" or ""/"" and use ""\\n"" for line breaks.",IDC_STATIC_PROMPT,7,7,281,26
     LTEXT           "Some menus also support ""AltLabel | Label: Command"" format.\nAdd + or - as first character to insert as new item before (-) or after (+) this item.\nLeave blank to delete this item.",IDC_STATIC_PROMPT2,7,48,281,26
 END
 
@@ -173,7 +173,7 @@ FONT 10, "MS Shell Dlg", 400, 0, 0x0
 BEGIN
     EDITTEXT        IDC_EDIT_COMMAND,7,33,229,12,ES_AUTOHSCROLL
     DEFPUSHBUTTON   "OK",IDOK,238,33,50,12
-    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Double colon (::) becomes single (:) in label.\nChat box macro Commands start with "">"" or ""/"" and use ""\\n"" for line breaks.",IDC_STATIC_PROMPT,7,7,281,26
+    LTEXT           "Format is ""Label: Command"" (without quotes), or just "": Command"" for blank label.\n""Label"" without : makes a sub-menu. Label name can be in quotes, like ""A: B"":cmd.\nChat box macro Commands start with "">"" or ""/"" and use ""\\n"" for line breaks.",IDC_STATIC_PROMPT,7,7,281,26
 END
 
 IDD_DIALOG_LAYOUT_SELECT DIALOGEX 0, 0, 160, 240
@@ -293,7 +293,7 @@ END
 //
 
 #ifdef APSTUDIO_INVOKED
-GUIDELINES DESIGNINFO
+GUIDELINES DESIGNINFO 
 BEGIN
     IDD_DIALOG_PROFILE_SELECT, DIALOG
     BEGIN
@@ -463,7 +463,7 @@ END
 // Menu
 //
 
-IDR_MENU_MAIN MENU
+IDR_MENU_MAIN MENU 
 BEGIN
     POPUP "File"
     BEGIN

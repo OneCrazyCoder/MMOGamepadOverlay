@@ -309,7 +309,7 @@ static void parseINI(
 				{
 					aState = ePIState_Comment;
 				}
-				else if( !isspace(c) )
+				else if( unsigned(c) > ' ' )
 				{
 					if( theParseMode == eParseMode_Sections &&
 						aSection.empty() )
@@ -472,7 +472,7 @@ static void setPropertyInINI(
 		for(int i = 0; i < aBufferSize && aState != eSKVState_Finished; ++i)
 		{// Step through buffer character-by-character
 			const char c = aBuffer[i];
-			if( !isspace(c) )
+			if( unsigned(c) > ' ' )
 				aLastNonWhitespace = aCurrFilePos;
 			switch(aState)
 			{
@@ -483,7 +483,7 @@ static void setPropertyInINI(
 					aState = eSKVState_CheckSection;
 					aCheckStr.clear();
 				}
-				else if( !isspace(c) )
+				else if( unsigned(c) > ' ' )
 				{
 					aState = eSKVState_SkipSectionLine;
 				}
@@ -534,7 +534,7 @@ static void setPropertyInINI(
 				{
 					aState = eSKVState_SkipKeyLine;
 				}
-				else if( !isspace(c) )
+				else if( unsigned(c) > ' ' )
 				{
 					aState = eSKVState_CheckKey;
 					aCheckStr.clear();
@@ -637,8 +637,8 @@ static void setPropertyInINI(
 	aCurrFilePos = aFile.tellg();
 	while(aCurrFilePos < aReplaceStartPos && aFile.good())
 	{
-		const std::streamsize aBytesToRead =
-			min(kINIFileBufferSize, aReplaceStartPos - aCurrFilePos);
+		std::streamsize aBytesToRead = aReplaceStartPos - aCurrFilePos;
+		aBytesToRead = MIN(aBytesToRead, kINIFileBufferSize);
 		aFile.read(aBuffer, aBytesToRead);
 		aTmpFile.write(aBuffer, aFile.gcount());
 		aCurrFilePos += aFile.gcount();
@@ -1273,6 +1273,176 @@ static void logPropVarDependency(VarPropDependency theDep, bool init)
 }
 
 
+static std::string varTagToString(
+	const std::string& theVarContents,
+	const std::string& theTagStr,
+	const size_t theFirstOperatorPos)
+{
+	std::string result = theVarContents;
+	// Replace quoted string with un-trimmed contents
+	if( result.size() >= 2 &&
+		((result[0] == '"' && result[result.size()-1] == '"') ||
+		 (result[0] == '\'' && result[result.size()-1] == '\'')) )
+	{
+		result = result.substr(1, result.size()-2);
+	}
+
+	DBG_ASSERT(theFirstOperatorPos < theTagStr.size());
+	size_t aPos = theFirstOperatorPos;
+	// Figure out what operator we're dealing with (some use 2 chars)
+	u8 anOpC = theTagStr[aPos++];
+	const char* aNextDel = "?}";
+	switch(anOpC)
+	{
+	case '}':
+		return result;
+	case '?':
+		aNextDel = ":}";
+		break;
+	case '~':
+		anOpC = '!';
+		// fall through
+	case '!':
+		// Ignore extra '=' for '!=' or '~='
+		if( theTagStr[aPos] == '=' )
+			++aPos;
+		break;
+	case '<':
+		if( theTagStr[aPos] == '>' )
+		{// Treat <> as alternate form of '!'
+			anOpC = '!';
+			++aPos;
+		}
+		else if( theTagStr[aPos] == '=' )
+		{// Use '[' to mean less-than-or-equal (internally only)
+			anOpC = '[';
+			++aPos;
+		}
+		break;
+	case '>':
+		if( theTagStr[aPos] == '=' )
+		{// Use ']' to mean less-than-or-equal (internally only)
+			anOpC = ']';
+			++aPos;
+		}
+		break;
+	case '=':
+		// Ignore extra '='
+		if( theTagStr[aPos] == '=' )
+			++aPos;
+		break;
+	case '+': case '-': case '*': case '/':
+		aNextDel = "}+*/?!~<>="; // to warn of multi-operator use (except -)
+		break;
+	default:
+		DBG_ASSERT(false && "Unhandled operator character");
+	}
+
+	// Get first parameter for operator
+	const std::string& aParam = fetchNextItem(theTagStr, aPos, aNextDel);
+
+	// Have all we need for arithmetic operators now
+	if( anOpC == '+' || anOpC == '-' || anOpC == '*' || anOpC == '/' )
+	{
+		if( theTagStr[aPos] != '}' )
+		{
+			logError("Unexpected %c found in '%s'. "
+				"Only one operator is allowed per ${} block! "
+				"Use nested ${} blocks for more options.",
+				theTagStr[aPos], theTagStr.c_str());
+		}
+		double aVarNum = doubleFromString(theVarContents);
+		double aParamNum = doubleFromStringStrict(aParam);
+		if( _isnan(aParamNum) )
+		{
+			logError("Expected a number instead of '%s' for arithmetic "
+				"operator '%c' in '%s'. "
+				"Note only one operator is allowed per ${} block!",
+				aParam.c_str(), anOpC, theTagStr.c_str());
+			aParamNum = 0;
+		}
+		switch(anOpC)
+		{
+		case '+': result = toString(aVarNum + aParamNum); break;
+		case '-': result = toString(aVarNum - aParamNum); break;
+		case '*': result = toString(aVarNum * aParamNum); break;
+		case '/':
+			if( aParamNum == 0 )
+			{
+				logError("Division by 0 detected in '%s'!",
+					theTagStr.c_str());
+				aParamNum = 1.0;
+			}
+			result = toString(aVarNum / aParamNum);
+			break;
+		}
+		return result;
+	}
+
+	// Math done, should only be comparison or ? operator now
+	bool isTrue = false;
+	switch(anOpC)
+	{
+	case '<':
+		isTrue = doubleFromString(result) < doubleFromString(aParam);
+		break;
+	case '[':
+		isTrue = doubleFromString(result) <= doubleFromString(aParam);
+		break;
+	case '>':
+		isTrue = doubleFromString(result) > doubleFromString(aParam);
+		break;
+	case ']':
+		isTrue = doubleFromString(result) >= doubleFromString(aParam);
+	case '=': case '!':
+		{
+			const double da = doubleFromStringStrict(result);
+			const double db = doubleFromStringStrict(aParam);
+			if( !_isnan(da) && !_isnan(db) )
+				isTrue = da == db;
+			else
+				isTrue = condense(result) == condense(aParam);
+			if( anOpC == '!' )
+				isTrue = !isTrue;
+		}
+		break;
+	case '?':
+		isTrue = boolFromString(result);
+		break;
+	default:
+		DBG_ASSERT(false && "Unhandled conditional operator");
+		break;
+	}
+
+	// What to do with compare result depends on first and second operator
+	char anOpC2 = theTagStr[aPos++];
+	if( anOpC2 == '}' )
+	{
+		if( anOpC == '?' ) // ${Var ? resultIfTrue}
+			result = isTrue ? aParam : result;
+		else // ${Var <> ..}
+			result = isTrue ? "true" : "false";
+		return result;
+	}
+
+	DBG_ASSERT(anOpC2 == '?');
+	
+	// Get return result for 'true' (and check for 'else')
+	const std::string& aTrueResult = fetchNextItem(theTagStr, aPos, ":}");
+	if( isTrue )
+	{
+		result = aTrueResult;
+		return result;
+	}
+
+	// If has 'else' section, return it, otherwise return base var value
+	if( theTagStr[aPos++] == ':' )
+		result = fetchNextItem(theTagStr, aPos, "}");
+
+	return result;
+}
+
+
 static void expandPropertyVars(u16 theSectionID, u16 thePropID, bool init)
 {
 	PropertyMap& theSection = sSectionsMap.vals()[theSectionID];
@@ -1299,11 +1469,10 @@ static void expandPropertyVars(u16 theSectionID, u16 thePropID, bool init)
 	std::string aStr = theProp.pattern;
 	do {
 		// Extract variable name from tag
-		const size_t aVarNameEndPos = aStr.find_first_of(
-			"?<>!=*+-}", aTagCoords.first);
-		DBG_ASSERT(aVarNameEndPos < aTagCoords.first + aTagCoords.second);
-		const std::string& aVarName = trim(aStr.substr(
-			aTagCoords.first + 2, aVarNameEndPos - aTagCoords.first - 2));
+		size_t aVarOpPos = aTagCoords.first + 2;
+		const std::string& aVarName =
+			fetchNextItem(aStr, aVarOpPos, "}+-*/?!~<>=");
+		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
 		std::string aRepStr;
 		if( aVarName.empty() )
 		{
@@ -1340,14 +1509,7 @@ static void expandPropertyVars(u16 theSectionID, u16 thePropID, bool init)
 					if( aVarProp.str.empty() && !aVarProp.pattern.empty() )
 						expandPropertyVars(kVarsSectionIdx, aVarID, init);
 
-					aRepStr = aVarProp.str;
-					// Replace double-quoted string with un-trimmed contents
-					if( aRepStr.size() >= 2 && aRepStr[0] == '"' &&
-						aRepStr[aRepStr.size()-1] == '"' )
-					{
-						aRepStr = aRepStr.substr(1, aRepStr.size()-2);
-					}
-					// TODO - handle operators (+, -, *, !<>== ? :)
+					aRepStr = varTagToString(aVarProp.str, aStr, aVarOpPos);
 				}
 			}
 		}
@@ -2084,14 +2246,14 @@ bool getBool(
 }
 
 
-float getFloat(
+double getFloat(
 	const std::string& theSection,
 	const std::string& theName,
-	float theDefaultValue)
+	double theDefaultValue)
 {
 	const std::string& aStr = getStr(theSection, theName);
 	if( !aStr.empty() )
-		return floatFromString(aStr);
+		return doubleFromString(aStr);
 	return theDefaultValue;
 }
 

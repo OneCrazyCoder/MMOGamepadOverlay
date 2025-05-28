@@ -49,9 +49,15 @@ std::string getPathParams(const std::string& thePath);
 // If theChar is not found or is the first non-whitespace character,
 // returns empty string and only trims whitespace from beginning of theString.
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
-// Like above but ignores theChar if inside double-quote string (and removes quotes),
-// and if theChar not found/first character breaks it off anyway (clears theString).
+// Like above but always "breaks off" even if no/starting theChar (clears theString).
 std::string breakOffNextItem(std::string& theString, char theChar = ',');
+// Returns substring from thePosition to first theDelimiter, updating thePosition to
+// theDelimiter's position (or theString.size() if not found). Returned string is
+// trimmed. If entire string is quoted, theDelimiter is ignored inside the quoted
+// section, whitespace in the quotes is left as-is, and the outer quotes are removed.
+// Supports SQL style for quote chars inside quoted strings ('' or "" or '"' or "'").
+std::string fetchNextItem(
+	const std::string& theString, size_t& thePosition, const char* theDelimiter);
 // If the string ends in a positive integer (but isn't entirely a number), returns
 // that integer and removes those chars (except leading 0's). Otherwise returns -1.
 int breakOffIntegerSuffix(std::string& theString);
@@ -99,6 +105,8 @@ float floatFromString(const std::string& theString);
 float floatFromString(const char* theString);
 double doubleFromString(const std::string& theString);
 double doubleFromString(const char* theString);
+double doubleFromStringStrict(const std::string& theString); // returns NaN
+double doubleFromStringStrict(const char* str); // instead of 0 if not valid
 bool boolFromString(const std::string& theString);
 bool boolFromString(const char* theString);
 

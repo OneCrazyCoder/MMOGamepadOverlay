@@ -175,78 +175,93 @@ inline u64 u64FromString(const char* theString)
 
 inline float floatFromString(const std::string& theString)
 {
-	float result = float(atof(theString.c_str()));
-	if( !theString.empty() && theString[theString.size()-1] == '%' )
-		result /= 100.0;
-	return result;
+	double result = doubleFromStringStrict(theString.c_str());
+	if( _isnan(result) )
+		result = 0;
+	return float(result);
 }
 
 
 inline float floatFromString(const char* theString)
 {
-	return floatFromString(std::string(theString));
+	double result = doubleFromStringStrict(theString);
+	if( _isnan(result) )
+		result = 0;
+	return float(result);
 }
 
 
 inline double doubleFromString(const std::string& theString)
 {
-	double result = double(atof(theString.c_str()));
-	if( !theString.empty() && theString[theString.size()-1] == '%' )
-		result /= 100.0;
-	if( result == 0 )
-	{
-		switch(theString[0])
-		{
-		case 't': case 'T':
-			if( lower(theString) == "true" )
-				result = 1.0;
-			break;
-		case 'Y': case 'y':
-			if( lower(theString) == "yes" )
-				result = 1.0;
-			break;
-		case 'O': case 'o':
-			if( lower(theString) == "on" )
-				result = 1.0;
-			break;
-		}
-	}
+	double result = doubleFromStringStrict(theString.c_str());
+	if( _isnan(result) )
+		result = 0;
 	return result;
 }
 
 
 inline double doubleFromString(const char* theString)
 {
-	return doubleFromString(std::string(theString));
+	double result = doubleFromStringStrict(theString);
+	if( _isnan(result) )
+		result = 0;
+	return result;
 }
 
 
-inline std::vector<u32> UTF8ToUTF32(const std::string& theString)
+inline double doubleFromStringStrict(const char* theString)
 {
-	return UTF8ToUTF32(theString.c_str());
+	if( !theString || *theString == '\0' )
+		return std::numeric_limits<double>::quiet_NaN();
+
+	char* endptr = null;
+	double result = strtod(theString, &endptr);
+	if( *endptr == '\0' )
+		return result;
+
+	if( endptr != theString && *(endptr + 1) == '\0' && *endptr == '%' )
+		return result / 100.0;
+
+	// Replace various boolean representations with 0.0 or 1.0
+	switch(theString[0])
+	{
+	case 't': case 'T': case 'f': case 'F':
+	case 'y': case 'Y': case 'n': case 'N':
+	case 'o': case 'O': case 'd': case 'D':
+	case 'e': case 'E': case 'a': case 'A':
+		{
+			const std::string& str = lower(theString);
+			if( str == "true" || str == "yes" || str == "on" ||
+				str == "enabled" || str == "ok" || str == "active" )
+			{ return 1.0; }
+
+			if( str == "false" || str == "no" || str == "off" ||
+				str == "nothing" || str == "null" || str == "nil" ||
+				str == "disabled" || str == "empty" )
+			{ return 0; }
+		}
+		break;
+	}
+
+	return std::numeric_limits<double>::quiet_NaN();
+}
+
+
+inline double doubleFromStringStrict(const std::string& theString)
+{
+	return doubleFromStringStrict(theString.c_str());
 }
 
 
 inline bool boolFromString(const std::string& theString)
 {
-	return boolFromString(theString.c_str());
+	return !theString.empty() &&
+		doubleFromStringStrict(theString) != 0.0;
 }
 
 
 inline bool boolFromString(const char* theString)
 {
-	if( !theString ||
-		theString[0] == '0' ||
-		theString[0] == 'n' || // no
-		theString[0] == 'N' || // No
-		theString[0] == 'f' || // false
-		theString[0] == 'F' || // False
-		(theString[0] == 'O' && theString[1] == 'F') || // OFF
-		(theString[0] == 'O' && theString[1] == 'f') || // Off
-		(theString[0] == 'o' && theString[1] == 'f') || // off
-		theString[0] == '\0' )
-	{
-		return false;
-	}
-	return true;
+	return theString != null && theString[0] != '\0' &&
+		doubleFromStringStrict(theString) != 0.0;
 }
