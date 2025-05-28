@@ -275,7 +275,7 @@ Command selectMenuItem(
 		break;
 	}
 
-	aSelection = min(aSelection, anItemCount-1);
+	aSelection = MIN(aSelection, anItemCount-1);
 	if( aSelection != aPrevSel )
 	{// Need to refresh to show selection differently
 		DBG_ASSERT(aHUDElementID < gRefreshHUD.size());
@@ -434,8 +434,8 @@ Command swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir)
 			const u8 aNewGridHeight = gridHeight(theMenuID);
 			const u16 aNewItemCount = itemCount(theMenuID);
 			swap(aMenuInfo.subMenuStack.back().id, theAltMenuID);
-			u8 aNewX = min(anOldX, aNewGridWidth-1);
-			u8 aNewY = min(anOldY, aNewGridHeight-1);
+			u8 aNewX = min<u8>(anOldX, aNewGridWidth-1);
+			u8 aNewY = min<u8>(anOldY, aNewGridHeight-1);
 			switch(theDir)
 			{
 			case eCmdDir_L: aNewX = aNewGridWidth-1; break;
@@ -461,7 +461,7 @@ Command swapMenu(u16 theMenuID, u16 theAltMenuID, ECommandDir theDir)
 	}
 
 	// Directly replace the current sub-menu with the alt in the stack
-	aNextSel = min(aNextSel, InputMap::menuItemCount(theAltMenuID)-1);
+	aNextSel = min<u16>(aNextSel, InputMap::menuItemCount(theAltMenuID)-1);
 	aMenuInfo.subMenuStack.back().id = theAltMenuID;
 	aMenuInfo.subMenuStack.back().selected = aNextSel;
 	DBG_ASSERT(aHUDElementID < gReshapeHUD.size());

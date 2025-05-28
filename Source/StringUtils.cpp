@@ -130,13 +130,14 @@ std::string vformat(const char* fmt, va_list argPtr)
 std::string trim(const std::string& theString)
 {
 	int aStartPos = 0;
-	while(aStartPos < theString.length() && isspace(theString[aStartPos]))
-		++aStartPos;
+	while(aStartPos < theString.length() &&
+		unsigned(theString[aStartPos]) <= ' ')
+	{ ++aStartPos; }
 
 	int anEndPos = int(theString.length()) - 1;
 	if( aStartPos < theString.length() )
 	{
-		while(anEndPos >= 0 && isspace(theString[anEndPos]))
+		while(anEndPos >= 0 && unsigned(theString[anEndPos]) <= ' ')
 			--anEndPos;
 	}
 
@@ -436,28 +437,118 @@ std::string getPathParams(const std::string& thePath)
 }
 
 
+std::string fetchNextItem(
+	const std::string& theString,
+	size_t& thePosition,
+	const char* theDelimiter)
+{
+	#ifndef NDEBUG
+	DBG_ASSERT(theDelimiter && *theDelimiter);
+	for(const char* c = theDelimiter; *c; ++c)
+	{
+		DBG_ASSERT(*c != '\'');
+		DBG_ASSERT(*c != '"');
+		DBG_ASSERT(!(*c & 0x80));
+	}
+	#endif
+
+	std::string result;
+	if( thePosition >= theString.size() )
+		return result;
+
+	// Skip leading whitespace
+	while(thePosition < theString.size() &&
+		unsigned(theString[thePosition]) <= ' ' )
+	{ ++thePosition; }
+
+	if( thePosition >= theString.size() )
+		return result;
+
+	const char aQuoteChar = theString[thePosition];
+	bool isQuoted = aQuoteChar == '\'' || aQuoteChar == '"';
+	size_t aPos;
+	if( isQuoted )
+	{
+		for(aPos = thePosition + 1; aPos < theString.size(); ++aPos)
+		{
+			if( theString[aPos] == aQuoteChar )
+			{// End of quoted string or a literal if doubled ("" or '')
+				if( aPos + 1 < theString.size() &&
+					theString[aPos+1] == aQuoteChar )
+				{
+					++aPos;
+					result += aQuoteChar;
+					continue;
+				}
+				break;
+			}
+			result += theString[aPos];
+		}
+		// To be a proper quoted string, needs to end in the same quote char
+		// started with, and then have only whitespace and delimiter after it
+		if( aPos == theString.size() )
+		{
+			// Reached end without finding end quote character!
+			// Re-parse as a non-quoted string
+			isQuoted = false;
+			result.clear();
+		}
+		else
+		{
+			// Make sure no trailing characters after end quote
+			for(++aPos; aPos < theString.size(); ++aPos)
+			{
+				if( unsigned(theString[aPos]) <= ' ' )
+					continue;
+				if( strchr(theDelimiter, theString[aPos]) != null )
+					break;
+				isQuoted = false;
+				result.clear();
+				break;
+			}
+		}
+	}
+
+	if( !isQuoted )
+	{
+		aPos = theString.find_first_of(theDelimiter, thePosition);
+		aPos = min(aPos, theString.size());
+		if( aPos > thePosition )
+		{
+			size_t anItemLastChar = aPos - 1;
+			while(anItemLastChar > thePosition &&
+				  unsigned(theString[anItemLastChar]) <= ' ')
+			{ --anItemLastChar; }
+			result = theString.substr(
+				thePosition,
+				anItemLastChar + 1 - thePosition);
+		}
+	}
+
+	// Report position of delimiter (or end of string)
+	thePosition = aPos;
+
+	return result;
+}
+
+
 std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 {
-	std::string result;
-	size_t aStripCount = 0;
-
-	size_t aCharPos = theString.find(theChar);
-	if( aCharPos != std::string::npos )
-	{
-		result = trim(theString.substr(0, aCharPos));
-		// If result is non-empty, strip everything up to and include theChar
-		if( !result.empty() )
-			aStripCount = aCharPos + 1;
-	}
-
-	// Whether or not stripping anything else from above, additionally strip
-	// any whitespace characters that would otherwise be at start of theString
-	for(; aStripCount < theString.length(); ++aStripCount)
-	{
-		if( theString[aStripCount] > ' ' )
-			break;
-	}
-	theString.erase(0, aStripCount);
+	size_t aStrPos = 0;
+	char aDelimiter[2] = { theChar, '\0' };
+	std::string result = fetchNextItem(theString, aStrPos, &aDelimiter[0]);
+	if( aStrPos >= theString.size() )
+		result.clear();
+	++aStrPos;
+	if( result.empty() )
+		aStrPos = 0;
+	while(aStrPos < theString.size() &&
+		  unsigned(theString[aStrPos]) <= ' ' )
+	{ ++aStrPos; }
+	if( aStrPos >= theString.size() )
+		theString.clear();
+	else if( aStrPos > 0 )
+		theString = theString.substr(aStrPos);
 
 	return result;
 }
@@ -465,36 +556,17 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 
 std::string breakOffNextItem(std::string& theString, char theChar)
 {
-	std::string result;
-	size_t aStripCount = 0;
-
-	bool inQuotes = false;
-	size_t aCharPos;
-	for(aCharPos = 0; aCharPos < theString.size(); ++aCharPos)
-	{
-		if( theString[aCharPos] == '"' )
-			inQuotes = !inQuotes;
-		if( theString[aCharPos] == theChar && !inQuotes )
-			break;
-	}
-
-	result = trim(theString.substr(0, aCharPos));
-	// Always strip theChar, even if result is empty
-	aStripCount = aCharPos + 1;
-	// Remove double quotes around result
-	if( !result.empty() && result[0] == '"' )
-		result = result.substr(1);
-	if( !result.empty() && result[result.size()-1] == '"' )
-		result.resize(result.size()-1);
-
-	// Whether or not stripping anything else from above, additionally strip
-	// any whitespace characters that would otherwise be at start of theString
-	for(; aStripCount < theString.length(); ++aStripCount)
-	{
-		if( theString[aStripCount] > ' ' )
-			break;
-	}
-	theString.erase(0, aStripCount);
+	size_t aStrPos = 0;
+	char aDelimiter[2] = { theChar, '\0' };
+	std::string result = fetchNextItem(theString, aStrPos, &aDelimiter[0]);
+	++aStrPos;
+	while(aStrPos < theString.size() &&
+		  unsigned(theString[aStrPos]) <= ' ' )
+	{ ++aStrPos; }
+	if( aStrPos >= theString.size() )
+		theString.clear();
+	else if( aStrPos > 0 )
+		theString = theString.substr(aStrPos);
 
 	return result;
 }
@@ -526,8 +598,9 @@ int breakOffIntegerSuffix(std::string& theString)
 	else
 		theString.resize(aStrPos+1);
 
-	while(!theString.empty() && isspace(theString[int(theString.size())-1]))
-		theString.resize(theString.size()-1);
+	while(!theString.empty() &&
+		unsigned(theString[int(theString.size())-1]) <= ' ' )
+	{ theString.resize(theString.size()-1); }
 
 	return result;
 }

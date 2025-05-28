@@ -516,7 +516,7 @@ public:
 
 			case eState_ValueType:
 				// Waiting for char indicating type of value
-				if( !isspace(ch) )
+				if( unsigned(ch) > ' ' )
 				{
 					mState.back().type = eState_Value;
 					mReadStr.clear();
@@ -1161,7 +1161,7 @@ public:
 		// Return the previously read-in data for parsing
 		const size_t aBytesToRead = min(
 			mValueData.size() - mParsePos,
-			kConfigFileBufferSize);
+			size_t(kConfigFileBufferSize));
 		result.assign((char*)&mValueData[mParsePos], aBytesToRead);
 		mParsePos += aBytesToRead;
 		if( mParsePos >= mValueData.size() )
@@ -1654,7 +1654,7 @@ static double getSubTypeValue(
 	case eValueSetSubType_SizeY:
 		if( sInvertAxis[theSubType] )
 			result = -result;
-		result = max(0, result);
+		result = max(0.0, result);
 		break;
 	case eValueSetSubType_Scale:
 		if( result <= 0 )

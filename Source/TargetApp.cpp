@@ -533,8 +533,8 @@ static void checkWindowMode()
 	LONG aNewWidth = aNewRect.right - aNewRect.left;
 	LONG aNewHeight = aNewRect.right - aNewRect.left;
 	SetWindowPos(sTargetWindowHandle, HWND_NOTOPMOST,
-		aMonRect.left + max(0, (aMonRectWidth - aNewWidth) / 2),
-		aMonRect.top + max(0, (aMonRectHeight - aNewHeight) / 2),
+		aMonRect.left + max(0L, (aMonRectWidth - aNewWidth) / 2),
+		aMonRect.top + max(0L, (aMonRectHeight - aNewHeight) / 2),
 		aNewWidth, aNewHeight, SWP_FRAMECHANGED);
 	sLastKnownTargetMode = eWindowMode_Normal;
 }

@@ -3023,26 +3023,13 @@ static void applyControlsLayerProperty(
 }
 
 
-static std::string breakOffMenuItemLabel(std::string& theString)
-{
-	// Get the label (part of the string before first single colon)
-	// Double colons within label become single colons instead of end of label,
-	// and are ignored (become whitespace) in the remaining string
-	theString = replaceAllStr(theString, "::", "\x01");
-	std::string result = breakOffItemBeforeChar(theString, ':');
-	result = replaceChar(result, '\x01', ':');
-	theString = replaceChar(theString, '\x01', ' ');
-	return result;
-}
-
-
 static MenuItem stringToMenuItem(u16 theMenuID, std::string theString)
 {
 	MenuItem aMenuItem;
 	if( theString.empty() )
 		return aMenuItem;
 
-	std::string aLabel = breakOffMenuItemLabel(theString);
+	std::string aLabel = breakOffItemBeforeChar(theString, ':');
 	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
 	{// Having no : character means this points to a sub-menu
 		aMenuItem.cmd.subMenuID = getMenuID(theString, theMenuID);
@@ -4037,7 +4024,7 @@ u8 menuGridWidth(u16 theMenuID)
 	// Auto-calculate based on item count
 	if( result == 0 )
 		result = u8(u32(ceil(sqrt(double(aMenuItemCount)))) & 0xFF);
-	result = min(result, aMenuItemCount);
+	result = min(result, u8(aMenuItemCount));
 
 	return result;
 }
@@ -4077,7 +4064,7 @@ std::string menuItemDirKeyName(ECommandDir theDir)
 
 void menuItemStringToSubMenuName(std::string& theString)
 {
-	std::string aLabel = breakOffMenuItemLabel(theString);
+	std::string aLabel = breakOffItemBeforeChar(theString, ':');
 	// Can't be a sub-menu if has a separate label, is empty, or
 	// starts with ':' indicating a normal command
 	if( !aLabel.empty() || theString.empty() || theString[0] == ':' )

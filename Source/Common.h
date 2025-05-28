@@ -50,66 +50,21 @@ using std::swap; // so can call unqualified for copy-and-swap idiom
 
 #undef min
 #undef max
-// Use template func instead of macro to avoid double-processing of expressions
-// (and sometimes promote unsigned to higher-bit signed for handling negatives)
-template<class T> struct num_promoted { typedef int type; };
-template<> struct num_promoted<u32> { typedef s64 type; };
-template<> struct num_promoted<ULONG> { typedef s64 type; };
-template<> struct num_promoted<u64>; // no 's128' available to promote to!
-template<> struct num_promoted<s64>; // s64 only for use as promotion from u32
-template<> struct num_promoted<float> { typedef double type; };
-template<> struct num_promoted<double> { typedef double type; };
-template<class A, class B> struct num_common_type_impl; // unknown type match
-// If both types are the same then resulting type is also the same of course
-template<class T> struct num_common_type_impl<T, T> { typedef T type; };
-// Only need to resolve type mismatches for post-num_promoted<> types
-template<> struct num_common_type_impl<s64, int> { typedef s64 type; };
-template<> struct num_common_type_impl<int, s64> { typedef s64 type; };
-template<> struct num_common_type_impl<double, int> { typedef double type; };
-template<> struct num_common_type_impl<int, double> { typedef double type; };
-// s64 is actually promoted u32 so no precision loss comparing to a double
-template<> struct num_common_type_impl<double, s64> { typedef double type; };
-template<> struct num_common_type_impl<s64, double> { typedef double type; };
-// Gets common type between mismatched promoted types
-template<class A, class B>
-struct num_common_type {
-    typedef typename num_promoted<A>::type A2;
-    typedef typename num_promoted<B>::type B2;
-    typedef typename num_common_type_impl<A2, B2>::type type;
-};
-// Skip promoting any types when both are the same type anyway
-template<class T> struct num_common_type<T, T> { typedef T type; };
+#undef MIN
+#undef MAX
+#define MIN(a, b) (((b) < (a)) ? (b) : (a))
+#define MAX(a, b) (((a) < (b)) ? (b) : (a))
+template<class T> inline
+T min(T a, T b) { return MIN(a, b); }
+template<class T> inline
+T max(T a, T b) { return MAX(a, b); }
 
-template<class A, class B> inline
-typename num_common_type<A, B>::type min(A a, B b)
+template<class Val, class Min, class Max>
+inline Val clamp(Val val, Min min, Max max)
 {
-	typedef const num_common_type<A, B>::type R;
-	const R ar = R(a);
-	const R br = R(b);
-	return ar < br ? ar : br;
-}
-
-template<class A, class B> inline
-typename num_common_type<A, B>::type max(A a, B b)
-{
-	typedef const num_common_type<A, B>::type R;
-	const R ar = R(a);
-	const R br = R(b);
-	return ar > br ? ar : br;
-}
-
-template<class V, class MN, class MX> inline
-typename num_common_type<V, typename num_common_type<MN, MX>::type>::type
-clamp(V val, MN min, MX max)
-{
-	typedef typename num_common_type<MN, MX>::type MinMaxType;
-	typedef typename num_common_type<V, MinMaxType>::type R;
-	const R vr = R(val);
-	const R minr = R(min);
-	const R maxr = R(max);
-	if( vr < minr ) return minr;
-	if( vr > maxr ) return maxr;
-	return vr;
+	if( val < min ) return min;
+	if( val > max ) return max;
+	return val;
 }
 
 inline int incWrap(int val, int count)
@@ -119,9 +74,7 @@ inline int decWrap(int val, int count)
 { return val - 1 < 0 ? int(count) - 1 : val - 1; }
 
 inline u32 u16ToRangeVal(u16 theU16, u32 theRangeMax)
-{
-	return theU16 * theRangeMax / 0x10000;
-}
+{ return theU16 * theRangeMax / 0x10000; }
 
 inline u16 ratioToU16(u32 theNumerator, u32 theDenominator)
 {
@@ -131,7 +84,7 @@ inline u16 ratioToU16(u32 theNumerator, u32 theDenominator)
 	aRatio64 *= 0x10000; // scale to 16.16 fixed-point (1.0 = 0x10000)
 	aRatio64 += theDenominator - 1; // Round up (ceil) instead of truncating
 	aRatio64 /= theDenominator;
-	return aRatio64 > 0xFFFF ? u16(0xFFFF) : u16(aRatio64); // clamp to u16
+	return u16(min<u64>(aRatio64, 0xFFFF)); // clamp to u16 range
 }
 
 #ifndef M_PI

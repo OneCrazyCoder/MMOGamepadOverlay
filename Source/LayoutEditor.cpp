@@ -1119,9 +1119,9 @@ static RECT drawHotspot(
 	if( theBoxSize )
 	{
 		const SIZE aBoxWH = {
-			max(1, LONG(u16ToRangeVal(theBoxSize->x.anchor, aTargetSize.cx)) +
+			max(1.0, LONG(u16ToRangeVal(theBoxSize->x.anchor, aTargetSize.cx)) +
 				theBoxSize->x.offset * gUIScale),
-			max(1, LONG(u16ToRangeVal(theBoxSize->y.anchor, aTargetSize.cy)) +
+			max(1.0, LONG(u16ToRangeVal(theBoxSize->y.anchor, aTargetSize.cy)) +
 				theBoxSize->y.offset * gUIScale) };
 		return drawBoundBox(
 			hdc, aCenterPoint, aBoxWH, theEraseColor, isActiveHotspot);

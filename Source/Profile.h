@@ -48,7 +48,7 @@ std::string getStr(const std::string& theSection,
 				   const std::string& theDefaultValue = "");
 int getInt(const std::string&, const std::string&, int = 0);
 bool getBool(const std::string&, const std::string&, bool = false);
-float getFloat(const std::string&, const std::string&, float = 0);
+double getFloat(const std::string&, const std::string&, double = 0);
 const PropertyMap* getSection(const std::string& theSectionName);
 const PropertyMap& getSectionProperties(const std::string& theSectionName);
 const SectionsMap& allSections();

@@ -224,7 +224,7 @@ public:
 	size_t nextRightIdx(int theX) const
 	{
 		DBG_ASSERT(!empty());
-		int idx = 0;
+		size_t idx = 0;
 		while(mDots[idx].x < theX)
 			++idx;
 		return min(mDots.size()-1, idx);
@@ -328,9 +328,9 @@ static void processTargetSizeTask()
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
 		if( aScaleFactor > 0 )
 		{
-			sPoints[sTaskProgress].x = min(kNormalizedTargetSize,
+			sPoints[sTaskProgress].x = min<double>(kNormalizedTargetSize,
 				(anOverlayPos.x + 1) * kNormalizedTargetSize / aScaleFactor);
-			sPoints[sTaskProgress].y = min(kNormalizedTargetSize,
+			sPoints[sTaskProgress].y = min<double>(kNormalizedTargetSize,
 				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor);
 			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
 		}
@@ -343,8 +343,9 @@ static void processTargetSizeTask()
 	else if( sTaskProgress == sPoints.size() )
 	{
 		// Calculate jump ranges
-		sBaseJumpDist = max(0, Profile::getInt("Mouse", "DefaultHotspotDistance")
-			* sLastUIScale / gWindowUIScale * kNormalizedTargetSize);
+		sBaseJumpDist = max(0.0,
+			Profile::getInt("Mouse", "DefaultHotspotDistance") *
+			sLastUIScale / gWindowUIScale * kNormalizedTargetSize);
 
 		u32 aMaxDeviationRadius = sBaseJumpDist * kDeviationRadiusMult;
 		sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;
@@ -1047,7 +1048,7 @@ const Links& getLinks(u16 theArrayID)
 		InputMap::hotspotArrayLabel(theArrayID).c_str());
 	const u16 aFirstHotspot = InputMap::firstHotspotInArray(theArrayID);
 	const u16 aNodeCount = InputMap::sizeOfHotspotArray(theArrayID);
-	sLinkMaps[theArrayID].resize(max(1, aNodeCount));
+	sLinkMaps[theArrayID].resize(max<size_t>(1, aNodeCount));
 	if( aNodeCount <= 1 ) return sLinkMaps[theArrayID];
 
 	// Make sure hotspots' normalized positions have been assigned
