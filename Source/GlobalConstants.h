@@ -12,8 +12,6 @@
 enum {
 kSwapWindowModeHotkeyID = 0x01,
 kCancelToolbarHotkeyID = 0x02,
-kLabelContainsDynamicText = 0x01, // as first char of string
-kLayerStatusReplaceChar = 0x02, // at point to replace
 kVKeyForceRelease = VK_CANCEL,
 kVKeyMouseJump = VK_SELECT,
 kVKeyTriggerKeyBind = VK_EXECUTE,
@@ -63,6 +61,7 @@ enum ECommandType
 	eCmdType_KeyBindArrayHoldIndex, // PressAndHold version of above
 
 	// These are just a mix of special-case one-off commands
+	eCmdType_SetVariable,
 	eCmdType_StartAutoRun,
 	eCmdType_ChangeProfile,
 	eCmdType_EditLayout,
@@ -325,6 +324,7 @@ enum ECommandKeyWord
 	eCmdWord_Hold,
 	eCmdWord_Replace,
 	eCmdWord_With,
+	eCmdWord_To,
 	eCmdWord_Toggle,
 	eCmdWord_Layer,
 	eCmdWord_Mouse,
@@ -362,11 +362,13 @@ enum ECommandKeyWord
 	eCmdWord_Default,
 	eCmdWord_Load,
 	eCmdWord_Set,
+	eCmdWord_Variable,
 	eCmdWord_Last,
 	eCmdWord_Change,
 	eCmdWord_Profile,
 	eCmdWord_Layout,
 	eCmdWord_App,
+	eCmdWord_Temp,
 
 	eCmdWord_Integer,
 	eCmdWord_Ignored,

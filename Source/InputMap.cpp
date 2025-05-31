@@ -295,6 +295,7 @@ static StringToValueMap<Menu> sMenus;
 static StringToValueMap<HUDElement> sHUDElements;
 static VectorMap<std::pair<int, EButton>, int> sButtonHoldTimes;
 static int sDefaultButtonHoldTime = 400;
+static std::vector<std::string> sParsedString(16);
 static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
 
@@ -1099,12 +1100,13 @@ static int applyKeyBindProperty(
 	}
 	
 	// Tap key
-	std::vector<std::string> aParsedString; aParsedString.reserve(16);
-	sanitizeSentence(theCmdStr, aParsedString);
-	if( u16 aVKey = dropTo<u16>(namesToVKey(aParsedString)) )
+	DBG_ASSERT(sParsedString.empty());
+	sanitizeSentence(theCmdStr, sParsedString);
+	if( int aVKey = namesToVKey(sParsedString) )
 	{
 		aCmd.type = eCmdType_TapKey;
-		aCmd.vKey = aVKey;
+		aCmd.vKey = dropTo<u16>(aVKey);
+		sParsedString.clear();
 		return aKeyBindID;
 	}
 
@@ -1114,20 +1116,23 @@ static int applyKeyBindProperty(
 	{
 		aCmd.type = eCmdType_TriggerKeyBind;
 		aCmd.keyBindID = dropTo<u16>(anotherKeyBindID);
+		sParsedString.clear();
 		return aKeyBindID;
 	}
 
 	// VKey Sequence
-	const std::string& aVKeySeq = namesToVKeySequence(aParsedString);
+	const std::string& aVKeySeq = namesToVKeySequence(sParsedString);
 	if( !aVKeySeq.empty() )
 	{
 		aCmd.type = eCmdType_VKeySequence;
 		aCmd.vKeySeqID = dropTo<u16>(sCmdStrings.findOrAddIndex(aVKeySeq));
+		sParsedString.clear();
 		return aKeyBindID;
 	}
 
 	// Couldn't figure out what it was!
 	aCmd.type = eCmdType_Empty;
+	sParsedString.clear();
 	return aKeyBindID;
 }
 
@@ -1411,6 +1416,98 @@ static int getMenuID(std::string theMenuName, int theParentMenuID)
 }
 
 
+static Command stringToSetVariableCommand(
+	const std::string& theString,
+	const std::vector<std::string>& theWords)
+{
+	Command result;
+
+	// First search for key word "set" (and maybe "temp")
+	const int kWordCount = intSize(theWords.size());
+	bool requestedTemporary = false;
+	ECommandKeyWord aKeyWordID = eCmdWord_Unknown;
+	int aWordIdx = 0;
+	for(; aWordIdx < kWordCount; ++aWordIdx)
+	{
+		aKeyWordID = commandWordToID(theWords[aWordIdx]);
+		if( aKeyWordID == eCmdWord_Set )
+			break;
+		if( aKeyWordID == eCmdWord_Temp )
+			requestedTemporary = true;
+		if( aKeyWordID == eCmdWord_To ) // too early!
+			return result;
+	}
+	if( aKeyWordID != eCmdWord_Set )
+		return result;
+
+	// Search for a valid variable between "set" and "to"
+	int aVarNameIdx = 0;
+	for(++aWordIdx; aWordIdx < kWordCount; ++aWordIdx)
+	{
+		aKeyWordID = commandWordToID(theWords[aWordIdx]);
+		if( aKeyWordID == eCmdWord_To )
+			break;
+		if( aKeyWordID == eCmdWord_Temp )
+		{
+			requestedTemporary = true;
+			continue;
+		}
+		if( aKeyWordID == eCmdWord_Variable )
+			continue;
+		if( aKeyWordID == eCmdWord_Filler )
+			continue;
+		// If more than one candidate for variabe name - abort!
+		if( aVarNameIdx )
+			return result;
+		aVarNameIdx = aWordIdx;
+	}
+	if( aKeyWordID != eCmdWord_To || !aVarNameIdx )
+		return result;
+
+	const int aVariableID = Profile::variableNameToID(theWords[aVarNameIdx]);
+	if( aVariableID < 0 )
+		return result;
+	
+	// We now have "Set <varname> to", now need to get string to set it to
+	// Need to find " to " in the original string
+	int aPatternIdx = 0;
+	const char aPattern[5] = " to ";
+	// Start search after "set" and <varname> in terms of character count
+	for(const char* c = &(theString.c_str()[5 + theWords[aVarNameIdx].size()]);
+		*c; ++c)
+	{
+		const u8 aTestChar(*c);
+		const u8 aPatternChar(aPattern[aPatternIdx]);
+		if( aPatternChar == '\0' )
+		{// Pattern matched, waiting for non-whitespace char
+			if( aTestChar > ' ' )
+			{// Found start of string to store in the variable!
+				result.type = eCmdType_SetVariable;
+				result.variableID = dropTo<u16>(aVariableID);
+				result.stringID = dropTo<u16>(sCmdStrings.findOrAddIndex(c));
+				result.temporary = requestedTemporary;
+				break;
+			}
+			continue;
+		}
+		if( (aTestChar <= ' ' && aPatternChar == ' ') ||
+			(aTestChar == 't' && aPatternChar == 't') ||
+			(aTestChar == 'T' && aPatternChar == 't') ||
+			(aTestChar == 'o' && aPatternChar == 'o') ||
+			(aTestChar == 'O' && aPatternChar == 'o') )
+		{
+			++aPatternIdx;
+		}
+		else
+		{
+			aPatternIdx = 0;
+		}
+	}
+
+	return result;
+}
+
+
 static Command wordsToSpecialCommand(
 	const std::vector<std::string>& theWords,
 	bool allowButtonActions = false,
@@ -1423,7 +1520,7 @@ static Command wordsToSpecialCommand(
 		return result;
 
 	// Almost all commands require more than one "word", even if only one of
-	// words is actually a command key word (thus can force a keybind to be
+	// the words is actually a command key word (thus can force a keybind to be
 	// used instead of a command by specifying the keybind as a single word).
 	// The exception are the "nothing" and "unassigned" key words.
 	if( theWords.size() <= 1 )
@@ -1483,7 +1580,7 @@ static Command wordsToSpecialCommand(
 			result.wrap = false;
 			break;
 		case eCmdWord_With:
-			// Special case for "Replace <name> with <name>"
+			// Special case for "Replace <layerName> with <LayerName>"
 			if( i < intSize(theWords.size()) - 1 &&
 				keyWordsFound.test(eCmdWord_Replace) )
 			{
@@ -1496,8 +1593,10 @@ static Command wordsToSpecialCommand(
 		switch(aKeyWordID)
 		{
 		case eCmdWord_Filler:
+		case eCmdWord_To:
 			break;
 		case eCmdWord_Ignored:
+		case eCmdWord_Temp:
 			anIgnoredWord = &theWords[i];
 			break;
 		case eCmdWord_Wrap:
@@ -1519,7 +1618,9 @@ static Command wordsToSpecialCommand(
 			// these might actually be different values
 			if( keyWordsFound.test(aKeyWordID) )
 			{
-				// Exception: single allowed duplicate
+				// Exception: single allowed duplicate for
+				// "Replace <layerName> with <LayerName>" which set this flag
+				// if encountered the "with" key word earlier
 				if( allowedKeyWords.test(aKeyWordID) )
 					allowedKeyWords.reset();
 				else
@@ -1946,7 +2047,7 @@ static Command wordsToSpecialCommand(
 			result.keybindArrayID = aKeyBindArrayID;
 			return result;
 		}
-		// "= <aKeyBindArrayID> [Load] Default"
+		// "= [Load] <aKeyBindArrayID> Default"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Load);
 		allowedKeyWords.set(eCmdWord_Default);
@@ -1958,9 +2059,10 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Load);
-		// "= <aKeyBindArrayID> 'Set [Default] [to Last]"
+		// "= Set <aKeyBindArrayID> [Default] [to] [Last]"
 		// allowedKeyWords = Default
 		allowedKeyWords.set(eCmdWord_Set);
+		allowedKeyWords.set(eCmdWord_To);
 		allowedKeyWords.set(eCmdWord_Last);
 		if( keyWordsFound.test(eCmdWord_Set) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -1970,6 +2072,7 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Set);
+		allowedKeyWords.reset(eCmdWord_To);
 		allowedKeyWords.reset(eCmdWord_Default);
 		// "= <aKeyBindArrayID> Last"
 		// allowedKeyWords = Last
@@ -2268,12 +2371,12 @@ static Command stringToCommand(
 		return result;
 
 	// Check for a simple key assignment
-	std::vector<std::string> aParsedString; aParsedString.reserve(16);
-	sanitizeSentence(theString, aParsedString);
-	if( u16 aVKey = dropTo<u16>(namesToVKey(aParsedString)) )
+	DBG_ASSERT(sParsedString.empty());
+	sanitizeSentence(theString, sParsedString);
+	if( int aVKey = namesToVKey(sParsedString) )
 	{
 		result.type = eCmdType_TapKey;
-		result.vKey = aVKey;
+		result.vKey = dropTo<u16>(aVKey);
 		// _PressAndHoldKey (and indirectly its associated _ReleaseKey)
 		// only works properly with a single key (+ mods), just like _TapKey,
 		// and only when allowHoldActions is true (_Down button action),
@@ -2284,16 +2387,28 @@ static Command stringToCommand(
 		// (which can be used intentionally to have 2 commands for button
 		// initial press, thus can be useful even if a bit unintuitive).
 		result.type = eCmdType_PressAndHoldKey;
+		sParsedString.clear();
 		return result;
 	}
 
-	// Check for special command
+	// Check for set variable command
+	result = stringToSetVariableCommand(theString, sParsedString);
+	if( result.type != eCmdType_Empty )
+	{
+		sParsedString.clear();
+		return result;
+	}
+
+	// Check for other special commands
 	result = wordsToSpecialCommand(
-		aParsedString,
+		sParsedString,
 		allowButtonActions,
 		allowHoldActions);
 	if( result.type != eCmdType_Empty )
+	{
+		sParsedString.clear();
 		return result;
+	}
 
 	// Check for alias to a keybind
 	if( Command* aSpecialKeyBindCommand =
@@ -2303,6 +2418,7 @@ static Command stringToCommand(
 			aSpecialKeyBindCommand->type < eCmdType_FirstContinuous )
 		{
 			result = *aSpecialKeyBindCommand;
+			sParsedString.clear();
 			return result;
 		}
 	}
@@ -2328,22 +2444,25 @@ static Command stringToCommand(
 					result.type = eCmdType_KeyBindArrayIndex;
 				result.keybindArrayID = dropTo<u16>(aKeyBindArrayID);
 				result.arrayIdx = dropTo<u16>(anArrayIdx);
+				sParsedString.clear();
 				return result;
 			}
 		}
 		result.type = eCmdType_TriggerKeyBind;
 		result.keyBindID = dropTo<u16>(aKeyBindID);
+		sParsedString.clear();
 		return result;
 	}
 
 	// Check for Virtual-Key Code sequence
-	const std::string& aVKeySeq = namesToVKeySequence(aParsedString);
+	const std::string& aVKeySeq = namesToVKeySequence(sParsedString);
 	if( !aVKeySeq.empty() )
 	{
 		result.type = eCmdType_VKeySequence;
 		result.vKeySeqID = dropTo<u16>(sCmdStrings.findOrAddIndex(aVKeySeq));
 	}
 
+	sParsedString.clear();
 	return result;
 }
 
@@ -3199,13 +3318,13 @@ static void applyControlsLayerProperty(
 			}
 
 			// Break the string into individual words
-			std::vector<std::string> aParsedString; aParsedString.reserve(16);
-			sanitizeSentence(thePropVal, aParsedString);
+			DBG_ASSERT(sParsedString.empty());
+			sanitizeSentence(thePropVal, sParsedString);
 
 			bool enable = true;
-			for(int i = 0, end = intSize(aParsedString.size()); i < end; ++i)
+			for(int i = 0, end = intSize(sParsedString.size()); i < end; ++i)
 			{
-				const std::string& aName = aParsedString[i];
+				const std::string& aName = sParsedString[i];
 				const std::string& aUpperName = upper(aName);
 				if( aUpperName == "HIDE" || aUpperName == "DISABLE" )
 				{
@@ -3251,6 +3370,7 @@ static void applyControlsLayerProperty(
 						thePropVal.c_str());
 				}
 			}
+			sParsedString.clear();
 		}
 		return;
 
@@ -3382,47 +3502,6 @@ static void applyControlsLayerProperty(
 		theLayerID,
 		thePropKey,
 		thePropVal, false);
-}
-
-
-static void parseLabel(std::string& theLabel)
-{
-	if( theLabel.size() < 3 )
-		return;
-
-	// Search for replacement text tags in format <tag>
-	bool replacementNeeded = false;
-	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
-		findStringTag(theLabel);
-	while(aTagCoords.first != std::string::npos )
-	{
-		const std::string& aTag = theLabel.substr(
-			aTagCoords.first + 1, aTagCoords.second - 2);
-
-		// Generate the replacement character sequence
-		std::string aNewStr;
-		// See if tag matches a layer name to display layer status
-		int aLayerID = sLayers.findIndex(aTag);
-		if( aLayerID > 0 && aLayerID < sLayers.size() )
-		{// Set replacement to a 3-char sequence for layer ID
-			aNewStr.push_back(kLayerStatusReplaceChar);
-			// Encode the layer ID into 14-bit as in checkForVKeySeqPause()
-			DBG_ASSERT(aLayerID <= 0x3FFF);
-			aNewStr.push_back(u8((((aLayerID) >> 7) & 0x7F) | 0x80));
-			aNewStr.push_back(u8(((aLayerID) & 0x7F) | 0x80));
-		}
-		// TODO: Button names to be replaced with their current assigned comand
-
-		if( !aNewStr.empty() )
-		{
-			theLabel.replace(aTagCoords.first, aTagCoords.second, aNewStr);
-			replacementNeeded = true;
-		}
-		aTagCoords = findStringTag(theLabel, aTagCoords.first+1);
-	}
-
-	if( replacementNeeded )
-		theLabel = std::string(1, kLabelContainsDynamicText) + theLabel;
 }
 
 
@@ -3567,6 +3646,13 @@ static void loadDataFromProfile(
 		referencedKeyBinds.reset();
 		validateKeyBind(aKeyBindID, referencedKeyBinds);
 	}
+	for(int aMenuID = loadedMenus.firstSetBit();
+		aMenuID < loadedMenus.size();
+		aMenuID = loadedMenus.nextSetBit(aMenuID+1))
+	{
+		sSectionPrintName = "[" + sMenus.keys()[aMenuID] + "]";
+		validateMenu(aMenuID);
+	}
 	for(int i = 0; i < sHUDElements.size(); ++i)
 	{
 		HUDElement& aHUDElement = sHUDElements.vals()[i];
@@ -3574,11 +3660,17 @@ static void loadDataFromProfile(
 		{
 			sSectionPrintName = "[" + sHUDElements.keys()[i] + "]";
 			validateHUDElement(aHUDElement);
-			gFullRedrawHUD.set(i);
-			gReshapeHUD.set(i);
+			if( !init ) 
+			{
+				gFullRedrawHUD.set(i);
+				gReshapeHUD.set(i);
+			}
 		}
 		else if( !init )
 		{
+			// Need to possibly set some HUD elements to reshape/redraw
+			// even if they weren't directly altered themselves, but they
+			// depend on hotspots that were
 			switch(aHUDElement.type)
 			{
 			case eMenuStyle_Hotspots:
@@ -3603,25 +3695,6 @@ static void loadDataFromProfile(
 			}
 		}
 	}
-	for(int aMenuID = loadedMenus.firstSetBit();
-		aMenuID < loadedMenus.size();
-		aMenuID = loadedMenus.nextSetBit(aMenuID+1))
-	{
-		sSectionPrintName = "[" + sMenus.keys()[aMenuID] + "]";
-		validateMenu(aMenuID);
-		Menu& aMenu = sMenus.vals()[aMenuID];
-		parseLabel(aMenu.label);
-		for(int i = 0, end = ARRAYSIZE(aMenu.dirItems); i < end; ++i)
-		{
-			parseLabel(aMenu.dirItems[i].label);
-			parseLabel(aMenu.dirItems[i].altLabel);
-		}
-		for(int i = 0, end = intSize(aMenu.items.size()); i < end; ++i)
-		{
-			parseLabel(aMenu.items[i].label);
-			parseLabel(aMenu.items[i].altLabel);
-		}
-	}
 }
 
 
@@ -3642,6 +3715,7 @@ void loadProfile()
 	sMenus.clear();
 	sHUDElements.clear();
 	sButtonHoldTimes.clear();
+	sParsedString.clear();
 
 	// Allocate hotspot arrays
 	// Start with the the special named hotspots so they get correct IDs
@@ -3764,7 +3838,9 @@ void loadProfileChanges()
 
 const char* cmdString(const Command& theCommand)
 {
-	DBG_ASSERT(theCommand.type == eCmdType_ChatBoxString);
+	DBG_ASSERT(
+		theCommand.type == eCmdType_ChatBoxString ||
+		theCommand.type == eCmdType_SetVariable);
 	DBG_ASSERT(theCommand.stringID < sCmdStrings.size());
 	return sCmdStrings.keys()[theCommand.stringID].c_str();
 }

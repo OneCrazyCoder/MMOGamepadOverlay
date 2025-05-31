@@ -267,7 +267,6 @@ struct ZERO_INIT(MenuDrawCacheEntry)
 		CopyRectCacheEntry copyRect;
 		StringScaleCacheEntry str;
 	};
-	bool isDynamic;
 };
 
 struct ZERO_INIT(AutoRefreshLabelEntry)
@@ -1266,40 +1265,6 @@ static void initStringCacheEntry(
 }
 
 
-static void expandDynamicString(
-	std::string& theString,
-	MenuDrawCacheEntry& theCacheEntry)
-{
-	if( theString.empty() || theString[0] != kLabelContainsDynamicText )
-		return;
-
-	// Dynamic strings may cause a different sized string or a
-	// different icon when they change, so can't cache the data!
-	theCacheEntry = MenuDrawCacheEntry();
-	theCacheEntry.isDynamic = true;
-
-	theString = theString.substr(1);
-	std::string::size_type aStartPos = 0;
-	while((aStartPos = theString.find(kLayerStatusReplaceChar, aStartPos))
-			!= std::string::npos )
-	{
-		// Convert 3-char 14-bit code to a layer ID
-		u8 c = theString[aStartPos+1];
-		DBG_ASSERT(c != '\0');
-		u16 aLayerID = (c & 0x7F) << 7;
-		c = theString[aStartPos+2];
-		DBG_ASSERT(c != '\0');
-		aLayerID |= (c & 0x7F);
-		// Replace with layer's current status
-		const std::string& aNewStr =
-			InputTranslator::isLayerActive(aLayerID)
-				? "Yes" : "No";
-		theString.replace(aStartPos, 3, aNewStr);
-		aStartPos += 3;
-	}
-}
-
-
 static void drawLabelString(
 	HUDDrawData& dd,
 	RECT theRect,
@@ -1348,8 +1313,6 @@ static void drawMenuItemLabel(
 	u8 theCurrBorderSize, u8 theMaxBorderSize,
 	MenuDrawCacheEntry& theCacheEntry)
 {
-	expandDynamicString(theLabel, theCacheEntry);
-
 	// Remove auto-refresh draw entry if have one now that are being drawn
 	for(std::vector<AutoRefreshLabelEntry>::iterator itr =
 		sAutoRefreshLabels.begin(); itr != sAutoRefreshLabels.end(); ++itr )
@@ -1537,7 +1500,6 @@ static void drawMenuTitle(
 	if( !dd.firstDraw )
 		eraseRect(dd, aTitleRect);
 	std::string aStr = InputMap::menuLabel(theSubMenuID);
-	expandDynamicString(aStr, theCacheEntry);
 	const std::wstring& aWStr = widen(aStr);
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{
@@ -1645,7 +1607,7 @@ static void drawBasicMenu(HUDDrawData& dd)
 	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
 
-	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
+	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
 			sMenuDrawCache[aSubMenuID][0]);
@@ -1663,7 +1625,6 @@ static void drawBasicMenu(HUDDrawData& dd)
 	{
 		if( shouldRedrawAll ||
 			hi.forcedRedrawItemID == itemIdx ||
-			sMenuDrawCache[aSubMenuID][itemIdx + hasTitle].isDynamic ||
 			(selectionChanged &&
 				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
 			(flashingChanged &&
@@ -1714,7 +1675,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	sMenuDrawCache[aSubMenuID].resize(
 		anItemCount + hasTitle + (hi.altLabelWidth ? anItemCount : 0));
 
-	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
+	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
 			sMenuDrawCache[aSubMenuID][0]);
@@ -1727,8 +1688,6 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	// Draw alternate label for selected item off to the side
 	if( hi.altLabelWidth &&
 		(selectionChanged || shouldRedrawAll ||
-		 sMenuDrawCache[aSubMenuID]
-			[anItemCount+hi.selection+hasTitle].isDynamic ||
 		 hi.forcedRedrawItemID == hi.selection) )
 	{
 		const std::string& anAltLabel =
@@ -1775,7 +1734,6 @@ static void drawSlotsMenu(HUDDrawData& dd)
 		}
 		if( shouldRedrawAll ||
 			hi.forcedRedrawItemID == itemIdx ||
-			sMenuDrawCache[aSubMenuID][itemIdx + hasTitle].isDynamic ||
 			(isSelection && flashingChanged) )
 		{
 			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
@@ -1805,7 +1763,7 @@ static void draw4DirMenu(HUDDrawData& dd)
 	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
 	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
 
-	if( hasTitle && (dd.firstDraw || sMenuDrawCache[aSubMenuID][0].isDynamic) )
+	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd,
 			aSubMenuID, dd.components[1 + eCmdDir_Up].top,
@@ -1817,7 +1775,6 @@ static void draw4DirMenu(HUDDrawData& dd)
 		const ECommandDir aDir = ECommandDir(itemIdx);
 		if( dd.firstDraw ||
 			hi.forcedRedrawItemID == itemIdx ||
-			sMenuDrawCache[aSubMenuID][aDir + hasTitle].isDynamic ||
 			(hi.flashing != hi.prevFlashing &&
 				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
 		{
@@ -2454,24 +2411,6 @@ void update()
 			hi.flashing = kInvalidItem;
 			gRefreshHUD.set(i);
 		}
-
-		if( gRedrawDynamicHUDStrings && !gRefreshHUD.test(i) &&
-			InputMap::hudElementIsAMenu(i) )
-		{// Possibly redraw any dynamic strings (text replacements)
-			const u16 aMenuID = InputMap::menuForHUDElement(i);
-			sMenuDrawCache.resize(
-				max<size_t>(sMenuDrawCache.size(), aMenuID+1));
-			for(size_t aCacheEntryIdx = 0;
-				aCacheEntryIdx < sMenuDrawCache[aMenuID].size();
-				++aCacheEntryIdx)
-			{
-				if( sMenuDrawCache[aMenuID][aCacheEntryIdx].isDynamic )
-				{
-					gRefreshHUD.set(aMenuID);
-					break;
-				}
-			}
-		}
 	}
 
 	switch(gHotspotsGuideMode)
@@ -2548,7 +2487,6 @@ void update()
 
 	gKeyBindArrayLastIndexChanged.reset();
 	gKeyBindArrayDefaultIndexChanged.reset();
-	gRedrawDynamicHUDStrings = false;
 }
 
 
@@ -2604,30 +2542,6 @@ void updateScaling()
 		appearance.borderPenID = getOrCreatePenID(aHUDBuilder,
 			appearance.borderColor, appearance.borderSize);
 	}
-}
-
-
-void reloadCopyIconLabel(const std::string& theCopyIconLabel)
-{
-	// TODO - remove with new system?
-}
-
-
-void reloadElementShape(int theHUDElementID)
-{
-	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	const u8 anOldAlignmentX = sHUDElementInfo[theHUDElementID].alignmentX;
-	loadHUDElementShape(
-		sHUDElementInfo[theHUDElementID],
-		InputMap::hudElementKeyName(theHUDElementID),
-		sHUDElementInfo[theHUDElementID].type >= eMenuStyle_Begin &&
-		sHUDElementInfo[theHUDElementID].type < eMenuStyle_End);
-	if( InputMap::hudElementIsAMenu(theHUDElementID) )
-		sMenuDrawCache[InputMap::menuForHUDElement(theHUDElementID)].clear();
-	gReshapeHUD.set(theHUDElementID);
-	// Some aspects, like title bar, need full redraw with X align change
-	if( anOldAlignmentX != sHUDElementInfo[theHUDElementID].alignmentX )
-		gFullRedrawHUD.set(theHUDElementID);
 }
 
 
