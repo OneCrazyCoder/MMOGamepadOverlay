@@ -10,7 +10,7 @@
 
 bool gShutdown = false;
 bool gLoadNewProfile = true;
-u32 gAppRunTime = 0;
+int gAppRunTime = 0;
 int gAppFrameTime = 0;
 int gAppTargetFrameTime = 14; // allows >= 60 fps without taxing CPU
 BitVector<256> gFiredSignals;
@@ -23,8 +23,8 @@ BitVector<32> gDisabledHUD;
 bool gRedrawDynamicHUDStrings = false;
 EHotspotGuideMode gHotspotsGuideMode = eHotspotGuideMode_Disabled;
 std::vector<u16> gConfirmedMenuItem;
-std::vector<u8> gKeyBindArrayLastIndex;
-std::vector<u8> gKeyBindArrayDefaultIndex;
+std::vector<int> gKeyBindArrayLastIndex;
+std::vector<int> gKeyBindArrayDefaultIndex;
 BitVector<32> gKeyBindArrayLastIndexChanged;
 BitVector<32> gKeyBindArrayDefaultIndexChanged;
 double gUIScale = 1.0;

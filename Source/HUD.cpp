@@ -13,6 +13,8 @@
 namespace HUD
 {
 
+#pragma warning(disable:4244) // TODO - remove this and fix warnings here!
+
 // Make the region of each HUD element obvious by drawing a frame
 //#define DEBUG_DRAW_HUD_ELEMENT_FRAME
 // Make the overall overlay region obvious by drawing a frame
@@ -144,8 +146,8 @@ struct ZERO_INIT(HUDElementInfo)
 	COLORREF titleColor;
 	Hotspot position;
 	Hotspot itemSize;
-	float fadeInRate;
-	float fadeOutRate;
+	double fadeInRate;
+	double fadeOutRate;
 	int fadeInDelay;
 	int fadeOutDelay;
 	int delayUntilInactive;
@@ -310,7 +312,7 @@ static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
 static int sSystemBorderFlashTimer = 0;
 static u32 sCopyIconUpdateRate = 100;
-static u32 sNextAutoRefreshTime = 0;
+static int sNextAutoRefreshTime = 0;
 static u16 sSystemHUDElementID = 0;
 static u16 sHotspotGuideHUDElementID = 0;
 
@@ -572,7 +574,7 @@ static u16 getOrCreatePenID(
 	HUDBuilder::PenDef aPenDef =
 		std::make_pair(theColor, std::make_pair(theStyle, theWidth));
 	u16 result = theBuilder.penDefToPenMap.findOrAdd(
-		aPenDef, u16(sPens.size()));
+		aPenDef, dropTo<u16>(sPens.size()));
 	if( result < sPens.size() )
 		return result;
 
@@ -593,7 +595,7 @@ static u16 getOrCreateFontID(
 	const std::string& aKeyStr =
 		theFontName + "_" + theFontSize + "_" + theFontWeight;
 	u16 result = theBuilder.fontInfoToFontIDMap.findOrAdd(
-		aKeyStr, u16(sFonts.size()));
+		aKeyStr, dropTo<u16>(sFonts.size()));
 	if( result < sFonts.size() )
 		return result;
 
@@ -634,7 +636,7 @@ static u16 getOrCreateAppearanceID(const Appearance& theAppearance)
 	}
 
 	sAppearances.push_back(theAppearance);
-	return u16(sAppearances.size()-1);
+	return dropTo<u16>(sAppearances.size()-1);
 }
 
 
@@ -761,7 +763,7 @@ static void setBitmapIcon(IconEntry& theEntry, BuildIconEntry& theBuildEntry)
 	if( theEntry.iconID == 0 )
 	{
 		sBitmapIcons.push_back(aBitmapIcon);
-		theEntry.iconID = u16(sBitmapIcons.size()-1);
+		theEntry.iconID = dropTo<u16>(sBitmapIcons.size()-1);
 	}
 	else
 	{
@@ -809,7 +811,7 @@ static void setCopyIcon(IconEntry& theEntry, BuildIconEntry& theBuildEntry)
 	if( theEntry.iconID == 0 )
 	{
 		sCopyIcons.push_back(aCopyIcon);
-		theEntry.iconID = u16(sCopyIcons.size()-1);
+		theEntry.iconID = dropTo<u16>(sCopyIcons.size()-1);
 	}
 	else
 	{
@@ -839,7 +841,7 @@ static void setOffsetCopyIcon(
 	if( theEntry.iconID == 0 )
 	{
 		sCopyIcons.push_back(aCopyIcon);
-		theEntry.iconID = u16(sCopyIcons.size()-1);
+		theEntry.iconID = dropTo<u16>(sCopyIcons.size()-1);
 	}
 	else
 	{
@@ -1248,7 +1250,7 @@ static void initStringCacheEntry(
 	{
 		theCacheEntry.fontID = sResizedFontsMap.findOrAdd(
 			std::make_pair(hi.fontID, aFontHeight),
-			u16(sFonts.size()));
+			dropTo<u16>(sFonts.size()));
 		if( theCacheEntry.fontID == sFonts.size() )
 		{
 			LOGFONT aFont;
@@ -1636,7 +1638,7 @@ static void drawBasicMenu(HUDDrawData& dd)
 	const u16 aPrevSelection = hi.selection;
 	hi.selection = gDisabledHUD.test(dd.hudElementID)
 		? kInvalidItem : Menus::selectedItem(aMenuID);
-	const u16 anItemCount = u16(dd.components.size() - 1);
+	const u16 anItemCount = dropTo<u16>(dd.components.size() - 1);
 	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
 	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
 	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
@@ -1702,7 +1704,7 @@ static void drawSlotsMenu(HUDDrawData& dd)
 	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
 	u16 aPrevSelection = hi.selection;
 	hi.selection = Menus::selectedItem(aMenuID);
-	const u16 anItemCount = u16(dd.components.size() -
+	const u16 anItemCount = dropTo<u16>(dd.components.size() -
 		(hi.altLabelWidth ? 2 : 1));
 	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
 	DBG_ASSERT(hi.selection < anItemCount);
@@ -2076,7 +2078,7 @@ void init()
 	{// Load bitmap files
 		const Profile::PropertyMap& aPropMap =
 			Profile::getSectionProperties(kBitmapsSectionName);
-		for(size_t i = 0; i < aPropMap.size(); ++i)
+		for(int i = 0; i < aPropMap.size(); ++i)
 		{
 			loadBitmapFile(aHUDBuilder,
 				aPropMap.keys()[i],
@@ -2087,7 +2089,7 @@ void init()
 	{// Generate text label to icon label map
 		const Profile::PropertyMap& aPropMap =
 			Profile::getSectionProperties(kIconsSectionName);
-		for(size_t i = 0; i < aPropMap.size(); ++i)
+		for(int i = 0; i < aPropMap.size(); ++i)
 		{
 			getOrCreateLabelIcon(aHUDBuilder,
 				aPropMap.keys()[i],
@@ -2122,10 +2124,10 @@ void init()
 			hi.inactiveAlpha = 0;
 			aVal = max(1U, u32FromString(
 				getDefaultHUDPropStr(eHUDProp_FadeInTime)));
-			hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
+			hi.fadeInRate = double(hi.maxAlpha) / double(aVal);
 			aVal = max(200U, u32FromString(
 				getDefaultHUDPropStr(eHUDProp_FadeOutTime)));
-			hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
+			hi.fadeOutRate = double(hi.maxAlpha) / double(aVal);
 			Appearance anAppearance = sAppearances[eAppearanceMode_Normal];
 			anAppearance.itemColor = strToRGB(aHUDBuilder,
 				Profile::getStr(
@@ -2178,14 +2180,14 @@ void init()
 		// hi.fadeInRate = eHUDProp_FadeInTime
 		aVal = max(u32(1), u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeInTime)));
-		hi.fadeInRate = float(hi.maxAlpha) / float(aVal);
+		hi.fadeInRate = double(hi.maxAlpha) / double(aVal);
 		// hi.fadeOutDelay = eHUDProp_FadeOutDelay
 		hi.fadeOutDelay = max(0, intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeOutDelay)));
 		// hi.fadeOutRate = eHUDProp_FadeOutTime
 		aVal = max(1U, u32FromString(
 			getHUDPropStr(aHUDName, eHUDProp_FadeOutTime)));
-		hi.fadeOutRate = float(hi.maxAlpha) / float(aVal);
+		hi.fadeOutRate = double(hi.maxAlpha) / double(aVal);
 		// hi.delayUntilInactive = eHUDProp_InactiveDelay
 		hi.delayUntilInactive = intFromString(
 			getHUDPropStr(aHUDName, eHUDProp_InactiveDelay));
@@ -2267,7 +2269,7 @@ void init()
 	updateScaling();
 
 	// Free loaded bitmap files now that have copied them to local versions
-	for(size_t i = 0; i < aHUDBuilder.bitmapNameToHandleMap.size(); ++i)
+	for(int i = 0; i < aHUDBuilder.bitmapNameToHandleMap.size(); ++i)
 		DeleteObject(aHUDBuilder.bitmapNameToHandleMap.values()[i]);
 	aHUDBuilder.bitmapNameToHandleMap.clear();
 
@@ -2290,7 +2292,15 @@ void init()
 
 void loadProfileChanges()
 {
-	// TODO
+	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
+	if( theProfileMap.contains(kMenuSectionName) ||
+		theProfileMap.contains(kHUDSectionName) ||
+		theProfileMap.contains(kBitmapsSectionName) ||
+		theProfileMap.contains(kIconsSectionName) )
+	{
+		// TODO - more precise version of this instead of reloading everything
+		init();
+	}
 }
 
 
@@ -2603,9 +2613,9 @@ void reloadCopyIconLabel(const std::string& theCopyIconLabel)
 }
 
 
-void reloadElementShape(u16 theHUDElementID)
+void reloadElementShape(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	const u8 anOldAlignmentX = sHUDElementInfo[theHUDElementID].alignmentX;
 	loadHUDElementShape(
 		sHUDElementInfo[theHUDElementID],
@@ -2626,11 +2636,11 @@ void drawElement(
 	HDC hCaptureDC,
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
-	u16 theHUDElementID,
+	int theHUDElementID,
 	const std::vector<RECT>& theComponents,
 	bool needsInitialErase)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
 	DBG_ASSERT(!theComponents.empty());
@@ -2705,16 +2715,16 @@ void drawElement(
 
 
 void updateWindowLayout(
-	u16 theHUDElementID,
+	int theHUDElementID,
 	const SIZE& theTargetSize,
 	std::vector<RECT>& theComponents,
 	POINT& theWindowPos,
 	SIZE& theWindowSize,
 	const RECT& theTargetClipRect)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
-	const u16 aMenuID = InputMap::menuForHUDElement(theHUDElementID);
+	const int aMenuID = InputMap::menuForHUDElement(theHUDElementID);
 
 	// Some special element types have their own unique calculation method
 	switch(hi.type)
@@ -2924,7 +2934,7 @@ void updateWindowLayout(
 			}
 			for(int x = 0; x < aMenuItemXCount; ++x)
 			{
-				if( theComponents.size() == aMenuItemCount + 1 )
+				if( int(theComponents.size()) == aMenuItemCount + 1 )
 					break;
 				anItemRect.left = aCompTopLeft.x;
 				anItemRect.right = aCompBotRight.x;
@@ -3059,7 +3069,7 @@ void drawMainWindowContents(HWND theWindow, bool asDisabled)
 	}
 
 	// Set to appear grayed out while window is disabled/inactive
-	COLORREF oldTextColor;
+	COLORREF oldTextColor = 0;
 	if( asDisabled )
 		oldTextColor = SetTextColor(hdc, RGB(128, 128, 128));
 
@@ -3106,72 +3116,72 @@ void redrawSystemOverlay(bool fullRedraw)
 }
 
 
-u8 maxAlpha(u16 theHUDElementID)
+u8 maxAlpha(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].maxAlpha;
 }
 
 
-u8 inactiveAlpha(u16 theHUDElementID)
+u8 inactiveAlpha(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].inactiveAlpha;
 }
 
 
-int alphaFadeInDelay(u16 theHUDElementID)
+int alphaFadeInDelay(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].fadeInDelay;
 }
 
 
-float alphaFadeInRate(u16 theHUDElementID)
+double alphaFadeInRate(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].fadeInRate;
 }
 
 
-int alphaFadeOutDelay(u16 theHUDElementID)
+int alphaFadeOutDelay(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].fadeOutDelay;
 }
 
 
-float alphaFadeOutRate(u16 theHUDElementID)
+double alphaFadeOutRate(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].fadeOutRate;
 }
 
 
-int inactiveFadeOutDelay(u16 theHUDElementID)
+int inactiveFadeOutDelay(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].delayUntilInactive;
 }
 
 
-COLORREF transColor(u16 theHUDElementID)
+COLORREF transColor(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].transColor;
 }
 
 
-s8 drawPriority(u16 theHUDElementID)
+int drawPriority(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	return sHUDElementInfo[theHUDElementID].drawPriority;
 }
 
 
-bool shouldStartHidden(u16 theHUDElementID)
+bool shouldStartHidden(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	switch(sHUDElementInfo[theHUDElementID].type)
 	{
 	case eHUDType_KBArrayLast:
@@ -3182,9 +3192,9 @@ bool shouldStartHidden(u16 theHUDElementID)
 }
 
 
-Hotspot parentHotspot(u16 theHUDElementID)
+Hotspot parentHotspot(int theHUDElementID)
 {
-	DBG_ASSERT(theHUDElementID < sHUDElementInfo.size());
+	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
 	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
 
 	Hotspot result;

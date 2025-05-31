@@ -26,108 +26,108 @@ const u8* cmdVKeySeq(const Command& theCommand);
 
 // KEYBINDS
 u16 keyForSpecialAction(ESpecialKey);
-u16 specialKeySignalID(ESpecialKey);
-Command keyBindCommand(u16 theKeyBindID);
-u16 keyBindSignalID(u16 theKeyBindID);
-Command keyBindArrayCommand(u16 theArrayID, u16 theIndex);
-u16 keyBindArraySignalID(u16 theArrayID);
+u32 specialKeySignalID(ESpecialKey);
+Command keyBindCommand(int theKeyBindID);
+u32 keyBindSignalID(int theKeyBindID);
+Command keyBindArrayCommand(int theArrayID, int theIndex);
+u32 keyBindArraySignalID(int theArrayID);
 // Adjust index by theSteps but skipping over any invalid (unassigned) keys
 // Steps of 0 may still adjust by +1 or more if array[theIndex] is invalid
-u16 offsetKeyBindArrayIndex(
-	u16 theArrayID, int theIndex, int theSteps, bool wrap);
+int offsetKeyBindArrayIndex(
+	int theArrayID, int theIndex, int theSteps, bool wrap);
 
 // CONTROLS LAYERS
 
 // Get commands to execute for given button in given layer, in the
 // form of an array of 'Command' of size 'eBtnAct_Num', or NULL
 // if no commands have been assigned to given layer & button at all
-const Command* commandsForButton(u16 theLayerID, EButton theButton);
+const Command* commandsForButton(int theLayerID, EButton theButton);
 
 // Get commands to execute in response to bits set in gFiredSignals
-const VectorMap<u16, Command>& signalCommandsForLayer(u16 theLayerID);
+const VectorMap<u16, Command>& signalCommandsForLayer(int theLayerID);
 
 // Returns how long given button needs to be held to trigger eBtnAct_Hold
-u32 commandHoldTime(u16 theLayerID, EButton theButton);
+int commandHoldTime(int theLayerID, EButton theButton);
 
 // Gets parent layer for given layer ID
-u16 parentLayer(u16 theLayerID);
+int parentLayer(int theLayerID);
 
 // Gets sort priority for given layer ID
-s8 layerPriority(u16 theLayerID);
+int layerPriority(int theLayerID);
 
 // Checks what EMouseMode given controls layer requests be used
-EMouseMode mouseMode(u16 theLayerID);
+EMouseMode mouseMode(int theLayerID);
 
 // Gets what HUD elements given layer specifically wants to show
-const BitVector<32>& hudElementsToShow(u16 theLayerID);
+const BitVector<32>& hudElementsToShow(int theLayerID);
 
 // Gets what HUD elements given layer specifically wants to hide
 // (overrides any lower layers wishing to show these HUD elements)
-const BitVector<32>& hudElementsToHide(u16 theLayerID);
+const BitVector<32>& hudElementsToHide(int theLayerID);
 
 // Gets what hotspot arrays given layer specifically wants to enable
-const BitVector<32>& hotspotArraysToEnable(u16 theLayerID);
+const BitVector<32>& hotspotArraysToEnable(int theLayerID);
 
 // Gets what hotspot arrays given layer specifically wants to disable
 // (overrides any lower layers wishing to enable these hotspots)
-const BitVector<32>& hotspotArraysToDisable(u16 theLayerID);
+const BitVector<32>& hotspotArraysToDisable(int theLayerID);
 
 // Returns a combo layer ID if one exists, otherwise 0
-u16 comboLayerID(u16 theLayerID1, u16 theLayerID2);
+int comboLayerID(int theLayerID1, int theLayerID2);
 
 // MENUS
-Command commandForMenuItem(u16 theMenuID, u16 theMenuItemIdx);
-Command commandForMenuDir(u16 theMenuID, ECommandDir theDir);
-Command menuAutoCommand(u16 theMenuID);
-Command menuBackCommand(u16 theMenuID);
-EHUDType menuStyle(u16 theMenuID);
-u16 rootMenuOfMenu(u16 theMenuID);
-u16 menuHotspotArray(u16 theMenuID); // for eMenuStyle_Hotspots only
-u8 menuGridWidth(u16 theMenuID); // for eMenuStyle_Grid
-u8 menuGridHeight(u16 theMenuID); // for eMenuStyle_Grid
+Command commandForMenuItem(int theMenuID, int theMenuItemIdx);
+Command commandForMenuDir(int theMenuID, ECommandDir theDir);
+Command menuAutoCommand(int theMenuID);
+Command menuBackCommand(int theMenuID);
+EHUDType menuStyle(int theMenuID);
+int rootMenuOfMenu(int theMenuID);
+int menuHotspotArray(int theMenuID); // for eMenuStyle_Hotspots only
+int menuGridWidth(int theMenuID); // for eMenuStyle_Grid
+int menuGridHeight(int theMenuID); // for eMenuStyle_Grid
 // Strings used for Profile getStr()/setStr() functions
-std::string menuSectionName(u16 theMenuID);
-std::string menuItemKeyName(u16 theMenuItemIdx);
+std::string menuSectionName(int theMenuID);
+std::string menuItemKeyName(int theMenuItemIdx);
 std::string menuItemDirKeyName(ECommandDir theDir);
 void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 
 // HOTSPOTS
-const Hotspot& getHotspot(u16 theHotspotID);
-u16 firstHotspotInArray(u16 theHotspotArrayID);
-u16 sizeOfHotspotArray(u16 theHotspotArrayID);
-const Hotspot* keyBindArrayHotspot(u16 theArrayID, u16 theIndex);
-void modifyHotspot(u16 theHotspotID, const Hotspot& theNewValues);
+const Hotspot& getHotspot(int theHotspotID);
+int firstHotspotInArray(int theHotspotArrayID);
+int sizeOfHotspotArray(int theHotspotArrayID);
+const Hotspot* keyBindArrayHotspot(int theArrayID, int theIndex);
+void modifyHotspot(int theHotspotID, const Hotspot& theNewValues);
 
 // HUD ELEMENTS
-EHUDType hudElementType(u16 theHUDElementID);
-bool hudElementIsAMenu(u16 theHUDElementID);
+EHUDType hudElementType(int theHUDElementID);
+bool hudElementIsAMenu(int theHUDElementID);
 // Not all HUD elements are menus, so may return invalid menu ID
-u16 menuForHUDElement(u16 theHUDElementID);
-u16 hudElementForMenu(u16 theMenuID);
+int menuForHUDElement(int theHUDElementID);
+int hudElementForMenu(int theMenuID);
 // Only valid for the Hotspot HUD element type
-u16 hotspotForHUDElement(u16 theHUDElementID);
+int hotspotForHUDElement(int theHUDElementID);
 // Only valid for HUD element types that are tied to Key Bind Arrays
-u16 keyBindArrayForHUDElement(u16 theHUDElementID);
+int keyBindArrayForHUDElement(int theHUDElementID);
 // Does not include HUD. or Menu. prefix
-const std::string& hudElementKeyName(u16 theHUDElementID);
+const std::string& hudElementKeyName(int theHUDElementID);
 
 // SIZES
-u16 keyBindArrayCount();
-u16 keyBindArraySize(u16 theArrayID);
-u16 controlsLayerCount();
-u16 hudElementCount();
-u16 menuCount();
-u16 menuItemCount(u16 theMenuID);
-u16 hotspotCount();
-u16 hotspotArrayCount();
+int keyBindArrayCount();
+int keyBindArraySize(int theArrayID);
+int controlsLayerCount();
+int hudElementCount();
+int menuCount();
+int menuItemCount(int theMenuID);
+int hotspotCount();
+int hotspotArrayCount();
 
 // LABELS
-const std::string& layerLabel(u16 theLayerID);
-std::string hotspotLabel(u16 theHotspotID);
-const std::string& hotspotArrayLabel(u16 theHotspotArrayID);
-const std::string& menuLabel(u16 theMenuID);
-const std::string& menuItemLabel(u16 theMenuID, u16 theMenuItemIdx);
-const std::string& menuItemAltLabel(u16 theMenuID, u16 theMenuItemIdx);
-const std::string& menuDirLabel(u16 theMenuID, ECommandDir theDir);
+const std::string& layerLabel(int theLayerID);
+std::string hotspotLabel(int theHotspotID);
+const std::string& hotspotArrayLabel(int theHotspotArrayID);
+const std::string& menuLabel(int theMenuID);
+const std::string& menuItemLabel(int theMenuID, int theMenuItemIdx);
+const std::string& menuItemAltLabel(int theMenuID, int theMenuItemIdx);
+const std::string& menuDirLabel(int theMenuID, ECommandDir theDir);
 
 } // InputMap

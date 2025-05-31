@@ -129,15 +129,15 @@ std::string vformat(const char* fmt, va_list argPtr)
 
 std::string trim(const std::string& theString)
 {
+	const int kStringLen = intSize(theString.length());
 	int aStartPos = 0;
-	while(aStartPos < theString.length() &&
-		unsigned(theString[aStartPos]) <= ' ')
+	while(aStartPos < kStringLen && u8(theString[aStartPos]) <= ' ')
 	{ ++aStartPos; }
 
-	int anEndPos = int(theString.length()) - 1;
-	if( aStartPos < theString.length() )
+	int anEndPos = kStringLen - 1;
+	if( aStartPos < kStringLen )
 	{
-		while(anEndPos >= 0 && unsigned(theString[anEndPos]) <= ' ')
+		while(anEndPos >= 0 && u8(theString[anEndPos]) <= ' ')
 			--anEndPos;
 	}
 
@@ -151,7 +151,11 @@ std::string upper(const std::string& theString)
 	aString.reserve(theString.size());
 
 	for(size_t i = 0; i < theString.length(); ++i)
-		aString += (theString[i] & 0x80) ? theString[i] : ::toupper(theString[i]);
+	{
+		aString += (theString[i] & 0x80)
+			? theString[i]
+			: char(::toupper(theString[i]));
+	}
 
 	return aString;
 }
@@ -163,10 +167,15 @@ std::string lower(const std::string& theString)
 	aString.reserve(theString.size());
 
 	for(size_t i = 0; i < theString.length(); ++i)
-		aString += (theString[i] & 0x80) ? theString[i] : ::tolower(theString[i]);
+	{
+		aString += (theString[i] & 0x80)
+			? theString[i]
+			: char(::tolower(theString[i]));
+	}
 
 	return aString;
 }
+
 
 
 std::string condense(const std::string& theString)
@@ -194,7 +203,7 @@ std::string condense(const std::string& theString)
 		pendingDash = false;
 		lastWasDigit = isDigit;
 		if( (ch & 0x80) == 0 )
-			ch = ::toupper(ch);
+			ch = u8(::toupper(ch));
 		aString += ch;
 	}
 
@@ -457,16 +466,15 @@ std::string fetchNextItem(
 		return result;
 
 	// Skip leading whitespace
-	while(thePosition < theString.size() &&
-		unsigned(theString[thePosition]) <= ' ' )
-	{ ++thePosition; }
+	while(thePosition < theString.size() && u8(theString[thePosition]) <= ' ' )
+		++thePosition;
 
 	if( thePosition >= theString.size() )
 		return result;
 
 	const char aQuoteChar = theString[thePosition];
 	bool isQuoted = aQuoteChar == '\'' || aQuoteChar == '"';
-	size_t aPos;
+	std::string::size_type aPos = 0;
 	if( isQuoted )
 	{
 		for(aPos = thePosition + 1; aPos < theString.size(); ++aPos)
@@ -498,7 +506,7 @@ std::string fetchNextItem(
 			// Make sure no trailing characters after end quote
 			for(++aPos; aPos < theString.size(); ++aPos)
 			{
-				if( unsigned(theString[aPos]) <= ' ' )
+				if( u8(theString[aPos]) <= ' ' )
 					continue;
 				if( strchr(theDelimiter, theString[aPos]) != null )
 					break;
@@ -517,7 +525,7 @@ std::string fetchNextItem(
 		{
 			size_t anItemLastChar = aPos - 1;
 			while(anItemLastChar > thePosition &&
-				  unsigned(theString[anItemLastChar]) <= ' ')
+				  u8(theString[anItemLastChar]) <= ' ')
 			{ --anItemLastChar; }
 			result = theString.substr(
 				thePosition,
@@ -542,9 +550,8 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 	++aStrPos;
 	if( result.empty() )
 		aStrPos = 0;
-	while(aStrPos < theString.size() &&
-		  unsigned(theString[aStrPos]) <= ' ' )
-	{ ++aStrPos; }
+	while(aStrPos < theString.size() && u8(theString[aStrPos]) <= ' ' )
+		++aStrPos;
 	if( aStrPos >= theString.size() )
 		theString.clear();
 	else if( aStrPos > 0 )
@@ -560,9 +567,8 @@ std::string breakOffNextItem(std::string& theString, char theChar)
 	char aDelimiter[2] = { theChar, '\0' };
 	std::string result = fetchNextItem(theString, aStrPos, &aDelimiter[0]);
 	++aStrPos;
-	while(aStrPos < theString.size() &&
-		  unsigned(theString[aStrPos]) <= ' ' )
-	{ ++aStrPos; }
+	while(aStrPos < theString.size() && u8(theString[aStrPos]) <= ' ' )
+		++aStrPos;
 	if( aStrPos >= theString.size() )
 		theString.clear();
 	else if( aStrPos > 0 )
@@ -576,7 +582,7 @@ int breakOffIntegerSuffix(std::string& theString)
 {
 	int result = 0;
 	int multiplier = 1;
-	int aStrPos = int(theString.size())-1;
+	int aStrPos = intSize(theString.size())-1;
 	while(
 		aStrPos >= 0 &&
 		theString[aStrPos] >= '0' &&
@@ -588,18 +594,18 @@ int breakOffIntegerSuffix(std::string& theString)
 	}
 
 	// Don't chop off leading zeroes before the actual integer
-	while(aStrPos < int(theString.size())-1 && theString[aStrPos+1] == '0' )
+	while(aStrPos < intSize(theString.size())-1 && theString[aStrPos+1] == '0')
 		++aStrPos;
 
 	// If stayed at end of string or got all the way to start, invalid as a
 	// string ending in (but not entirely being) an integer
-	if( aStrPos >= int(theString.size())-1 || aStrPos < 0 )
+	if( aStrPos >= intSize(theString.size())-1 || aStrPos < 0 )
 		result = -1;
 	else
 		theString.resize(aStrPos+1);
 
 	while(!theString.empty() &&
-		unsigned(theString[int(theString.size())-1]) <= ' ' )
+		  u8(theString[theString.size()-1]) <= ' ' )
 	{ theString.resize(theString.size()-1); }
 
 	return result;
@@ -696,8 +702,8 @@ size_t posAfterPrefix(
 		lastWasDigitStr = isDigitStr;
 		lastWasDigitPre = isDigitPre;
 
-		if( !(sc & 0x80) ) sc = ::toupper(sc);
-		if( !(pc & 0x80) ) pc = ::toupper(pc);
+		if( !(sc & 0x80) ) sc = u8(::toupper(sc));
+		if( !(pc & 0x80) ) pc = u8(::toupper(pc));
 
 		if( sc != pc )
 			return 0;

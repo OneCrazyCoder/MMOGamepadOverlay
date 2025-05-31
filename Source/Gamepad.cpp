@@ -152,7 +152,7 @@ struct ZERO_INIT(GamepadData)
 	{
 		LPDIRECTINPUTDEVICE8 device;
 		std::string name;
-		DWORD lastUpdateTime;
+		int lastUpdateTime;
 		DWORD xInputPacketNum;
 		BitArray<eBtn_Num> buttonsHit;
 		BitArray<eBtn_Num> buttonsDown;
@@ -305,7 +305,7 @@ static BOOL isXInputDevice( const GUID* pGuidProductFromDirectInput )
 		if( uReturned == 0 )
 			break;
 
-		for( iDevice=0; iDevice<uReturned; iDevice++ )
+		for(iDevice=0; iDevice<uReturned; iDevice++)
 		{
 			// For each device, get its device ID
 			hr = pDevices[iDevice]->Get( bstrDeviceID, 0L, &var, NULL, NULL );
@@ -337,13 +337,10 @@ static BOOL isXInputDevice( const GUID* pGuidProductFromDirectInput )
 	}
 
 LCleanup:
-	if(bstrNamespace)
-		SysFreeString(bstrNamespace);
-	if(bstrDeviceID)
-		SysFreeString(bstrDeviceID);
-	if(bstrClassName)
-		SysFreeString(bstrClassName);
-	for( iDevice=0; iDevice<20; iDevice++ )
+	if( bstrNamespace ) SysFreeString(bstrNamespace);
+	if( bstrDeviceID ) SysFreeString(bstrDeviceID);
+	if( bstrClassName ) SysFreeString(bstrClassName);
+	for(iDevice=0; iDevice<20; iDevice++)
 		SAFE_RELEASE( pDevices[iDevice] );
 	SAFE_RELEASE( pEnumDevices );
 	SAFE_RELEASE( pIWbemLocator );
@@ -420,10 +417,10 @@ static void pollXInputGamepad(int theGamepadID)
 		case eBtn_LSAny:
 			if( state.Gamepad.sThumbLX || state.Gamepad.sThumbLY )
 			{
-				const float dx = state.Gamepad.sThumbLX;
-				const float dy = state.Gamepad.sThumbLY;
-				const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
-				aGamepad.axisVal[eAxis_LSAny] = clamp(m, 0, 255.0);
+				const double dx = state.Gamepad.sThumbLX;
+				const double dy = state.Gamepad.sThumbLY;
+				const double m = std::sqrt(dx * dx + dy * dy) / 128.0;
+				aGamepad.axisVal[eAxis_LSAny] = u8(clamp(m, 0, 255.0));
 			}
 			break;
 		case eBtn_RSRight:
@@ -445,10 +442,10 @@ static void pollXInputGamepad(int theGamepadID)
 		case eBtn_RSAny:
 			if( state.Gamepad.sThumbRX || state.Gamepad.sThumbRY )
 			{
-				const float dx = state.Gamepad.sThumbRX;
-				const float dy = state.Gamepad.sThumbRY;
-				const float m = std::sqrt(dx * dx + dy * dy) / 128.0;
-				aGamepad.axisVal[eAxis_RSAny] = clamp(m, 0, 255.0);
+				const double dx = state.Gamepad.sThumbRX;
+				const double dy = state.Gamepad.sThumbRY;
+				const double m = std::sqrt(dx * dx + dy * dy) / 128.0;
+				aGamepad.axisVal[eAxis_RSAny] = u8(clamp(m, 0, 255.0));
 			}
 			break;
 		default:
@@ -458,7 +455,7 @@ static void pollXInputGamepad(int theGamepadID)
 		const bool wasDown = aGamepad.buttonsDown.test(i);
 		if( const EAxis anAxis = axisForButton(EButton(i)) )
 		{
-			const u8 aThreshold = wasDown
+			const int aThreshold = wasDown
 				? aGamepad.releaseThreshold[anAxis]
 				: sGamepadData.pressThreshold[anAxis];
 			isDown = aGamepad.axisVal[anAxis] > aThreshold;
@@ -483,7 +480,7 @@ static void pollXInputGamepad(int theGamepadID)
 }
 
 
-static char nextFreeXInputID()
+static u8 nextFreeXInputID()
 {
 	if( sGamepadData.deviceCountForXInput >= XUSER_MAX_COUNT )
 		return 0;
@@ -502,7 +499,7 @@ static char nextFreeXInputID()
 
 		// If device was connected, we can return the new ID as valid
 		if( dwResult == ERROR_SUCCESS )
-			return sGamepadData.deviceCountForXInput;
+			return dropTo<u8>(sGamepadData.deviceCountForXInput);
 
 		// Otherwise try the next ID and see if that controller is connected
 	} while(dwResult != ERROR_SUCCESS &&
@@ -699,7 +696,7 @@ static void pollGamepad(int theGamepadID)
 				else if( aPosAxis != eAxis_None )
 				{// Positive-only 0-65535 axis, like triggers for Sony
 					anAxisChanged.set(aPosAxis);
-					aGamepad.axisVal[aPosAxis] = rgdod[i].dwData >> 8;
+					aGamepad.axisVal[aPosAxis] = u8(rgdod[i].dwData >> 8);
 				}
 				else // not sure what to do with only negative axis...
 					DBG_ASSERT(aNegAxis == eAxis_None);
@@ -773,14 +770,14 @@ static void pollGamepad(int theGamepadID)
 		anAxisChanged.test(eAxis_LSUp) ||
 		anAxisChanged.test(eAxis_LSDown) )
 	{
-		const float dx =
+		const double dx =
 			(aGamepad.axisVal[eAxis_LSRight] -
 			 aGamepad.axisVal[eAxis_LSLeft]);
-		const float dy =
+		const double dy =
 			(aGamepad.axisVal[eAxis_LSDown] -
 			 aGamepad.axisVal[eAxis_LSUp]);
-		const float m = std::sqrt(dx * dx + dy * dy);
-		aGamepad.axisVal[eAxis_LSAny] = clamp(m, 0, 255.0);
+		const double m = std::sqrt(dx * dx + dy * dy);
+		aGamepad.axisVal[eAxis_LSAny] = u8(clamp(m, 0, 255.0));
 		anAxisChanged.set(eAxis_LSAny);
 	}
 	if( anAxisChanged.test(eAxis_RSLeft) ||
@@ -788,14 +785,14 @@ static void pollGamepad(int theGamepadID)
 		anAxisChanged.test(eAxis_RSUp) ||
 		anAxisChanged.test(eAxis_RSDown) )
 	{
-		const float dx =
+		const double dx =
 			(aGamepad.axisVal[eAxis_RSRight] -
 			 aGamepad.axisVal[eAxis_RSLeft]);
-		const float dy =
+		const double dy =
 			(aGamepad.axisVal[eAxis_RSDown] -
 			 aGamepad.axisVal[eAxis_RSUp]);
-		const float m = std::sqrt(dx * dx + dy * dy);
-		aGamepad.axisVal[eAxis_RSAny] = clamp(m, 0, 255.0);
+		const double m = std::sqrt(dx * dx + dy * dy);
+		aGamepad.axisVal[eAxis_RSAny] = u8(clamp(m, 0, 255.0));
 		anAxisChanged.set(eAxis_RSAny);
 	}
 	for(int i = anAxisChanged.firstSetBit();
@@ -1065,7 +1062,7 @@ void cleanup()
 
 	if( sGamepadData.hDirectInput8 != NULL )
 	{
-		for( int i = 0; i < kMaxGamepadsEnumerated; ++i )
+		for(int i = 0; i < kMaxGamepadsEnumerated; ++i)
 		{
 			releaseGamepad(i);
 			delete sGamepadData.gamepadGUID[i];
@@ -1250,7 +1247,7 @@ void setPressThreshold(EButton theButton, u8 theThreshold)
 void ignoreUntilPressedAgain(EButton theButton)
 {
 	DBG_ASSERT(theButton > eBtn_None && theButton < eBtn_Num);
-	for( int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
+	for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i)
 	{
 		if( sGamepadData.gamepad[i].buttonsDown.test(theButton) )
 		{
@@ -1266,13 +1263,13 @@ bool buttonHit(EButton theButton)
 {
 	DBG_ASSERT(sGamepadData.initialized);
 
-	if( (unsigned)theButton >= eBtn_Num )
+	if( u32(theButton) >= eBtn_Num )
 		return false;
 
 	if( sGamepadData.selectedGamepadID < 0 ||
 		sGamepadData.selectedGamepadID >= sGamepadData.deviceCountForDInput )
 	{// See if button was hit on ANY gamepad
-		for( int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
+		for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i)
 		{
 			if( sGamepadData.gamepad[i].buttonsHit.test(theButton) )
 				return true;
@@ -1292,13 +1289,13 @@ bool buttonDown(EButton theButton)
 {
 	DBG_ASSERT(sGamepadData.initialized);
 
-	if( (unsigned)theButton >= eBtn_Num )
+	if( u32(theButton) >= eBtn_Num )
 		return false;
 
 	if( sGamepadData.selectedGamepadID < 0 ||
 		sGamepadData.selectedGamepadID >= sGamepadData.deviceCountForDInput )
 	{// See if button is down on ANY gamepad
-		for( int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
+		for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i)
 		{
 			if( sGamepadData.gamepad[i].buttonsDown.test(theButton) )
 				return true;
@@ -1320,13 +1317,13 @@ u8 axisVal(EAxis theAxis)
 
 	u8 result = 0;
 
-	if( (unsigned)theAxis > eAxis_Num )
+	if( u32(theAxis) > eAxis_Num )
 		return result;
 
 	if( sGamepadData.selectedGamepadID < 0 ||
 		sGamepadData.selectedGamepadID >= sGamepadData.deviceCountForDInput )
 	{// Get highest axis value of ALL gamepads with this axis
-		for( int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
+		for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i)
 			result = max(result, sGamepadData.gamepad[i].axisVal[theAxis]);
 	}
 	else
@@ -1403,7 +1400,7 @@ EButton lastButtonPressed()
 	DBG_ASSERT(sGamepadData.initialized);
 
 	// See if any active controller has received an input hit
-	for(size_t i = 0; i < sGamepadData.deviceCountForDInput; ++i)
+	for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i)
 	{
 		const int firstHit = sGamepadData.gamepad[i].buttonsHit.firstSetBit();
 		if( firstHit && firstHit < sGamepadData.gamepad[i].buttonsHit.size() )

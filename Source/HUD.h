@@ -35,7 +35,7 @@ void updateScaling();
 void reloadCopyIconLabel(const std::string& theCopyIconLabel);
 
 // Re-loads given HUD element's default position and size from Profile
-void reloadElementShape(u16 theHUDElementID);
+void reloadElementShape(int theHUDElementID);
 
 // Draws given HUD element to given Device Context (bitmap), starting at 0,0
 void drawElement(
@@ -43,13 +43,13 @@ void drawElement(
 	HDC hCaptureDC,
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
-	u16 theHUDElementID,
+	int theHUDElementID,
 	const std::vector<RECT>& theComponents,
 	bool needsInitialErase);
 
 // Updates layout properties needed for each HUD element's overlay Window
 void updateWindowLayout(
-	u16 theHUDElementID,
+	int theHUDElementID,
 	const SIZE& theTargetSize,
 	std::vector<RECT>& theComponents,
 	POINT& theWindowPos,
@@ -69,21 +69,21 @@ void setSystemOverlayDrawHook(SystemPaintFunc);
 void redrawSystemOverlay(bool fullRedraw = false);
 
 // Get alpha fade in/out information
-u8 maxAlpha(u16 theHUDElementID);
-u8 inactiveAlpha(u16 theHUDElementID);
-int alphaFadeInDelay(u16 theHUDElementID);
-float alphaFadeInRate(u16 theHUDElementID);
-int alphaFadeOutDelay(u16 theHUDElementID);
-float alphaFadeOutRate(u16 theHUDElementID);
-int inactiveFadeOutDelay(u16 theHUDElementID);
+u8 maxAlpha(int theHUDElementID);
+u8 inactiveAlpha(int theHUDElementID);
+int alphaFadeInDelay(int theHUDElementID);
+double alphaFadeInRate(int theHUDElementID);
+int alphaFadeOutDelay(int theHUDElementID);
+double alphaFadeOutRate(int theHUDElementID);
+int inactiveFadeOutDelay(int theHUDElementID);
 
 // Returns background color to become fully transparent
-COLORREF transColor(u16 theHUDElementID);
+COLORREF transColor(int theHUDElementID);
 
 // Returns draw priority (which are on top of which)
-s8 drawPriority(u16 theHUDElementID);
+int drawPriority(int theHUDElementID);
 
 // Returns associated parent hotspot if have one
-Hotspot parentHotspot(u16 theHUDElementID);
+Hotspot parentHotspot(int theHUDElementID);
 
 } // HUD

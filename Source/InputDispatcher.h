@@ -54,7 +54,7 @@ void moveMouseTo(const Command& theCommand);
 void scrollMouseWheel(int dy, bool digital, bool stepped = false);
 
 // Instantly moves mouse wheel up/down theCount number of "clicks"
-void jumpMouseWheel(ECommandDir theDir, u8 theCount);
+void jumpMouseWheel(ECommandDir theDir, int theCount);
 
 // Move character forward, back, left, right, and turning.
 // Amount specified for each movement type is -255 to 255 range.

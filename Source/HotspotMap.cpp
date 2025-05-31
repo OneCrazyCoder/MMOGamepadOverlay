@@ -39,18 +39,18 @@ kMaxLinkMapColumnXDist = 0x0500,
 
 // How much past base jump dest to search for a hotspot to jump to,
 // as a multiplier of Mouse/DefaultHotspotDistance property
-const float kDeviationRadiusMult = 0.75;
+const double kDeviationRadiusMult = 0.75;
 // Higher number = prioritize straighter lines over shorter distances
-const float kPerpPenaltyMult = 1.25;
+const double kPerpPenaltyMult = 1.25;
 // These are used only for generating hotspot link maps, which must
 // guarantee all points can be reached regardless of distance without
 // interim hops so uses a different algorithm than basic jumps
 // Higher number = must be further in X to make a left/right link
-const float kMinSlopeForHorizLink = 0.9f;
+const double kMinSlopeForHorizLink = 0.9f;
 // Higher number = allows for up/down link even when far in X
-const float kMaxSlopeForVertLink = 1.2f;
+const double kMaxSlopeForVertLink = 1.2f;
 // Higher number = prioritize straighter columns over Y distance
-const int /*float*/ kColumnXDistPenaltyMult = 2;
+const int /*double*/ kColumnXDistPenaltyMult = 2;
 
 enum ETask
 {
@@ -86,7 +86,7 @@ struct ZERO_INIT(TrackedPoint)
 
 struct ZERO_INIT(GridPos)
 {
-	u32 x, y;
+	int x, y;
 };
 
 
@@ -99,9 +99,9 @@ static BitVector<32> sActiveArrays;
 static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<GridPos> sFetchGrid;
-static std::vector<u16> sCandidates;
+static std::vector<int> sCandidates;
 static std::vector<Links> sLinkMaps;
-static u16 sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
+static int sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
 static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
 static Hotspot sLastCursorPos;
@@ -109,8 +109,8 @@ static POINT sNormalizedCursorPos;
 static BitArray<eTask_Num> sNewTasks;
 static ETask sCurrentTask = eTask_None;
 static int sTaskProgress = 0;
-static s32 sBaseJumpDist = 0;
-static s32 sMaxJumpDist = 0;
+static int sBaseJumpDist = 0;
+static int sMaxJumpDist = 0;
 static u32 sMaxJumpDistSquared = 0;
 static u32 sMaxDeviationRadiusSquared = 0;
 static u32 sMinJumpDistSquared = kDefaultMinJumpDist * kDefaultMinJumpDist;
@@ -147,8 +147,8 @@ public:
 
 	struct ZERO_INIT(Dot)
 	{
-		u16 pointID, x, y, vertLink[eVDir_Num];
-		Dot(u16 thePointID = 0) :
+		int pointID, x, y, vertLink[eVDir_Num];
+		Dot(int thePointID = 0) :
 			pointID(thePointID),
 			x(sPoints[thePointID].x),
 			y(sPoints[thePointID].y),
@@ -160,12 +160,12 @@ public:
 	};
 
 	// MUTATORS
-	void addDot(u16 thePointID)
+	void addDot(int thePointID)
 	{
-		DBG_ASSERT(thePointID < sPoints.size());
+		DBG_ASSERT(size_t(thePointID) < sPoints.size());
 		mDots.push_back(Dot(thePointID));
 		this->totalY += mDots.back().y;
-		this->avgY = this->totalY / int(mDots.size());
+		this->avgY = this->totalY / intSize(mDots.size());
 	}
 	void sortDots() { std::sort(mDots.begin(), mDots.end()); }
 
@@ -175,7 +175,7 @@ public:
 	const Dot& operator[](size_t idx) const { return mDots[idx]; }
 	Dot& operator[](size_t idx) { return mDots[idx]; }
 	bool empty() const { return mDots.empty(); }
-	size_t size() const { return mDots.size(); }
+	int size() const { return intSize(mDots.size()); }
 	const Dot& leftEdgeDot() const { return mDots.front(); }
 	Dot& leftEdgeDot() { return mDots.front(); }
 	const Dot& rightEdgeDot() const { return mDots.back(); }
@@ -192,11 +192,11 @@ public:
 	int minXp() const { return minX() - kMaxPerpDistForStraightLine; }
 	int maxXp() const { return maxX() + kMaxPerpDistForStraightLine; }
 
-	const size_t closestIdxTo(int theX) const
+	const int closestIdxTo(int theX) const
 	{
 		DBG_ASSERT(!empty());
 		int idx = 0;
-		for(; idx < mDots.size(); ++idx)
+		for(int end = intSize(mDots.size()); idx < end; ++idx)
 		{
 			if( mDots[idx].x == theX )
 				break;
@@ -207,27 +207,27 @@ public:
 				break;
 			}
 		}
-		if( idx == mDots.size() )
+		if( size_t(idx) == mDots.size() )
 			--idx;
 		return idx;
 	}
 
-	size_t nextLeftIdx(int theX) const
+	int nextLeftIdx(int theX) const
 	{
 		DBG_ASSERT(!empty());
-		int idx = int(mDots.size())-1;
+		int idx = intSize(mDots.size())-1;
 		while(mDots[idx].x > theX)
 			--idx;
 		return max(0, idx);
 	}
 
-	size_t nextRightIdx(int theX) const
+	int nextRightIdx(int theX) const
 	{
 		DBG_ASSERT(!empty());
-		size_t idx = 0;
+		int idx = 0;
 		while(mDots[idx].x < theX)
 			++idx;
-		return min(mDots.size()-1, idx);
+		return min(intSize(mDots.size())-1, idx);
 	}
 	const Dot& nextLeft(int theX) const
 	{ return mDots[nextLeftIdx(theX)]; }
@@ -261,8 +261,8 @@ public:
 
 		if( minX() >= rhs.minX() && maxX() <= rhs.maxX() )
 		{
-			const size_t aNextR = rhs.nextRightIdx(maxX());
-			const size_t aNextL = rhs.nextLeftIdx(minX());
+			const int aNextR = rhs.nextRightIdx(maxX());
+			const int aNextL = rhs.nextLeftIdx(minX());
 			if( aNextR == aNextL + 1 )
 			{
 				if( rhs[aNextR].x - maxX() >
@@ -277,8 +277,8 @@ public:
 
 		if( minX() < rhs.minX() && maxX() > rhs.maxX() )
 		{
-			const size_t aNextR = nextRightIdx(rhs.maxX());
-			const size_t aNextL = nextLeftIdx(rhs.minX());
+			const int aNextR = nextRightIdx(rhs.maxX());
+			const int aNextL = nextLeftIdx(rhs.minX());
 			if( aNextR == aNextL + 1 )
 			{
 				if( aNextR - rhs.maxX() >
@@ -303,9 +303,9 @@ public:
 
 	// PUBLIC DATA
 	int avgY, totalY;
-	size_t insideLinkDotIdx[eHDir_Num];
-	u16 insideLink[eHDir_Num];
-	u16 outsideLink[eHDir_Num];
+	int insideLinkDotIdx[eHDir_Num];
+	int insideLink[eHDir_Num];
+	int outsideLink[eHDir_Num];
 
 private:
 	// PRIVATE DATA
@@ -319,19 +319,20 @@ private:
 
 static void processTargetSizeTask()
 {
-	if( sTaskProgress < sPoints.size() )
+	const int kPointsCount = intSize(sPoints.size());
+	if( sTaskProgress < kPointsCount )
 	{
-		const u16 aHotspotID = u16(sTaskProgress);
+		const int aHotspotID = sTaskProgress;
 		const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
 		const POINT& anOverlayPos =
 			WindowManager::hotspotToOverlayPos(aHotspot);
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
 		if( aScaleFactor > 0 )
 		{
-			sPoints[sTaskProgress].x = min<double>(kNormalizedTargetSize,
-				(anOverlayPos.x + 1) * kNormalizedTargetSize / aScaleFactor);
-			sPoints[sTaskProgress].y = min<double>(kNormalizedTargetSize,
-				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor);
+			sPoints[sTaskProgress].x = u16(min<double>(kNormalizedTargetSize,
+				(anOverlayPos.x + 1) * kNormalizedTargetSize / aScaleFactor));
+			sPoints[sTaskProgress].y = u16(min<double>(kNormalizedTargetSize,
+				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor));
 			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
 		}
 		mapDebugPrint(
@@ -340,35 +341,38 @@ static void processTargetSizeTask()
 			anOverlayPos.x, anOverlayPos.y,
 			sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
 	}
-	else if( sTaskProgress == sPoints.size() )
+	else if( sTaskProgress == kPointsCount )
 	{
 		// Calculate jump ranges
-		sBaseJumpDist = max(0.0,
+		sBaseJumpDist = int(max(0.0,
 			Profile::getInt("Mouse", "DefaultHotspotDistance") *
-			sLastUIScale / gWindowUIScale * kNormalizedTargetSize);
+			sLastUIScale / gWindowUIScale * kNormalizedTargetSize));
 
-		u32 aMaxDeviationRadius = sBaseJumpDist * kDeviationRadiusMult;
+		int aMaxDeviationRadius = int(sBaseJumpDist * kDeviationRadiusMult);
 		sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;
 
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
 		sBaseJumpDist /= aScaleFactor;
 		sMaxJumpDist /= aScaleFactor;
 		aMaxDeviationRadius /= aScaleFactor;
-		sMaxDeviationRadiusSquared = aMaxDeviationRadius * aMaxDeviationRadius;
-		sMaxJumpDistSquared = sMaxJumpDist * sMaxJumpDist;
+		sMaxDeviationRadiusSquared =
+			u32(min<s64>(0xFFFFFFFF,
+			s64(aMaxDeviationRadius) * aMaxDeviationRadius));
+		sMaxJumpDistSquared =
+			u32(min<s64>(0xFFFFFFFF, s64(sMaxJumpDist) * sMaxJumpDist));
 	}
 
-	if( ++sTaskProgress > sPoints.size() )
+	if( ++sTaskProgress > kPointsCount )
 		sCurrentTask = eTask_None;
 }
 
 
 static void processActiveArraysTask()
 {
-	const size_t aHotspotArrayCount = InputMap::hotspotArrayCount();
-	while(sTaskProgress < aHotspotArrayCount)
+	const int kHotspotArrayCount = InputMap::hotspotArrayCount();
+	while(sTaskProgress < kHotspotArrayCount)
 	{
-		const u16 anArray = sTaskProgress++;
+		const int anArray = sTaskProgress++;
 		bool needChangeMade = false;
 		bool enableHotspots = false;
 		if( sRequestedArrays.test(anArray) && !sActiveArrays.test(anArray) )
@@ -403,42 +407,43 @@ static void processActiveArraysTask()
 		}
 	}
 
-	if( sTaskProgress >= aHotspotArrayCount )
+	if( sTaskProgress >= kHotspotArrayCount )
 		sCurrentTask = eTask_None;
 }
 
 
 static void processAddToGridTask()
 {
+	const int kPointsCount = intSize(sPoints.size());
 	if( sTaskProgress == 0 )
 	{
 		if( sActiveArrays.any() )
 			mapDebugPrint("Adding enabled hotspots to grid...\n");
-		for(size_t x = 0; x < kGridSize; ++x)
+		for(int x = 0; x < kGridSize; ++x)
 		{
-			for(size_t y = 0; y < kGridSize; ++y)
+			for(int y = 0; y < kGridSize; ++y)
 				sActiveGrid[x][y].clear();
 		}
 	}
 
-	while(sTaskProgress < sPoints.size())
+	while(sTaskProgress < kPointsCount)
 	{
-		const u16 aPointIdx = sTaskProgress++;
+		const int aPointIdx = sTaskProgress++;
 		if( !sPoints[aPointIdx].enabled )
 			continue;
-		const u16 aGridX = sPoints[aPointIdx].x >> kNormalizedToGridShift;
-		const u16 aGridY = sPoints[aPointIdx].y >> kNormalizedToGridShift;
-		DBG_ASSERT(aGridX < kGridSize);
-		DBG_ASSERT(aGridY < kGridSize);
+		const int aGridX = sPoints[aPointIdx].x >> kNormalizedToGridShift;
+		const int aGridY = sPoints[aPointIdx].y >> kNormalizedToGridShift;
+		DBG_ASSERT(aGridX >= 0 && aGridX < kGridSize);
+		DBG_ASSERT(aGridY >= 0 && aGridY < kGridSize);
 		mapDebugPrint(
 			"Adding Hotspot '%s' to grid cell %d x %d\n",
 			InputMap::hotspotLabel(aPointIdx).c_str(),
 			aGridX, aGridY);
-		sActiveGrid[aGridX][aGridY].push_back(aPointIdx);
+		sActiveGrid[aGridX][aGridY].push_back(dropTo<u16>(aPointIdx));
 		break;
 	}
 
-	if( sTaskProgress >= sPoints.size() )
+	if( sTaskProgress >= kPointsCount )
 		sCurrentTask = eTask_None;
 }
 
@@ -458,14 +463,14 @@ static void processBeginSearchTask()
 		return;
 	}
 
-	const u32 aMinGridX = u32(clamp(sNormalizedCursorPos.x - sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
-	const u32 aMinGridY = u32(clamp(sNormalizedCursorPos.y - sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
-	const u32 aMaxGridX = u32(clamp(sNormalizedCursorPos.x + sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
-	const u32 aMaxGridY = u32(clamp(sNormalizedCursorPos.y + sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift;
+	const int aMinGridX(u32(clamp(sNormalizedCursorPos.x - sMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
+	const int aMinGridY(u32(clamp(sNormalizedCursorPos.y - sMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
+	const int aMaxGridX(u32(clamp(sNormalizedCursorPos.x + sMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
+	const int aMaxGridY(u32(clamp(sNormalizedCursorPos.y + sMaxJumpDist,
+		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
 	GridPos aGridPos = GridPos();
 	for(aGridPos.x = aMinGridX; aGridPos.x <= aMaxGridX; ++aGridPos.x)
 	{
@@ -482,7 +487,8 @@ static void processBeginSearchTask()
 
 static void processFetchFromGridTask()
 {
-	if( sTaskProgress >= sFetchGrid.size() )
+	const int kFetchGridSize = intSize(sFetchGrid.size());
+	if( sTaskProgress >= kFetchGridSize )
 	{
 		sCurrentTask = eTask_None;
 		return;
@@ -497,31 +503,32 @@ static void processFetchFromGridTask()
 
 	for(size_t i = 0; i < sActiveGrid[aGridX][aGridY].size(); ++i)
 	{
-		const u16 aPointIdx = sActiveGrid[aGridX][aGridY][i];
+		const int aPointIdx = sActiveGrid[aGridX][aGridY][i];
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		const int aDeltaX = aPoint.x - sNormalizedCursorPos.x;
-		const int aDeltaY = aPoint.y - sNormalizedCursorPos.y;
-		const u32 aDist = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
-		if( aDist >= sMinJumpDistSquared && aDist < sMaxJumpDistSquared )
+		const u32 aDeltaX = abs(aPoint.x - sNormalizedCursorPos.x);
+		const u32 aDeltaY = abs(aPoint.y - sNormalizedCursorPos.y);
+		const u32 aDistSq = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
+		if( aDistSq >= sMinJumpDistSquared && aDistSq < sMaxJumpDistSquared )
 			sCandidates.push_back(aPointIdx);
 	}
 
-	if( ++sTaskProgress >= sFetchGrid.size() )
+	if( ++sTaskProgress >= kFetchGridSize )
 		sCurrentTask = eTask_None;
 }
 
 
 static void processNextInDirTask(ECommandDir theDir)
 {
+	const int kCandidateCount = intSize(sCandidates.size());
 	if( sTaskProgress == 0 )
 		sBestCandidateDistPenalty = 0xFFFFFFFF;
 
-	while(sTaskProgress < sCandidates.size())
+	while(sTaskProgress < kCandidateCount)
 	{
-		const u16 aPointIdx = sCandidates[sTaskProgress++];
+		const int aPointIdx = sCandidates[sTaskProgress++];
 		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		long dx = aPoint.x - sNormalizedCursorPos.x;
-		long dy = aPoint.y - sNormalizedCursorPos.y;
+		int dx = aPoint.x - sNormalizedCursorPos.x;
+		int dy = aPoint.y - sNormalizedCursorPos.y;
 		bool inAllowedDir = false;
 		switch(theDir)
 		{
@@ -540,7 +547,7 @@ static void processNextInDirTask(ECommandDir theDir)
 		// Below purposefully skews distances such that x=10, y=10 is just
 		// a distance of 10 instead of the true distance of 14.14~, to act
 		// like a chess board where movement of 1 unit slant-wise is 1x+1y.
-		long aDirDist;
+		int aDirDist;
 		switch(theDir)
 		{
 		case eCmd8Dir_L:  aDirDist = -dx;					break;
@@ -551,11 +558,12 @@ static void processNextInDirTask(ECommandDir theDir)
 		case eCmd8Dir_UR: aDirDist = (dx - dy) / 2;			break;
 		case eCmd8Dir_DL: aDirDist = (-dx + dy) / 2;		break;
 		case eCmd8Dir_DR: aDirDist = (dx + dy) / 2;			break;
+		default: DBG_ASSERT(false); aDirDist = 0;			break;
 		}
 		if( aDirDist <= 0 )
 			continue;
 
-		long aPerpDist;
+		int aPerpDist;
 		switch(theDir)
 		{
 		case eCmd8Dir_L:  aPerpDist = abs(dy);				break;
@@ -566,16 +574,17 @@ static void processNextInDirTask(ECommandDir theDir)
 		case eCmd8Dir_UR: aPerpDist = abs(dx + dy) / 2;		break;
 		case eCmd8Dir_DL: aPerpDist = abs(-dx - dy) / 2;	break;
 		case eCmd8Dir_DR: aPerpDist = abs(dy - dx) / 2;		break;
+		default: DBG_ASSERT(false); aPerpDist = 0;			break;
 		}
 
 		// First check if counts as being straight in desired direction,
 		// which gives highest priority (lowest weight), based on dist.
 		if( aPerpDist <= kMaxPerpDistForStraightLine )
 		{
-			if( aDirDist < sBestCandidateDistPenalty )
+			if( u32(aDirDist) < sBestCandidateDistPenalty )
 			{
 				sNextHotspotInDir[theDir] = aPointIdx;
-				sBestCandidateDistPenalty = aDirDist;
+				sBestCandidateDistPenalty = u32(aDirDist);
 			}
 			continue;
 		}
@@ -583,7 +592,7 @@ static void processNextInDirTask(ECommandDir theDir)
 		// All others have at least as much penalty as full straight line,
 		// plus their distance from the default no-hotspot-found jump dest.
 		dx = abs(aDirDist - sBaseJumpDist);
-		dy = aPerpDist * kPerpPenaltyMult;
+		dy = int(aPerpDist * kPerpPenaltyMult);
 		const u32 aDistSqFromBaseDest = (dx * dx) + (dy * dy);
 		if( aDistSqFromBaseDest > sMaxDeviationRadiusSquared )
 			continue;
@@ -597,7 +606,7 @@ static void processNextInDirTask(ECommandDir theDir)
 		break;
 	}
 
-	if( sTaskProgress >= sCandidates.size() )
+	if( sTaskProgress >= kCandidateCount )
 	{
 		sCurrentTask = eTask_None;
 		if( sNextHotspotInDir[theDir] != 0 )
@@ -656,6 +665,7 @@ static void safeLinkHotspotRows(
 	// Helper function for generating hotspot link map
 	// Guarantees each row has at least one link to adjacent row, so all
 	// points have at least one path to be connected to all others
+	const int aRowCount = intSize(theRows.size());
 	for(int aRowIdx = theRowRangeBegin; aRowIdx < theRowRangeEnd; ++aRowIdx)
 	{
 		Row& aRow = theRows[aRowIdx];
@@ -663,7 +673,7 @@ static void safeLinkHotspotRows(
 			aVDir < eVDir_Num; aVDir = EVDir(aVDir+1) )
 		{
 			int aNextRowIdx = aRowIdx + dirDelta(aVDir);
-			if( aNextRowIdx < 0 || aNextRowIdx >= theRows.size() )
+			if( aNextRowIdx < 0 || aNextRowIdx >= aRowCount )
 				continue; // leave method as _None
 			Row& aNextRow = theRows[aNextRowIdx];
 			aRow.method[aVDir] = aRow.findConnectMethod(aNextRow);
@@ -674,8 +684,8 @@ static void safeLinkHotspotRows(
 				break;
 			case Row::eConnectMethod_Basic:
 				{// Link points within intersecting X range
-					size_t aFirstDotIdx = 0;
-					size_t aLastDotIdx = aRow.size() - 1;
+					int aFirstDotIdx = 0;
+					int aLastDotIdx = aRow.size() - 1;
 					while(aFirstDotIdx < aRow.size() - 1 &&
 						  aRow[aFirstDotIdx].x < aNextRow.minXp())
 					{ ++aFirstDotIdx; }
@@ -684,9 +694,9 @@ static void safeLinkHotspotRows(
 					{ --aLastDotIdx; }
 					if( aFirstDotIdx > aLastDotIdx )
 					{// No dots within intersection area - pick closest
-						const size_t aDotLIdx =
+						const int aDotLIdx =
 							aRow.closestIdxTo(aNextRow.minX());
-						const size_t aDotRIdx =
+						const int aDotRIdx =
 							aRow.closestIdxTo(aNextRow.maxX());
 						if( abs(aNextRow.maxX() - aRow[aDotRIdx].x) <
 								abs(aNextRow.minX() - aRow[aDotLIdx].x) )
@@ -694,7 +704,7 @@ static void safeLinkHotspotRows(
 						else
 							{ aFirstDotIdx = aLastDotIdx = aDotLIdx; }
 					}
-					for(size_t i = aFirstDotIdx; i <= aLastDotIdx; ++i)
+					for(int i = aFirstDotIdx; i <= aLastDotIdx; ++i)
 					{
 						if( aRow[i].vertLink[aVDir] == 0 )
 						{
@@ -713,7 +723,7 @@ static void safeLinkHotspotRows(
 				break;
 			case Row::eConnectMethod_Full:
 				// Link ALL points
-				for(size_t i = 0; i < aRow.size(); ++i)
+				for(int i = 0, end = aRow.size(); i < end; ++i)
 				{
 					if( aRow[i].vertLink[aVDir] == 0 )
 					{
@@ -791,14 +801,14 @@ static void safeLinkHotspotRows(
 			{ continue; }
 
 			const int aNextRowIdx = aRowIdx + dirDelta(aVDir);
-			DBG_ASSERT(aNextRowIdx >= 0 && aNextRowIdx < theRows.size());
+			DBG_ASSERT(aNextRowIdx >= 0 && aNextRowIdx < aRowCount);
 			// If same method in both directions, only process closer in Y
 			const bool isBidirectional =
 				aRow.method[aVDir] == aRow.method[oppositeDir(aVDir)];
 			if( isBidirectional && aVDir == 0 )
 			{
 				const int aPrevRowIdx = aRowIdx - dirDelta(aVDir);
-				DBG_ASSERT(aPrevRowIdx >= 0 && aPrevRowIdx < theRows.size());
+				DBG_ASSERT(aPrevRowIdx >= 0 && aPrevRowIdx < aRowCount);
 				const int aNextYDist =
 					abs(aRow.avgY - theRows[aNextRowIdx].avgY);
 				const int aPrevYDist =
@@ -880,7 +890,7 @@ static void safeLinkHotspotRows(
 		}
 	}
 
-	for(size_t i = 0; i < aSkipRowList.size(); ++i)
+	for(int i = 0, end = intSize(aSkipRowList.size()); i < end; ++i)
 	{
 		// Recursively use this function as if this row didn't exist,
 		// allowing rows to link to other rows by skipping over
@@ -889,7 +899,7 @@ static void safeLinkHotspotRows(
 		theRows.erase(theRows.begin() + aSkipRowList[i]);
 		safeLinkHotspotRows(theRows,
 			max(0, aSkipRowList[i]-1),
-			min(int(theRows.size()), aSkipRowList[i]+1));
+			min(aRowCount, aSkipRowList[i]+1));
 		theRows.insert(theRows.begin() + aSkipRowList[i], aTmpRow);
 	}
 }
@@ -902,8 +912,8 @@ static void safeLinkHotspotRows(
 void init()
 {
 	DBG_ASSERT(sPoints.empty());
-	const u16 aHotspotsCount = InputMap::hotspotCount();
-	const u16 aHotspotArraysCount = InputMap::hotspotArrayCount();
+	const int aHotspotsCount = InputMap::hotspotCount();
+	const int aHotspotArraysCount = InputMap::hotspotArrayCount();
 	sFetchGrid.reserve(kGridSize * kGridSize);
 	sPoints.reserve(aHotspotsCount);
 	sPoints.resize(aHotspotsCount);
@@ -919,11 +929,11 @@ void init()
 
 void loadProfileChanges()
 {
-	if( Profile::changedSections().contains("HOTSPOTS") ||
-		Profile::changedSections().contains("MOUSE") )
+	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
+	if( theProfileMap.contains("Hotspots") || theProfileMap.contains("Mouse") )
 	{
 		sNewTasks.set();
-		for(size_t i = 0; i < sLinkMaps.size(); ++i)
+		for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
 			sLinkMaps[i].clear();
 	}
 }
@@ -939,9 +949,9 @@ void cleanup()
 	sNewTasks.reset();
 	sCurrentTask = eTask_None;
 	sTaskProgress = 0;
-	for(size_t x = 0; x < kGridSize; ++x)
+	for(int x = 0; x < kGridSize; ++x)
 	{
-		for(size_t y = 0; y < kGridSize; ++y)
+		for(int y = 0; y < kGridSize; ++y)
 			sActiveGrid[x][y].clear();
 	}
 }
@@ -1008,14 +1018,14 @@ const BitVector<32>& getEnabledHotspotArrays()
 }
 
 
-u16 getNextHotspotInDir(ECommandDir theDirection)
+int getNextHotspotInDir(ECommandDir theDirection)
 {
 	if( sPoints.empty() || sRequestedArrays.none() )
 		return 0;
 
 	// Abort _nextInDir tasks in all directions besides requested
 	BitArray<eTask_Num> abortedTasks; abortedTasks.reset();
-	for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+	for(int aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
 	{
 		if( theDirection != aDir &&
 			sNewTasks.test(eTask_NextInDir + aDir) )
@@ -1037,17 +1047,17 @@ u16 getNextHotspotInDir(ECommandDir theDirection)
 }
 
 
-const Links& getLinks(u16 theArrayID)
+const Links& getLinks(int theArrayID)
 {
-	DBG_ASSERT(theArrayID < sLinkMaps.size());
+	DBG_ASSERT(size_t(theArrayID) < sLinkMaps.size());
 	if( !sLinkMaps[theArrayID].empty() )
 		return sLinkMaps[theArrayID];
 
 	// Generate links
 	mapDebugPrint("Generating links for hotspot array '%s'\n",
 		InputMap::hotspotArrayLabel(theArrayID).c_str());
-	const u16 aFirstHotspot = InputMap::firstHotspotInArray(theArrayID);
-	const u16 aNodeCount = InputMap::sizeOfHotspotArray(theArrayID);
+	const int aFirstHotspot = InputMap::firstHotspotInArray(theArrayID);
+	const int aNodeCount = InputMap::sizeOfHotspotArray(theArrayID);
 	sLinkMaps[theArrayID].resize(max<size_t>(1, aNodeCount));
 	if( aNodeCount <= 1 ) return sLinkMaps[theArrayID];
 
@@ -1058,14 +1068,14 @@ const Links& getLinks(u16 theArrayID)
 
 	// Assign the hotspots to "dots" in "rows" (nearly-matching Y values)
 	std::vector<Row> aRowVec; aRowVec.reserve(aNodeCount);
-	for(u16 aPointIdx = aFirstHotspot;
-		aPointIdx < aFirstHotspot + aNodeCount; ++aPointIdx)
+	for(int aPointIdx = aFirstHotspot, aPointEnd = aFirstHotspot + aNodeCount;
+		aPointIdx < aPointEnd; ++aPointIdx)
 	{
 		TrackedPoint& aPoint = sPoints[aPointIdx];
 		bool addedToExistingRow = false;
-		for(size_t aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
+		for(int i = 0, end = intSize(aRowVec.size()); i < end; ++i)
 		{
-			Row& aRow = aRowVec[aRowIdx];
+			Row& aRow = aRowVec[i];
 			const int aYDist = abs(aRow.avgY - signed(aPoint.y));
 			if( aYDist <= kMaxPerpDistForStraightLine )
 			{
@@ -1079,26 +1089,28 @@ const Links& getLinks(u16 theArrayID)
 			aRowVec.back().addDot(aPointIdx);
 		}
 	}
+	const int aRowCount = intSize(aRowVec.size());
 
 	// Sort the dots horizontally in each row
-	for(size_t aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
-		aRowVec[aRowIdx].sortDots();
+	for(int i = 0; i < aRowCount; ++i)
+		aRowVec[i].sortDots();
 
 	// Sort the rows from top to bottom
 	std::sort(aRowVec.begin(), aRowVec.end());
 	
 	// Generate vertical links with guarantee all points can be reached
 	// (even if not always by the most convenient route)
-	safeLinkHotspotRows(aRowVec, 0, int(aRowVec.size()));
+	safeLinkHotspotRows(aRowVec, 0, aRowCount);
 
 	// Add extra vertical links for columns by allowing row skips
-	for(int aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
+	for(int aRowIdx = 0; aRowIdx < aRowCount; ++aRowIdx)
 	{
 		Row& aRow = aRowVec[aRowIdx];
 		for(EVDir aVDir = EVDir(0);
 			aVDir < eVDir_Num; aVDir = EVDir(aVDir+1))
 		{
-			for(size_t aDotIdx = 0; aDotIdx < aRow.size(); ++aDotIdx)
+			for(int aDotIdx = 0, aDotsEnd = aRow.size();
+				aDotIdx < aDotsEnd; ++aDotIdx)
 			{
 				Row::Dot& aFromDot = aRow[aDotIdx];
 				u32 aBestCandidateDistPenalty = 0xFFFFFFFF;
@@ -1106,7 +1118,7 @@ const Links& getLinks(u16 theArrayID)
 					continue;
 
 				for(int aNextRowIdx = aRowIdx + dirDelta(aVDir);
-					aNextRowIdx >= 0 && aNextRowIdx < aRowVec.size();
+					aNextRowIdx >= 0 && aNextRowIdx < aRowCount;
 					aNextRowIdx += dirDelta(aVDir))
 				{
 					Row::Dot& aToDot =
@@ -1130,13 +1142,14 @@ const Links& getLinks(u16 theArrayID)
 	}
 
 	// Convert finalized Row data into HotspotLinkNode data
-	for(int aRowIdx = 0; aRowIdx < aRowVec.size(); ++aRowIdx)
+	for(int aRowIdx = 0; aRowIdx < aRowCount; ++aRowIdx)
 	{
 		Row& aRow = aRowVec[aRowIdx];
-		for(size_t aDotIdx = 0; aDotIdx < aRow.size(); ++aDotIdx )
+		for(int aDotIdx = 0, aDotsEnd = intSize(aRow.size());
+			aDotIdx < aDotsEnd; ++aDotIdx )
 		{
 			Row::Dot& aDot = aRow[aDotIdx];
-			u16 aPointInDir[eCmdDir_Num];
+			int aPointInDir[eCmdDir_Num];
 			aPointInDir[eCmdDir_U] = aDot.vertLink[eVDir_U];
 			aPointInDir[eCmdDir_D] = aDot.vertLink[eVDir_D];
 			if( aDotIdx == 0 )
@@ -1147,7 +1160,7 @@ const Links& getLinks(u16 theArrayID)
 			else
 				{ aPointInDir[eCmdDir_L] = aRow[aDotIdx-1].pointID; }
 
-			if( aDotIdx == aRow.size() - 1 )
+			if( aDotIdx == aDotsEnd - 1 )
 				{ aPointInDir[eCmdDir_R] = aRow.outsideLink[eHDir_R]; }
 			else if( aRow.insideLink[eHDir_R] != 0 &&
 					 aRow.insideLinkDotIdx[eHDir_R] == aDotIdx )
@@ -1155,27 +1168,28 @@ const Links& getLinks(u16 theArrayID)
 			else
 				{ aPointInDir[eCmdDir_R] = aRow[aDotIdx+1].pointID; }
 
-			const u16 aNodeIdx = aDot.pointID - aFirstHotspot;
+			const u16 aNodeIdx = dropTo<u16>(aDot.pointID - aFirstHotspot);
 			HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
-			for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
+			for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 			{
 				if( aPointInDir[aDir] == 0 )
 				{
-					aNode.next[aDir] = aNodeIdx;
 					aNode.edge[aDir] = true;
+					aNode.next[aDir] = aNodeIdx;
 				}
 				else
 				{
 					DBG_ASSERT(aPointInDir[aDir] >= aFirstHotspot);
-					aNode.next[aDir] = aPointInDir[aDir] - aFirstHotspot;
 					aNode.edge[aDir] = false;
+					aNode.next[aDir] = dropTo<u16>(
+						aPointInDir[aDir] - aFirstHotspot);
 				}
 			}
 		}
 	}
 
 	// Add wrap-around options for edge nodes
-	for(u16 aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
+	for(int aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
 		HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
 		for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
@@ -1235,8 +1249,8 @@ EResult stringToCoord(std::string& theString,
 	u32 anOffset = 0;
 	bool done = false;
 	bool isOffsetNegative  = false;
-	size_t aCharPos = 0;
-	size_t aValidCharCount = 0;
+	int aCharPos = 0;
+	int aValidCharCount = 0;
 	char c = theString[aCharPos];
 	result = eResult_Ok;
 
@@ -1300,7 +1314,7 @@ EResult stringToCoord(std::string& theString,
 				// Allow flipping the offset sign once by using a '-' just
 				// before the actual number starts, like "+ -5" or "- -10"
 				if( c == '-' &&
-					aCharPos < theString.size()-1 &&
+					aCharPos < intSize(theString.size()) - 1 &&
 					theString[aCharPos+1] >= '0' &&
 					theString[aCharPos+1] <= '9' )
 				{
@@ -1487,7 +1501,7 @@ EResult stringToCoord(std::string& theString,
 		++aCharPos;
 		if( !done )
 		{
-			if( aCharPos >= theString.size() )
+			if( aCharPos >= intSize(theString.size()) )
 				done = true;
 			else
 				c = theString[aCharPos];
@@ -1550,7 +1564,7 @@ std::string coordToString(
 	const Hotspot::Coord& theCoord,
 	EHotspotNamingStyle theStyle)
 {
-	const u16 kPercentResolution = 10000; // Must be evenly divisible by 10
+	const u32 kPercentResolution = 10000; // Must be evenly divisible by 10
 	std::string result;
 	switch(theCoord.anchor)
 	{

@@ -16,7 +16,7 @@ extern bool gShutdown;
 extern bool gLoadNewProfile;
 
 // Milliseconds since app started main loop
-extern u32 gAppRunTime;
+extern int gAppRunTime;
 
 // Milliseconds that have passed since last update of main loop
 extern int gAppFrameTime;
@@ -55,8 +55,8 @@ extern EHotspotGuideMode gHotspotsGuideMode;
 extern std::vector<u16> gConfirmedMenuItem;
 
 // Last-used and default index for Key Bind Arrays, and flags for changing them
-extern std::vector<u8> gKeyBindArrayLastIndex;
-extern std::vector<u8> gKeyBindArrayDefaultIndex;
+extern std::vector<int> gKeyBindArrayLastIndex;
+extern std::vector<int> gKeyBindArrayDefaultIndex;
 extern BitVector<32> gKeyBindArrayLastIndexChanged;
 extern BitVector<32> gKeyBindArrayDefaultIndexChanged;
 

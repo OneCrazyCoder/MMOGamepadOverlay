@@ -38,7 +38,7 @@
 static u64 sAppStartTime = 0;
 static u64 sUpdateStartTime = 0;
 static LARGE_INTEGER sSystemTimeFreq;
-static u32 sUpdateLoopCount = 0;
+static int sUpdateLoopCount = 0;
 static bool sUpdateLoopStarted = false;
 
 
@@ -61,7 +61,7 @@ static u64 getSystemTime()
 void mainTimerUpdate()
 {
 	u64 aCurrentTime = getSystemTime();
-	gAppFrameTime = aCurrentTime - sUpdateStartTime;
+	gAppFrameTime = dropTo<int>(aCurrentTime - sUpdateStartTime);
 	gAppRunTime = u32(aCurrentTime - sAppStartTime);
 	sUpdateStartTime = aCurrentTime;
 }
@@ -141,8 +141,9 @@ void mainLoopSleep()
 		return;
 	sUpdateLoopStarted = false;
 
-	// Sleep for half the remaining frame time (full amount can overr-sleep)
-	const int aTimeTakenByUpdate = int(getSystemTime() - sUpdateStartTime);
+	// Sleep for half the remaining frame time (full amount can over-sleep)
+	const int aTimeTakenByUpdate =
+		dropTo<int>(getSystemTime() - sUpdateStartTime);
 	const int aTimeToSleep = gAppTargetFrameTime - aTimeTakenByUpdate;
 	Sleep(DWORD(max(1, aTimeToSleep / 2)));
 
@@ -219,9 +220,14 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		// Load configuration settings for each module from profile
 		if( !gShutdown && !hadFatalError() )
 		{
-			gAppTargetFrameTime = max(1,
-				Profile::getInt("System", "FrameTime",
-				gAppTargetFrameTime));
+			const int aFrameTime =
+				Profile::getInt("System", "FrameTime", gAppFrameTime);
+			if( aFrameTime != gAppFrameTime )
+			{
+				timeEndPeriod(gAppTargetFrameTime / 2);
+				gAppTargetFrameTime = max(1, aFrameTime);
+				timeBeginPeriod(gAppTargetFrameTime / 2);
+			}
 			InputMap::loadProfile();
 			HotspotMap::init();
 			Menus::init();

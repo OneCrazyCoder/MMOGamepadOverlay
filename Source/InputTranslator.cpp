@@ -49,25 +49,25 @@ struct ZERO_INIT(Config)
 			Profile::getInt("System", "SelectHotspotRepeatDelay", 150);
 		hotspotAutoRepeatRate =
 			Profile::getInt("System", "SelectHotspotRepeatRate", 75);
-		u8 aThreshold =
-			clamp(Profile::getInt("Gamepad", "LStickThreshold", 40),
-				0, 100) * 255 / 100;
+		u8 aThreshold = u8(clamp(
+			Profile::getInt("Gamepad", "LStickThreshold", 40),
+				0, 100) * 255 / 100);
 		Gamepad::setPressThreshold(eBtn_LSLeft, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSRight, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSUp, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSDown, aThreshold);
 		Gamepad::setPressThreshold(eBtn_LSAny, aThreshold);
-		aThreshold =
-			clamp(Profile::getInt("Gamepad", "RStickThreshold", 40),
-				0, 100) * 255 / 100;
+		aThreshold = u8(clamp(
+			Profile::getInt("Gamepad", "RStickThreshold", 40),
+				0, 100) * 255 / 100);
 		Gamepad::setPressThreshold(eBtn_RSLeft, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSRight, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSUp, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSDown, aThreshold);
 		Gamepad::setPressThreshold(eBtn_RSAny, aThreshold);
-		aThreshold =
-			clamp(Profile::getInt("Gamepad", "TriggerThreshold", 12),
-				0, 100) * 255 / 100;
+		aThreshold = u8(clamp(
+			Profile::getInt("Gamepad", "TriggerThreshold", 12),
+				0, 100) * 255 / 100);
 		Gamepad::setPressThreshold(eBtn_L2, aThreshold);
 		Gamepad::setPressThreshold(eBtn_R2, aThreshold);
 	}
@@ -81,11 +81,11 @@ struct ZERO_INIT(Config)
 struct CommandArray
 {
 	Command data[eBtnAct_Num];
-	Command& operator[](size_t index) { return data[index]; }
-	const Command& operator[](size_t index) const { return data[index]; }
+	Command& operator[](int index) { return data[index]; }
+	const Command& operator[](int index) const { return data[index]; }
 	bool operator==(const CommandArray& other) const
 	{
-		for (size_t i = 0; i < eBtnAct_Num; ++i)
+		for (int i = 0; i < eBtnAct_Num; ++i)
 		{
 			if (!(data[i] == other.data[i]))
 				return false;
@@ -103,7 +103,7 @@ struct ButtonCommandSet
 	ButtonCommandSet() { clear(); }
 	void clear()
 	{
-		for(size_t i = 0; i < eBtnAct_Num; ++i)
+		for(int i = 0; i < eBtnAct_Num; ++i)
 		{
 			cmd[i] = Command();
 			layer[i] = 0;
@@ -189,18 +189,18 @@ struct TranslatorState
 	std::vector<u16> layerOrder;
 	std::vector<ActiveSignal> signalCommands;
 	ButtonState* exclusiveAutoRepeatButton;
-	s16 exclusiveAutoRepeatDelay;
-	s16 syncAutoRepeatDelay;
+	int exclusiveAutoRepeatDelay;
+	int syncAutoRepeatDelay;
 	bool syncAutoRepeatActive;
 
 	void clear()
 	{
-		for(size_t i = 0; i < ARRAYSIZE(gamepadButtons); ++i)
+		for(int i = 0; i < ARRAYSIZE(gamepadButtons); ++i)
 		{
 			gamepadButtons[i].clear();
-			gamepadButtons[i].buttonID = u16(i);
+			gamepadButtons[i].buttonID = dropTo<u16>(i);
 		}
-		for(size_t i = 0; i < layers.size(); ++i)
+		for(int i = 0, end = intSize(layers.size()); i < end; ++i)
 			layers[i].autoButton.clear();
 		layers.clear();
 		layerOrder.clear();
@@ -217,13 +217,13 @@ struct InputResults
 	std::vector<Command> queuedKeys;
 	BitVector<32> menuHEAutoCommandRun;
 	ECommandDir selectHotspotDir;
-	s16 charMove;
-	s16 charTurn;
-	s16 charStrafe;
-	s16 charLookX;
-	s16 mouseMoveX;
-	s16 mouseMoveY;
-	s16 mouseWheelY;
+	int charMove;
+	int charTurn;
+	int charStrafe;
+	int charLookX;
+	int mouseMoveX;
+	int mouseMoveY;
+	int mouseWheelY;
 	bool mouseMoveDigital;
 	bool mouseWheelDigital;
 	bool mouseWheelStepped;
@@ -282,18 +282,19 @@ static void loadLayerData()
 
 	sState.layers.reserve(InputMap::controlsLayerCount());
 	sState.layers.resize(InputMap::controlsLayerCount());
-	for(u16 i = 0; i < sState.layers.size(); ++i)
+	for(int i = 0, end = intSize(sState.layers.size()); i < end; ++i)
 	{
 		sState.layers[i].clear();
 		const Command* autoButtonCommands =
 			InputMap::commandsForButton(i, eBtn_None);
 		if( autoButtonCommands )
 		{
-			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
 				sState.layers[i].autoButton.commands.cmd[aBtnAct] =
 					autoButtonCommands[aBtnAct];
-				sState.layers[i].autoButton.commands.layer[aBtnAct] = i;
+				sState.layers[i].autoButton.commands.
+					layer[aBtnAct] = dropTo<u16>(i);
 			}
 		}
 		sState.layers[i].autoButton.commands.holdTimeForAction =
@@ -304,7 +305,7 @@ static void loadLayerData()
 
 static void	loadCommandsForCurrentLayers()
 {
-	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
+	for(int aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
 		aBtnState.commands.clear();
@@ -312,17 +313,17 @@ static void	loadCommandsForCurrentLayers()
 			sState.layerOrder.begin();
 			itr != sState.layerOrder.end(); ++itr)
 		{
-			const u16 aLayerID = *itr;
+			const int aLayerID = *itr;
 			const Command* aCommandsArray =
 				InputMap::commandsForButton(aLayerID, EButton(aBtnIdx));
 			if( !aCommandsArray )
 				continue;
-			for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
 				if( aCommandsArray[aBtnAct].type == eCmdType_Empty )
 					continue;
 				aBtnState.commands.cmd[aBtnAct] = aCommandsArray[aBtnAct];
-				aBtnState.commands.layer[aBtnAct] = aLayerID;
+				aBtnState.commands.layer[aBtnAct] = dropTo<u16>(aLayerID);
 			}
 			if( aCommandsArray[eBtnAct_Hold].type != eCmdType_Empty &&
 				aCommandsArray[eBtnAct_Hold].type != eCmdType_Unassigned &&
@@ -336,9 +337,9 @@ static void	loadCommandsForCurrentLayers()
 	}
 
 	sState.signalCommands.clear();
-	for(size_t i = 0; i < sState.layerOrder.size(); ++i)
+	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
-		const u16 aLayerID = sState.layerOrder[i];
+		const int aLayerID = sState.layerOrder[i];
 		const VectorMap<u16, Command>& aSignalsList =
 			InputMap::signalCommandsForLayer(aLayerID);
 		for(VectorMap<u16, Command>::const_iterator
@@ -347,7 +348,7 @@ static void	loadCommandsForCurrentLayers()
 		{
 			ActiveSignal aSignalCmd;
 			aSignalCmd.signalID = itr->first;
-			aSignalCmd.layerID = aLayerID;
+			aSignalCmd.layerID = dropTo<u16>(aLayerID);
 			aSignalCmd.cmd = itr->second;
 			sState.signalCommands.push_back(aSignalCmd);
 		}
@@ -355,7 +356,7 @@ static void	loadCommandsForCurrentLayers()
 }
 
 
-static void removeControlsLayer(u16 theLayerID)
+static void removeControlsLayer(int theLayerID)
 {
 	DBG_ASSERT(theLayerID != 0);
 	if( !sState.layers[theLayerID].active )
@@ -398,7 +399,7 @@ static void removeControlsLayer(u16 theLayerID)
 }
 
 
-static bool layerIsDescendant(const LayerState& theLayer, u16 theParentLayerID)
+static bool layerIsDescendant(const LayerState& theLayer, int theParentLayerID)
 {
 	if( theLayer.parentLayerID == theParentLayerID )
 		return true;
@@ -417,7 +418,7 @@ static bool layerIsDescendant(const LayerState& theLayer, u16 theParentLayerID)
 
 
 static std::vector<u16>::iterator layerOrderInsertPos(
-	u16 theParentLayerID, s8 thePriority, bool isHeldLayer = false)
+	int theParentLayerID, int thePriority, bool isHeldLayer = false)
 {
 	// The order for this function only applies to normal, child, or
 	// held layers -combo layers have their own special sort function.
@@ -468,14 +469,13 @@ static std::vector<u16>::iterator layerOrderInsertPos(
 	return result;
 }
 
-static void addControlsLayer(u16 theLayerID); // forward declare
-static void addComboLayers(u16 theNewLayerID); // forward declare
+static void addControlsLayer(int theLayerID); // forward declare
+static void addComboLayers(int theNewLayerID); // forward declare
 static void sortComboLayers(); // forward declare
 
-static void moveControlsLayerToTop(u16 theLayerID, bool isHeldLayer = false)
+static void moveControlsLayerToTop(int theLayerID, bool isHeldLayer = false)
 {
-	DBG_ASSERT(theLayerID > 0);
-	DBG_ASSERT(theLayerID < sState.layers.size());
+	DBG_ASSERT(size_t(theLayerID) < sState.layers.size());
 	DBG_ASSERT(sState.layers[theLayerID].active);
 	DBG_ASSERT(sState.layers[theLayerID].altParentLayerID == 0);
 	transDebugPrint(
@@ -492,17 +492,18 @@ static void moveControlsLayerToTop(u16 theLayerID, bool isHeldLayer = false)
 	for(++anOldPosEnd; anOldPosEnd != sState.layerOrder.end() &&
 		layerIsDescendant(sState.layers[*anOldPosEnd], theLayerID);
 		++anOldPosEnd) {}
-	const std::vector<u16> aTempOrder(anOldPos, anOldPosEnd);
+	std::vector<u16> sTempOrder; 
+	sTempOrder.assign(anOldPos, anOldPosEnd);
 	sState.layerOrder.erase(anOldPos, anOldPosEnd);
 
 	// Reset "Hold Auto ### =" held times for any moved layer that have
 	// not yet executed their hold action (these are usually used for
 	// some kind of delayed action after the layer has been left alone
 	// for a while, like hiding a HUD element by removing themselves).
-	for(size_t i = 0; i < aTempOrder.size(); ++i)
+	for(int i = 0, end = intSize(sTempOrder.size()); i < end; ++i)
 	{
-		if( !sState.layers[aTempOrder[i]].autoButton.holdActionDone )
-			sState.layers[aTempOrder[i]].autoButton.heldTime = 0;
+		if( !sState.layers[sTempOrder[i]].autoButton.holdActionDone )
+			sState.layers[sTempOrder[i]].autoButton.heldTime = 0;
 	}
 
 	// Find new position to add the layers back to
@@ -513,7 +514,7 @@ static void moveControlsLayerToTop(u16 theLayerID, bool isHeldLayer = false)
 			sState.layers[theLayerID].parentLayerID,
 			InputMap::layerPriority(theLayerID), isHeldLayer);
 	}
-	sState.layerOrder.insert(aNewPos, aTempOrder.begin(), aTempOrder.end());
+	sState.layerOrder.insert(aNewPos, sTempOrder.begin(), sTempOrder.end());
 	sResults.layerChangeMade = true;
 
 	// Re-sort any possibly affected combo layers
@@ -521,9 +522,9 @@ static void moveControlsLayerToTop(u16 theLayerID, bool isHeldLayer = false)
 }
 
 
-static void addControlsLayer(u16 theLayerID)
+static void addControlsLayer(int theLayerID)
 {
-	DBG_ASSERT(theLayerID < sState.layers.size());
+	DBG_ASSERT(size_t(theLayerID) < sState.layers.size());
 
 	if( sState.layers[theLayerID].active )
 	{
@@ -532,8 +533,8 @@ static void addControlsLayer(u16 theLayerID)
 	}
 	DBG_ASSERT(!sState.layers[theLayerID].active);
 
-	const u16 aParentLayerID = InputMap::parentLayer(theLayerID);
-	DBG_ASSERT(aParentLayerID < sState.layers.size());
+	const int aParentLayerID = InputMap::parentLayer(theLayerID);
+	DBG_ASSERT(size_t(aParentLayerID) < sState.layers.size());
 	if( aParentLayerID && !sState.layers[aParentLayerID].active )
 		addControlsLayer(aParentLayerID);
 
@@ -556,9 +557,9 @@ static void addControlsLayer(u16 theLayerID)
 
 	sState.layerOrder.insert(layerOrderInsertPos(
 		aParentLayerID, InputMap::layerPriority(theLayerID)),
-		theLayerID);
+		dropTo<u16>(theLayerID));
 	LayerState& aLayer = sState.layers[theLayerID];
-	aLayer.parentLayerID = aParentLayerID;
+	aLayer.parentLayerID = dropTo<u16>(aParentLayerID);
 	aLayer.altParentLayerID = 0;
 	aLayer.active = true;
 	aLayer.autoButtonHit = true;
@@ -567,22 +568,26 @@ static void addControlsLayer(u16 theLayerID)
 }
 
 
-static void addComboLayers(u16 theNewLayerID)
+static void addComboLayers(int theNewLayerID)
 {
+	DBG_ASSERT(size_t(theNewLayerID) < sState.layers.size());
+
 	// Find and add any combo layers with theNewLayerID as a base and
 	// the other base layer also being active
 	bool aLayerWasAdded = false;
-	for(u16 i = 1; i < sState.layerOrder.size(); ++i)
+	for(int i = 1; i < intSize(sState.layerOrder.size()); ++i)
 	{
-		const u16 aLayerID = sState.layerOrder[i];
+		const int aLayerID = sState.layerOrder[i];
 		if( aLayerID == theNewLayerID )
 			continue;
-		u16 aComboLayerID = InputMap::comboLayerID(theNewLayerID, aLayerID);
+		int aComboLayerID = InputMap::comboLayerID(theNewLayerID, aLayerID);
 		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active )
 		{
 			addControlsLayer(aComboLayerID);
-			sState.layers[aComboLayerID].parentLayerID = theNewLayerID;
-			sState.layers[aComboLayerID].altParentLayerID = aLayerID;
+			sState.layers[aComboLayerID].parentLayerID =
+				dropTo<u16>(theNewLayerID);
+			sState.layers[aComboLayerID].altParentLayerID =
+				dropTo<u16>(aLayerID);
 			aLayerWasAdded = true;
 			i = 0; // since sState.layerOrder might have changed
 		}
@@ -590,8 +595,10 @@ static void addComboLayers(u16 theNewLayerID)
 		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active )
 		{
 			addControlsLayer(aComboLayerID);
-			sState.layers[aComboLayerID].parentLayerID = aLayerID;
-			sState.layers[aComboLayerID].altParentLayerID = theNewLayerID;
+			sState.layers[aComboLayerID].parentLayerID =
+				dropTo<u16>(aLayerID);
+			sState.layers[aComboLayerID].altParentLayerID =
+				dropTo<u16>(theNewLayerID);
 			aLayerWasAdded = true;
 			i = 0; // since sState.layerOrder might have changed
 		}
@@ -619,9 +626,9 @@ static void sortComboLayers()
 	// having the possibility of being itself another combo layer.
 	struct LayerPriority
 	{
-		u16 oldPos;
+		int oldPos;
 		LayerPriority *parent, *altParent;
-		u16 get(u16 depth) const
+		int get(int depth) const
 		{
 			if( parent != null )
 			{
@@ -642,13 +649,13 @@ static void sortComboLayers()
 	};
 	struct LayerSorter
 	{
-		u16 id;
+		int id;
 		LayerPriority* priority;
 		bool operator<(const LayerSorter& rhs) const
 		{
-			u16 priorityDepth = 0;
-			u16 priorityA = priority->get(priorityDepth);
-			u16 priorityB = rhs.priority->get(priorityDepth);
+			int priorityDepth = 0;
+			int priorityA = priority->get(priorityDepth);
+			int priorityB = rhs.priority->get(priorityDepth);
 			while(priorityA == priorityB && (priorityA || priorityB))
 			{
 				++priorityDepth;
@@ -658,35 +665,37 @@ static void sortComboLayers()
 			return priorityA < priorityB;
 		}
 	};
-	std::vector<LayerPriority> aLayerPriorities(sState.layerOrder.size());
-	std::vector<LayerSorter> aLayerSorters(sState.layerOrder.size());
-	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	static std::vector<LayerPriority> sLayerPriorities;
+	static std::vector<LayerSorter> sLayerSorters;
+	sLayerPriorities.resize(sState.layerOrder.size());
+	sLayerSorters.resize(sState.layerOrder.size());
+	for(int i = 0; i < intSize(sState.layerOrder.size()); ++i)
 	{
-		const u16 aLayerID = sState.layerOrder[i];
+		const int aLayerID = sState.layerOrder[i];
 		LayerState& aLayer = sState.layers[aLayerID];
-		aLayerPriorities[i].oldPos = i;
-		aLayerPriorities[i].parent = null;
-		aLayerPriorities[i].altParent = null;
+		sLayerPriorities[i].oldPos = i;
+		sLayerPriorities[i].parent = null;
+		sLayerPriorities[i].altParent = null;
 		if( aLayer.altParentLayerID )
 		{
-			for(size_t j = 0; j < sState.layerOrder.size(); ++j)
+			for(int j = 0; j < intSize(sState.layerOrder.size()); ++j)
 			{
 				if( sState.layerOrder[j] == aLayer.parentLayerID )
-					aLayerPriorities[i].parent = &aLayerPriorities[j];
+					sLayerPriorities[i].parent = &sLayerPriorities[j];
 				if( sState.layerOrder[j] == aLayer.altParentLayerID )
-					aLayerPriorities[i].altParent = &aLayerPriorities[j];
+					sLayerPriorities[i].altParent = &sLayerPriorities[j];
 			}
 		}
-		aLayerSorters[i].id = sState.layerOrder[i];
-		aLayerSorters[i].priority = &aLayerPriorities[i];
+		sLayerSorters[i].id = sState.layerOrder[i];
+		sLayerSorters[i].priority = &sLayerPriorities[i];
 	}
-	std::sort(aLayerSorters.begin()+1, aLayerSorters.end());
-	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
-		sState.layerOrder[i] = aLayerSorters[i].id;
+	std::sort(sLayerSorters.begin()+1, sLayerSorters.end());
+	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
+		sState.layerOrder[i] = dropTo<u16>(sLayerSorters[i].id);
 }
 
 
-static void flagLayerButtonCommandUsed(u16 theLayerID)
+static void flagLayerButtonCommandUsed(int theLayerID)
 {
 	if( theLayerID == 0 )
 		return;
@@ -717,7 +726,7 @@ static void moveMouseToSelectedMenuItem(const Command& theCmd)
 		Command aMoveCmd;
 		aMoveCmd.type = eCmdType_MoveMouseToMenuItem;
 		aMoveCmd.menuID = theCmd.menuID;
-		aMoveCmd.menuItemID = Menus::selectedItem(theCmd.menuID);
+		aMoveCmd.menuItemID = dropTo<u16>(Menus::selectedItem(theCmd.menuID));
 		aMoveCmd.andClick = theCmd.andClick;
 		InputDispatcher::moveMouseTo(aMoveCmd);
 		HotspotMap::update();
@@ -728,7 +737,7 @@ static void moveMouseToSelectedMenuItem(const Command& theCmd)
 static void processCommand(
 	ButtonState* theBtnState,
 	const Command& theCmd,
-	u16 theLayerIdx,
+	int theLayerIdx,
 	bool repeated = false)
 {
 	// Flag when used a command assigned to a layer button (besides Auto)
@@ -806,7 +815,7 @@ static void processCommand(
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID,
 				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
-			-s16(theCmd.count), theCmd.wrap);
+			-theCmd.count, theCmd.wrap);
 		aForwardCmd = InputMap::keyBindArrayCommand(
 			theCmd.keybindArrayID,
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
@@ -823,7 +832,7 @@ static void processCommand(
 			InputMap::offsetKeyBindArrayIndex(
 				theCmd.keybindArrayID,
 				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
-				s16(theCmd.count), theCmd.wrap);
+				theCmd.count, theCmd.wrap);
 		aForwardCmd = InputMap::keyBindArrayCommand(
 			theCmd.keybindArrayID,
 			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
@@ -902,7 +911,7 @@ static void processCommand(
 	case eCmdType_RemoveControlsLayer:
 		aForwardCmd.layerID = theCmd.layerID;
 		if( aForwardCmd.layerID == 0 )
-			aForwardCmd.layerID = theLayerIdx;
+			aForwardCmd.layerID = dropTo<u16>(theLayerIdx);
 		removeControlsLayer(aForwardCmd.layerID);
 		break;
 	case eCmdType_HoldControlsLayer:
@@ -1425,7 +1434,7 @@ static void processButtonReleased(ButtonState& theBtnState)
 	// standard _HoldControlsLayer method that does it automatically
 	// or just assign the _Release on the same layer that added it.
 	Command aCmd = theBtnState.commandsWhenPressed.cmd[eBtnAct_Release];
-	u16 aCmdLayer = theBtnState.commandsWhenPressed.layer[eBtnAct_Release];
+	int aCmdLayer = theBtnState.commandsWhenPressed.layer[eBtnAct_Release];
 	if( aCmd.type < eCmdType_FirstValid &&
 		theBtnState.commands.cmd[eBtnAct_Press].type < eCmdType_FirstValid )
 	{
@@ -1538,8 +1547,8 @@ static bool tryAddLayerFromButton(
 		return false;
 
 	// Release any layer previously held by this button
-	const u16 aLayerID = aDownCmd.layerID;
-	DBG_ASSERT(aLayerID < sState.layers.size());
+	const int aLayerID = aDownCmd.layerID;
+	DBG_ASSERT(size_t(aLayerID) < sState.layers.size());
 	DBG_ASSERT(aLayerID > 0);
 	releaseLayerHeldByButton(theBtnState);
 	LayerState& aLayer = sState.layers[aLayerID];
@@ -1550,7 +1559,7 @@ static bool tryAddLayerFromButton(
 		if( aLayer.heldActiveByButton > 0 )
 		{// Second button also holding the same layer - increment ref counter
 			++aLayer.heldActiveByButton;
-			theBtnState.layerHeld = aLayerID;
+			theBtnState.layerHeld = dropTo<u16>(aLayerID);
 			moveControlsLayerToTop(aLayerID, true);
 			aLayer.buttonCommandUsed = false;
 			return false;
@@ -1567,14 +1576,14 @@ static bool tryAddLayerFromButton(
 
 	sState.layerOrder.insert(layerOrderInsertPos(
 		0, InputMap::layerPriority(aLayerID), true),
-		aLayerID);
+		dropTo<u16>(aLayerID));
 	aLayer.parentLayerID = 0;
 	aLayer.altParentLayerID = 0;
 	aLayer.active = true;
 	aLayer.autoButtonHit = true;
 	aLayer.heldActiveByButton = 1;
 	sResults.layerChangeMade = true;
-	theBtnState.layerHeld = aLayerID;
+	theBtnState.layerHeld = dropTo<u16>(aLayerID);
 	addComboLayers(aLayerID);
 	return true;
 }
@@ -1587,7 +1596,7 @@ static void processLayerHoldButtons()
 	while(aLayerWasAdded)
 	{
 		aLayerWasAdded = false;
-		for(size_t i = 1; i < eBtn_Num; ++i) // skip eBtn_None
+		for(int i = 1; i < eBtn_Num; ++i) // skip eBtn_None
 		{
 			aLayerWasAdded = aLayerWasAdded ||
 				tryAddLayerFromButton(
@@ -1597,7 +1606,7 @@ static void processLayerHoldButtons()
 		}
 		if( !aLayerWasAdded )
 		{
-			for(size_t i = 0; i < sState.layers.size(); ++i)
+			for(int i = 0; i < intSize(sState.layers.size()); ++i)
 			{
 				LayerState& aLayer = sState.layers[i];
 				aLayerWasAdded = aLayerWasAdded ||
@@ -1629,7 +1638,7 @@ static void updateHUDStateForCurrentLayers()
 	BitVector<32> aPrevVisibleHUD = gVisibleHUD;
 	BitVector<32> aPrevDisabledHUD = gDisabledHUD;
 	gVisibleHUD.reset();
-	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
 		gVisibleHUD |=
 			InputMap::hudElementsToShow(sState.layerOrder[i]);
@@ -1640,19 +1649,19 @@ static void updateHUDStateForCurrentLayers()
 	// Also check to see if any Menus should be shown as disabled because
 	// they don't have any commands assigned to them any more.
 	// Start by assuming all visible menus are disabled...
-	for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+	for(int i = 0, end = InputMap::hudElementCount(); i < end; ++i)
 	{
 		if( InputMap::hudElementIsAMenu(i) && gVisibleHUD.test(i) )
 			gDisabledHUD.set(i);
 	}
 
 	// Now re-enable any menus that have a command associated with them
-	for(size_t aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx)
+	for(int aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx)
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
-		for(size_t aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+		for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 		{
-			u16 aHUDIdx = 0xFFFF;
+			int aHUDIdx = 0xFFFF;
 			switch(aBtnState.commands.cmd[aBtnAct].type)
 			{
 			case eCmdType_MenuReset:
@@ -1683,7 +1692,7 @@ static void updateHUDStateForCurrentLayers()
 	{
 		if( !InputMap::hudElementIsAMenu(i) )
 			continue;
-		const u16 aMenuID = InputMap::menuForHUDElement(i);
+		const int aMenuID = InputMap::menuForHUDElement(i);
 		const bool wasDisabled = aPrevDisabledHUD.test(i);
 		const bool isDisabled = gDisabledHUD.test(i);
 		if( wasDisabled != isDisabled )
@@ -1702,7 +1711,7 @@ static void updateHUDStateForCurrentLayers()
 static void updateHotspotArraysForCurrentLayers()
 {
 	BitVector<32> aHotspotArraysEnabled(InputMap::hotspotArrayCount());
-	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
 		aHotspotArraysEnabled |=
 			InputMap::hotspotArraysToEnable(sState.layerOrder[i]);
@@ -1716,7 +1725,7 @@ static void updateHotspotArraysForCurrentLayers()
 static void updateMouseModeForCurrentLayers()
 {
 	EMouseMode aMouseMode = eMouseMode_Cursor;
-	for(u16 i = 0; i < sState.layerOrder.size(); ++i)
+	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
 		EMouseMode aLayerMouseMode =
 			InputMap::mouseMode(sState.layerOrder[i]);
@@ -1757,14 +1766,12 @@ void loadProfile()
 
 void loadProfileChanges()
 {
-	if( Profile::changedSections().contains("GAMEPAD") ||
-		Profile::changedSections().contains("SYSTEM") )
-	{
+	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
+	if( theProfileMap.contains("Gamepad") || theProfileMap.contains("System") )
 		kConfig.load();
-	}
 
-	if( Profile::changedSections().contains("SCHEME") ||
-		Profile::changedSections().containsPrefix("LAYER.") )
+	if( theProfileMap.contains("Scheme") ||
+		theProfileMap.containsPrefix("Layer.") )
 	{
 		loadCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
@@ -1775,9 +1782,9 @@ void loadProfileChanges()
 
 void cleanup()
 {
-	for(size_t i = 0; i < ARRAYSIZE(sState.gamepadButtons); ++i)
+	for(int i = 0; i < ARRAYSIZE(sState.gamepadButtons); ++i)
 		releaseKeyHeldByButton(sState.gamepadButtons[i]);
-	for(size_t i = 0; i < sState.layers.size(); ++i)
+	for(int i = 0, end = intSize(sState.layers.size()); i < end; ++i)
 		releaseKeyHeldByButton(sState.layers[i].autoButton);
 	sState.clear();
 	sResults.clear();
@@ -1792,7 +1799,7 @@ void update()
 	processLayerHoldButtons();
 
 	// Treat each layer as also being a virtual button ("Auto" button)
-	for(size_t i = 0; i < sState.layers.size(); ++i)
+	for(int i = 0, end = intSize(sState.layers.size()); i < end; ++i)
 	{
 		LayerState& aLayer = sState.layers[i];
 		processButtonState(
@@ -1803,7 +1810,7 @@ void update()
 	}
 
 	// Process state changes of actual physical Gamepad buttons
-	for(size_t i = 1; i < eBtn_Num; ++i) // skip eBtn_None
+	for(int i = 1; i < eBtn_Num; ++i) // skip eBtn_None
 	{
 		processButtonState(
 			sState.gamepadButtons[i],
@@ -1818,7 +1825,8 @@ void update()
 	aFiredSignals.reset(eBtn_None); // dummy signal, ignored
 	if( aFiredSignals.any() )
 	{
-		for(size_t i = 0; i < sState.signalCommands.size(); ++i)
+		for(int i = 0, end = intSize(sState.signalCommands.size());
+			i < end; ++i)
 		{
 			ActiveSignal& aSignalCmd = sState.signalCommands[i];
 			DBG_ASSERT(aSignalCmd.signalID < aFiredSignals.size());
@@ -1834,7 +1842,7 @@ void update()
 		while(sResults.layerChangeMade)
 		{
 			sResults.layerChangeMade = false;
-			for(size_t i = 0; i < sState.layers.size(); ++i)
+			for(int i = 0, end = intSize(sState.layers.size()); i < end; ++i)
 			{
 				LayerState& aLayer = sState.layers[i];
 				if( aLayer.autoButtonHit )
@@ -1870,17 +1878,17 @@ void update()
 	if( sResults.selectHotspotDir != eCmd8Dir_None )
 	{
 		Command aCmd;
-		const u16 aNextHotspot = HotspotMap::getNextHotspotInDir(
+		const int aNextHotspot = HotspotMap::getNextHotspotInDir(
 			sResults.selectHotspotDir);
 		if( aNextHotspot )
 		{
 			aCmd.type = eCmdType_MoveMouseToHotspot;
-			aCmd.hotspotID = aNextHotspot;
+			aCmd.hotspotID = dropTo<u16>(aNextHotspot);
 		}
 		else
 		{
 			aCmd.type = eCmdType_MoveMouseToOffset;
-			aCmd.dir = sResults.selectHotspotDir;
+			aCmd.dir = dropTo<u16>(sResults.selectHotspotDir);
 		}
 		InputDispatcher::moveMouseTo(aCmd);
 	}
@@ -1893,7 +1901,7 @@ void update()
 		sResults.mouseWheelY,
 		sResults.mouseWheelDigital,
 		sResults.mouseWheelStepped);
-	for(size_t i = 0; i < sResults.queuedKeys.size(); ++i)
+	for(int i = 0, end = intSize(sResults.queuedKeys.size()); i < end; ++i)
 		InputDispatcher::sendKeyCommand(sResults.queuedKeys[i]);
 
 	// Update timing for held auto-repeat buttons
@@ -1951,9 +1959,9 @@ void update()
 }
 
 
-bool isLayerActive(u16 theLayerID)
+bool isLayerActive(int theLayerID)
 {
-	DBG_ASSERT(theLayerID < sState.layers.size());
+	DBG_ASSERT(size_t(theLayerID) < sState.layers.size());
 	return sState.layers[theLayerID].active;
 }
 
