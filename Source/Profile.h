@@ -49,6 +49,7 @@ std::string getStr(const std::string& theSection,
 int getInt(const std::string&, const std::string&, int = 0);
 bool getBool(const std::string&, const std::string&, bool = false);
 double getFloat(const std::string&, const std::string&, double = 0);
+int variableNameToID(const std::string& theVarName); // -1 if not found
 const PropertyMap* getSection(const std::string& theSectionName);
 const PropertyMap& getSectionProperties(const std::string& theSectionName);
 const SectionsMap& allSections();
@@ -61,6 +62,7 @@ void setStr(const std::string& theSection,
 			const std::string& thePropertyName,
 			const std::string& theValue,
 			bool saveToFile = true);
+void setVariable(int theVarID, const std::string& theValue, bool temporary);
 // Only sets the string if thePropertyName doesn't yet exist (or is empty val)
 void setNewStr(const std::string&, const std::string&, const std::string&);
 // Gets property changes requested by setStr() since last load() or clear

@@ -20,7 +20,6 @@ BitVector<32> gFullRedrawHUD;
 BitVector<32> gReshapeHUD;
 BitVector<32> gActiveHUD;
 BitVector<32> gDisabledHUD;
-bool gRedrawDynamicHUDStrings = false;
 EHotspotGuideMode gHotspotsGuideMode = eHotspotGuideMode_Disabled;
 std::vector<u16> gConfirmedMenuItem;
 std::vector<int> gKeyBindArrayLastIndex;

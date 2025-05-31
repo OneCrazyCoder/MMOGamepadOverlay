@@ -43,17 +43,6 @@ enum EDataSourceType
 	eDataSourceType_Num
 };
 
-enum EPropertyType
-{
-	ePropertyType_Unknown,
-	ePropertyType_UIScale,
-	ePropertyType_Hotspot,
-	ePropertyType_CopyIcon,
-	ePropertyType_HUDElement,
-
-	ePropertyType_Num
-};
-
 enum EValueSetType
 {
 	eValueSetType_Single,
@@ -238,7 +227,6 @@ struct ZERO_INIT(SyncProperty)
 	};
 	std::vector<Segment> valueInserts;
 	BitVector<64> valueSetsUsed;
-	EPropertyType type;
 };
 
 struct ZERO_INIT(ValueLink)
@@ -1557,21 +1545,6 @@ static void parsePropertyValueTags(
 }
 
 
-static EPropertyType extractPropertyType(const SyncProperty& theProperty)
-{
-	if( theProperty.section == "HOTSPOTS" )
-		return ePropertyType_Hotspot;
-	if( theProperty.section == "ICONS" )
-		return ePropertyType_CopyIcon;
-	if( hasPrefix(theProperty.section, "HUD") ||
-		hasPrefix(theProperty.section, "MENU") )
-		return ePropertyType_HUDElement;
-	if( theProperty.section == "SYSTEM" && theProperty.name == "UISCALE" )
-		return ePropertyType_UIScale;
-	return ePropertyType_Unknown;
-}
-
-
 static double anchorTypeToSubTypeValue(
 	const double* theValArray,
 	EValueSetSubType theSubType)
@@ -1895,7 +1868,6 @@ void load()
 				continue;
 			aProperty.name = aProperty.section.substr(aPos+1);
 			aProperty.section.resize(aPos);
-			aProperty.type = extractPropertyType(aProperty);
 			sProperties.push_back(aProperty);
 		}
 	}
@@ -2228,7 +2200,6 @@ void update()
 	if( !sParser && !sReader &&
 		sChangedDataSources.none() && sChangedValueSets.any() )
 	{
-		bool propTypeChanged[ePropertyType_Num] = { };
 		for(int aPropID = 0, aPropertiesEnd = intSize(sProperties.size());
 			aPropID < aPropertiesEnd; ++aPropID)
 		{
@@ -2250,19 +2221,6 @@ void update()
 					aProp.name.c_str(),
 					aValueStr.c_str());
 				Profile::setStr(aProp.section, aProp.name, aValueStr, false);
-				propTypeChanged[aProp.type] = true;
-			}
-		}
-		if( sInitialized )
-		{// After initial load, so need to let other modules know of changes
-			if( propTypeChanged[ePropertyType_Unknown] )
-				gLoadNewProfile = true;
-			if( propTypeChanged[ePropertyType_CopyIcon] )
-				HUD::reloadCopyIconLabel("");
-			if( propTypeChanged[ePropertyType_HUDElement] )
-			{
-				for(int i = 0, end = InputMap::hudElementCount(); i < end; ++i)
-					HUD::reloadElementShape(i);
 			}
 		}
 		sChangedValueSets.reset();

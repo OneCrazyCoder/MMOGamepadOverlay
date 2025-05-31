@@ -891,6 +891,12 @@ static void processCommand(
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
 		break;
+	case eCmdType_SetVariable:
+		Profile::setVariable(
+			theCmd.variableID,
+			InputMap::cmdString(theCmd),
+			theCmd.temporary);
+		break;
 	case eCmdType_StartAutoRun:
 		sResults.charMoveStartAutoRun = true;
 		if( theCmd.multiDirAutoRun )
@@ -1941,7 +1947,6 @@ void update()
 		loadCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();
-		gRedrawDynamicHUDStrings = true;
 		#ifndef NDEBUG
 		std::string aNewLayerOrder("Layers: ");
 		for(std::vector<u16>::iterator itr =

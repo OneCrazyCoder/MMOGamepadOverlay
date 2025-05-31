@@ -53,6 +53,7 @@ struct ZERO_INIT(Command)
 				u16 hotspotID;
 				u16 menuID;
 				u16 keybindArrayID;
+				u16 variableID;
 				u16 replacementLayer;
 				u16 mouseWheelMotionType;
 			};
@@ -62,7 +63,8 @@ struct ZERO_INIT(Command)
 			u8 withMouse : 1;
 			u8 andClick : 1;
 			u8 multiDirAutoRun : 1;
-			u8 __reserved : 2;
+			u8 temporary : 1;
+			u8 __reserved : 1;
 			u8 __reserved2;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;

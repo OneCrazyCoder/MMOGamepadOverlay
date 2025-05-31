@@ -295,16 +295,6 @@ static void applyNewPosition()
 			kAlignmentStr[sState->entered.alignment][1]);
 	}
 	sState->applied = sState->entered;
-
-	switch(anEntry.type)
-	{
-	case LayoutEntry::eType_CopyIcon:
-		HUD::reloadCopyIconLabel(anEntry.item.name);
-		break;
-	case LayoutEntry::eType_HUDElement:
-		HUD::reloadElementShape(anEntry.hudElementID);
-		break;
-	}
 }
 
 

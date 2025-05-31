@@ -92,9 +92,9 @@ typedef void (*ParseINICallback)(
 
 struct UnsavedProperty
 {
-	std::string section;
-	std::string name;
-	std::string val;
+	int sectionID;
+	int propertyID;
+	std::string value;
 };
 
 struct VarPropDependency
@@ -1412,31 +1412,47 @@ static std::string varTagToString(
 		break;
 	}
 
-	// What to do with compare result depends on first and second operator
-	char anOpC2 = theTagStr[aPos++];
+	// What to do with compare result depends on second operator
+	const char anOpC2 = theTagStr[aPos++];
 	if( anOpC2 == '}' )
 	{
-		if( anOpC == '?' ) // ${Var ? resultIfTrue}
-			result = isTrue ? aParam : result;
-		else // ${Var <> ..}
-			result = isTrue ? "true" : "false";
+		if( anOpC == '?' )
+		{// ${Var ? resultIfTrue}
+			if( isTrue )
+				result = aParam;
+			// Returns trimmed theVarContents when condition is false
+			return result;
+		}
+		// ${Var !<=> value} (debugging? inner part of a more complex block?)
+		result = isTrue ? "true" : "false";
+		return result;
+	}
+	
+	if( anOpC2 == ':' ) 
+	{// ${Var ? resultIfTrue : resultIfFalse}
+		DBG_ASSERT(anOpC == '?');
+		if( isTrue )
+		{
+			result = aParam;
+			return result;
+		}
+		result = fetchNextItem(theTagStr, aPos, "}");
 		return result;
 	}
 
+	// ${Var !<=> value ? ...} if got this far
 	DBG_ASSERT(anOpC2 == '?');
-	
-	// Get return result for 'true' (and check for 'else')
+
+	// Get result for true, or to advance aPos to : for false condition result
 	const std::string& aTrueResult = fetchNextItem(theTagStr, aPos, ":}");
 	if( isTrue )
-	{
 		result = aTrueResult;
-		return result;
-	}
-
-	// If has 'else' section, return it, otherwise return base var value
-	if( theTagStr[aPos++] == ':' )
+	else if( theTagStr[aPos++] == ':' )
 		result = fetchNextItem(theTagStr, aPos, "}");
 
+	// result is now aTrueResult if condition was true, the section after :
+	// if condition was false, or the trimmed theVarContents if there was no
+	// : section (${Var !<=> value ? result} format) and condition was false
 	return result;
 }
 
@@ -1580,6 +1596,58 @@ static void loadProfile(int theProfilesCanLoadIdx)
 	sProfilesCanLoad.clear();
 	sAutoProfileIdx = 0;
 	sNewBaseProfileIdx = -1;
+}
+
+
+static void setPropertyAfterLoad(
+	int theSectionID,
+	int thePropertyID,
+	const std::string& theValue,
+	bool saveToFile)
+{
+	DBG_ASSERT(theSectionID >= 0 && theSectionID < sSectionsMap.size());
+
+	// Add/change main properties map
+	PropertyMap& aSection = sSectionsMap.vals()[theSectionID];
+	DBG_ASSERT(thePropertyID >= 0 && thePropertyID < aSection.size());
+	Property& aProp = aSection.vals()[thePropertyID];
+	if( (aProp.pattern.empty() && aProp.str == theValue) ||
+		aProp.pattern == theValue )
+		return;
+	aProp.str.clear();
+	aProp.pattern = theValue;
+
+	// Apply variable expansion to new/changed property
+	expandPropertyVars(theSectionID, thePropertyID, false);
+
+	// TODO - if( aSectionID == kVarsSectionIdx ) propogate variable to others
+	// Make sure sChangedSectionsMap includes properties changed by variable
+	// adjustment (but not unsavedChangesList). However, sChangedSectionsMap
+	// maybe does NOT need to include this change or propogated changes to
+	// variables themselves, since they should never be referenced outside
+	// of Profile (only outside awareness is for the "Set Variable" command).
+
+	// Log in changed properties map as well
+	sChangedSectionsMap.findOrAdd(sSectionsMap.keys()[theSectionID])
+		.setValue(aSection.keys()[thePropertyID], aProp);
+	
+	if( saveToFile )
+	{// Log as change to save to file
+		for(int i = 0, end = intSize(sUnsavedChangesList.size()); i < end; ++i)
+		{
+			if( sUnsavedChangesList[i].sectionID == theSectionID &&
+				sUnsavedChangesList[i].propertyID == thePropertyID )
+			{
+				sUnsavedChangesList[i].value = theValue;
+				return;
+			}
+		}
+
+		sUnsavedChangesList.push_back(UnsavedProperty());
+		sUnsavedChangesList.back().sectionID = theSectionID;
+		sUnsavedChangesList.back().propertyID = thePropertyID;
+		sUnsavedChangesList.back().value = theValue;
+	}
 }
 
 
@@ -2258,6 +2326,15 @@ double getFloat(
 }
 
 
+int variableNameToID(const std::string& theVarName)
+{
+	int result = sSectionsMap.vals()[kVarsSectionIdx].findIndex(theVarName);
+	if( result >= sSectionsMap.vals()[kVarsSectionIdx].size() )
+		result = -1;
+	return result;
+}
+
+
 const PropertyMap* getSection(const std::string& theSectionName)
 {
 	return sSectionsMap.find(theSectionName);
@@ -2285,46 +2362,16 @@ void setStr(
 	const std::string& theValue,
 	bool saveToFile)
 {
-	// Add/change main properties map
 	const int aSectionID = sSectionsMap.findOrAddIndex(theSection);
 	PropertyMap& aSection = sSectionsMap.vals()[aSectionID];
 	const int aPropID = aSection.findOrAddIndex(thePropertyName);
-	Property& aProp = aSection.vals()[aPropID];
-	if( (aProp.pattern.empty() && aProp.str == theValue) ||
-		aProp.pattern == theValue )
-		return;
-	aProp.str.clear();
-	aProp.pattern = theValue;
+	setPropertyAfterLoad(aSectionID, aPropID, theValue, saveToFile);
+}
 
-	// Apply variable expansion to new/changed property
-	expandPropertyVars(aSectionID, aPropID, false);
 
-	// Log in changed properties map as well
-	sChangedSectionsMap.findOrAdd(theSection)
-		.setValue(thePropertyName, aProp);
-	
-	// TODO - if( aSectionID == kVarsSectionIdx ) propogate variable to others
-	// Make sure sChangedSectionsMap includes properties changed by variable
-	// adjustment (but not unsavedChangesList)
-
-	if( saveToFile )
-	{// Log as change to save to file
-		for(int i = 0, end = intSize(sUnsavedChangesList.size()); i < end; ++i)
-		{
-			if( sUnsavedChangesList[i].section == theSection &&
-				sUnsavedChangesList[i].name == thePropertyName )
-			{
-				sUnsavedChangesList[i].val = theValue;
-				return;
-			}
-		}
-
-		UnsavedProperty aNewProperty;
-		aNewProperty.section = theSection;
-		aNewProperty.name = thePropertyName;
-		aNewProperty.val = theValue;
-		sUnsavedChangesList.push_back(aNewProperty);
-	}
+void setVariable(int theVarID, const std::string& theValue, bool temporary)
+{
+	setPropertyAfterLoad(kVarsSectionIdx, theVarID, theValue, !temporary);
 }
 
 
@@ -2357,11 +2404,15 @@ void saveChangesToFile()
 	const std::string& aFilePath = profileNameToFilePath(sLoadedProfileName);
 	for(int i = 0, end = intSize(sUnsavedChangesList.size()); i < end; ++i)
 	{
-		setPropertyInINI(
-			aFilePath,
-			sUnsavedChangesList[i].section,
-			sUnsavedChangesList[i].name,
-			sUnsavedChangesList[i].val);
+		const std::string& aSectionName =
+			sSectionsMap.keys()[sUnsavedChangesList[i].sectionID];
+		const PropertyMap& aPropMap =
+			sSectionsMap.vals()[sUnsavedChangesList[i].sectionID];
+		const std::string& aPropName =
+			aPropMap.keys()[sUnsavedChangesList[i].propertyID];
+		const std::string& aPropValue = sUnsavedChangesList[i].value;
+
+		setPropertyInINI(aFilePath, aSectionName, aPropName, aPropValue);
 	}
 	sUnsavedChangesList.clear();
 }
