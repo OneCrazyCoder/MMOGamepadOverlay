@@ -57,10 +57,10 @@ struct Input : public INPUT
 { Input() { ZeroMemory(this, sizeof(INPUT)); } };
 
 struct ZERO_INIT(DispatchTask)
-{ Command cmd; u32 progress; u32 queuedTime; bool hasJump; bool slow; };
+{ Command cmd; int progress; int queuedTime; bool hasJump; bool slow; };
 
 struct ZERO_INIT(KeyWantDownStatus)
-{ s8 depth; s8 queued; bool pressed; };
+{ s16 depth : 8; s16 queued : 7; u16 pressed : 1; };
 typedef VectorMap<u16, KeyWantDownStatus> KeysWantDownMap;
 
 
@@ -95,33 +95,33 @@ struct ZERO_INIT(Config)
 	int moveLookSpeed;
 	int mouseWheelSpeed;
 	int mouseLookAutoRestoreTime;
-	u16 offsetHotspotDist;
-	u16 baseKeyReleaseLockTime;
-	u16 mouseClickLockTime;
-	u16 mouseReClickLockTime;
-	u16 mouseLookMoveLockTime;
-	u16 minModKeyChangeTime;
-	u16 mouseJumpDelayTime;
-	u8 cancelAutoRunDeadzone;
-	u8 mouseDPadAccel;
+	int offsetHotspotDist;
+	int baseKeyReleaseLockTime;
+	int mouseClickLockTime;
+	int mouseReClickLockTime;
+	int mouseLookMoveLockTime;
+	int minModKeyChangeTime;
+	int mouseJumpDelayTime;
+	int cancelAutoRunDeadzone;
+	int mouseDPadAccel;
 	bool useScanCodes;
 
 	void load()
 	{
-		const float aCursorSpeedMult = sqrt(GetSystemMetrics(SM_CYSCREEN) / 720.0);
+		const double aCursorSpeedMult = sqrt(GetSystemMetrics(SM_CYSCREEN) / 720.0);
 		maxTaskQueuedTime = Profile::getInt("System", "MaxKeyQueueTime", 1000);
 		chatBoxPostFirstKeyDelay = Profile::getInt("System", "ChatBoxStartDelay", 0);
 		chatBoxPostEnterDelay = Profile::getInt("System", "ChatBoxEndDelay", 0);
-		baseKeyReleaseLockTime = Profile::getInt("System", "MinKeyHoldTime", 20);
-		minModKeyChangeTime = Profile::getInt("System", "MinModKeyChangeTime", 50);
-		mouseClickLockTime = Profile::getInt("Mouse", "MinButtonClickTime", 25);
-		mouseReClickLockTime = Profile::getInt("Mouse", "MinReClickTime", 0);
-		mouseJumpDelayTime = Profile::getInt("Mouse", "JumpDelayTime", 25);
-		mouseLookMoveLockTime = Profile::getInt("Mouse", "CameraMoveStartDelay", 25);
+		baseKeyReleaseLockTime = max(0, Profile::getInt("System", "MinKeyHoldTime", 20));
+		minModKeyChangeTime = max(0, Profile::getInt("System", "MinModKeyChangeTime", 50));
+		mouseClickLockTime = max(0, Profile::getInt("Mouse", "MinButtonClickTime", 25));
+		mouseReClickLockTime = max(0, Profile::getInt("Mouse", "MinReClickTime", 0));
+		mouseJumpDelayTime = max(0, Profile::getInt("Mouse", "JumpDelayTime", 25));
+		mouseLookMoveLockTime = max(0, Profile::getInt("Mouse", "CameraMoveStartDelay", 25));
 		useScanCodes = Profile::getBool("System", "UseScanCodes", false);
 		cursorXSpeed = cursorYSpeed = Profile::getInt("Mouse", "CursorSpeed", 100);
-		cursorXSpeed = Profile::getInt("Mouse", "CursorXSpeed", cursorXSpeed) * aCursorSpeedMult;
-		cursorYSpeed = Profile::getInt("Mouse", "CursorYSpeed", cursorYSpeed) * aCursorSpeedMult;
+		cursorXSpeed = int(Profile::getInt("Mouse", "CursorXSpeed", cursorXSpeed) * aCursorSpeedMult);
+		cursorYSpeed = int(Profile::getInt("Mouse", "CursorYSpeed", cursorYSpeed) * aCursorSpeedMult);
 		cursorDeadzone = clamp(Profile::getInt("Mouse", "CursorDeadzone", 25), 0, 100) / 100.0;
 		cursorRange = clamp(Profile::getInt("Mouse", "CursorSaturation", 100), cursorDeadzone, 100) / 100.0;
 		cursorRange = max(0.0, cursorRange - cursorDeadzone);
@@ -146,7 +146,7 @@ struct ZERO_INIT(Config)
 		mouseWheelSpeed = Profile::getInt("Mouse", "MouseWheelSpeed", 255);
 		moveDeadzone = clamp(Profile::getInt("Gamepad", "MoveCharacterThreshold", 50), 0, 100) / 100.0;
 		moveStraightBias = clamp(Profile::getInt("Gamepad", "MoveStraightBias", 50), 0, 100) / 100.0;
-		cancelAutoRunDeadzone = clamp(Profile::getInt("Gamepad", "CancelAutoRunThreshold", 80) / 100.0 * 255.0, 0, 255);
+		cancelAutoRunDeadzone = clamp(int(Profile::getInt("Gamepad", "CancelAutoRunThreshold", 80) / 100.0 * 255.0), 0, 255);
 		mouseLookAutoRestoreTime = Profile::getInt("System", "MouseLookAutoRestoreTime");
 		offsetHotspotDist = max(0, Profile::getInt("Mouse", "DefaultHotspotDistance"));
 
@@ -157,7 +157,7 @@ struct ZERO_INIT(Config)
 			sanitizeSentence(aString, aParsedString);
 			for( size_t i = 0; i < aParsedString.size(); ++i)
 			{
-				u8 aVKey = keyNameToVirtualKey(aParsedString[i]);
+				u8 aVKey = dropTo<u8>(keyNameToVirtualKey(aParsedString[i]));
 				if( aVKey == 0 )
 				{
 					logError("Unrecognized key name for safeAsyncKeys: %s",
@@ -204,22 +204,18 @@ struct ZERO_INIT(Config)
 class DispatchQueue
 {
 public:
-	DispatchQueue()
+	// Initial buffer size must be a power of 2!
+	DispatchQueue() :
+	  mBuffer(16), mHead(), mTail(), mMouseJumpQueueCount()
 	{
-		// Initial capacity must be a power of 2!
-		mBuffer.resize(16);
-		mHead = 0;
-		mTail = 0;
-		mMouseJumpQueueCount = 0;
 	}
-
 
 	void push_back(const Command& theCommand)
 	{
 		confirmCanFitOneMore();
 		mBuffer[mTail].cmd = theCommand;
 		setDataForNewTask(mBuffer[mTail]);
-		mTail = (mTail + 1) & (mBuffer.size() - 1);
+		mTail = (mTail + 1) & dropTo<u32>(mBuffer.size() - 1);
 	}
 
 
@@ -230,7 +226,7 @@ public:
 		DBG_ASSERT(!empty());
 		confirmCanFitOneMore();
 		const bool flagAsSlow = mBuffer[mHead].slow;
-		mHead = (mHead - 1) & (mBuffer.size() - 1);
+		mHead = (mHead - 1) & dropTo<u32>(mBuffer.size() - 1);
 		mBuffer[mHead].cmd = theCommand;
 		mBuffer[mHead].progress = 0;
 		mBuffer[mHead].queuedTime = 0xFFFFFFFF;
@@ -245,7 +241,7 @@ public:
 
 		if( mBuffer[mHead].hasJump )
 			--mMouseJumpQueueCount;
-		mHead = (mHead + 1) & (mBuffer.size() - 1);
+		mHead = (mHead + 1) & dropTo<u32>(mBuffer.size() - 1);
 		DBG_ASSERT(!empty() || mMouseJumpQueueCount == 0);
 	}
 
@@ -280,8 +276,8 @@ public:
 			return true;
 
 		bool foundFastTask = false;
-		const size_t aWrapMask = mBuffer.size() - 1;
-		size_t idx = mHead;
+		const u32 aWrapMask = dropTo<u32>(mBuffer.size()) - 1;
+		u32 idx = mHead;
 		for(; idx != mTail; idx = (idx + 1) & aWrapMask)
 		{
 			if( !mBuffer[idx].slow )
@@ -312,16 +308,16 @@ public:
 private:
 	void confirmCanFitOneMore()
 	{
-		if( ((mTail + 1) & (mBuffer.size() - 1)) == mHead )
+		if( ((mTail + 1) & dropTo<u32>(mBuffer.size() - 1)) == mHead )
 		{// Adding one means head == tail which would report empty()!
 			// Resize by doubling to keep power-of-2 size
 			std::vector<DispatchTask> newBuffer(mBuffer.size() * 2);
 
-			for(std::size_t i = 0; i < mBuffer.size() - 1; ++i)
-				newBuffer[i] = mBuffer[(mHead + i) & (mBuffer.size() - 1)];
+			for(u32 i = 0, end = dropTo<u32>(mBuffer.size()) - 1; i < end; ++i)
+				newBuffer[i] = mBuffer[(mHead + i) & u32(mBuffer.size() - 1)];
 
 			mHead = 0;
-			mTail = mBuffer.size() - 1;
+			mTail = dropTo<u32>(mBuffer.size() - 1);
 			swap(mBuffer, newBuffer);
 		}
 	}
@@ -330,8 +326,8 @@ private:
 	{
 		mBuffer[mTail].progress = 0;
 		mBuffer[mTail].queuedTime = gAppRunTime;			
-		u16 aCurrJumpHotspotID = 0;
-		u16 aFinalJumpHotspotID = 0;
+		int aCurrJumpHotspotID = 0;
+		int aFinalJumpHotspotID = 0;
 		Hotspot aJumpDest;
 		switch(theTask.cmd.type)
 		{
@@ -379,8 +375,8 @@ private:
 
 	static void scanVKeySeqForFlags(
 		const u8* theVKeySeq,
-		u16& theCurrJumpHotspotID,
-		u16& theFinalJumpHotspotID,
+		int& theCurrJumpHotspotID,
+		int& theFinalJumpHotspotID,
 		bool& hasJump,
 		bool& isSlow)
 	{
@@ -396,7 +392,7 @@ private:
 				hasJump = true;
 				isSlow = true;
 				++c; DBG_ASSERT(*c != '\0');
-				theCurrJumpHotspotID = (*c & 0x7F) << 7;
+				theCurrJumpHotspotID = (*c & 0x7F) << 7U;
 				++c; DBG_ASSERT(*c != '\0');
 				theCurrJumpHotspotID |= (*c & 0x7F);
 				break;
@@ -412,7 +408,7 @@ private:
 			case kVKeyTriggerKeyBind:
 				{
 					++c; DBG_ASSERT(*c != '\0');
-					u16 aKeyBindID = (*c & 0x7F) << 7;
+					int aKeyBindID = (*c & 0x7F) << 7U;
 					++c; DBG_ASSERT(*c != '\0');
 					aKeyBindID |= (*c & 0x7F);
 					const Command& aKeyBindCmd =
@@ -444,9 +440,9 @@ private:
 	}
 
 	std::vector<DispatchTask> mBuffer;
-	std::size_t mHead;
-	std::size_t mTail;
-	s16 mMouseJumpQueueCount;
+	u32 mHead;
+	u32 mTail;
+	int mMouseJumpQueueCount;
 };
 
 
@@ -458,14 +454,14 @@ struct ZERO_INIT(DispatchTracker)
 {
 	DispatchQueue queue;
 	std::vector<Input> inputs;
-	u32 currTaskProgress;
+	int currTaskProgress;
 	int queuePauseTime;
-	u32 nonModKeyPressAllowedTime;
-	u32 modKeyChangeAllowedTime;
-	u32 chatBoxEndAllowedTime;
+	int nonModKeyPressAllowedTime;
+	int modKeyChangeAllowedTime;
+	int chatBoxEndAllowedTime;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
-	VectorMap<u8, u32> keysLockedDown;
+	VectorMap<u8, int> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	BitArray<eSpecialKey_MoveNum> stickyMoveKeys;
 	EAutoRunMode autoRunMode;
@@ -483,10 +479,10 @@ struct ZERO_INIT(DispatchTracker)
 	int mouseVelX, mouseVelY;
 	int mouseDigitalVel;
 	int mouseLookAutoRestoreTimer;
-	u32 mouseClickAllowedTime;
-	u32 mouseMoveAllowedTime;
-	u32 mouseJumpAllowedTime;
-	u32 mouseJumpFinishedTime;
+	int mouseClickAllowedTime;
+	int mouseMoveAllowedTime;
+	int mouseJumpAllowedTime;
+	int mouseJumpFinishedTime;
 	bool mouseJumpToHotspot;
 	bool mouseJumpAttempted;
 	bool mouseJumpVerified;
@@ -517,7 +513,7 @@ static DispatchTracker sTracker;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static void fireSignal(u16 aSignalID)
+static void fireSignal(int aSignalID)
 {
 	gFiredSignals.set(aSignalID);
 	switch(aSignalID - InputMap::specialKeySignalID(ESpecialKey(0)))
@@ -553,12 +549,12 @@ static EResult popNextStringChar(const char* theString)
 {
 	// Strings should start with '/' or '>'
 	DBG_ASSERT(theString && (theString[0] == '/' || theString[0] == '>'));
-	DBG_ASSERT(sTracker.currTaskProgress <= strlen(theString));
+	DBG_ASSERT(size_t(sTracker.currTaskProgress) <= strlen(theString));
 
 	if( theString[sTracker.currTaskProgress] == '\0' )
 		return eResult_TaskCompleted;
 
-	const size_t idx = sTracker.currTaskProgress++;
+	const int idx = sTracker.currTaskProgress++;
 	const u16 kPasteKey = InputMap::keyForSpecialAction(eSpecialKey_PasteText);
 
 	if( theString[idx] == '/' || theString[idx] == '>' )
@@ -624,7 +620,7 @@ static EResult popNextStringChar(const char* theString)
 			CloseClipboard();
 
 			// Jump progress to the character just before eol char
-			sTracker.currTaskProgress += u32(aStr.size());
+			sTracker.currTaskProgress += intSize(aStr.size());
 			--sTracker.currTaskProgress;
 		}
 	}
@@ -668,10 +664,13 @@ static EResult popNextStringChar(const char* theString)
 static EResult popNextKey(const u8* theVKeySequence)
 {
 	DBG_ASSERT(sTracker.nextQueuedKey == 0);
+	DBG_ASSERT(sTracker.currTaskProgress >= 0);
+	DBG_ASSERT(size_t(sTracker.currTaskProgress) <=
+		strlen((char*)theVKeySequence));
 
 	while(theVKeySequence[sTracker.currTaskProgress] != '\0')
 	{
-		const size_t idx = sTracker.currTaskProgress++;
+		const int idx = sTracker.currTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];
 
 		if( aVKey == kVKeyTriggerKeyBind )
@@ -679,7 +678,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			// Special 3-byte sequence to execute a key bind
 			u8 c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
-			u16 aKeyBindID = (c & 0x7F) << 7;
+			int aKeyBindID = (c & 0x7F) << 7;
 			c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			aKeyBindID |= (c & 0x7F);
@@ -696,7 +695,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			// Special 3-byte sequence to add a forced pause
 			u8 c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
-			u16 aDelay = (c & 0x7F) << 7;
+			int aDelay = (c & 0x7F) << 7;
 			c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			aDelay |= (c & 0x7F);
@@ -713,7 +712,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			// Special 3-byte sequence to cause mouse cursor jump to hotspot
 			u8 c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
-			u16 aHotspotID = (c & 0x7F) << 7;
+			int aHotspotID = (c & 0x7F) << 7;
 			c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			aHotspotID |= (c & 0x7F);
@@ -788,10 +787,9 @@ static EResult popNextKey(const u8* theVKeySequence)
 }
 
 
-static bool isMouseButton(u16 theVKey)
+static bool isMouseButton(int theVKey)
 {
-	const u8 aBaseVKey = u8(theVKey & kVKeyMask);
-	switch(aBaseVKey)
+	switch(theVKey & kVKeyMask)
 	{
 	case VK_LBUTTON:
 	case VK_MBUTTON:
@@ -802,8 +800,9 @@ static bool isMouseButton(u16 theVKey)
 }
 
 
-static bool isModKey(u8 theBaseVKey)
+static bool isModKey(int theBaseVKey)
 {
+	DBG_ASSERT(!(theBaseVKey & ~kVKeyMask));
 	switch(theBaseVKey)
 	{
 	case VK_SHIFT:
@@ -816,9 +815,9 @@ static bool isModKey(u8 theBaseVKey)
 }
 
 
-static u16 modKeysHeldAsFlags()
+static int modKeysHeldAsFlags()
 {
-	u16 result = 0;
+	int result = 0;
 	if( sTracker.keysHeldDown.test(VK_SHIFT) )
 		result |= kVKeyShiftFlag;
 	if( sTracker.keysHeldDown.test(VK_CONTROL) )
@@ -832,14 +831,14 @@ static u16 modKeysHeldAsFlags()
 }
 
 
-static bool requiredModKeysAreAlreadyHeld(u16 theVKey)
+static bool requiredModKeysAreAlreadyHeld(int theVKey)
 {
 	return
 		(theVKey & kVKeyModsMask) == modKeysHeldAsFlags();
 }
 
 
-static bool isSafeAsyncKey(u16 theVKey)
+static bool isSafeAsyncKey(int theVKey)
 {
 	// These are keys that can be pressed while typing in a macro into the
 	// chat box, without interfering with the typing, and with the given key
@@ -866,12 +865,11 @@ static bool isSafeAsyncKey(u16 theVKey)
 		return false;
 
 	// Which are safe async keys depend on the game, so use Profile data
-	const u8 aBaseVkey = u8(theVKey & kVKeyMask);
 	return
 		std::binary_search(
 			kConfig.safeAsyncKeys.begin(),
 			kConfig.safeAsyncKeys.end(),
-			aBaseVkey);
+			theVKey & kVKeyMask);
 }
 
 
@@ -993,7 +991,7 @@ static bool verifyCursorJumpedTo(const Hotspot& theDestHotspot)
 
 	if( !sTracker.mouseJumpVerified )
 	{
-		static u8 sFailedJumpAttemptsInARow = 0;
+		static int sFailedJumpAttemptsInARow = 0;
 		const POINT& aDestPos =
 			WindowManager::hotspotToOverlayPos(theDestHotspot);
 		const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
@@ -1072,8 +1070,9 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 
 	if( sTracker.mouseInterpolateRestart )
 	{
-		const int aDistance =
-			sqrt(float(sTrailDistX) * sTrailDistX + sTrailDistY * sTrailDistY);
+		const int aDistance = int(sqrt(
+			double(sTrailDistX) * sTrailDistX +
+			double(sTrailDistY) * sTrailDistY));
 		sTrailTime = clamp(aDistance, kMinTrailTime, kMaxTrailTime);
 		sTracker.mouseInterpolateRestart = false;
 	}
@@ -1087,10 +1086,10 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 	}
 	else
 	{
-		float anInterpTime = 1.0 - (float(aTrailTimePassed) / sTrailTime);
+		double anInterpTime = 1.0 - (double(aTrailTimePassed) / sTrailTime);
 		anInterpTime = 1.0 - (anInterpTime * anInterpTime);
-		aNewPos.x += sTrailDistX * anInterpTime;
-		aNewPos.y += sTrailDistY * anInterpTime;
+		aNewPos.x += LONG(sTrailDistX * anInterpTime);
+		aNewPos.y += LONG(sTrailDistY * anInterpTime);
 	}
 
 	if( aNewPos.x == sStartPosX + sTrailDistX &&
@@ -1309,17 +1308,18 @@ static EMouseMode getmouseModeWanted()
 }
 
 
-static void lockKeyDownFor(u8 theBaseVKey, u32 theLockTime)
+static void lockKeyDownFor(int theBaseVKey, int theLockTime)
 {
-	u32& aLockEndTime = sTracker.keysLockedDown.findOrAdd(theBaseVKey, 0);
+	DBG_ASSERT(!(theBaseVKey & ~kVKeyMask));
+	int& aLockEndTime = sTracker.keysLockedDown.findOrAdd(u8(theBaseVKey), 0);
 	aLockEndTime = max(aLockEndTime, gAppRunTime + theLockTime);
 }
 
 
-static bool keyIsLockedDown(u8 theBaseVKey)
+static bool keyIsLockedDown(int theBaseVKey)
 {
-	VectorMap<u8, u32>::iterator itr =
-		sTracker.keysLockedDown.find(theBaseVKey);
+	VectorMap<u8, int>::iterator itr =
+		sTracker.keysLockedDown.find(dropTo<u8>(theBaseVKey));
 	if( itr == sTracker.keysLockedDown.end() )
 		return false;
 	if( gAppRunTime < itr->second )
@@ -1329,7 +1329,7 @@ static bool keyIsLockedDown(u8 theBaseVKey)
 }
 
 
-static EResult setKeyDown(u16 theKey, bool down)
+static EResult setKeyDown(int theKey, bool down)
 {
 	// No flags should be set on key (break combo keys into individual keys!)
 	DBG_ASSERT(!(theKey & ~kVKeyMask));
@@ -1343,14 +1343,14 @@ static EResult setKeyDown(u16 theKey, bool down)
 
 	// May not be allowed to press non-mod keys yet
 	if( down && !sTracker.typingChatBoxString &&
-		!isModKey(u8(theKey)) &&
+		!isModKey(theKey) &&
 		gAppRunTime < sTracker.nonModKeyPressAllowedTime )
 	{
 		return eResult_NotAllowed;
 	}
 
 	// May not be allowed to press or release any mod keys yet
-	if( isModKey(u8(theKey)) && !sTracker.typingChatBoxString &&
+	if( isModKey(theKey) && !sTracker.typingChatBoxString &&
 		gAppRunTime < sTracker.modKeyChangeAllowedTime )
 	{
 		return eResult_NotAllowed;
@@ -1362,11 +1362,11 @@ static EResult setKeyDown(u16 theKey, bool down)
  		return eResult_NotAllowed;
 
 	// May not be allowed to release the given key yet
-	if( !down && keyIsLockedDown(u8(theKey)) )
+	if( !down && keyIsLockedDown(theKey) )
  		return eResult_NotAllowed;
 
 	Input anInput;
-	u32 aLockDownTime = kConfig.baseKeyReleaseLockTime;
+	int aLockDownTime = kConfig.baseKeyReleaseLockTime;
 	switch(theKey)
 	{
 	case kVKeyModKeyOnlyBase:
@@ -1405,7 +1405,7 @@ static EResult setKeyDown(u16 theKey, bool down)
 		// fall through
 	default:
 		anInput.type = INPUT_KEYBOARD;
-		anInput.ki.wVk = theKey;
+		anInput.ki.wVk = dropTo<WORD>(theKey);
 		anInput.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
 		break;
 	}
@@ -1414,8 +1414,8 @@ static EResult setKeyDown(u16 theKey, bool down)
 	sTracker.keysHeldDown.set(theKey, down);
 	if( down )
 	{
-		lockKeyDownFor(u8(theKey), aLockDownTime);
-		if( !isModKey(u8(theKey)) && !sTracker.typingChatBoxString )
+		lockKeyDownFor(theKey, aLockDownTime);
+		if( !isModKey(theKey) && !sTracker.typingChatBoxString )
 		{
 			sTracker.modKeyChangeAllowedTime =
 				gAppRunTime + kConfig.minModKeyChangeTime;
@@ -1459,7 +1459,7 @@ static EResult setKeyDown(u16 theKey, bool down)
 }
 
 
-static bool tryQuickReleaseHeldKey(u16 theVKey, KeyWantDownStatus& theStatus)
+static bool tryQuickReleaseHeldKey(int theVKey, KeyWantDownStatus& theStatus)
 {
 	// If multiple gamepad buttons are tied to the same key and more than one
 	// is held down, we "release" the key by just decrementing a counter
@@ -1469,7 +1469,7 @@ static bool tryQuickReleaseHeldKey(u16 theVKey, KeyWantDownStatus& theStatus)
 		return true;
 	}
 
-	const u8 aBaseVKey = u8(theVKey & kVKeyMask);
+	const int aBaseVKey = theVKey & kVKeyMask;
 	DBG_ASSERT((theVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
 	DBG_ASSERT(aBaseVKey);
 
@@ -1495,8 +1495,8 @@ static bool tryQuickReleaseHeldKey(u16 theVKey, KeyWantDownStatus& theStatus)
 		// If find another entry wants this same base key to stay down,
 		// don't actually release the key but act as if did so, and let
 		// the other entry actually release the key when it is done.
-		const u16 aTestVKey = itr->first & (kVKeyMask | kVKeyModsMask);
-		const u8 aTestBaseVKey = u8(aTestVKey & kVKeyMask);
+		const int aTestVKey = itr->first & (kVKeyMask | kVKeyModsMask);
+		const int aTestBaseVKey = aTestVKey & kVKeyMask;
 
 		if( aTestVKey != theVKey &&
 			aTestBaseVKey == aBaseVKey &&
@@ -1523,7 +1523,7 @@ static bool tryQuickReleaseHeldKey(u16 theVKey, KeyWantDownStatus& theStatus)
 
 static void debugPrintInputVector()
 {
-	static u32 sUpdateCount = 0;
+	static int sUpdateCount = 0;
 	++sUpdateCount;
 #ifndef NDEBUG
 #ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
@@ -1531,7 +1531,7 @@ static void debugPrintInputVector()
 	(strFormat("InputDispatcher: On update %d (%dms): ", \
 	sUpdateCount, gAppRunTime) + fmt).c_str(), __VA_ARGS__)
 
-	for(size_t i = 0; i < sTracker.inputs.size(); ++i)
+	for(int i = 0, end = intSize(sTracker.inputs.size()); i < end; ++i)
 	{
 		Input anInput = sTracker.inputs[i];
 		if( anInput.type == INPUT_MOUSE )
@@ -1556,7 +1556,7 @@ static void debugPrintInputVector()
 				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
 				{
 					siPrint("Mouse wheel: %.02f steps\n",
-						float(-int(anInput.mi.mouseData)) / WHEEL_DELTA);
+						double(-int(anInput.mi.mouseData)) / WHEEL_DELTA);
 				}
 				#endif
 				break;
@@ -1605,12 +1605,12 @@ static void flushInputVector()
 		#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 		if( kConfig.useScanCodes )
 		{// Convert Virtual-Key Codes into scan codes
-			for(size_t i = 0; i < sTracker.inputs.size(); ++i)
+			for(int i = 0, end = intSize(sTracker.inputs.size()); i < end; ++i)
 			{
 				if( sTracker.inputs[i].type == INPUT_KEYBOARD )
 				{
-					sTracker.inputs[i].ki.wScan =
-						MapVirtualKey(sTracker.inputs[i].ki.wVk, 0);
+					sTracker.inputs[i].ki.wScan = dropTo<WORD>(0xFFFF &
+						MapVirtualKey(sTracker.inputs[i].ki.wVk, 0));
 					switch(sTracker.inputs[i].ki.wVk)
 					{
 					case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
@@ -1647,9 +1647,10 @@ void loadProfile()
 
 void loadProfileChanges()
 {
-	if( Profile::changedSections().contains("GAMEPAD") ||
-		Profile::changedSections().contains("MOUSE") ||
-		Profile::changedSections().contains("SYSTEM") )
+	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
+	if( theProfileMap.contains("Gamepad") ||
+		theProfileMap.contains("Mouse") ||
+		theProfileMap.contains("System") )
 	{
 		kConfig.load();
 	}
@@ -1663,7 +1664,7 @@ void cleanup()
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		setKeyDown(u16(aVKey), false);
+		setKeyDown(aVKey, false);
 	}
 	sTracker.keysHeldDown.reset();
 	sTracker.keysWantDown.clear();
@@ -1689,7 +1690,7 @@ void forceReleaseHeldKeys()
 		aVKey < sTracker.keysHeldDown.size();
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
-		setKeyDown(u16(aVKey), false);
+		setKeyDown(aVKey, false);
 	}
 	if( sTracker.mouseMode != eMouseMode_Cursor )
 	{
@@ -1967,7 +1968,7 @@ void update()
 				{
 					aKeyStatus.depth = 0;
 					aKeyStatus.pressed = false;
-					sTracker.nextQueuedKey = aCmd.vKey | kVKeyReleaseFlag;
+					sTracker.nextQueuedKey = u16(aCmd.vKey | kVKeyReleaseFlag);
 				}
 			}
 			break;
@@ -2077,15 +2078,15 @@ void update()
 		aDesiredKeysDown.set(VK_LBUTTON);
 	}
 	bool hasNonPressedKeyThatWantsHeldDown = false;
-	u16 aPressedKeysDesiredMods = 0;
+	int aPressedKeysDesiredMods = 0;
 	for(KeysWantDownMap::iterator itr =
 		sTracker.keysWantDown.begin(), next_itr = itr;
 		itr != sTracker.keysWantDown.end(); itr = next_itr)
 	{
 		++next_itr;
-		const u16 aVKey = itr->first;
-		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
-		const u16 aVKeyModFlags = aVKey & kVKeyModsMask;
+		const int aVKey = itr->first;
+		const int aBaseVKey = aVKey & kVKeyMask;
+		const int aVKeyModFlags = aVKey & kVKeyModsMask;
 		const bool pressed = itr->second.pressed;
 
 		if( itr->second.depth <= 0 )
@@ -2142,7 +2143,7 @@ void update()
 		{
 			DBG_ASSERT(!sTracker.chatBoxActive);
 			sTracker.backupQueuedKey = sTracker.nextQueuedKey;
-			sTracker.nextQueuedKey = aVKey | kVKeyHoldFlag;
+			sTracker.nextQueuedKey = dropTo<u16>(aVKey | kVKeyHoldFlag);
 			hasNonPressedKeyThatWantsHeldDown = true;
 			continue;
 		}
@@ -2192,8 +2193,8 @@ void update()
 	}
 	if( readyForQueuedKey )
 	{
-		const u16 aVKey = sTracker.nextQueuedKey;
-		const u8 aBaseVKey = u8(aVKey & kVKeyMask);
+		const int aVKey = sTracker.nextQueuedKey;
+		const int aBaseVKey = aVKey & kVKeyMask;
 		DBG_ASSERT(aBaseVKey != 0); // otherwise somehow got flags but no key!
 		const bool press = !(aVKey & kVKeyReleaseFlag);
 		const bool forced = !press && (aVKey & kVKeyHoldFlag);
@@ -2278,19 +2279,20 @@ void update()
 		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
 	{
 		if( !aDesiredKeysDown.test(aVKey) )
-			setKeyDown(u8(aVKey), false);
+			setKeyDown(aVKey, false);
 	}
-	const u16 aModKeysHeldAsFlags = modKeysHeldAsFlags();
+	const int aModKeysHeldAsFlags = modKeysHeldAsFlags();
 	for(int aVKey = aDesiredKeysDown.firstSetBit();
 		aVKey < aDesiredKeysDown.size();
 		aVKey = aDesiredKeysDown.nextSetBit(aVKey+1))
 	{
 		if( !sTracker.keysHeldDown.test(aVKey) &&
-			setKeyDown(u8(aVKey), true) == eResult_Ok )
+			setKeyDown(aVKey, true) == eResult_Ok )
 		{
-			const u16 keyJustPressed = u16(aVKey) | aModKeysHeldAsFlags;
+			const u16 aKeyJustPressed =
+				u16((aVKey & 0xFFFF) | aModKeysHeldAsFlags);
 			KeysWantDownMap::iterator itr =
-				sTracker.keysWantDown.find(keyJustPressed);
+				sTracker.keysWantDown.find(aKeyJustPressed);
 			if( itr != sTracker.keysWantDown.end() )
 				itr->second.pressed = true;
 		}
@@ -2313,8 +2315,8 @@ void update()
 	// ---------------
 	if( readyForQueuedKey )
 	{
-		u16 aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
-		u8 aVKeyBase = u8(aVKey & kVKeyMask);
+		int aVKey = sTracker.nextQueuedKey & (kVKeyMask | kVKeyModsMask);
+		int aVKeyBase = aVKey & kVKeyMask;
 		const bool wantRelease = !!(sTracker.nextQueuedKey & kVKeyReleaseFlag);
 
 		if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
@@ -2340,14 +2342,14 @@ void update()
 			else if( wantHold )
 			{// Flag key as having been pressed
 				KeysWantDownMap::iterator itr =
-					sTracker.keysWantDown.find(aVKey);
+					sTracker.keysWantDown.find(dropTo<u16>(aVKey));
 				if( itr != sTracker.keysWantDown.end() )
 					itr->second.pressed = true;
 			}
 			else if( isMouseButton(aVKeyBase) )
 			{// Mouse button that wanted to be "clicked" once in a sequence
 				// Should release the mouse button for next queued key action
-				sTracker.nextQueuedKey = aVKey | kVKeyReleaseFlag;
+				sTracker.nextQueuedKey = dropTo<u16>(aVKey | kVKeyReleaseFlag);
 				if( sTracker.mouseMode == eMouseMode_PostJump )
 				{// If jumped first then clicked, next restore previous pos
 					sTracker.mouseMode = eMouseMode_JumpClicked;
@@ -2366,8 +2368,8 @@ void update()
 void sendKeyCommand(const Command& theCommand)
 {
 	// These values only valid for certain command types
-	const u16 aVKey = theCommand.vKey;
-	const u8 aBaseVKey = u8(aVKey & kVKeyMask);
+	const int aVKey = theCommand.vKey;
+	const int aBaseVKey = aVKey & kVKeyMask;
 
 	switch(theCommand.type)
 	{
@@ -2385,7 +2387,7 @@ void sendKeyCommand(const Command& theCommand)
 		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
 		{// Queue or try to press immediately
 			KeyWantDownStatus& aKeyStatus =
-				sTracker.keysWantDown.findOrAdd(aVKey);
+				sTracker.keysWantDown.findOrAdd(dropTo<u16>(aVKey));
 			if( isSafeAsyncKey(aVKey) && aKeyStatus.queued <= 0 )
 			{// Can possibly press right away
 				if( aKeyStatus.depth > 0 )
@@ -2412,7 +2414,7 @@ void sendKeyCommand(const Command& theCommand)
 		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
 		{// Queue or try to press immediately
 			KeyWantDownStatus& aKeyStatus =
-				sTracker.keysWantDown.findOrAdd(aVKey);
+				sTracker.keysWantDown.findOrAdd(dropTo<u16>(aVKey));
 			if( aKeyStatus.queued <= 0 )
 			{// Try releasing the key right away instead of queueing it
 				if( tryQuickReleaseHeldKey(aVKey, aKeyStatus) )
@@ -2566,8 +2568,8 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 		}
 
 		// Convert back into integer dx & dy w/ 32,768 range
-		dx = 32768.0 * aMagnitude * cos(anAngle);
-		dy = 32768.0 * aMagnitude * sin(anAngle);
+		dx = int(32768.0 * aMagnitude * cos(anAngle));
+		dy = int(32768.0 * aMagnitude * sin(anAngle));
 
 		// Apply speed setting
 		const int kCursorXSpeed = kForMouseLook
@@ -2588,7 +2590,7 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 		{
 			aMagnitude -= kConfig.moveLookDeadzone;
 			aMagnitude = min(aMagnitude / kConfig.moveLookRange, 1.0);
-			lookX = 32768.0 * (lookX < 0 ? -aMagnitude : aMagnitude);
+			lookX = int(32768.0 * (lookX < 0 ? -aMagnitude : aMagnitude));
 			lookX = lookX * kConfig.moveLookSpeed;
 			lookX = lookX / kMouseMaxSpeed * gAppFrameTime;
 			dx += lookX;
@@ -2658,23 +2660,25 @@ void moveMouseTo(const Command& theCommand)
 			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
 		{
 			// Counter effect of gWindowUIScale on base jump distance
-			const s16 anOffsetDist =
+			const int anOffsetDist = int(
 				gWindowUIScale < 1.0
 					? ceil(kConfig.offsetHotspotDist / gWindowUIScale) :
 				gWindowUIScale > 1.0
 					? floor(kConfig.offsetHotspotDist / gWindowUIScale) :
-				kConfig.offsetHotspotDist;
+				kConfig.offsetHotspotDist);
+			int aDestHotspotXOffset = aDestHotspot.x.offset;
+			int aDestHotspotYOffset = aDestHotspot.y.offset;
 			switch(theCommand.dir)
 			{
 			case eCmd8Dir_L:
 			case eCmd8Dir_UL:
 			case eCmd8Dir_DL:
-				aDestHotspot.x.offset -= anOffsetDist;
+				aDestHotspotXOffset -= anOffsetDist;
 				break;
 			case eCmd8Dir_R:
 			case eCmd8Dir_UR:
 			case eCmd8Dir_DR:
-				aDestHotspot.x.offset += anOffsetDist;
+				aDestHotspotXOffset += anOffsetDist;
 				break;
 			}
 			switch(theCommand.dir)
@@ -2682,14 +2686,18 @@ void moveMouseTo(const Command& theCommand)
 			case eCmd8Dir_U:
 			case eCmd8Dir_UL:
 			case eCmd8Dir_UR:
-				aDestHotspot.y.offset -= anOffsetDist;
+				aDestHotspotYOffset -= anOffsetDist;
 				break;
 			case eCmd8Dir_D:
 			case eCmd8Dir_DL:
 			case eCmd8Dir_DR:
-				aDestHotspot.y.offset += anOffsetDist;
+				aDestHotspotYOffset += anOffsetDist;
 				break;
 			}
+			aDestHotspot.x.offset = s16(clamp(
+				aDestHotspotXOffset, -0x8000, 0x7FFF));
+			aDestHotspot.y.offset = s16(clamp(
+				aDestHotspotYOffset, -0x8000, 0x7FFF));
 		}
 		break;
 	default:
@@ -2726,7 +2734,7 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	}
 
 	// Convert back into integer dy w/ 32,768 range
-	dy = dy < 0 ? (-32768.0 * aMagnitude) : (32768.0 * aMagnitude);
+	dy = dy < 0 ? int(-32768.0 * aMagnitude) : int(32768.0 * aMagnitude);
 
 	// Apply speed setting
 	dy = dy * kConfig.mouseWheelSpeed / kMouseMaxSpeed * gAppFrameTime;
@@ -2763,8 +2771,9 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 }
 
 
-void jumpMouseWheel(ECommandDir theDir, u8 theCount)
+void jumpMouseWheel(ECommandDir theDir, int theCount)
 {
+	DBG_ASSERT(theCount > 0);
 	if( theDir == eCmdDir_Up )
 	{
 		Input anInput;
@@ -3041,7 +3050,8 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			ESpecialKey(aMoveKey + eSpecialKey_FirstMove));
 		if( !aCmd.vKey )
 			aCmd.type = eCmdType_SignalOnly;
-		aCmd.signalID = eBtn_Num + aMoveKey + eSpecialKey_FirstMove;
+		aCmd.signalID = dropTo<u16>(
+			eBtn_Num + aMoveKey + eSpecialKey_FirstMove);
 		if( sTracker.typingChatBoxString && !lock && !autoRun &&
 			aCmd.vKey && !isSafeAsyncKey(aCmd.vKey) &&
 			!isMouseButton(aCmd.vKey) )

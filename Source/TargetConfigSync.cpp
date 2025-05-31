@@ -124,14 +124,14 @@ const char* kValueFormatStringKeys[] =
 };
 DBG_CTASSERT(ARRAYSIZE(kValueFormatStringKeys) == eValueSetSubType_Num);
 
-static const u16 kValueSetFirstIdx[] =
+static const int kValueSetFirstIdx[] =
 {
 	eValueSetSubType_Base,				// eValueSetType_Single
 	eValueSetSubType_UIWindow_First,	// eValueSetType_UIWindow
 };
 DBG_CTASSERT(ARRAYSIZE(kValueSetFirstIdx) == eValueSetType_Num);
 
-static const u16 kValueSetLastIdx[] =
+static const int kValueSetLastIdx[] =
 {
 	eValueSetSubType_Base,				// eValueSetType_Single
 	eValueSetSubType_UIWindow_Last,		// eValueSetType_UIWindow
@@ -206,7 +206,7 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 				{ "SCALING",	eValueFunc_Scale	},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
-			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+			for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
 				map.setValue(kEntries[i].str, kEntries[i].val);
 		}
 	};
@@ -232,9 +232,9 @@ struct ZERO_INIT(SyncProperty)
 	std::string section, name, valueFormat;
 	struct Segment
 	{
-		std::string::size_type insertPos;
-		EValueFunction funcType;
-		u16 valueSetID;
+		int insertPos;
+		EValueFunction funcType : 16;
+		int valueSetID : 16;
 	};
 	std::vector<Segment> valueInserts;
 	BitVector<64> valueSetsUsed;
@@ -253,7 +253,7 @@ struct ZERO_INIT(DataSource)
 	ValueLinkMap values;
 	EConfigDataFormat format;
 	EDataSourceType type;
-	union { u16 fileID; u16 regValID; };
+	union { int fileID; int regValID; };
 };
 
 struct ZERO_INIT(ConfigFile)
@@ -285,9 +285,9 @@ struct ZERO_INIT(SystemRegistryKey)
 struct TargetConfigSyncBuilder
 {
 	std::vector<ValueLinkMap> valueLinkMaps;
-	StringToValueMap<u16> nameToLinkMapID;
-	StringToValueMap<u16, u16, true> pathToLinkMapID;
-	StringToValueMap<u16> valueSetNameToIDMap;
+	StringToValueMap<int> nameToLinkMapID;
+	StringToValueMap<int, u16, true> pathToLinkMapID;
+	StringToValueMap<int> valueSetNameToIDMap;
 	std::string valueFormatStrings[eValueSetSubType_Num];
 	std::string debugString;
 };
@@ -328,11 +328,11 @@ static bool sPaused = false;
 class ConfigDataParser
 {
 public:
-	ConfigDataParser(size_t theDataSourceID) :
+	ConfigDataParser(int theDataSourceID) :
 		mDataSourceID(theDataSourceID),
 		mDoneParsing(false)
 	{
-		DBG_ASSERT(theDataSourceID < sDataSources.size());
+		DBG_ASSERT(size_t(theDataSourceID) < sDataSources.size());
 		mUnfound.clearAndResize(sDataSources[theDataSourceID].values.size());
 		mUnfound.set();
 	}
@@ -361,7 +361,7 @@ public:
 	}
 
 	bool done() const { return mDoneParsing; }
-	size_t dataSourceID() const { return mDataSourceID; }
+	int dataSourceID() const { return mDataSourceID; }
 
 protected:
 	bool anyPathsUsePrefix(const std::string& thePrefix) const
@@ -373,21 +373,23 @@ protected:
 		const std::string& thePath,
 		const std::string& theValue)
 	{
-		if( ValueLink* aValuePtr =
-				sDataSources[mDataSourceID].values.find(thePath) )
+		const int aValueLinkID =
+			sDataSources[mDataSourceID].values.findIndex(thePath);
+		if( aValueLinkID < sDataSources[mDataSourceID].values.size() )
 		{
-			sValues[aValuePtr->valueIdx] = doubleFromString(theValue);
-			sChangedValueSets.set(aValuePtr->setIdx);
-			mUnfound.reset(
-				aValuePtr - &sDataSources[mDataSourceID].values.values()[0]);
+			const ValueLink& aValueLink =
+				sDataSources[mDataSourceID].values.vals()[aValueLinkID];
+			sValues[aValueLink.valueIdx] = doubleFromString(theValue);
+			sChangedValueSets.set(aValueLink.setIdx);
+			mUnfound.reset(aValueLinkID);
 			syncDebugPrint("Read path %s value as %f\n",
-				thePath.c_str(), sValues[aValuePtr->valueIdx]);
+				thePath.c_str(), sValues[aValueLink.valueIdx]);
 		}
 		return mUnfound.none();
 	}
 
 protected:
-	const size_t mDataSourceID;
+	const int mDataSourceID;
 	BitVector<512> mUnfound;
 	bool mDoneParsing;
 };
@@ -400,7 +402,7 @@ protected:
 class JSONParser : public ConfigDataParser
 {
 public:
-	JSONParser(size_t theDataSourceID) :
+	JSONParser(int theDataSourceID) :
 		ConfigDataParser(theDataSourceID),
 		mPathsFoundCount()
 	{
@@ -412,11 +414,10 @@ public:
 
 	virtual void parseNextChunk(const std::string& theReadChunk)
 	{
-		std::string::size_type aReadPos = 0;
 		DBG_ASSERT(!mState.empty());
-		while(aReadPos < theReadChunk.size())
+		for(const char* c = theReadChunk.c_str(); *c; ++c)
 		{
-			const char ch = theReadChunk[aReadPos++];
+			const char ch = *c;
 
 			switch(mState.back().type)
 			{
@@ -487,7 +488,7 @@ public:
 					mPath += toString(mState.back().valueIdx);
 					mPath.push_back(']');
 					pushState(eState_ValueType);
-					--aReadPos; // re-read char in _ValueType state
+					--c; // re-read char in _ValueType state
 					break;
 				}
 				break;
@@ -516,7 +517,7 @@ public:
 
 			case eState_ValueType:
 				// Waiting for char indicating type of value
-				if( unsigned(ch) > ' ' )
+				if( u8(ch) > ' ' )
 				{
 					mState.back().type = eState_Value;
 					mReadStr.clear();
@@ -528,8 +529,6 @@ public:
 						return;
 					case '{':
 						pushState(eState_Object);
-						// Special case: Do not skip objects as array elements
-						// until have checked the first key
 						if( !mState.back().skip )
 						{// See if should skip ahead due to no matching prefix
 							// Special case: If are an array element, do not
@@ -566,7 +565,7 @@ public:
 				case '}':
 				case ']':
 					// Re-read this char in parent state later
-					--aReadPos;
+					--c;
 					// fall through
 				case ',':
 					// Special case: For array elements that are objects, if
@@ -596,7 +595,7 @@ public:
 							mPath += mReadStr;
 							mState[mState.size()-1].pathLen =
 								mState[mState.size()-2].pathLen =
-								u32(mPath.size());
+									dropTo<u16>(mPath.size());
 						}
 						// Can now check if this path even matters
 						if( !anyPathsUsePrefix(mPath) )
@@ -645,7 +644,7 @@ public:
 				case ',': case '}': case ']':
 					popState();
 					// Need to have pop'd state process this char
-					--aReadPos;
+					--c;
 					break;
 				case ' ': case '\t': case '\n':
 				case '\r': case '\f': case '\v':
@@ -710,10 +709,10 @@ private:
 	};
 	struct State
 	{
-		EState type;
-		u16 pathLen;
-		u16 valueIdx;
-		bool skip;
+		EState type : 4;
+		u32 skip : 1;
+		u32 pathLen : 13;
+		u32 valueIdx : 14;
 	};
 	std::vector<State> mState;
 	std::string mReadStr; // Key or value currently being read
@@ -725,7 +724,7 @@ private:
 		State aNewState;
 		aNewState.type = theState;
 		aNewState.valueIdx = 0;
-		aNewState.pathLen = u16(mPath.size());
+		aNewState.pathLen = intSize(mPath.size());
 		aNewState.skip = mState.empty() ? false : mState.back().skip;
 		mState.push_back(aNewState);
 	}
@@ -745,7 +744,7 @@ private:
 class INIParser : public ConfigDataParser
 {
 public:
-	INIParser(size_t theDataSourceID) :
+	INIParser(int theDataSourceID) :
 		ConfigDataParser(theDataSourceID)
 	{
 	}
@@ -792,7 +791,7 @@ protected:
 class ConfigFileReader : public ConfigDataReader
 {
 public:
-	ConfigFileReader(size_t theFileID) :
+	ConfigFileReader(int theFileID) :
 		ConfigDataReader(),
 		mFileID(theFileID),
 		mBytesRead(),
@@ -804,7 +803,7 @@ public:
 		mBuffer(),
 		mBufferIdx()
 	{
-		DBG_ASSERT(theFileID < sFiles.size());
+		DBG_ASSERT(size_t(theFileID) < sFiles.size());
 		ConfigFile& aFile = sFiles[theFileID];
 		// Get a file handle that won't block other apps' access to the file
 		mFileLockHandle = CreateFile(
@@ -898,7 +897,7 @@ public:
 		if( mDoneReading )
 			return result;
 
-		DBG_ASSERT(mFileID < sFiles.size());
+		DBG_ASSERT(size_t(mFileID) < sFiles.size());
 		ConfigFile& aFile = sFiles[mFileID];
 
 		// If got OpLock break request abort and try again later
@@ -969,13 +968,13 @@ public:
 
 private:
 
-	const size_t mFileID;
+	const int mFileID;
 	DWORD mBytesRead[2];
 	HANDLE mFileHandle, mFileLockHandle;
 	LARGE_INTEGER mFilePointer;
 	OVERLAPPED mReadOverlapped, mLockOverlapped;
+	int mBufferIdx;
 	u8 mBuffer[2][kConfigFileBufferSize];
-	u8 mBufferIdx;
 };
 
 
@@ -986,7 +985,7 @@ private:
 class SystemRegistryValueReader : public ConfigDataReader
 {
 public:
-	SystemRegistryValueReader(size_t theRegValID) :
+	SystemRegistryValueReader(int theRegValID) :
 		ConfigDataReader(),
 		mRegValID(theRegValID),
 		mParsePos()
@@ -1156,15 +1155,15 @@ public:
 		if( mDoneReading )
 			return result;
 
-		DBG_ASSERT(mParsePos < mValueData.size());
+		DBG_ASSERT(size_t(mParsePos) < mValueData.size());
 
 		// Return the previously read-in data for parsing
-		const size_t aBytesToRead = min(
-			mValueData.size() - mParsePos,
-			size_t(kConfigFileBufferSize));
+		const int aBytesToRead = min(
+			intSize(mValueData.size()) - mParsePos,
+			int(kConfigFileBufferSize));
 		result.assign((char*)&mValueData[mParsePos], aBytesToRead);
 		mParsePos += aBytesToRead;
-		if( mParsePos >= mValueData.size() )
+		if( mParsePos >= intSize(mValueData.size()) )
 			mDoneReading = true;
 
 		syncDebugPrint(
@@ -1185,9 +1184,9 @@ public:
 	}
 
 private:
-	static const size_t kTimestampMarkerSize = 4;
-	static const size_t kTimestampSize = sizeof(u64);
-	static const size_t kTimestampSuffixSize =
+	static const int kTimestampMarkerSize = 4;
+	static const int kTimestampSize = sizeof(u64);
+	static const int kTimestampSuffixSize =
 		kTimestampMarkerSize + sizeof(u64) + 1 /* traling null */;
 
 	u64 extractTimestamp(const std::vector<BYTE>& theData) const
@@ -1196,9 +1195,9 @@ private:
 		if( theData.size() <= 1 + kTimestampSuffixSize )
 			return result;
 
-		const size_t kTimestampOffset = theData.size() -
+		const int kTimestampOffset = intSize(theData.size()) -
 			(1 + kTimestampSize);
-		const size_t kMarkerOffset = theData.size() -
+		const int kMarkerOffset = intSize(theData.size()) -
 			(1 + kTimestampSize + kTimestampMarkerSize);
 
 		if( theData.back() != '\0' || theData[kMarkerOffset - 1] != '\0')
@@ -1230,8 +1229,8 @@ private:
 		return true;
 	}
 
-	const size_t mRegValID;
-	size_t mParsePos;
+	const int mRegValID;
+	int mParsePos;
 	std::vector<BYTE> mValueData;
 	std::vector<WCHAR> mResolvedValueName;
 };
@@ -1314,7 +1313,7 @@ static HKEY getRootKeyHandle(const std::string& root)
 static bool setFetchValueFromDataSource(
 	TargetConfigSyncBuilder& theBuilder,
 	const std::string& theSubstituteStr,
-	const u16 theDestValueSetID,
+	const int theDestValueSetID,
 	const EValueSetType theValueSetType,
 	const EValueSetSubType theDestValueSetSubType)
 {
@@ -1401,7 +1400,7 @@ static bool setFetchValueFromDataSource(
 			aConfigDataPath.c_str(), theBuilder.debugString.c_str());
 		return false;
 	}
-	u16* const aValueLinkMapID =
+	int* const aValueLinkMapID =
 		theBuilder.nameToLinkMapID.find(aDataSourceKey);
 	if( !aValueLinkMapID )
 	{
@@ -1414,12 +1413,13 @@ static bool setFetchValueFromDataSource(
 
 	// Set this key's path as a value to look for when parsing this data
 	ValueLink aDestValue;
-	aDestValue.setIdx = theDestValueSetID;
-	aDestValue.valueIdx =
+	aDestValue.setIdx = dropTo<u16>(theDestValueSetID);
+	aDestValue.valueIdx = dropTo<u16>(
 		sValueSets[theDestValueSetID] +
 		theDestValueSetSubType -
-		kValueSetFirstIdx[theValueSetType];
-	DBG_ASSERT(*aValueLinkMapID < theBuilder.valueLinkMaps.size());
+		kValueSetFirstIdx[theValueSetType]);
+	DBG_ASSERT(*aValueLinkMapID >= 0);
+	DBG_ASSERT(*aValueLinkMapID < intSize(theBuilder.valueLinkMaps.size()));
 	theBuilder.valueLinkMaps[*aValueLinkMapID].setValue(
 		aConfigDataPath, aDestValue);
 	return true;
@@ -1436,10 +1436,10 @@ static bool setConfigValueLinks(
 	thePropSegment.valueSetID =
 		theBuilder.valueSetNameToIDMap.findOrAdd(
 			theConfigFileValueName,
-			u16(sValueSets.size()));
-	if( thePropSegment.valueSetID >= sValueSets.size() )
+			intSize(sValueSets.size()));
+	if( thePropSegment.valueSetID >= intSize(sValueSets.size()) )
 	{
-		sValueSets.push_back(u16(sValues.size()));
+		sValueSets.push_back(dropTo<u16>(sValues.size()));
 		sValues.resize(sValues.size() +
 			kValueSetLastIdx[theValueSetType] -
 			kValueSetFirstIdx[theValueSetType] + 1,
@@ -1525,7 +1525,7 @@ static void parsePropertyValueTags(
 		// Remove the tag from the description string
 		theDesc.replace(aTagCoords.first, aTagCoords.second, "");
 		// Note the insertion point for later replacement
-		aSegment.insertPos = aTagCoords.first;
+		aSegment.insertPos = intSize(aTagCoords.first);
 		// Get function identifier (empty is valid as "base" function)
 		const std::string& aFuncName = breakOffItemBeforeChar(aTag, ':');
 		aSegment.funcType = valueFuncNameToID(aFuncName);
@@ -1667,7 +1667,7 @@ static double getSubTypeValue(
 
 static std::string getValueInsertString(
 	EValueFunction theFunction,
-	u16 theValueSet)
+	int theValueSet)
 {
 	// Get an array pointer to the value that EValueSetSubType(0) would return
 	// (note this means v could end up pointing before the beginning of the
@@ -1706,9 +1706,9 @@ static std::string getValueInsertString(
 	case eValueFunc_Left:
 		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
 		{
-			const int anOffset =
+			const int anOffset = int(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
-				getSubTypeValue(v, eValueSetSubType_PivotX);
+				getSubTypeValue(v, eValueSetSubType_PivotX));
 			if( anOffset )
 			{
 				if( anOffset > 0 ) result += "+";
@@ -1719,9 +1719,9 @@ static std::string getValueInsertString(
 	case eValueFunc_Top:
 		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
 		{
-			const int anOffset =
+			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
-				getSubTypeValue(v, eValueSetSubType_PivotY);
+				getSubTypeValue(v, eValueSetSubType_PivotY));
 			if( anOffset )
 			{
 				if( anOffset > 0 ) result += "+";
@@ -1732,10 +1732,10 @@ static std::string getValueInsertString(
 	case eValueFunc_CX:
 		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
 		{
-			const int anOffset =
+			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
 				getSubTypeValue(v, eValueSetSubType_PivotX) +
-				getSubTypeValue(v, eValueSetSubType_SizeX) * 0.5;
+				getSubTypeValue(v, eValueSetSubType_SizeX) * 0.5);
 			if( anOffset )
 			{
 				if( anOffset > 0 ) result += "+";
@@ -1746,10 +1746,10 @@ static std::string getValueInsertString(
 	case eValueFunc_CY:
 		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
 		{
-			const int anOffset =
+			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
 				getSubTypeValue(v, eValueSetSubType_PivotY) +
-				getSubTypeValue(v, eValueSetSubType_SizeY) * 0.5;
+				getSubTypeValue(v, eValueSetSubType_SizeY) * 0.5);
 			if( anOffset )
 			{
 				if( anOffset > 0 ) result += "+";
@@ -1760,10 +1760,10 @@ static std::string getValueInsertString(
 	case eValueFunc_Right:
 		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
 		{
-			const int anOffset =
+			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
 				getSubTypeValue(v, eValueSetSubType_PivotX) +
-				getSubTypeValue(v, eValueSetSubType_SizeX);
+				getSubTypeValue(v, eValueSetSubType_SizeX));
 			if( anOffset )
 			{
 				if( anOffset > 0 ) result += "+";
@@ -1774,10 +1774,10 @@ static std::string getValueInsertString(
 	case eValueFunc_Bottom:
 		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
 		{
-			const int anOffset =
+			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
 				getSubTypeValue(v, eValueSetSubType_PivotY) +
-				getSubTypeValue(v, eValueSetSubType_SizeY);
+				getSubTypeValue(v, eValueSetSubType_SizeY));
 			if( anOffset )
 			{
 				if( anOffset > 0 ) result += "+";
@@ -1845,12 +1845,12 @@ void load()
 		aBuilder.nameToLinkMapID.reserve(aPropMap.size());
 		aBuilder.pathToLinkMapID.reserve(aPropMap.size());
 		aBuilder.valueLinkMaps.reserve(aPropMap.size());
-		for(size_t i = 0; i < aPropMap.size(); ++i)
+		for(int i = 0; i < aPropMap.size(); ++i)
 		{
-			const u16 aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
+			const int aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
 				normalizedPath(aPropMap.vals()[i].str),
-				u16(aBuilder.valueLinkMaps.size()));
-			if( aLinkMapID >= aBuilder.valueLinkMaps.size() )
+				intSize(aBuilder.valueLinkMaps.size()));
+			if( aLinkMapID >= intSize(aBuilder.valueLinkMaps.size()) )
 				aBuilder.valueLinkMaps.push_back(ValueLinkMap());
 			aBuilder.nameToLinkMapID.setValue(
 				aPropMap.keys()[i], aLinkMapID);
@@ -1858,7 +1858,7 @@ void load()
 	}
 
 	// Fetch value path formating data
-	for(size_t i = 0; i < eValueSetSubType_Num; ++i)
+	for(int i = 0; i < eValueSetSubType_Num; ++i)
 	{
 		aBuilder.valueFormatStrings[i] = Profile::getStr(
 			kValueFormatStrSectionName,
@@ -1872,7 +1872,7 @@ void load()
 	{// Fetch sync property values to read from the data sources
 		const Profile::PropertyMap& aPropMap =
 			Profile::getSectionProperties(kSyncPropertiesSectionName);
-		for(size_t i = 0; i < aPropMap.size(); ++i)
+		for(int i = 0; i < aPropMap.size(); ++i)
 		{
 			aBuilder.debugString = aPropMap.keys()[i];
 			aBuilder.debugString += " = ";
@@ -1902,13 +1902,14 @@ void load()
 	aBuilder.nameToLinkMapID.clear();
 
 	// Prepare data sources for reading and monitoring for changes
-	StringToValueMap<u16> aFolderPathToIdxMap;
-	StringToValueMap<u16> aRegKeyPathToIdxMap;
-	for(size_t i = 0; i < aBuilder.pathToLinkMapID.size(); ++i)
+	StringToValueMap<int> aFolderPathToIdxMap;
+	StringToValueMap<int> aRegKeyPathToIdxMap;
+	for(int i = 0; i < aBuilder.pathToLinkMapID.size(); ++i)
 	{
-		const size_t aValueLinkMapIdx = 
+		const int aValueLinkMapIdx = 
 			aBuilder.pathToLinkMapID.values()[i];
-		DBG_ASSERT(aValueLinkMapIdx < aBuilder.valueLinkMaps.size());
+		DBG_ASSERT(aValueLinkMapIdx >= 0);
+		DBG_ASSERT(aValueLinkMapIdx < intSize(aBuilder.valueLinkMaps.size()));
 		ValueLinkMap& aValueLinkMap =
 			aBuilder.valueLinkMaps[aValueLinkMapIdx];
 		if( aValueLinkMap.empty() )
@@ -1916,18 +1917,18 @@ void load()
 		const std::string& aSourcePath = aBuilder.pathToLinkMapID.keys()[i];
 		DataSource aNewDataSource;
 		aNewDataSource.values = aValueLinkMap;
-		const u16 aSourceID = u16(sDataSources.size());
+		const int aSourceID = intSize(sDataSources.size());
 		if( isRegistryPath(aSourcePath) )
 		{
 			aNewDataSource.type = eDataSourceType_RegVal;
 			aNewDataSource.format = eConfigDataFormat_JSON;
-			aNewDataSource.regValID = u16(sRegVals.size());
+			aNewDataSource.regValID = intSize(sRegVals.size());
 			SystemRegistryValue aNewRegVal;
 			aNewRegVal.valueNameW = widen(getFileName(aSourcePath));
 			std::string aRegKeyPath = getFileDir(aSourcePath);
-			const u16 aRegKeyID = aRegKeyPathToIdxMap.findOrAdd(
-				aRegKeyPath, u16(sRegKeys.size()));
-			if( aRegKeyID >= sRegKeys.size() )
+			const int aRegKeyID = aRegKeyPathToIdxMap.findOrAdd(
+				aRegKeyPath, intSize(sRegKeys.size()));
+			if( aRegKeyID >= intSize(sRegKeys.size()) )
 			{
 				const HKEY aRootKey = getRootKeyHandle(
 					breakOffNextItem(aRegKeyPath, '\\'));
@@ -1958,21 +1959,21 @@ void load()
 				sRegKeys.push_back(aNewRegKey);
 			}
 			aNewRegVal.hKey = sRegKeys[aRegKeyID].hKey;
-			sRegKeys[aRegKeyID].sourceIDs.push_back(aSourceID);
+			sRegKeys[aRegKeyID].sourceIDs.push_back(dropTo<u16>(aSourceID));
 			sRegVals.push_back(aNewRegVal);
 		}
 		else
 		{
 			aNewDataSource.type = eDataSourceType_File;
 			aNewDataSource.format = eConfigDataFormat_JSON; // TODO properly
-			aNewDataSource.fileID = u16(sFiles.size());
+			aNewDataSource.fileID = intSize(sFiles.size());
 			ConfigFile aNewConfigFile;
 			aNewConfigFile.pathW = widen(aSourcePath);
 			aNewConfigFile.lastModTime = getFileLastModTime(aNewConfigFile);
 			const std::string& aFolderPath = getFileDir(aSourcePath);
-			const u16 aFolderID = aFolderPathToIdxMap.findOrAdd(
-				aFolderPath, u16(sFolders.size()));
-			if( aFolderID >= sFolders.size() )
+			const int aFolderID = aFolderPathToIdxMap.findOrAdd(
+				aFolderPath, intSize(sFolders.size()));
+			if( aFolderID >= intSize(sFolders.size()) )
 			{
 				const std::wstring& aFolderPathW = widen(aFolderPath);
 				if( !isValidFolderPath(aFolderPathW) )
@@ -1988,7 +1989,7 @@ void load()
 					FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
 				sFolders.push_back(aNewFolder);
 			}
-			sFolders[aFolderID].sourceIDs.push_back(aSourceID);
+			sFolders[aFolderID].sourceIDs.push_back(dropTo<u16>(aSourceID));
 			sFiles.push_back(aNewConfigFile);
 		}
 		sDataSources.push_back(aNewDataSource);
@@ -2025,7 +2026,8 @@ void load()
 		update();
 
 	// Begin monitoring for registry changes only after first load
-	for(size_t aRegKeyID = 0; aRegKeyID < sRegKeys.size(); ++aRegKeyID)
+	for(int aRegKeyID = 0, aRegKeyEnd = intSize(sRegKeys.size());
+		aRegKeyID < aRegKeyEnd; ++aRegKeyID)
 	{
 		SystemRegistryKey& aRegKey = sRegKeys[aRegKeyID];
 		aRegKey.hChangedSignal = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -2044,9 +2046,10 @@ void load()
 
 void loadProfileChanges()
 {
-	if( Profile::changedSections().contains(kTargetConfigFilesSectionName) ||
-		Profile::changedSections().contains(kSyncPropertiesSectionName) ||
-		Profile::changedSections().contains(kValueFormatStrSectionName) )
+	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
+	if( theProfileMap.contains(kTargetConfigFilesSectionName) ||
+		theProfileMap.contains(kSyncPropertiesSectionName) ||
+		theProfileMap.contains(kValueFormatStrSectionName) )
 	{
 		load();
 	}
@@ -2058,12 +2061,12 @@ void cleanup()
 	delete sReader; sReader = null;
 	delete sParser; sParser = null;
 
-	for(size_t i = 0; i < sFolders.size(); ++i)
+	for(int i = 0, end = intSize(sFolders.size()); i < end; ++i)
 		FindCloseChangeNotification(sFolders[i].hChangedSignal);
 	sFolders.clear();
 	sFiles.clear();
 
-	for(size_t i = 0; i < sRegKeys.size(); ++i)
+	for(int i = 0, end = intSize(sRegKeys.size()); i < end; ++i)
 	{
 		RegCloseKey(sRegKeys[i].hKey);
 		CloseHandle(sRegKeys[i].hChangedSignal);
@@ -2113,7 +2116,8 @@ void update()
 
 	if( sInitialized )
 	{// Check for any folder or registry key changes after initial load
-		for(size_t aFolderID = 0; aFolderID < sFolders.size(); ++aFolderID)
+		for(int aFolderID = 0, aFoldersEnd = intSize(sFolders.size());
+			aFolderID < aFoldersEnd; ++aFolderID)
 		{
 			ConfigFileFolder& aFolder = sFolders[aFolderID];
 			if( WaitForSingleObject(aFolder.hChangedSignal, 0)
@@ -2123,7 +2127,8 @@ void update()
 				FindNextChangeNotification(aFolder.hChangedSignal);
 
 				// Use timestamps to check if any contained files are updated
-				for( size_t i = 0; i < aFolder.sourceIDs.size(); ++i )
+				for(int i = 0, end = intSize(aFolder.sourceIDs.size());
+					i < end; ++i )
 				{
 					DataSource& aSource = sDataSources[aFolder.sourceIDs[i]];
 					DBG_ASSERT(aSource.type == eDataSourceType_File);
@@ -2140,7 +2145,8 @@ void update()
 			}
 		}
 
-		for(size_t aRegKeyID = 0; aRegKeyID < sRegKeys.size(); ++aRegKeyID)
+		for(int aRegKeyID = 0, aRegKeyEnd = intSize(sRegKeys.size());
+			aRegKeyID < aRegKeyEnd; ++aRegKeyID)
 		{
 			SystemRegistryKey& aRegKey = sRegKeys[aRegKeyID];
 			if( WaitForSingleObject(aRegKey.hChangedSignal, 0)
@@ -2153,7 +2159,8 @@ void update()
 					aRegKey.hChangedSignal, TRUE);
 
 				// Mark all data sources using this key as changed
-				for(size_t i = 0; i < aRegKey.sourceIDs.size(); ++i)
+				for(int i = 0, end = intSize(aRegKey.sourceIDs.size());
+					i < end; ++i )
 				{
 					if( sChangedDataSources.test(aRegKey.sourceIDs[i]) )
 						continue;
@@ -2222,14 +2229,15 @@ void update()
 		sChangedDataSources.none() && sChangedValueSets.any() )
 	{
 		bool propTypeChanged[ePropertyType_Num] = { };
-		for(size_t aPropID = 0; aPropID < sProperties.size(); ++aPropID)
+		for(int aPropID = 0, aPropertiesEnd = intSize(sProperties.size());
+			aPropID < aPropertiesEnd; ++aPropID)
 		{
 			SyncProperty& aProp = sProperties[aPropID];
 			if( (sChangedValueSets & aProp.valueSetsUsed).any() )
 			{
 				std::string aValueStr = aProp.valueFormat;
 				// Work backwards so don't mess up insert positions
-				for(int i = int(aProp.valueInserts.size()-1); i >= 0; --i)
+				for(int i = intSize(aProp.valueInserts.size())-1; i >= 0; --i)
 				{
 					aValueStr.insert(
 						aProp.valueInserts[i].insertPos,
@@ -2253,7 +2261,7 @@ void update()
 				HUD::reloadCopyIconLabel("");
 			if( propTypeChanged[ePropertyType_HUDElement] )
 			{
-				for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+				for(int i = 0, end = InputMap::hudElementCount(); i < end; ++i)
 					HUD::reloadElementShape(i);
 			}
 		}

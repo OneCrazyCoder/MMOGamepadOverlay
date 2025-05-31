@@ -93,7 +93,7 @@ struct ZERO_INIT(RTF_StreamData)
 //-----------------------------------------------------------------------------
 
 static std::string* sDialogEditText;
-static size_t sDialogSelected = 0;
+static int sDialogSelected = 0;
 static bool sDialogDone = false;
 static bool sDialogFocusShown = false;
 
@@ -149,7 +149,10 @@ static void updateProfileList(
 
 	// Get current selection to restore later
 	if( theDefaultSelectedIdx < 0 )
-		theDefaultSelectedIdx = SendMessage(hListBox, LB_GETCURSEL, 0, 0);
+	{
+		theDefaultSelectedIdx = dropTo<int>(
+			SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+	}
 
 	// Clear the existing content of the list box
 	SendMessage(hListBox, LB_RESETCONTENT, 0, 0);
@@ -168,8 +171,8 @@ static void updateProfileList(
 	}
 
 	// Restore initially selected item (or closest possible)
-	if( theDefaultSelectedIdx >= int(aStrVec->size()) )
-		theDefaultSelectedIdx = int(aStrVec->size()) - 1;
+	if( theDefaultSelectedIdx >= intSize(aStrVec->size()) )
+		theDefaultSelectedIdx = intSize(aStrVec->size()) - 1;
 	if( theDefaultSelectedIdx < 0 && !aStrVec->empty() )
 		theDefaultSelectedIdx = 0;
 	SendMessage(hListBox, LB_SETCURSEL, theDefaultSelectedIdx, 0);
@@ -232,8 +235,8 @@ static INT_PTR CALLBACK profileSelectProc(
 				// Add selected item from the list box to result
 				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
 				DBG_ASSERT(hListBox);
-				theData->result.selectedIndex = max<int>(0,
-					SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+				theData->result.selectedIndex = max(0, dropTo<int>(
+					SendMessage(hListBox, LB_GETCURSEL, 0, 0)));
 				// Add auto-load checkbox status to result
 				theData->result.autoLoadRequested =
 					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
@@ -265,7 +268,7 @@ static INT_PTR CALLBACK profileSelectProc(
 				HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
 				std::vector<WCHAR> aWStrBuffer(GetWindowTextLength(hEditBox)+1);
 				GetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
-					&aWStrBuffer[0], int(aWStrBuffer.size()));
+					&aWStrBuffer[0], intSize(aWStrBuffer.size()));
 				const bool hadNewName = !theData->result.newName.empty();
 				theData->result.newName = safeFileName(narrow(&aWStrBuffer[0]));
 				const bool hasNewName = !theData->result.newName.empty();
@@ -313,7 +316,7 @@ static INT_PTR CALLBACK editProfileSelectProc(
 		{// Add available files to the list box
 			HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
 			DBG_ASSERT(hListBox);
-			for(size_t i = 0; i < theFiles->size(); ++i)
+			for(int i = 0, end = intSize(theFiles->size()); i < end; ++i)
 			{
 				SendMessage(hListBox, LB_ADDSTRING, 0,
 					(LPARAM)(widen(getFileName((*theFiles)[i])).c_str()));
@@ -336,8 +339,8 @@ static INT_PTR CALLBACK editProfileSelectProc(
 				// Get selected item and open it w/ user's text editor
 				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
 				DBG_ASSERT(hListBox);
-				int aFile =
-					max<int>(0, SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+				int aFile = max(0, dropTo<int>(
+					SendMessage(hListBox, LB_GETCURSEL, 0, 0)));
 				ShellExecute(NULL, L"open",
 					widen((*theFiles)[aFile]).c_str(),
 					NULL, NULL, SW_SHOWNORMAL);
@@ -436,25 +439,22 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 			std::vector<HTREEITEM> aHandlesList(theItems->size());
 			BitVector<256> anItemHasChildren(theItems->size());
 			BitVector<256> anItemWasAdded(theItems->size());
-			for(size_t i = 1; i < theItems->size(); ++i)
+			for(int i = 1, end = intSize(theItems->size()); i < end; ++i)
 				anItemHasChildren.set((*theItems)[i]->parentIndex);
 			aHandlesList[0] = TVI_ROOT;
 			anItemWasAdded.set(0);
 			while(!anItemWasAdded.all())
 			{
-				for(size_t i = 1; i < theItems->size(); ++i)
+				for(int i = 1, end = intSize(theItems->size()); i < end; ++i)
 				{
 					DBG_ASSERT((*theItems)[i] != null);
 					if( anItemWasAdded.test(i) )
 						continue;
 					const std::wstring& anItemName =
 						widen((*theItems)[i]->name);
-					const u32 aParentIdx =
-						u32((*theItems)[i]->parentIndex);
+					const int aParentIdx = (*theItems)[i]->parentIndex;
 					if( !anItemWasAdded.test(aParentIdx) )
 						continue;
-					const u32 isRootCategory =
-						u32((*theItems)[i]->isRootCategory);
 					tvInsert.item.pszText =
 						const_cast<WCHAR*>(anItemName.c_str());
 					tvInsert.item.mask = TVIF_TEXT | TVIF_PARAM;
@@ -462,7 +462,9 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 						anItemHasChildren.test(i) ? 1 : 0;
 					if( tvInsert.item.cChildren )
 						tvInsert.item.mask |= TVIF_CHILDREN;
-					tvInsert.item.lParam = MAKELPARAM(i, isRootCategory);
+					tvInsert.item.lParam = MAKELPARAM(
+						dropTo<WORD>(i),
+						WORD((*theItems)[i]->isRootCategory));
 					tvInsert.hParent = aHandlesList[aParentIdx];
 					aHandlesList[i] = (HTREEITEM)SendMessage(
 						hTreeView,
@@ -490,7 +492,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 			{// Okay button clicked - signal which item was selected
 				sDialogSelected = 0;
 				HWND hTreeView = GetDlgItem(theDialog, IDC_TREE_ITEMS);
-				 HTREEITEM hSelectedItem = (HTREEITEM)
+				HTREEITEM hSelectedItem = (HTREEITEM)
 					 SendMessage(hTreeView, TVM_GETNEXTITEM, TVGN_CARET, 0);
 				sDialogDone = true;
 				if( hSelectedItem )
@@ -499,7 +501,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 					tvItem.mask = TVIF_PARAM;
 					tvItem.hItem = hSelectedItem;
 					SendMessage(hTreeView, TVM_GETITEM, 0, (LPARAM)&tvItem);
-					sDialogSelected = (size_t)LOWORD(tvItem.lParam);
+					sDialogSelected = LOWORD(tvItem.lParam);
 				}
 				return (INT_PTR)TRUE;
 			}
@@ -529,7 +531,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 				tvItem.mask = TVIF_PARAM;
 				tvItem.hItem = hSelectedItem;
 				SendMessage(nmhdr->hwndFrom, TVM_GETITEM, 0, (LPARAM)&tvItem);
-				const u32 isRootCategory = HIWORD(tvItem.lParam) != 0;
+				const bool isRootCategory = HIWORD(tvItem.lParam) != 0;
 				EnableWindow(GetDlgItem(theDialog, IDOK), !isRootCategory);
 			}
 			else
@@ -1572,7 +1574,7 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 }
 
 
-size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
+int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 {
 	DBG_ASSERT(!theList.empty());
 

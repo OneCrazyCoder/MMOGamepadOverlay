@@ -35,7 +35,7 @@ struct ZERO_INIT(TreeViewDialogItem)
 	int parentIndex;
 	bool isRootCategory;
 };
-size_t layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
+int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 

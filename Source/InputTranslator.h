@@ -28,6 +28,6 @@ void cleanup();
 void update();
 
 // Check if a given Controls Layer ID is currently active (added to stack)
-bool isLayerActive(u16 theLayerID);
+bool isLayerActive(int theLayerID);
 
 } // InputTranslator

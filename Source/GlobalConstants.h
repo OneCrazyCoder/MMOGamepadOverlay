@@ -413,8 +413,8 @@ extern const char* kProfileButtonName[];
 
 // Conversions between constant values (enums) and strings
 // Strings must already be in all upper-case!
-u8 keyNameToVirtualKey(const std::string& theKeyName);
-std::string virtualKeyToName(u8 theVKey);
+int keyNameToVirtualKey(const std::string& theKeyName);
+std::string virtualKeyToName(int theVKey);
 EButton buttonNameToID(const std::string& theName);
 EMouseMode mouseModeNameToID(const std::string& theName);
 EHUDType menuStyleNameToID(const std::string& theName);

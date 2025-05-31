@@ -47,13 +47,13 @@ const char* kProfileButtonName[] =
 DBG_CTASSERT(ARRAYSIZE(kProfileButtonName) == eBtn_Num);
 
 
-u8 keyNameToVirtualKey(const std::string& theKeyName)
+int keyNameToVirtualKey(const std::string& theKeyName)
 {
-	if( theKeyName.size() == 1 )
+	if( theKeyName.size() == 1 && !(theKeyName[0] & 0x80) )
 	{
-		SHORT aVKey = VkKeyScan(::tolower(theKeyName[0]));
+		int aVKey = VkKeyScan(WCHAR(::tolower(theKeyName[0])));
 		DBG_ASSERT(aVKey <= 0xFF);
-		return u8(aVKey);
+		return aVKey;
 	}
 
 	struct NameToVKeyMapper
@@ -172,15 +172,20 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 			};
 			// VK_PAUSE not included because it has special use/meaning
 			map.reserve(ARRAYSIZE(kEntries) + 10 /*num*/ + 10 /*numpad*/ + 12 /*F1-12*/);
-			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
+			for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
 				map.setValue(kEntries[i].str, kEntries[i].val);
 			for(int i = 0; i <= 9; ++i)
 			{
-				map.setValue((std::string("NUM") + toString(i)).c_str(), VK_NUMPAD0 + i);
-				map.setValue(std::string("NUMPAD") + toString(i), VK_NUMPAD0 + i);
+				map.setValue((std::string("NUM") + toString(i)).c_str(),
+					dropTo<u8>(VK_NUMPAD0 + i));
+				map.setValue(std::string("NUMPAD") + toString(i),
+					dropTo<u8>(VK_NUMPAD0 + i));
 			}
 			for(int i = 1; i <= 12; ++i)
-				map.setValue((std::string("F") + toString(i)).c_str(), VK_F1 - 1 + i);
+			{
+				map.setValue((std::string("F") + toString(i)).c_str(),
+					dropTo<u8>(VK_F1 - 1 + i));
+			}
 		}
 	};
 	static NameToVKeyMapper sKeyMapper;
@@ -190,8 +195,9 @@ u8 keyNameToVirtualKey(const std::string& theKeyName)
 }
 
 
-std::string virtualKeyToName(u8 theVKey)
+std::string virtualKeyToName(int theVKey)
 {
+	DBG_ASSERT(u32(theVKey) <= 0xFF);
 	switch(theVKey)
 	{
 	case VK_LBUTTON:	return "Left Mouse Button";
@@ -697,7 +703,7 @@ static u8 bitsFor8Dir(ECommandDir theDir)
 	switch(theDir)
 	{
 	case eCmd8Dir_L: case eCmd8Dir_R: case eCmd8Dir_U: case eCmd8Dir_D:
-		return 1 << theDir;
+		return u8(1U << theDir);
 	case eCmd8Dir_UL: return bitsFor8Dir(eCmdDir_U) | bitsFor8Dir(eCmdDir_L);
 	case eCmd8Dir_UR: return bitsFor8Dir(eCmdDir_U) | bitsFor8Dir(eCmdDir_R);
 	case eCmd8Dir_DL: return bitsFor8Dir(eCmdDir_D) | bitsFor8Dir(eCmdDir_L);
@@ -712,11 +718,11 @@ ECommandDir combined8Dir(ECommandDir theDir1, ECommandDir theDir2)
 	if( theDir1 == eCmd8Dir_None ) return theDir2;
 	if( theDir2 == eCmd8Dir_None ) return theDir1;
 	if( theDir1 == theDir2 ) return theDir1;
-	const u8 kLBit = 1 << eCmd8Dir_L;
-	const u8 kRBit = 1 << eCmd8Dir_R;
-	const u8 kUBit = 1 << eCmd8Dir_U;
-	const u8 kDBit = 1 << eCmd8Dir_D;
-	const u8 aComboBits = bitsFor8Dir(theDir1) | bitsFor8Dir(theDir2);
+	const u32 kLBit = 1 << eCmd8Dir_L;
+	const u32 kRBit = 1 << eCmd8Dir_R;
+	const u32 kUBit = 1 << eCmd8Dir_U;
+	const u32 kDBit = 1 << eCmd8Dir_D;
+	const u32 aComboBits = bitsFor8Dir(theDir1) | bitsFor8Dir(theDir2);
 	if( (aComboBits & (kLBit|kRBit)) == (kLBit|kRBit) ) return eCmd8Dir_None;
 	if( (aComboBits & (kUBit|kDBit)) == (kUBit|kDBit) ) return eCmd8Dir_None;
 	switch(aComboBits)

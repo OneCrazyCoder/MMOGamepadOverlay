@@ -42,12 +42,12 @@ enum EWindowMode
 	eWindowMode_TrueFullScreen,
 };
 
-const LONG kFullScreenWindowStyle = WS_VISIBLE;
-const LONG kFullScreenWindowStyleEx = 0;
-const LONG kNormalWindowStyle = WS_VISIBLE | WS_CAPTION | WS_MINIMIZEBOX;
-const LONG kNormalOnlyStyleFlags = WS_CAPTION | WS_BORDER | WS_THICKFRAME;
-const LONG kIgnoredStyleFlags = WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
-const LONG kIgnoredStyleExFlags =
+const LONG_PTR kFullScreenWindowStyle = WS_VISIBLE;
+const LONG_PTR kFullScreenWindowStyleEx = 0;
+const LONG_PTR kNormalWindowStyle = WS_VISIBLE | WS_CAPTION | WS_MINIMIZEBOX;
+const LONG_PTR kNormalOnlyStyleFlags = WS_CAPTION | WS_BORDER | WS_THICKFRAME;
+const LONG_PTR kIgnoredStyleFlags = WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+const LONG_PTR kIgnoredStyleExFlags =
 	WS_EX_RIGHT | WS_EX_LEFTSCROLLBAR | WS_EX_RTLREADING;
 
 
@@ -89,8 +89,8 @@ static HANDLE sTargetAppProcess = NULL;
 static HWND sTargetWindowHandle = NULL;
 static RECT sTargetWindowRect = { 0 };
 static RECT sTargetWindowRestoreRect = { 0 };
-static LONG sTargetWindowRestoreStyle = 0;
-static LONG sTargetWindowRestoreExStyle = 0;
+static LONG_PTR sTargetWindowRestoreStyle = 0;
+static LONG_PTR sTargetWindowRestoreExStyle = 0;
 static HMENU sTargetWindowRestoreMenu = NULL;
 static ECheck sNextCheck = ECheck(0);
 static int sRepeatCheckTime = 1000; // for initial target window search
@@ -363,8 +363,10 @@ static void checkWindowMode()
 	ClientToScreen(sTargetWindowHandle, (LPPOINT)&aWRect.left);
 	ClientToScreen(sTargetWindowHandle, (LPPOINT)&aWRect.right);
 
-	const LONG aWStyle = GetWindowLong(sTargetWindowHandle, GWL_STYLE);
-	const LONG aWStyleEx = GetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE);
+	const LONG_PTR aWStyle = GetWindowLongPtr(sTargetWindowHandle, GWL_STYLE);
+	SetWindowLongPtr(sTargetWindowHandle, GWL_STYLE, aWStyle);
+	const LONG_PTR aWStyleEx = GetWindowLongPtr(
+		sTargetWindowHandle, GWL_EXSTYLE);
 	const HMENU aMenu = GetMenu(sTargetWindowHandle);
 
 	// It is very difficult to detect "true" full screen windows, since
@@ -447,8 +449,8 @@ static void checkWindowMode()
 		aCmd.type = eCmdType_TapKey;
 		aCmd.vKey =
 			InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
-		aCmd.signalID =
-			InputMap::specialKeySignalID(eSpecialKey_SwapWindowMode);
+		aCmd.signalID = dropTo<u16>(
+			InputMap::specialKeySignalID(eSpecialKey_SwapWindowMode));
 		InputDispatcher::sendKeyCommand(aCmd);
 		// Give some time for the target app to respond to the request
 		sNextCheckDelay = 1000;
@@ -483,7 +485,7 @@ static void checkWindowMode()
 	if( sDesiredTargetMode == eWindowMode_FullScreenWindow )
 	{
 		targetDebugPrint("Switching target window to Full Screen Window!\n");
-		SetWindowLong(sTargetWindowHandle, GWL_STYLE,
+		SetWindowLongPtr(sTargetWindowHandle, GWL_STYLE,
 			(aWStyle & kIgnoredStyleFlags) | kFullScreenWindowStyle);
 		SetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE,
 			(aWStyleEx & kIgnoredStyleExFlags) | kFullScreenWindowStyleEx);
@@ -507,7 +509,7 @@ static void checkWindowMode()
 		sTargetWindowRestoreRect.bottom > sTargetWindowRestoreRect.top )
 	{
 		targetDebugPrint("Restoring target window to normal window mode!\n");
-		SetWindowLong(sTargetWindowHandle, GWL_STYLE,
+		SetWindowLongPtr(sTargetWindowHandle, GWL_STYLE,
 			sTargetWindowRestoreStyle);
 		SetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE,
 			sTargetWindowRestoreExStyle);
@@ -524,7 +526,7 @@ static void checkWindowMode()
 	// Want a normal window but somehow don't have valid restore information
 	// to get back to it. Have to wing it with some typical default values.
 	targetDebugPrint("Forcing target window to a default window style!\n");
-	SetWindowLong(sTargetWindowHandle, GWL_STYLE,
+	SetWindowLongPtr(sTargetWindowHandle, GWL_STYLE,
 		(aWStyle & kIgnoredStyleFlags) | kNormalWindowStyle);
 	SetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE,
 		(aWStyleEx & kIgnoredStyleExFlags));
@@ -582,7 +584,8 @@ void loadProfile()
 
 void loadProfileChanges()
 {
-	if( Profile::changedSections().contains("SYSTEM") )
+	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
+	if( theProfileMap.contains("System") )
 	{
 		const std::wstring oldTargetWindowName = kConfig.targetWindowName;
 		kConfig.targetWindowName.clear();
@@ -772,7 +775,7 @@ bool targetWindowIsTopMost()
 	if( !sTargetWindowHandle )
 		return false;
 
-	if( GetWindowLong(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST )
+	if( GetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST )
 		return true;
 
 	return false;
@@ -785,7 +788,7 @@ bool targetWindowIsFullScreen()
 		return false;
 
 	// Check if the window style indicates it is a borderless window
-	const LONG aWStyle = GetWindowLong(sTargetWindowHandle, GWL_STYLE);
+	const LONG_PTR aWStyle = GetWindowLongPtr(sTargetWindowHandle, GWL_STYLE);
 	if( (aWStyle & WS_POPUP) != WS_POPUP &&
 		(aWStyle & (WS_CAPTION | WS_THICKFRAME)) != 0 )
 	{

@@ -70,8 +70,8 @@ std::wstring toAbsolutePath(const std::wstring& thePath, bool forcedAsDir)
 	// Check if is a quoted path and strip any leading whitespace
 	// Quoted paths have "" removed and any params after second " stripped
 	bool isQuoted = false;
-	std::wstring::size_type aPos;
-	for(aPos = 0; aPos < aFullPath.size(); ++aPos)
+	int aPos = 0;
+	for(int end = intSize(aFullPath.size()); aPos < end; ++aPos)
 	{
 		if( aFullPath[aPos] == L'"' )
 			isQuoted = true;
@@ -84,7 +84,7 @@ std::wstring toAbsolutePath(const std::wstring& thePath, bool forcedAsDir)
 		aFullPath = aFullPath.substr(0, aFullPath.find(L'"'));
 
 	// Check if is a relative path (doesn't start with "C:\" or other drive)
-	if( aFullPath.size() < 3 ||
+	if( aFullPath.size() < size_t(3) ||
 		aFullPath[1] != L':' ||
 		(aFullPath[2] != L'\\' && aFullPath[2] != L'/') ||
 		!iswalpha(aFullPath[0]) )

@@ -22,17 +22,16 @@
 #include <vector>
 
 #ifdef _MSC_VER
-#pragma warning(disable:4018) // Signed/unsigned mismatch in comparisons
-#pragma warning(disable:4100) // Unused function parameter
-#pragma warning(disable:4244) // Lossy implicit conversion (double->float)
-#pragma warning(disable:4305) // Truncation in constant init (double->float)
-#pragma warning(disable:4389) // Signed/unsigned mismatch in compares
+#pragma warning(disable:4100) // Unused function parameter (check sometimes)
 #pragma warning(disable:4351) // Default-init arrays in ctor (now zero-init)
-#pragma warning(disable:4503) // Decorated name too long (common in templates)
+#pragma warning(disable:4512) // Can't make assignment (allow const members)
+#ifdef _DEBUG
+// Bit less annoying while writing new code, but should clean up for release
+#pragma warning(disable:4189) // Unused local variable
 #pragma warning(disable:4505) // Unreferenced local function
-#pragma warning(disable:4512) // Can't make assignment operator (const members)
 #pragma warning(disable:4701) // Uninitialized local variable
-#pragma warning(disable:4786) // Long debug symbol names (STL-related noise)
+#pragma warning(disable:4702) // Unreachable code
+#endif
 #endif
 
 #define null NULL
@@ -48,6 +47,8 @@ typedef signed __int64		s64;
 
 using std::swap; // so can call unqualified for copy-and-swap idiom
 
+#include "Debug.h"
+
 #undef min
 #undef max
 #undef MIN
@@ -62,8 +63,8 @@ T max(T a, T b) { return MAX(a, b); }
 template<class Val, class Min, class Max>
 inline Val clamp(Val val, Min min, Max max)
 {
-	if( val < min ) return min;
-	if( val > max ) return max;
+	if( val < Val(min) ) return Val(min);
+	if( val > Val(max) ) return Val(max);
 	return val;
 }
 
@@ -73,8 +74,22 @@ inline int incWrap(int val, int count)
 inline int decWrap(int val, int count)
 { return val - 1 < 0 ? int(count) - 1 : val - 1; }
 
-inline u32 u16ToRangeVal(u16 theU16, u32 theRangeMax)
-{ return theU16 * theRangeMax / 0x10000; }
+template<class T, class U>
+inline T dropTo(U val)
+{
+	DBG_CTASSERT(sizeof(T) <= sizeof(U)); // only widening
+	DBG_CTASSERT(sizeof(T) < 8); // u64<->s64 not allowed (won't fit in double)
+	T result = static_cast<T>(val);
+	// Assert that no data was lost in the conversion
+	// (including unsigned -> signed of the same size, where the
+	// unsigned being > max positive signed value should still assert)
+	DBG_ASSERT(static_cast<double>(result) == static_cast<double>(val));
+	return result;
+}
+inline int intSize(size_t val) { return dropTo<int>(val); }
+
+inline u32 u16ToRangeVal(u16 theU16Val, u32 theRangeMax)
+{ return u32(theU16Val) * theRangeMax / 0x10000U; }
 
 inline u16 ratioToU16(u32 theNumerator, u32 theDenominator)
 {
@@ -113,8 +128,6 @@ struct conditional<false, T, F> { typedef F type; };
 template <typename T=void> struct ZeroInit
 { ZeroInit(){ ZeroMemory(this, sizeof(T)); } };
 #define ZERO_INIT(S) S : private ZeroInit<S>
-
-#include "Debug.h"
 
 #include "BitHacks.h"
 #include "FileUtils.h"

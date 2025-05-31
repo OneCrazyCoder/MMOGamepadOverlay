@@ -115,14 +115,14 @@ V& VectorMap<K, V, C>::findOrAdd(const K& theKey, const V& theDefault)
 
 
 template<class K, class V, class C> inline
-size_t VectorMap<K, V, C>::findInsertPos(const K& theKey) const
+int VectorMap<K, V, C>::findInsertPos(const K& theKey) const
 {
 	C comp;
-	size_t left = 0;
-	size_t right = size();
+	int left = 0;
+	int right = int(size());
 	while(left < right)
 	{
-		const size_t mid = (left + right) / 2;
+		const int mid = (left + right) / 2;
 		if( comp((*this)[mid].first, theKey) )
 			left = mid + 1;
 		else
@@ -167,8 +167,8 @@ V& StringToValueMap<V, I, S>::setValue(const Key& theKey, const V& theValue)
 	// Start with the same logic as find() to see if key is already there
 	// If found, update the value to the new value passed in and return it
 	const FindKey aFindKey(theKey);
-	I aBPNodeIdx; // node that back-pointed to key node, used in insert
-	I aFoundNodeIdx = bestNodeIndexForInsert(aFindKey, &aBPNodeIdx);
+	int aBPNodeIdx; // node that back-pointed to key node, used in insert
+	int aFoundNodeIdx = bestNodeIndexForInsert(aFindKey, &aBPNodeIdx);
 	DBG_ASSERT(mKeys.size() == mValues.size());
 	DBG_ASSERT(mValues.size() == mTrie.size());
 	if( aFindKey == mKeys[aFoundNodeIdx] )
@@ -178,14 +178,14 @@ V& StringToValueMap<V, I, S>::setValue(const Key& theKey, const V& theValue)
 	}
 
 	// Key not found, need to insert it into the map w/ specified value
-	I aNewNodeIdx = addNewNode(theKey, theValue);
-	linkNode(aFindKey, aNewNodeIdx, aFoundNodeIdx, aBPNodeIdx);
+	int aNewNodeIdx = addNewNode(theKey, theValue);
+	linkNode(aFindKey, I(aNewNodeIdx), I(aFoundNodeIdx), I(aBPNodeIdx));
 	return reinterpret_cast<V&>(mValues[aNewNodeIdx]);
 }
 
 
 template<class V, class I, bool S> inline
-void StringToValueMap<V, I, S>::reserve(size_t theCapacity)
+void StringToValueMap<V, I, S>::reserve(int theCapacity)
 {
 	DBG_ASSERT(theCapacity <= (1 << (sizeof(I) * 8)));
 	mTrie.reserve(theCapacity);
@@ -216,7 +216,7 @@ void StringToValueMap<V, I, S>::freeKeys()
 template<class V, class I, bool S> inline
 V* StringToValueMap<V, I, S>::find(const Key& theKey)
 {
-	I aFoundIdx = findIndex(theKey);
+	int aFoundIdx = findIndex(theKey);
 	return reinterpret_cast<V*>(
 		aFoundIdx < size() ? &mValues[aFoundIdx] : null);
 }
@@ -225,7 +225,7 @@ V* StringToValueMap<V, I, S>::find(const Key& theKey)
 template<class V, class I, bool S> inline
 const V* StringToValueMap<V, I, S>::find(const Key& theKey) const
 {
-	I aFoundIdx = findIndex(theKey);
+	int aFoundIdx = findIndex(theKey);
 	return reinterpret_cast<const V*>(
 		aFoundIdx < size() ? &mValues[aFoundIdx] : null);
 }
@@ -240,14 +240,14 @@ V& StringToValueMap<V, I, S>::findOrAdd(const Key& theKey, const V& theDefault)
 
 
 template<class V, class I, bool S> inline
-I StringToValueMap<V, I, S>::findIndex(const Key& theKey) const
+int StringToValueMap<V, I, S>::findIndex(const Key& theKey) const
 {
-	I result = size();
+	int result = size();
 	if( mTrie.empty() )
 		return result;
 
 	const FindKey aSearchKey(theKey);
-	I idx = bestNodeIndexForFind(aSearchKey);
+	int idx = bestNodeIndexForFind(aSearchKey);
 	DBG_ASSERT(mKeys.size() == mValues.size());
 	DBG_ASSERT(mValues.size() == mTrie.size());
 	if( aSearchKey == mKeys[idx] )
@@ -258,10 +258,10 @@ I StringToValueMap<V, I, S>::findIndex(const Key& theKey) const
 
 
 template<class V, class I, bool S> inline
-I StringToValueMap<V, I, S>::findOrAddIndex(
+int StringToValueMap<V, I, S>::findOrAddIndex(
 	const Key& theKey, const V& theDefault)
 {
-	I aNewNodeIdx = 0;
+	int aNewNodeIdx = 0;
 	if( mTrie.empty() )
 	{
 		aNewNodeIdx = addNewNode(theKey, theDefault);
@@ -271,8 +271,8 @@ I StringToValueMap<V, I, S>::findOrAddIndex(
 	// Start with the same logic as find() to see if key is already there
 	// If found, just return the existing value
 	const FindKey aFindKey(theKey);
-	I aBPNodeIdx; // node that back-pointed to key node, used in insert
-	I aFoundNodeIdx = bestNodeIndexForInsert(aFindKey, &aBPNodeIdx);
+	int aBPNodeIdx; // node that back-pointed to key node, used in insert
+	int aFoundNodeIdx = bestNodeIndexForInsert(aFindKey, &aBPNodeIdx);
 	DBG_ASSERT(mKeys.size() == mValues.size());
 	DBG_ASSERT(mValues.size() == mTrie.size());
 	if( aFindKey == mKeys[aFoundNodeIdx] )
@@ -280,7 +280,7 @@ I StringToValueMap<V, I, S>::findOrAddIndex(
 
 	// Key not found, need to insert it into the map w/ default value
 	aNewNodeIdx = addNewNode(theKey, theDefault);
-	linkNode(aFindKey, aNewNodeIdx, aFoundNodeIdx, aBPNodeIdx);
+	linkNode(aFindKey, I(aNewNodeIdx), I(aFoundNodeIdx), I(aBPNodeIdx));
 	return aNewNodeIdx;
 }
 
@@ -300,9 +300,9 @@ const V& StringToValueMap<V, I, S>::quickFind(const Key& theKey) const
 
 
 template<class V, class I, bool S> inline
-I StringToValueMap<V, I, S>::quickFindIndex(const Key& theKey) const
+int StringToValueMap<V, I, S>::quickFindIndex(const Key& theKey) const
 {
-	return bestNodeIndexForFind(F ? F(theKey) : theKey);
+	return bestNodeIndexForFind(theKey);
 }
 
 
@@ -328,8 +328,8 @@ void StringToValueMap<V, I, S>::findAllWithPrefix(
 	// Walk the tree searching for thePrefix until find a node whose
 	// bitpos is >= the length of thePrefix (or a back-pointing node).
 	const FindKey& aFindPrefix(thePrefix);
-	I aCheckNodeIdx = mHeadNodeIndex;
-	const u16 aMaxBitPos = u16(aFindPrefix.size * 8);
+	int aCheckNodeIdx = mHeadNodeIndex;
+	const int aMaxBitPos = u16(aFindPrefix.size * 8);
 	int aLastCheckedNodeBitPos = -1;
 	bool foundBPNode = false;
 	while(mTrie[aCheckNodeIdx].bitPos < aMaxBitPos && !foundBPNode)
@@ -350,7 +350,7 @@ void StringToValueMap<V, I, S>::findAllWithPrefix(
 
 
 template<class V, class I, bool S> inline
-I StringToValueMap<V, I, S>::addNewNode(const Key& theKey, const V& theValue)
+int StringToValueMap<V, I, S>::addNewNode(const Key& theKey, const V& theValue)
 {
 	DBG_ASSERT(mTrie.size() < (1 << (sizeof(I) * 8)));
 	mKeys.push_back(theKey);
@@ -360,7 +360,7 @@ I StringToValueMap<V, I, S>::addNewNode(const Key& theKey, const V& theValue)
 	aNewNode.left = I(mTrie.size());
 	aNewNode.right = I(mTrie.size());
 	mTrie.push_back(aNewNode);
-	return I(mTrie.size()-1);
+	return int(mTrie.size()-1);
 }
 
 
@@ -370,22 +370,19 @@ void StringToValueMap<V, I, S>::linkNode(
 {
 	const FindKey theFoundKey(mKeys[theFoundNode]);
 	// Set new node's bitPos to first diff between its key and the found key
-	u16 aBitPos = 0;
-	u16 aCharIdx = 0;
-	while(aCharIdx != 0xFFFF)
+	for(u32 aBitPos = 0, aCharIdx = 0; /*until break*/; ++aCharIdx)
 	{
-		const u8 aNewKeyChar = getChar(theNewKey, aCharIdx);
-		const u8 anOldKeyChar = getChar(theFoundKey, aCharIdx);
+		const u32 aNewKeyChar = getChar(theNewKey, aCharIdx);
+		const u32 anOldKeyChar = getChar(theFoundKey, aCharIdx);
 		if( const u32 aDiffBits = aNewKeyChar ^ anOldKeyChar )
 		{
 			mTrie[theNewNode].bitPos =
 				u16(aBitPos + trailingZeroBits(aDiffBits));
 			break;
 		}
-		++aCharIdx;
 		aBitPos += 8;
 		// Function should only be called if already know a diff exists!
-		DBG_ASSERT(aCharIdx != 0xFFFF);
+		DBG_ASSERT(aBitPos <= u32(max(theNewKey.size, theFoundKey.size) * 8));
 	}
 
 	// If the first bit different between the new key and the found key is less
@@ -398,12 +395,12 @@ void StringToValueMap<V, I, S>::linkNode(
 	// that case, must now walk the tree again and stop at the first place a
 	// bitPos is >= the new node's. This means in this case theBackPtr will
 	// technically be a parent node rather than a back-pointer node.
-	u8 aParentWentRight;
+	bool aParentWentRight = false;
 	if( mTrie[theNewNode].bitPos < mTrie[theBackPtr].bitPos )
 	{
 		theFoundNode = mHeadNodeIndex;
 		#ifndef NDEBUG
-		u16 aLastCheckedNodeBitPos = 0;
+		int aLastCheckedNodeBitPos = 0;
 		#endif
 		while(mTrie[theFoundNode].bitPos < mTrie[theNewNode].bitPos)
 		{
@@ -424,8 +421,7 @@ void StringToValueMap<V, I, S>::linkNode(
 	}
 	else
 	{
-		aParentWentRight =
-			bitAtPos(theNewKey, mTrie[theBackPtr].bitPos);
+		aParentWentRight = bitAtPos(theNewKey, mTrie[theBackPtr].bitPos);
 	}
 
 	// Now can link the new node into the tree properly
@@ -470,7 +466,8 @@ void StringToValueMap<V, I, S>::linkNode(
 
 
 template<class V, class I, bool S> inline
-I StringToValueMap<V, I, S>::bestNodeIndexForFind(const FindKey& theKey) const
+int StringToValueMap<V, I, S>::bestNodeIndexForFind(
+	const FindKey& theKey) const
 {
 	DBG_ASSERT(!mTrie.empty());
 
@@ -481,8 +478,8 @@ I StringToValueMap<V, I, S>::bestNodeIndexForFind(const FindKey& theKey) const
 	// until encounter a request for a bit position < the prior one requested.
 	// This means have found a node pointing back at itself or a prior node in
 	// the trie, which signals the end of the search path.
-	I aCheckNodeIdx = mHeadNodeIndex;
-	u16 aLastCheckedNodeBitPos;
+	int aCheckNodeIdx = mHeadNodeIndex;
+	int aLastCheckedNodeBitPos;
 	do
 	{
 		aLastCheckedNodeBitPos = mTrie[aCheckNodeIdx].bitPos;
@@ -496,16 +493,16 @@ I StringToValueMap<V, I, S>::bestNodeIndexForFind(const FindKey& theKey) const
 
 
 template<class V, class I, bool S> inline
-I StringToValueMap<V, I, S>::bestNodeIndexForInsert(
-	const FindKey& theKey, I* theBPOut) const
+int StringToValueMap<V, I, S>::bestNodeIndexForInsert(
+	const FindKey& theKey, int* theBPOut) const
 {
 	DBG_ASSERT(!mTrie.empty());
 	DBG_ASSERT(theBPOut);
 
 	// Same logic as for Find(), but also remembers which node acted as the
 	// back pointer to the found node.
-	I aCheckNodeIdx = mHeadNodeIndex;
-	I aBackPointerNodeIdx;
+	int aCheckNodeIdx = mHeadNodeIndex;
+	int aBackPointerNodeIdx;
 	u16 aLastCheckedNodeBitPos;
 	do
 	{
@@ -523,24 +520,27 @@ I StringToValueMap<V, I, S>::bestNodeIndexForInsert(
 
 
 template<class V, class I, bool S> inline
-u8 StringToValueMap<V, I, S>::getChar(
-	const FindKey& theKey, u16 theIndex) const
+u32 StringToValueMap<V, I, S>::getChar(
+	const FindKey& theKey, u32 theIndex) const
 {
-	return theIndex >= theKey.size ? 0 : (u8)theKey.ptr[theIndex];
+	return theIndex >= u32(theKey.size) ? 0 : theKey.ptr[theIndex];
 }
 
 
 template<class V, class I, bool S> inline
-u8 StringToValueMap<V, I, S>::bitAtPos(
-	const FindKey& theKey, u16 theBitPos) const
+bool StringToValueMap<V, I, S>::bitAtPos(
+	const FindKey& theKey, int theBitPos) const
 {
-	return (getChar(theKey, theBitPos / 8) >> (theBitPos % 8)) & 1U;
+	DBG_ASSERT(theBitPos >= 0);
+	const u32 aChar = getChar(theKey, u32(theBitPos) / 8U);
+	const u32 aBitPosWithinChar = u32(theBitPos % 8U);
+	return ((aChar >> aBitPosWithinChar) & 1U) != 0;
 }
 
 
 template<class V, class I, bool S> inline
 void StringToValueMap<V, I, S>::findPrefixRecursive(
-	I theIndex, int thePrevBitPos, PrefixFindData& thePFD) const
+	int theIndex, int thePrevBitPos, PrefixFindData& thePFD) const
 {
 	DBG_ASSERT(thePFD.cb);
 
@@ -577,7 +577,7 @@ void StringToValueMap<V, I, S>::findPrefixRecursive(
 
 template<class V, class I, bool S> inline
 bool StringToValueMap<V, I, S>::reportHasPrefix(
-	const This&, I, const std::string&, void* theFlagPtr)
+	const This&, int, const std::string&, void* theFlagPtr)
 {
 	bool* aFlagPtr = (bool*)theFlagPtr;
 	*aFlagPtr = true;
@@ -587,9 +587,8 @@ bool StringToValueMap<V, I, S>::reportHasPrefix(
 
 template<class V, class I, bool S>
 inline StringToValueMap<V, I, S>::StrictKey::StrictKey(const Key& theKey)
+	: ptr(theKey.c_str()), size(int(theKey.size()))
 {
-	this->ptr = theKey.c_str();
-	this->size = theKey.size();
 }
 
 
@@ -610,7 +609,7 @@ inline StringToValueMap<V, I, S>::LenientKey::LenientKey(const Key& theKey)
 	if( theKey.size() > sizeof(buf) - 1 )
 	{
 		this->ptr = new char[theKey.size() + 1];
-		dynamic = true;
+		this->dynamic = true;
 	}
 
 	bool lastWasDigit = false;
@@ -633,7 +632,7 @@ inline StringToValueMap<V, I, S>::LenientKey::LenientKey(const Key& theKey)
 		pendingDash = false;
 		lastWasDigit = isDigit;
 		if( (ch & 0x80) == 0 )
-			ch = ::toupper(ch);
+			ch = u8(::toupper(ch));
 		ptr[size++] = ch;
 	}
 	ptr[size] = 0; // ensure null termination
@@ -644,7 +643,7 @@ template<class V, class I, bool S>
 inline bool StringToValueMap<V, I, S>::LenientKey::matches(
 	const Key& theKey, bool asPrefixOnly) const
 {
-	size_t matchLen = 0;
+	int matchLen = 0;
 
 	const char* a = this->ptr;
 	const char* b = theKey.c_str();
@@ -673,7 +672,7 @@ inline bool StringToValueMap<V, I, S>::LenientKey::matches(
 		pendingDash = false;
 		lastWasDigit = isDigit;
 		if( !(ch & 0x80) )
-			ch = ::toupper(ch);
+			ch = u8(::toupper(ch));
 		if( u8(*a++) != ch )
 			return false;
 		++matchLen;

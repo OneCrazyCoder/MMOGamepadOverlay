@@ -64,7 +64,7 @@ struct ZERO_INIT(OverlayWindow)
 	SIZE size;
 	SIZE bitmapSize;
 	std::vector<RECT> components;
-	float fadeValue;
+	double fadeValue;
 	EFadeState fadeState;
 	u8 alpha;
 	bool windowReady;
@@ -283,7 +283,7 @@ static LRESULT CALLBACK mainWindowProc(
 
  	case WM_SYSCOLORCHANGE:
 	case WM_DISPLAYCHANGE:
-		for(size_t i = 0; i < sOverlayWindows.size(); ++i)
+		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 		{
 			if( sOverlayWindows[i].bitmap )
 			{
@@ -312,8 +312,8 @@ static void setMainWindowEnabled(bool enable = true)
 	sMainWindowDisabled = !enable;
 	if( HMENU hMenu = GetMenu(sMainWindow) )
 	{
-		int itemCount = GetMenuItemCount(hMenu);
-		for(int i = 0; i < itemCount; ++i)
+		const int kMenuItemCount = GetMenuItemCount(hMenu);
+		for(int i = 0; i < kMenuItemCount; ++i)
 		{
 			EnableMenuItem(hMenu, i,
 				MF_BYPOSITION | (enable ? MF_ENABLED : MF_GRAYED));
@@ -338,7 +338,8 @@ static INT_PTR CALLBACK toolbarWindowProc(
 static LRESULT CALLBACK overlayWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	u16 aHUDElementID = u16(GetWindowLongPtr(theWindow, GWLP_USERDATA));
+	const int aHUDElementID = dropTo<int>(
+		GetWindowLongPtr(theWindow, GWLP_USERDATA));
 	switch(theMessage)
 	{
 	case WM_PAINT:
@@ -353,7 +354,8 @@ static LRESULT CALLBACK overlayWindowProc(
 static LRESULT CALLBACK systemOverlayWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	u16 aHUDElementID = u16(GetWindowLongPtr(theWindow, GWLP_USERDATA));
+	const int aHUDElementID = dropTo<int>(
+		GetWindowLongPtr(theWindow, GWLP_USERDATA));
 	switch(theMessage)
 	{
 	case WM_PAINT:
@@ -370,7 +372,7 @@ static LRESULT CALLBACK systemOverlayWindowProc(
 }
 
 
-static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
+static void updateAlphaFades(OverlayWindow& theWindow, int id)
 {
 	EFadeState oldState;
 	u8 aNewAlpha = theWindow.alpha;
@@ -380,7 +382,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 	do
 	{
 		oldState = theWindow.fadeState;
-		const float oldFadeValue = theWindow.fadeValue;
+		const double oldFadeValue = theWindow.fadeValue;
 		switch(theWindow.fadeState)
 		{
 		case eFadeState_Hidden:
@@ -426,7 +428,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 		case eFadeState_FadingIn:
 			theWindow.fadeValue += HUD::alphaFadeInRate(id) * gAppFrameTime;
 			aNewAlpha = u8(min(
-				theWindow.fadeValue, (float)aMaxAlpha));
+				theWindow.fadeValue, (double)aMaxAlpha));
 			if( gDisabledHUD.test(id) &&
 				anInactiveAlpha < aMaxAlpha &&
 				aNewAlpha >= anInactiveAlpha )
@@ -495,7 +497,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 				break;
 			}
 			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
-			aNewAlpha = u8(max<float>(theWindow.fadeValue, anInactiveAlpha));
+			aNewAlpha = u8(max<double>(theWindow.fadeValue, anInactiveAlpha));
 			if( gActiveHUD.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
@@ -561,7 +563,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, u16 id)
 			break;
 		case eFadeState_FadingOut:
 			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
-			aNewAlpha = u8(max(theWindow.fadeValue, 0.0f));
+			aNewAlpha = u8(max(theWindow.fadeValue, 0.0));
 			if( aNewAlpha == 0 )
 			{
 				theWindow.fadeState = eFadeState_Hidden;
@@ -607,8 +609,8 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	sHidden = false;
 	const std::wstring& aMainWindowName = widen(
 		Profile::getStr("System", "WindowName", "MMO Gamepad Overlay"));
-	u16 aMainWindowWidth = Profile::getInt("System", "WindowWidth", 160);
-	u16 aMainWindowHeight = Profile::getInt("System", "WindowHeight", 80);
+	int aMainWindowWidth = Profile::getInt("System", "WindowWidth", 160);
+	int aMainWindowHeight = Profile::getInt("System", "WindowHeight", 80);
 	const bool isMainWindowHidden =
 		(aMainWindowWidth == 0 || aMainWindowHeight == 0);
 
@@ -733,15 +735,15 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 	sOverlayWindows.resize(InputMap::hudElementCount());
 	sOverlayWindowOrder.reserve(sOverlayWindows.size());
 	sOverlayWindowOrder.resize(sOverlayWindows.size());
-	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
+	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		sOverlayWindowOrder[i].id = u16(i);
-		sOverlayWindowOrder[i].priority = HUD::drawPriority(u16(i));
+		sOverlayWindowOrder[i].id = dropTo<u16>(i);
+		sOverlayWindowOrder[i].priority = dropTo<s16>(HUD::drawPriority(i));
 	}
 	std::sort(sOverlayWindowOrder.begin(), sOverlayWindowOrder.end());
-	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
+	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		const int aHUDElementID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 		const bool isSystemOverlay =
 			InputMap::hudElementType(aHUDElementID) == eHUDType_System;
@@ -787,7 +789,7 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 		sMainWindow = NULL;
 	}
 	destroyToolbarWindow();
-	for(size_t i = 0; i < sOverlayWindows.size(); ++i)
+	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 	{
 		if( sOverlayWindows[i].bitmap )
 			DeleteObject(sOverlayWindows[i].bitmap);
@@ -806,29 +808,36 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void loadProfileChanges()
 {
-	const Profile::PropertyMap* aPropMap =
-		Profile::changedSections().find("SYSTEM");
+	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
+	const Profile::PropertyMap* aPropMap = theProfileMap.find("System");
 	if( !aPropMap )
 		return;
 
-	gAppTargetFrameTime = max(1,
-		Profile::getInt("System", "FrameTime",
-		gAppTargetFrameTime));
+	if( const Profile::Property* aFrameTimeProp = aPropMap->find("FrameTime") )
+	{
+		const int aFrameTime = intFromString(aFrameTimeProp->str);
+		if( aFrameTime != gAppFrameTime )
+		{
+			timeEndPeriod(gAppTargetFrameTime / 2);
+			gAppTargetFrameTime = max(1, aFrameTime);
+			timeBeginPeriod(gAppTargetFrameTime / 2);
+		}
+	}
 
-	if( aPropMap->contains("ICONCOPYMETHOD") ||
-		aPropMap->contains("WINDOWNAME") ||
-		aPropMap->contains("WINDOWWIDTH") ||
-		aPropMap->contains("WINDOWHEIGHT") ||
-		aPropMap->contains("WINDOWXPOS") ||
-		aPropMap->contains("WINDOWYPOS") ||
-		aPropMap->contains("UISCALEBASEHEIGHT") )
+	if( aPropMap->contains("IconCopyMethod") ||
+		aPropMap->contains("WindowName") ||
+		aPropMap->contains("WindowWidth") ||
+		aPropMap->contains("WindowHeight") ||
+		aPropMap->contains("WindowXPos") ||
+		aPropMap->contains("WindowYPos") ||
+		aPropMap->contains("UIScaleBaseHeight") )
 	{// These properties can't be changed safely at runtime
 		logError(
 			"Attempted [System] property change that does not "
 			"allow dynamic runtime changes!");
 	}
 
-	if( const Profile::Property* aUIScalePtr = aPropMap->find("UISCALE") )
+	if( const Profile::Property* aUIScalePtr = aPropMap->find("UIScale") )
 	{
 		const std::string& aUIScaleStr = aUIScalePtr->str;
 		const double oldUIScale = gUIScale;
@@ -838,7 +847,7 @@ void loadProfileChanges()
 		if( gUIScale != oldUIScale )
 		{
 			HUD::updateScaling();
-			for(u16 i = 0; i < sOverlayWindows.size(); ++i)
+			for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 				sOverlayWindows[i].layoutReady = false;
 		}
 	}
@@ -869,9 +878,9 @@ void update()
 		aCaptureOffset.y = sScreenTargetRect.top;
 	}
 	POINT anOriginPoint = { 0, 0 };
-	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
+	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		const int aHUDElementID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
 		// Check for flag that need to update layout
@@ -1001,9 +1010,9 @@ void prepareForDialog()
 	stopModalModeUpdates();
 	setMainWindowEnabled(false);
 	sInDialogMode = true;
-	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
+	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		const int aHUDElementID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
 		if( IsWindowVisible(aWindow.handle) )
@@ -1137,7 +1146,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	}
 
 	// Flag all overlay windows to update position & size accordingly
-	for(u16 i = 0; i < sOverlayWindows.size(); ++i)
+	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 		sOverlayWindows[i].layoutReady = false;
 }
 
@@ -1166,9 +1175,9 @@ void showOverlays()
 
 void setOverlaysToTopZ()
 {
-	for(size_t i = 0; i < sOverlayWindowOrder.size(); ++i)
+	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const u16 aHUDElementID = sOverlayWindowOrder[i].id;
+		const int aHUDElementID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
 		DBG_ASSERT(aWindow.handle);
@@ -1242,12 +1251,12 @@ void setSystemOverlayCallbacks(WNDPROC theProc, SystemPaintFunc thePaintFunc)
 	if( sSystemOverlayWindow && theProc != sSystemOverlayProc )
 	{
 		sSystemOverlayProc = theProc;
-		LONG exStyle = GetWindowLong(sSystemOverlayWindow, GWL_EXSTYLE);
+		LONG_PTR exStyle = GetWindowLongPtr(sSystemOverlayWindow, GWL_EXSTYLE);
 		if( theProc != NULL )
 			exStyle &= ~WS_EX_TRANSPARENT;
 		else
 			exStyle |= WS_EX_TRANSPARENT;
-		SetWindowLong(sSystemOverlayWindow, GWL_EXSTYLE, exStyle);
+		SetWindowLongPtr(sSystemOverlayWindow, GWL_EXSTYLE, exStyle);
 		SetWindowPos(sSystemOverlayWindow, NULL, 0, 0, 0, 0,
 			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 	}
@@ -1278,11 +1287,9 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 		return result;
 
 	// Start with percentage of client rect as u16 (i.e. 65536 == 100%)
-	result.x = theHotspot.x.anchor;
-	result.y = theHotspot.y.anchor;
-	// Convert to client-rect-relative pixel position
-	result.x = u16ToRangeVal(result.x, sTargetSize.cx);
-	result.y = u16ToRangeVal(result.y, sTargetSize.cy);
+	// and convert it to client-rect-relative pixel position
+	result.x = u16ToRangeVal(theHotspot.x.anchor, sTargetSize.cx);
+	result.y = u16ToRangeVal(theHotspot.y.anchor, sTargetSize.cy);
 	// Add pixel offset w/ UI Scale applied
 	result.x += LONG(theHotspot.x.offset * gUIScale);
 	result.y += LONG(theHotspot.y.offset * gUIScale);
@@ -1332,8 +1339,10 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
 	// Restore from normalized to pixel position of virtual desktop
-	theSentMousePos.x = u16ToRangeVal(theSentMousePos.x, kDesktopWidth);
-	theSentMousePos.y = u16ToRangeVal(theSentMousePos.y, kDesktopHeight);
+	const u16 aMousePosX16 = dropTo<u16>(theSentMousePos.x);
+	const u16 aMousePosY16 = dropTo<u16>(theSentMousePos.y);
+	theSentMousePos.x = u16ToRangeVal(aMousePosX16, kDesktopWidth);
+	theSentMousePos.y = u16ToRangeVal(aMousePosY16, kDesktopHeight);
 	// Offset to be client relative position
 	theSentMousePos.x -= sDesktopTargetRect.left;
 	theSentMousePos.y -= sDesktopTargetRect.top;
@@ -1341,9 +1350,9 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 }
 
 
-Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
+Hotspot hotspotForMenuItem(int theMenuID, int theMenuItemIdx)
 {
-	const u16 aHUDElementID = InputMap::hudElementForMenu(theMenuID);
+	const int aHUDElementID = InputMap::hudElementForMenu(theMenuID);
 	OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
 
 	switch(InputMap::menuStyle(theMenuID))
@@ -1379,7 +1388,7 @@ Hotspot hotspotForMenuItem(u16 theMenuID, u16 theMenuItemIdx)
 }
 
 
-RECT hudElementRect(u16 theHUDElementID)
+RECT hudElementRect(int theHUDElementID)
 {
 	OverlayWindow& aWindow = sOverlayWindows[theHUDElementID];
 	if( !aWindow.layoutReady || gReshapeHUD.test(theHUDElementID) )

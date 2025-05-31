@@ -81,7 +81,7 @@ public:
 	V& findOrAdd(const K& theKey, const V& theDefault = V());
 	// Returns index to insert key and maintain sorted order (or the index of
 	// the key if it already exists - up to you to figure out which it is!)
-	size_t findInsertPos(const K& theKey) const;
+	int findInsertPos(const K& theKey) const;
 
 	// Functions from vector class for reference (the rest are also available)
 	using VectorOfPairs::push_back;
@@ -146,10 +146,10 @@ public:
 
 	*	'V' must be valid for use in a vector (copyable, etc).
 
-	*	'I' must be an unsigned integer type, and is the type used for array
-		indexes, which thus determines the size of each node (2 I's + a u16)
-		and maximum key/value pairs that can be stored (u8 = 256 keys/values,
-		u16 = 65,536 keys/values, etc).
+	*	'I' must be an integer type, and is used internally for array indexes,
+		which thus determines the size of each node (2 I's + a u16) and
+		maximum key/value pairs that can be stored (u8 = 256 keys/values,
+		u16 = 65,536 keys/values, etc). Assumed to be <= 32-bit in size.
 
 	*	'S' stands for "strict mode" and, if true, will only allow exact
 		key matches byte-by-byte. If false, keys can differ in casing (for
@@ -176,8 +176,8 @@ public:
 	typedef typename ValueTrait<V>::Type StoredValueType;
 	typedef std::vector<StoredValueType> ValueVector;
 	typedef std::vector<IndexType> IndexVector;
-	typedef bool (*FoundIndexCallback)(
-		const This&, I theIndex, const std::string& thePrefix, void* theUserData);
+	typedef bool (*FoundIndexCallback)(const This&,
+		int theIndex, const std::string& thePrefix, void* theUserData);
 
 	// CONSTRUCTOR/DESTRUCTOR
 	StringToValueMap();
@@ -188,7 +188,7 @@ public:
 	// Sets the value for specified key, or adds new key/value pair
 	V& setValue(const Key& theKey, const V& theValue);
 	// Reserves memory for number of entries (unique keys) expect to add
-	void reserve(size_t theCapacity);
+	void reserve(int theCapacity);
 	// Can save memory for cases where build up once then only search it
 	void trim() { shrink_to_fit(); }
 	void shrink_to_fit();
@@ -211,9 +211,9 @@ public:
 	V& findOrAdd(const Key& theKey, const V& theDefault = V());
 	// Returns index into values() (and keys() if it hasn't been freed), for
 	// even faster access from then on. Returns size() if key not found.
-	I findIndex(const Key& theKey) const;
+	int findIndex(const Key& theKey) const;
 	// Combination of findIndex() and findOrAdd() functionality
-	I findOrAddIndex(const Key& theKey, const V& theDefault = V());
+	int findOrAddIndex(const Key& theKey, const V& theDefault = V());
 	// Faster version of find if already know key value is valid and contained,
 	// and only search method that works after use freeKeys(), because it skips
 	// final check for exact matching key. If the requested key is NOT in the
@@ -221,7 +221,7 @@ public:
 	V& quickFind(const Key& theKey);
 	const V& quickFind(const Key& theKey) const;
 	// Combination of findIndex() and quickFind() functionality
-	I quickFindIndex(const Key& theKey) const;
+	int quickFindIndex(const Key& theKey) const;
 	// Returns true if any keys start with thePrefix
 	bool containsPrefix(const Key& thePrefix) const;
 	// Calls theCallback for each key that starts with thePrefix, or until the
@@ -236,7 +236,7 @@ public:
 	const ValueVector& vals() const { return mValues; }
 	ValueVector& vals() { return mValues; }
 	bool empty() const { return mValues.empty(); }
-	I size() const { return I(mValues.size()); }
+	int size() const { return int(mValues.size()); }
 
 private:
 	// PRIVATE STRUCTURES
@@ -246,7 +246,7 @@ private:
 		StrictKey(const Key& theKey);
 		bool matches(const Key& theKey, bool asPrefixOnly = false) const;
 		bool operator==(const Key& theKey) const { return theKey == ptr; }
-		const char* ptr; size_t size;
+		const char* ptr; int size;
 	};
 	struct LenientKey
 	{
@@ -254,7 +254,7 @@ private:
 		~LenientKey() { if( dynamic ) delete[] ptr; }
 		bool matches(const Key& theKey, bool asPrefixOnly = false) const;
 		bool operator==(const Key& theKey) const { return matches(theKey); }
-		char* ptr; size_t size; char buf[256]; bool dynamic;
+		char* ptr; int size; char buf[256]; bool dynamic;
 	};
 	typedef typename conditional<S, StrictKey, LenientKey>::type FindKey;
 	struct PrefixFindData
@@ -272,20 +272,20 @@ private:
 	};
 
 	// PRIVATE FUNCTIONS
-	I addNewNode(const Key& theKey, const V& theValue);
-	void linkNode(const FindKey&, I theNewNode, I theFoundNode, I theBackPtr);
-	I bestNodeIndexForFind(const FindKey& theKey) const;
-	I bestNodeIndexForInsert(const FindKey& theKey, I* theBPOut) const;
-	u8 getChar(const FindKey& theKey, u16 theIndex) const;
-	u8 bitAtPos(const FindKey& theKey, u16 theBitPos) const;
-	void findPrefixRecursive(I, int theBitPos, PrefixFindData& thePFD) const;
-	static bool reportHasPrefix(const This&, I, const std::string&, void*);
+	int addNewNode(const Key& theKey, const V& theValue);
+	void linkNode(const FindKey&, I theNewNode, I theFoundNode, I theBP);
+	int bestNodeIndexForFind(const FindKey& theKey) const;
+	int bestNodeIndexForInsert(const FindKey& theKey, int* theBPOut) const;
+	u32 getChar(const FindKey& theKey, u32 theIndex) const;
+	bool bitAtPos(const FindKey& theKey, int theBitPos) const;
+	void findPrefixRecursive(int, int theBitPos, PrefixFindData& thePFD) const;
+	static bool reportHasPrefix(const This&, int, const std::string&, void*);
 
 	// PRIVATE DATA
 	KeyVector mKeys;
 	ValueVector mValues;
 	std::vector<Node> mTrie;
-	u16 mHeadNodeIndex;
+	I mHeadNodeIndex;
 };
 
 #include "Lookup.inc"

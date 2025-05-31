@@ -117,9 +117,9 @@ struct ZERO_INIT(LayoutEntry)
 	RECT drawnRect;
 	Hotspot drawHotspot, drawSize;
 	float drawOffScale;
-	s16 drawOffX, drawOffY;
-	u16 hudElementID;
-	u16 rangeCount;
+	int drawOffX, drawOffY;
+	int hudElementID;
+	int rangeCount;
 
 	LayoutEntry() : type(eType_Num) {}
 };
@@ -130,7 +130,7 @@ struct ZERO_INIT(EditorState)
 	std::vector<LayoutEntry> entries;
 	std::vector<Dialogs::TreeViewDialogItem*> dialogItems;
 	LayoutEntry::Shape entered, applied;
-	size_t activeEntry;
+	int activeEntry;
 	POINT lastMouseDragPos;
 	double unappliedDeltaX, unappliedDeltaY;
 	bool needsDrawPosUpdate;
@@ -237,8 +237,8 @@ static double entryScaleFactor(const LayoutEntry& theEntry)
 static void applyNewPosition()
 {
 	DBG_ASSERT(sState);
-	DBG_ASSERT(sState->activeEntry != 0);
-	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	DBG_ASSERT(sState->activeEntry > 0);
+	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	const bool needNewPos =
 		sState->entered.x != sState->applied.x ||
@@ -311,8 +311,8 @@ static void applyNewPosition()
 static void cancelRepositioning()
 {
 	DBG_ASSERT(sState);
-	DBG_ASSERT(sState->activeEntry != 0);
-	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	DBG_ASSERT(sState->activeEntry > 0);
+	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	if( !gShutdown && sState->applied != anEntry.shape )
 	{
@@ -328,8 +328,8 @@ static void cancelRepositioning()
 static void saveNewPosition()
 {
 	DBG_ASSERT(sState);
-	DBG_ASSERT(sState->activeEntry != 0);
-	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	DBG_ASSERT(sState->activeEntry > 0);
+	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 	applyNewPosition();
 	if( anEntry.shape != sState->applied )
@@ -448,15 +448,15 @@ static void autoSwapHotspotAnchor(Hotspot& theHotspot, bool forXAxis)
 	if( out.anchor != 0 && aWinPosOnAxis <= aMaxWinPosOnAxis * 0.02 )
 	{
 		out.anchor = 0;
-		out.offset = aWinPosOnAxis;
-		if( gUIScale != 1.0 ) out.offset /= gUIScale;
+		out.offset = dropTo<s16>(aWinPosOnAxis);
+		if( gUIScale != 1.0 ) out.offset = s16(out.offset / gUIScale);
 		return;
 	}
 	if( out.anchor != 0xFFFF && aWinPosOnAxis >= aMaxWinPosOnAxis * 0.98 )
 	{
 		out.anchor = 0xFFFF;
-		out.offset = (aWinPosOnAxis - (aMaxWinPosOnAxis-1));
-		if( gUIScale != 1.0 ) out.offset /= gUIScale;
+		out.offset = dropTo<s16>(aWinPosOnAxis - (aMaxWinPosOnAxis-1));
+		if( gUIScale != 1.0 ) out.offset = s16(out.offset / gUIScale);
 		return;
 	}
 	/* I'm not sure auto-swapping to center anchor is a good idea...
@@ -507,8 +507,8 @@ static void processCoordString(
 		return;
 
 	DBG_ASSERT(sState);
-	DBG_ASSERT(sState->activeEntry != 0);
-	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	DBG_ASSERT(sState->activeEntry > 0);
+	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 
 	std::string result = aControlStr;
@@ -588,13 +588,14 @@ static void processCoordString(
 							? &sState->unappliedDeltaX
 							: &sState->unappliedDeltaY;
 					*aDeltaFP += double(theDelta) / gUIScale;
-					theDelta = *aDeltaFP;
+					theDelta = int(*aDeltaFP);
 					*aDeltaFP -= theDelta;
 				}
 				if( theControlID == IDC_EDIT_X )
 				{
 					Hotspot aHotspot; aHotspot.x = aCoord;
-					aHotspot.x.offset += theDelta;
+					aHotspot.x.offset =
+						dropTo<s16>(aHotspot.x.offset + theDelta);
 					aTempStr = sState->entered.y;
 					HotspotMap::stringToCoord(aTempStr, aHotspot.y);
 					autoSwapHotspotAnchor(aHotspot, true);
@@ -604,7 +605,8 @@ static void processCoordString(
 				if( theControlID == IDC_EDIT_Y )
 				{
 					Hotspot aHotspot; aHotspot.y = aCoord;
-					aHotspot.y.offset += theDelta;
+					aHotspot.y.offset =
+						dropTo<s16>(aHotspot.y.offset + theDelta);
 					aTempStr = sState->entered.x;
 					HotspotMap::stringToCoord(aTempStr, aHotspot.x);
 					autoSwapHotspotAnchor(aHotspot, false);
@@ -614,7 +616,7 @@ static void processCoordString(
 			}
 			if( theDelta )
 			{
-				aCoord.offset += theDelta;
+				aCoord.offset = dropTo<s16>(aCoord.offset + theDelta);
 				result = HotspotMap::coordToString(
 					aCoord, formatForCoord(anEntry, theControlID));
 				if( result[result.size()-1] == '%' )
@@ -710,7 +712,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		if( entryIncludesAlignment(anEntry) )
 		{
 			HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
-			for(size_t i = 0; i < eAlignment_Num; ++i)
+			for(int i = 0; i < eAlignment_Num; ++i)
 			{
 				SendMessage(hDropList, CB_ADDSTRING, 0,
 					(LPARAM)widen(kAlignmentStr[i][0]).c_str());
@@ -838,8 +840,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	case WM_HSCROLL:
 		if( (HWND)lParam == GetDlgItem(theDialog, IDC_SLIDER_S) )
 		{
-			const int aScaleVal =
-				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0);
+			const int aScaleVal = dropTo<int>(
+				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0));
 			if( !sState->entered.offsetScale.empty() &&
 				sState->entered.offsetScale
 					[sState->entered.offsetScale.size()-1] == '%' )
@@ -862,13 +864,15 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		{
 		case IDC_SPIN_X: case IDC_SPIN_W:
 			processCoordString(theDialog,
-				IDC_EDIT_X + ((LPNMHDR)lParam)->idFrom - IDC_SPIN_X,
+				IDC_EDIT_X +
+				dropTo<int>(((LPNMHDR)lParam)->idFrom) - IDC_SPIN_X,
 				-((LPNMUPDOWN)lParam)->iDelta);
 			applyNewPosition();
 			break;
 		case IDC_SPIN_Y: case IDC_SPIN_H:
 			processCoordString(theDialog,
-				IDC_EDIT_X + ((LPNMHDR)lParam)->idFrom - IDC_SPIN_X,
+				IDC_EDIT_X +
+				dropTo<int>(((LPNMHDR)lParam)->idFrom) - IDC_SPIN_X,
 				((LPNMUPDOWN)lParam)->iDelta);
 			applyNewPosition();
 			break;
@@ -989,14 +993,18 @@ static void updateDrawHotspot(
 		{// Must be HUD element that offsets from a hotspot
 			const Hotspot& anAnchor =
 				HUD::parentHotspot(theEntry.hudElementID);
-			theEntry.drawHotspot.x.anchor = clamp(
+			theEntry.drawHotspot.x.anchor = u16(clamp(
 				int(anAnchor.x.anchor) + theEntry.drawHotspot.x.anchor,
-				0, 0xFFFF);
-			theEntry.drawHotspot.y.anchor = clamp(
+				0, 0xFFFF));
+			theEntry.drawHotspot.y.anchor = u16(clamp(
 				int(anAnchor.y.anchor) + theEntry.drawHotspot.y.anchor,
-				0, 0xFFFF);
-			theEntry.drawHotspot.x.offset += anAnchor.x.offset;
-			theEntry.drawHotspot.y.offset += anAnchor.y.offset;
+				0, 0xFFFF));
+			theEntry.drawHotspot.x.offset = s16(clamp(
+				theEntry.drawHotspot.x.offset + anAnchor.x.offset,
+				-0x8000, 0x7FFF));
+			theEntry.drawHotspot.y.offset = s16(clamp(
+				theEntry.drawHotspot.y.offset + anAnchor.y.offset,
+				-0x8000, 0x7FFF));
 		}
 		else
 		{// Must be offset by a parent hotspot or copy icon
@@ -1008,26 +1016,30 @@ static void updateDrawHotspot(
 			Hotspot anAnchor = aParent.drawHotspot;
 			if( aParent.rangeCount > 1 )
 			{// Rare case where the parent is itself a range of hotspots
-				anAnchor.x.offset +=
+				anAnchor.x.offset = s16(clamp(int(
+					anAnchor.x.offset +
 					aParent.drawOffX *
 					(aParent.rangeCount-1) *
-					aParent.drawOffScale;
-				anAnchor.y.offset +=
+					aParent.drawOffScale), -0x8000, 0x7FFF));
+				anAnchor.y.offset = s16(clamp(int(
+					anAnchor.y.offset +
 					aParent.drawOffY *
 					(aParent.rangeCount-1) *
-					aParent.drawOffScale;
+					aParent.drawOffScale), -0x8000, 0x7FFF));
 			}
 			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
 			{
 				theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
-				theEntry.drawHotspot.x.offset *= theEntry.drawOffScale;
-				theEntry.drawHotspot.x.offset += anAnchor.x.offset;
+				theEntry.drawHotspot.x.offset = s16(clamp(int(
+					theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
+					anAnchor.x.offset, -0x8000, 0x7FFF));
 			}
 			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
 			{
 				theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
-				theEntry.drawHotspot.y.offset *= theEntry.drawOffScale;
-				theEntry.drawHotspot.y.offset += anAnchor.y.offset;
+				theEntry.drawHotspot.x.offset = s16(clamp(int(
+					theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
+					anAnchor.y.offset, -0x8000, 0x7FFF));
 			}
 			if( theEntry.type == LayoutEntry::eType_CopyIcon )
 				theEntry.drawSize = aParent.drawSize;
@@ -1035,7 +1047,7 @@ static void updateDrawHotspot(
 	}
 	if( updateChildren )
 	{
-		for(size_t i = 0; i < theEntry.children.size(); ++i )
+		for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
 		{
 			LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
 			updateDrawHotspot(aChildEntry, aChildEntry.shape, false, true);
@@ -1112,17 +1124,17 @@ static RECT drawHotspot(
 	const SIZE& aTargetSize = WindowManager::overlayTargetSize();
 	const POINT aCenterPoint = {
 		LONG(u16ToRangeVal(theHotspot.x.anchor, aTargetSize.cx)) +
-			theHotspot.x.offset * gUIScale + theWindowRect.left,
+			LONG(theHotspot.x.offset * gUIScale) + theWindowRect.left,
 		LONG(u16ToRangeVal(theHotspot.y.anchor, aTargetSize.cy)) +
-			theHotspot.y.offset * gUIScale + theWindowRect.top };
+			LONG(theHotspot.y.offset * gUIScale) + theWindowRect.top };
 
 	if( theBoxSize )
 	{
 		const SIZE aBoxWH = {
-			max(1.0, LONG(u16ToRangeVal(theBoxSize->x.anchor, aTargetSize.cx)) +
-				theBoxSize->x.offset * gUIScale),
-			max(1.0, LONG(u16ToRangeVal(theBoxSize->y.anchor, aTargetSize.cy)) +
-				theBoxSize->y.offset * gUIScale) };
+			max(1L, LONG(u16ToRangeVal(theBoxSize->x.anchor, aTargetSize.cx)) +
+				LONG(theBoxSize->x.offset * gUIScale)),
+			max(1L, LONG(u16ToRangeVal(theBoxSize->y.anchor, aTargetSize.cy)) +
+				LONG(theBoxSize->y.offset * gUIScale)) };
 		return drawBoundBox(
 			hdc, aCenterPoint, aBoxWH, theEraseColor, isActiveHotspot);
 	}
@@ -1187,7 +1199,7 @@ static void drawEntry(
 		theEntry.drawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
 			kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
 	}
-	for(size_t i = 0; i < theEntry.children.size(); ++i )
+	for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
 	{// Draw child hotspots
 		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
 		drawEntry(aChildEntry, hdc, theWindowRect, theEraseColor, false);
@@ -1197,14 +1209,14 @@ static void drawEntry(
 	if( theEntry.rangeCount > 1 )
 	{
 		const Hotspot aRangeAnchor = aHotspot;
-		for(size_t i = 2; i <= theEntry.rangeCount; ++i)
+		for(int i = 2; i <= theEntry.rangeCount; ++i)
 		{
-			aHotspot.x.offset = theEntry.drawOffX * s16(i-1);
-			aHotspot.x.offset *= theEntry.drawOffScale;
-			aHotspot.x.offset += aRangeAnchor.x.offset;
-			aHotspot.y.offset = theEntry.drawOffY * s16(i-1);
-			aHotspot.y.offset *= theEntry.drawOffScale;
-			aHotspot.y.offset += aRangeAnchor.y.offset;
+			aHotspot.x.offset = s16(clamp(int(
+				theEntry.drawOffX * (i-1) * theEntry.drawOffScale) +
+				aRangeAnchor.x.offset, -0x8000, 0x7FFF));
+			aHotspot.y.offset = s16(clamp(int(
+				theEntry.drawOffY * (i-1) * theEntry.drawOffScale) +
+				aRangeAnchor.y.offset, -0x8000, 0x7FFF));
 			RECT aDrawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
 				kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
 			UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
@@ -1229,7 +1241,7 @@ static void eraseDrawnEntry(LayoutEntry& theEntry, HDC hdc)
 	HBRUSH hEraseBrush = (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH);
 	RECT aDrawnRect = theEntry.drawnRect;
 	FillRect(hdc, &aDrawnRect, hEraseBrush);
-	for(size_t i = 0; i < theEntry.children.size(); ++i )
+	for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
 	{
 		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
 		eraseDrawnEntry(aChildEntry, hdc);
@@ -1266,9 +1278,10 @@ static void promptForEditEntry()
 	DBG_ASSERT(sState);
 	// Set root's parent to be last-selected item if there was one
 	// This signals to the dialog which item to start out already selected
-	sState->entries[0].item.parentIndex = int(sState->activeEntry);
+	sState->entries[0].item.parentIndex = sState->activeEntry;
 	sState->activeEntry = Dialogs::layoutItemSelect(sState->dialogItems);
-	DBG_ASSERT(sState->activeEntry < sState->entries.size());
+	DBG_ASSERT(sState->activeEntry >= 0);
+	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
 	if( sState->activeEntry )
 	{
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
@@ -1302,7 +1315,7 @@ static void promptForEditEntry()
 
 static bool setEntryParentFromMap(
 	const StringToValueMap<u32>& theEntryNameMap,
-	u16 theIndex, const std::string& thePrefix, void* theEntryPtr)
+	int theIndex, const std::string& thePrefix, void* theEntryPtr)
 {
 	LayoutEntry& theEntry = *((LayoutEntry*)theEntryPtr);
 	std::string aHotspotName =
@@ -1368,7 +1381,7 @@ static void addArrayEntries(
 	LayoutEntry::EType theCategoryType,
 	LayoutEntry::EType theEntryType)
 {
-	const size_t aFirstNewEntryIdx = theEntryList.size();
+	const int aFirstNewEntryIdx = intSize(theEntryList.size());
 	LayoutEntry aNewEntry;
 	aNewEntry.type = theEntryType;
 	aNewEntry.item.parentIndex = theCategoryType;
@@ -1376,7 +1389,7 @@ static void addArrayEntries(
 	const Profile::PropertyMap& aPropertyMap =
 		Profile::getSectionProperties(theEntryList[theCategoryType].posSect);
 	StringToValueMap<u32> anEntryNameToIdxMap;
-	for(size_t i = 0; aPropertyMap.size(); ++i)
+	for(int i = 0, end = intSize(aPropertyMap.size()); i < end; ++i)
 	{
 		aNewEntry.rangeCount = 0;
 		aNewEntry.item.name = aPropertyMap.keys()[i];
@@ -1419,8 +1432,11 @@ static void addArrayEntries(
 	}
 
 	// Link items in arrays with their direct parents
-	for(size_t i = aFirstNewEntryIdx; i < theEntryList.size(); ++i)
+	for(int i = aFirstNewEntryIdx,
+		end = intSize(theEntryList.size()); i < end; ++i)
+	{
 		setEntryParent(theEntryList[i], anEntryNameToIdxMap);
+	}
 }
 
 
@@ -1540,8 +1556,10 @@ void init()
 		aCatEntry.posSect = kHUDPrefix;
 		sState->entries.push_back(aCatEntry);
 		DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
-		for(size_t i = 0; i < sState->entries.size(); ++i)
+		#ifndef NDEBUG
+		for(int i = 0; i < LayoutEntry::eType_CategoryNum; ++i)
 			DBG_ASSERT(sState->entries[i].type == i);
+		#endif
 	}
 
 	// Collect the hotspots
@@ -1557,7 +1575,7 @@ void init()
 		LayoutEntry::eType_CopyIcon);
 
 	// Collect HUD Element / Menu position keys from InputMap
-	for(u16 i = 0; i < InputMap::hudElementCount(); ++i)
+	for(int i = 0, end = intSize(InputMap::hudElementCount()); i < end; ++i)
 	{
 		LayoutEntry aNewEntry;
 		aNewEntry.item.isRootCategory = false;
@@ -1663,14 +1681,15 @@ void init()
 	}
 
 	// Link parent entries to their children for drawing later
-	for(size_t i = LayoutEntry::eType_CategoryNum; i < sState->entries.size(); ++i)
+	for(int i = LayoutEntry::eType_CategoryNum,
+		end = intSize(sState->entries.size()); i < end; ++i)
 	{
 		if( sState->entries[i].item.parentIndex >= LayoutEntry::eType_CategoryNum )
 			sState->entries[sState->entries[i].item.parentIndex].children.push_back(i);
 	}
 
 	sState->dialogItems.reserve(sState->entries.size());
-	for(size_t i = 0; i < sState->entries.size(); ++i)
+	for(int i = 0, end = intSize(sState->entries.size()); i < end; ++i)
 		sState->dialogItems.push_back(&sState->entries[i].item);
 
 	promptForEditEntry();
