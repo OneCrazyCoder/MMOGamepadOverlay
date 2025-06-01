@@ -1473,7 +1473,7 @@ static Command stringToSetVariableCommand(
 	int aPatternIdx = 0;
 	const char aPattern[5] = " to ";
 	// Start search after "set" and <varname> in terms of character count
-	for(const char* c = &(theString.c_str()[5 + theWords[aVarNameIdx].size()]);
+	for(const char* c = &(theString.c_str()[4 + theWords[aVarNameIdx].size()]);
 		*c; ++c)
 	{
 		const u8 aTestChar(*c);

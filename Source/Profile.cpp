@@ -90,14 +90,14 @@ typedef void (*ParseINICallback)(
 	const std::string& theValue,
 	void* theUserData);
 
-struct UnsavedProperty
+struct ZERO_INIT(UnsavedProperty)
 {
 	int sectionID;
 	int propertyID;
 	std::string value;
 };
 
-struct VarPropDependency
+struct ZERO_INIT(VarPropDependency)
 {
 	u32 varID : 9;
 	u32 sectID : 9;
@@ -1259,15 +1259,17 @@ static void userEditProfile(int theProfilesCanLoadIdx, bool firstProfile)
 
 static void logPropVarDependency(VarPropDependency theDep, bool init)
 {
-	if( !init )
+	if( init )
 	{
 		// Just push on to the list and it will be sorted in later
 		sVarPropDepList.push_back(theDep);
 		return;
 	}
 
-	// TODO - Check for existing entry and abort if it is there,
-	// otherwise insert into found position
+	std::vector<VarPropDependency>::iterator itr = std::lower_bound(
+		sVarPropDepList.begin(), sVarPropDepList.end(), theDep);
+	if( itr == sVarPropDepList.end() || !(*itr == theDep) )
+		sVarPropDepList.insert(itr, theDep);
 }
 
 
@@ -1510,7 +1512,7 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 			}
 			else
 			{
-				Property& aVarProp =  theVarsMap.vals()[aVarID];
+				Property& aVarProp = theVarsMap.vals()[aVarID];
 				if( aVarProp.str == "\b" )
 				{
 					logError("Variable '%s' references self!",
@@ -1599,6 +1601,39 @@ static void loadProfile(int theProfilesCanLoadIdx)
 }
 
 
+void propogatePropertyChange(int theSectionID, int thePropertyID)
+{
+	// Apply variable expansion to this property
+	DBG_ASSERT(theSectionID >= 0 && theSectionID < sSectionsMap.size());
+	PropertyMap& aSection = sSectionsMap.vals()[theSectionID];
+	DBG_ASSERT(thePropertyID >= 0 && thePropertyID < aSection.size());
+	Property& aProp = aSection.vals()[thePropertyID];
+	aProp.str.clear();
+	expandPropertyVars(theSectionID, thePropertyID, false);
+
+	if( theSectionID == kVarsSectionIdx )
+	{// Property is a variable - update other properties that depend on it
+		VarPropDependency aSearchVarDep;
+		aSearchVarDep.varID = thePropertyID;
+		for(std::vector<VarPropDependency>::const_iterator itr =
+				std::lower_bound(
+					sVarPropDepList.begin(),
+					sVarPropDepList.end(),
+					aSearchVarDep);
+			itr != sVarPropDepList.end() && int(itr->varID) == thePropertyID;
+			++itr)
+		{
+			propogatePropertyChange(itr->sectID, itr->propID);
+		}
+	}
+	else
+	{// Log property update in sChangedSectionsMap for other modules as well
+		sChangedSectionsMap.findOrAdd(sSectionsMap.keys()[theSectionID])
+			.setValue(aSection.keys()[thePropertyID], aProp);
+	}
+}
+
+
 static void setPropertyAfterLoad(
 	int theSectionID,
 	int thePropertyID,
@@ -1607,29 +1642,19 @@ static void setPropertyAfterLoad(
 {
 	DBG_ASSERT(theSectionID >= 0 && theSectionID < sSectionsMap.size());
 
-	// Add/change main properties map
+	// Only apply if different than existing value in main property map
 	PropertyMap& aSection = sSectionsMap.vals()[theSectionID];
 	DBG_ASSERT(thePropertyID >= 0 && thePropertyID < aSection.size());
 	Property& aProp = aSection.vals()[thePropertyID];
 	if( (aProp.pattern.empty() && aProp.str == theValue) ||
 		aProp.pattern == theValue )
 		return;
-	aProp.str.clear();
+
+	// Set pattern string (next call will update actual aProp.str)
 	aProp.pattern = theValue;
 
-	// Apply variable expansion to new/changed property
-	expandPropertyVars(theSectionID, thePropertyID, false);
-
-	// TODO - if( aSectionID == kVarsSectionIdx ) propogate variable to others
-	// Make sure sChangedSectionsMap includes properties changed by variable
-	// adjustment (but not unsavedChangesList). However, sChangedSectionsMap
-	// maybe does NOT need to include this change or propogated changes to
-	// variables themselves, since they should never be referenced outside
-	// of Profile (only outside awareness is for the "Set Variable" command).
-
-	// Log in changed properties map as well
-	sChangedSectionsMap.findOrAdd(sSectionsMap.keys()[theSectionID])
-		.setValue(aSection.keys()[thePropertyID], aProp);
+	// Apply variable expansion, spread to other properties, log in changes map
+	propogatePropertyChange(theSectionID, thePropertyID);
 	
 	if( saveToFile )
 	{// Log as change to save to file

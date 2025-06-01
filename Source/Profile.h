@@ -20,8 +20,8 @@ namespace Profile
 
 struct Property
 {
-	std::string pattern;
 	std::string str;
+	std::string pattern;
 };
 typedef StringToValueMap<Property> PropertyMap;
 typedef StringToValueMap<PropertyMap> SectionsMap;
