@@ -209,7 +209,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
 		// Load current profile
 		Profile::load();
 
-		// Overwrite profile properties with game config file ones
+		// Overwrite some profile properties with target app config
 		if( !gShutdown && !hadFatalError() )
 			TargetConfigSync::load();
 
