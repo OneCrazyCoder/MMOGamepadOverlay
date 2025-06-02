@@ -16,6 +16,15 @@
 namespace InputMap
 {
 
+struct ButtonActions
+{
+	Command cmd[eBtnAct_Num];
+	int holdTimeForAction; // -1 == not specified (use default)
+	ButtonActions() : holdTimeForAction(-1) {}
+};
+typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
+typedef VectorMap<u16, Command> SignalActionsMap;
+
 // Load the input mappings and macro sets from current profile
 void loadProfile();
 void loadProfileChanges();
@@ -37,19 +46,10 @@ int offsetKeyBindArrayIndex(
 	int theArrayID, int theIndex, int theSteps, bool wrap);
 
 // CONTROLS LAYERS
-
-// Get commands to execute for given button in given layer, in the
-// form of an array of 'Command' of size 'eBtnAct_Num', or NULL
-// if no commands have been assigned to given layer & button at all
-const Command* commandsForButton(int theLayerID, EButton theButton);
-
-// Get commands to execute in response to bits set in gFiredSignals
-const VectorMap<u16, Command>& signalCommandsForLayer(int theLayerID);
-
+const ButtonActionsMap& buttonCommandsForLayer(int theLayerID);
+const SignalActionsMap& signalCommandsForLayer(int theLayerID);
 // Returns how long given button needs to be held to trigger eBtnAct_Hold
 int commandHoldTime(int theLayerID, EButton theButton);
-
-// Gets parent layer for given layer ID
 int parentLayer(int theLayerID);
 
 // Gets sort priority for given layer ID

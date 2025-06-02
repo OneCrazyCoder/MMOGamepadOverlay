@@ -1305,7 +1305,7 @@ static void promptForEditEntry()
 
 static bool setEntryParentFromMap(
 	const StringToValueMap<u32>& theEntryNameMap,
-	int theIndex, const std::string& thePrefix, void* theEntryPtr)
+	int theIndex, const std::string& /*thePrefix*/, void* theEntryPtr)
 {
 	LayoutEntry& theEntry = *((LayoutEntry*)theEntryPtr);
 	std::string aHotspotName =

@@ -23,13 +23,15 @@ bool gHadFatalError = false;
 // Local Functions
 //-----------------------------------------------------------------------------
 
+#ifdef NDEBUG
+void logToConsole(const std::string&, const std::string&) {}
+#else
 void logToConsole(const std::string& thePrefix, const std::string& theMsg)
 {
-	#ifndef NDEBUG
 	const std::string& aStr = thePrefix + theMsg + "\n";
 	OutputDebugStringW(widen(aStr).c_str());
-	#endif
 }
+#endif
 
 
 void logToErrorFile(const std::string& theErrorString)

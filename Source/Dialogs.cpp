@@ -551,7 +551,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 
 
 static UINT_PTR CALLBACK targetAppPathProc(
-	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+	HWND theDialog, UINT theMessage, WPARAM, LPARAM lParam)
 {
 	switch(theMessage)
 	{
@@ -590,7 +590,7 @@ static UINT_PTR CALLBACK targetAppPathProc(
 
 
 static INT_PTR CALLBACK licenseDialogProc(
-	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM)
 {
 	switch(theMessage)
 	{
@@ -660,8 +660,7 @@ static INT_PTR CALLBACK licenseDialogProc(
 }
 
 
-static BOOL CALLBACK browseFolderShowSelectionCallback(
-	HWND hWndChild, LPARAM lParam)
+static BOOL CALLBACK browseFolderShowSelectionCallback(HWND hWndChild, LPARAM)
 {
 	// Used as a workaround for a Win32 bug where the folder browser
 	// won't scroll the window to the initial selection folder
@@ -679,7 +678,7 @@ static BOOL CALLBACK browseFolderShowSelectionCallback(
 
 
 static int CALLBACK browseFolderDialogProc(
-	HWND theDialog, UINT theMessage, LPARAM lParam, LPARAM lpData)
+	HWND theDialog, UINT theMessage, LPARAM, LPARAM lpData)
 {
 	switch(theMessage)
 	{

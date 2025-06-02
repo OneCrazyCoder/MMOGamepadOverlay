@@ -413,10 +413,12 @@ void StringToValueMap<V, I, S>::linkNode(
 			theFoundNode = aParentWentRight
 				? mTrie[theBackPtr].right
 				: mTrie[theBackPtr].left;
+			#ifndef NDEBUG
 			// Search should always be aborted before actually get back-pointed
 			DBG_ASSERT(
 				mTrie[theFoundNode].bitPos >= mTrie[theNewNode].bitPos ||
 				aLastCheckedNodeBitPos < mTrie[theFoundNode].bitPos);
+			#endif
 		}
 	}
 	else

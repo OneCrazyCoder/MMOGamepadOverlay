@@ -1091,7 +1091,7 @@ static void setAutoLoadProfile(int theProfilesCanLoadIdx)
 
 #ifndef _DEBUG
 static void readVersionCallback(
-	const std::string& theSection,
+	const std::string& /*theSection*/,
 	const std::string& theName,
 	const std::string& theValue,
 	void* theVersion)

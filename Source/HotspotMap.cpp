@@ -1539,7 +1539,7 @@ std::string hotspotToString(
 	EHotspotNamingStyle theStyle)
 {
 	std::string result;
-	EHotspotNamingStyle aCoordStyle;
+	EHotspotNamingStyle aCoordStyle = EHotspotNamingStyle(0);
 	switch(theStyle)
 	{
 	case eHNS_XY:		aCoordStyle = eHNS_X;		break;
