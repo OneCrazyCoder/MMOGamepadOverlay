@@ -34,21 +34,27 @@ kMaxLayerChangesPerUpdate = 32,
 
 struct ZERO_INIT(Config)
 {
-	u32 tapHoldTime;
-	u32 autoRepeatDelay;
-	u32 autoRepeatRate;
-	u32 hotspotAutoRepeatDelay;
-	u32 hotspotAutoRepeatRate;
+	int tapHoldTime;
+	int defaultHoldTimeForAction;
+	int autoRepeatDelay;
+	int autoRepeatRate;
+	int hotspotAutoRepeatDelay;
+	int hotspotAutoRepeatRate;
 
 	void load()
 	{
-		tapHoldTime = Profile::getInt("System", "ButtonTapTime", 500);
-		autoRepeatDelay = Profile::getInt("System", "AutoRepeatDelay", 400);
-		autoRepeatRate = Profile::getInt("System", "AutoRepeatRate", 100);
+		tapHoldTime =
+			max(0, Profile::getInt("System", "ButtonTapTime", 500));
+		defaultHoldTimeForAction =
+			max(0, Profile::getInt("System", "ButtonHoldTime", 400));
+		autoRepeatDelay =
+			max(0, Profile::getInt("System", "AutoRepeatDelay", 400));
+		autoRepeatRate =
+			max(0, Profile::getInt("System", "AutoRepeatRate", 100));
 		hotspotAutoRepeatDelay =
-			Profile::getInt("System", "SelectHotspotRepeatDelay", 150);
+			max(0, Profile::getInt("System", "SelectHotspotRepeatDelay", 150));
 		hotspotAutoRepeatRate =
-			Profile::getInt("System", "SelectHotspotRepeatRate", 75);
+			max(0, Profile::getInt("System", "SelectHotspotRepeatRate", 75));
 		u8 aThreshold = u8(clamp(
 			Profile::getInt("Gamepad", "LStickThreshold", 40),
 				0, 100) * 255 / 100);
@@ -98,7 +104,7 @@ struct ButtonCommandSet
 {
 	CommandArray cmd;
 	u16 layer[eBtnAct_Num];
-	u32 holdTimeForAction;
+	int holdTimeForAction;
 
 	ButtonCommandSet() { clear(); }
 	void clear()
@@ -116,7 +122,7 @@ struct ButtonState
 {
 	ButtonCommandSet commands;
 	ButtonCommandSet commandsWhenPressed;
-	u32 heldTime;
+	int heldTime;
 	u16 layerHeld;
 	u16 vKeyHeld;
 	u16 buttonID;
@@ -282,75 +288,203 @@ static void loadLayerData()
 
 	sState.layers.reserve(InputMap::controlsLayerCount());
 	sState.layers.resize(InputMap::controlsLayerCount());
-	for(int i = 0, end = intSize(sState.layers.size()); i < end; ++i)
+	for(int aLayerID = 0, end = intSize(sState.layers.size());
+		aLayerID < end; ++aLayerID)
 	{
-		sState.layers[i].clear();
-		const Command* autoButtonCommands =
-			InputMap::commandsForButton(i, eBtn_None);
-		if( autoButtonCommands )
-		{
+		LayerState& aLayer = sState.layers[aLayerID];
+		aLayer.clear();
+		const InputMap::ButtonActionsMap& aBtnCmdsMap =
+			InputMap::buttonCommandsForLayer(aLayerID);
+		if( !aBtnCmdsMap.empty() && aBtnCmdsMap[0].first == eBtn_None )
+		{// eBtn_None == 0 (so first in map if it exists) == "auto" button
+			const InputMap::ButtonActions& aBtnActions = aBtnCmdsMap[0].second;
 			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
-				sState.layers[i].autoButton.commands.cmd[aBtnAct] =
-					autoButtonCommands[aBtnAct];
-				sState.layers[i].autoButton.commands.
-					layer[aBtnAct] = dropTo<u16>(i);
+				aLayer.autoButton.commands.cmd[aBtnAct] =
+					aBtnActions.cmd[aBtnAct];
+				aLayer.autoButton.commands.layer[aBtnAct] =
+					dropTo<u16>(aLayerID);
 			}
+			aLayer.autoButton.commands.holdTimeForAction =
+				aBtnActions.holdTimeForAction >= 0
+					? aBtnActions.holdTimeForAction
+					: kConfig.defaultHoldTimeForAction;
 		}
-		sState.layers[i].autoButton.commands.holdTimeForAction =
-			InputMap::commandHoldTime(i, eBtn_None);
 	}
+}
+
+
+static EButton multiDirFirstChildButton(EButton theButtonID)
+{
+	switch(theButtonID)
+	{
+	case eBtn_LSAny:	return eBtn_LSLeft;
+	case eBtn_RSAny:	return eBtn_RSLeft;
+	case eBtn_DPadAny:	return eBtn_DLeft;
+	case eBtn_FPadAny:	return eBtn_FLeft;
+	}
+
+	return eBtn_None;
+}
+
+
+static EButton multiDirParentButton(EButton theButtonID)
+{
+	switch(theButtonID)
+	{
+	case eBtn_LSLeft: case eBtn_LSRight: case eBtn_LSUp: case eBtn_LSDown:
+		return eBtn_LSAny;
+	case eBtn_RSLeft: case eBtn_RSRight: case eBtn_RSUp: case eBtn_RSDown:
+		return eBtn_RSAny;
+	case eBtn_DLeft: case eBtn_DRight: case eBtn_DUp: case eBtn_DDown:
+		return eBtn_DPadAny;
+	case eBtn_FLeft: case eBtn_FRight: case eBtn_FUp: case eBtn_FDown:
+		return eBtn_FPadAny;
+	}
+
+	return eBtn_None;
 }
 
 
 static void	loadCommandsForCurrentLayers()
 {
+	sState.signalCommands.clear();
 	for(int aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
-		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
-		aBtnState.commands.clear();
-		for(std::vector<u16>::const_iterator itr =
-			sState.layerOrder.begin();
-			itr != sState.layerOrder.end(); ++itr)
+		sState.gamepadButtons[aBtnIdx].commands.clear();
+		sState.gamepadButtons[aBtnIdx].commands.holdTimeForAction =
+			kConfig.defaultHoldTimeForAction;
+	}
+
+	// Load commands such that higher layers override lower ones
+	for(std::vector<u16>::const_iterator itr =
+		sState.layerOrder.begin();
+		itr != sState.layerOrder.end(); ++itr)
+	{
+		const int aLayerID = *itr;
+		const InputMap::ButtonActionsMap& aBtnCmdsMap =
+			InputMap::buttonCommandsForLayer(aLayerID);
+		for(int i = 0, end = intSize(aBtnCmdsMap.size()); i < end; ++i)
 		{
-			const int aLayerID = *itr;
-			const Command* aCommandsArray =
-				InputMap::commandsForButton(aLayerID, EButton(aBtnIdx));
-			if( !aCommandsArray )
+			const EButton aBtnID = aBtnCmdsMap[i].first;
+			if( aBtnID == eBtn_None )
 				continue;
+			const InputMap::ButtonActions& aBtnActions = aBtnCmdsMap[i].second;
+			ButtonState& aBtnState = sState.gamepadButtons[aBtnID];
 			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
-				if( aCommandsArray[aBtnAct].type == eCmdType_Empty )
+				if( aBtnActions.cmd[aBtnAct].type == eCmdType_Empty )
 					continue;
-				aBtnState.commands.cmd[aBtnAct] = aCommandsArray[aBtnAct];
+
+				aBtnState.commands.cmd[aBtnAct] = aBtnActions.cmd[aBtnAct];
 				aBtnState.commands.layer[aBtnAct] = dropTo<u16>(aLayerID);
+				// For multi-directionals, the _LSAny/etc command should block
+				// single direction buttons from lower layers and vice versa.
+				if( EButton aChildBtnID = multiDirFirstChildButton(aBtnID) )
+				{
+					for(int aDir = 0; aDir < eCmdDir_Num; ++aDir,
+						aChildBtnID = EButton(aChildBtnID+1))
+					{
+						ButtonCommandSet& aDirBtnSet =
+							sState.gamepadButtons[aChildBtnID].commands;
+						if( aDirBtnSet.layer[aBtnAct] != aLayerID )
+						{
+							aDirBtnSet.cmd[aBtnAct].type = eCmdType_Unassigned;
+							aDirBtnSet.layer[aBtnAct] = u16(aLayerID);
+						}
+					}
+				}
+				else if( EButton aParentBtnID = multiDirParentButton(aBtnID) )
+				{
+					ButtonCommandSet& aMultDirCmdSet =
+						sState.gamepadButtons[aParentBtnID].commands;
+					if( aMultDirCmdSet.layer[aBtnAct] != aLayerID )
+					{
+						aMultDirCmdSet.cmd[aBtnAct].type = eCmdType_Unassigned;
+						aMultDirCmdSet.layer[aBtnAct] = u16(aLayerID);
+					}
+				}
 			}
-			if( aCommandsArray[eBtnAct_Hold].type != eCmdType_Empty &&
-				aCommandsArray[eBtnAct_Hold].type != eCmdType_Unassigned &&
-				(aCommandsArray[eBtnAct_Hold].type != eCmdType_DoNothing ||
-				 aCommandsArray[eBtnAct_Tap].type >= eCmdType_FirstValid) )
+			// Don't override hold time unless also overriding related actions
+			if( aBtnActions.cmd[eBtnAct_Hold].type != eCmdType_Empty &&
+				aBtnActions.cmd[eBtnAct_Hold].type != eCmdType_Unassigned &&
+				(aBtnActions.cmd[eBtnAct_Hold].type != eCmdType_DoNothing ||
+				 aBtnActions.cmd[eBtnAct_Tap].type >= eCmdType_FirstValid) )
 			{
 				aBtnState.commands.holdTimeForAction =
-					InputMap::commandHoldTime(aLayerID, EButton(aBtnIdx));
+					aBtnActions.holdTimeForAction >= 0
+						? aBtnActions.holdTimeForAction
+						: kConfig.defaultHoldTimeForAction;
 			}
+		}
+		const InputMap::SignalActionsMap& aSignalsList =
+			InputMap::signalCommandsForLayer(aLayerID);
+		for(int i = 0, end = intSize(aSignalsList.size()); i < end; ++i)
+		{
+			ActiveSignal aSignalCmd;
+			aSignalCmd.signalID = aSignalsList[i].first;
+			aSignalCmd.layerID = dropTo<u16>(aLayerID);
+			aSignalCmd.cmd = aSignalsList[i].second;
+			sState.signalCommands.push_back(aSignalCmd);
 		}
 	}
 
-	sState.signalCommands.clear();
-	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
+	// For multi-directionals, the _LSAny/etc command may need to be shifted
+	// over to the single directional buttons (_LSLeft/Right/Up/Down).
+	const EButton kMultiDirButtons[] =
+		{ eBtn_LSAny, eBtn_RSAny, eBtn_DPadAny, eBtn_FPadAny };
+	for(int aMultiDirBtnIdx = 0; aMultiDirBtnIdx < ARRAYSIZE(kMultiDirButtons);
+		++aMultiDirBtnIdx)
 	{
-		const int aLayerID = sState.layerOrder[i];
-		const VectorMap<u16, Command>& aSignalsList =
-			InputMap::signalCommandsForLayer(aLayerID);
-		for(VectorMap<u16, Command>::const_iterator
-			itr = aSignalsList.begin();
-			itr != aSignalsList.end(); ++itr)
+		const EButton aBtnID = kMultiDirButtons[aMultiDirBtnIdx];
+		ButtonCommandSet& aMultDirCmdSet =
+			sState.gamepadButtons[aBtnID].commands;
+		const EButton aFirstChildBtnID = multiDirFirstChildButton(aBtnID);
+		DBG_ASSERT(aFirstChildBtnID != eBtn_None);
+		ButtonCommandSet* aDirBtnSet[eCmdDir_Num];
+		for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 		{
-			ActiveSignal aSignalCmd;
-			aSignalCmd.signalID = itr->first;
-			aSignalCmd.layerID = dropTo<u16>(aLayerID);
-			aSignalCmd.cmd = itr->second;
-			sState.signalCommands.push_back(aSignalCmd);
+			aDirBtnSet[aDir] =
+				&sState.gamepadButtons[aFirstChildBtnID + aDir].commands;
+		}
+		for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+		{
+			if( aMultDirCmdSet.cmd[aBtnAct].type < eCmdType_FirstValid )
+				continue;
+			// Directional commands MUST be moved to individual dir inputs
+			const bool isDirectionalCommand =
+				aMultDirCmdSet.cmd[aBtnAct].type >= eCmdType_FirstDirectional;
+			bool needsMerging = isDirectionalCommand;
+			// If some individual inputs have valid commands set for this
+			// action, should move the _LSAny/etc command to those that don't.
+			// The _LSAny/etc button should only be used directly (activated
+			// by pressing ANY direction and acts as "holding" until release
+			// ALL directions related to it) when no separate commands are
+			// included for individual directions. Usually setting a command
+			// for one is just a shortcut to assigning multiple dirs at once.
+			for(int aDir = 0; aDir < eCmdDir_Num && !needsMerging; ++aDir)
+			{
+				if( aDirBtnSet[aDir]->cmd[aBtnAct].type >= eCmdType_DoNothing )
+					needsMerging = true;
+			}
+			if( !needsMerging )
+				continue;
+			for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
+			{
+				if( aDirBtnSet[aDir]->cmd[aBtnAct].type >= eCmdType_DoNothing )
+					continue;
+				aDirBtnSet[aDir]->cmd[aBtnAct] = aMultDirCmdSet.cmd[aBtnAct];
+				aDirBtnSet[aDir]->layer[aBtnAct] =
+					aMultDirCmdSet.layer[aBtnAct];
+				if( isDirectionalCommand )
+					aDirBtnSet[aDir]->cmd[aBtnAct].dir = dropTo<u16>(aDir);
+				if( aBtnAct == eBtnAct_Hold )
+				{
+					aDirBtnSet[aDir]->holdTimeForAction =
+						aMultDirCmdSet.holdTimeForAction;
+				}
+			}
+			aMultDirCmdSet.cmd[aBtnAct] = Command();
 		}
 	}
 }
@@ -1008,6 +1142,7 @@ static void processCommand(
 	case eCmdType_MenuSelect:
 		for(int i = 0; i < theCmd.count; ++i)
 		{
+			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 			aForwardCmd = Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
@@ -1020,6 +1155,7 @@ static void processCommand(
 	case eCmdType_MenuSelectAndClose:
 		for(int i = 0; i < theCmd.count; ++i)
 		{
+			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 			aForwardCmd = Menus::selectMenuItem(
 				theCmd.menuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
@@ -1036,6 +1172,7 @@ static void processCommand(
 		moveMouseToSelectedMenuItem(theCmd);
 		break;
 	case eCmdType_MenuEditDir:
+		DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
@@ -1043,6 +1180,7 @@ static void processCommand(
 			gHotspotsGuideMode = eHotspotGuideMode_Redisplay;
 		else
 			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
+		DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 		sResults.selectHotspotDir = combined8Dir(
 			sResults.selectHotspotDir, ECommandDir(theCmd.dir));
 		break;
@@ -1056,6 +1194,7 @@ static void processCommand(
 	case eCmdType_MouseWheel:
 		if( theCmd.mouseWheelMotionType == eMouseWheelMotion_Jump )
 		{
+			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 			InputDispatcher::jumpMouseWheel(
 				ECommandDir(theCmd.dir),
 				theCmd.count);
@@ -1222,6 +1361,7 @@ static void processAnalogInput(
 
 	DBG_ASSERT(isAnalogCommand(aCmd));
 
+	DBG_ASSERT(aCmd.dir >= 0 && aCmd.dir < eCmdDir_Num);
 	switch(u32(aCmd.type << 16) | aCmd.dir)
 	{
 	case (eCmdType_MoveTurn << 16) | eCmdDir_Forward:

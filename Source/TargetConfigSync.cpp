@@ -737,7 +737,7 @@ public:
 	{
 	}
 
-	virtual void parseNextChunk(const std::string& theReadChunk)
+	virtual void parseNextChunk(const std::string& /*theReadChunk*/)
 	{
 		// TODO
 		mDoneParsing = true;

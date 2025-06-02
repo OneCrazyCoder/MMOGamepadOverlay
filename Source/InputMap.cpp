@@ -29,7 +29,6 @@ const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kKeyBindsSectionName = "KeyBinds";
 const char* kHotspotsSectionName = "Hotspots";
-const char* k4DirCmdSuffix[] = { " Left", " Right", " Up", " Down" };
 const std::string kActionOnlyPrefix = "Just";
 const std::string kSignalCommandPrefix = "When";
 
@@ -222,24 +221,11 @@ struct ZERO_INIT(HUDElement)
 	{}
 };
 
-struct ButtonActions
-{
-	Command cmd[eBtnAct_Num];
-	void initIfEmpty()
-	{
-		for(int i = 0; i < eBtnAct_Num; ++i)
-		{
-			if( cmd[i].type == eCmdType_Empty )
-				cmd[i].type = eCmdType_Unassigned;
-		}
-	}
-};
-typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
 
 struct ZERO_INIT(ControlsLayer)
 {
-	ButtonActionsMap buttonMap;
-	VectorMap<u16, Command> signalCommands;
+	ButtonActionsMap buttonCommands;
+	SignalActionsMap signalCommands;
 	BitVector<32> showHUD;
 	BitVector<32> hideHUD;
 	BitVector<32> enableHotspots;
@@ -293,8 +279,6 @@ static StringToValueMap<ControlsLayer> sLayers;
 static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static StringToValueMap<Menu> sMenus;
 static StringToValueMap<HUDElement> sHUDElements;
-static VectorMap<std::pair<int, EButton>, int> sButtonHoldTimes;
-static int sDefaultButtonHoldTime = 400;
 static std::vector<std::string> sParsedString(16);
 static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
@@ -1510,8 +1494,9 @@ static Command stringToSetVariableCommand(
 
 static Command wordsToSpecialCommand(
 	const std::vector<std::string>& theWords,
-	bool allowButtonActions = false,
-	bool allowHoldActions = false)
+	bool allowButtonActions,
+	bool allowHoldActions,
+	bool allow4DirActions)
 {
 	// Can't allow hold actions if don't also allow button actions
 	DBG_ASSERT(!allowHoldActions || allowButtonActions);
@@ -1519,15 +1504,32 @@ static Command wordsToSpecialCommand(
 	if( theWords.empty() )
 		return result;
 
-	// Almost all commands require more than one "word", even if only one of
-	// the words is actually a command key word (thus can force a keybind to be
-	// used instead of a command by specifying the keybind as a single word).
-	// The exception are the "nothing" and "unassigned" key words.
+	// Most commands require more than one "word", even if only one of the
+	// words is actually a command key word. Single words are assumed to be
+	// a key bind name or literal key instead. Exceptions for commands that
+	// work with only a single word are "nothing" or "unassigned", and some
+	// directional commands being assigned directly to a 4-directional input
+	// so are missing the word that indicates direction.
 	if( theWords.size() <= 1 )
 	{
-		ECommandKeyWord aKeyWordID = commandWordToID(theWords[0]);
-		if( aKeyWordID != eCmdWord_Nothing )
+		switch(commandWordToID(theWords[0]))
+		{
+		case eCmdWord_Nothing:
+			// Always acceptable as single-word command
+			break;
+		case eCmdWord_Move:
+		case eCmdWord_Turn:
+		case eCmdWord_Strafe:
+		case eCmdWord_Look:
+		case eCmdWord_Mouse:
+		case eCmdWord_MouseWheel:
+			// Acceptable when assigning to a multi-directional input
+			if( allow4DirActions )
+				break;
+			// fall through
+		default:
 			return result;
+		}
 	}
 
 	// Find all key words that are actually included and their positions
@@ -1788,7 +1790,7 @@ static Command wordsToSpecialCommand(
 	const std::string* aLayerName = anIgnoredWord;
 	// If no ignored word either, default to anIntegerWord
 	if( !aLayerName ) aLayerName = anIntegerWord;
-	if( allowedKeyWords.count() == 1 ||
+	if( (allowedKeyWords.count() == 1 && theWords.size() > 1) ||
 		(aSecondLayerName && allowedKeyWords.count() == 2) )
 	{
 		VectorMap<ECommandKeyWord, int>::const_iterator itr =
@@ -1799,6 +1801,7 @@ static Command wordsToSpecialCommand(
 	}
 	if( aSecondLayerName &&
 		aLayerName == aSecondLayerName &&
+		theWords.size() > 1 &&
 		allowedKeyWords.count() == 2 )
 	{
 		aLayerName = anIgnoredWord;
@@ -1921,7 +1924,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Back);
 	allowedKeyWords.reset(eCmdWord_Mouse);
 	allowedKeyWords.reset(eCmdWord_Click);
-	if( allowedKeyWords.count() == 1 )
+	if( allowedKeyWords.count() == 1 && theWords.size() > 1 )
 	{
 		VectorMap<ECommandKeyWord, int>::const_iterator itr =
 			sKeyWordMap.find(
@@ -2017,7 +2020,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Prev);
 	allowedKeyWords.reset(eCmdWord_Next);
 	allowedKeyWords.reset(eCmdWord_Integer);
-	if( allowedKeyWords.count() == 1 )
+	if( allowedKeyWords.count() == 1 && theWords.size() > 1 )
 	{
 		VectorMap<ECommandKeyWord, int>::const_iterator itr =
 			sKeyWordMap.find(
@@ -2115,7 +2118,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Left);
 	allowedKeyWords.set(eCmdWord_Right);
 	allowedKeyWords.set(eCmdWord_Back);
-	if( (keyWordsFound & allowedKeyWords).count() != 1 )
+	if( (keyWordsFound & allowedKeyWords).count() != 1 && !allow4DirActions )
 		return result;
 
 	ECommandDir aCmdDir = eCmdDir_None;
@@ -2129,7 +2132,7 @@ static Command wordsToSpecialCommand(
 	keyWordsFound &= ~allowedKeyWords;
 
 	if( allowButtonActions && aMenuID < sMenus.size() &&
-		result.dir != eCmdDir_None )
+		(allow4DirActions || result.dir != eCmdDir_None) )
 	{
 		// "= 'Select'|'Menu'|'Select Menu'
 		// <aMenuName> <aCmdDir> [No/Wrap] [#] [with mouse click]"
@@ -2358,7 +2361,8 @@ static Command* specialKeyBindNameToCommand(const std::string& theName)
 static Command stringToCommand(
 	const std::string& theString,
 	bool allowButtonActions = false,
-	bool allowHoldActions = false)
+	bool allowHoldActions = false,
+	bool allow4DirActions = false)
 {
 	Command result;
 
@@ -2403,7 +2407,8 @@ static Command stringToCommand(
 	result = wordsToSpecialCommand(
 		sParsedString,
 		allowButtonActions,
-		allowHoldActions);
+		allowHoldActions,
+		allow4DirActions);
 	if( result.type != eCmdType_Empty )
 	{
 		sParsedString.clear();
@@ -2941,104 +2946,6 @@ static void addButtonAction(
 	int aBtnTime = breakOffIntegerSuffix(theBtnKeyName);
 	EButton aBtnID = buttonNameToID(theBtnKeyName);
 
-	bool isA4DirMultiAssign =
-		aBtnID == eBtn_LSAny ||
-		aBtnID == eBtn_RSAny ||
-		aBtnID == eBtn_DPadAny ||
-		aBtnID == eBtn_FPadAny;
-
-	if( isA4DirMultiAssign )
-	{
-		// Attempt to assign to all 4 directional variations of this button
-		// to the same command (or directional variations of it).
-		const Command& aBaseCmd = stringToCommand(
-			theCmdStr, true,
-			aBtnAct == eBtnAct_Down);
-		bool dirCommandFailed = false;
-		for(int i = 0; i < 4; ++i)
-		{
-			// Get true button ID by adding direction key to button name
-			aBtnID = buttonNameToID(theBtnKeyName + k4DirCmdSuffix[i]);
-			DBG_ASSERT(aBtnID < eBtn_Num);
-			// See if can get a different command if append a direction,
-			// if didn't already fail previously
-			std::string aCmdStr = theCmdStr;
-			Command aCmd;
-			if( !dirCommandFailed )
-			{
-				aCmdStr += k4DirCmdSuffix[i];
-				aCmd = stringToCommand(
-					aCmdStr, true, aBtnAct == eBtnAct_Down);
-			}
-			// Get destination of command
-			ButtonActions* aDestBtn =
-				&sLayers.vals()[theLayerIdx].buttonMap.findOrAdd(aBtnID);
-			if( !onlySpecificAction ) aDestBtn->initIfEmpty();
-			Command* aDestCmd = &(aDestBtn->cmd[aBtnAct]);
-			// Direct assignment should take priority over multi-assignment,
-			// so if this was already assigned directly then leave it alone.
-			if( aDestCmd->type > eCmdType_Unassigned || !isA4DirMultiAssign )
-				continue;
-			if( aCmd.type < eCmdType_FirstDirectional )
-			{// Not a valid directional command! Use base command
-				aCmdStr = theCmdStr;
-				aCmd = aBaseCmd;
-				dirCommandFailed = true;
-				// Possibly treat as a single assignment to the special
-				// "any direction" button for this 4-dir input
-				switch(aBtnID)
-				{
-				case eBtn_LSLeft: case eBtn_LSRight:
-				case eBtn_LSUp: case eBtn_LSDown:
-					aBtnID = eBtn_LSAny;
-					isA4DirMultiAssign = false;
-					break;
-				case eBtn_RSLeft: case eBtn_RSRight:
-				case eBtn_RSUp: case eBtn_RSDown:
-					aBtnID = eBtn_RSAny;
-					isA4DirMultiAssign = false;
-					break;
-				case eBtn_DLeft: case eBtn_DRight:
-				case eBtn_DUp: case eBtn_DDown:
-					aBtnID = eBtn_DPadAny;
-					isA4DirMultiAssign = false;
-					break;
-				}
-				if( !isA4DirMultiAssign )
-				{
-					aDestBtn = &sLayers.vals()[theLayerIdx].
-						buttonMap.findOrAdd(aBtnID);
-					if( !onlySpecificAction )
-						aDestBtn->initIfEmpty();
-					aDestCmd = &aDestBtn->cmd[aBtnAct];
-				}
-			}
-			// Make and report assignment
-			*aDestCmd = aCmd;
-			if( aBtnAct == eBtnAct_Hold )
-			{// Assign time to hold button for this action
-				sButtonHoldTimes.setValue(
-					std::pair<int, EButton>(theLayerIdx, aBtnID),
-					aBtnTime < 0
-						? sDefaultButtonHoldTime
-						: aBtnTime);
-			}
-			#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-			if( aCmd.type == eCmdType_Empty ) 
-			#endif
-			{
-				std::string anExtPropName =
-					sPropertyPrintName + k4DirCmdSuffix[i];
-				if( isA4DirMultiAssign )
-					swap(sPropertyPrintName, anExtPropName);
-				reportCommandAssignment(aCmd, aCmdStr);
-				if( isA4DirMultiAssign )
-					swap(sPropertyPrintName, anExtPropName);
-			}
-		}
-		return;
-	}
-
 	if( aBtnTime >= 0 && aBtnID >= eBtn_Num )
 	{// Part of the button's name might have been absorbed into aBtnTime
 		std::string aTimeAsString = toString(aBtnTime);
@@ -3060,22 +2967,28 @@ static void addButtonAction(
 		return;
 	}
 
+	const bool isMultiDirButton =
+		aBtnID == eBtn_LSAny || aBtnID == eBtn_RSAny ||
+		aBtnID == eBtn_DPadAny || aBtnID == eBtn_FPadAny;
+
 	// Parse command string into a Command struct
-	Command aCmd = stringToCommand(theCmdStr, true, aBtnAct == eBtnAct_Down);
+	Command aCmd = stringToCommand(
+		theCmdStr, true, aBtnAct == eBtnAct_Down, isMultiDirButton);
 
 	// Make the assignment
 	ButtonActions& aDestBtn =
-		sLayers.vals()[theLayerIdx].buttonMap.findOrAdd(aBtnID);
-	if( !onlySpecificAction ) aDestBtn.initIfEmpty();
+		sLayers.vals()[theLayerIdx].buttonCommands.findOrAdd(aBtnID);
+	if( !onlySpecificAction )
+	{// Set all _Empty to _Unassigned to block lower layer button assignments
+		for(int i = 0; i < eBtnAct_Num; ++i)
+		{
+			if( aDestBtn.cmd[i].type == eCmdType_Empty )
+				aDestBtn.cmd[i].type = eCmdType_Unassigned;
+		}
+	}
 	aDestBtn.cmd[aBtnAct] = aCmd;
 	if( aBtnAct == eBtnAct_Hold )
-	{// Assign time to hold button for this action
-		sButtonHoldTimes.setValue(
-			std::pair<int, EButton>(theLayerIdx, aBtnID),
-			aBtnTime < 0
-				? sDefaultButtonHoldTime
-				: aBtnTime);
-	}
+		aDestBtn.holdTimeForAction = aBtnTime;
 
 	// Report the results of the assignment
 	reportCommandAssignment(aCmd, theCmdStr);
@@ -3179,54 +3092,6 @@ static void addWhenSignalCommand(
 	if( breakOffButtonAction(theSignalKeyName) == eBtnAct_Press )
 	{
 		EButton aBtnID = buttonNameToID(theSignalKeyName);
-		const bool isA4DirMultiAssign =
-			aBtnID == eBtn_LSAny ||
-			aBtnID == eBtn_RSAny ||
-			aBtnID == eBtn_DPadAny ||
-			aBtnID == eBtn_FPadAny;
-
-		if( isA4DirMultiAssign )
-		{
-			// Attempt to assign to all 4 directional variations of this button
-			// to the same command (or directional variations of it).
-			const Command& aBaseCmd = stringToCommand(theCmdStr, true);
-			bool dirCommandFailed = false;
-			for(int i = 0; i < 4; ++i)
-			{
-				aBtnID = buttonNameToID(theSignalKeyName + k4DirCmdSuffix[i]);
-				DBG_ASSERT(aBtnID < eBtn_Num);
-				std::string aCmdStr = theCmdStr;
-				Command aCmd;
-				if( !dirCommandFailed )
-				{
-					aCmdStr += k4DirCmdSuffix[i];
-					aCmd = stringToCommand(aCmdStr, true);
-				}
-				if( aCmd.type == eCmdType_Empty )
-				{
-					aCmdStr = theCmdStr;
-					aCmd = aBaseCmd;
-					dirCommandFailed = true;
-				}
-				Command& aDestCmd = sLayers.vals()[theLayerIdx].
-					signalCommands.findOrAdd(dropTo<u16>(aBtnID));
-				if( aDestCmd.type != eCmdType_Empty )
-					continue;
-				aDestCmd = aCmd;
-				#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-				if( aCmd.type == eCmdType_Empty )
-				#endif
-				{
-					std::string anExtPropName = kSignalCommandPrefix;
-					anExtPropName += " " + sPropertyPrintName + k4DirCmdSuffix[i];
-					anExtPropName += " (signal #" + toString(aBtnID) + ")";
-					swap(sPropertyPrintName, anExtPropName);
-					reportCommandAssignment(aCmd, theCmdStr);
-					swap(sPropertyPrintName, anExtPropName);
-				}
-			}
-			return;
-		}
 
 		if( aBtnID != eBtn_None && aBtnID < eBtn_Num )
 		{
@@ -3714,7 +3579,6 @@ void loadProfile()
 	sComboLayers.clear();
 	sMenus.clear();
 	sHUDElements.clear();
-	sButtonHoldTimes.clear();
 	sParsedString.clear();
 
 	// Allocate hotspot arrays
@@ -3804,13 +3668,6 @@ void loadProfile()
 void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-
-	if( theProfileMap.contains("System") )
-	{
-		// Get default button hold time to execute eBtnAct_Hold command
-		sDefaultButtonHoldTime =
-			max(0, Profile::getInt("System", "ButtonHoldTime"));
-	}
 
 	// Check for any newly-created sub-menus
 	for(int aSectID = 0; aSectID < theProfileMap.size(); ++aSectID)
@@ -3950,39 +3807,17 @@ int offsetKeyBindArrayIndex(
 }
 
 
-const Command* commandsForButton(int theLayerID, EButton theButton)
+const ButtonActionsMap& buttonCommandsForLayer(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
-	DBG_ASSERT(theButton >= 0 && theButton < eBtn_Num);
-
-	ButtonActionsMap::const_iterator itr =
-		sLayers.vals()[theLayerID].buttonMap.find(theButton);
-	if( itr != sLayers.vals()[theLayerID].buttonMap.end() )
-		return &itr->second.cmd[0];
-
-	return null;
+	return sLayers.vals()[theLayerID].buttonCommands;
 }
 
 
-const VectorMap<u16, Command>& signalCommandsForLayer(int theLayerID)
+const SignalActionsMap& signalCommandsForLayer(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].signalCommands;
-}
-
-
-int commandHoldTime(int theLayerID, EButton theButton)
-{
-	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
-	DBG_ASSERT(theButton >= 0 && theButton < eBtn_Num);
-
-	std::pair<int, EButton> aKey(theLayerID, theButton);
-	VectorMap<std::pair<int, EButton>, int>::const_iterator itr =
-		sButtonHoldTimes.find(aKey);
-	if( itr != sButtonHoldTimes.end() )
-		return itr->second;
-
-	return sDefaultButtonHoldTime;
 }
 
 

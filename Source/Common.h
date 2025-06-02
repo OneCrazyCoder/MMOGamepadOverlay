@@ -21,17 +21,15 @@
 #include <string>
 #include <vector>
 
-#ifdef _MSC_VER
-#pragma warning(disable:4100) // Unused function parameter (check sometimes)
 #pragma warning(disable:4351) // Default-init arrays in ctor (now zero-init)
 #pragma warning(disable:4512) // Can't make assignment (allow const members)
+
 #ifdef _DEBUG
-// Bit less annoying while writing new code, but should clean up for release
+// Less annoying while writing new code, but test/fix in release before commit
+#pragma warning(disable:4100) // Unused function parameter
 #pragma warning(disable:4189) // Unused local variable
 #pragma warning(disable:4505) // Unreferenced local function
-#pragma warning(disable:4701) // Uninitialized local variable
-#pragma warning(disable:4702) // Unreachable code
-#endif
+#pragma warning(disable:4702) // Unreachable code (early return; in function)
 #endif
 
 #define null NULL

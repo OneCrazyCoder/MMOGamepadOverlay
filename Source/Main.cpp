@@ -169,7 +169,7 @@ void mainLoopTimeSkip()
 // Application entry point - WinMain
 //-----------------------------------------------------------------------------
 
-INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT cmd_show)
+INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 {
 	#ifdef _DEBUG
 	// Change to the number in {} of memory leaks detected to break on alloc

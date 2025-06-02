@@ -506,7 +506,7 @@ BitArray<S>::operator^=(const This& rhs)
 template<u32 S> inline BitArray<S>
 BitArray<S>::operator~() const
 {
-	This r;
+	This r = {};
 	for(int i = 0; i < kArraySize; ++i)
 		r.bits[i] = ~this->bits[i];
 	return r;

@@ -17,47 +17,10 @@ void logFatalError(const char* fmt ...);
 bool hadFatalError();
 
 #ifdef NDEBUG
-
-#define DBG_ASSERT(exp) ((void)0)
-#define DBG_LOG(exp) ((void)0)
-#define assert_cast static_cast
-
+#define DBG_ASSERT(exp) (static_cast<void>(exp))
 #else
-
 #define DBG_ASSERT(exp) assert(exp)
-#define DBG_LOG debugPrint
-
-// Will not assert if passed-in pointer is null, only if it is wrong type!
-#define assert_cast AssertCast(__FILE__, __LINE__).cast
-
-void assertFailed(const char* file, int line);
-
-// Used by assert_cast.
-struct AssertCast
-{
-	AssertCast(const char* file, int line) : mFile(file), mLine(line) {}
-
-	template<typename NewPtr, typename Old>
-	NewPtr cast(Old* oldObject) const
-	{
-		if( oldObject == null )
-			return null;
-		NewPtr newObject = dynamic_cast<NewPtr>(oldObject);
-		if( newObject == null )
-		{
-			bool skip = false;
-			assert(newObject != null);
-		}
-
-		return newObject;
-	}
-
-	const char* mFile;
-	int mLine;
-};
-
-
-#endif // NDEBUG
+#endif
 
 // Compile-time assert - use DBG_CTASSERT to make sure a const static condition
 // is true during compiling. Does not generate any actual code when used, just
