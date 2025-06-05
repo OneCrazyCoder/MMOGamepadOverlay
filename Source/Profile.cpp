@@ -1351,7 +1351,7 @@ static std::string varTagToString(
 				"Use nested ${} blocks for more options.",
 				theTagStr[aPos], theTagStr.c_str());
 		}
-		double aVarNum = doubleFromString(theVarContents);
+		double aVarNum = doubleFromString(result);
 		double aParamNum = doubleFromStringStrict(aParam);
 		if( _isnan(aParamNum) )
 		{
@@ -1359,13 +1359,13 @@ static std::string varTagToString(
 				"operator '%c' in '%s'. "
 				"Note only one operator is allowed per ${} block!",
 				aParam.c_str(), anOpC, theTagStr.c_str());
-			aParamNum = 0;
+			aParamNum = (anOpC == '/' || anOpC == '*') ? 1.0 : 0;
 		}
 		switch(anOpC)
 		{
-		case '+': result = toString(aVarNum + aParamNum); break;
-		case '-': result = toString(aVarNum - aParamNum); break;
-		case '*': result = toString(aVarNum * aParamNum); break;
+		case '+': aVarNum += aParamNum; break;
+		case '-': aVarNum -= aParamNum; break;
+		case '*': aVarNum *= aParamNum; break;
 		case '/':
 			if( aParamNum == 0 )
 			{
@@ -1373,9 +1373,10 @@ static std::string varTagToString(
 					theTagStr.c_str());
 				aParamNum = 1.0;
 			}
-			result = toString(aVarNum / aParamNum);
+			aVarNum /= aParamNum;
 			break;
 		}
+		result = toString(aVarNum);
 		return result;
 	}
 
@@ -1420,13 +1421,11 @@ static std::string varTagToString(
 	{
 		if( anOpC == '?' )
 		{// ${Var ? resultIfTrue}
-			if( isTrue )
-				result = aParam;
-			// Returns trimmed theVarContents when condition is false
+			result = isTrue ? aParam : "";
 			return result;
 		}
 		// ${Var !<=> value} (debugging? inner part of a more complex block?)
-		result = isTrue ? "true" : "false";
+		result = isTrue ? "true" : "";
 		return result;
 	}
 	
@@ -1451,10 +1450,12 @@ static std::string varTagToString(
 		result = aTrueResult;
 	else if( theTagStr[aPos++] == ':' )
 		result = fetchNextItem(theTagStr, aPos, "}");
+	else
+		result = "";
 
 	// result is now aTrueResult if condition was true, the section after :
-	// if condition was false, or the trimmed theVarContents if there was no
-	// : section (${Var !<=> value ? result} format) and condition was false
+	// if condition was false, or empty if there was no ':' section
+	// (${Var !<=> value ? result} format) and condition was false
 	return result;
 }
 
@@ -2357,6 +2358,14 @@ int variableNameToID(const std::string& theVarName)
 	if( result >= sSectionsMap.vals()[kVarsSectionIdx].size() )
 		result = -1;
 	return result;
+}
+
+
+std::string variableIDToName(int theVariableID)
+{
+	DBG_ASSERT(theVariableID >= 0);
+	DBG_ASSERT(theVariableID < sSectionsMap.vals()[kVarsSectionIdx].size());
+	return sSectionsMap.vals()[kVarsSectionIdx].keys()[theVariableID];
 }
 
 

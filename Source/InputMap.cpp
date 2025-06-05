@@ -615,7 +615,7 @@ static void applyHotspotProperty(
 			else
 			{
 				aHotspot.y.anchor = sHotspots[aBaseHotspotID].y.anchor;
-				aHotspot.x.offset = s16(clamp(
+				aHotspot.y.offset = s16(clamp(
 					sHotspots[aBaseHotspotID].y.offset +
 					aRange->yOffset * anArray.offsetScale,
 					-0x8000, 0x7FFF));
