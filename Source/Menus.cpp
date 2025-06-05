@@ -731,10 +731,10 @@ int selectedItem(int theMenuID)
 
 int itemCount(int theMenuID)
 {
-	const MenuInfo& aMenuInfo = infoForMenuID(theMenuID);
 	if( InputMap::menuStyle(theMenuID) == eMenuStyle_4Dir )
 		return eCmdDir_Num;
 
+	const MenuInfo& aMenuInfo = infoForMenuID(theMenuID);
 	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
 	return InputMap::menuItemCount(
 		aMenuInfo.subMenuStack.back().id);
@@ -743,13 +743,19 @@ int itemCount(int theMenuID)
 
 int gridWidth(int theMenuID)
 {
-	return InputMap::menuGridWidth(theMenuID);
+	const MenuInfo& aMenuInfo = infoForMenuID(theMenuID);
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	return InputMap::menuGridWidth(
+		aMenuInfo.subMenuStack.back().id);
 }
 
 
 int gridHeight(int theMenuID)
 {
-	return InputMap::menuGridHeight(theMenuID);
+	const MenuInfo& aMenuInfo = infoForMenuID(theMenuID);
+	DBG_ASSERT(!aMenuInfo.subMenuStack.empty());
+	return InputMap::menuGridHeight(
+		aMenuInfo.subMenuStack.back().id);
 }
 
 } // Menus

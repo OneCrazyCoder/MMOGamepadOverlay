@@ -94,8 +94,8 @@ enum EValueFunction
 };
 
 const char* kTargetConfigFilesSectionName = "TargetConfigFiles";
-const char* kSyncPropertiesSectionName = "TargetSyncProperties";
-const char* kValueFormatStrSectionName = "TargetConfigFileFormat";
+const char* kTargetConfigVarsSectionName = "TargetConfigVariables";
+const char* kValueFormatStrSectionName = "TargetConfigFormat";
 const char* kValueFormatInvertPrefix = "Invert";
 const char* kValueFormatStringKeys[] =
 {
@@ -216,17 +216,11 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 // Local Structures
 //-----------------------------------------------------------------------------
 
-struct ZERO_INIT(SyncProperty)
+struct ZERO_INIT(SyncVariable)
 {
-	std::string section, name, valueFormat;
-	struct Segment
-	{
-		int insertPos;
-		EValueFunction funcType : 16;
-		int valueSetID : 16;
-	};
-	std::vector<Segment> valueInserts;
-	BitVector<64> valueSetsUsed;
+	int variableID;
+	EValueFunction funcType;
+	int valueSetID;
 };
 
 struct ZERO_INIT(ValueLink)
@@ -294,7 +288,7 @@ static std::vector<ConfigFile> sFiles;
 static std::vector<SystemRegistryKey> sRegKeys;
 static std::vector<SystemRegistryValue> sRegVals;
 static std::vector<DataSource> sDataSources;
-static std::vector<SyncProperty> sProperties;
+static std::vector<SyncVariable> sVariables;
 static std::vector<double> sValues;
 static std::vector<u16> sValueSets;
 static std::vector<std::wstring> sCurrWildcardMatches;
@@ -1416,16 +1410,16 @@ static bool setFetchValueFromDataSource(
 
 static bool setConfigValueLinks(
 	TargetConfigSyncBuilder& theBuilder,
-	SyncProperty::Segment& thePropSegment,
+	SyncVariable& theSyncVar,
 	const std::string& theConfigFileValueName,
 	EValueSetType theValueSetType)
 {
 	// Find or create value set for the value name given
-	thePropSegment.valueSetID =
+	theSyncVar.valueSetID =
 		theBuilder.valueSetNameToIDMap.findOrAdd(
 			theConfigFileValueName,
 			intSize(sValueSets.size()));
-	if( thePropSegment.valueSetID >= intSize(sValueSets.size()) )
+	if( theSyncVar.valueSetID >= intSize(sValueSets.size()) )
 	{
 		sValueSets.push_back(dropTo<u16>(sValues.size()));
 		sValues.resize(sValues.size() +
@@ -1439,8 +1433,8 @@ static bool setConfigValueLinks(
 		isValidResult = isValidResult && \
 			setFetchValueFromDataSource( \
 				theBuilder, theConfigFileValueName, \
-				thePropSegment.valueSetID, theValueSetType, x)
-	switch(thePropSegment.funcType)
+				theSyncVar.valueSetID, theValueSetType, x)
+	switch(theSyncVar.funcType)
 	{
 	case eValueFunc_Base:
 		fetchVal(eValueSetSubType_Base);
@@ -1497,51 +1491,28 @@ static EValueSetType funcToValueSetType(EValueFunction theFunc)
 }
 
 
-static void parsePropertyValueTags(
+static SyncVariable parseSyncVariableFunc(
 	TargetConfigSyncBuilder& theBuilder,
-	SyncProperty& theProperty,
 	std::string theDesc)
 {
-	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
-		findStringTag(theDesc);
-	while(aTagCoords.first != std::string::npos )
+	SyncVariable result;
+	result.valueSetID = -1;
+	const std::string& aFuncName = breakOffItemBeforeChar(theDesc, ':');
+	result.funcType = valueFuncNameToID(aFuncName);
+	if( result.funcType == eValueFunc_Num )
 	{
-		SyncProperty::Segment aSegment = SyncProperty::Segment();
-		// Extract the tag contents
-		std::string aTag = theDesc.substr(
-			aTagCoords.first + 1, aTagCoords.second - 2);
-		// Remove the tag from the description string
-		theDesc.replace(aTagCoords.first, aTagCoords.second, "");
-		// Note the insertion point for later replacement
-		aSegment.insertPos = intSize(aTagCoords.first);
-		// Get function identifier (empty is valid as "base" function)
-		const std::string& aFuncName = breakOffItemBeforeChar(aTag, ':');
-		aSegment.funcType = valueFuncNameToID(aFuncName);
-		if( aSegment.funcType == eValueFunc_Num )
-		{
-			logError("Unknown function name '%s' in sync property '%s'",
-				aFuncName.c_str(), theBuilder.debugString.c_str());
-			theProperty.valueSetsUsed.clear();
-			return;
-		}
-		EValueSetType aValueSetType = funcToValueSetType(aSegment.funcType);
-		// Set links from config data sources back to this segment
-		if( !setConfigValueLinks(theBuilder, aSegment, aTag, aValueSetType) )
-		{
-			theProperty.valueSetsUsed.clear();
-			return;
-		}
-		theProperty.valueInserts.push_back(aSegment);
-		theProperty.valueSetsUsed.resize(sValueSets.size());
-		theProperty.valueSetsUsed.set(aSegment.valueSetID);
-		// Check for another tag after this one
-		aTagCoords = findStringTag(theDesc, aTagCoords.first);
+		logError("Unknown function name '%s' for target sync variable '%s'",
+			aFuncName.c_str(), theBuilder.debugString.c_str());
+		return result;
 	}
-	theProperty.valueFormat.reserve(theDesc.size());
-	theProperty.valueFormat = theDesc;
-	// trim to fit
-	std::vector<SyncProperty::Segment>(theProperty.valueInserts)
-		.swap(theProperty.valueInserts);
+	EValueSetType aValueSetType = funcToValueSetType(result.funcType);
+	// Set links from config data sources back to this variable
+	if( !setConfigValueLinks(theBuilder, result, theDesc, aValueSetType) )
+	{
+		result.valueSetID = -1;
+		return result;
+	}
+	return result;
 }
 
 
@@ -1638,7 +1609,7 @@ static double getSubTypeValue(
 }
 
 
-static std::string getValueInsertString(
+static std::string getValueString(
 	EValueFunction theFunction,
 	int theValueSet)
 {
@@ -1658,26 +1629,26 @@ static std::string getValueInsertString(
 		{
 			const double anAlign = getSubTypeValue(v, eValueSetSubType_AlignX);
 			if( anAlign < 0.4 )
-				result = getValueInsertString(eValueFunc_Left, theValueSet);
+				result = getValueString(eValueFunc_Left, theValueSet);
 			else if( anAlign > 0.6 )
-				result = getValueInsertString(eValueFunc_Right, theValueSet);
+				result = getValueString(eValueFunc_Right, theValueSet);
 			else
-				result = getValueInsertString(eValueFunc_CX, theValueSet);
+				result = getValueString(eValueFunc_CX, theValueSet);
 		}
 		break;
 	case eValueFunc_PosY:
 		{
 			const double anAlign = getSubTypeValue(v, eValueSetSubType_AlignY);
 			if( anAlign < 0.4 )
-				result = getValueInsertString(eValueFunc_Top, theValueSet);
+				result = getValueString(eValueFunc_Top, theValueSet);
 			else if( anAlign > 0.6 )
-				result = getValueInsertString(eValueFunc_Bottom, theValueSet);
+				result = getValueString(eValueFunc_Bottom, theValueSet);
 			else
-				result = getValueInsertString(eValueFunc_CY, theValueSet);
+				result = getValueString(eValueFunc_CY, theValueSet);
 		}
 		break;
 	case eValueFunc_Left:
-		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
+		result = getValueString(eValueFunc_AlignX, theValueSet);
 		{
 			const int anOffset = int(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
@@ -1690,7 +1661,7 @@ static std::string getValueInsertString(
 		}
 		break;
 	case eValueFunc_Top:
-		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
+		result = getValueString(eValueFunc_AlignY, theValueSet);
 		{
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
@@ -1703,7 +1674,7 @@ static std::string getValueInsertString(
 		}
 		break;
 	case eValueFunc_CX:
-		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
+		result = getValueString(eValueFunc_AlignX, theValueSet);
 		{
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
@@ -1717,7 +1688,7 @@ static std::string getValueInsertString(
 		}
 		break;
 	case eValueFunc_CY:
-		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
+		result = getValueString(eValueFunc_AlignY, theValueSet);
 		{
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
@@ -1731,7 +1702,7 @@ static std::string getValueInsertString(
 		}
 		break;
 	case eValueFunc_Right:
-		result = getValueInsertString(eValueFunc_AlignX, theValueSet);
+		result = getValueString(eValueFunc_AlignX, theValueSet);
 		{
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
@@ -1745,7 +1716,7 @@ static std::string getValueInsertString(
 		}
 		break;
 	case eValueFunc_Bottom:
-		result = getValueInsertString(eValueFunc_AlignY, theValueSet);
+		result = getValueString(eValueFunc_AlignY, theValueSet);
 		{
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
@@ -1842,33 +1813,29 @@ void load()
 			kValueFormatStringKeys[i]);
 	}
 
-	{// Fetch sync property values to read from the data sources
+	{// Fetch sync variable values to read from the data sources
 		const Profile::PropertyMap& aPropMap =
-			Profile::getSectionProperties(kSyncPropertiesSectionName);
+			Profile::getSectionProperties(kTargetConfigVarsSectionName);
 		for(int i = 0; i < aPropMap.size(); ++i)
 		{
 			aBuilder.debugString = aPropMap.keys()[i];
 			aBuilder.debugString += " = ";
 			aBuilder.debugString += aPropMap.vals()[i].str;
-			// Separate key into section and property name by > character
-			SyncProperty aProperty;
-			aProperty.section = aPropMap.keys()[i];
-			size_t aPos = aProperty.section.find('>');
-			if( aPos == std::string::npos )
+			SyncVariable aSyncVar = parseSyncVariableFunc(
+				aBuilder,
+				aPropMap.vals()[i].str);
+			if( aSyncVar.valueSetID < 0 )
+				continue;
+			aSyncVar.variableID =
+				Profile::variableNameToID(aPropMap.keys()[i]);
+			if( aSyncVar.variableID < 0 )
 			{
-				logError("Missing '>' between section and property name "
-					"for sync property '%s'",
-					aPropMap.keys()[i].c_str());
+				logError("Unknown variable name '%s' in %s.",
+					aPropMap.keys()[i].c_str(),
+					aBuilder.debugString.c_str());
 				continue;
 			}
-			parsePropertyValueTags(
-				aBuilder, aProperty,
-				aPropMap.vals()[i].str);
-			if( aProperty.valueSetsUsed.none() )
-				continue;
-			aProperty.name = aProperty.section.substr(aPos+1);
-			aProperty.section.resize(aPos);
-			sProperties.push_back(aProperty);
+			sVariables.push_back(aSyncVar);
 		}
 	}
 	aBuilder.nameToLinkMapID.clear();
@@ -1983,8 +1950,8 @@ void load()
 		std::vector<SystemRegistryValue>(sRegVals).swap(sRegVals);
 	if( sDataSources.size() < sDataSources.capacity() )
 		std::vector<DataSource>(sDataSources).swap(sDataSources);
-	if( sProperties.size() < sProperties.capacity() )
-		std::vector<SyncProperty>(sProperties).swap(sProperties);
+	if( sVariables.size() < sVariables.capacity() )
+		std::vector<SyncVariable>(sVariables).swap(sVariables);
 	if( sValues.size() < sValues.capacity() )
 		std::vector<double>(sValues).swap(sValues);
 	if( sValueSets.size() < sValueSets.capacity() )
@@ -2020,7 +1987,7 @@ void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
 	if( theProfileMap.contains(kTargetConfigFilesSectionName) ||
-		theProfileMap.contains(kSyncPropertiesSectionName) ||
+		theProfileMap.contains(kTargetConfigVarsSectionName) ||
 		theProfileMap.contains(kValueFormatStrSectionName) )
 	{
 		load();
@@ -2047,7 +2014,7 @@ void cleanup()
 	sRegVals.clear();
 
 	sDataSources.clear();
-	sProperties.clear();
+	sVariables.clear();
 	sValues.clear();
 	sValueSets.clear();
 	sChangedValueSets.clear();
@@ -2200,27 +2167,18 @@ void update()
 	if( !sParser && !sReader &&
 		sChangedDataSources.none() && sChangedValueSets.any() )
 	{
-		for(int aPropID = 0, aPropertiesEnd = intSize(sProperties.size());
-			aPropID < aPropertiesEnd; ++aPropID)
+		for(int aVarID = 0, aVariablesEnd = intSize(sVariables.size());
+			aVarID < aVariablesEnd; ++aVarID)
 		{
-			SyncProperty& aProp = sProperties[aPropID];
-			if( (sChangedValueSets & aProp.valueSetsUsed).any() )
+			SyncVariable& aSyncVar = sVariables[aVarID];
+			if( sChangedValueSets.test(aSyncVar.valueSetID) )
 			{
-				std::string aValueStr = aProp.valueFormat;
-				// Work backwards so don't mess up insert positions
-				for(int i = intSize(aProp.valueInserts.size())-1; i >= 0; --i)
-				{
-					aValueStr.insert(
-						aProp.valueInserts[i].insertPos,
-						getValueInsertString(
-							aProp.valueInserts[i].funcType,
-							aProp.valueInserts[i].valueSetID));
-				}
-				syncDebugPrint("Setting [%s] %s = %s\n",
-					aProp.section.c_str(),
-					aProp.name.c_str(),
+				const std::string& aValueStr = getValueString(
+					aSyncVar.funcType, aSyncVar.valueSetID);
+				syncDebugPrint("Setting variable %s = %s\n",
+					Profile::variableIDToName(aSyncVar.variableID).c_str(),
 					aValueStr.c_str());
-				Profile::setStr(aProp.section, aProp.name, aValueStr, false);
+				Profile::setVariable(aSyncVar.variableID, aValueStr, true);
 			}
 		}
 		sChangedValueSets.reset();

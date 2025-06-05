@@ -50,6 +50,7 @@ int getInt(const std::string&, const std::string&, int = 0);
 bool getBool(const std::string&, const std::string&, bool = false);
 double getFloat(const std::string&, const std::string&, double = 0);
 int variableNameToID(const std::string& theVarName); // -1 if not found
+std::string variableIDToName(int theVariableID);
 const PropertyMap* getSection(const std::string& theSectionName);
 const PropertyMap& getSectionProperties(const std::string& theSectionName);
 const SectionsMap& allSections();

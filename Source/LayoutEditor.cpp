@@ -1027,7 +1027,7 @@ static void updateDrawHotspot(
 			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
 			{
 				theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
-				theEntry.drawHotspot.x.offset = s16(clamp(int(
+				theEntry.drawHotspot.y.offset = s16(clamp(int(
 					theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
 					anAnchor.y.offset, -0x8000, 0x7FFF));
 			}
