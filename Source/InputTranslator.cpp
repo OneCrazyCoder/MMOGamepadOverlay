@@ -373,7 +373,7 @@ static void	loadCommandsForCurrentLayers()
 			ButtonState& aBtnState = sState.gamepadButtons[aBtnID];
 			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
-				if( aBtnActions.cmd[aBtnAct].type == eCmdType_Empty )
+				if( aBtnActions.cmd[aBtnAct].type <= eCmdType_Empty )
 					continue;
 
 				aBtnState.commands.cmd[aBtnAct] = aBtnActions.cmd[aBtnAct];
@@ -406,8 +406,7 @@ static void	loadCommandsForCurrentLayers()
 				}
 			}
 			// Don't override hold time unless also overriding related actions
-			if( aBtnActions.cmd[eBtnAct_Hold].type != eCmdType_Empty &&
-				aBtnActions.cmd[eBtnAct_Hold].type != eCmdType_Unassigned &&
+			if( aBtnActions.cmd[eBtnAct_Hold].type > eCmdType_Unassigned &&
 				(aBtnActions.cmd[eBtnAct_Hold].type != eCmdType_DoNothing ||
 				 aBtnActions.cmd[eBtnAct_Tap].type >= eCmdType_FirstValid) )
 			{
@@ -881,6 +880,7 @@ static void processCommand(
 	Command aForwardCmd;
 	switch(theCmd.type)
 	{
+	case eCmdType_Invalid:
 	case eCmdType_Empty:
 	case eCmdType_Unassigned:
 	case eCmdType_DoNothing:
@@ -1092,7 +1092,7 @@ static void processCommand(
 		break;
 	case eCmdType_MenuReset:
 		aForwardCmd = Menus::reset(theCmd.menuID, theCmd.menuItemID);
-		if( aForwardCmd.type != eCmdType_Empty )
+		if( aForwardCmd.type != eCmdType_Invalid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			sResults.menuHEAutoCommandRun.set(
@@ -1126,7 +1126,7 @@ static void processCommand(
 		processCommand(theBtnState,
 			Menus::backCommand(theCmd.menuID), theLayerIdx);
 		aForwardCmd = Menus::closeLastSubMenu(theCmd.menuID);
-		if( aForwardCmd.type != eCmdType_Empty )
+		if( aForwardCmd.type != eCmdType_Invalid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			moveMouseToSelectedMenuItem(theCmd);

@@ -281,10 +281,10 @@ public:
 			const int aNextL = nextLeftIdx(rhs.minX());
 			if( aNextR == aNextL + 1 )
 			{
-				if( aNextR - rhs.maxX() >
+				if( mDots[aNextR].x - rhs.maxX() >
 						abs(mDots[aNextR].y - rhs.maxXy()) *
 							kMinSlopeForHorizLink &&
-					rhs.minX() - aNextL >
+					rhs.minX() -  mDots[aNextL].x >
 						abs(mDots[aNextL].y - rhs.minXy()) *
 							kMinSlopeForHorizLink )
 				{ return eConnectMethod_SplitIn; }
