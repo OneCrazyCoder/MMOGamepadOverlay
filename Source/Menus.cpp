@@ -512,7 +512,7 @@ Command closeLastSubMenu(int theMenuID)
 			result =
 				InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
 			// Make sure even if command is empty caller knows change happened
-			if( result.type == eCmdType_Empty )
+			if( result.type == eCmdType_Invalid )
 				result.type = eCmdType_Unassigned;
 			return result;
 		}
@@ -531,7 +531,7 @@ Command closeLastSubMenu(int theMenuID)
 	result =
 		InputMap::menuAutoCommand(aMenuInfo.subMenuStack.back().id);
 	// Make sure even if command is empty caller knows change happened
-	if( result.type == eCmdType_Empty )
+	if( result.type == eCmdType_Invalid )
 		result.type = eCmdType_Unassigned;
 	return result;
 }
@@ -561,7 +561,7 @@ Command reset(int theMenuID, int toItemNo)
 		result =
 			InputMap::menuAutoCommand(theMenuID);
 		// Make sure even if command is empty caller knows change happened
-		if( result.type == eCmdType_Empty )
+		if( result.type == eCmdType_Invalid )
 			result.type = eCmdType_Unassigned;
 	}
 

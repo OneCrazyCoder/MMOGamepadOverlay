@@ -27,7 +27,8 @@ kInvalidItem = 0xFFFF,
 
 enum ECommandType
 {
-	eCmdType_Empty, // Does nothing but also means 'not set to anything'
+	eCmdType_Invalid, // Not assigned to anything / invalid / sentinel value
+	eCmdType_Empty, // Empty string / use lower layers' assigned actions
 	eCmdType_Unassigned, // _Empty but overrides lower Layers' assignments
 	eCmdType_DoNothing, // _Unassigned but by specific request
 	eCmdType_SignalOnly, // _DoNothing but fires .signalID signal

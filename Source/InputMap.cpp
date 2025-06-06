@@ -464,9 +464,10 @@ static void applyHotspotProperty(
 	DBG_ASSERT(!isAnchorHotspot || anArray.hasAnchor);
 
 	// Parse hotspot data from the description string
+	const bool isEmptyHotspot = commandWordToID(theDesc) == eCmdWord_Skip;
 	Hotspot aHotspot;
 	double anOffsetScale = 0;
-	if( !theDesc.empty() )
+	if( !isEmptyHotspot )
 	{
 		std::string aHotspotDesc = theDesc;
 		EResult aResult = HotspotMap::stringToHotspot(aHotspotDesc, aHotspot);
@@ -558,12 +559,12 @@ static void applyHotspotProperty(
 		// Empty description removes range from array and shortens it
 		// This changes ->size but does not remove ranges/hotspots so they can
 		// be restored later by setting the hotspot back to a valid value
-		if( theDesc.empty() )
+		if( isEmptyHotspot )
 			itr->removed = true;
 		if( itr->removed )
 		{
 			// If removed in a previous call might be restored now
-			if( !theDesc.empty() )
+			if( !isEmptyHotspot )
 				itr->removed = false;
 			// Recalculate array size to one less than first removed range
 			anArray.size = 0;
@@ -1061,11 +1062,14 @@ static int applyKeyBindProperty(
 
 	// Keybinds can only be assigned to direct input - not special commands
 	if( theCmdStr.empty() )
+	{
+		aCmd.type = eCmdType_Empty;
 		return aKeyBindID;
+	}
 
 	// Chat box macro
 	aCmd = parseChatBoxMacro(theCmdStr);
-	if( aCmd.type != eCmdType_Empty )
+	if( aCmd.type != eCmdType_Invalid )
 		return aKeyBindID;
 
 	// Signal Only
@@ -1076,7 +1080,7 @@ static int applyKeyBindProperty(
 		return aKeyBindID;
 	}
 
-	// Skip in key bind arrays (same as empty string)
+	// Skip in key bind array
 	if( aKeyWord == eCmdWord_Skip )
 	{
 		aCmd.type = eCmdType_Empty;
@@ -1115,7 +1119,6 @@ static int applyKeyBindProperty(
 	}
 
 	// Couldn't figure out what it was!
-	aCmd.type = eCmdType_Empty;
 	sParsedString.clear();
 	return aKeyBindID;
 }
@@ -1178,22 +1181,17 @@ static void reportCommandAssignment(
 {
 	switch(theCmd.type)
 	{
+	case eCmdType_Invalid:
+		logError("%s: Not sure how to assign '%s' to '%s'! "
+			"Confirm correct spelling of all key words and names!",
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str(),
+			theCmdStr.c_str());
+		break;
 	case eCmdType_Empty:
-		if( !theCmdStr.empty() )
-		{
-			logError("%s: Not sure how to assign '%s' to '%s'! "
-				"Confirm correct spelling of all key words and names!",
-				sSectionPrintName.c_str(),
-				sPropertyPrintName.c_str(),
-				theCmdStr.c_str());
-			break;
-		}
-		else
-		{
-			mapDebugPrint("%s: '%s' left blank / skipped / removed!\n",
-				sSectionPrintName.c_str(),
-				sPropertyPrintName.c_str());
-		}
+		mapDebugPrint("%s: '%s' left blank / skipped / removed!\n",
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str());
 		break;
 	case eCmdType_Unassigned:
 		mapDebugPrint("%s: '%s' left <unassigned>\n",
@@ -1507,7 +1505,7 @@ static Command wordsToSpecialCommand(
 	// Most commands require more than one "word", even if only one of the
 	// words is actually a command key word. Single words are assumed to be
 	// a key bind name or literal key instead. Exceptions for commands that
-	// work with only a single word are "nothing" or "unassigned", and some
+	// work with only a single word are "nothing" or "skip", and some
 	// directional commands being assigned directly to a 4-directional input
 	// so are missing the word that indicates direction.
 	if( theWords.size() <= 1 )
@@ -1515,6 +1513,7 @@ static Command wordsToSpecialCommand(
 		switch(commandWordToID(theWords[0]))
 		{
 		case eCmdWord_Nothing:
+		case eCmdWord_Skip:
 			// Always acceptable as single-word command
 			break;
 		case eCmdWord_Move:
@@ -1655,6 +1654,13 @@ static Command wordsToSpecialCommand(
 
 	// Find a command by checking for specific key words + allowed related
 	// words (but no extra words beyond that, besides fillers)
+
+	// "= Skip/Empty/Null/Blank"
+	if( keyWordsFound.test(eCmdWord_Skip) && keyWordsFound.count() == 1)
+	{
+		result.type = eCmdType_Empty;
+		return result;
+	}
 
 	// "= [Do] Nothing"
 	if( keyWordsFound.test(eCmdWord_Nothing) && keyWordsFound.count() == 1)
@@ -2111,7 +2117,7 @@ static Command wordsToSpecialCommand(
 	}
 
 	// Get ECmdDir from key words for remaining commands
-	DBG_ASSERT(result.type == eCmdType_Empty);
+	DBG_ASSERT(result.type == eCmdType_Invalid);
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Up);
 	allowedKeyWords.set(eCmdWord_Down);
@@ -2310,7 +2316,7 @@ static Command wordsToSpecialCommand(
 		}
 	}
 
-	DBG_ASSERT(result.type == eCmdType_Empty);
+	DBG_ASSERT(result.type == eCmdType_Invalid);
 	return result;
 }
 
@@ -2366,12 +2372,16 @@ static Command stringToCommand(
 {
 	Command result;
 
+	// Pass through
 	if( theString.empty() )
+	{
+		result.type = eCmdType_Empty;
 		return result;
+	}
 
 	// Check for a chat box macro (message or slash command)
 	result = parseChatBoxMacro(theString);
-	if( result.type != eCmdType_Empty )
+	if( result.type != eCmdType_Invalid )
 		return result;
 
 	// Check for a simple key assignment
@@ -2397,7 +2407,7 @@ static Command stringToCommand(
 
 	// Check for set variable command
 	result = stringToSetVariableCommand(theString, sParsedString);
-	if( result.type != eCmdType_Empty )
+	if( result.type != eCmdType_Invalid )
 	{
 		sParsedString.clear();
 		return result;
@@ -2409,7 +2419,7 @@ static Command stringToCommand(
 		allowButtonActions,
 		allowHoldActions,
 		allow4DirActions);
-	if( result.type != eCmdType_Empty )
+	if( result.type != eCmdType_Invalid )
 	{
 		sParsedString.clear();
 		return result;
@@ -2533,7 +2543,7 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 	}
 
 	aMenuItem.cmd = stringToCommand(theString);
-	if( aMenuItem.cmd.type == eCmdType_Empty )
+	if( aMenuItem.cmd.type == eCmdType_Invalid )
 	{
 		// Possibly just forgot the > at front of a plain string
 		aMenuItem.cmd = parseChatBoxMacro(">" + theString);
@@ -2716,7 +2726,7 @@ static void validateMenu(int theMenuID)
 		}
 		// Silently trim off any empty items on the end of the menu
 		while(theMenu.items.size() > 1 &&
-			  theMenu.items.back().cmd.type == eCmdType_Empty )
+			  theMenu.items.back().cmd.type <= eCmdType_Empty )
 		{
 			theMenu.items.resize(theMenu.items.size()-1);
 			gReshapeHUD.set(hudElementForMenu(theMenuID));
@@ -2724,7 +2734,7 @@ static void validateMenu(int theMenuID)
 		// Any empty items between first and last must be a missing gap
 		for(int i = 1, end = intSize(theMenu.items.size()) - 1; i < end; ++i)
 		{
-			if( theMenu.items[i].cmd.type == eCmdType_Empty )
+			if( theMenu.items[i].cmd.type <= eCmdType_Empty )
 			{
 				logError(" %s is missing menu item #%d! "
 					"Set \"%d = : \" to suppress this error",
@@ -2938,8 +2948,7 @@ static void addButtonAction(
 	bool onlySpecificAction)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
-	if( theBtnKeyName.empty() || theCmdStr.empty() )
-		return;
+	DBG_ASSERT(!theBtnKeyName.empty());
 
 	// Determine button & action to assign command to
 	EButtonAction aBtnAct = breakOffButtonAction(theBtnKeyName);
@@ -2978,13 +2987,14 @@ static void addButtonAction(
 	// Make the assignment
 	ButtonActions& aDestBtn =
 		sLayers.vals()[theLayerIdx].buttonCommands.findOrAdd(aBtnID);
-	if( !onlySpecificAction )
-	{// Set all _Empty to _Unassigned to block lower layer button assignments
-		for(int i = 0; i < eBtnAct_Num; ++i)
-		{
-			if( aDestBtn.cmd[i].type == eCmdType_Empty )
-				aDestBtn.cmd[i].type = eCmdType_Unassigned;
-		}
+	// Set other actions to _Empty (pass through) or _Unassigned (block lower)
+	// depending on onlySpecificAction flag
+	for(int i = 0; i < eBtnAct_Num; ++i)
+	{
+		if( aDestBtn.cmd[i].type == eCmdType_Invalid )
+			aDestBtn.cmd[i].type = eCmdType_Empty;
+		if( aDestBtn.cmd[i].type == eCmdType_Empty && !onlySpecificAction )
+			aDestBtn.cmd[i].type = eCmdType_Unassigned;
 	}
 	aDestBtn.cmd[aBtnAct] = aCmd;
 	if( aBtnAct == eBtnAct_Hold )
@@ -3001,15 +3011,14 @@ static void addWhenSignalCommand(
 	const std::string& theCmdStr)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
-	if( theSignalKeyName.empty() || theCmdStr.empty() )
-		return;
+	DBG_ASSERT(!theSignalKeyName.empty());
 
 	// Check for responding to use of any key in a key bind array
 	int anEntryIdx = sKeyBindArrays.findIndex(theSignalKeyName);
 	if( anEntryIdx < sKeyBindArrays.size() )
 	{
 		Command aCmd = stringToCommand(theCmdStr, true);
-		if( aCmd.type != eCmdType_Empty )
+		if( aCmd.type > eCmdType_Empty )
 		{
 			sLayers.vals()[theLayerIdx].signalCommands.setValue(
 				dropTo<u16>(keyBindArraySignalID(anEntryIdx)), aCmd);
@@ -3017,7 +3026,7 @@ static void addWhenSignalCommand(
 
 		// Report the results of the assignment
 		#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-		if( aCmd.type == eCmdType_Empty ) 
+		if( aCmd.type == eCmdType_Invalid ) 
 		#endif
 		{
 			std::string anExtPropName = kSignalCommandPrefix;
@@ -3035,7 +3044,7 @@ static void addWhenSignalCommand(
 	if( anEntryIdx < sKeyBinds.size() )
 	{
 		Command aCmd = stringToCommand(theCmdStr, true);
-		if( aCmd.type != eCmdType_Empty )
+		if( aCmd.type > eCmdType_Empty )
 		{
 			sLayers.vals()[theLayerIdx].signalCommands.setValue(
 				dropTo<u16>(keyBindSignalID(anEntryIdx)), aCmd);
@@ -3043,7 +3052,7 @@ static void addWhenSignalCommand(
 
 		// Report the results of the assignment
 		#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-		if( aCmd.type == eCmdType_Empty )
+		if( aCmd.type == eCmdType_Invalid )
 		#endif
 		{
 			std::string anExtPropName = kSignalCommandPrefix;
@@ -3098,7 +3107,7 @@ static void addWhenSignalCommand(
 			Command aCmd = stringToCommand(theCmdStr, true);
 
 			// Make the assignment - each button ID matches its signal ID
-			if( !aCmd.type == eCmdType_Empty )
+			if( aCmd.type > eCmdType_Empty )
 			{
 				sLayers.vals()[theLayerIdx].
 					signalCommands.setValue(dropTo<u16>(aBtnID), aCmd);
@@ -3106,7 +3115,7 @@ static void addWhenSignalCommand(
 
 			// Report the results of the assignment
 			#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-			if( aCmd.type == eCmdType_Empty )
+			if( aCmd.type == eCmdType_Invalid )
 			#endif
 			{
 				std::string anExtPropName = kSignalCommandPrefix;

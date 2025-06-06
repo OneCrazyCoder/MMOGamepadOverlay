@@ -2373,6 +2373,7 @@ void sendKeyCommand(const Command& theCommand)
 
 	switch(theCommand.type)
 	{
+	case eCmdType_Invalid:
 	case eCmdType_Empty:
 	case eCmdType_Unassigned:
 	case eCmdType_DoNothing:
@@ -2641,6 +2642,7 @@ void moveMouseTo(const Command& theCommand)
 	Hotspot aDestHotspot;
 	switch(theCommand.type)
 	{
+	case eCmdType_Invalid:
 	case eCmdType_Empty:
 	case eCmdType_Unassigned:
 	case eCmdType_DoNothing:

@@ -1544,7 +1544,16 @@ static void readProfileCallback(
 	const std::string& theValue,
 	void*)
 {
-	PropertyMap& aSection = sSectionsMap.findOrAdd(theSection);
+	int aSectionID = sSectionsMap.findOrAddIndex(theSection);
+	PropertyMap& aSection = sSectionsMap.vals()[aSectionID];
+	if( aSectionID == kVarsSectionIdx &&
+		(theName[0] < 'A' || theName[0] > 'Z') &&
+		(theName[0] < 'a' || theName[0] > 'z') )
+	{
+		logError("Variable names must begin with a letter A-Z. '%s' invalid.",
+			theName.c_str());
+		return;
+	}
 	Property& aProperty = aSection.findOrAdd(theName);
 	aProperty.pattern = theValue;
 	aProperty.str.clear();
