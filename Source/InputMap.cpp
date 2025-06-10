@@ -23,8 +23,8 @@ kInvalidID = 0xFFFF,
 
 const char* kMainLayerSectionName = "Scheme";
 const char* kLayerPrefix = "Layer.";
-const char kComboLayerDeliminator = '+';
-const char kSubMenuDeliminator = '.';
+const char kComboLayerDelimiter = '+';
+const char kSubMenuDelimiter = '.';
 const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kKeyBindsSectionName = "KeyBinds";
@@ -86,6 +86,7 @@ enum EPropertyType
 	ePropType_Hotspot,
 	ePropType_Parent,
 	ePropType_Priority,
+	ePropType_AutoLayers,
 	ePropType_Auto,
 	ePropType_Back,
 	ePropType_Type,
@@ -125,8 +126,11 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "Hot",			ePropType_Hotspot		},
 				{ "Spot",			ePropType_Hotspot		},
 				{ "Point",			ePropType_Hotspot		},
-				{ "ParenT",			ePropType_Parent		},
+				{ "Parent",			ePropType_Parent		},
 				{ "Priority",		ePropType_Priority		},
+				{ "Layers",			ePropType_AutoLayers	},
+				{ "AutoLayers",		ePropType_AutoLayers	},
+				{ "AddLayers",		ePropType_AutoLayers	},
 				{ "Auto",			ePropType_Auto			},
 				{ "Back",			ePropType_Back			},
 				{ "Type",			ePropType_Type			},
@@ -230,10 +234,12 @@ struct ZERO_INIT(ControlsLayer)
 	BitVector<32> hideHUD;
 	BitVector<32> enableHotspots;
 	BitVector<32> disableHotspots;
+	BitVector<32> addLayers;
+	BitVector<32> removeLayers;
 	EMouseMode mouseMode;
 	u16 parentLayer;
+	u16 comboParentLayer;
 	s8 priority;
-	bool isComboLayer;
 };
 
 struct ZERO_INIT(HotspotRange)
@@ -1334,7 +1340,7 @@ static void linkMenuToSubMenus(int theMenuID)
 {
 	// Find all menus whose key starts with this menu's key (and . at end)
 	const std::string& aPrefix =
-		sMenus.keys()[theMenuID] + kSubMenuDeliminator;
+		sMenus.keys()[theMenuID] + kSubMenuDelimiter;
 	sMenus.findAllWithPrefix(aPrefix, setMenuAsChildOf, &theMenuID);
 }
 
@@ -2855,8 +2861,9 @@ static bool createEmptyLayer(
 		posAfterPrefix(aSectionName, thePrefix));
 	DBG_ASSERT(!aLayerName.empty());
 	ControlsLayer& aLayer = sLayers.findOrAdd(aLayerName);
-	aLayer.isComboLayer =
-		aLayerName.find(kComboLayerDeliminator) != std::string::npos;
+	// Flag as potential combo layer if contains delimiter
+	if( aLayerName.find(kComboLayerDelimiter) != std::string::npos )
+		aLayer.comboParentLayer = kInvalidID;
 	return true;
 }
 
@@ -2864,12 +2871,13 @@ static bool createEmptyLayer(
 static void linkComboLayers(int theLayerID)
 {
 	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
-	if( !theLayer.isComboLayer )
+	if( !theLayer.comboParentLayer )
 		return;
 
+	theLayer.comboParentLayer = 0; // if malformed treat as normal layer
 	std::string aSecondLayerName = sLayers.keys()[theLayerID];
 	std::string aFirstLayerName = breakOffItemBeforeChar(
-		aSecondLayerName, kComboLayerDeliminator);
+		aSecondLayerName, kComboLayerDelimiter);
 	if( aFirstLayerName.empty() || aSecondLayerName.empty() )
 		return;
 
@@ -2890,7 +2898,7 @@ static void linkComboLayers(int theLayerID)
 		// the profile but needs to be created purely for creating combo
 		// layers of any arbitrary number of base layers.
 		const bool secondLayerIsComboLayer =
-			aSecondLayerName.find(kComboLayerDeliminator) != std::string::npos;
+			aSecondLayerName.find(kComboLayerDelimiter) != std::string::npos;
 		if( !secondLayerIsComboLayer )
 		{
 			logError("Base layer [%s] not found for combo layer [%s]",
@@ -2898,8 +2906,11 @@ static void linkComboLayers(int theLayerID)
 				(kLayerPrefix + sLayers.keys()[theLayerID]).c_str());
 			return;
 		}
-		// Create placeholder second combo layer
-		sLayers.findOrAdd(aSecondLayerName).isComboLayer = true;
+		// Create placeholder second combo layer, which will itself be
+		// processed properly later in loop if added to end of sLayers
+		ControlsLayer& aSecondLayer = sLayers.findOrAdd(aSecondLayerName);
+		if( !aSecondLayer.comboParentLayer )
+			aSecondLayer.comboParentLayer = kInvalidID;
 	}
 
 	if( aFirstLayerID == aSecondLayerID )
@@ -2910,6 +2921,8 @@ static void linkComboLayers(int theLayerID)
 	}
 
 	// Link combo layer to its base layers
+	theLayer.parentLayer = dropTo<u16>(aFirstLayerID);
+	theLayer.comboParentLayer = dropTo<u16>(aSecondLayerID);
 	std::pair<u16, u16> aComboLayerKey(
 		dropTo<u16>(aFirstLayerID),
 		dropTo<u16>(aSecondLayerID));
@@ -3173,6 +3186,7 @@ static void applyControlsLayerProperty(
 	
 	case ePropType_HUD:
 	case ePropType_Hotspots:
+	case ePropType_AutoLayers:
 		{
 			if( aPropType == ePropType_HUD )
 			{
@@ -3181,7 +3195,7 @@ static void applyControlsLayerProperty(
 				theLayer.showHUD.reset();
 				theLayer.hideHUD.reset();
 			}
-			else
+			else if( aPropType == ePropType_Hotspots )
 			{
 				DBG_ASSERT(theLayer.enableHotspots.size() ==
 					sHotspotArrays.size());
@@ -3189,6 +3203,15 @@ static void applyControlsLayerProperty(
 					sHotspotArrays.size());
 				theLayer.enableHotspots.reset();
 				theLayer.disableHotspots.reset();
+			}
+			else
+			{
+				DBG_ASSERT(theLayer.addLayers.size() ==
+					sLayers.size());
+				DBG_ASSERT(theLayer.removeLayers.size() ==
+					sLayers.size());
+				theLayer.addLayers.reset();
+				theLayer.removeLayers.reset();
 			}
 
 			// Break the string into individual words
@@ -3200,12 +3223,16 @@ static void applyControlsLayerProperty(
 			{
 				const std::string& aName = sParsedString[i];
 				const std::string& aUpperName = upper(aName);
-				if( aUpperName == "HIDE" || aUpperName == "DISABLE" )
+				if( aUpperName == "HIDE" ||
+					aUpperName == "DISABLE" ||
+					aUpperName == "REMOVE" )
 				{
 					enable = false;
 					continue;
 				}
-				if( aUpperName == "SHOW" || aUpperName == "ENABLE" )
+				if( aUpperName == "SHOW" ||
+					aUpperName == "ENABLE" ||
+					aUpperName == "ADD" )
 				{
 					enable = true;
 					continue;
@@ -3223,7 +3250,7 @@ static void applyControlsLayerProperty(
 						foundItem = true;
 					}
 				}
-				else
+				else if( aPropType == ePropType_Hotspots )
 				{
 					const int aHotspotArrayID =
 						sHotspotArrays.findIndex(aUpperName);
@@ -3231,6 +3258,17 @@ static void applyControlsLayerProperty(
 					{
 						theLayer.enableHotspots.set(aHotspotArrayID, enable);
 						theLayer.disableHotspots.set(aHotspotArrayID, !enable);
+						foundItem = true;
+					}
+				}
+				else
+				{
+					const int aLayerID =
+						sLayers.findIndex(aUpperName);
+					if( aLayerID < theLayer.addLayers.size() )
+					{
+						theLayer.addLayers.set(aLayerID, enable);
+						theLayer.removeLayers.set(aLayerID, !enable);
 						foundItem = true;
 					}
 				}
@@ -3260,7 +3298,7 @@ static void applyControlsLayerProperty(
 					sPropertyPrintName.c_str(),
 					thePropVal.c_str());
 			}
-			else if( theLayer.isComboLayer )
+			else if( theLayer.comboParentLayer )
 			{
 				logError(
 					"Combo Layer %s ordering is derived automatically "
@@ -3301,9 +3339,12 @@ static void applyControlsLayerProperty(
 			}
 			if( aParentLayerID == 0 )
 			{
-				theLayer.parentLayer = 0;
-				mapDebugPrint("%s: Parent layer reset to none\n",
-					sSectionPrintName.c_str());
+				if( !theLayer.comboParentLayer )
+				{
+					theLayer.parentLayer = 0;
+					mapDebugPrint("%s: Parent layer reset to none\n",
+						sSectionPrintName.c_str());
+				}
 			}
 			else if( theLayerID == 0 )
 			{
@@ -3312,7 +3353,7 @@ static void applyControlsLayerProperty(
 					sSectionPrintName.c_str(),
 					thePropVal.c_str());
 			}
-			else if( theLayer.isComboLayer )
+			else if( theLayer.comboParentLayer )
 			{
 				logError(
 					"\"Parent=%s\" property ignored for Combo Layer %s!",
@@ -3322,28 +3363,9 @@ static void applyControlsLayerProperty(
 			else
 			{
 				theLayer.parentLayer = dropTo<u16>(aParentLayerID);
-				// Check for infinite parent loop
-				BitVector<64> layersProcessed(sLayers.size());
-				int aCheckLayerIdx = theLayerID;
-				layersProcessed.set(aCheckLayerIdx);
-				while(sLayers.vals()[aCheckLayerIdx].parentLayer != 0)
-				{
-					aCheckLayerIdx =
-						sLayers.vals()[aCheckLayerIdx].parentLayer;
-					if( layersProcessed.test(aCheckLayerIdx) )
-					{
-						logError("Infinite parent loop with layer %s"
-							" trying to set parent layer to %s!",
-							sSectionPrintName.c_str(),
-							thePropVal.c_str());
-						theLayer.parentLayer = 0;
-						break;
-					}
-					layersProcessed.set(aCheckLayerIdx);
-				}
 				mapDebugPrint("%s: Parent layer set to '%s'\n",
 					sSectionPrintName.c_str(),
-					sLayers.vals()[aParentLayerID].name.c_str());
+					sLayers.keys()[aParentLayerID].c_str());
 			}
 		}
 		return;
@@ -3379,6 +3401,54 @@ static void applyControlsLayerProperty(
 }
 
 
+static void validateAutoLayers(
+	int theLayerID,
+	BitVector<32>& theReferencedLayers)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	DBG_ASSERT(theReferencedLayers.size() == sLayers.size());
+	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
+	theReferencedLayers.set(theLayerID);
+	if( theLayer.addLayers.none() )
+		return;
+
+	if( (theLayer.addLayers & theReferencedLayers).any() )
+	{
+		logError("Layer %s ends up trying to auto-add itself!",
+			sLayers.keys()[theLayerID].c_str());
+		theLayer.addLayers &= ~theReferencedLayers;
+	}
+	for(int i = theLayer.addLayers.firstSetBit();
+		i < theLayer.addLayers.size();
+		i = theLayer.addLayers.nextSetBit(i+1))
+	{
+		validateAutoLayers(i, theReferencedLayers);
+	}
+}
+
+
+static void validateParentLayers(
+	int theLayerID,
+	BitVector<32>& theReferencedLayers)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	DBG_ASSERT(theReferencedLayers.size() == sLayers.size());
+	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
+	theReferencedLayers.set(theLayerID);
+	if( !theLayer.parentLayer )
+		return;
+
+	if( theReferencedLayers.test(theLayer.parentLayer) )
+	{
+		logError("Layer %s ends up trying to be a parent to itself!",
+			sLayers.keys()[theLayerID].c_str());
+		theLayer.parentLayer = 0;
+		return;
+	}
+	validateParentLayers(theLayer.parentLayer, theReferencedLayers);
+}
+
+
 static void loadDataFromProfile(
 	const Profile::SectionsMap& theProfileMap,
 	bool init)
@@ -3387,6 +3457,8 @@ static void loadDataFromProfile(
 	BitVector<512> loadedHotspots(sHotspots.size());
 	BitVector<256> loadedKeyBinds(sKeyBinds.size());
 	BitVector<256> referencedKeyBinds(sKeyBinds.size());
+	BitVector<32> loadedLayers(sLayers.size());
+	BitVector<32> referencedLayers(sLayers.size());
 	BitVector<256> loadedMenus(sMenus.size());
 	BitVector<32> loadedHUDElements(sHUDElements.size());
 	if( init )
@@ -3493,6 +3565,7 @@ static void loadDataFromProfile(
 					aPropMap.keys()[aPropIdx],
 					aPropMap.vals()[aPropIdx].str);
 			}
+			loadedLayers.set(aComponentID);
 			break;
 		}
 	}
@@ -3569,6 +3642,15 @@ static void loadDataFromProfile(
 			}
 		}
 	}
+	for(int aLayerID = loadedLayers.firstSetBit();
+		aLayerID < loadedLayers.size();
+		aLayerID = loadedLayers.nextSetBit(aLayerID+1))
+	{
+		referencedLayers.reset();
+		validateAutoLayers(aLayerID, referencedLayers);
+		referencedLayers.reset();
+		validateParentLayers(aLayerID, referencedLayers);
+	}
 }
 
 
@@ -3640,6 +3722,7 @@ void loadProfile()
 	sLayers.setValue(kMainLayerSectionName, ControlsLayer());
 	Profile::allSections().findAllWithPrefix(
 		kLayerPrefix, createEmptyLayer);
+	// sLayers can grow during this loop from creation of interim combo layers!
 	for(int i = 0; i < sLayers.size(); ++i)
 		linkComboLayers(i);
 	sComboLayers.sort(); sComboLayers.removeDuplicates(); sComboLayers.trim();
@@ -3652,6 +3735,8 @@ void loadProfile()
 		sLayers.vals()[aLayerID].showHUD.resize(sHUDElements.size());
 		sLayers.vals()[aLayerID].disableHotspots.resize(sHotspotArrays.size());
 		sLayers.vals()[aLayerID].enableHotspots.resize(sHotspotArrays.size());
+		sLayers.vals()[aLayerID].addLayers.resize(sLayers.size());
+		sLayers.vals()[aLayerID].removeLayers.resize(sLayers.size());
 	}
 	gVisibleHUD.clearAndResize(sHUDElements.size());
 	gRefreshHUD.clearAndResize(sHUDElements.size());
@@ -3837,6 +3922,13 @@ int parentLayer(int theLayerID)
 }
 
 
+int comboParentLayer(int theLayerID)
+{
+	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
+	return sLayers.vals()[theLayerID].comboParentLayer;
+}
+
+
 int layerPriority(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
@@ -3876,6 +3968,20 @@ const BitVector<32>& hotspotArraysToDisable(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].disableHotspots;
+}
+
+
+const BitVector<32>& autoAddLayers(int theLayerID)
+{
+	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
+	return sLayers.vals()[theLayerID].addLayers;
+}
+
+
+const BitVector<32>& autoRemoveLayers(int theLayerID)
+{
+	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
+	return sLayers.vals()[theLayerID].removeLayers;
 }
 
 
@@ -4004,6 +4110,13 @@ std::string menuItemDirKeyName(ECommandDir theDir)
 		theDir == eCmdDir_R ? "R" :
 		theDir == eCmdDir_U ? "U" :
 		/*eCmdDir_D*/		  "D";
+}
+
+
+int menuSectionNameToID(const std::string& theProfileSectionName)
+{
+	return sMenus.findIndex(theProfileSectionName.substr(
+		posAfterPrefix(theProfileSectionName, kMenuPrefix)));
 }
 
 

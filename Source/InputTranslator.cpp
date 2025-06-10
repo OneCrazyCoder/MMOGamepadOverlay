@@ -161,10 +161,8 @@ struct ButtonState
 struct LayerState
 {
 	ButtonState autoButton;
-	u16 parentLayerID;
-	u16 altParentLayerID; // 0 unless is a combo layer
-	union{ bool active; bool autoButtonDown; }; // mean the same thing
 	s8 heldActiveByButton;
+	union{ bool active; bool autoButtonDown; }; // mean the same thing
 	bool autoButtonHit;
 	bool buttonCommandUsed;
 
@@ -172,12 +170,10 @@ struct LayerState
 	{
 		autoButton.clear();
 		autoButton.buttonID = eBtn_None;
-		parentLayerID = 0;
-		altParentLayerID = 0;
+		heldActiveByButton = 0;
 		active = false;
 		autoButtonHit = false;
 		buttonCommandUsed = false;
-		heldActiveByButton = 0;
 	}
 };
 
@@ -518,8 +514,8 @@ static void removeControlsLayer(int theLayerID)
 			next_itr = std::vector<u16>::reverse_iterator(
 				sState.layerOrder.erase((itr+1).base()));
 		}
-		else if( (aLayer.parentLayerID == theLayerID ||
-				  aLayer.altParentLayerID == theLayerID) &&
+		else if( (InputMap::parentLayer(*itr) == theLayerID ||
+				  InputMap::comboParentLayer(*itr) == theLayerID) &&
 				  aLayer.heldActiveByButton <= 0 )
 		{
 			// Need to use recursion so also remove grandchildren, etc
@@ -532,20 +528,21 @@ static void removeControlsLayer(int theLayerID)
 }
 
 
-static bool layerIsDescendant(const LayerState& theLayer, int theParentLayerID)
+static bool layerIsDescendant(int theLayerID, int theParentLayerID)
 {
-	if( theLayer.parentLayerID == theParentLayerID )
+	const int aParentOfThisLayer = InputMap::parentLayer(theLayerID);
+	if( aParentOfThisLayer == theParentLayerID )
 		return true;
 
-	if( theLayer.parentLayerID == 0 )
+	if( aParentOfThisLayer == 0 )
 		return false;
 
 	return
 		layerIsDescendant(
-			sState.layers[theLayer.parentLayerID],
+			aParentOfThisLayer,
 			theParentLayerID) ||
 		layerIsDescendant(
-			sState.layers[theLayer.altParentLayerID],
+			InputMap::comboParentLayer(theLayerID),
 			theParentLayerID);
 }
 
@@ -583,11 +580,11 @@ static std::vector<u16>::iterator layerOrderInsertPos(
 			continue;
 		}
 		// Anything not descended from same parent layer is higher priority
-		if( !layerIsDescendant(sState.layers[*result], theParentLayerID) )
+		if( !layerIsDescendant(*result, theParentLayerID) )
 			break;
 		// Layers descended from same parent but not direct siblings are
 		// lower priority than direct children of theParentLayerID
-		if( sState.layers[*result].parentLayerID != theParentLayerID )
+		if( InputMap::parentLayer(*result) != theParentLayerID )
 		{
 			++result;
 			continue;
@@ -603,14 +600,14 @@ static std::vector<u16>::iterator layerOrderInsertPos(
 }
 
 static void addControlsLayer(int theLayerID); // forward declare
-static void addComboLayers(int theNewLayerID); // forward declare
+static void addRelatedLayers(int theNewLayerID); // forward declare
 static void sortComboLayers(); // forward declare
 
 static void moveControlsLayerToTop(int theLayerID, bool isHeldLayer = false)
 {
 	DBG_ASSERT(size_t(theLayerID) < sState.layers.size());
 	DBG_ASSERT(sState.layers[theLayerID].active);
-	DBG_ASSERT(sState.layers[theLayerID].altParentLayerID == 0);
+	DBG_ASSERT(InputMap::comboParentLayer(theLayerID) == 0);
 	transDebugPrint(
 		"Re-sorting Controls Layer '%s' as if it had been newly added\n",
 		InputMap::layerLabel(theLayerID).c_str());
@@ -623,7 +620,7 @@ static void moveControlsLayerToTop(int theLayerID, bool isHeldLayer = false)
 	// Make sure to move any descendants along with it
 	std::vector<u16>::iterator anOldPosEnd = anOldPos;
 	for(++anOldPosEnd; anOldPosEnd != sState.layerOrder.end() &&
-		layerIsDescendant(sState.layers[*anOldPosEnd], theLayerID);
+		layerIsDescendant(*anOldPosEnd, theLayerID);
 		++anOldPosEnd) {}
 	std::vector<u16> sTempOrder; 
 	sTempOrder.assign(anOldPos, anOldPosEnd);
@@ -644,11 +641,29 @@ static void moveControlsLayerToTop(int theLayerID, bool isHeldLayer = false)
 	if( sState.layers[theLayerID].heldActiveByButton <= 0 )
 	{
 		aNewPos = layerOrderInsertPos(
-			sState.layers[theLayerID].parentLayerID,
+			InputMap::parentLayer(theLayerID),
 			InputMap::layerPriority(theLayerID), isHeldLayer);
 	}
 	sState.layerOrder.insert(aNewPos, sTempOrder.begin(), sTempOrder.end());
 	sResults.layerChangeMade = true;
+
+	// Re-process associated auto layers
+	const BitVector<32>& autoRemoveLayers =
+		InputMap::autoRemoveLayers(theLayerID);
+	for(int i = autoRemoveLayers.firstSetBit();
+		i < autoRemoveLayers.size();
+		i = autoRemoveLayers.nextSetBit(i+1))
+	{
+		removeControlsLayer(i);
+	}
+	const BitVector<>& autoAddLayers =
+		InputMap::autoAddLayers(theLayerID);
+	for(int i = autoAddLayers.firstSetBit();
+		i < autoAddLayers.size();
+		i = autoAddLayers.nextSetBit(i+1))
+	{
+		addControlsLayer(i);
+	}
 
 	// Re-sort any possibly affected combo layers
 	sortComboLayers();
@@ -670,10 +685,19 @@ static void addControlsLayer(int theLayerID)
 	DBG_ASSERT(size_t(aParentLayerID) < sState.layers.size());
 	if( aParentLayerID && !sState.layers[aParentLayerID].active )
 		addControlsLayer(aParentLayerID);
-
+	
+	#ifdef INPUT_TRANSLATOR_DEBUG_PRINT
 	if( theLayerID > 0 )
 	{
-		if( aParentLayerID > 0 )
+		if( int aComboParentLayerID = InputMap::comboParentLayer(theLayerID) )
+		{
+			transDebugPrint(
+				"Adding Controls Layer '%s' (since '%s' and '%s' exist)\n",
+				InputMap::layerLabel(theLayerID).c_str(),
+				InputMap::layerLabel(aParentLayerID).c_str(),
+				InputMap::layerLabel(aComboParentLayerID).c_str());
+		}
+		else if( aParentLayerID > 0 )
 		{
 			transDebugPrint(
 				"Adding Controls Layer '%s' as child of Layer '%s'\n",
@@ -687,22 +711,39 @@ static void addControlsLayer(int theLayerID)
 				InputMap::layerLabel(theLayerID).c_str());
 		}
 	}
+	#endif
 
 	sState.layerOrder.insert(layerOrderInsertPos(
 		aParentLayerID, InputMap::layerPriority(theLayerID)),
 		dropTo<u16>(theLayerID));
 	LayerState& aLayer = sState.layers[theLayerID];
-	aLayer.parentLayerID = dropTo<u16>(aParentLayerID);
-	aLayer.altParentLayerID = 0;
 	aLayer.active = true;
 	aLayer.autoButtonHit = true;
 	sResults.layerChangeMade = true;
-	addComboLayers(theLayerID);
+	addRelatedLayers(theLayerID);
 }
 
 
-static void addComboLayers(int theNewLayerID)
+static void addRelatedLayers(int theNewLayerID)
 {
+	// Add/remove any auto layers associated with the new layer ID
+	const BitVector<32>& autoRemoveLayers =
+		InputMap::autoRemoveLayers(theNewLayerID);
+	for(int i = autoRemoveLayers.firstSetBit();
+		i < autoRemoveLayers.size();
+		i = autoRemoveLayers.nextSetBit(i+1))
+	{
+		removeControlsLayer(i);
+	}
+	const BitVector<>& autoAddLayers =
+		InputMap::autoAddLayers(theNewLayerID);
+	for(int i = autoAddLayers.firstSetBit();
+		i < autoAddLayers.size();
+		i = autoAddLayers.nextSetBit(i+1))
+	{
+		addControlsLayer(i);
+	}
+
 	DBG_ASSERT(size_t(theNewLayerID) < sState.layers.size());
 
 	// Find and add any combo layers with theNewLayerID as a base and
@@ -717,10 +758,6 @@ static void addComboLayers(int theNewLayerID)
 		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active )
 		{
 			addControlsLayer(aComboLayerID);
-			sState.layers[aComboLayerID].parentLayerID =
-				dropTo<u16>(theNewLayerID);
-			sState.layers[aComboLayerID].altParentLayerID =
-				dropTo<u16>(aLayerID);
 			aLayerWasAdded = true;
 			i = 0; // since sState.layerOrder might have changed
 		}
@@ -728,10 +765,6 @@ static void addComboLayers(int theNewLayerID)
 		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active )
 		{
 			addControlsLayer(aComboLayerID);
-			sState.layers[aComboLayerID].parentLayerID =
-				dropTo<u16>(aLayerID);
-			sState.layers[aComboLayerID].altParentLayerID =
-				dropTo<u16>(theNewLayerID);
 			aLayerWasAdded = true;
 			i = 0; // since sState.layerOrder might have changed
 		}
@@ -743,7 +776,7 @@ static void addComboLayers(int theNewLayerID)
 	// since could be recursively adding combo layers of combo layers.
 	// This will only trigger once get back to done with the original, normal
 	// layer and therefore will only do a single full sort at the end.
-	if( aLayerWasAdded && !sState.layers[theNewLayerID].altParentLayerID )
+	if( aLayerWasAdded && !InputMap::comboParentLayer(theNewLayerID) )
 		sortComboLayers();
 }
 
@@ -809,13 +842,14 @@ static void sortComboLayers()
 		sLayerPriorities[i].oldPos = i;
 		sLayerPriorities[i].parent = null;
 		sLayerPriorities[i].altParent = null;
-		if( aLayer.altParentLayerID )
+		if( int anAltParentID = InputMap::comboParentLayer(aLayerID) )
 		{
+			const int aParentLayerID = InputMap::parentLayer(aLayerID);
 			for(int j = 0; j < intSize(sState.layerOrder.size()); ++j)
 			{
-				if( sState.layerOrder[j] == aLayer.parentLayerID )
+				if( sState.layerOrder[j] == aParentLayerID )
 					sLayerPriorities[i].parent = &sLayerPriorities[j];
-				if( sState.layerOrder[j] == aLayer.altParentLayerID )
+				if( sState.layerOrder[j] == anAltParentID )
 					sLayerPriorities[i].altParent = &sLayerPriorities[j];
 			}
 		}
@@ -834,8 +868,8 @@ static void flagLayerButtonCommandUsed(int theLayerID)
 		return;
 
 	sState.layers[theLayerID].buttonCommandUsed = true;
-	flagLayerButtonCommandUsed(sState.layers[theLayerID].parentLayerID);
-	flagLayerButtonCommandUsed(sState.layers[theLayerID].altParentLayerID);
+	flagLayerButtonCommandUsed(InputMap::parentLayer(theLayerID));
+	flagLayerButtonCommandUsed(InputMap::comboParentLayer(theLayerID));
 }
 
 
@@ -1723,14 +1757,12 @@ static bool tryAddLayerFromButton(
 	sState.layerOrder.insert(layerOrderInsertPos(
 		0, InputMap::layerPriority(aLayerID), true),
 		dropTo<u16>(aLayerID));
-	aLayer.parentLayerID = 0;
-	aLayer.altParentLayerID = 0;
 	aLayer.active = true;
 	aLayer.autoButtonHit = true;
 	aLayer.heldActiveByButton = 1;
 	sResults.layerChangeMade = true;
 	theBtnState.layerHeld = dropTo<u16>(aLayerID);
-	addComboLayers(aLayerID);
+	addRelatedLayers(aLayerID);
 	return true;
 }
 
@@ -2087,7 +2119,7 @@ void update()
 		loadCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();
-		#ifndef NDEBUG
+		#ifdef INPUT_TRANSLATOR_DEBUG_PRINT
 		std::string aNewLayerOrder("Layers: ");
 		for(std::vector<u16>::iterator itr =
 			sState.layerOrder.begin();

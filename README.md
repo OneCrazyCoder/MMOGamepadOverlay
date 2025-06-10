@@ -510,6 +510,16 @@ LootWindow3=32x322
 
 The `=Select Hotspot <direction>` command will quickly move the mouse cursor to the next nearby enabled hotspot . If there are none in the direction pressed the mouse will be moved amount of the `[Mouse]` section property `DefaultHotspotDistance=` (multiplied by the UIScale properly).
 
+### Layer AutoLayers= property
+
+This property is similar to HUD= and Hotspots= but with a list of Layer names (and optional "Add" and "Remove" key words) of other layers that should be automatically added or removed whenever this layer is added:
+
+```ini
+[Layer.LootMode]
+AutoLayers = CameraMode, Remove CursorMode
+```
+It is just an alternative to using the 'Auto' button with ``Auto=Add LayerName Layer`` or ``Auto=Remove LayerName Layer``, but leaves the Auto button free for other things. *Note: If more than one is listed then the order they are added in is essentially random (so make use of `Priority=` property when order matters), but they will all be added/removed just after this layer is added but before the Auto button commands are run.*
+
 ### Layer Parent= property
 
 A layer can optionally set a *parent layer* with the `Parent=` property, followed by the name of another layer. This makes the layer a *child layer* of the specified parent. Parent and child layers have the following properties:

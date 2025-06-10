@@ -51,6 +51,7 @@ const SignalActionsMap& signalCommandsForLayer(int theLayerID);
 // Returns how long given button needs to be held to trigger eBtnAct_Hold
 int commandHoldTime(int theLayerID, EButton theButton);
 int parentLayer(int theLayerID);
+int comboParentLayer(int theLayerID); // 0 if not a combo layer
 
 // Gets sort priority for given layer ID
 int layerPriority(int theLayerID);
@@ -72,6 +73,10 @@ const BitVector<32>& hotspotArraysToEnable(int theLayerID);
 // (overrides any lower layers wishing to enable these hotspots)
 const BitVector<32>& hotspotArraysToDisable(int theLayerID);
 
+// Gets layers to auto-add or remove alongside given layer
+const BitVector<32>& autoAddLayers(int theLayerID);
+const BitVector<32>& autoRemoveLayers(int theLayerID);
+
 // Returns a combo layer ID if one exists, otherwise 0
 int comboLayerID(int theLayerID1, int theLayerID2);
 
@@ -89,6 +94,7 @@ int menuGridHeight(int theMenuID); // for eMenuStyle_Grid
 std::string menuSectionName(int theMenuID);
 std::string menuItemKeyName(int theMenuItemIdx);
 std::string menuItemDirKeyName(ECommandDir theDir);
+int menuSectionNameToID(const std::string& theProfileSectionName);
 void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 
 // HOTSPOTS

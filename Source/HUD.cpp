@@ -2249,13 +2249,38 @@ void init()
 
 void loadProfileChanges()
 {
+	// TODO - more precise version of this instead of reloading everything
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	if( theProfileMap.contains(kMenuSectionName) ||
+	bool needsReload =
 		theProfileMap.contains(kHUDSectionName) ||
 		theProfileMap.contains(kBitmapsSectionName) ||
-		theProfileMap.contains(kIconsSectionName) )
+		theProfileMap.contains(kIconsSectionName);
+	// Check if any HUD. or root Menu. sections were changed
+	for(int i = 0; !needsReload && i < theProfileMap.size(); ++i)
 	{
-		// TODO - more precise version of this instead of reloading everything
+		if( hasPrefix(theProfileMap.keys()[i],
+				kMenuSectionName + std::string(".")) )
+		{
+			const int aMenuID =
+				InputMap::menuSectionNameToID(theProfileMap.keys()[i]);
+			if( size_t(aMenuID) < size_t(InputMap::menuCount()) &&
+				InputMap::rootMenuOfMenu(aMenuID) == aMenuID )
+			{
+				needsReload = true;
+				break;
+			}
+		}
+
+		if( hasPrefix(theProfileMap.keys()[i],
+				kHUDSectionName + std::string(".")) )
+		{
+			needsReload = true;
+			break;
+		}
+	}
+
+	if( needsReload )
+	{
 		init();
 	}
 }
