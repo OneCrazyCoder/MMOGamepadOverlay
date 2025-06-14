@@ -31,12 +31,12 @@ enum ECommandType
 	eCmdType_Empty, // Empty string / use lower layers' assigned actions
 	eCmdType_Unassigned, // _Empty but overrides lower Layers' assignments
 	eCmdType_DoNothing, // _Unassigned but by specific request
-	eCmdType_SignalOnly, // _DoNothing but fires .signalID signal
 
 	// First group are valid for InputDispatcher::sendKeyCommand()
 	eCmdType_PressAndHoldKey,
 	eCmdType_ReleaseKey,
 	eCmdType_TapKey,
+	eCmdType_TriggerKeyBind,
 	eCmdType_VKeySequence,
 	eCmdType_ChatBoxString,
 
@@ -46,8 +46,6 @@ enum ECommandType
 	eCmdType_MoveMouseToOffset,
 	eCmdType_MouseClickAtHotspot,
 
-	// This just forwards on the command assigned to .keyBindID
-	eCmdType_TriggerKeyBind,
 	// These active "keybind arrays" which allow a sequence of different keys
 	// to be pressed by a single buton that changes the key pressed each time.
 	// These first 2 do not actually send any input...
@@ -59,7 +57,6 @@ enum ECommandType
 	eCmdType_KeyBindArrayDefault, // Press key at saved "default" index
 	eCmdType_KeyBindArrayLast, // Re-press last-pressed key in the array
 	eCmdType_KeyBindArrayIndex, // Skip to pressing key at specified index
-	eCmdType_KeyBindArrayHoldIndex, // PressAndHold version of above
 
 	// These are just a mix of special-case one-off commands
 	eCmdType_SetVariable,
@@ -101,7 +98,7 @@ enum ECommandType
 
 	eCmdType_Num,
 
-	eCmdType_FirstValid = eCmdType_SignalOnly,
+	eCmdType_FirstValid = eCmdType_PressAndHoldKey,
 	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
 	eCmdType_LastMenuControl = eCmdType_MenuEditDir,
 	eCmdType_FirstDirectional = eCmdType_MenuSelect,

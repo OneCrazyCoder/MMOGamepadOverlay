@@ -415,6 +415,7 @@ static void pollXInputGamepad(int theGamepadID)
 				? u8(state.Gamepad.sThumbLY >> 7) : 0;
 			break;
 		case eBtn_LSAny:
+			aGamepad.axisVal[eAxis_LSAny] = 0;
 			if( state.Gamepad.sThumbLX || state.Gamepad.sThumbLY )
 			{
 				const double dx = state.Gamepad.sThumbLX;
@@ -440,6 +441,7 @@ static void pollXInputGamepad(int theGamepadID)
 				? u8(state.Gamepad.sThumbRY >> 7) : 0;
 			break;
 		case eBtn_RSAny:
+			aGamepad.axisVal[eAxis_RSAny] = 0;
 			if( state.Gamepad.sThumbRX || state.Gamepad.sThumbRY )
 			{
 				const double dx = state.Gamepad.sThumbRX;

@@ -229,7 +229,7 @@ public:
 		mHead = (mHead - 1) & dropTo<u32>(mBuffer.size() - 1);
 		mBuffer[mHead].cmd = theCommand;
 		mBuffer[mHead].progress = 0;
-		mBuffer[mHead].queuedTime = 0xFFFFFFFF;
+		mBuffer[mHead].queuedTime = 0x7FFFFFFF;
 		mBuffer[mHead].hasJump = false;
 		mBuffer[mHead].slow = flagAsSlow;
 	}
@@ -329,11 +329,14 @@ private:
 		int aCurrJumpHotspotID = 0;
 		int aFinalJumpHotspotID = 0;
 		Hotspot aJumpDest;
-		switch(theTask.cmd.type)
+		Command aCmd = theTask.cmd;
+		while(aCmd.type == eCmdType_TriggerKeyBind)
+			aCmd = InputMap::keyBindCommand(aCmd.keyBindID);
+		switch(aCmd.type)
 		{
 		case eCmdType_VKeySequence:
 			scanVKeySeqForFlags(
-				InputMap::cmdVKeySeq(theTask.cmd),
+				InputMap::cmdVKeySeq(aCmd),
 				aCurrJumpHotspotID, aFinalJumpHotspotID,
 				theTask.hasJump, theTask.slow);
 			if( aCurrJumpHotspotID )
@@ -361,8 +364,8 @@ private:
 			theTask.slow = true;
 			++mMouseJumpQueueCount;
 			// Assign _LastCursorPos now as source point for next jump
-			aJumpDest.x = theTask.cmd.hotspot.x;
-			aJumpDest.y = theTask.cmd.hotspot.y;
+			aJumpDest.x = aCmd.hotspot.x;
+			aJumpDest.y = aCmd.hotspot.y;
 			InputMap::modifyHotspot(
 				eSpecialHotspot_LastCursorPos, aJumpDest);
 			break;
@@ -407,18 +410,20 @@ private:
 				break;
 			case kVKeyTriggerKeyBind:
 				{
+					Command aCmd;
+					aCmd.type = eCmdType_TriggerKeyBind;
 					++c; DBG_ASSERT(*c != '\0');
-					int aKeyBindID = (*c & 0x7F) << 7U;
+					aCmd.keyBindID = u16((*c & 0x7F) << 7U);
 					++c; DBG_ASSERT(*c != '\0');
-					aKeyBindID |= (*c & 0x7F);
-					const Command& aKeyBindCmd =
-						InputMap::keyBindCommand(aKeyBindID);
-					switch(aKeyBindCmd.type)
+					aCmd.keyBindID |= u16(*c & 0x7F);
+					while(aCmd.type == eCmdType_TriggerKeyBind)
+						aCmd = InputMap::keyBindCommand(aCmd.keyBindID);
+					switch(aCmd.type)
 					{
 					case eCmdType_TapKey:
-						if( aKeyBindCmd.vKey == VK_LBUTTON ||
-							aKeyBindCmd.vKey == VK_MBUTTON ||
-							aKeyBindCmd.vKey == VK_RBUTTON )
+						if( aCmd.vKey == VK_LBUTTON ||
+							aCmd.vKey == VK_MBUTTON ||
+							aCmd.vKey == VK_RBUTTON )
 						{ theCurrJumpHotspotID = 0; }
 						break;
 					case eCmdType_ChatBoxString:
@@ -428,7 +433,7 @@ private:
 						break;
 					case eCmdType_VKeySequence:
 						// Use recursion to scan this sequence
-						scanVKeySeqForFlags(InputMap::cmdVKeySeq(aKeyBindCmd),
+						scanVKeySeqForFlags(InputMap::cmdVKeySeq(aCmd),
 							theCurrJumpHotspotID, theFinalJumpHotspotID,
 							hasJump, isSlow);
 						break;
@@ -513,10 +518,14 @@ static DispatchTracker sTracker;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static void fireSignal(int aSignalID)
+static void fireSignal(u32 theSignalID)
 {
-	gFiredSignals.set(aSignalID);
-	switch(aSignalID - InputMap::specialKeySignalID(ESpecialKey(0)))
+	gFiredSignals.set(theSignalID);
+	static const u32 kFirstSpecialKeySignal =
+		InputMap::keyBindSignalID(
+			InputMap::specialKeyToKeyBindID(
+				ESpecialKey(0)));
+	switch(theSignalID - kFirstSpecialKeySignal)
 	{
 	case eSpecialKey_AutoRun:
 		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
@@ -542,6 +551,15 @@ static void fireSignal(int aSignalID)
 		}
 		break;
 	}
+}
+
+
+static void fireKeyBindSignals(int theKeyBindID)
+{
+	fireSignal(InputMap::keyBindSignalID(theKeyBindID));
+	const Command& aCmd = InputMap::keyBindCommand(theKeyBindID);
+	if( aCmd.type == eCmdType_TriggerKeyBind )
+		fireKeyBindSignals(aCmd.keyBindID);
 }
 
 
@@ -1521,6 +1539,99 @@ static bool tryQuickReleaseHeldKey(int theVKey, KeyWantDownStatus& theStatus)
 }
 
 
+static bool tryQuickSendKeyCommand(const Command& theCommand)
+{
+	switch(theCommand.type)
+	{
+	case eCmdType_Invalid:
+	case eCmdType_Empty:
+	case eCmdType_Unassigned:
+	case eCmdType_DoNothing:
+		// Can always instantly do nothing
+		return true;
+	case eCmdType_PressAndHoldKey:
+		{
+			const int aVKey = theCommand.vKey;
+			const int aBaseVKey = aVKey & kVKeyMask;
+			DBG_ASSERT(aBaseVKey != 0);
+			DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
+			KeyWantDownStatus& aKeyStatus =
+				sTracker.keysWantDown.findOrAdd(dropTo<u16>(aVKey));
+			if( isSafeAsyncKey(aVKey) && aKeyStatus.queued <= 0 )
+			{// Can possibly press right away
+				if( aKeyStatus.depth > 0 )
+				{// Already have another request to hold this key
+					++aKeyStatus.depth;
+					if( theCommand.hasKeybindSignal )
+						fireKeyBindSignals(theCommand.keyBindID);
+					return true;
+				}
+				if( setKeyDown(aBaseVKey, true) == eResult_Ok )
+				{// Was able to press the key now
+					aKeyStatus.depth = 1;
+					aKeyStatus.pressed = true;
+					aKeyStatus.queued = 0;
+					if( theCommand.hasKeybindSignal )
+						fireKeyBindSignals(theCommand.keyBindID);
+					return true;
+				}
+			}
+			++aKeyStatus.queued;
+		}
+		break;
+	case eCmdType_ReleaseKey:
+		{
+			const int aVKey = theCommand.vKey;
+			const int aBaseVKey = aVKey & kVKeyMask;
+			DBG_ASSERT(aBaseVKey != 0);
+			DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
+			KeyWantDownStatus& aKeyStatus =
+				sTracker.keysWantDown.findOrAdd(dropTo<u16>(aVKey));
+			if( aKeyStatus.queued <= 0 )
+			{// Try releasing the key right away
+				if( tryQuickReleaseHeldKey(aVKey, aKeyStatus) )
+					return true;
+			}
+		}
+		break;
+	case eCmdType_TapKey:
+		{
+			const int aVKey = theCommand.vKey;
+			const int aBaseVKey = aVKey & kVKeyMask;
+			DBG_ASSERT(aBaseVKey != 0);
+			DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
+			// Try tapping the key right away instead of queueing it
+			if( isSafeAsyncKey(aVKey) &&
+				!sTracker.keysHeldDown.test(aBaseVKey) &&
+				setKeyDown(aBaseVKey, true) == eResult_Ok )
+			{// Was able to press the key now
+				return true;
+			}
+		}
+		break;
+	case eCmdType_VKeySequence:
+	case eCmdType_ChatBoxString:
+		// No method for quick execution but is a valid command type
+		break;
+	case eCmdType_TriggerKeyBind:
+		{
+			if( tryQuickSendKeyCommand(
+					InputMap::keyBindCommand(theCommand.keyBindID)) )
+			{
+				fireSignal(InputMap::keyBindSignalID(theCommand.keyBindID));
+				return true;
+			}
+		}
+		break;
+	default:
+		DBG_ASSERT(false && "Invalid command type for sendkeyCommand()!");
+		break;
+	}
+
+	return false;
+}
+
+
 static void debugPrintInputVector()
 {
 	static int sUpdateCount = 0;
@@ -1908,11 +2019,23 @@ void update()
 			sTracker.currTaskProgress == 0 &&
 			aCurrTask.queuedTime < (gAppRunTime - kConfig.maxTaskQueuedTime);
 
-		const Command& aCmd = aCurrTask.cmd;
+		Command aCmd = aCurrTask.cmd;
+		while(aCmd.type == eCmdType_TriggerKeyBind)
+		{
+			if( !taskIsPastDue && sTracker.currTaskProgress == 0 )
+				fireSignal(InputMap::keyBindSignalID(aCmd.keyBindID));
+			aCmd = InputMap::keyBindCommand(aCmd.keyBindID);
+		}
 		EResult aTaskResult = eResult_TaskCompleted;
 
 		switch(aCmd.type)
 		{
+		case eCmdType_Invalid:
+		case eCmdType_Empty:
+		case eCmdType_Unassigned:
+		case eCmdType_DoNothing:
+			// Must have been an empty _TriggerKeyBind - task complete!
+			break;
 		case eCmdType_PressAndHoldKey:
 			DBG_ASSERT(aCmd.vKey != 0);
 			DBG_ASSERT((aCmd.vKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
@@ -1928,9 +2051,9 @@ void update()
 				{
 					aKeyStatus.depth = 1;
 					aKeyStatus.pressed = false;
-					if( !taskIsPastDue )
-						fireSignal(aCmd.signalID);
 				}
+				if( !taskIsPastDue && aCmd.hasKeybindSignal )
+					fireKeyBindSignals(aCmd.keyBindID);
 			}
 			break;
 		case eCmdType_ReleaseKey:
@@ -1974,29 +2097,15 @@ void update()
 			break;
 		case eCmdType_TapKey:
 			if( !taskIsPastDue )
-			{
 				sTracker.nextQueuedKey = aCmd.vKey;
-				fireSignal(aCmd.signalID);
-			}
 			break;
 		case eCmdType_VKeySequence:
-			{
-				const u8* aCmdSeq = InputMap::cmdVKeySeq(aCmd);
-				if( !taskIsPastDue )
-				{
-					if( aCurrTask.progress == 0 )
-						fireSignal(aCmd.signalID);
-					aTaskResult = popNextKey(aCmdSeq);
-				}
-			}
+			if( !taskIsPastDue )
+				aTaskResult = popNextKey(InputMap::cmdVKeySeq(aCmd));
 			break;
 		case eCmdType_ChatBoxString:
 			if( !taskIsPastDue )
-			{
-				if( aCurrTask.progress == 0 )
-					fireSignal(aCmd.signalID);
 				aTaskResult = popNextStringChar(InputMap::cmdString(aCmd));
-			}
 			break;
 		case eCmdType_MoveMouseToHotspot:
 		case eCmdType_MouseClickAtHotspot:
@@ -2367,84 +2476,10 @@ void update()
 
 void sendKeyCommand(const Command& theCommand)
 {
-	// These values only valid for certain command types
-	const int aVKey = theCommand.vKey;
-	const int aBaseVKey = aVKey & kVKeyMask;
-
-	switch(theCommand.type)
-	{
-	case eCmdType_Invalid:
-	case eCmdType_Empty:
-	case eCmdType_Unassigned:
-	case eCmdType_DoNothing:
-		// Do nothing
-		break;
-	case eCmdType_SignalOnly:
-		// Do nothing but fire off signal
-		fireSignal(theCommand.signalID);
-		break;
-	case eCmdType_PressAndHoldKey:
-		DBG_ASSERT(aBaseVKey != 0);
-		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-		{// Queue or try to press immediately
-			KeyWantDownStatus& aKeyStatus =
-				sTracker.keysWantDown.findOrAdd(dropTo<u16>(aVKey));
-			if( isSafeAsyncKey(aVKey) && aKeyStatus.queued <= 0 )
-			{// Can possibly press right away
-				if( aKeyStatus.depth > 0 )
-				{// Already have another request to hold this key
-					++aKeyStatus.depth;
-					break;
-				}
-				if( setKeyDown(aBaseVKey, true) == eResult_Ok )
-				{// Was able to press the key now
-					aKeyStatus.depth = 1;
-					aKeyStatus.pressed = true;
-					aKeyStatus.queued = 0;
-					fireSignal(theCommand.signalID);
-					break;
-				}
-			}
-			// Add to queue
-			++aKeyStatus.queued;
-			sTracker.queue.push_back(theCommand);
-		}
-		break;
-	case eCmdType_ReleaseKey:
-		DBG_ASSERT(aBaseVKey != 0);
-		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-		{// Queue or try to press immediately
-			KeyWantDownStatus& aKeyStatus =
-				sTracker.keysWantDown.findOrAdd(dropTo<u16>(aVKey));
-			if( aKeyStatus.queued <= 0 )
-			{// Try releasing the key right away instead of queueing it
-				if( tryQuickReleaseHeldKey(aVKey, aKeyStatus) )
-					break;
-			}
-			sTracker.queue.push_back(theCommand);
-		}
-		break;
-	case eCmdType_TapKey:
-		DBG_ASSERT(aBaseVKey != 0);
-		DBG_ASSERT((aVKey & ~(kVKeyMask | kVKeyModsMask)) == 0);
-		{// Try tapping the key right away instead of queueing it
-			if( isSafeAsyncKey(aVKey) &&
-				!sTracker.keysHeldDown.test(aBaseVKey) &&
-				setKeyDown(aBaseVKey, true) == eResult_Ok )
-			{// Was able to press the key now, don't need to queue it!
-				fireSignal(theCommand.signalID);
-				break;
-			}
-		}
+	// Try to execute command right now if possible,
+	// otherwise add it to the queue
+	if( !tryQuickSendKeyCommand(theCommand) )
 		sTracker.queue.push_back(theCommand);
-		break;
-	case eCmdType_VKeySequence:
-	case eCmdType_ChatBoxString:
-		sTracker.queue.push_back(theCommand);
-		break;
-	default:
-		DBG_ASSERT(false && "Invalid command type for sendkeyCommand()!");
-	}
 }
 
 
@@ -2642,12 +2677,6 @@ void moveMouseTo(const Command& theCommand)
 	Hotspot aDestHotspot;
 	switch(theCommand.type)
 	{
-	case eCmdType_Invalid:
-	case eCmdType_Empty:
-	case eCmdType_Unassigned:
-	case eCmdType_DoNothing:
-		// Do nothing
-		return;
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MouseClickAtHotspot:
 		aDestHotspot = InputMap::getHotspot(theCommand.hotspotID);
@@ -3047,13 +3076,13 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	for(int aMoveKey = 0; aMoveKey < eMoveKey_Num; ++aMoveKey)
 	{
 		Command aCmd;
-		aCmd.type = eCmdType_PressAndHoldKey;
 		aCmd.vKey = InputMap::keyForSpecialAction(
 			ESpecialKey(aMoveKey + eSpecialKey_FirstMove));
-		if( !aCmd.vKey )
-			aCmd.type = eCmdType_SignalOnly;
-		aCmd.signalID = dropTo<u16>(
-			eBtn_Num + aMoveKey + eSpecialKey_FirstMove);
+		aCmd.hasKeybindSignal = true;
+		aCmd.keyBindID = InputMap::specialKeyToKeyBindID(
+			ESpecialKey(eSpecialKey_FirstMove + aMoveKey));
+		aCmd.type =
+			aCmd.vKey ? eCmdType_PressAndHoldKey : eCmdType_TriggerKeyBind;
 		if( sTracker.typingChatBoxString && !lock && !autoRun &&
 			aCmd.vKey && !isSafeAsyncKey(aCmd.vKey) &&
 			!isMouseButton(aCmd.vKey) )
@@ -3092,7 +3121,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 				 isSafeAsyncKey(aCmd.vKey) ||
 				 isMouseButton(aCmd.vKey)) )
 			{// Key may be stuck down by game client - tap it again to release
-				aCmd.type = eCmdType_TapKey;
+				aCmd.type = eCmdType_TriggerKeyBind;
 				if( !isMouseButton(aCmd.vKey) )
 					sendKeyCommand(aCmd);
 				sTracker.stickyMoveKeys.reset(aMoveKey);
@@ -3123,8 +3152,9 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_AutoRun);
 		if( aCmd.vKey )
 		{
-			aCmd.type = eCmdType_TapKey;
-			aCmd.signalID = eBtn_Num + eSpecialKey_AutoRun;
+			aCmd.type = eCmdType_TriggerKeyBind;
+			aCmd.keyBindID =
+				InputMap::specialKeyToKeyBindID(eSpecialKey_AutoRun);
 			sendKeyCommand(aCmd);
 			sTracker.autoRunMode = eAutoRunMode_Started;
 		}

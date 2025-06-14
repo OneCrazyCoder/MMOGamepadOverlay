@@ -1275,6 +1275,8 @@ static void drawLabelString(
 	if( theStr.empty() )
 		return;
 
+	theFormat |= DT_NOPREFIX;
+
 	// Initialize cache entry to get font & height
 	initStringCacheEntry(dd, theRect, theStr, theFormat, theCacheEntry);
 
@@ -1874,7 +1876,7 @@ static void drawSystemHUD(HUDDrawData& dd)
 		SetBkColor(dd.hdc, RGB(255, 0, 0));
 		SetTextColor(dd.hdc, RGB(255, 255, 0));
 		DrawText(dd.hdc, sErrorMessage.c_str(), -1, &aTextRect,
-			DT_WORDBREAK);
+			DT_WORDBREAK | DT_NOPREFIX);
 	}
 
 	if( !sNoticeMessage.empty() )
@@ -1882,7 +1884,7 @@ static void drawSystemHUD(HUDDrawData& dd)
 		SetBkColor(dd.hdc, RGB(0, 0, 255));
 		SetTextColor(dd.hdc, RGB(255, 255, 255));
 		DrawText(dd.hdc, sNoticeMessage.c_str(), -1, &aTextRect,
-			DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
+			DT_RIGHT | DT_BOTTOM | DT_SINGLELINE | DT_NOPREFIX);
 	}
 }
 
@@ -2909,11 +2911,9 @@ void updateWindowLayout(
 			case eCmdDir_Up:
 			case eCmdDir_Down:
 				anItemRect.left = floor(aCenterX -
-					(aCompBaseSizeX + gUIScale *
-						(hi.gapSizeX + aCompScalingSizeX)) * 0.5);
+					(aCompBaseSizeX + gUIScale * aCompScalingSizeX) * 0.5);
 				anItemRect.right = ceil(aCenterX +
-					(aCompBaseSizeX + gUIScale *
-						(hi.gapSizeX + aCompScalingSizeX)) * 0.5);
+					(aCompBaseSizeX + gUIScale * aCompScalingSizeX) * 0.5);
 				break;
 			}
 
@@ -3014,7 +3014,7 @@ void drawMainWindowContents(HWND theWindow, bool asDisabled)
 
 	// Draw version string centered
 	DrawText(hdc, aWStr.c_str(), -1, &aRect,
-		DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+		DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
 
 
 	// Cleanup

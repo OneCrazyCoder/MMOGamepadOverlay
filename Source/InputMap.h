@@ -34,11 +34,11 @@ const char* cmdString(const Command& theCommand);
 const u8* cmdVKeySeq(const Command& theCommand);
 
 // KEYBINDS
-u16 keyForSpecialAction(ESpecialKey);
-u32 specialKeySignalID(ESpecialKey);
 Command keyBindCommand(int theKeyBindID);
+u16 keyForSpecialAction(ESpecialKey);
+u16 specialKeyToKeyBindID(ESpecialKey);
 u32 keyBindSignalID(int theKeyBindID);
-Command keyBindArrayCommand(int theArrayID, int theIndex);
+u16 keyBindArrayIndexToKeyBindID(int theArrayID, int theIndex);
 u32 keyBindArraySignalID(int theArrayID);
 // Adjust index by theSteps but skipping over any invalid (unassigned) keys
 // Steps of 0 may still adjust by +1 or more if array[theIndex] is invalid
@@ -54,7 +54,7 @@ int parentLayer(int theLayerID);
 int comboParentLayer(int theLayerID); // 0 if not a combo layer
 
 // Gets sort priority for given layer ID
-int layerPriority(int theLayerID);
+s8 layerPriority(int theLayerID);
 
 // Checks what EMouseMode given controls layer requests be used
 EMouseMode mouseMode(int theLayerID);
@@ -118,6 +118,7 @@ int keyBindArrayForHUDElement(int theHUDElementID);
 const std::string& hudElementKeyName(int theHUDElementID);
 
 // SIZES
+int keyBindCount();
 int keyBindArrayCount();
 int keyBindArraySize(int theArrayID);
 int controlsLayerCount();
