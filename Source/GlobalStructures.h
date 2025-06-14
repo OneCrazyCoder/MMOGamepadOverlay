@@ -43,29 +43,29 @@ struct ZERO_INIT(Command)
 				u16 stringID;
 				u16 subMenuID;
 				u16 menuItemID;
-				u16 keyBindID;
 				u16 arrayIdx;
 				u16 layerID;
 			};
 			union
 			{
-				u16 signalID;
 				u16 hotspotID;
 				u16 menuID;
+				u16 keyBindID;
 				u16 keybindArrayID;
 				u16 variableID;
 				u16 replacementLayer;
 				u16 mouseWheelMotionType;
 			};
 			s16 count;
-			u8 swapDir : 2;
-			u8 wrap : 1;
-			u8 withMouse : 1;
-			u8 andClick : 1;
-			u8 multiDirAutoRun : 1;
-			u8 temporary : 1;
-			u8 __reserved : 1;
-			u8 __reserved2;
+			u16 swapDir : 2;
+			u16 wrap : 1;
+			u16 withMouse : 1;
+			u16 andClick : 1;
+			u16 multiDirAutoRun : 1;
+			u16 temporary : 1;
+			u16 hasKeybindSignal : 1;
+			u16 asHoldAction : 1;
+			u16 __padding : 7;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;
 		u64 compare;
@@ -73,4 +73,6 @@ struct ZERO_INIT(Command)
 
 	bool operator==(const Command& rhs) const
 	{ return type == rhs.type && compare == rhs.compare; }
+	bool operator!=(const Command& rhs) const
+	{ return type != rhs.type || compare != rhs.compare; }
 };

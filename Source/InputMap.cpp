@@ -129,6 +129,7 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "Parent",			ePropType_Parent		},
 				{ "Priority",		ePropType_Priority		},
 				{ "Layers",			ePropType_AutoLayers	},
+				{ "AutoLayer",		ePropType_AutoLayers	},
 				{ "AutoLayers",		ePropType_AutoLayers	},
 				{ "AddLayers",		ePropType_AutoLayers	},
 				{ "Auto",			ePropType_Auto			},
@@ -1078,11 +1079,11 @@ static int applyKeyBindProperty(
 	if( aCmd.type != eCmdType_Invalid )
 		return aKeyBindID;
 
-	// Signal Only
+	// Do nothing (signal only)
 	ECommandKeyWord aKeyWord = commandWordToID(theCmdStr);
 	if( aKeyWord == eCmdWord_Nothing )
 	{
-		aCmd.type = eCmdType_SignalOnly;
+		aCmd.type = eCmdType_DoNothing;
 		return aKeyBindID;
 	}
 
@@ -1148,7 +1149,7 @@ static void validateKeyBind(
 			logError("Key Bind %s ends up referencing itself!",
 				sKeyBinds.keys()[theKeyBindID].c_str());
 			// Make calling command do nothing but send signal now
-			aCmd.type = eCmdType_SignalOnly;
+			aCmd.type = eCmdType_DoNothing;
 			return;
 		}
 		validateKeyBind(aCmd.keyBindID, theReferencedKeyBinds);
@@ -1170,7 +1171,7 @@ static void validateKeyBind(
 				{
 					logError("Key Bind %s ends up referencing itself!",
 						sKeyBinds.keys()[theKeyBindID].c_str());
-					aCmd.type = eCmdType_SignalOnly;
+					aCmd.type = eCmdType_DoNothing;
 					return;
 				}
 				validateKeyBind(anotherKeyBindID, theReferencedKeyBinds);	
@@ -1195,25 +1196,36 @@ static void reportCommandAssignment(
 			theCmdStr.c_str());
 		break;
 	case eCmdType_Empty:
-		mapDebugPrint("%s: '%s' left blank / skipped / removed!\n",
-			sSectionPrintName.c_str(),
-			sPropertyPrintName.c_str());
+		if( theSignalID )
+		{
+			mapDebugPrint("%s: '%s' skipped in key bind arrays, "
+				"<Signal $d Only> from direct use\n",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str(),
+				theSignalID);
+		}
+		else
+		{
+			mapDebugPrint("%s: '%s' left blank / skipped / removed!\n",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str());
+		}
 		break;
 	case eCmdType_Unassigned:
-		mapDebugPrint("%s: '%s' left <unassigned>\n",
-			sSectionPrintName.c_str(),
-			sPropertyPrintName.c_str());
-		break;
 	case eCmdType_DoNothing:
-		mapDebugPrint("%s: Assigned '%s' to <Do Nothing>\n",
-			sSectionPrintName.c_str(),
-			sPropertyPrintName.c_str());
-		break;
-	case eCmdType_SignalOnly:
-		mapDebugPrint("%s: Assigned '%s' to <Signal #%d Only>\n",
-			sSectionPrintName.c_str(),
-			sPropertyPrintName.c_str(),
-			theSignalID);
+		if( theSignalID )
+		{
+			mapDebugPrint("%s: Assigned '%s' to <Signal #%d Only>\n",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str(),
+				theSignalID);
+		}
+		else
+		{
+			mapDebugPrint("%s: Assigned '%s' to <Do Nothing>\n",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str());
+		}
 		break;
 	case eCmdType_TriggerKeyBind:
 		if( theSignalID ||
@@ -1587,7 +1599,7 @@ static Command wordsToSpecialCommand(
 			result.wrap = false;
 			break;
 		case eCmdWord_With:
-			// Special case for "Replace <layerName> with <LayerName>"
+			// Special case for "Replace <LayerName> with <LayerName>"
 			if( i < intSize(theWords.size()) - 1 &&
 				keyWordsFound.test(eCmdWord_Replace) )
 			{
@@ -1839,7 +1851,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Layer);
 		allowedKeyWords.set(eCmdWord_Replace);
 		if( keyWordsFound.test(eCmdWord_Replace) &&
-			aSecondLayerID < sLayers.size() &&
+			aSecondLayerID < sLayers.size() && aSecondLayerID != aLayerID &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 2 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
@@ -2397,16 +2409,7 @@ static Command stringToCommand(
 	{
 		result.type = eCmdType_TapKey;
 		result.vKey = dropTo<u16>(aVKey);
-		// _PressAndHoldKey (and indirectly its associated _ReleaseKey)
-		// only works properly with a single key (+ mods), just like _TapKey,
-		// and only when allowHoldActions is true (_Down button action),
-		// so in that case change _TapKey to _PressAndHoldKey instead.
-		// This does mean there isn't currently a way to keep this button
-		// action assigned to only _TapKey, and that a _Down button action
-		// will just act the same as _Press for any other commmands
-		// (which can be used intentionally to have 2 commands for button
-		// initial press, thus can be useful even if a bit unintuitive).
-		result.type = eCmdType_PressAndHoldKey;
+		result.asHoldAction = allowHoldActions;
 		sParsedString.clear();
 		return result;
 	}
@@ -2427,11 +2430,12 @@ static Command stringToCommand(
 		allow4DirActions);
 	if( result.type != eCmdType_Invalid )
 	{
+		result.asHoldAction = allowHoldActions;
 		sParsedString.clear();
 		return result;
 	}
 
-	// Check for alias to a keybind
+	// Check for a keybind that remaps directly to a command (like Move)
 	if( Command* aSpecialKeyBindCommand =
 			specialKeyBindNameToCommand(theString) )
 	{
@@ -2444,6 +2448,7 @@ static Command stringToCommand(
 		}
 	}
 
+	// Check for a normal keybind
 	const int aKeyBindID = sKeyBinds.findIndex(theString);
 	if( aKeyBindID < sKeyBinds.size() )
 	{
@@ -2458,19 +2463,17 @@ static Command stringToCommand(
 				sKeyBindArrays.vals()[aKeyBindArrayID][anArrayIdx].
 					keyBindID == aKeyBindID )
 			{
-				// Comment on _PressAndHoldKey above explains this
-				if( result.type == eCmdType_TapKey && allowHoldActions )
-					result.type = eCmdType_KeyBindArrayHoldIndex;
-				else
-					result.type = eCmdType_KeyBindArrayIndex;
+				result.type = eCmdType_KeyBindArrayIndex;
 				result.keybindArrayID = dropTo<u16>(aKeyBindArrayID);
 				result.arrayIdx = dropTo<u16>(anArrayIdx);
+				result.asHoldAction = allowHoldActions;
 				sParsedString.clear();
 				return result;
 			}
 		}
 		result.type = eCmdType_TriggerKeyBind;
 		result.keyBindID = dropTo<u16>(aKeyBindID);
+		result.asHoldAction = allowHoldActions;
 		sParsedString.clear();
 		return result;
 	}
@@ -3401,33 +3404,7 @@ static void applyControlsLayerProperty(
 }
 
 
-static void validateAutoLayers(
-	int theLayerID,
-	BitVector<32>& theReferencedLayers)
-{
-	DBG_ASSERT(theLayerID < sLayers.size());
-	DBG_ASSERT(theReferencedLayers.size() == sLayers.size());
-	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
-	theReferencedLayers.set(theLayerID);
-	if( theLayer.addLayers.none() )
-		return;
-
-	if( (theLayer.addLayers & theReferencedLayers).any() )
-	{
-		logError("Layer %s ends up trying to auto-add itself!",
-			sLayers.keys()[theLayerID].c_str());
-		theLayer.addLayers &= ~theReferencedLayers;
-	}
-	for(int i = theLayer.addLayers.firstSetBit();
-		i < theLayer.addLayers.size();
-		i = theLayer.addLayers.nextSetBit(i+1))
-	{
-		validateAutoLayers(i, theReferencedLayers);
-	}
-}
-
-
-static void validateParentLayers(
+static void validateLayer(
 	int theLayerID,
 	BitVector<32>& theReferencedLayers)
 {
@@ -3445,7 +3422,7 @@ static void validateParentLayers(
 		theLayer.parentLayer = 0;
 		return;
 	}
-	validateParentLayers(theLayer.parentLayer, theReferencedLayers);
+	validateLayer(theLayer.parentLayer, theReferencedLayers);
 }
 
 
@@ -3508,6 +3485,18 @@ static void loadDataFromProfile(
 				const int aKeyBindID = applyKeyBindProperty(
 					aPropMap.keys()[aPropIdx],
 					aPropMap.vals()[aPropIdx].str);
+				if( aKeyBindID < eSpecialKey_Num &&
+					sKeyBinds.vals()[aKeyBindID].type != eCmdType_TapKey &&
+					sKeyBinds.vals()[aKeyBindID].type >= eCmdType_FirstValid )
+				{
+					logError(
+						"Special key bind '%s' may only be assigned to a "
+						"single key or modifier+key (or nothing)! "
+						"Could not assign %s!",
+						aPropMap.keys()[aPropIdx].c_str(),
+						aPropMap.vals()[aPropIdx].str.c_str());
+					sKeyBinds.vals()[aKeyBindID].type = eCmdType_DoNothing;
+				}
 				reportCommandAssignment(
 					sKeyBinds.vals()[aKeyBindID],
 					aPropMap.vals()[aPropIdx].str,
@@ -3647,9 +3636,7 @@ static void loadDataFromProfile(
 		aLayerID = loadedLayers.nextSetBit(aLayerID+1))
 	{
 		referencedLayers.reset();
-		validateAutoLayers(aLayerID, referencedLayers);
-		referencedLayers.reset();
-		validateParentLayers(aLayerID, referencedLayers);
+		validateLayer(aLayerID, referencedLayers);
 	}
 }
 
@@ -3805,28 +3792,27 @@ const u8* cmdVKeySeq(const Command& theCommand)
 }
 
 
+Command keyBindCommand(int theKeyBindID)
+{
+	DBG_ASSERT(theKeyBindID >= 0 && theKeyBindID < sKeyBinds.size());
+	return sKeyBinds.vals()[theKeyBindID];
+}
+
+
 u16 keyForSpecialAction(ESpecialKey theSpecialKeyID)
 {
-	DBG_ASSERT(theSpecialKeyID < eSpecialKey_Num);
-	DBG_ASSERT(theSpecialKeyID < sKeyBinds.size());
-	if( sKeyBinds.vals()[theSpecialKeyID].type == eCmdType_TapKey )
-		return sKeyBinds.vals()[theSpecialKeyID].vKey;
+	const int aKeyBindID = specialKeyToKeyBindID(theSpecialKeyID);
+	const Command& aKeyBindCmd = keyBindCommand(aKeyBindID);
+	if( aKeyBindCmd.type == eCmdType_TapKey )
+		return aKeyBindCmd.vKey;
 	return 0;
 }
 
 
-u32 specialKeySignalID(ESpecialKey theSpecialKeyID)
+u16 specialKeyToKeyBindID(ESpecialKey theSpecialKeyID)
 {
-	return keyBindSignalID(theSpecialKeyID);
-}
-
-
-Command keyBindCommand(int theKeyBindID)
-{
-	DBG_ASSERT(theKeyBindID >= 0 && theKeyBindID < sKeyBinds.size());
-	sKeyBinds.vals()[theKeyBindID].signalID =
-		dropTo<u16>(keyBindSignalID(theKeyBindID));
-	return sKeyBinds.vals()[theKeyBindID];
+	DBG_ASSERT(size_t(theSpecialKeyID) < size_t(eSpecialKey_Num));
+	return u16(theSpecialKeyID);
 }
 
 
@@ -3837,12 +3823,11 @@ u32 keyBindSignalID(int theKeyBindID)
 }
 
 
-Command keyBindArrayCommand(int theArrayID, int theIndex)
+u16 keyBindArrayIndexToKeyBindID(int theArrayID, int theIndex)
 {
 	DBG_ASSERT(theArrayID >= 0 && theArrayID < sKeyBindArrays.size());
 	DBG_ASSERT(size_t(theIndex) < sKeyBindArrays.vals()[theArrayID].size());
-	return keyBindCommand(
-		sKeyBindArrays.vals()[theArrayID][theIndex].keyBindID);
+	return sKeyBindArrays.vals()[theArrayID][theIndex].keyBindID;
 }
 
 
@@ -3929,7 +3914,7 @@ int comboParentLayer(int theLayerID)
 }
 
 
-int layerPriority(int theLayerID)
+s8 layerPriority(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].priority;
@@ -4230,6 +4215,12 @@ const std::string& hudElementKeyName(int theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID >= 0 && theHUDElementID < sHUDElements.size());
 	return sHUDElements.keys()[theHUDElementID];
+}
+
+
+int keyBindCount()
+{
+	return sKeyBinds.size();
 }
 
 

@@ -443,9 +443,11 @@ L2 = Hold Alternate layer
 Square = Duck
 ```
 
-In this case, rather then pressing L2, then Square to Duck, and then pressing R2 again to restore normal controls, you can just press and hold L2, tap Square to duck, then release L2. In other words, L2+Square = Duck in this control scheme.
+In this case, rather then pressing L2, then Square to Duck, and then pressing R2 to restore normal controls, you can just press and hold L2, tap Square to duck, then release L2. In other words, L2+Square = Duck in this control scheme.
 
 *Similar to held keys, a held layer can ONLY be assigned to the button without any actions specified, like the above `L2=` example. It is not valid to assign something like `Tap L2=Hold layer`.*
+
+*Also note a Held Layer can not be removed by just using the Remove Layer command - that will only cancel any Add Layer commands used with it. If both Add Layer and Hold Layer are used for the same layer, both the Remove Layer command and releasing the button holding the layer are needed to actually fully remove it. If multiple buttons use Hold Layer on the same layer, all of them must be released before it will be removed.*
 
 ### The "Auto" Button
 
@@ -525,9 +527,11 @@ It is just an alternative to using the 'Auto' button with ``Auto=Add LayerName L
 A layer can optionally set a *parent layer* with the `Parent=` property, followed by the name of another layer. This makes the layer a *child layer* of the specified parent. Parent and child layers have the following properties:
 * When a child layer is added, if its parent doesn't exist yet, the parent is automatically added first.
 * When its parent is about to be removed, the child is removed automatically first.
-* When a child layer is added, it is placed directly above the parent layer (and any other children of that same parent), bypassing normal layer ordering rules (see below).
-* A parent layer can have a parent of its own, and so on for as long of a chain as you want.
-* Combo layers, Held layers, and [Scheme] ignore the `Parent=` property since they have their own special rules for automatic removal and layer order. They can, however, act as parents to other layers.
+* When a child layer is added, it is placed directly above its parent layer (and any of its older "siblings" - layers with the same parent).
+* A parent layer can have a parent of its own, and so on for as long of a chain as you want (as long as its not circular of course).
+* [Scheme] can not have a parent and is the default parent of any layers that don't specify one.
+* Combo layers (see below) can not have a parent either, since they essentially treat their base layers as multiple parents with their own special sorting and add/remove rules. They can, however, act as parents to other layers, but can't be auto-added by their children.
+* A Held Layer with a parent won't necessarily be auto-removed when its parent layer is removed - the button holding it must be released as well.
 
 ### Combo layers
 
@@ -552,42 +556,27 @@ Circle=D
 With this setup, when hold both L2 and R2, causing both those layers to be active, the L2+R2 layer is automatically added, causing Circle to press "D" instead of "C", "B", or "A". The L2+R2 layer will be removed as soon as let go of either L2 or R2.
 
 Here's some other technical details about combo layers:
-* They are specified by 2 or more layer names separated by '+' after the `[Layer.` prefix.
-* They are added as soon as all their base layers are active, and removed as soon as any of their base layers are removed.
-* They can not be directly referenced by name for commands like Add Layer because symbols like '+' are filtered out of command strings. However, they can be named in other layers' and `Parent=` property.
+* They are specified by 2 or more layer names separated by '+' after the `[Layer.` prefix, referred to here as their "base layers".
+* They are added as soon as **all** their base layers are active, and removed as soon as **any** of their base layers are removed. This is the **only** way they can be added or removed.
+* As mentioned above, they can not have a parent layer specified, and when set as a parent themselves their child layer can't auto-add them. In fact, since a child layer can't be added without its parent being added first, attempting to manually add a child of a combo layer will do nothing unless the combo layer was already added (a combo layer should add its own children through `AutoLayers=` to prevent this being a problem).
 * They have their own special layer ordering rule (see below).
 
 ### Layer ordering and the Priority= property
 
 As mentioned before, layers can be thought of as being stacked on top of each other in a specific order. This order determines what button assignments are active as well as other properties like Mouse and HUD. with higher layer properties and button assignments taking priority. The order of layers in the stack is thus very important for determining behavior of the overlay.
 
-While mostly based on factors like type of layer (normal added layer, held layer, or combo layer) and parenting, one additional sorting factor you can add is a `Priority=#` property for any layer, with a value from -100 to 100. If this property is not set, a layer has a default priority value of 0.
+While mostly based on factors like type of layer (normal added layer, held layer, or combo layer) and the `Parent=` property, one additional sorting factor you can add is a `Priority=#` property for any layer, with a value from -100 to 100. If this property is not set, a layer has a default priority value of 0.
 
 Layers follow these rules when determining order:
 
-* [Scheme] always exists as the lowest layer
-* Held Layers are placed on top of normal added layers (and all of their children and combo layers)
-* Child layers are placed on top of their parent layer, regardless of the parent layer type, but below any layers that are not descended from that same parent
-* If 2 layers would have the same position after the above, then the layer with the higher `Priority=` property will be placed above any with a lower priority set, and below any with a higher priority set
-* If 2 layers still have the same position (same priority), then newly-added layers will be placed on top of older layers
-* Combo Layers act like a child layer, except they select the top-most of their base layers as their parent when it comes to ordering
-* Combo layers ignore the priority property and timing of being added, so in the case they would otherwise end up in the same position they will be sorted according to the relative order of their other (non-top-most) base layer(s).
+* [Scheme] always exists as the lowest layer and acts as the parent layer to any layers that have none specified.
+* Child layers are placed just above their parent layer and below unrelated layers.
+* For "sibling" layers (same parent), Held Layers with no `Priority=` property specified (or have it set to 0) are placed above their siblings regardless of priority values.
+* When all of the above are the same, the layer with higher `Priority=` property is placed above those with a lower value.
+* When all of the above are the same, Held Layers with a set non-zero `Priority=` value are placed above normal layers.
+* When all of the above are the same, more recently-added layers are placed above older ones.
 
-To demonstrate how these rules shake out, here's a potential layer order from top to bottom:
-
-      Combo Layer (B+E)
-      Combo Layer (A+E)
-    Held LayerE
-      Child of D
-    Held LayerD
-    Added LayerC
-        Child of A+B Combo
-      Combo Layer (A+B)
-    Added LayerB
-      Child of A (Priority=2)
-      Child of A (Priority=1)
-    Added LayerA
-    [Scheme]
+**Combo Layers ignore all of the above** and can not have a `Priority=` or `Parent=` property. They are placed just above the highest-positioned base layer they reference. If two combo layers have the same highest-positioned base layer, they are ordered according to the relative order of their other base layers.
 
 ### "When Signal" commands
 

@@ -445,13 +445,8 @@ static void checkWindowMode()
 			sSwapWindowModeHotkeyRegistered = false;
 		}
 		// Use InputDispatcher to send hotkey to the target app
-		Command aCmd;
-		aCmd.type = eCmdType_TapKey;
-		aCmd.vKey =
-			InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
-		aCmd.signalID = dropTo<u16>(
-			InputMap::specialKeySignalID(eSpecialKey_SwapWindowMode));
-		InputDispatcher::sendKeyCommand(aCmd);
+		InputDispatcher::sendKeyCommand(InputMap::keyBindCommand(
+			InputMap::specialKeyToKeyBindID(eSpecialKey_SwapWindowMode)));;
 		// Give some time for the target app to respond to the request
 		sNextCheckDelay = 1000;
 		sLastKnownTargetMode = eWindowMode_TrueFullScreen;
