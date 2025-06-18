@@ -694,16 +694,17 @@ static EResult popNextKey(const u8* theVKeySequence)
 		if( aVKey == kVKeyTriggerKeyBind )
 		{
 			// Special 3-byte sequence to execute a key bind
+			Command aCmd; aCmd.type = eCmdType_TriggerKeyBind;
 			u8 c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
-			int aKeyBindID = (c & 0x7F) << 7;
+			aCmd.keyBindID = u16((c & 0x7F) << 7);
 			c = theVKeySequence[sTracker.currTaskProgress++];
 			DBG_ASSERT(c != '\0');
-			aKeyBindID |= (c & 0x7F);
+			aCmd.keyBindID |= u16(c & 0x7F);
 			// Jump this command to the front of the queue, and then
 			// return to where we left off here once it is done
 			sTracker.queue.setCurrTaskProgress(sTracker.currTaskProgress);
-			sTracker.queue.push_front(InputMap::keyBindCommand(aKeyBindID));
+			sTracker.queue.push_front(aCmd);
 			sTracker.currTaskProgress = 0;
 			return eResult_Incomplete;
 		}
@@ -1545,6 +1546,7 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 	{
 	case eCmdType_Invalid:
 	case eCmdType_Empty:
+	case eCmdType_Defer:
 	case eCmdType_Unassigned:
 	case eCmdType_DoNothing:
 		// Can always instantly do nothing
@@ -2032,6 +2034,7 @@ void update()
 		{
 		case eCmdType_Invalid:
 		case eCmdType_Empty:
+		case eCmdType_Defer:
 		case eCmdType_Unassigned:
 		case eCmdType_DoNothing:
 			// Must have been an empty _TriggerKeyBind - task complete!

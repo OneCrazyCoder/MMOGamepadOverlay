@@ -29,7 +29,6 @@ const char* kMenuPrefix = "Menu.";
 const char* kHUDPrefix = "HUD.";
 const char* kKeyBindsSectionName = "KeyBinds";
 const char* kHotspotsSectionName = "Hotspots";
-const std::string kActionOnlyPrefix = "Just";
 const std::string kSignalCommandPrefix = "When";
 
 const char* kSpecialNamedHotspots[] =
@@ -1211,6 +1210,11 @@ static void reportCommandAssignment(
 				sPropertyPrintName.c_str());
 		}
 		break;
+	case eCmdType_Defer:
+		mapDebugPrint("%s: '%s' set to defer to lower layers' commands\n",
+			sSectionPrintName.c_str(),
+			sPropertyPrintName.c_str());
+		break;
 	case eCmdType_Unassigned:
 	case eCmdType_DoNothing:
 		if( theSignalID )
@@ -1684,6 +1688,20 @@ static Command wordsToSpecialCommand(
 	if( keyWordsFound.test(eCmdWord_Nothing) && keyWordsFound.count() == 1)
 	{
 		result.type = eCmdType_DoNothing;
+		return result;
+	}
+
+	// "= Defer [to] [lower] [layers]
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Defer);
+	allowedKeyWords.set(eCmdWord_To);
+	allowedKeyWords.set(eCmdWord_Lower);
+	allowedKeyWords.set(eCmdWord_Layer);
+	if( allowButtonActions &&
+		keyWordsFound.test(eCmdWord_Defer) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_Defer;
 		return result;
 	}
 
@@ -2390,7 +2408,7 @@ static Command stringToCommand(
 {
 	Command result;
 
-	// Pass through
+	// Not actually set to anything (likely variable or child .ini override)
 	if( theString.empty() )
 	{
 		result.type = eCmdType_Empty;
@@ -2495,7 +2513,10 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 {
 	MenuItem aMenuItem;
 	if( theString.empty() )
+	{
+		aMenuItem.cmd.type = eCmdType_Empty;
 		return aMenuItem;
+	}
 
 	std::string aLabel = breakOffItemBeforeChar(theString, ':');
 	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
@@ -2960,8 +2981,7 @@ static EButtonAction breakOffButtonAction(std::string& theButtonActionName)
 static void addButtonAction(
 	int theLayerIdx,
 	std::string theBtnKeyName,
-	const std::string& theCmdStr,
-	bool onlySpecificAction)
+	const std::string& theCmdStr)
 {
 	DBG_ASSERT(theLayerIdx < sLayers.size());
 	DBG_ASSERT(!theBtnKeyName.empty());
@@ -3000,16 +3020,38 @@ static void addButtonAction(
 	Command aCmd = stringToCommand(
 		theCmdStr, true, aBtnAct == eBtnAct_Down, isMultiDirButton);
 
+	// If the command is type _Empty, remove or don't create command set
+	// for this button - unless another action has set something for it
+	if( aCmd.type == eCmdType_Empty )
+	{
+		ButtonActionsMap::iterator aBtnItr =
+				sLayers.vals()[theLayerIdx].buttonCommands.find(aBtnID);
+		if( aBtnItr != sLayers.vals()[theLayerIdx].buttonCommands.end() )
+		{
+			aBtnItr->second.cmd[aBtnID].type = eCmdType_Unassigned;
+			bool shouldRemoveEntirely = true;
+			for(int i = 0; i < eBtnAct_Num; ++i)
+			{
+				if( aBtnItr->second.cmd[i].type >= eCmdType_DoNothing )
+				{
+					shouldRemoveEntirely = false;
+					break;
+				}
+			}
+			if( shouldRemoveEntirely )
+				sLayers.vals()[theLayerIdx].buttonCommands.erase(aBtnItr);
+		}
+		reportCommandAssignment(aCmd, theCmdStr);
+		return;
+	}
+
 	// Make the assignment
 	ButtonActions& aDestBtn =
 		sLayers.vals()[theLayerIdx].buttonCommands.findOrAdd(aBtnID);
-	// Set other actions to _Empty (pass through) or _Unassigned (block lower)
-	// depending on onlySpecificAction flag
+	// Set other actions to _Unassigned to block lower layer's assignments
 	for(int i = 0; i < eBtnAct_Num; ++i)
 	{
-		if( aDestBtn.cmd[i].type == eCmdType_Invalid )
-			aDestBtn.cmd[i].type = eCmdType_Empty;
-		if( aDestBtn.cmd[i].type == eCmdType_Empty && !onlySpecificAction )
+		if( aDestBtn.cmd[i].type <= eCmdType_Invalid )
 			aDestBtn.cmd[i].type = eCmdType_Unassigned;
 	}
 	aDestBtn.cmd[aBtnAct] = aCmd;
@@ -3385,22 +3427,11 @@ static void applyControlsLayerProperty(
 		return;
 	}
 	
-	if( size_t aStrPos = posAfterPrefix(thePropKey, kActionOnlyPrefix) )
-	{// "JUST" BUTTON ACTION
-		sPropertyPrintName = "(Just) " + sPropertyPrintName.substr(
-			posAfterPrefix(sPropertyPrintName, kActionOnlyPrefix));
-		addButtonAction(
-			theLayerID,
-			thePropKey.substr(aStrPos),
-			thePropVal, true);
-		return;
-	}
-
 	// BUTTON COMMAND ASSIGNMENT
 	addButtonAction(
 		theLayerID,
 		thePropKey,
-		thePropVal, false);
+		thePropVal);
 }
 
 
@@ -4371,6 +4402,13 @@ const std::string& menuDirLabel(int theMenuID, ECommandDir theDir)
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	DBG_ASSERT(theDir >= 0 && theDir < eCmdDir_Num);
 	return sMenus.vals()[theMenuID].dirItems[theDir].label;
+}
+
+
+const std::string& keyBindLabel(int theKeyBindID)
+{
+	DBG_ASSERT(theKeyBindID >= 0 && theKeyBindID < sKeyBinds.size());
+	return sKeyBinds.keys()[theKeyBindID];
 }
 
 #undef mapDebugPrint

@@ -399,10 +399,11 @@ You can remove one layer while adding another in a single command using `Replace
 
 *There can only be one of each named layer active at once, so trying to add a layer with the same name again will simply update its position as if it was newly added, but not actually remove or re-add it or add another copy of it!*
 
-### Overriding buttons and the "Just" prefix
+### Overriding Buttons and the "Defer" Command
 
-By default, assigning something to **any** action for a button blocks **all** commands assigned to that button from lower layers. For example, with this setup:
+By default, assigning any action to a button on a layer blocks **all** commands assigned to that button from lower layers.
 
+For example:
 ```ini
 [Scheme]
 Tap R1 = TargetNPC
@@ -414,17 +415,29 @@ Tap R1 = TargetPC
 R2 = Remove this layer
 ```
 
-Once you had added the Alternate layer with L2, briefly holding R1 will no longer Consider a target. R1 is now exclusively set to "TargetPC" when tapped because that is the only command assigned to R1 on that layer.
+Once the Alternate layer is added, holding R1 will no longer trigger "Consider"—even though only Tap was reassigned—because the layer now fully overrides all of R1's actions.
 
-You could of course manually add `Hold R1 = Consider` to the Alternate layer, but you could also specify that you only want to override the Tap action and let other actions, like Hold, still defer to lower layers' settings by adding the key word **Just** in front of the property name, like this:
+To override only specific actions for a button while allowing others to pass through, use the Defer command:
 
 ```ini
 [Layer.Alternate]
-Just Tap R1 = TargetPC
+Tap R1 = TargetPC
+Hold R1 = Defer to lower layers
 R2 = Remove this layer
 ```
 
-Now when tap R1 "TargetPC" will be used instead of "TargetNPC", but holding R1 will still use "Consider" from [Scheme].
+In this setup, Tap is overridden, but Hold will still execute the Consider command from [Scheme].
+
+Using the Defer command for any action will apply automatically apply it to all other actions for that button automatically. You can combine this with explicit blocks using the `= Do nothing` command if this auto-propagation is undesired.
+
+```ini
+[Layer.Alternate]
+Tap R1 = TargetPC
+R1 = Defer to lower layers
+Hold R1 = Do nothing
+```
+
+Here, Tap overrides the command, Hold is blocked, and all other actions (Press, Release, and the default press-and-hold action) defer to lower layers' assignments for those actions.
 
 ### Held Layers
 

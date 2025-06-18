@@ -27,8 +27,9 @@ kInvalidItem = 0xFFFF,
 
 enum ECommandType
 {
-	eCmdType_Invalid, // Not assigned to anything / invalid / sentinel value
-	eCmdType_Empty, // Empty string / use lower layers' assigned actions
+	eCmdType_Invalid, // Uninitialized / invalid / sentinel value
+	eCmdType_Empty, // Empty string (defer to lower Layer's assignments)
+	eCmdType_Defer, // _Empty but by specific request
 	eCmdType_Unassigned, // _Empty but overrides lower Layers' assignments
 	eCmdType_DoNothing, // _Unassigned but by specific request
 
@@ -325,6 +326,8 @@ enum ECommandKeyWord
 	eCmdWord_To,
 	eCmdWord_Toggle,
 	eCmdWord_Layer,
+	eCmdWord_Defer,
+	eCmdWord_Lower,
 	eCmdWord_Mouse,
 	eCmdWord_Click,
 	eCmdWord_MouseWheel,

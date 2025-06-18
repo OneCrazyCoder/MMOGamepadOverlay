@@ -265,7 +265,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 				Menus::loadProfileChanges();
 				InputTranslator::loadProfileChanges();
 				InputDispatcher::loadProfileChanges();
-				TargetApp::loadProfile();
+				TargetApp::loadProfileChanges();
 				HUD::loadProfileChanges();
 				WindowManager::loadProfileChanges();
 				Profile::clearChangedSections();

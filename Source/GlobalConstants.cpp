@@ -283,7 +283,7 @@ EButton buttonNameToID(const std::string& theName)
 				{ "FPadLeft",		eBtn_FLeft		},
 				{ "Square",			eBtn_FLeft		},
 				{ "XB-X",			eBtn_FLeft		},
-				{ "PS_S",			eBtn_FLeft		},
+				{ "PS-S",			eBtn_FLeft		},
 				{ "FPR",			eBtn_FRight		},
 				{ "FPadRight",		eBtn_FRight		},
 				{ "Circle",			eBtn_FRight		},
@@ -300,6 +300,12 @@ EButton buttonNameToID(const std::string& theName)
 				{ "FPadDown",		eBtn_FDown		},
 				{ "XB-A",			eBtn_FDown		},
 				{ "PS-X",			eBtn_FDown		},
+				{ "Back",			eBtn_Select		},
+				{ "View",			eBtn_Select		},
+				{ "Share",			eBtn_Select		},
+				{ "Create",			eBtn_Select		},
+				{ "Options",		eBtn_Start		},
+				{ "Menu",			eBtn_Start		},
 			};
 			map.reserve(eBtn_Num + ARRAYSIZE(kEntries));
 			for(int i = 0; i < eBtn_Num; ++i)
@@ -530,7 +536,20 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "Toggle",			eCmdWord_Toggle		},
 				{ "Layer",			eCmdWord_Layer		},
 				{ "Layers",			eCmdWord_Layer		},
+				{ "Defer",			eCmdWord_Defer		},
+				{ "Yield",			eCmdWord_Defer		},
+				{ "Redirect",		eCmdWord_Defer		},
+				{ "Passthrough",	eCmdWord_Defer		},
+				{ "Pass",			eCmdWord_Defer		},
+				{ "Fallthrough",	eCmdWord_Defer		},
+				{ "Delegate",		eCmdWord_Defer		},
+				{ "Lower",			eCmdWord_Lower		},
+				{ "Base",			eCmdWord_Lower		},
+				{ "Earlier",		eCmdWord_Lower		},
+				{ "Other",			eCmdWord_Lower		},
+				{ "Others",			eCmdWord_Lower		},
 				{ "Mouse",			eCmdWord_Mouse		},
+				{ "MoveMouse",		eCmdWord_Mouse		},
 				{ "Cursor",			eCmdWord_Mouse		},
 				{ "Click",			eCmdWord_Click		},
 				{ "LClick",			eCmdWord_Click		},
@@ -676,6 +695,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "when",			eCmdWord_Filler		},
 				{ "go",				eCmdWord_Filler		},
 				{ "during",			eCmdWord_Filler		},
+				{ "through",		eCmdWord_Filler		},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
