@@ -374,13 +374,26 @@ static void	loadCommandsForCurrentLayers()
 			if( aBtnID == eBtn_None )
 				continue;
 			const InputMap::ButtonActions& aBtnActions = aBtnCmdsMap[i].second;
+			// See if contains any "defer" commands, which change any
+			// _Unassigned commands (but not _DoNothing) not override any more
+			bool hasDeferCmd = false;
+			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+			{
+				if( aBtnActions.cmd[aBtnAct].type == eCmdType_Defer )
+				{
+					hasDeferCmd = true;
+					break;
+				}
+			}
 			ButtonState& aBtnState = sState.gamepadButtons[aBtnID];
 			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
-				if( aBtnActions.cmd[aBtnAct].type <= eCmdType_Empty )
+				const Command& aCmd = aBtnActions.cmd[aBtnAct];
+				DBG_ASSERT(aCmd.type >= eCmdType_Defer);
+				if( hasDeferCmd && aCmd.type <= eCmdType_Unassigned )
 					continue;
 
-				aBtnState.commands.cmd[aBtnAct] = aBtnActions.cmd[aBtnAct];
+				aBtnState.commands.cmd[aBtnAct] = aCmd;
 				aBtnState.commands.layer[aBtnAct] = dropTo<u16>(aLayerID);
 				// For multi-directionals, the _LSAny/etc command should block
 				// single direction buttons from lower layers and vice versa.
@@ -910,7 +923,6 @@ static void sortComboLayers()
 	for(int i = 0; i < intSize(sState.layerOrder.size()); ++i)
 	{
 		const u16 aLayerID = sState.layerOrder[i];
-		LayerState& aLayer = sState.layers[aLayerID];
 		sLayerSorters[i].id = aLayerID;
 		sLayerSorters[i].priority = &sLayerPriorities[i];
 		sLayerPriorities[i].oldPos = i;
@@ -1031,6 +1043,7 @@ static void processCommand(
 	{
 	case eCmdType_Invalid:
 	case eCmdType_Empty:
+	case eCmdType_Defer:
 	case eCmdType_Unassigned:
 	case eCmdType_DoNothing:
 		// Do nothing

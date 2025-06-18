@@ -136,5 +136,6 @@ const std::string& menuLabel(int theMenuID);
 const std::string& menuItemLabel(int theMenuID, int theMenuItemIdx);
 const std::string& menuItemAltLabel(int theMenuID, int theMenuItemIdx);
 const std::string& menuDirLabel(int theMenuID, ECommandDir theDir);
+const std::string& keyBindLabel(int theKeyBindID);
 
 } // InputMap
