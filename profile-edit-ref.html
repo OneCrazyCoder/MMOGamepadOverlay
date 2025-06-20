@@ -1,0 +1,792 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MMOGO - Profile Edit Reference Guide</title>
+  <link rel="icon" href="Resources/MMOGamepadOverlay.ico" type="image/x-icon">
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__left">
+    <div class="stackedit__toc">
+      
+<ul>
+<li><a href="#mmo-gamepad-overlay---profile-editing-reference-guide">MMO Gamepad Overlay - Profile Editing Reference Guide</a>
+<ul>
+<li><a href="#profile-customization">Profile customization</a></li>
+<li><a href="#scheme-section">[Scheme] Section</a></li>
+<li><a href="#commands">Commands</a></li>
+<li><a href="#key-binds-aliases">Key Binds (aliases)</a></li>
+<li><a href="#position-and-size-properties">Position and size properties</a></li>
+<li><a href="#controls-layers">Controls Layers</a></li>
+<li><a href="#menus">Menus</a></li>
+<li><a href="#hud-elements-menu-graphics">HUD Elements (Menu graphics)</a></li>
+<li><a href="#other-commands-and-features">Other Commands and Features</a></li>
+</ul>
+</li>
+</ul>
+
+    </div>
+  </div>
+  <div class="stackedit__right">
+    <div class="stackedit__html">
+      <h1 id="mmo-gamepad-overlay---profile-editing-reference-guide">MMO Gamepad Overlay - Profile Editing Reference Guide</h1>
+<p>The application generates a <em>MMOGO_Core.ini</em> file which contains some default settings and is used to track what other profiles you have created and their names. You can edit this file and any other <em>.ini</em> files it generates with any text editor, or create your own, once you know how they work.</p>
+<p>The list of profiles is at the top of <em>MMOGO_Core.ini</em>, along with an entry for specifying which one to load automatically, if any. Each profile <em>.ini</em> file can specify a “parent” Profile with a line like:</p>
+<pre><code>ParentProfile = MyBaseProfile
+</code></pre>
+<p>This system is intended to allow for having a “base” profile for a particular game, and then multiple profiles for different characters that use that same base as their parent. You can set up as long of a chain of parent profiles as you desire. It is not necessary to specify the “Core” profile as a ParentProfile at any point, as it will always be loaded first anyway. Profiles are loaded in order from parent to child, and any duplicate properties are overwritten as they are encountered. That means the specific profile you are loading will take priority over its parent base, which itself will take priority over any parent it has, and all other files will take priority over “Core”.</p>
+<p>All of this is set up automatically with the default example profiles generated on first launch.</p>
+<p>You can edit MMOGO_Core.ini yourself to add more profiles, or use the menu option File-&gt;Profile from within the application to do so with a GUI.</p>
+<h2 id="profile-customization">Profile customization</h2>
+<p>Each profile is a <em>.ini</em> file (and possibly one or more parent <em>.ini</em> file(s) as explained above). These are plain-text files you can edit in Notepad/etc that contain a list of <strong>Properties</strong>. Each property is identified by a <em>section</em> and a <em>property name</em> with an associated <em>property value</em>.</p>
+<p>If the same <em>section</em>+<em>property name</em> is encountered more than once, the most recent one will override any previous ones (which allows for having “default values” specified in Core or a parent Profile that are then overwritten by a specific child Profile). However, the same <em>property name</em> can be used in more than one <em>section</em> and will be considered different properties. There is also a special unnamed “root” section at the top of each file before the first section label is encountered, which is where the ParentProfile property mentioned earlier is placed.</p>
+<p>The .ini files are formatted as follows:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">RootPropertyName</span> <span class="token attr-value"><span class="token punctuation">=</span> Property Value</span>
+
+<span class="token selector">[SectionName1]</span>
+<span class="token constant">PropertyName1</span> <span class="token attr-value"><span class="token punctuation">=</span> Property Value 1</span>
+<span class="token constant">PropertyName2</span> <span class="token attr-value"><span class="token punctuation">=</span> Property Value 2</span>
+# Comment type 1
+
+<span class="token selector">[SectionName1.SubSectionA]</span>
+<span class="token constant">PropertyName1</span> <span class="token attr-value"><span class="token punctuation">=</span> Property Value 1</span>
+<span class="token constant">PropertyName2</span> <span class="token attr-value"><span class="token punctuation">=</span> Property Value 2</span>
+
+<span class="token selector">[SectionName2]</span>
+<span class="token comment">; Comment type 2</span>
+<span class="token comment">;PropertyName1 = Property Value 1 - commented out</span>
+<span class="token constant">PropertyName2</span> <span class="token attr-value"><span class="token punctuation">=</span> Property Value 2</span>
+</code></pre>
+<p>*NOTE: Comments are only supported by placing # and ; at the <strong>beginning</strong> of a line, you can NOT add comments at the end of a line, it will instead be considered part of the Property Value. Also, spaces are allowed in property names, but they are ignored, as are difference is casing (i.e. “Property Name 1” is treated as the same as “PROPERTYNAME1”).</p>
+<h2 id="scheme-section">[Scheme] Section</h2>
+<p>This is the main section for determining how gamepad input is translated into keyboard and mouse input. With a couple of special exceptions, each <em>property name</em> in this section represents a gamepad button (and optionally an action associated with that button like <em>press</em>, <em>tap</em>, <em>release</em>, etc), and each <em>property value</em> represents a <strong>Command</strong> for the application to execute when that button is used.</p>
+<p>Commands are usually input to send to the game, such as keyboard keys, mouse buttons, and mouse movement. For example, to assign R2 to act as the right mouse button, you could include:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> RMB</span>
+</code></pre>
+<p>There are various ways supported of specifying gamepad buttons and keys, so you could instead use:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">RT</span> <span class="token attr-value"><span class="token punctuation">=</span> Right-click</span>
+</code></pre>
+<p>If you want the full list, check <em>Source\GlobalConstants.cpp</em> in the source code.</p>
+<h3 id="button-actions">Button actions</h3>
+<p>When the <em>property name</em> is simply the button name by itself like in the above examples, it is treated as the action “press and hold”. So in the earlier <code>R2 = RMB</code> example, the right mouse button will be pressed when R2 is, held for as long as R2 is held, and released when R2 is released.</p>
+<p>Other “button actions” can be specified instead, and each button can have multiple commands assigned to it at once such as for a “tap” vs a “hold.” For example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> A</span>
+Press R2 <span class="token attr-value"><span class="token punctuation">=</span> B</span>
+Tap R2 <span class="token attr-value"><span class="token punctuation">=</span> C</span>
+Release R2 <span class="token attr-value"><span class="token punctuation">=</span> D</span>
+Hold R2 400 <span class="token attr-value"><span class="token punctuation">=</span> E</span>
+</code></pre>
+<p>This example demonstrates the maximum number of commands that could be assigned to a single button. When R2 is first pressed the ‘B’, and ‘A’ keyboard keys would be sent to the game in that order (‘A’ would be held down but ‘B’ would just be tapped and immediately released). If R2 was quickly released, a single tap of the ‘C’ key would be sent. If R2 was held for at least 400 milliseconds, an ‘E’ tap would be sent once. No matter how long it is held, even if just briefly tapped, once let go of R2 a single tap of ‘D’ would be sent to the game, as well as finally releasing ‘A’.</p>
+<p>You can only have one “Hold” action assigned per button, but how long it must be held to trigger can be optionally set by adding a number at the end of the property name. If no number is added, the value <code>[System]/ButtonHoldTime</code> will be used.</p>
+<p>Notice how only the base <code>R2=</code> property can actually hold a key down for more than a split second. That is the special property of this base ‘press and hold’ button action. All other button actions can only “tap” a key (press and then immediately release it). Many special commands can’t be “held” anyway, so assigning one of these to just <code>R2=</code> will make it act the same as assigning it to <code>Press R2=</code>, and some are can <em>only</em> be assigned to the base button action because they relate to “holding” for a duration.</p>
+<h3 id="multi-button-assignment">Multi-button assignment</h3>
+<p>You can assign 4 buttons at once in the case of the D-pad, analog sticks, and the “face buttons” (ABXY or X/Square/Triangle/Circle). For example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">DPad</span> <span class="token attr-value"><span class="token punctuation">=</span> MoveTurn</span>
+<span class="token constant">LStick</span> <span class="token attr-value"><span class="token punctuation">=</span> MoveStrafe</span>
+<span class="token constant">RStick</span> <span class="token attr-value"><span class="token punctuation">=</span> Mouse</span>
+<span class="token comment">; Below treats face buttons like a D-pad</span>
+<span class="token constant">FPad</span> <span class="token attr-value"><span class="token punctuation">=</span> Move</span>
+</code></pre>
+<p>Each of these (including the analog sticks) are otherwise treated as 4 separate buttons like “LStickUp” or “DPadDown”, etc. when want to assign each direction to a separate command.</p>
+<p>Non-directional commands assigned this way become assigned to the directional input as a whole rather than each of the 4 individual directions. For example, <code>RStick=A</code> will cause the keyboard ‘A’ key to be sent to the game when <em>any</em> direction is pressed on the right analog stick, with releasing ‘A’ being sent only once the right analog stick returns to center position. In other words, assigning the key in this way means spinning the stick won’t cause multiple ‘A’ key presses to be sent, like it would if you assigned ‘A’ to each direction individually.</p>
+<h2 id="commands">Commands</h2>
+<p>As mentioned above, commands assigned to buttons can be as simple as the name of a keyboard key or mouse button, as well as mouse movement (such as <code>=Mouse Up</code> or <code>=Mouse Left</code>).</p>
+<p>Not mentioned yet is mouse wheel movement, which can be set with commands such as <code>=MouseWheel Up Smooth</code> or <code>=MouseWheel Down Stepped</code> or <code>MouseWheel Down 1</code>. “Smooth” vs “Stepped” affects whether or not movement of less than one ‘notch’ at a time is sent to the application (stepped is the default if unspecified). Specifying a number instead means only want the wheel to move one time (by the number of “notches” specified) even when the button assigned to the command is held continuously.</p>
+<h3 id="combination-keys">Combination keys</h3>
+<p>A command can also be a keyboard key or mouse button combined with a <em>modifier</em> key - Shift, Ctrl, Alt, or the Windows key - such as:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> Shift+A</span>
+<span class="token constant">L2</span> <span class="token attr-value"><span class="token punctuation">=</span> Ctrl X</span>
+<span class="token constant">L1</span> <span class="token attr-value"><span class="token punctuation">=</span> Ctrl-Alt-R</span>
+<span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> Win-Plus</span>
+</code></pre>
+<p>These can still be “held” as if they are single keys.</p>
+<p><em>WARNING: Modifier keys should be used sparingly, as they can interfere with or delay other keys. For example, if you are holding Shift+A and then want to press just ‘X’, since the Shift key is still being held down, the game would normally interpret it as you pressing ‘Shift+X’, which may be totally different command. This application specifically avoids this by briefly releasing Shift before pressing X and then re-pressing Shift again as needed, but this can make the controls seem less responsive due to the delays needed to make sure each release and re-press are processed in the correct order. Consider re-mapping controls for the game to use Shift/Ctrl/Alt as little as possible for best results!</em></p>
+<h3 id="key-sequence">Key Sequence</h3>
+<p>You can also specify a sequence of keys to be pressed. For example, you could have a single button press the sequence Shift+2 (to switch to hotbar #2), then 1 (to use hotbutton #1), then Shift+1 (to switch back to hotbar #1), like so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> Shift+2, 1, Shift+1</span>
+</code></pre>
+<p>Key sequences can NOT be “held”, so holding R2 vs just tapping it will give the same result in the above example.</p>
+<p>You can also add pauses (specified in milliseconds) into the sequence if needed, such as this sequence to automatically “consider” a target when changing targets:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token comment">; 'Delay' or 'Wait' also work</span>
+<span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> F8, pause 100, C</span>
+</code></pre>
+<p><em>WARNING: Do NOT use this to fully automate complex tasks, or you’re likely to get banned from whichever game you are using this with!</em></p>
+<h4 id="mouse-jump-in-key-sequence">Mouse jump in key sequence</h4>
+<p>On a more advanced note, you can also request in the sequence to jump the mouse cursor to a named <strong>Hotspot</strong> location (defined in [Hotspots]) to click on it, such as:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
+<span class="token constant">CenterScreen</span> <span class="token attr-value"><span class="token punctuation">=</span> 50%, 50%</span>
+
+<span class="token selector">[Scheme]</span>
+<span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> Point to CenterScreen, LClick</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> LClick at CenterScreen-&gt;RClick</span>
+</code></pre>
+<h3 id="chat-box-macros">Chat box macros</h3>
+<p>While a Key Sequence could technically be used to type a message directly into the game’s chat box, it is easier to directly use a <em>Slash Command</em> or <em>Say String</em> command to do this.</p>
+<p>Slash Commands start with <code>/</code> and chat box messages start with <code>&gt;</code> (the ‘&gt;’ is replaced with the Return key to switch to the chat box when the command is actually executed). These commands will send the string to the chat box after initially opening it with Return or /, then press Return to send the macro. Some examples:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> /who</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> /g Roll for loot please!</span>
+<span class="token constant">L1</span> <span class="token attr-value"><span class="token punctuation">=</span> &gt;Would you like to group?</span>
+<span class="token constant">L2</span> <span class="token attr-value"><span class="token punctuation">=</span> /shout TRAIN TO ZONE!!\nRun for it!</span>
+</code></pre>
+<p>Everything after the / or &gt; is entered into the chat box as-is, except for the key sequence <code>\n</code> which symbolizes a line break for multi-line macros. Instead of typing ‘\n’, Return is pressed once to send the message up to that point, then again to re-open the chat box and continue the rest of the macro after the ‘\n’. Thus L2 in the example above sends two messages.</p>
+<p>This will lock out most other inputs while the chat box is in use, so to send the text as quickly as possible it will be copied into your system clipboard and then pasted into the game by using the <code>PasteText=</code> KeyBind. If PasteText is not set to anything (such as for games that do not support pasting text into the chat box) the app will instead type the text in manually with multiple individual key presses.</p>
+<p>In general it is better to instead create macros using the in-game interface and activate them via key sequences, such as the earlier example for activating hotbar buttons, to reduce the effect the chat box will have of locking out other controls while it is in use.</p>
+<h2 id="key-binds-aliases">Key Binds (aliases)</h2>
+<p>Key Binds are basically just aliases or shortcuts for any of the above commands. Using Key Binds, instead of using:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">XB_A</span> <span class="token attr-value"><span class="token punctuation">=</span> Space</span>
+Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> /who</span>
+Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> /g Roll for loot please!</span>
+<span class="token constant">XB_X</span> <span class="token attr-value"><span class="token punctuation">=</span> LClick at CenterScreen-&gt;RClick</span>
+</code></pre>
+<p>You would instead use:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[KeyBinds]</span>
+<span class="token constant">Jump</span> <span class="token attr-value"><span class="token punctuation">=</span> Space</span>
+<span class="token constant">Who</span> <span class="token attr-value"><span class="token punctuation">=</span> /who</span>
+<span class="token constant">RollForLootPls</span> <span class="token attr-value"><span class="token punctuation">=</span> /g Roll for loot please!</span>
+<span class="token constant">UseCenterScreen</span> <span class="token attr-value"><span class="token punctuation">=</span> LClick at CenterScreen-&gt;RClick</span>
+
+<span class="token selector">[Scheme]</span>
+<span class="token constant">XB_A</span> <span class="token attr-value"><span class="token punctuation">=</span> Jump</span>
+Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> Who</span>
+Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> RollForLootPls</span>
+<span class="token constant">XB_X</span> <span class="token attr-value"><span class="token punctuation">=</span> UseCenterScreen</span>
+</code></pre>
+<p>Key binds can also be used within key sequences, including in other key bind assignments (as long as they don’t reference each other in an infinite loop). For instance, instead of the earlier example of the key sequence assignment <code>R1 = F8, pause 100, C</code> you could use:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> TargetCycleNPC, pause 100, Consider</span>
+</code></pre>
+<p>or even:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[KeyBinds]</span>
+<span class="token constant">TargetNPC</span> <span class="token attr-value"><span class="token punctuation">=</span> TargetCycleNPC, pause 100, Consider</span>
+
+<span class="token selector">[Scheme]</span>
+<span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> TargetNPC</span>
+</code></pre>
+<p>These examples may not seem worth the effort just for added readability, but there are multiple other uses for key binds over just directly assigning things to keyboard keys. If nothing else, it can be convenient when using the same input in multiple places to only have to change the one Key Bind if you change your in-game bindings.</p>
+<h3 id="special-key-binds">Special Key Binds</h3>
+<p>A few Key Bind names are specifically checked for by the program and used directly as more than just aliases. These include:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">SwapWindowMode</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">PasteText</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">AutoRun</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">MoveForward</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">MoveBack</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">TurnLeft</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">TurnRight</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">StrafeLeft</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+<span class="token constant">StrafeRight</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+</code></pre>
+<p><code>SwapWindowMode=</code> is used in the code for attempting to force the target game into full-screen-windowed mode (as opposed to <em>true</em> full screen mode which would prevent the overlay from being visible), which can be set in the [System] section with the flag <code>ForceFullScreenWindow = Yes</code> (and optionally <code>StartInFullScreenWindow = Yes</code>). It is typically set to <code>=Alt+Enter</code>.</p>
+<p><code>PasteText=</code> is used as explained above for “Chat box macros” to paste the string all at once instead of typing it out key-by-key if this key bind is set to anything (usually Ctrl-V).</p>
+<p>The Move/Turn/Strafe commands are used when assign buttons to <code>=Move</code> (same as <code>=MoveTurn</code>) or <code>=MoveStrafe</code> (or <code>MoveAndLook</code>), or directly to <code>=Strafe Left</code>, <code>=Move Back</code> etc. AutoRun is used alongside these to fix issues like accidentally immediately cancelling auto-run when it is assigned to L3 due to small stick wiggles while release the stick.</p>
+<p><em>Note that assigning a button to a Move command or one of the above key binds is different than just assigning it directly to the actual keyboard key the game uses for movement (besides just the ability to assign 4 directions at once). These commands make use of extra functionality like the [Gamepad] properties <code>MoveDeadzone=</code>, <code>MoveStraightBias=</code>, and <code>CancelAutoRunDeadzone=</code> for finer control when assigned to an analog stick, plus specialized code for fixing issues with interactions between movement and other actions such as chat box macros. It is recommended you avoid directly assigning buttons to the movement keys or auto-run key and use the above commands/key binds instead.</em></p>
+<h3 id="key-bind-arrays">Key Bind Arrays</h3>
+<p>If multiple Key Binds have the same name except for a number on the end of the name, they will also be stored as a <strong>Key Bind Array</strong>. For example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[KeyBinds]</span>
+<span class="token constant">TargetGroup1</span> <span class="token attr-value"><span class="token punctuation">=</span> F1</span>
+<span class="token constant">TargetGroup2</span> <span class="token attr-value"><span class="token punctuation">=</span> F2</span>
+<span class="token constant">TargetGroup3</span> <span class="token attr-value"><span class="token punctuation">=</span> F3</span>
+<span class="token constant">TargetGroup4</span> <span class="token attr-value"><span class="token punctuation">=</span> F4</span>
+<span class="token constant">TargetGroup5</span> <span class="token attr-value"><span class="token punctuation">=</span> F5</span>
+<span class="token constant">TargetGroup6</span> <span class="token attr-value"><span class="token punctuation">=</span> F6</span>
+</code></pre>
+<p>Will make a Key Bind Array called “TargetGroup” with 6 elements. Each can be used as a normal alias by directly referencing “TargetGroup2”, for example, but the last one used and a default (the first one initially) will be remembered. Certain commands can then request re-using the last one used, using the default in the array, and using the next/previous ones in the array. This could allow, for example, to assign a button that will cycle through them each time it is pressed by assigning:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">L1</span> <span class="token attr-value"><span class="token punctuation">=</span> TargetGroup Next Wrap</span>
+</code></pre>
+<p>Other commands that can use Key Bind Arrays include <em>Previous, Last, Default, Set Default</em> (sets Default to Last), and <em>Reset</em> (sets Last to Default). <em>Previous</em> and <em>Next</em> can be set to <em>Wrap</em> or <em>NoWrap</em>.</p>
+<p>When using this for the above example of relative group targeting, a visual indicator may be helpful to know what will happen the next time the button is pressed. There are special <strong>HUD Elements</strong> covered later to help with this, <code>Type=KeyBindArrayLast</code> and <code>Type=KeyBindArrayDefault</code>.</p>
+<h3 id="custom-button-names">Custom button names</h3>
+<p>Although there are several built-in names recognized to refer to a specific button on a gamepad, such as “Circle”, “XB_B”, and “F-Pad Right” all referring to the same button, it can be convenient to have additional custom names. Especially if you name them after their main purpose in your control scheme, like the “Confirm” button or the “Cancel” or the “Interaction” button, etc. This allows for quickly re-mapping gamepad buttons if you change your mind about your setup, without needing to find every instance of “Circle” in your profile and change it to “Triangle”, for instance.</p>
+<p>These are not the same as Key Binds since they are aliases to the gamepad buttons being pressed rather than to keyboard and mouse buttons being sent to the game. This does mean, however, that you could have some odd-looking command assignments like <code>Jump = Jump</code>, where the “Jump” before the = sign means a gamepad button like X, and the “Jump” after the = sign refers to a Key Bind for pressing the space bar on the keyboard.</p>
+<p>To create a custom button name, use the <code>[ButtonNames]</code> section as in the following example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[ButtonNames]</span>
+<span class="token constant">Confirm</span> <span class="token attr-value"><span class="token punctuation">=</span> PS_X</span>
+<span class="token constant">Cancel</span> <span class="token attr-value"><span class="token punctuation">=</span> Circle</span>
+</code></pre>
+<p>Then you can simply use “Confirm” in place of “PS_X” in your control scheme assignments.</p>
+<h2 id="position-and-size-properties">Position and size properties</h2>
+<p><strong>Hotspots</strong> are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Positions of Hotspots, HUD Elements, Icons, and so on are specified as X and Y coordinates with Y=0 representing the top and X=0 representing the left side. Some properties use 4 coordinates to represent a rectangle, arranged as X (left edge), Y (top edge), Width, and then Height.</p>
+<p>Each of the 2-4 coordinates can have one of 3 formats - an <em>Anchor</em>, an <em>Offset</em>, or both.</p>
+<p>The anchor represents the starting point as a relative position (of the target game’s window/screen size), and is expressed as either percent (like 50%, or 0.5 if you prefer) or by special shortcuts like L/T/R/B/C/CX/CY/W/H instead of numbers. If no anchor is specified, it is assumed to be 0% (the top-left corner). This value can not be negative, nor &gt; 100% or 1.0.</p>
+<p>The offset is expressed in actual pixels as a positive or negative whole number. It is recognized by the absence of a % or decimal or one of the shortcut letters specified above.</p>
+<p>To have both an anchor and an offset for a single coordinate, they must be separated by a ‘+’ or `-’ sign and the anchor must be specified first (i.e. “30% + 10”). The final coordinate will be the anchor position calculated according to the target window size, and then with the pixel offset added to it.</p>
+<p>Full coordinates (X, Y, Width, and Height) are separated from each other by a comma or ‘x’ (i.e. “10 x 5” or “10, 5”)</p>
+<p>Some accepted examples of valid positions for reference:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token comment">; Center of the screen/window</span>
+<span class="token attr-value"><span class="token punctuation">=</span> 50% x 50%</span>
+<span class="token attr-value"><span class="token punctuation">=</span> 0.5, CY</span>
+<span class="token comment">; Pixel position 200x by 100y</span>
+<span class="token attr-value"><span class="token punctuation">=</span> 200 x 100</span>
+<span class="token comment">; 10 pixels to the left of right edge, and</span>
+<span class="token comment">; 5 pixels down from 30.5% of the game window's height</span>
+<span class="token attr-value"><span class="token punctuation">=</span> R - 10, 30.5% + 5</span>
+<span class="token comment">; BR corner offset -50x and -75y</span>
+<span class="token attr-value"><span class="token punctuation">=</span> R-50, B -75</span>
+<span class="token comment">; Rectangle with full height but 50%-75% of the width</span>
+<span class="token attr-value"><span class="token punctuation">=</span> 50%, 0, 25%, H</span>
+</code></pre>
+<h3 id="ui-scale">UI Scale</h3>
+<p>The hotspot offset value mentioned above is not directly affected by the size of the target screen/window, but will instead be multiplied by a global UI Scale value. Some size-related properties that only have a single value, such as BorderSize, TitleHeight, and FontSize, are also multiplied by this global UI Scale value. The initial value for this can be configured by setting the <code>[System]</code> property <code>UIScale=</code>, which defaults to 100% if undefined.</p>
+<p>For games that adjust their own UI scale automatically according to window size, such as <em>Pantheon</em>, set the <code>[System]</code> property <code>UIScaleBaseHeight=</code> to a default value like <code>=1080</code>. The app will then compare the actual window height to this value and multiply the UIScale property by the difference. For example, with it set to 1080 but the game window being 4K (2,160 height), UIScale will be multiplied by 2.0 (2160 / 1080 = 2.0).</p>
+<h3 id="ui-layout-editor">UI Layout Editor</h3>
+<p>Setting positions of hotspots (and other things like HUD elements and copy icon regions) can be a pain without being able to visually see where they will end up compared to the game screen. To help with this, use the UI Layout Editor, which can be accessed from the Edit menu of the main app window, or by adding a <code>=Edit UI Layout</code> command to a button or menu in your profile somewhere.</p>
+<p>This option will bring up a dialog listing all the components found in your profile that can be repositioned. Select one and click the Reposition button. You can then see a visual indicator of the position in question overlayed over the game (and any HUD elements from this app), to see how they line up. A pop-up dialog will also appear showing the actual values from the .ini file. You can use the buttons and edit fields in that dialog to move the item, or just drag it around directly on the screen with a mouse. The game and app will continue running while you are doing this, to allow checking the position against different in-game menus and such. Simply click OK in the dialog box when done positioning the item to save the change to your profile .ini file automatically.</p>
+<p>Note that you can not add or remove hotspots or anything else with this editor, only change positions (and size and alignment in some cases). You will need to edit the .ini file manually to add or remove anything.</p>
+<h2 id="controls-layers">Controls Layers</h2>
+<p>To really unlock the full range of actions in an MMO using a Gamepad, you will almost certainly need to assign more than one function to a single button through the use of button combinations or different “modes” of control. This can be accomplished through the use of <strong>Controls Layers</strong>. These layers change what Commands are assigned to what buttons while the layer is active.</p>
+<p>You can have multiple Controls Layers added at once. They can be thought of as stacked on top of each other, and for any given button, the top-most layer’s assignments will take priority by covering up the button assignments from the layers below it. If the top-most layer has nothing assigned to a button, the next layer below it will be checked for an assignment for that button, and so on. Which layers are on top of which depend on various factors covered later, but in general newly-added layers are placed on top of older ones and thus take priority.</p>
+<p>Layers can be added with the <code>=Add &lt;LayerName&gt;</code> command and removed with the <code>=Remove Layer</code> (removes layer containing the command) or <code>Remove &lt;LayerName&gt;</code> command.</p>
+<p>Layers are defined the same as [Scheme], with just the section name [Layer.LayerName] instead. Here is a simple example of how to utilize adding and removing a layer:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">Square</span> <span class="token attr-value"><span class="token punctuation">=</span> Jump</span>
+<span class="token constant">Triangle</span> <span class="token attr-value"><span class="token punctuation">=</span> Consider</span>
+<span class="token constant">L2</span> <span class="token attr-value"><span class="token punctuation">=</span> Add Alternate layer</span>
+
+<span class="token selector">[Layer.Alternate]</span>
+<span class="token constant">Square</span> <span class="token attr-value"><span class="token punctuation">=</span> Duck</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> Remove this layer</span>
+</code></pre>
+<p>In this example, Square will jump by default. Pressing L2 will add the “Alternate” layer. At that point, Square will Duck instead, but since it doesn’t assign anything to Triangle, Triangle will continue to Consider. Pressing R2 will remove the Layer, meaning Square will once again jump.</p>
+<p>You can remove one layer while adding another in a single command using <code>Replace this layer with &lt;LayerName&gt;</code> or <code>Replace &lt;LayerName&gt; with &lt;LayerName&gt;</code>. You can also both add or remove a layer in a single command, depending on if it is already active or not, with the single command <code>=Toggle &lt;LayerName&gt; layer</code>.</p>
+<p><em>If you want a button to literally do nothing, including blocking lower layers’ assignments for that button, set it to <code>= Do nothing</code>. Above you could set <code>Triangle = Do Nothing</code> in the Alternate layer to prevent Triangle from using Consider while that layer is active. Leaving the button assignment blank (just <code>Triangle=</code>) is the same as not mentioning the button at all and would still just allow Triangle to use Consider.</em></p>
+<p><em>There can only be one of each named layer active at once, so trying to add a layer with the same name again will simply update its position as if it was newly added, but not actually remove or re-add it or add another copy of it!</em></p>
+<h3 id="overriding-buttons-and-the-defer-command">Overriding Buttons and the “Defer” Command</h3>
+<p>By default, assigning any action to a button on a layer blocks <strong>all</strong> commands assigned to that button from lower layers.</p>
+<p>For example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+Tap R1 <span class="token attr-value"><span class="token punctuation">=</span> TargetNPC</span>
+Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> Consider</span>
+<span class="token constant">L2</span> <span class="token attr-value"><span class="token punctuation">=</span> Add Alternate layer</span>
+
+<span class="token selector">[Layer.Alternate]</span>
+Tap R1 <span class="token attr-value"><span class="token punctuation">=</span> TargetPC</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> Remove this layer</span>
+</code></pre>
+<p>Once the Alternate layer is added, holding R1 will no longer trigger “Consider”—even though only Tap was reassigned—because the layer now fully overrides all of R1’s actions.</p>
+<p>To override only specific actions for a button while allowing others to pass through, use the Defer command:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.Alternate]</span>
+Tap R1 <span class="token attr-value"><span class="token punctuation">=</span> TargetPC</span>
+Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> Defer to lower layers</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> Remove this layer</span>
+</code></pre>
+<p>In this setup, Tap is overridden, but Hold will still execute the Consider command from [Scheme].</p>
+<p>Using the Defer command for any action will apply automatically apply it to all other actions for that button automatically. You can combine this with explicit blocks using the <code>= Do nothing</code> command if this auto-propagation is undesired.</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.Alternate]</span>
+Tap R1 <span class="token attr-value"><span class="token punctuation">=</span> TargetPC</span>
+<span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> Defer to lower layers</span>
+Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> Do nothing</span>
+</code></pre>
+<p>Here, Tap overrides the command, Hold is blocked, and all other actions (Press, Release, and the default press-and-hold action) defer to lower layers’ assignments for those actions.</p>
+<h3 id="held-layers">Held Layers</h3>
+<p>Rather than manually removing a layer with Remove/Toggle/Replace, you can have a layer that is added when you first press a button and then automatically removed when you let go of that button. A layer added in this way is considered a <em>Held Layer</em> while active.</p>
+<p>Held Layers are most useful for allowing button combinations by holding some kind of “modifier button” to temporarily change what other buttons do.</p>
+<p>Here is a modification of the earlier example but using a held layer instead:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">Square</span> <span class="token attr-value"><span class="token punctuation">=</span> Jump</span>
+<span class="token constant">L2</span> <span class="token attr-value"><span class="token punctuation">=</span> Hold Alternate layer</span>
+
+<span class="token selector">[Layer.Alternate]</span>
+<span class="token constant">Square</span> <span class="token attr-value"><span class="token punctuation">=</span> Duck</span>
+</code></pre>
+<p>In this case, rather then pressing L2, then Square to Duck, and then pressing R2 to restore normal controls, you can just press and hold L2, tap Square to duck, then release L2. In other words, L2+Square = Duck in this control scheme.</p>
+<p><em>Similar to held keys, a held layer can ONLY be assigned to the button without any actions specified, like the above <code>L2=</code> example. It is not valid to assign something like <code>Tap L2=Hold layer</code>.</em></p>
+<p><em>Also note a Held Layer can not be removed by just using the Remove Layer command - that will only cancel any Add Layer commands used with it. If both Add Layer and Hold Layer are used for the same layer, both the Remove Layer command and releasing the button holding the layer are needed to actually fully remove it. If multiple buttons use Hold Layer on the same layer, all of them must be released before it will be removed.</em></p>
+<h3 id="the-auto-button">The “Auto” Button</h3>
+<p>Each layer has a special ‘virtual button’ unique to it, that can be assigned commands like any real gamepad button. This button is called “Auto”. It is “pressed” whenever the layer is added, and then “released” whenever the layer is removed.</p>
+<p>This Auto Button can be particularly useful in order to assign a button to simultaneously ‘hold’ a layer while also holding a key, by having held layer hold the key down using its Auto Button.</p>
+<p>For example, let’s say you wanted to make pressing and holding Circle on a PS controller act the same as holding the left mouse button, but you also want to make it so while holding Circle, you could use your left thumb on the D-pad to move the cursor around to “drag” the mouse, even though normally the D-pad is used for character movement. You could accomplish this as follows:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">D-Pad</span> <span class="token attr-value"><span class="token punctuation">=</span> Move</span>
+<span class="token constant">Circle</span> <span class="token attr-value"><span class="token punctuation">=</span> Hold MouseDrag layer</span>
+
+<span class="token selector">[Layer.MouseDrag]</span>
+<span class="token constant">Auto</span> <span class="token attr-value"><span class="token punctuation">=</span> LMB</span>
+<span class="token constant">D-Pad</span> <span class="token attr-value"><span class="token punctuation">=</span> Mouse</span>
+</code></pre>
+<p>With this setup, pressing Circle will add the MouseDrag layer, which will click and hold the left mouse button for as long as the layer is active via Auto, while also changing the D-Pad to control the mouse. Releasing Circle will remove the layer, restoring the D-Pad to character movement instead and releasing the left mouse button (since Auto is “released” when the Layer is removed).</p>
+<p>You can even assign commands to <code>Press Auto=</code>, <code>Release Auto=</code>,  <code>Tap Auto =</code> and so on, like any real button. Even <code>Hold Auto ### =</code> triggers once the layer has been active for ### milliseconds.</p>
+<h3 id="layer-mouse-property">Layer Mouse= property</h3>
+<p>Layers (and the root [Scheme]) can change how the mouse is treated by using <code>Mouse=Cursor</code> (normal), <code>Mouse=LookTurn</code> (holding the right-mouse button down to keep standard MouseLook mode active), <code>Mouse=LookOnly</code> (holding the left-mouse button down for alternate MouseLook in games that support it), or <code>Mouse=Hide</code> (“hide” the cursor by jumping it to the corner of the screen). The top-most layer with a <code>Mouse=</code> property specified dictates the mouse mode used, with the special exception of <code>Mouse=HideOrLook</code> which changes what it does based on the layers beneath it.</p>
+<h3 id="layer-hud-property">Layer HUD= property</h3>
+<p>Each layer (including [Scheme]) specifies which <strong>HUD Elements</strong> (including <strong>Menus</strong>) should be visible while that Layer in active. Layers can also specifically <em>hide</em> HUD Elements that were requested to be shown by lower layers, stopping them from being shown (unless yet another, higher layer overrides the <em>hide</em>). This is done via the <code>HUD=</code> property including a list of HUD element names to show (and optionally the ‘Show’ and ‘Hide’ key words), such as:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.MainMenu]</span>
+<span class="token constant">HUD</span> <span class="token attr-value"><span class="token punctuation">=</span> MainMenu</span>
+    
+<span class="token selector">[Layer.MouseLook]</span>
+<span class="token constant">Mouse</span> <span class="token attr-value"><span class="token punctuation">=</span> Look</span>
+<span class="token constant">HUD</span> <span class="token attr-value"><span class="token punctuation">=</span> Show Reticle</span>
+    
+<span class="token selector">[Layer.TopMost]</span>
+<span class="token constant">HUD</span> <span class="token attr-value"><span class="token punctuation">=</span> Hide MainMenu, Show TargetGroupLast</span>
+</code></pre>
+<h3 id="layer-hotspots-property">Layer Hotspots= property</h3>
+<p>Very similar to the HUD= property, each layer can enable or disable <strong>Hotspot Arrays</strong> that can be used via the <code>=Select Hotspot &lt;direction&gt;</code> command. Just like <code>HUD=</code>, each layer can disable Hotspot Arrays enabled in the layers below it, though layers above can override that yet again.</p>
+<p>Hotspot Arrays are defined much like Key Bind Arrays - a list of Hotspots with the same name but just different number on the end, starting with 1, like so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.LootMode]</span>
+<span class="token constant">Hotspots</span> <span class="token attr-value"><span class="token punctuation">=</span> LootWindow, Disable Standard</span>
+
+<span class="token selector">[Hotspots]</span>
+<span class="token constant">LootWindow1</span><span class="token attr-value"><span class="token punctuation">=</span>32x240</span>
+<span class="token constant">LootWindow2</span><span class="token attr-value"><span class="token punctuation">=</span>32x281</span>
+<span class="token constant">LootWindow3</span><span class="token attr-value"><span class="token punctuation">=</span>32x322</span>
+...
+</code></pre>
+<p><em>Multiple elements of a Hotspot Array can be defined at once to make it easier to add or adjust a whole array quickly. More on this in the later section “Hotspot Array and Copy Icon ranges”.</em></p>
+<p>The <code>=Select Hotspot &lt;direction&gt;</code> command will quickly move the mouse cursor to the next nearby enabled hotspot . If there are none in the direction pressed the mouse will be moved amount of the <code>[Mouse]</code> section property <code>DefaultHotspotDistance=</code> (multiplied by the UIScale properly).</p>
+<h3 id="layer-autolayers-property">Layer AutoLayers= property</h3>
+<p>This property is similar to HUD= and Hotspots= but with a list of Layer names (and optional “Add” and “Remove” key words) of other layers that should be automatically added or removed whenever this layer is added:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.LootMode]</span>
+<span class="token constant">AutoLayers</span> <span class="token attr-value"><span class="token punctuation">=</span> CameraMode, Remove CursorMode</span>
+</code></pre>
+<p>It is just an alternative to using the ‘Auto’ button with <code>Auto=Add LayerName Layer</code> or <code>Auto=Remove LayerName Layer</code>, but leaves the Auto button free for other things. <em>Note: If more than one is listed then the order they are added in is essentially random (so make use of <code>Priority=</code> property when order matters), but they will all be added/removed just after this layer is added but before the Auto button commands are run.</em></p>
+<h3 id="layer-parent-property">Layer Parent= property</h3>
+<p>A layer can optionally set a <em>parent layer</em> with the <code>Parent=</code> property, followed by the name of another layer. This makes the layer a <em>child layer</em> of the specified parent. Parent and child layers have the following properties:</p>
+<ul>
+<li>When a child layer is added, if its parent doesn’t exist yet, the parent is automatically added first.</li>
+<li>When its parent is about to be removed, the child is removed automatically first.</li>
+<li>When a child layer is added, it is placed directly above its parent layer (and any of its older “siblings” - layers with the same parent).</li>
+<li>A parent layer can have a parent of its own, and so on for as long of a chain as you want (as long as its not circular of course).</li>
+<li>[Scheme] can not have a parent and is the default parent of any layers that don’t specify one.</li>
+<li>Combo layers (see below) can not have a parent either, since they essentially treat their base layers as multiple parents with their own special sorting and add/remove rules. They can, however, act as parents to other layers, but can’t be auto-added by their children.</li>
+<li>A Held Layer with a parent won’t necessarily be auto-removed when its parent layer is removed - the button holding it must be released as well.</li>
+</ul>
+<h3 id="combo-layers">Combo layers</h3>
+<p>These special layers can not be manually added, but are instead automatically added and removed whenever a combination of other layers is active. They can be used for more complex button combinations. For example, let’s say you want Circle to send a different key for pressing Circle by itself, L2+Circle, R2+Circle, or L2+R2+Circle. That last one can be done with a combo layer, such as:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">Circle</span><span class="token attr-value"><span class="token punctuation">=</span>A</span>
+<span class="token constant">L2</span> <span class="token attr-value"><span class="token punctuation">=</span> Hold L2 layer</span>
+<span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> Hold R2 layer</span>
+
+<span class="token selector">[Layer.L2]</span>
+<span class="token constant">Circle</span><span class="token attr-value"><span class="token punctuation">=</span>B</span>
+
+<span class="token selector">[Layer.R2]</span>
+<span class="token constant">Circle</span><span class="token attr-value"><span class="token punctuation">=</span>C</span>
+
+<span class="token selector">[Layer.L2+R2]</span>
+<span class="token constant">Circle</span><span class="token attr-value"><span class="token punctuation">=</span>D</span>
+</code></pre>
+<p>With this setup, when hold both L2 and R2, causing both those layers to be active, the L2+R2 layer is automatically added, causing Circle to press “D” instead of “C”, “B”, or “A”. The L2+R2 layer will be removed as soon as let go of either L2 or R2.</p>
+<p>Here’s some other technical details about combo layers:</p>
+<ul>
+<li>They are specified by 2 or more layer names separated by ‘+’ after the <code>[Layer.</code> prefix, referred to here as their “base layers”.</li>
+<li>They are added as soon as <strong>all</strong> their base layers are active, and removed as soon as <strong>any</strong> of their base layers are removed. This is the <strong>only</strong> way they can be added or removed.</li>
+<li>As mentioned above, they can not have a parent layer specified, and when set as a parent themselves their child layer can’t auto-add them. In fact, since a child layer can’t be added without its parent being added first, attempting to manually add a child of a combo layer will do nothing unless the combo layer was already added (a combo layer should add its own children through <code>AutoLayers=</code> to prevent this being a problem).</li>
+<li>They have their own special layer ordering rule (see below).</li>
+</ul>
+<h3 id="layer-ordering-and-the-priority-property">Layer ordering and the Priority= property</h3>
+<p>As mentioned before, layers can be thought of as being stacked on top of each other in a specific order. This order determines what button assignments are active as well as other properties like Mouse and HUD. with higher layer properties and button assignments taking priority. The order of layers in the stack is thus very important for determining behavior of the overlay.</p>
+<p>While mostly based on factors like type of layer (normal added layer, held layer, or combo layer) and the <code>Parent=</code> property, one additional sorting factor you can add is a <code>Priority=#</code> property for any layer, with a value from -100 to 100. If this property is not set, a layer has a default priority value of 0.</p>
+<p>Layers follow these rules when determining order:</p>
+<ul>
+<li>[Scheme] always exists as the lowest layer and acts as the parent layer to any layers that have none specified.</li>
+<li>Child layers are placed just above their parent layer and below unrelated layers.</li>
+<li>For “sibling” layers (same parent), Held Layers with no <code>Priority=</code> property specified (or have it set to 0) are placed above their siblings regardless of priority values.</li>
+<li>When all of the above are the same, the layer with higher <code>Priority=</code> property is placed above those with a lower value.</li>
+<li>When all of the above are the same, Held Layers with a set non-zero <code>Priority=</code> value are placed above normal layers.</li>
+<li>When all of the above are the same, more recently-added layers are placed above older ones.</li>
+</ul>
+<p><strong>Combo Layers ignore all of the above</strong> and can not have a <code>Priority=</code> or <code>Parent=</code> property. They are placed just above the highest-positioned base layer they reference. If two combo layers have the same highest-positioned base layer, they are ordered according to the relative order of their other base layers.</p>
+<h3 id="when-signal-commands">“When Signal” commands</h3>
+<p>Now that layers and the importance of their order is covered, it is time for the exception to the rule - Signal Commands. These commands run whenever a “signal” is sent out, and <strong>ignore layer order.</strong> The layer containing the command must still be actively added to the stack though, of course.</p>
+<p>To add a Signal Command to a layer (or the root [Scheme]), use the syntax <code>When Signal = Command</code>. Most commands can be used, though not ones that must be held like “Hold Layer”.</p>
+<p>There are two types of signals that are sent out for these commands to use - initially pressing a Gamepad button, or using a Key Bind by name (including as part of a Key Sequence) - yet another useful aspect of using Key Binds instead of referencing keys directly.</p>
+<p>To run a command when a button is pressed, even when another, higher layer has something assigned to that button, use the syntax <code>When Press ButtonName = Command</code>. Example: <code>When press L2 = Remove this layer</code>.</p>
+<p>To run a command when a Key Bind is used, use the syntax <code>When KeyBindName = Command</code>. Examples: <code>When Sit = Remove this layer</code> or <code>When MoveForward = Remove this layer</code>.</p>
+<p>As should be obvious from the examples, the main use case for this feature is a layer removing itself when certain other game actions are used or buttons are pressed, without having to be the front-most layer with a button assignment that removes itself and performs an action with the same button. This can save on having to make a bunch of utility layers with lots of Press Auto and Auto commands to handle this.</p>
+<p>Some other things to note:</p>
+<ul>
+<li>
+<p>Signal Commands are lower priority than other command assignments and may slightly delayed depending on how many other actions may take priority. They should not be depended on when order of execution is important.</p>
+</li>
+<li>
+<p>You can actually make a Key Bind that does nothing other than act as a signal for other commands by setting it to be <code>=Signal Only</code> (or just leaving it blank).</p>
+</li>
+<li>
+<p>A key bind only sends out a signal when it is referenced by its name, not by anything it is assigned to. For example, if you have the key bind “Jump = Space”, any command assigned to  “When Jump=” will run when you press a button assigned to “= Jump”, but will NOT run when you press a button assigned directly to “= Space”!</p>
+</li>
+<li>
+<p>The app will not check and warn you if you set up an infinite loop of Key Binds signalling each other. For example, if you added both “When Camp = Sit” and “When Sit = Camp”, then using either Sit or Camp could lead to an infinite loop alternating between sitting and camping (at least until a layer owning one of those commands is removed). So watch out for that!</p>
+</li>
+</ul>
+<h2 id="menus">Menus</h2>
+<p>While it is possible to use layers alone to send all the input needed to an MMO, it would require a lot of complex button combinations and sequences you’d need to memorize. <strong>Menus</strong> can make things a lot easier, by instead assigning buttons to add/remove/control menus and then having the menus include a large number of commands.</p>
+<p>Each menu also counts as a <strong>HUD Element</strong>, so the Menu must be made visible by the <code>HUD=</code> property for an active layer to actually see it.</p>
+<p>Each menu has a <code>Style=</code> property that determines its basic structure and appearance, as well as visual properties like colors, shapes, etc of the menu items. Example Menu Styles include List, Slots, Bar, 4Dir, Grid (which can include a <code>GridWidth=</code> property to specify the grid shape), and Hotspots (which requires a <code>Hotspots=</code> property specifying a Hotspot Array to determine the center point of each menu item).</p>
+<p>Menus are defined using the section name [Menu.MenuName]. Each <em>Menu Item</em> is defined by a <em>property name</em> of just the Menu Item number (with some exceptions covered later). The <em>property value</em> for each Menu Item contains a name/label to be displayed followed by colon <code>:</code> followed by a command to execute when that menu item is chosen. Here’s an example of a basic menu:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.MainMenu]</span>
+<span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> List</span>
+<span class="token constant">Position</span> <span class="token attr-value"><span class="token punctuation">=</span> L+10, 25%</span>
+<span class="token constant">Alignment</span> <span class="token attr-value"><span class="token punctuation">=</span> L, T</span>
+<span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>Inventory: Inventory</span>
+<span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Book: Book</span>
+<span class="token constant">3</span><span class="token attr-value"><span class="token punctuation">=</span>TBD:</span>
+<span class="token constant">4</span><span class="token attr-value"><span class="token punctuation">=</span>Settings</span>
+</code></pre>
+<p>Notice how Menu Item #3 has no Command, but still contains <code>:</code>, so the label will be shown but nothing will happen if it is used. Menu Item #4 specifies a <strong>Sub-Menu</strong>, indicated by the absence of <code>:</code>. You could also just have <code>:</code> followed by a command if you want no label for the Menu Item.</p>
+<p><em>NOTE: If you want to include a : character in the actual label text, simply use two in a row - <code>::</code> will be replaced by a single <code>:</code>, and only a single : will separate the label and command</em></p>
+<h3 id="sub-menus">Sub-Menus</h3>
+<p>A sub-menu is created by having a menu item <em>property value</em> without any <code>:</code> character, which then has the label double as the sub-menu’s name. The sub-menu is defined by the section name <code>[Menu.MenuName.SubMenuName]</code>.  In the earlier example, <code>4=Settings</code> specified a sub-menu. Here is an example setup for that sub-menu:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.MainMenu.Settings]</span>
+<span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>Profile: Change Profile</span>
+<span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Close Overlay</span>
+
+<span class="token selector">[Menu.MainMenu.Settings.Close Overlay]</span>
+<span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>Cancel Quit: ..</span>
+<span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Confirm Quit: Quit App</span>
+</code></pre>
+<p>Sub-menus should only specify menu items - things like <code>Style=</code> as well as <code>Position=</code> and other visible HUD properties will be ignored for all but the “root” menu (<code>[Menu.MainMenu]</code> in this example). Note the <code>..</code> command, which, when selected, just backs out of the sub-menu, returning to the previous menu.</p>
+<h3 id="controlling-menus">Controlling menus</h3>
+<p>To actually use a menu, you will need to assign menu-controlling commands to gamepad buttons in <code>[Scheme]</code> or a <code>[Layer.LayerName]</code> section.  These commands must specify the name of the menu they are referring to. Below is an example of controlling the MainMenu example from earlier, including showing/hiding it with the Start button.</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
+<span class="token constant">Start</span> <span class="token attr-value"><span class="token punctuation">=</span> Toggle Layer MainMenu</span>
+
+<span class="token selector">[Layer.MainMenu]</span>
+<span class="token constant">HUD</span> <span class="token attr-value"><span class="token punctuation">=</span> MainMenu</span>
+<span class="token comment">; Exits all sub-menus and selects Menu Item #1</span>
+<span class="token constant">Auto</span> <span class="token attr-value"><span class="token punctuation">=</span> Reset MainMenu</span>
+<span class="token constant">DPad</span> <span class="token attr-value"><span class="token punctuation">=</span> Select MainMenu Wrap</span>
+<span class="token constant">PS_X</span> <span class="token attr-value"><span class="token punctuation">=</span> Confirm MainMenu</span>
+<span class="token constant">Circle</span> <span class="token attr-value"><span class="token punctuation">=</span> Back MainMenu</span>
+</code></pre>
+<h3 id="closing-a-menu-and-the-back-command">Closing a menu and the Back= command</h3>
+<p>Technically, menus are never actually opened, closed, or disabled. They are always there, it is just a matter of whether or not they are visible (via the <code>HUD=</code> command on an active layer) and whether any buttons currently are assigned to control them. This is why when you want to “open” a menu, it makes sense to use <code>=Reset &lt;MenuName&gt;</code> as the first command on it, as it will otherwise still be in whatever state it was last left in.</p>
+<p>You can give the appearance of a menu being closed or disabled by hiding the menu and/or making sure no buttons are assigned to control it (in fact, a menu will automatically fade to its “inactive” transparency if it detects no buttons are currently assigned to control it, to help indicate it currently disabled).</p>
+<p>In order to essentially close a menu when trying to back out of one via the <code>=Back &lt;MenuName&gt;</code> command, you can take advantage of a special command property you can add to any menu or sub-menu named “Back”. This command is run whenever the Back command is used on that menu.</p>
+<p>For the earlier example of MainMenu being controlled by Layer.MainMenu, when the user presses Circle from the root menu, the menu could essentially close by removing the MainMenu layer, which will hide the menu (because the <code>HUD=</code> property making it visible will be gone) and stop controlling it (because the various button assignments related to it will be gone). Here’s how:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.MainMenu]</span>
+<span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> List</span>
+<span class="token constant">Position</span> <span class="token attr-value"><span class="token punctuation">=</span> L+10, 25%</span>
+<span class="token constant">Alignment</span> <span class="token attr-value"><span class="token punctuation">=</span> L, T</span>
+<span class="token constant">Back</span> <span class="token attr-value"><span class="token punctuation">=</span> Remove MainMenu layer</span>
+<span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>Inventory: Inventory</span>
+<span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Book: Book</span>
+<span class="token constant">3</span><span class="token attr-value"><span class="token punctuation">=</span>TBD:</span>
+<span class="token constant">4</span><span class="token attr-value"><span class="token punctuation">=</span>Settings</span>
+</code></pre>
+<h3 id="menu-auto-command">Menu Auto command</h3>
+<p>Similar to the “Auto” button for each <em>Controls Layer</em> and a counterpoint to the Back property above, you can add an <code>Auto=</code> property to a menu or sub-menu which can be set to a direct input command to be used whenever that sub-menu becomes active. This command will trigger when changing sub-menus (including returning to one from using “Back” or “Reset”) or when a menu has just been made visible/enabled when it previously was not.</p>
+<h3 id="menu-directional-commands">Menu directional commands</h3>
+<p>In addition to the numbered menu items, each menu can have 4 directional menu items specified, labeled as <code>L=, R=, U=</code>, and <code>D=</code> and tied to using <code>=Select &lt;MenuName&gt; Left, Right, Up,</code> and <code>Down</code> respectively. These special menu items have their commands run directly via the <code>=Select &lt;MenuName&gt;</code> command rather than the <code>=Confirm &lt;MenuName&gt;</code> command, but <em>only when there is no numbered menu item in the direction pressed!</em></p>
+<p>For example, in a basic list-style menu, normally <code>=Select Left</code> and <code>=Select Right</code> doesn’t do anything since all of the menu items are in a single vertical list, but if a <code>L=</code> and/or <code>R=</code> property is included, then <code>=Select Left</code> and/or <code>=Select Right</code>will immediately execute the <code>L/R=</code> commands.</p>
+<p>Even in a list-style menu, the <code>U=</code> and <code>D=</code> menu items can also still be used, but only if use Up while the first menu item is currently selected, or Down when the last item is currently selected. Similar logic applies to other menu styles, but may be slightly different for each one.</p>
+<p>One key use of these is allowing for <em>side menus</em> such as in a List or Slots style menu, by using<code>L=</code> and <code>R=</code> to instantly swap to a different selection of menu items without needing to add visible sub-menu items. These are still technically a sub-menu, but accessed in a different way. Here is an example of how to use these in an EQOA-like abilities menu:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Abilities]</span>
+<span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> Slots</span>
+<span class="token constant">L</span><span class="token attr-value"><span class="token punctuation">=</span>Hotbar</span>
+<span class="token constant">R</span><span class="token attr-value"><span class="token punctuation">=</span>Spells</span>
+<span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>Abil1: Ability1</span>
+<span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Abil2: Ability2</span>
+...
+
+<span class="token selector">[Menu.Abilities.Spells]</span>
+<span class="token constant">L</span><span class="token attr-value"><span class="token punctuation">=</span>..</span>
+<span class="token constant">R</span><span class="token attr-value"><span class="token punctuation">=</span>.Hotbar</span>
+<span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>Abil6: Ability6</span>
+<span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Abil7: Ability7</span>
+...
+
+<span class="token selector">[Menu.Abilities.Hotbar]</span>
+<span class="token constant">L</span><span class="token attr-value"><span class="token punctuation">=</span>.Spells</span>
+<span class="token constant">R</span><span class="token attr-value"><span class="token punctuation">=</span>..</span>
+<span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>HB1: Hotbar1</span>
+<span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>HB2: Hotbar2</span>
+...
+</code></pre>
+<p>Notice how the sub-menus use <code>..</code> to specify returning to the the base “Abilities” menu. There is also a single <code>.</code> in front of another sub-menu’s name to specify it is actually a “sibling” menu. For example, if <code>[Menu.Abilities.Spells]</code> had the property <code>R=Hotbar</code>, then that would reference a “child” sub-menu <code>[Menu.Abilities.Spells.Hotbar]</code> which doesn’t exist. Using <code>R=.Hotbar</code> instead indicates it wants to open its “sibling” sub-menu <code>[Menu.Abilities.Hotbar]</code>.</p>
+<h3 id="slots-menu-style">Slots Menu Style</h3>
+<p>This menu style is designed to emulate EQOA’s “Ability List” and “Tool Bar” and is a great candidate for “side menus” as explained above. It is basically a list-style menu, but the current selection is always listed first and the entire menu “rotates” as you select Up or Down, like the reels in old slot machines (hence the name).</p>
+<p>In order to help better keep track of what item is actually selected when the entire menu is moving, this style of menu allows for an alternate, second label for each item. This alternate label is only displayed for the currently-selected item and is drawn off to one side of the rest of the menu. You can control the size of this alternate label area by adding the property <code>AltLabelWidth=</code> to this menu’s section.</p>
+<p>To specify what label should be displayed in the alternate label, when setting the menu item properties, start with the alternate label first, then the pipe (<code>|</code>) symbol, then the normal label, then colon (<code>:</code>), and then the command. Like this:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Abilities]</span>
+<span class="token constant">AltLabelWidth</span> <span class="token attr-value"><span class="token punctuation">=</span> 108</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> SpellName1 | Spell1: CastSpell1</span>
+<span class="token constant">2</span> <span class="token attr-value"><span class="token punctuation">=</span> SpellName2 | Spell2: CastSpell2</span>
+...
+</code></pre>
+<p><em>The alternate label can be replaced with an image, including possibly one copied from the game’s window dynamically, just like normal labels, as covered later.</em></p>
+<h3 id="dir-menu-style">4Dir Menu Style</h3>
+<p>This special Menu style is designed after the “Quick Chat” menu in EQOA, which allows for quickly selecting a menu item through a series of direction presses without needing to ever use press a <em>confirm</em> button. For this menu, no numbered menu items are specified, only the directional menu items discussed above are used. So for macros in the style of EQOA, you could define a Menu like this:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Macros]</span>
+<span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> 4Dir</span>
+<span class="token constant">Position</span> <span class="token attr-value"><span class="token punctuation">=</span> 50%, 10</span>
+<span class="token constant">U</span> <span class="token attr-value"><span class="token punctuation">=</span> Responses</span>
+<span class="token constant">L</span> <span class="token attr-value"><span class="token punctuation">=</span> Options</span>
+<span class="token constant">R</span> <span class="token attr-value"><span class="token punctuation">=</span> Group</span>
+<span class="token constant">D</span> <span class="token attr-value"><span class="token punctuation">=</span> Communicate</span>
+    
+<span class="token selector">[Menu.Macros.Group]</span>
+<span class="token constant">U</span> <span class="token attr-value"><span class="token punctuation">=</span> Attacking</span>
+<span class="token constant">L</span> <span class="token attr-value"><span class="token punctuation">=</span> Creation</span>
+<span class="token constant">R</span> <span class="token attr-value"><span class="token punctuation">=</span> Readiness</span>
+<span class="token constant">D</span> <span class="token attr-value"><span class="token punctuation">=</span> Important!</span>
+    
+<span class="token selector">[Menu.Macros.Group.Creation]</span>
+<span class="token constant">U</span> <span class="token attr-value"><span class="token punctuation">=</span> Invite: /invite</span>
+<span class="token constant">L</span> <span class="token attr-value"><span class="token punctuation">=</span> Organization</span>
+<span class="token constant">R</span> <span class="token attr-value"><span class="token punctuation">=</span> Need Group: /ooc Looking for group!</span>
+<span class="token constant">D</span> <span class="token attr-value"><span class="token punctuation">=</span> Hunting</span>
+
+<span class="token selector">[Menu.Macros.Group.Creation.Organization]</span>
+<span class="token constant">U</span> <span class="token attr-value"><span class="token punctuation">=</span> Request Roll: /g Roll for loot please!</span>
+<span class="token constant">L</span> <span class="token attr-value"><span class="token punctuation">=</span> Loot up!: /g Loot up if you want this.</span>
+<span class="token constant">R</span> <span class="token attr-value"><span class="token punctuation">=</span> Want Group?: &gt;Would you like to group?</span>
+<span class="token constant">D</span> <span class="token attr-value"><span class="token punctuation">=</span> Roll 100: /rand</span>
+...
+</code></pre>
+<p>When defining buttons to control such a menu, no <code>Confirm=</code> is needed. If you want the menu to automatically close once a command (that doesn’t open a sub-menu) is selected, like in EQOA, assign a button to <code>=Select and Close &lt;MenuName&gt;</code>.</p>
+<h3 id="edit-menus-at-runtime">Edit Menus at runtime</h3>
+<p>It can be helpful to allow changing menu contents while playing the game, such as for quickly creating macros in a 4Dir style menu. You can do this by assigning the Command <code>=Edit &lt;MenuName&gt;</code> to a button action, which will edit whichever menu item is currently selected, or <code>=Edit &lt;MenuName&gt; Up/Down/Left/Right</code> for editing directional menu items. For example, to work like the Quick Chat menu in EQOA from the above example, where holding the D-Pad for a while allows editing the macros, you could use:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.Macros]</span>
+<span class="token constant">HUD</span> <span class="token attr-value"><span class="token punctuation">=</span> Macros</span>
+<span class="token constant">Auto</span> <span class="token attr-value"><span class="token punctuation">=</span> Reset Macros</span>
+Tap DPad <span class="token attr-value"><span class="token punctuation">=</span> Select and Close Macros</span>
+LongHold DPad <span class="token attr-value"><span class="token punctuation">=</span> Edit Macros</span>
+Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> Remove Layer</span>
+</code></pre>
+<p>When the <code>=Edit</code> command is executed, a dialog box pops up that allows changing the label or command, adding new menu items or sub-menus or deleting or replacing them, with instructions included in the dialog.</p>
+<h2 id="hud-elements-menu-graphics">HUD Elements (Menu graphics)</h2>
+<p>All menus are also <strong>HUD Elements</strong>. However, there are also HUD Element types that are <em>not</em> menus. These are created with the section name <code>[HUD.HUDElementName]</code>. You can use this to create a reticle in the middle of the screen while in Mouse Look mode (to aim better with a “Use Center Screen” key, for example), as well as special HUD Elements like Key Bind Array indicators.</p>
+<p>Default properties used by all HUD elements and menus can be defined in the base <code>[HUD]</code> section to save time defining them for every individual HUD element. The exceptions being the <code>Position=</code> and <code>Priority=</code> properties, which should likely be different for each element. Priority determines draw order (higher priority are drawn on top of lower priority, allowed range is -100 to 100 and default is 0).</p>
+<p>Like <code>Style =</code> for a menu, each non-menu HUD element must specify a <code>Type =</code> entry. Available types include: Rectangle, Rounded Rectangle (needs <code>Radius=</code> as well), Circle, Bitmap (needs <code>Bitmap=</code> as well), and ArrowL/R/U/D. These are also used for menus for the <code>ItemType=</code> property, which determines how the background for each menu item is drawn. There are also some special-case types covered later.</p>
+<p>Various properties can be defined that set the size and colors used, including <code>Size=</code> and/or <code>ItemSize=, Alignment=, Font=, FontSize=, FontWeight=, BorderSize=, LabelRGB=, ItemRGB=, BorderRGB=</code>, and <code>TransRGB=</code> (which color is treated as a fully-transparent “mask” color). Menus can optionally include a title bar with the <code>TitleHeight=</code> property and a gap between menu items (or overlap by using a negative value) with the <code>GapSize=</code> property.</p>
+<h3 id="selected-and-flashing-menu-items">Selected and flashing menu items</h3>
+<p>In order to visually show current selection and possibly “flash” a menu item when it is activated, alternate colors (or Bitmaps) can be set for menus starting with the word “Selected” or “Flash” or the combination “FlashSelected”, such as <code>SelectedItemRGB=</code>, <code>FlashBorderRGB=</code>, <code>FlashSelectedLabelRGB=</code>, <code>SelectedBitmap=</code>, and so on.</p>
+<h3 id="fading-and-transparency">Fading and transparency</h3>
+<p>HUD elements can also fade in and out when shown or hidden, or menus can be partially faded out when they haven’t been used for a while or are currently disabled (by virtue of having no active buttons assigned that can control the menu), all of which can be controlled with the properties <code>MaxAlpha=, FadeInDelay=, FadeInTime=, FadeOutDelay=, FadeOutTime=, InactiveDelay=</code>, and <code>InactiveAlpha=</code>. All alpha values should be in the range of 0 to 255 (0 fully invisible, 255 fully opaque), and delay times are in milliseconds (1/1000th of a second).</p>
+<h3 id="alignment">Alignment</h3>
+<p>The relative position shortcuts L/R/T/B/C used for Hotspots are also used for the <code>Alignment=</code> property. For example, if you specified <code>R-10</code> for a menu’s X Position, but the Menu is 50 pixels wide, most of it would end up cut off by the right edge of the screen (only the left 10 pixels of the menu would be shown). Instead, you can use the following to make the <em>right</em> edge of the menu be 10 pixels to the left of the right edge of the screen, and exactly centered on the Y axis:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Macros]</span>
+<span class="token constant">Position</span> <span class="token attr-value"><span class="token punctuation">=</span> R-10, CY</span>
+<span class="token constant">Alignment</span> <span class="token attr-value"><span class="token punctuation">=</span> R, C</span>
+</code></pre>
+<h3 id="bitmaps">Bitmaps</h3>
+<p>A bitmap is an uncompressed pixel image format, generally with the file extension .bmp. As mentioned above, HUD elements can be set to <code>Type=Bitmap</code> and menus can use <code>ItemType=Bitmap</code>, which require specifying the region of a .bmp file to use with <code>Bitmap=</code> (and optionally <code>SelectedBitmap=</code> in the case of a menu to make selected item distinctive).</p>
+<p>First, any Bitmaps to be used must be named in the [Bitmaps] section, with each have a name and then a path to a file, like so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Bitmaps]</span>
+<span class="token constant">MyImage1</span> <span class="token attr-value"><span class="token punctuation">=</span> "C:\Images\MyBitmap1.bmp"</span>
+<span class="token constant">MyImage2</span> <span class="token attr-value"><span class="token punctuation">=</span> Bitmaps\MyBitmap2.bmp</span>
+</code></pre>
+<p><em>The path specified can be a full path or relative to the location of the overlay’s .exe file. At this time, only actual .bmp files are supported, not .png’s etc).</em></p>
+<p>Once a Bitmap is set properly as in the above example, set the HUD element’s <code>Type=</code> or menu’s <code>ItemType=</code> to use the bitmap, or a portion of it, like so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[HUD.Picture]</span>
+<span class="token constant">Type</span> <span class="token attr-value"><span class="token punctuation">=</span> Bitmap</span>
+<span class="token constant">Bitmap</span> <span class="token attr-value"><span class="token punctuation">=</span> MyImage1</span>
+
+<span class="token selector">[Menu.MyMenu]</span>
+<span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> List</span>
+<span class="token constant">ItemType</span> <span class="token attr-value"><span class="token punctuation">=</span> Bitmap</span>
+<span class="token constant">Bitmap</span> <span class="token attr-value"><span class="token punctuation">=</span> MyImage2: 0, 0, 32, 32</span>
+<span class="token constant">SelectedBitap</span> <span class="token attr-value"><span class="token punctuation">=</span> MyImage2: 50%, 0, 50%, H</span>
+</code></pre>
+<p><em>The bitmap or bitmap region will be scaled as needed to fit into the HUD element’s Size or menu’s ItemSize dimensions if they do not match.</em></p>
+<h3 id="label-icons">Label Icons</h3>
+<p>In addition to the backdrop of a menu item, a bitmap can be used to entirely replace a text label. This allows having a different image for each individual menu item.</p>
+<p>The [Icons] section is used to link each menu item’s label text to what should be drawn in place of it. For example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.MyMenu]</span>
+<span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> List</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> Spell1: Alt-1</span>
+<span class="token constant">2</span> <span class="token attr-value"><span class="token punctuation">=</span> Spell2: Alt-2</span>
+...
+
+<span class="token selector">[Bitmaps]</span>
+<span class="token constant">MyIcons</span> <span class="token attr-value"><span class="token punctuation">=</span> Bitmaps\MyIcons.bmp</span>
+
+<span class="token selector">[Icons]</span>
+<span class="token constant">Spell2</span> <span class="token attr-value"><span class="token punctuation">=</span> MyIcons: 0, 0, 32, 32</span>
+</code></pre>
+<p>Would have a menu where the first Menu Item would have the text label “Spell1”, but the second Menu Item would instead show a copy of the (l=0, t=0, w=32, h=32) region of Bitmaps\MyIcons.bmp displayed instead of text.</p>
+<p><em>Note that linking a label to an icon is case-insensitive and ignores spaces, so “SPELL 2” would link to the same icon as “Spell2”.</em></p>
+<h3 id="icons-copied-from-game-window">Icons copied from game window</h3>
+<p>While icons from bitmaps stored on your hard drive might look nicer then plain shapes or a text label, they can’t dynamically display information that might change during play. In the above example, the “Spell2” label would always show the same icon regardless of what spell is actually assigned to that slot. So what if you want it to display an icon that matches the in-game icon of the spell in that slot? To do this, you can specify a rectangular region of the game’s window to be copied and act as an icon, which will then be continuously updated to match the game’s UI (at least once every <code>[System]CopyIconFrameTime=</code> milliseconds).</p>
+<p>To set this up, simply omit the name of a Bitmap in the [Icons] property for the menu item label you want to replace, and have the coordinates be the portion of the game’s window you want copied over, like so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Icons]</span>
+<span class="token constant">Spell2</span> <span class="token attr-value"><span class="token punctuation">=</span> 500, 250, 32, 32</span>
+</code></pre>
+<p>These copy-from coordinates work like Hotspots and can include both an anchor and an offset, such as:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Icons]</span>
+<span class="token constant">Spell2</span> <span class="token attr-value"><span class="token punctuation">=</span> R-20, 20%+10, 5%, 15</span>
+</code></pre>
+<p><em>TIP: When using this feature, it may be desirable to have the copied-from area of the game’s window be covered up by a HUD element from the overlay to avoid having the same icon show up in two places at once on your screen (the copy in the overlay + the original icon in the game’s built-in UI). This requires an alternate copy method that avoids copying from the overlay itself, fetching the icon from the game window hidden underneath it instead. Which copy method works may differ from game to game. You can set the method using the [System] property “IconCopyMethod”. See the comments in MMOGO_Core.ini for details on possible values for this property.</em></p>
+<h3 id="hotspot--keybind-hud-elements">Hotspot &amp; KeyBind HUD Elements</h3>
+<p>Some special HUD element types offset their visual position to match a hotspot, or a Hotspot Array with the same name as the Key Bind Array. These use <code>Type = Hotspot</code>, <code>Type = KeyBindArrayLast</code> and <code>Type = KeyBindArrayDefault</code>. They must also have a special property to specify which Hotspot / Key Bind Array / Hotspot Array to use, such as <code>Hotspots = TargetGroup</code> (<code>Hotspot=</code>, <code>Array=</code>, and <code>KeyBindArray=</code> also work and mean the same thing here).</p>
+<p><code>Type=Hotspot</code> just initially offsets itself by the given hotspot and stays there. <code>Type=KeyBindArrayLast</code> will change to the position matching the last used key bind from the array. <code>Type=KeyBindArrayDefault</code> will change to the position of the set <em>default</em> key bind of the array (initially the first item in the array, but can be changed with the <code>=Set &lt;KeyBindArrayName&gt; Default</code> command).</p>
+<p>For the key bind array types to work, make sure to create both a hotspot array in a  <code>[Hotspots]</code> section and a key bind array in a <code>[KeyBinds]</code> section with matching names and ranges of numbers.</p>
+<h2 id="other-commands-and-features">Other Commands and Features</h2>
+<p>This final section covers various extra features that don’t fit into the main categories above.</p>
+<h3 id="system-commands">System commands</h3>
+<p>These commands affect the overlay app directly rather than the game you are using it with, and can be assigned to menu items or gamepad buttons like any other command.</p>
+<ul>
+<li><code>=Change Profile</code> - brings up profile select dialog</li>
+<li><code>=Quit App</code> - closes the overlay application</li>
+</ul>
+<h3 id="hotspot-array-and-copy-icon-ranges">Hotspot Array and Copy Icon ranges</h3>
+<p>When defining Hotspot Arrays and regions to copy from a game window to use as icons, it can be a pain to change every individual hotspot/icon associated with an in-game UI window when you want to move that UI window in the game, even with the help of the runtime UI Layout Editor. To assist with this, these elements can use a base <em>anchor</em> element with the other elements defined as just <em>offsets</em> to the anchor, meaning they can all be moved at once by only moving the anchor.</p>
+<p>To create an anchor, define a hotspot or icon with no number after its name. At that point, any hotspots or other copy-from-target icons with the same name but with a number at the end of the name will be treated as an offset (in the case of icons you must also leave off the width and height for the offset versions). For example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
+<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32x240</span>
+<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +0</span>
+<span class="token comment">; Below will actually be at 32x281</span>
+<span class="token constant">LootWindow2</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
+
+<span class="token selector">[Icons]</span>
+<span class="token constant">Spell</span> <span class="token attr-value"><span class="token punctuation">=</span> 17, 7, 36, 28</span>
+<span class="token constant">Spell1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +0</span>
+<span class="token comment">; Below will actually copy from 17, 36, 36, 28</span>
+<span class="token constant">Spell2</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +29</span>
+</code></pre>
+<p>In addition, to save on typing you can specify multiple hotspot/icon offsets in a single line by using the format <code>Name##-##</code>, with the first number being the first index in the array and the number after the <code>-</code> being the last index in the array. When using this format, each element in the range (including the first) will be offset from <em>the previous element in the array</em>, and ignore the base anchor position (in fact, you do not need to define a base anchor position at all in this case). For example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
+<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32x240</span>
+<span class="token comment">; Define 8-tall left column starting at 32x240 then each 41 apart in Y</span>
+<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0 x +0</span>
+<span class="token constant">LootWindow2-8</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
+<span class="token comment">; Define right column @ 73x240 then 41 each in Y</span>
+<span class="token constant">LootWindow9</span> <span class="token attr-value"><span class="token punctuation">=</span> +41 x +0</span>
+<span class="token constant">LootWindow10-16</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
+
+<span class="token selector">[Icons]</span>
+<span class="token comment">; Copy from a column of 8 spell icons 29 apart in Y</span>
+<span class="token constant">Spell1</span> <span class="token attr-value"><span class="token punctuation">=</span> 17, 7, 36, 28</span>
+<span class="token constant">Spell2-8</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +29</span>
+</code></pre>
+<p><em>Note that the + signs in front of each number for the offsets don’t do anything, I just put them there to help remind me that these are offsets rather than direct positions.</em></p>
+<h3 id="hotspot-array-scaling">Hotspot Array scaling</h3>
+<p>A Hotspot Array using an anchor + offsets (as described above) can also have all the offsets scaled by a single scale value. This works the same as the global UI Scale and is combined with it, but only applies to the hotspots in that specific array.</p>
+<p>This is useful in games that allow scaling individual UI windows, allowing adjusting all hotspots related to that UI window with a single change. Simply add <code>* scaleValue</code> to the end of the anchor hotspot’s property value to do this.</p>
+<p>To use the above example, let’s say the LootWindow is separately set to 1.5x scale. In your custom profile, you could override the <code>LootWindow=</code> entry as follows, without needing to add entries for the rest of the hotspots:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
+<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32x240 * 2.5</span>
+</code></pre>
+<p>Note that the 2.5 scaling will <strong>not</strong> be applied to the base 32x240 values in the above example, just the offsets from that point for the remaining LootWindow hotspots. <code>* 250%</code> is also valid.</p>
+<h3 id="experimental-command-move-and-look">Experimental command: Move and Look</h3>
+<p>Setting something to <code>=MoveAndLook</code> functions mostly the same as <code>=MoveStrafe</code>, except it also automatically rotates the camera during left and right strafing motion (using the mouse of course, which means it only does this while in Mouse Look mode).</p>
+<p>The rotation speed depends on how far to the left or right are pressing an analog stick, if this command is set to one. This is an option seen in some games called “Auto Rotate Camera” or “Camera Follow” or some such, and is pretty common in 3D 3rd-person console games. It allows for steering with only one stick and being able to see where you are going, but you can still strafe by holding one direction on the left stick and the opposite on the right stick to counter the auto-rotation.</p>
+<p>You can modify how this command functions with the <code>[Gamepad]</code> settings <code>MoveLookDeadzone=</code> and <code>MoveLookSaturation=</code> as well as the <code>[Mouse]</code> setting <code>MoveLookSpeed=</code>.</p>
+<h3 id="experimental-command-lock-movement">Experimental command: Lock Movement</h3>
+<p>This acts a potential alternative to <code>=AutoRun</code> that allows continuous movement in other directions - namely strafing or walking backwards. You could think of it as Auto-Strafe-Run. It looks at what movement commands are currently being held active by other buttons (analog sticks) at the same time the command is executed to “lock” the same movement direction to be automatically held after that point, until cancelled.</p>
+<p>For MoveForward, or when not holding any directions, it will use the standard auto-run key (unless there is none defined, then it will hold down the MoveForward key continuously). For turning left/right, it will NOT lock them (so as not to just spin in circles) unless are also in right-click Mouse Look mode at the time (where it assumes the turn keys will cause strafing instead).</p>
+<p>This locked movement mode will cancel once release and re-press any direction on the same axis as any locked direction. In other words, if you lock walking backwards, you can press left or right to strafe while continuing to move back automatically, but pressing forward or back again will cancel it. If you lock moving slant, re-pressing any direction will cancel it entirely.</p>
+<p><em>WARNING: For directions that can’t just use the AutoRun key, the game itself may stop you from continuing to move in the direction desired while using the chat message box - particularly if type one of the movement keys (i.e. WASD) as part of your message. To help avoid this, consider re-mapping your movement keys to ones you aren’t likely to use while typing.</em></p>
+<h3 id="experimental-mouse-mode-autolook">Experimental Mouse Mode: AutoLook</h3>
+<p>This mouse mode can be used by setting <code>Mouse = AutoLook</code> in a layer (and no higher layers having a different Mouse mode set). It attempts to emulate modern console game camera control by combining <code>=LookTurn</code> and <code>=LookOnly</code>. It only works for games that support rotating camera+character by holding the right mouse button on an empty part of the screen, as well as just rotating camera (without affecting character) by holding the left mouse button. It is targeted for use with a 3rd-person camera mode and may not function as expected in some games while in 1st-person.</p>
+<p>With this mode the left mouse button will be held while no movement commands are being sent, and the right mouse button will be held while movement commands are also being sent. This allows panning the camera around and viewing your own character from different angles while stationary, yet steering your character while moving, just like in most modern 3rd-person action games on consoles.</p>
+<p>The tricky part is while using AutoRun, which the app has no way of knowing for sure your character is still doing or not (there are multiple ways to cancel AutoRun that the app won’t necessarily know about). Therefore it assumes that any time you send the AutoRun key that your character begins moving forward, and that your character will continue moving forward until you send MoveBack or release and re-send MoveForward commands, and use the right mouse button during this to allow for steering.</p>
+<p>If you prefer, you can use <code>Mouse=AutoRunLook</code> which instead treats AutoRun (and Lock Movement) the same as being stationary and always uses the LookOnly camera mode whenever you are not actively holding a movement direction. This allows freely looking around for threats while auto-running without changing your direction of movement, but removes the ability to steer your character via mouse movement while auto-running. You could also assign AutoLook and AutoRunLook to to different layers and switch between them by holding a button.</p>
+<h3 id="variables-text-replacement-in-.ini-files">Variables (text replacement in .ini files)</h3>
+<p>Variables can be used to define settings that can be changed and remembered across profile loads by using simple text replacement. You can define variables in the <code>[Variables]</code> section along with their default values like so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Variables]</span>
+<span class="token constant">MoveType</span> <span class="token attr-value"><span class="token punctuation">=</span> MoveStrafe</span>
+<span class="token constant">CamSteer</span> <span class="token attr-value"><span class="token punctuation">=</span> On</span>
+</code></pre>
+<p>These can be referenced in <strong>any property value throughout the file</strong> (including other variables) using a variable expansion block in the format<code>${...}</code>.</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">LStick</span> <span class="token attr-value"><span class="token punctuation">=</span> ${MoveType}</span>
+</code></pre>
+<p>Basic math operations are supported within a block. Consider the example of <code>Var = 10</code>:</p>
+
+<table>
+<thead>
+<tr>
+<th>Syntax</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>${Var}</code></td>
+<td>Replaced with 10</td>
+</tr>
+<tr>
+<td><code>${Var + 1}</code></td>
+<td>Replaced with 11</td>
+</tr>
+<tr>
+<td><code>${Var - 2}</code></td>
+<td>Replaced with 8</td>
+</tr>
+<tr>
+<td><code>${Var * 7}</code></td>
+<td>Replaced with 70</td>
+</tr>
+<tr>
+<td><code>${Var / 2}</code></td>
+<td>Replaced with 5</td>
+</tr>
+</tbody>
+</table><p>A ternary-style conditional operator <code>?:</code> is also supported to insert different values:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">LStick</span> <span class="token attr-value"><span class="token punctuation">=</span> ${CamSteer = On ? MoveAndLook : MoveStrafe}</span>
+</code></pre>
+<p>If the expression before the <code>?</code> is true, the text just after it is used, otherwise, the text just after the <code>:</code> symbol is used instead. Supported comparison operators are <code>=</code> or <code>==</code>, <code>!=</code> or <code>~=</code> (not equals), <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, and <code>&gt;=</code>. These comparison operators, and the “else” (<code>:</code>) section, are optional when using the <code>?</code> operator. Without a comparison operator, the variable is evaluated directly for “truthiness” (anything besides blank, 0, “no”, “false”, or “off” is considered “true”). Without the else (<code>:</code>) section, if the condition is evaluated to false, the entire block is just replaced with nothing.</p>
+<p>Variable expansion blocks can themselves be nested within other blocks. Inner-most blocks are evaluated first, so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token attr-value"><span class="token punctuation">=</span> ${OuterVar = ${InnerVar} ? Yes : No}</span>
+</code></pre>
+<p>would substitute InnerVar’s value first. Therefore if InnerVar was set to 5, the text would temporarily become:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token attr-value"><span class="token punctuation">=</span> ${OuterVar = 5 ? Yes : No}</span>
+</code></pre>
+<p>The text would then be evaluated again before being used, replacing the full block with just “Yes” or “No” depending on OuterVar’s value. There is no limit to nesting depth, and everything from the values to the variable names and even the operator characters can be a nested variable block, allowing for complex evaluation logic.</p>
+<p>Variables can be changed at runtime using the command <code>=Set VarName to Value</code>, with “Value” being whatever you want (including another variable name). For example, you could have a settings menu item like so:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Settings]</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> "Cam Steer: ${CamSteer}": Set CamSteer to ${CamSteer ? Off : On}</span>
+</code></pre>
+<p>Which would make it so using this menu item would toggle CamSteer on or off, and change how the LStick behaves in the earlier example, as well as how the label appears for this menu item (saying either “Cam Steer: On” or “Cam Steer: Off”).</p>
+<p>Setting a variable with this command will save the variable’s new value to your profile, so it will still be in effect the next time this profile is loaded. This can be used to quickly change configuration settings without needing to edit the profile .ini file every time. If you do NOT want the new value to be saved to your profile, but only be set that way until you exit the app or change profiles, use “Temp” or “Temporarily” as in <code>=Temporarily Set VarName to Value</code>.*</p>
+<h3 id="auto-sync-variables-to-game-config-files">Auto-sync variables to game config files</h3>
+<p>The above variables can be automatically set to values read in from game configuration files, and will even automatically update if said files are modified during play. These automatic changes behave like the <code>=Temp Set VarName to Value</code> command and thus will NOT be written out to your profile .ini files.</p>
+<p>First, any game configuration file that should be parsed needs to be set as a property in the <code>[TargetConfigFiles]</code> section, with a name given to each file. Environment variables such as %USERPROFILE% can be used in the file path, such as  <code>Settings=%USERPROFILE%\AppData\LocalLow\Company\Game\settings.json</code></p>
+<p><em>For games that oddly store their config file contents directly in a system registry value in binary format, such as AOA, a registry path can also be used and its contents read as if it was a text file, such as <code>HKEY_CURRENT_USER\Software\Company\Game\uiWindows*_h*</code></em></p>
+<p>Paths also support <code>*</code> acts as a wildcard character, and if more than one file (or registry value) is found that matches a path using wildcards, the most recently-modified one will be used.</p>
+<p><em>NOTE: Currently only .json format is supported for this feature!</em></p>
+<p>Next, use the <code>[TargetConfigVariables]</code> section to assign a variable to be synced and where to read its new value from. The property name should match the name of one of the properties in the <code>[Variables]</code> section.</p>
+<p>The property values in this section should contain a path through the game’s config file to the value to read in, with each step on the path separated by periods. The first step of the path should be the name of a <code>[TargetConfigFiles]</code> property for which file to read from, followed by section names, key names, value names, etc, depending on the configuration file layout. For example, <em>Monsters and Memories</em> UIScale can be read and apply automatically with this setup:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Variables]</span>
+<span class="token constant">UIScale</span> <span class="token attr-value"><span class="token punctuation">=</span> 1.0</span>
+
+<span class="token selector">[System]</span>
+<span class="token constant">UIScale</span> <span class="token attr-value"><span class="token punctuation">=</span> ${UIScale}</span>
+
+<span class="token selector">[TargetConfigFiles]</span>
+<span class="token constant">Settings</span><span class="token attr-value"><span class="token punctuation">=</span>%USERPROFILE%\AppData\LocalLow\Niche Worlds Cult\Monsters and Memories\settings.json</span>
+
+<span class="token selector">[TargetConfigVariables]</span>
+<span class="token constant">UIScale</span> <span class="token attr-value"><span class="token punctuation">=</span> Settings.GameSettingUIScale</span>
+</code></pre>
+<p><em>NOTE: The paths in the <code>[TargetConfigVariables]</code> section ARE case-sensitive! Also, in the above example, if the Settings property or the settings.json file can’t be found or opened, you will NOT see an error message appear on-screen - to allow a quick disabling of this feature by commenting out the <code>Settings=</code> line. Check MMOGO_ErrorLog.txt if the feature isn’t working when expected to see if this is the problem.</em></p>
+<p>For added convenience and to reduce the number of variables needed for more complex values - namely the positions of in-game UI windows - the property value may instead contain a built-in “function name” followed by a colon <code>:</code> followed by a comma-separated list of parameters to send to that function. Each provided function may use multiple values from the game’s config file to calculate the final variable value.</p>
+<p>For example, to align a hotspot to the top left corner of the window a game identifies by the key “inventory”, you could use:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[TargetConfigVariables]</span>
+<span class="token constant">InventoryX</span> <span class="token attr-value"><span class="token punctuation">=</span> Left : inventory</span>
+<span class="token constant">InventoryY</span> <span class="token attr-value"><span class="token punctuation">=</span> Top: inventory</span>
+</code></pre>
+<p>Notice how ‘inventory’ is just a name, not a path. This is because it actually represents multiple paths. To accomplish this, the actual paths are specified by properties in the <code>[TargetConfigFormat]</code> section.</p>
+<p>Each property in this section has a specific property name recognized by the app and a property value of a config file path. This path should contain one or more numbered tags in the format  <code>&lt;1&gt;</code>, <code>&lt;2&gt;</code>, etc for where to insert the names passed in from the above <code>FunctionName: Param1, Param2, ...</code> to create the full path. So for the above Inventory hotspot example, you might use:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[TargetConfigFormat]</span>
+<span class="token constant">PositionX</span> <span class="token attr-value"><span class="token punctuation">=</span> Windows.SaveData.&lt;1&gt;.position.x</span>
+<span class="token constant">PositionY</span> <span class="token attr-value"><span class="token punctuation">=</span> Windows.SaveData.&lt;1&gt;.position.y</span>
+<span class="token constant">AlignmentX</span> <span class="token attr-value"><span class="token punctuation">=</span> Windows.SaveData.&lt;1&gt;.anchorMin.x</span>
+<span class="token constant">AlignmentY</span> <span class="token attr-value"><span class="token punctuation">=</span> Windows.SaveData.&lt;1&gt;.anchorMin.y</span>
+<span class="token constant">Width</span> <span class="token attr-value"><span class="token punctuation">=</span> Windows.SaveData.&lt;1&gt;.sizeDelta.x</span>
+<span class="token constant">Height</span> <span class="token attr-value"><span class="token punctuation">=</span> Windows.SaveData.&lt;1&gt;.sizeDelta.y</span>
+<span class="token constant">InvertPositionY</span> <span class="token attr-value"><span class="token punctuation">=</span> Yes</span>
+<span class="token constant">InvertAlignmentY</span> <span class="token attr-value"><span class="token punctuation">=</span> Yes</span>
+</code></pre>
+<p>This means that the earlier <code>InventoryX = Left : inventory</code> will actually insert “inventory” where &lt;1&gt; is and thus read in the paths <code>Windows.SaveData.inventory.position.x</code> as well as <code>Windows.SaveData.inventory.anchorMin.x</code> from “Windows” config file, and then combine them using the “left” function.</p>
+<p>Available functions like <code>left</code>, <code>top</code>, <code>right</code>, <code>cx</code> <code>cy</code>, etc typically evaluate to a hotspot X or Y coordinate, and most will use multiple properties in <code>[TargetConfigFormat]</code>. For example, “Left” uses <code>PositionX</code> and then offsets it according to <code>AlignmentX</code> to represent the left side of a window. “Right” would add <code>Width</code> to that to get the right edge. If other properties are set they may also be used in the calculation, such as <code>PivotX</code> or <code>Scale</code>. Which ones to include will depend on how the specific game stores and calculates its window positions.</p>
+<p>These functions (and the properties they use in <code>[TargetConfigFormat]</code>) are hard-coded and can not themselves be customized. Check the generated default profiles for different games (usually near the bottom of the <em>MMOGO_Game_Base.ini</em> file) for what is available and examples of their use. If you find need for a function that is not included, you will unfortunately need to use multiple variables along with arithmetic and conditional operators within variable expansion blocks to achieve the same effect.</p>
+<h3 id="other-system-features">Other system features</h3>
+<p>You can have the application automatically launch a game along with whichever Profile you first load. You can also set the Window name for the target game, so the HUD elements will be moved and resized along with the game window, and force the game window to be a full-screen window instead of “true” full screen if needed so the HUD elements can actually show up over top of the game.</p>
+<p>There are various other system options you can set like how long a “tap” vs a “short hold” is, mouse cursor/wheel speed, gamepad deadzones and thresholds, whether this app should automatically quit when done playing the game, and what the name of this application’s window should be (so you could set Discord to believe it is a game, which is nice if you want to let people know you are playing EQ since Discord doesn’t recognize old EQ clients for some reason). Check the comments in the generated <em>MMOGO_Core.ini</em> for more information on these and other settings.</p>
+
+    </div>
+  </div>
+</body>
+
+</html>
