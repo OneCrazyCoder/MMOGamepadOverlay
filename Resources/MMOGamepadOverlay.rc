@@ -124,10 +124,10 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMEN
 CAPTION "LICENSE AND DISCLAIMER"
 FONT 12, "Microsoft Sans Serif", 400, 0, 0x0
 BEGIN
-    EDITTEXT        IDC_EDIT_READ_ONLY_TEXT,7,7,286,93,ES_MULTILINE | ES_READONLY | WS_VSCROLL | NOT WS_TABSTOP
+    EDITTEXT        IDC_EDIT_READ_ONLY_TEXT,7,7,286,103,ES_MULTILINE | ES_READONLY | NOT WS_TABSTOP
     PUSHBUTTON      "Accept",IDOK,233,128,60,15
     PUSHBUTTON      "Decline",IDCANCEL,166,128,60,15
-    LTEXT           "By clicking ""Accept"", you acknowledge that you have read, understood, and agree to the terms and conditions outlined in this license. If you do not agree with these terms, click ""Decline"" to exit the application.",IDC_STATIC_PROMPT,7,101,286,27,WS_BORDER
+    LTEXT           "By clicking ""Accept"", you acknowledge that you have read, understood, and agree to the above. If you do not, click ""Decline"" to exit the application.",IDC_STATIC_PROMPT,7,110,286,18,WS_BORDER
 END
 
 IDD_DIALOG_RICH_TEXT_PROMPT DIALOGEX 0, 0, 254, 80
