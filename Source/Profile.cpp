@@ -1566,6 +1566,11 @@ static void loadProfile(int theProfilesCanLoadIdx)
 	// Make sure "variables" section is always section 0
 	sSectionsMap.setValue(kVariablesSectionName, PropertyMap());
 	sVarPropDepList.clear();
+	// Add built-in system variables to variables section
+	sSectionsMap.vals()[kVarsSectionIdx].setValue("W", Property());
+	sSectionsMap.vals()[kVarsSectionIdx].setValue("H", Property());
+	sSectionsMap.vals()[kVarsSectionIdx].setValue("CX", Property());
+	sSectionsMap.vals()[kVarsSectionIdx].setValue("CY", Property());
 
 	DBG_ASSERT(size_t(theProfilesCanLoadIdx) < sProfilesCanLoad.size());
 	const std::vector<int>& aList = sProfilesCanLoad[theProfilesCanLoadIdx];
@@ -2414,6 +2419,17 @@ void setStr(
 
 void setVariable(int theVarID, const std::string& theValue, bool temporary)
 {
+	setPropertyAfterLoad(kVarsSectionIdx, theVarID, theValue, !temporary);
+}
+
+
+void setVariable(
+	const std::string& theVarName,
+	const std::string& theValue,
+	bool temporary)
+{
+	const int theVarID =
+		sSectionsMap.vals()[kVarsSectionIdx].findOrAddIndex(theVarName);
 	setPropertyAfterLoad(kVarsSectionIdx, theVarID, theValue, !temporary);
 }
 

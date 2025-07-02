@@ -212,14 +212,13 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		// Overwrite some profile properties with target app config
 		if( !gShutdown && !hadFatalError() )
 			TargetConfigSync::load();
-
-		// Create main application window
-		if( !gShutdown && !hadFatalError() )
-			WindowManager::createMain(hInstance);
-
-		// Load configuration settings for each module from profile
+		
 		if( !gShutdown && !hadFatalError() )
 		{
+			// Create main application window
+			WindowManager::createMain(hInstance);
+
+			// Load configuration settings for each module from profile
 			const int aFrameTime =
 				Profile::getInt("System", "FrameTime", gAppFrameTime);
 			if( aFrameTime != gAppFrameTime )

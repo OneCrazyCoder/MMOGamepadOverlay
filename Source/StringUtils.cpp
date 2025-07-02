@@ -740,19 +740,20 @@ findStringTag(
 	std::string::size_type theStartPos,
 	const char* theTagStart, char theTagEnd)
 {
-	std::pair<std::string::size_type, std::string::size_type> result;
-	result.second = 0;
-	result.first = theString.find(theTagStart, theStartPos);
-	if( result.first != std::string::npos )
+	std::pair<std::string::size_type, std::string::size_type> result(
+		std::string::npos, 0);
+	std::string::size_type aTagStartPos =
+		theString.find(theTagStart, theStartPos);
+	if( aTagStartPos != std::string::npos )
 	{
 		// Find the closing theTagEnd (or if none found, not valid tag!)
-		std::string::size_type anEndPos = theString.find(
-			theTagEnd, result.first);
-		if( anEndPos != std::string::npos )
+		std::string::size_type aTagEndPos = theString.find(
+			theTagEnd, aTagStartPos);
+		if( aTagEndPos != std::string::npos )
 		{
 			// Only use the last theTagStart found before the closing theTagEnd
-			result.first = theString.rfind(theTagStart, anEndPos);
-			result.second = anEndPos - result.first + 1;
+			result.first = theString.rfind(theTagStart, aTagEndPos);
+			result.second = aTagEndPos - result.first + 1;
 		}
 	}
 
