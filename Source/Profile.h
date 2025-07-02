@@ -64,6 +64,7 @@ void setStr(const std::string& theSection,
 			const std::string& theValue,
 			bool saveToFile = true);
 void setVariable(int theVarID, const std::string& theValue, bool temporary);
+void setVariable(const std::string& theVarName, const std::string&, bool);
 // Only sets the string if thePropertyName doesn't yet exist (or is empty val)
 void setNewStr(const std::string&, const std::string&, const std::string&);
 // Gets property changes requested by setStr() since last load() or clear

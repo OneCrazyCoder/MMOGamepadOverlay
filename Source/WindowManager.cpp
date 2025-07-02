@@ -1131,6 +1131,11 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	{
 		sTargetSize = aNewTargetSize;
 
+		Profile::setVariable("W", toString(sTargetSize.cx), true);
+		Profile::setVariable("H", toString(sTargetSize.cy), true);
+		Profile::setVariable("CX", toString(sTargetSize.cx / 2), true);
+		Profile::setVariable("CY", toString(sTargetSize.cy / 2), true);
+
 		const int aUIScaleBaseHeight =
 			Profile::getInt("System", "UIScaleBaseHeight");
 		if( aUIScaleBaseHeight > 0 )
