@@ -223,6 +223,7 @@ struct TranslatorState
 struct InputResults
 {
 	std::vector<Command> queuedKeys;
+	std::vector<int> changedLayers;
 	BitVector<32> menuHEAutoCommandRun;
 	BitArray<eBtn_Num> buttonPressProcessed;
 	ECommandDir selectHotspotDir;
@@ -238,13 +239,13 @@ struct InputResults
 	bool mouseWheelStepped;
 	bool charMoveStartAutoRun;
 	bool charMoveLockMovement;
-	bool layerChangeMade;
 	bool exclusiveAutoRepeatNeeded;
 	bool syncAutoRepeatNeeded;
 
 	void clear()
 	{
 		queuedKeys.clear();
+		changedLayers.clear();
 		menuHEAutoCommandRun.clearAndResize(InputMap::hudElementCount());
 		buttonPressProcessed.reset();
 		selectHotspotDir = eCmd8Dir_None;
@@ -260,7 +261,6 @@ struct InputResults
 		mouseWheelStepped = false;
 		charMoveStartAutoRun = false;
 		charMoveLockMovement = false;
-		layerChangeMade = false;
 		exclusiveAutoRepeatNeeded = false;
 		syncAutoRepeatNeeded = false;
 	}
@@ -531,9 +531,9 @@ static bool removeControlsLayer(int theLayerID)
 			transDebugPrint("Removing Controls Layer: %s\n",
 				InputMap::layerLabel(*itr).c_str());
 
-			// Reset some layer properties
+			// Log layer change made
 			aLayer.buttonCommandUsed = false;
-			sResults.layerChangeMade = true;
+			sResults.changedLayers.push_back(theLayerID);
 
 			// Remove from the layer order and recover iterator to continue
 			next_itr = std::vector<u16>::reverse_iterator(
@@ -692,7 +692,7 @@ static void moveControlsLayerToTop(
 			InputMap::layerPriority(theLayerID),
 			sState.layers[theLayerID].heldActiveByButton()),
 		sTempOrder.begin(), sTempOrder.end());
-	sResults.layerChangeMade = true;
+	sResults.changedLayers.push_back(theLayerID);
 
 	// Re-process associated auto layers
 	const BitVector<32>& autoRemoveLayers =
@@ -799,7 +799,7 @@ static void addControlsLayer(int theLayerID, bool asHeldLayer)
 	aLayer.refCount = 1;
 	aLayer.addedNormally = !asHeldLayer;
 	aLayer.autoButtonHit = true;
-	sResults.layerChangeMade = true;
+	sResults.changedLayers.push_back(theLayerID);
 	addRelatedLayers(theLayerID);
 }
 
@@ -1482,7 +1482,6 @@ static void processAnalogInput(
 	Command aCmd;
 	if( !currentHasAnalogCmd || aPressedCmds == aCurrentCmds ||
 		theBtnState.vKeyHeld != 0 ||
-		aPressedCmds[eBtnAct_Release].type >= eCmdType_FirstValid ||
 		aPressedCmds[eBtnAct_Tap].type >= eCmdType_FirstValid ||
 		aPressedCmds[eBtnAct_Hold].type >= eCmdType_FirstValid ||
 		aCurrentCmds[eBtnAct_Press].type >= eCmdType_FirstValid ||
@@ -2090,37 +2089,32 @@ void update()
 		}
 	}
 
-	if( sResults.layerChangeMade )
+	// Process auto-button events for any newly-added/removed layers
+	// .changedLayers might increase in size during this loop
+	for(int i = 0, aLoopCount = 0;
+		i < intSize(sResults.changedLayers.size());
+		++i, ++aLoopCount)
 	{
-		// Process any newly-added layers' autoButtonHit events
-		int aLoopCount = 0;
-		while(sResults.layerChangeMade)
+		LayerState& aLayer = sState.layers[sResults.changedLayers[i]];
+		if( aLayer.autoButtonHit ||
+			(!aLayer.autoButtonDown() && aLayer.autoButton.heldDown) )
 		{
-			sResults.layerChangeMade = false;
-			for(int i = 0, end = intSize(sState.layers.size()); i < end; ++i)
-			{
-				LayerState& aLayer = sState.layers[i];
-				if( aLayer.autoButtonHit )
-				{
-					processButtonState(
-						aLayer.autoButton,
-						aLayer.autoButtonDown(),
-						aLayer.autoButtonHit);
-					aLayer.autoButtonHit = false;
-				}
-			}
-			if( ++aLoopCount > kMaxLayerChangesPerUpdate )
-			{
-				logFatalError(
-					"Infinite loop of Controls Layer changes detected!");
-				break;
-			}
+			processButtonState(
+				aLayer.autoButton,
+				aLayer.autoButtonDown(),
+				aLayer.autoButtonHit);
+			aLayer.autoButtonHit = false;
 		}
-		sResults.layerChangeMade = true;
+		if( aLoopCount > kMaxLayerChangesPerUpdate )
+		{
+			logFatalError(
+				"Infinite loop of Controls Layer changes detected!");
+			break;
+		}
 	}
 
 	// Update mouse mode to reflect new layer layout
-	if( sResults.layerChangeMade )
+	if( !sResults.changedLayers.empty() )
 		updateMouseModeForCurrentLayers();
 
 	// Send input that was queued up by any of the above
@@ -2187,7 +2181,7 @@ void update()
 	}
 
 	// Clear results for next update
-	const bool aLayerOrderChanged = sResults.layerChangeMade;
+	const bool aLayerOrderChanged = !sResults.changedLayers.empty();
 	sResults.clear();
 
 	// Update settings for new layer order to use during next update

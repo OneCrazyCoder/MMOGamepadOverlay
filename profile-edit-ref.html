@@ -204,15 +204,6 @@ Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> 
 </code></pre>
 <p>Other commands that can use Key Bind Arrays include <em>Previous, Last, Default, Set Default</em> (sets Default to Last), and <em>Reset</em> (sets Last to Default). <em>Previous</em> and <em>Next</em> can be set to <em>Wrap</em> or <em>NoWrap</em>.</p>
 <p>When using this for the above example of relative group targeting, a visual indicator may be helpful to know what will happen the next time the button is pressed. There are special <strong>HUD Elements</strong> covered later to help with this, <code>Type=KeyBindArrayLast</code> and <code>Type=KeyBindArrayDefault</code>.</p>
-<h3 id="custom-button-names">Custom button names</h3>
-<p>Although there are several built-in names recognized to refer to a specific button on a gamepad, such as “Circle”, “XB_B”, and “F-Pad Right” all referring to the same button, it can be convenient to have additional custom names. Especially if you name them after their main purpose in your control scheme, like the “Confirm” button or the “Cancel” or the “Interaction” button, etc. This allows for quickly re-mapping gamepad buttons if you change your mind about your setup, without needing to find every instance of “Circle” in your profile and change it to “Triangle”, for instance.</p>
-<p>These are not the same as Key Binds since they are aliases to the gamepad buttons being pressed rather than to keyboard and mouse buttons being sent to the game. This does mean, however, that you could have some odd-looking command assignments like <code>Jump = Jump</code>, where the “Jump” before the = sign means a gamepad button like X, and the “Jump” after the = sign refers to a Key Bind for pressing the space bar on the keyboard.</p>
-<p>To create a custom button name, use the <code>[ButtonNames]</code> section as in the following example:</p>
-<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[ButtonNames]</span>
-<span class="token constant">Confirm</span> <span class="token attr-value"><span class="token punctuation">=</span> PS_X</span>
-<span class="token constant">Cancel</span> <span class="token attr-value"><span class="token punctuation">=</span> Circle</span>
-</code></pre>
-<p>Then you can simply use “Confirm” in place of “PS_X” in your control scheme assignments.</p>
 <h2 id="position-and-size-properties">Position and size properties</h2>
 <p><strong>Hotspots</strong> are positions on the screen of significance, such as where a mouse click should occur in a Key Sequence as mentioned before. Positions of Hotspots, HUD Elements, Icons, and so on are specified as X and Y coordinates with Y=0 representing the top and X=0 representing the left side. Some properties use 4 coordinates to represent a rectangle, arranged as X (left edge), Y (top edge), Width, and then Height.</p>
 <p>Each of the 2-4 coordinates can have one of 3 formats - an <em>Anchor</em>, an <em>Offset</em>, or both.</p>
