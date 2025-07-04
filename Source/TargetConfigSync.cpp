@@ -1587,11 +1587,13 @@ static double getSubTypeValue(
 			result = 1.0 - result;
 		if( result != 0 )
 		{
-			result *= getSubTypeValue(
-				theValArray,
-				theSubType == eValueSetSubType_PivotX
-					? eValueSetSubType_SizeX
-					: eValueSetSubType_SizeY);
+			result *=
+				getSubTypeValue(theValArray, eValueSetSubType_Scale) *
+				getSubTypeValue(
+					theValArray,
+					theSubType == eValueSetSubType_PivotX
+						? eValueSetSubType_SizeX
+						: eValueSetSubType_SizeY);
 		}
 		break;
 	case eValueSetSubType_SizeX:

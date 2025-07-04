@@ -375,7 +375,7 @@ static void	loadCommandsForCurrentLayers()
 				continue;
 			const InputMap::ButtonActions& aBtnActions = aBtnCmdsMap[i].second;
 			// See if contains any "defer" commands, which change any
-			// _Unassigned commands (but not _DoNothing) not override any more
+			// _Unassigned commands (but not _DoNothing) to not override
 			bool hasDeferCmd = false;
 			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 			{
