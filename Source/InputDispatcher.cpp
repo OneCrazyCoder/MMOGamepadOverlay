@@ -27,7 +27,8 @@ kMouseMaxSpeed = 256,
 kMouseToPixelDivisor = 8192,
 kMouseMaxAccelVel = 32768,
 kMouseMaxClickMoveDistSq = 500,
-kVKeyModsMask = 0x3F00,
+kVKeyModsMask = 0x1F00,
+kVKeyForMouseLookFlag = 0x2000, // bit reserved by vkKeyScan() but ignored here
 kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
 kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
 kVKeyForceReleaseFlag = kVKeyHoldFlag | kVKeyReleaseFlag,
@@ -897,6 +898,27 @@ static bool isSafeAsyncKey(int theVKey)
 }
 
 
+static bool hiddenCursorMode(EMouseMode theMode)
+{
+	switch(theMode)
+	{
+	case eMouseMode_LookTurn:
+	case eMouseMode_LookOnly:
+	case eMouseMode_AutoLook:
+	case eMouseMode_AutoRunLook:
+	case eMouseMode_Hide:
+	case eMouseMode_HideOrLook:
+	case eMouseMode_AutoToTurn:
+	case eMouseMode_RunToTurn:
+	case eMouseMode_RunToAuto:
+	case eMouseMode_LookReady:
+		return true;
+	}
+
+	return false;
+}
+
+
 static void offsetMousePos()
 {
 	if( !sTracker.mouseVelX && !sTracker.mouseVelY )
@@ -966,12 +988,12 @@ static void offsetMousePos()
 
 	sTracker.inputs.push_back(anInput);
 
-	// Allow L/R buttons to be let up if drag mouse enough while they are down
+	// Allow LMB/RMB to be let up if drag mouse enough while they are down
 	if( sTracker.keysHeldDown.test(VK_LBUTTON) )
 	{
 		if( (sTracker.mouseLDragX * sTracker.mouseLDragX) +
 			(sTracker.mouseLDragY * sTracker.mouseLDragY) >=
-			kMouseMaxClickMoveDistSq )
+				kMouseMaxClickMoveDistSq )
 		{
 			sTracker.keysLockedDown.erase(VK_LBUTTON);
 		}
@@ -982,7 +1004,7 @@ static void offsetMousePos()
 	{
 		if( (sTracker.mouseRDragX * sTracker.mouseRDragX) +
 			(sTracker.mouseRDragY * sTracker.mouseRDragY) >=
-			kMouseMaxClickMoveDistSq )
+				kMouseMaxClickMoveDistSq )
 		{
 			sTracker.keysLockedDown.erase(VK_RBUTTON);
 		}
@@ -1323,7 +1345,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		 theWantedMode == eMouseMode_LookTurn) &&
 		sTracker.mouseVelX == 0 && sTracker.mouseVelY == 0 &&
 		(sTracker.mouseMode == eMouseMode_LookReady ||
-		 sTracker.mouseLookAutoRestoreTimer - gAppFrameTime >=
+		 sTracker.mouseLookAutoRestoreTimer >=
 			 kConfig.mouseLookAutoRestoreTime) )
 	{
 		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
@@ -1425,22 +1447,12 @@ static EResult setKeyDown(int theKey, bool down)
 		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
 		aLockDownTime = kConfig.mouseClickLockTime;
-		// Don't let mouse look register as just a click, even if in the
-		// mode for a very short time - unless also move mouse enough for
-		// game to count as a drag instead of a click
-		if( sTracker.mouseMode == eMouseMode_LookOnly )
-			aLockDownTime = max(aLockDownTime, kConfig.mouseLookMinHoldTime);
-				sTracker.mouseLDragX += sTracker.mouseVelX;
-		sTracker.mouseLDragX = sTracker.mouseLDragY = 0;
 		break;
 	case VK_RBUTTON:
 		anInput.type = INPUT_MOUSE;
 		anInput.mi.dwFlags = down
 			? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
 		aLockDownTime = kConfig.mouseClickLockTime;
-		if( sTracker.mouseMode == eMouseMode_LookTurn )
-			aLockDownTime = max(aLockDownTime, kConfig.mouseLookMinHoldTime);
-		sTracker.mouseRDragX = sTracker.mouseRDragY = 0;
 		break;
 	case VK_MBUTTON:
 		anInput.type = INPUT_MOUSE;
@@ -1512,6 +1524,36 @@ static EResult setKeyDown(int theKey, bool down)
 	}
 
 	return eResult_Ok;
+}
+
+
+static void startMouseLookMode(int theKey)
+{
+	switch(theKey)
+	{
+	case VK_LBUTTON:
+		// Don't let mouse look register as just a click - even if in the
+		// mode for a very short time - by forcing a long hold time or a
+		// minimum movement amount first, so game registers it as a "drag"
+		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
+		sTracker.mouseLDragX = sTracker.mouseLDragY = 0;
+		sTracker.mouseLookAutoRestoreTimer = 0;
+		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+		debugPrint("InputDispatcher: Starting LMB (look only) Mouse Look\n");
+		#endif
+		break;
+	case VK_RBUTTON:
+		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
+		sTracker.mouseRDragX = sTracker.mouseRDragY = 0;
+		sTracker.mouseLookAutoRestoreTimer = 0;
+		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+		debugPrint("InputDispatcher: Starting RMB (look+turn) Mouse Look\n");
+		#endif
+		break;
+	default:
+		DBG_ASSERT(false && "Invalid key value to start a mouse look mode");
+		break;
+	}
 }
 
 
@@ -1879,6 +1921,11 @@ void update()
 		bool mouseMoving = sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0;
 		bool holdingLMB = sTracker.keysHeldDown.test(VK_LBUTTON);
 		bool holdingRMB = sTracker.keysHeldDown.test(VK_RBUTTON);
+		const u16 aMouseLookStartKey = dropTo<u16>(
+			((aNextMouseMode == eMouseMode_LookOnly) ? VK_LBUTTON : VK_RBUTTON)
+			| kVKeyForMouseLookFlag | kVKeyHoldFlag);
+		const u16 anAltMouseLookKey = aNextMouseMode == eMouseMode_LookOnly
+			? VK_RBUTTON : VK_LBUTTON;
 
 		switch(sTracker.mouseMode)
 		{
@@ -1972,29 +2019,18 @@ void update()
 				else if( sTracker.mouseMode == eMouseMode_LookReady )
 				{// Skip position jump and just hold the button
 					sTracker.mouseMode = aNextMouseMode;
-					sTracker.nextQueuedKey =
-						(aNextMouseMode == eMouseMode_LookTurn)
-							? (VK_RBUTTON | kVKeyHoldFlag)
-							: (VK_LBUTTON | kVKeyHoldFlag);
-					sTracker.mouseLookAutoRestoreTimer = 0;
+					sTracker.nextQueuedKey = aMouseLookStartKey;
 				}
-				else if( (sTracker.mouseMode == eMouseMode_LookTurn &&
-						  sTracker.keysHeldDown.test(VK_RBUTTON)) ||
-						 (sTracker.mouseMode == eMouseMode_LookOnly &&
-						  sTracker.keysHeldDown.test(VK_LBUTTON)) )
+				else if( (sTracker.mouseMode == eMouseMode_LookTurn ||
+						  sTracker.mouseMode == eMouseMode_LookOnly) &&
+						  sTracker.keysHeldDown.test(anAltMouseLookKey) )
 				{// Just swap which button is held as soon as are able
-					const int aKeyToHold =
-						aNextMouseMode == eMouseMode_LookTurn
-							? VK_RBUTTON : VK_LBUTTON;
-					const int aKeyToRelease =
-						aNextMouseMode == eMouseMode_LookTurn
-							? VK_LBUTTON : VK_RBUTTON;
-					if( setKeyDown(aKeyToRelease, false) == eResult_Ok )
+					if( setKeyDown(anAltMouseLookKey, false) == eResult_Ok )
 					{
 						sTracker.mouseClickAllowedTime = 0;
 						sTracker.mouseMode = aNextMouseMode;
-						setKeyDown(aKeyToHold, true);
-						sTracker.mouseLookAutoRestoreTimer = 0;
+						setKeyDown(aMouseLookStartKey & kVKeyMask, true);
+						startMouseLookMode(aMouseLookStartKey & kVKeyMask);
 					}
 				}
 				else if( !sTracker.queue.mouseJumpQueued() )
@@ -2006,10 +2042,7 @@ void update()
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowMidJumpControl = false;
 					// Begin holding down the appropriate mouse button
-					sTracker.nextQueuedKey =
-						(aNextMouseMode == eMouseMode_LookTurn)
-							? (VK_RBUTTON | kVKeyHoldFlag)
-							: (VK_LBUTTON | kVKeyHoldFlag);
+					sTracker.nextQueuedKey = aMouseLookStartKey;
 				}
 				break;
 			case eMouseMode_Hide:
@@ -2212,8 +2245,8 @@ void update()
 		{
 			sTracker.typingChatBoxString = false;
 			sTracker.chatBoxActive = false;
-			// Trigger restoring mouse look for games like Pantheon
-			// that drop it while using the chat box
+			// Trigger restoring mouse look right away instead of waiting
+			// for timer for games like Pantheon that drop it when use chat box
 			sTracker.mouseLookAutoRestoreTimer =
 				kConfig.mouseLookAutoRestoreTime;
 		}
@@ -2332,7 +2365,17 @@ void update()
 	bool readyForMouseJump = sTracker.mouseJumpToHotspot;
 	if( readyForMouseJump )
 	{
-		if( !sTracker.mouseAllowMidJumpControl )
+		if( sTracker.mouseJumpToMode == eMouseMode_PostJump &&
+			!readyForQueuedKey &&
+			!sTracker.queue.mouseJumpQueued() &&
+			hiddenCursorMode(sTracker.mouseMode) )
+		{// Update default cursor pos rather than actually jumping
+			InputMap::modifyHotspot(
+				eSpecialHotspot_LastCursorPos,
+				sTracker.mouseJumpDest);
+			readyForMouseJump = sTracker.mouseJumpToHotspot = false;
+		}
+		else if( !sTracker.mouseAllowMidJumpControl )
 		{
 			aDesiredKeysDown.reset(VK_LBUTTON);
 			aDesiredKeysDown.reset(VK_MBUTTON);
@@ -2373,10 +2416,11 @@ void update()
 		// Extra rules may apply for mouse buttons being initially clicked
 		if( isMouseButton(aBaseVKey) && press )
 		{
-			if( sTracker.mouseMode == eMouseMode_Hide &&
-				sTracker.mouseModeExpected == eMouseMode_Hide &&
-				!sTracker.mouseJumpToHotspot )
-			{// In hiding spot - need to restore cursor pos first
+			if( !sTracker.mouseJumpToHotspot &&
+				!(aVKey & kVKeyForMouseLookFlag) &&
+				hiddenCursorMode(sTracker.mouseMode) )
+			{// In hiding spot or hidden via mouselook
+				// Need to restore normal cursor pos before the click
 				sTracker.mouseJumpDest =
 					InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
 				sTracker.mouseJumpToMode = eMouseMode_Cursor;
@@ -2386,7 +2430,8 @@ void update()
 				readyForQueuedKey = false;
 			}
 			if( sTracker.mouseJumpToHotspot &&
-				sTracker.mouseJumpToMode == eMouseMode_Hide)
+				!(aVKey & kVKeyForMouseLookFlag) &&
+				hiddenCursorMode(sTracker.mouseJumpToMode) )
 			{// Attempting to hide - abort and let click through first
 				sTracker.mouseJumpToHotspot = false;
 				readyForMouseJump = false;
@@ -2478,6 +2523,8 @@ void update()
 		if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
 		{
 			const bool wantHold = !!(sTracker.nextQueuedKey & kVKeyHoldFlag);
+			const bool wantStartMouseLook =
+				!!(sTracker.nextQueuedKey & kVKeyForMouseLookFlag);
 			sTracker.nextQueuedKey = 0;
 			if( wantRelease )
 			{
@@ -2501,6 +2548,8 @@ void update()
 					sTracker.keysWantDown.find(dropTo<u16>(aVKey));
 				if( itr != sTracker.keysWantDown.end() )
 					itr->second.pressed = true;
+				if( wantStartMouseLook )
+					startMouseLookMode(aVKeyBase);
 			}
 			else if( isMouseButton(aVKeyBase) )
 			{// Mouse button that wanted to be "clicked" once in a sequence

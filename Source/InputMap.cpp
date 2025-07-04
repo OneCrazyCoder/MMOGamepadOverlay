@@ -1181,7 +1181,7 @@ static void validateKeyBind(
 
 
 static void reportCommandAssignment(
-	const Command& theCmd,
+	Command& theCmd,
 	const std::string& theCmdStr,
 	int theSignalID = 0)
 {
@@ -1193,6 +1193,7 @@ static void reportCommandAssignment(
 			sSectionPrintName.c_str(),
 			sPropertyPrintName.c_str(),
 			theCmdStr.c_str());
+		theCmd.type = eCmdType_DoNothing;
 		break;
 	case eCmdType_Empty:
 		if( theSignalID )
@@ -2638,11 +2639,11 @@ static void applyMenuProperty(
 			if( aCmd.type >= eCmdType_FirstMenuControl &&
 				aCmd.type <= eCmdType_LastMenuControl )
 			{ aCmd = Command(); }
+			reportCommandAssignment(aCmd, thePropVal);
 			if( aPropType == ePropType_Auto )
 				theMenu.autoCommand = aCmd;
 			else
 				theMenu.backCommand = aCmd;
-			reportCommandAssignment(aCmd, thePropVal);
 		}
 		return;
 
@@ -3024,6 +3025,7 @@ static void addButtonAction(
 	// for this button - unless another action has set something for it
 	if( aCmd.type == eCmdType_Empty )
 	{
+		reportCommandAssignment(aCmd, theCmdStr);
 		ButtonActionsMap::iterator aBtnItr =
 				sLayers.vals()[theLayerIdx].buttonCommands.find(aBtnID);
 		if( aBtnItr != sLayers.vals()[theLayerIdx].buttonCommands.end() )
@@ -3041,7 +3043,6 @@ static void addButtonAction(
 			if( shouldRemoveEntirely )
 				sLayers.vals()[theLayerIdx].buttonCommands.erase(aBtnItr);
 		}
-		reportCommandAssignment(aCmd, theCmdStr);
 		return;
 	}
 
@@ -3059,7 +3060,7 @@ static void addButtonAction(
 		aDestBtn.holdTimeForAction = aBtnTime;
 
 	// Report the results of the assignment
-	reportCommandAssignment(aCmd, theCmdStr);
+	reportCommandAssignment(aDestBtn.cmd[aBtnAct], theCmdStr);
 }
 
 
@@ -3071,28 +3072,24 @@ static void addWhenSignalCommand(
 	DBG_ASSERT(theLayerIdx < sLayers.size());
 	DBG_ASSERT(!theSignalKeyName.empty());
 
+	Command aCmd = stringToCommand(theCmdStr, true);
+	// Only report assignment when have an error parsing command
+	if( aCmd.type == eCmdType_Invalid )
+		reportCommandAssignment(aCmd, theCmdStr);
+
 	// Check for responding to use of any key in a key bind array
 	int anEntryIdx = sKeyBindArrays.findIndex(theSignalKeyName);
 	if( anEntryIdx < sKeyBindArrays.size() )
 	{
-		Command aCmd = stringToCommand(theCmdStr, true);
-		if( aCmd.type > eCmdType_Empty )
+		if( aCmd.type >= eCmdType_FirstValid )
 		{
 			sLayers.vals()[theLayerIdx].signalCommands.setValue(
 				dropTo<u16>(keyBindArraySignalID(anEntryIdx)), aCmd);
 		}
-
-		// Report the results of the assignment
-		#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-		if( aCmd.type == eCmdType_Invalid ) 
-		#endif
+		else
 		{
-			std::string anExtPropName = kSignalCommandPrefix;
-			anExtPropName += " " + sPropertyPrintName + " (signal #";
-			anExtPropName += toString(keyBindArraySignalID(anEntryIdx)) + ")";
-			swap(sPropertyPrintName, anExtPropName);
-			reportCommandAssignment(aCmd, theCmdStr);
-			swap(sPropertyPrintName, anExtPropName);
+			sLayers.vals()[theLayerIdx].signalCommands.erase(
+				dropTo<u16>(keyBindArraySignalID(anEntryIdx)));
 		}
 		return;
 	}
@@ -3101,29 +3098,20 @@ static void addWhenSignalCommand(
 	anEntryIdx = sKeyBinds.findIndex(theSignalKeyName);
 	if( anEntryIdx < sKeyBinds.size() )
 	{
-		Command aCmd = stringToCommand(theCmdStr, true);
-		if( aCmd.type > eCmdType_Empty )
+		if( aCmd.type >= eCmdType_FirstValid )
 		{
 			sLayers.vals()[theLayerIdx].signalCommands.setValue(
 				dropTo<u16>(keyBindSignalID(anEntryIdx)), aCmd);
 		}
-
-		// Report the results of the assignment
-		#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-		if( aCmd.type == eCmdType_Invalid )
-		#endif
+		else
 		{
-			std::string anExtPropName = kSignalCommandPrefix;
-			anExtPropName += " " + sPropertyPrintName + " (signal #";
-			anExtPropName += toString(keyBindSignalID(anEntryIdx)) + ")";
-			swap(sPropertyPrintName, anExtPropName);
-			reportCommandAssignment(aCmd, theCmdStr);
-			swap(sPropertyPrintName, anExtPropName);
+			sLayers.vals()[theLayerIdx].signalCommands.erase(
+				dropTo<u16>(keyBindSignalID(anEntryIdx)));
 		}
 		return;
 	}
 
-	// Check for responding to use of of "Move", "MoveTurn", and "MoveStrafe"
+	// Check for responding to use of "Move", "MoveTurn", and "MoveStrafe"
 	switch(commandWordToID(theSignalKeyName))
 	{
 	case eCmdWord_Move:
@@ -3162,26 +3150,16 @@ static void addWhenSignalCommand(
 
 		if( aBtnID != eBtn_None && aBtnID < eBtn_Num )
 		{
-			Command aCmd = stringToCommand(theCmdStr, true);
-
 			// Make the assignment - each button ID matches its signal ID
-			if( aCmd.type > eCmdType_Empty )
+			if( aCmd.type >= eCmdType_FirstValid )
 			{
-				sLayers.vals()[theLayerIdx].
-					signalCommands.setValue(dropTo<u16>(aBtnID), aCmd);
+				sLayers.vals()[theLayerIdx].signalCommands.setValue(
+					dropTo<u16>(aBtnID), aCmd);
 			}
-
-			// Report the results of the assignment
-			#ifndef INPUT_MAP_DEBUG_PRINT // only report error (empty)
-			if( aCmd.type == eCmdType_Invalid )
-			#endif
+			else
 			{
-				std::string anExtPropName = kSignalCommandPrefix;
-				anExtPropName += " " + sPropertyPrintName;
-				anExtPropName += " (signal #" + toString(aBtnID) + ")";
-				swap(sPropertyPrintName, anExtPropName);
-				reportCommandAssignment(aCmd, theCmdStr);
-				swap(sPropertyPrintName, anExtPropName);
+				sLayers.vals()[theLayerIdx].signalCommands.erase(
+					dropTo<u16>(aBtnID));
 			}
 			return;
 		}
@@ -3418,8 +3396,6 @@ static void applyControlsLayerProperty(
 
 	if( size_t aStrPos = posAfterPrefix(thePropKey, kSignalCommandPrefix) )
 	{// WHEN SIGNAL
-		sPropertyPrintName = sPropertyPrintName.substr(
-			posAfterPrefix(sPropertyPrintName, kSignalCommandPrefix));
 		addWhenSignalCommand(
 			theLayerID,
 			thePropKey.substr(aStrPos),
