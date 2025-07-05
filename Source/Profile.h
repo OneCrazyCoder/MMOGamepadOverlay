@@ -36,12 +36,6 @@ void load();
 // Returns true if user loaded a profile, false if they cancelled
 bool queryUserForProfile();
 
-// Allow user to manually apply XInput "double input" fix
-void queryUserForXInputFixPref(HWND theParentWindow);
-
-// Confirm XInput "double input" fix is still there if requested it
-void confirmXInputFix(HWND theParentWindow);
-
 // Access the profile properties
 std::string getStr(const std::string& theSection,
 				   const std::string& thePropertyName,
