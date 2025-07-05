@@ -239,10 +239,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 
 		if( !gShutdown && !hadFatalError() )
 		{
-			// Check status of XInput "double input" fix
-			if( !TargetApp::targetWindowIsActive() )
-				Profile::confirmXInputFix(WindowManager::mainHandle());
-
 			// Launch target app if requested and haven't already
 			TargetApp::autoLaunch();
 

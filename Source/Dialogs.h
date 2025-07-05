@@ -41,17 +41,6 @@ void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
 
-EResult applyXInputFix(
-	HWND theParentWindow,
-	std::string& thePath,
-	std::string& theExeName,
-	bool& use64Bit);
-EResult showXInputFixDetails(
-	HWND theParentWindow,
-	std::string& thePath,
-	std::string& theExeName,
-	bool& use64Bit);
-
 EResult editMenuCommand(std::string& theString, bool directional = false);
 
 void showError(
