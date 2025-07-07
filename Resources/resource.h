@@ -5,35 +5,36 @@
 #define IDI_ICON_MAIN                   101
 #define IDR_MENU_MAIN                   102
 #define IDR_TEXT_LICENSE                103
-#define IDR_TEXT_INI_CORE               104
-#define IDR_TEXT_INI_BASE_AOA           105
-#define IDR_TEXT_INI_BASE_MNM           106
-#define IDR_TEXT_INI_BASE_P99           107
-#define IDR_TEXT_INI_BASE_PAN           108
-#define IDR_TEXT_INI_BASE_PQ            109
-#define IDR_TEXT_INI_DEF_AOA            110
-#define IDR_TEXT_INI_DEF_MNM            111
-#define IDR_TEXT_INI_DEF_P99            112
-#define IDR_TEXT_INI_DEF_PAN            113
-#define IDR_TEXT_INI_DEF_PQ             114
-#define IDR_TEXT_INI_CUST_AOA           115
-#define IDR_TEXT_INI_CUST_MNM           116
-#define IDR_TEXT_INI_CUST_P99           117
-#define IDR_TEXT_INI_CUST_PAN           118
-#define IDR_TEXT_INI_CUST_PQ            119
-#define IDD_DIALOG_PROFILE_SELECT       120
-#define IDD_DIALOG_PROFILE_EDIT         121
-#define IDD_DIALOG_TARGET_APP           122
-#define IDD_DIALOG_LICENSE              123
-#define IDD_DIALOG_RICH_TEXT_PROMPT     124
-#define IDD_DIALOG_EDIT_COMMAND         125
-#define IDD_DIALOG_EDIT_DIR_CMD         126
-#define IDD_DIALOG_LAYOUT_SELECT        127
-#define IDD_DIALOG_LAYOUT_XY_TOOLBAR    128
-#define IDD_DIALOG_LAYOUT_XYS_TOOLBAR   129
-#define IDD_DIALOG_LAYOUT_XYWH_TOOLBAR  130
-#define IDD_DIALOG_LAYOUT_XYWHA_TOOLBAR 131
-#define IDD_DIALOG_LAYOUT_WHA_TOOLBAR   132
+#define IDR_TEXT_KNOWN_ISSUES           104
+#define IDR_TEXT_INI_CORE               105
+#define IDR_TEXT_INI_BASE_AOA           106
+#define IDR_TEXT_INI_BASE_MNM           107
+#define IDR_TEXT_INI_BASE_P99           108
+#define IDR_TEXT_INI_BASE_PAN           109
+#define IDR_TEXT_INI_BASE_PQ            110
+#define IDR_TEXT_INI_DEF_AOA            111
+#define IDR_TEXT_INI_DEF_MNM            112
+#define IDR_TEXT_INI_DEF_P99            113
+#define IDR_TEXT_INI_DEF_PAN            114
+#define IDR_TEXT_INI_DEF_PQ             115
+#define IDR_TEXT_INI_CUST_AOA           116
+#define IDR_TEXT_INI_CUST_MNM           117
+#define IDR_TEXT_INI_CUST_P99           118
+#define IDR_TEXT_INI_CUST_PAN           119
+#define IDR_TEXT_INI_CUST_PQ            120
+#define IDD_DIALOG_PROFILE_SELECT       121
+#define IDD_DIALOG_PROFILE_EDIT         122
+#define IDD_DIALOG_TARGET_APP           123
+#define IDD_DIALOG_LICENSE              124
+#define IDD_DIALOG_KNOWN_ISSUES         125
+#define IDD_DIALOG_EDIT_COMMAND         126
+#define IDD_DIALOG_EDIT_DIR_CMD         127
+#define IDD_DIALOG_LAYOUT_SELECT        128
+#define IDD_DIALOG_LAYOUT_XY_TOOLBAR    129
+#define IDD_DIALOG_LAYOUT_XYS_TOOLBAR   130
+#define IDD_DIALOG_LAYOUT_XYWH_TOOLBAR  131
+#define IDD_DIALOG_LAYOUT_XYWHA_TOOLBAR 132
+#define IDD_DIALOG_LAYOUT_WHA_TOOLBAR   133
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_CHECK_SCALE                 1002
 #define IDC_LIST_ITEMS                  1003
@@ -66,13 +67,14 @@
 #define ID_FILE_EXIT                    40002
 #define ID_EDIT_UILAYOUT                40003
 #define ID_HELP_LICENSE                 40004
+#define ID_HELP_KNOWN_ISSUES            40005
 
 // Next default values for new objects
 //
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        133
-#define _APS_NEXT_COMMAND_VALUE         40005
+#define _APS_NEXT_RESOURCE_VALUE        134
+#define _APS_NEXT_COMMAND_VALUE         40006
 #define _APS_NEXT_CONTROL_VALUE         1029
 #define _APS_NEXT_SYMED_VALUE           101
 #endif

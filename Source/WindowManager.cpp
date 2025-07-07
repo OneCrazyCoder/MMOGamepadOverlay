@@ -233,6 +233,9 @@ static LRESULT CALLBACK mainWindowProc(
 		case ID_HELP_LICENSE:
 			Dialogs::showLicenseAgreement(theWindow);
 			return 0;
+		case ID_HELP_KNOWN_ISSUES:
+			Dialogs::showKnownIssues(theWindow);
+			return 0;
 		}
 		break;
 
@@ -1130,8 +1133,6 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 
 		Profile::setVariable("W", toString(sTargetSize.cx), true);
 		Profile::setVariable("H", toString(sTargetSize.cy), true);
-		Profile::setVariable("CX", toString(sTargetSize.cx / 2), true);
-		Profile::setVariable("CY", toString(sTargetSize.cy / 2), true);
 
 		const int aUIScaleBaseHeight =
 			Profile::getInt("System", "UIScaleBaseHeight");

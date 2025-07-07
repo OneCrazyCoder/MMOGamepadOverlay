@@ -1,0 +1,67 @@
+{\rtf1\ansi\ansicpg1252\deff0\deflang1033
+{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+\viewkind4\uc1\pard\sa200\sl276\slmult1\f0\fs22\lang9
+
+{\b\fs30 Game-Specific issues for gamepad use\par}
+\fs22 The below are known issues in the game itself - not this app - that can be problematic for gamepad use. It's possible they may have been fixed by now.\par
+
+----------------------------\par
+
+<MnMServerScreen,
+{\b\fs26 Server and Character Select Screen\par}
+\fs22 {\i Monsters & Memories} responds to controller input in the server / character selection / character creation screens, even though it doesn't officially support gamepads. Specifically, pressing the bottom face button ({\b A} on XB or {\b X} on PS) can cause some UI buttons to activate twice - once from the gamepad-to-mouse click sent by this app, and once from the game itself detecting the button press directly. Fortunately, this will generally only be problematic during character creation.\par
+
+{\b Workarounds:}\line
+\bullet  Use the regular mouse and keyboard when creating a character.\line
+\bullet  Use {\b HidHide} to block {\i Monsters & Memories} from detecting controllers entirely. Learn more at: https://docs.nefarius.at/projects/HidHide/Simple-Setup-Guide/\par
+
+----------------------------\par>
+
+<MnMLootWindow,
+{\b\fs26 Loot Window Position\par}
+\fs22 In {\i Monsters & Memories}, the loot window that appears when looting enemies does not follow the game's own position settings correctly (acknowledged and likely eventually fixed by the devs). As a result, the app can't automatically align the mouse to it the way it does for other important windows.\par
+
+This app uses "hotspots" to help with mouse accuracy — for the loot window, this means snapping the cursor to the first item slot automatically and letting you use the d-pad to quickly jump between slots to loot. Due to this issue, these hotspots won't automatically be moved to match the actual loot window position in the game.\par
+
+{\b Workaround:}\line
+{\b 1.} Kill an enemy and open the loot window.\line
+{\b 2.} Move the window near the top-left of the screen (seems to work more consistently there).\line
+{\b 3.} Lock the window in place (via right-click menu).\line
+{\b 4.} Use this app's UI Layout Editor to manually align the "LootWindow" hotspot with the window.\par
+
+----------------------------\par>
+
+
+<AoAMoveWithX,
+{\b\fs26 Gamepad buttons cause unexpected actions\par}
+\fs22 In {\i Adrullan Online Adventures}, the game reacts to gamepad input even though it doesn't officially support controllers. Specifically, pressing the bottom face button ({\b A} on XB or {\b X} on PS) can cause strange behavior such as changing camera zoom or even making your character move forward.\par
+
+Unfortunately, this app can't prevent the game from also responding to controller input directly.\par
+
+{\b Workaround:}\par
+Use {\b HidHide} to block the game from detecting your controller, so it only responds to the keyboard and mouse input sent by this app. Setup is quick and free:\par
+https://docs.nefarius.at/projects/HidHide/Simple-Setup-Guide/\par
+
+----------------------------\par>
+
+
+<AoAMouseLook,
+{\b\fs26 Camera Stops Responding to Right Stick\par}
+\fs22 In the default control scheme for {\i Adrullan Online Adventures}, camera control with the right stick works by simulating a click-and-hold of the right mouse button - the same way you'd normally activate "mouse look" mode with a real mouse.\par
+
+However, sometimes the game randomly stops responding to the right mouse button being held down. Once this happens, it usually stays stuck that way unless manually reset.\par
+
+{\b Workaround:}\par
+Tap the buttons assigned to {\b left-click} and {\b right-click} a few times (ideally over an empty part of the screen) in cursor mode, then try starting camera mode again. This typically gets mouse look working properly again (cursor will disappear and right stick will control camera).\par
+
+In the default control scheme left-click is mapped to the bottom face button ({\b A} on XB or {\b X} on PS), and right-click is mapped to R2.\par
+
+----------------------------\par>
+
+<NONE,
+{\b\fs26 No known issues found.\par}
+>
+
+\fs22To view this information again later, go to {\b Help -> Known Game Issues} from the menu in the app window.\par
+
+}

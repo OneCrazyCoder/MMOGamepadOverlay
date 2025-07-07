@@ -6,6 +6,7 @@
 
 #include "Gamepad.h"
 #include "InputDispatcher.h" // forceReleaseHeldKeys()
+#include "Profile.h" // getKnownIssuesRTF()
 #include "Resources/resource.h"
 #include "TargetApp.h"
 #include "WindowManager.h"
@@ -55,15 +56,6 @@ struct ProfileSelectDialogData
 		{}
 };
 
-struct PromptDialogData
-{
-	std::string prompt;
-	std::wstring title;
-	std::wstring okLabel;
-	std::wstring cancelLabel;
-	std::wstring retryLabel;
-};
-
 struct ZERO_INIT(RTF_StreamData)
 {
 	const char* buffer;
@@ -95,27 +87,6 @@ static void setDialogFocus(HWND hdlg, HWND hwndControl)
 static void setDialogFocus(HWND hdlg, int theID)
 {
 	setDialogFocus(hdlg, GetDlgItem(hdlg, theID));
-}
-
-
-static DWORD CALLBACK rtfStreamCallback(
-	DWORD_PTR theCookie,
-	LPBYTE theBuffer,
-	LONG theBytesToWrite,
-	LONG* theBytesWritten)
-{
-	RTF_StreamData* theData = (RTF_StreamData*)theCookie;
-	DBG_ASSERT(theData);
-
-	LONG aCopyByteCount = min(theBytesToWrite, theData->remaining);
-	if( aCopyByteCount > 0 )
-	{
-		memcpy(theBuffer, theData->buffer, aCopyByteCount);
-		theData->buffer += aCopyByteCount;
-		theData->remaining -= aCopyByteCount;
-	}
-	*theBytesWritten = aCopyByteCount;
-	return 0;
 }
 
 
@@ -644,6 +615,93 @@ static INT_PTR CALLBACK licenseDialogProc(
 }
 
 
+static DWORD CALLBACK rtfStreamCallback(
+	DWORD_PTR theCookie,
+	LPBYTE theBuffer,
+	LONG theBytesToWrite,
+	LONG* theBytesWritten)
+{
+	RTF_StreamData* theData = (RTF_StreamData*)theCookie;
+	DBG_ASSERT(theData);
+
+	LONG aCopyByteCount = min(theBytesToWrite, theData->remaining);
+	if( aCopyByteCount > 0 )
+	{
+		memcpy(theBuffer, theData->buffer, aCopyByteCount);
+		theData->buffer += aCopyByteCount;
+		theData->remaining -= aCopyByteCount;
+	}
+	*theBytesWritten = aCopyByteCount;
+	return 0;
+}
+
+
+static INT_PTR CALLBACK knownIssuesDialogProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		{// Initialize contents
+			HWND hRichEdit = GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
+			SendMessage(hRichEdit, EM_AUTOURLDETECT, TRUE, 0);
+			RTF_StreamData aRTF_StreamData;
+			const std::string& aStr = Profile::getKnownIssuesRTF();
+			aRTF_StreamData.buffer = aStr.c_str();
+			aRTF_StreamData.remaining = dropTo<LONG>(aStr.size()+1);
+			EDITSTREAM es = { 0 };
+			es.dwCookie = (DWORD_PTR)&aRTF_StreamData;
+			es.pfnCallback = &rtfStreamCallback;
+			SendMessage(hRichEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+			SendMessage(hRichEdit, EM_SETEVENTMASK, 0, ENM_LINK);
+		}
+		return TRUE;
+
+	case WM_NOTIFY:
+		{// Make URL's open browser and follow link when clicked
+			NMHDR* pNMHDR = (NMHDR*)lParam;
+			if( pNMHDR->code == EN_LINK )
+			{
+				ENLINK* pENLink = (ENLINK*)lParam;
+				if( pENLink->msg == WM_LBUTTONDOWN )
+				{
+					// Get the clicked text range
+					TCHAR szUrl[512] = {0};
+					TEXTRANGE tr;
+					tr.chrg = pENLink->chrg;
+					tr.lpstrText = szUrl;
+
+					HWND hRichEdit =
+						GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
+					SendMessage(hRichEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+
+					// Launch browser
+					ShellExecute(NULL, TEXT("open"),
+						szUrl, NULL, NULL, SW_SHOWNORMAL);
+				}
+			}
+		}
+		break;
+
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+		case IDCANCEL:
+			EndDialog(theDialog, LOWORD(wParam));
+			return TRUE;
+		}
+		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
+		break;
+	}
+
+	return FALSE;
+}
+
+
 static INT_PTR CALLBACK editMenuCommandProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -690,63 +748,6 @@ static INT_PTR CALLBACK editMenuCommandProc(
 	}
 
 	return (INT_PTR)FALSE;
-}
-
-
-static INT_PTR CALLBACK richTextPromptDialogProc(
-	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
-{
-	switch(theMessage)
-	{
-	case WM_INITDIALOG:
-		if( lParam )
-		{// Initialize contents
-			PromptDialogData* theData = reinterpret_cast<PromptDialogData*>(lParam);
-
-			// Set title of dialog
-			SetWindowText(theDialog, theData->title.c_str());
-
-			// Set button labels
-			SetDlgItemText(theDialog, IDOK, theData->okLabel.c_str());
-			SetDlgItemText(theDialog, IDCANCEL, theData->cancelLabel.c_str());
-			SetDlgItemText(theDialog, IDRETRY, theData->retryLabel.c_str());
-
-			// Hide retry buton if has no label
-			if( theData->retryLabel.empty() )
-				ShowWindow(GetDlgItem(theDialog, IDRETRY), SW_HIDE);
-
-			// Initialize rich edit control
-			HWND hRichEdit = GetDlgItem(theDialog, IDC_EDIT_READ_ONLY_TEXT);
-			DBG_ASSERT(hRichEdit);
-			EDITSTREAM es = { 0 };
-			RTF_StreamData aRTF_StreamData;
-			aRTF_StreamData.buffer = theData->prompt.c_str();
-			aRTF_StreamData.remaining = (LONG)theData->prompt.size();
-			es.dwCookie = (DWORD_PTR)&aRTF_StreamData;
-			es.pfnCallback = &rtfStreamCallback;
-			SendMessage(hRichEdit,
-				EM_STREAMIN, SF_RTF | SF_UNICODE,
-				(LPARAM)(&es));
-		}
-		return TRUE;
-
-	case WM_COMMAND:
-		switch(LOWORD(wParam))
-		{
-		case IDOK:
-		case IDCANCEL:
-		case IDRETRY:
-			EndDialog(theDialog, LOWORD(wParam));
-			return TRUE;
-		}
-		break;
-
-	case WM_DEVICECHANGE:
-		Gamepad::checkDeviceChange();
-		break;
-	}
-
-	return FALSE;
 }
 
 
@@ -1217,6 +1218,35 @@ EResult showLicenseAgreement(HWND theParentWindow)
 }
 
 
+void showKnownIssues(HWND theParentWindow)
+{
+	TargetApp::prepareForDialog();
+	InputDispatcher::forceReleaseHeldKeys();
+
+	HMODULE hRichEdit = LoadLibrary(L"Riched20.dll");
+
+	HWND hTempParentWindow = NULL;
+	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
+	{// Create a temporary invisible top-most window as dialog parent
+		hTempParentWindow = theParentWindow = CreateWindowEx(
+			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
+			NULL, NULL, GetModuleHandle(NULL), NULL);
+	}
+
+	DialogBoxParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_KNOWN_ISSUES),
+		theParentWindow,
+		knownIssuesDialogProc,
+		0);
+
+	if( hTempParentWindow )
+		DestroyWindow(hTempParentWindow);
+	mainLoopTimeSkip();
+	FreeLibrary(hRichEdit);
+}
+
+
 EResult editMenuCommand(std::string& theString, bool directional)
 {
 	const std::string anOriginalString = theString;
@@ -1358,50 +1388,6 @@ EResult yesNoPrompt(
 
 	mainLoopTimeSkip();
 	return result;
-}
-
-
-EResult richTextPrompt(
-	HWND theParentWindow,
-	const std::string& theRTFPrompt,
-	const std::string& theTitle,
-	const std::string& theOkLabel,
-	const std::string& theCancelLabel,
-	const std::string& theRetryLabel)
-{
-	HWND hTempParentWindow = NULL;
-	if( !theParentWindow && TargetApp::targetWindowIsTopMost() )
-	{// Create a temporary invisible top-most window as dialog parent
-		hTempParentWindow = theParentWindow = CreateWindowEx(
-			WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0,
-			NULL, NULL, GetModuleHandle(NULL), NULL);
-	}
-
-	PromptDialogData aDataStruct;
-	aDataStruct.title = widen(theTitle);
-	aDataStruct.prompt = theRTFPrompt;
-	aDataStruct.okLabel = widen(theOkLabel);
-	aDataStruct.cancelLabel = widen(theCancelLabel);
-	aDataStruct.retryLabel = widen(theRetryLabel);
-
-	HMODULE hRichEdit = LoadLibrary(L"Riched20.dll");
-	INT_PTR aPromptResult = DialogBoxParam(
-		GetModuleHandle(NULL),
-		MAKEINTRESOURCE(IDD_DIALOG_RICH_TEXT_PROMPT),
-		theParentWindow,
-		richTextPromptDialogProc,
-		reinterpret_cast<LPARAM>(&aDataStruct));
-
-	// cleanup
-	if( hTempParentWindow )
-		DestroyWindow(hTempParentWindow);
-	mainLoopTimeSkip();
-	FreeLibrary(hRichEdit);
-
-	return
-		aPromptResult == IDOK		? eResult_Ok :
-		aPromptResult == IDRETRY	? eResult_Retry :
-		/*otherwise*/				  eResult_Cancel;
 }
 
 } // Dialogs
