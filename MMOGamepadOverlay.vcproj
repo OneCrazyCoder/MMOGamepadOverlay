@@ -525,6 +525,10 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Resources\KnownIssues.rtf"
+			>
+		</File>
+		<File
 			RelativePath=".\Source\LayoutEditor.cpp"
 			>
 		</File>
@@ -613,11 +617,11 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Resources\XInputStub\x64\Release\xinput1_3.dll"
+			RelativePath=".\Resources\XInputStub\Win32\Release\xinput1_3.dll"
 			>
 		</File>
 		<File
-			RelativePath=".\Resources\XInputStub\Win32\Release\xinput1_3.dll"
+			RelativePath=".\Resources\XInputStub\x64\Release\xinput1_3.dll"
 			>
 		</File>
 		<File

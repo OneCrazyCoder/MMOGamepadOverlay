@@ -53,6 +53,7 @@ END
 //
 
 IDR_TEXT_LICENSE        TEXT                    "License.txt"
+IDR_TEXT_KNOWN_ISSUES   TEXT                    "KnownIssues.rtf"
 IDR_TEXT_INI_CORE       TEXT                    "Core.ini"
 IDR_TEXT_INI_BASE_AOA   TEXT                    "Base-AOA.ini"
 IDR_TEXT_INI_BASE_MNM   TEXT                    "Base-MnM.ini"
@@ -121,14 +122,13 @@ BEGIN
     LTEXT           "By clicking ""Accept"", you acknowledge that you have read, understood, and agree to the above. If you do not, click ""Decline"" to exit the application.",IDC_STATIC_PROMPT,7,110,286,18,WS_BORDER
 END
 
-IDD_DIALOG_RICH_TEXT_PROMPT DIALOGEX 0, 0, 254, 80
+IDD_DIALOG_KNOWN_ISSUES DIALOGEX 0, 0, 378, 249
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Known Game Issues"
 FONT 10, "Segoe UI", 400, 0, 0x0
 BEGIN
-    DEFPUSHBUTTON   "OK",IDOK,135,59,54,14
-    PUSHBUTTON      "Cancel",IDCANCEL,193,59,54,14
-    PUSHBUTTON      "Retry",IDRETRY,7,59,54,14
-    CONTROL         "",IDC_EDIT_READ_ONLY_TEXT,"RichEdit20A",ES_MULTILINE | ES_READONLY | WS_VSCROLL,7,7,240,50,WS_EX_TRANSPARENT
+    DEFPUSHBUTTON   "OK",IDOK,317,228,54,14
+    CONTROL         "",IDC_EDIT_READ_ONLY_TEXT,"RichEdit20A",ES_MULTILINE | ES_READONLY | WS_BORDER | WS_VSCROLL,7,7,364,218
 END
 
 IDD_DIALOG_EDIT_COMMAND DIALOGEX 0, 0, 295, 79
@@ -301,12 +301,12 @@ BEGIN
         BOTTOMMARGIN, 143
     END
 
-    IDD_DIALOG_RICH_TEXT_PROMPT, DIALOG
+    IDD_DIALOG_KNOWN_ISSUES, DIALOG
     BEGIN
         LEFTMARGIN, 7
-        RIGHTMARGIN, 247
+        RIGHTMARGIN, 371
         TOPMARGIN, 7
-        BOTTOMMARGIN, 73
+        BOTTOMMARGIN, 242
     END
 
     IDD_DIALOG_EDIT_COMMAND, DIALOG
@@ -444,6 +444,7 @@ BEGIN
     POPUP "Help"
     BEGIN
         MENUITEM "License",                     ID_HELP_LICENSE
+        MENUITEM "Known Game Issues",           ID_HELP_KNOWN_ISSUES
     END
 END
 

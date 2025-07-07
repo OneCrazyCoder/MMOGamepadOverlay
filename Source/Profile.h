@@ -36,6 +36,9 @@ void load();
 // Returns true if user loaded a profile, false if they cancelled
 bool queryUserForProfile();
 
+// Get rtf string describing known issues with current game
+const std::string& getKnownIssuesRTF();
+
 // Access the profile properties
 std::string getStr(const std::string& theSection,
 				   const std::string& thePropertyName,

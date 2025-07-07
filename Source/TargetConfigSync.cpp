@@ -1316,7 +1316,7 @@ static bool setFetchValueFromDataSource(
 			theBuilder.valueFormatStrings[theDestValueSetSubType];
 		std::pair<std::string::size_type, std::string::size_type> aTagCoords =
 			findStringTag(aConfigDataPath);
-		while(aTagCoords.first != std::string::npos )
+		while(aTagCoords.first != std::string::npos)
 		{
 			const std::string& aTag = condense(
 				aConfigDataPath.substr(

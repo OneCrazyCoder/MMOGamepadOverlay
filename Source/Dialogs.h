@@ -40,6 +40,7 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
+void showKnownIssues(HWND theParentWindow = NULL);
 
 EResult editMenuCommand(std::string& theString, bool directional = false);
 
@@ -55,12 +56,5 @@ EResult yesNoPrompt(
 	const std::string& thePrompt,
 	const std::string& theTitle,
 	bool skipIfTargetAppRunning = false);
-EResult richTextPrompt(
-	HWND theParentWindow,
-	const std::string& theRTFPrompt,
-	const std::string& theTitle,
-	const std::string& theOkLabel,
-	const std::string& theCancelLabel,
-	const std::string& theRetryLabel = "");
 
 } // Dialogs
