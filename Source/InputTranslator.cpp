@@ -368,9 +368,11 @@ static void	loadCommandsForCurrentLayers()
 		const int aLayerID = *itr;
 		const InputMap::ButtonActionsMap& aBtnCmdsMap =
 			InputMap::buttonCommandsForLayer(aLayerID);
+		const InputMap::ButtonRemap& aBtnRemap =
+			InputMap::buttonRemap(aLayerID);
 		for(int i = 0, end = intSize(aBtnCmdsMap.size()); i < end; ++i)
 		{
-			const EButton aBtnID = aBtnCmdsMap[i].first;
+			const EButton aBtnID = aBtnRemap[aBtnCmdsMap[i].first];
 			if( aBtnID == eBtn_None )
 				continue;
 			const InputMap::ButtonActions& aBtnActions = aBtnCmdsMap[i].second;
