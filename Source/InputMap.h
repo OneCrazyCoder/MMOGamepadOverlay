@@ -22,6 +22,13 @@ struct ButtonActions
 	int holdTimeForAction; // -1 == not specified (use default)
 	ButtonActions() : holdTimeForAction(-1) {}
 };
+struct ButtonRemap : public std::vector<EButton>
+{
+	ButtonRemap() : std::vector<EButton>(eBtn_Num)
+	{ for(int i = 0; i < eBtn_Num; ++i) (*this)[i] = EButton(i); }
+	ButtonRemap(const ButtonRemap& rhs) : std::vector<EButton>(rhs) {}
+	private: void resize(size_t);
+};
 typedef VectorMap<EButton, ButtonActions> ButtonActionsMap;
 typedef VectorMap<u16, Command> SignalActionsMap;
 
@@ -48,6 +55,7 @@ int offsetKeyBindArrayIndex(
 // CONTROLS LAYERS
 const ButtonActionsMap& buttonCommandsForLayer(int theLayerID);
 const SignalActionsMap& signalCommandsForLayer(int theLayerID);
+const ButtonRemap& buttonRemap(int theLayerID);
 // Returns how long given button needs to be held to trigger eBtnAct_Hold
 int commandHoldTime(int theLayerID, EButton theButton);
 int parentLayer(int theLayerID);

@@ -86,6 +86,7 @@ enum EPropertyType
 	ePropType_Parent,
 	ePropType_Priority,
 	ePropType_AutoLayers,
+	ePropType_ButtonSwap,
 	ePropType_Auto,
 	ePropType_Back,
 	ePropType_Type,
@@ -131,6 +132,9 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "AutoLayer",		ePropType_AutoLayers	},
 				{ "AutoLayers",		ePropType_AutoLayers	},
 				{ "AddLayers",		ePropType_AutoLayers	},
+				{ "ButtonSwap",		ePropType_ButtonSwap	},
+				{ "ButtonSwaps",	ePropType_ButtonSwap	},
+				{ "ButtonRemap",	ePropType_ButtonSwap	},
 				{ "Auto",			ePropType_Auto			},
 				{ "Back",			ePropType_Back			},
 				{ "Type",			ePropType_Type			},
@@ -239,6 +243,7 @@ struct ZERO_INIT(ControlsLayer)
 	EMouseMode mouseMode;
 	u16 parentLayer;
 	u16 comboParentLayer;
+	u16 buttonRemapID;
 	s8 priority;
 };
 
@@ -285,6 +290,7 @@ static StringToValueMap<ControlsLayer> sLayers;
 static VectorMap<std::pair<u16, u16>, u16> sComboLayers;
 static StringToValueMap<Menu> sMenus;
 static StringToValueMap<HUDElement> sHUDElements;
+static std::vector<ButtonRemap> sButtonRemaps;
 static std::vector<std::string> sParsedString(16);
 static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
@@ -1678,7 +1684,7 @@ static Command wordsToSpecialCommand(
 	// Find a command by checking for specific key words + allowed related
 	// words (but no extra words beyond that, besides fillers)
 
-	// "= Skip/Empty/Null/Blank"
+	// "= Skip/Empty/Null/Blank/None"
 	if( keyWordsFound.test(eCmdWord_Skip) && keyWordsFound.count() == 1)
 	{
 		result.type = eCmdType_Empty;
@@ -3202,7 +3208,7 @@ static void applyControlsLayerProperty(
 					aMouseMode == eMouseMode_AutoLook ? "Auto-Look" :
 					aMouseMode == eMouseMode_AutoRunLook ? "Auto-Run-Look" :
 					aMouseMode == eMouseMode_Hide ? "Hide" :
-					/*otherwise*/ "Default (use other laye)" );
+					/*otherwise*/ "Default (use other layer)" );
 			}
 		}
 		return;
@@ -3306,6 +3312,106 @@ static void applyControlsLayerProperty(
 				}
 			}
 			sParsedString.clear();
+		}
+		return;
+
+	case ePropType_ButtonSwap:
+		{
+			if( thePropVal.empty() )
+			{
+				theLayer.buttonRemapID = 0; // use parent's map
+				return;
+			}
+			DBG_ASSERT(sParsedString.empty());
+			sanitizeSentence(thePropVal, sParsedString);
+			ButtonRemap aBtnRemap;
+			std::string aBtnName[2];
+			EButton aBtnSwapID[2];
+			int aBtnNum = 0;
+			bool hadAtLeastOneSwap = false;
+			bool hadError = false;
+			for(int i = 0, end = intSize(sParsedString.size()); i < end; ++i)
+			{
+				switch(commandWordToID(sParsedString[i]))
+				{
+				case eCmdWord_Ignored:
+				case eCmdWord_Filler:
+				case eCmdWord_With:
+					break;
+				case eCmdWord_Skip:
+					if( aBtnNum == 0 && !hadAtLeastOneSwap )
+					{
+						theLayer.buttonRemapID = 0; // use parent's map
+						sParsedString.clear();
+						return;
+					}
+					hadError = true;
+					break;
+				case eCmdWord_Nothing:
+					if( aBtnNum == 0 && !hadAtLeastOneSwap )
+					{
+						theLayer.buttonRemapID = 1; // use default map
+						sParsedString.clear();
+						mapDebugPrint("%s: Disabling button swaps\n",
+							sSectionPrintName.c_str());
+						return;
+					}
+					hadError = true;
+					break;
+				case eCmdWord_Unknown:
+				default:
+					aBtnName[aBtnNum] += sParsedString[i];
+					aBtnSwapID[aBtnNum] = buttonNameToID(aBtnName[aBtnNum]);
+					if( aBtnSwapID[aBtnNum] != eBtn_Num )
+					{
+						if( aBtnNum == 1 )
+						{// We have a swap!
+							swap(aBtnRemap[aBtnSwapID[0]], aBtnRemap[aBtnSwapID[1]]);
+							mapDebugPrint("%s: Swapping button assignments for "
+								"'%s' and '%s'\n",
+								sSectionPrintName.c_str(),
+								aBtnName[0].c_str(), aBtnName[1].c_str());
+							// Prepare for more swaps
+							aBtnName[0].clear();
+							aBtnName[1].clear();
+							hadAtLeastOneSwap = true;
+							aBtnNum = 0;
+						}
+						else
+						{
+							aBtnNum = 1;
+						}
+					}
+					else
+					{
+						hadError = true;
+					}
+					break;
+				}
+			}
+			sParsedString.clear();
+
+			if( hadError || aBtnNum != 0 )
+			{
+				logError("Error parsing '%s' Button Swap property '%s'!",
+					sSectionPrintName.c_str(),
+					thePropVal.c_str());
+			}
+			else if( hadAtLeastOneSwap )
+			{
+				for(int i = 0, end = intSize(sButtonRemaps.size());
+					i < end; ++i)
+				{
+					if( sButtonRemaps[i] == aBtnRemap )
+					{
+						theLayer.buttonRemapID = dropTo<u16>(i) + 1;
+						sButtonRemaps.push_back(aBtnRemap);
+						return;
+					}
+				}
+				sButtonRemaps.push_back(aBtnRemap);
+				theLayer.buttonRemapID = dropTo<u16>(sButtonRemaps.size());
+			}
 		}
 		return;
 
@@ -3664,6 +3770,7 @@ void loadProfile()
 	sComboLayers.clear();
 	sMenus.clear();
 	sHUDElements.clear();
+	sButtonRemaps.resize(1);
 	sParsedString.clear();
 
 	// Allocate hotspot arrays
@@ -3714,6 +3821,7 @@ void loadProfile()
 
 	// Allocate controls layers
 	sLayers.setValue(kMainLayerSectionName, ControlsLayer());
+	sLayers.vals()[0].buttonRemapID = 1; // Set base scheme to have default map
 	Profile::allSections().findAllWithPrefix(
 		kLayerPrefix, createEmptyLayer);
 	// sLayers can grow during this loop from creation of interim combo layers!
@@ -3904,6 +4012,19 @@ const SignalActionsMap& signalCommandsForLayer(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].signalCommands;
+}
+
+
+const ButtonRemap& buttonRemap(int theLayerID)
+{
+	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
+	const int aButtonRemapID = sLayers.vals()[theLayerID].buttonRemapID;
+	DBG_ASSERT(theLayerID != 0 || aButtonRemapID > 0);
+	if( !aButtonRemapID )
+		return buttonRemap(parentLayer(theLayerID));
+
+	return sButtonRemaps[aButtonRemapID-1];
+
 }
 
 
