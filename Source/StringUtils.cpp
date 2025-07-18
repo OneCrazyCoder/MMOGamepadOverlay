@@ -247,52 +247,52 @@ std::string replaceAllStr(const std::string& theString, const char* oldStr, cons
 	return result;
 }
 
-bool wildcardMatch(
+std::wstring wildcardMatch(
 	const wchar_t* theString,
-	const wchar_t* thePattern,
-	std::vector<std::wstring>* out)
+	const wchar_t* thePattern)
 {
 	const wchar_t* aLastStar = NULL;
 	const wchar_t* aLastMatch = NULL;
+	std::wstring result;
 
-	bool newMatchStarted = false;
 	while(*theString)
 	{
-		if( *thePattern == '*' )
+		if( *thePattern == L'*' )
 		{
 			aLastStar = thePattern++;
 			aLastMatch = theString;
-			newMatchStarted = true;
+			result.push_back(L'*');
 		}
-		else if( towupper(*theString) == towupper(*thePattern) )
+		else if( ::towupper(*theString) == ::towupper(*thePattern) )
 		{
 			++theString;
 			++thePattern;
 		}
 		else if( aLastStar )
 		{
-			if( out )
-			{
-				if( newMatchStarted )
-					out->push_back(L"");
-				out->back().push_back(towupper(*aLastMatch));
-				newMatchStarted = false;
-			}
+			result.push_back(*aLastMatch);
 			thePattern = aLastStar + 1;
 			++aLastMatch;
 			theString = aLastMatch;
 		}
 		else
 		{
-			return false;
+			result.clear();
+			return result;
 		}
 	}
 
 	// Trailing *'s
-	while(*thePattern == '*')
+	while(*thePattern == L'*')
+	{
+		result.push_back(L'*');
 		++thePattern;
+	}
 
-	return *thePattern == '\0';
+	if( *thePattern != L'\0' )
+		result.clear();
+
+	return result;
 }
 
 

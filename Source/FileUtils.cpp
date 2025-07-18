@@ -233,6 +233,25 @@ std::wstring getTempFilePathFor(const std::wstring& theFileToReplace)
 }
 
 
+FILETIME getFileLastModTime(const std::string& theFilePath)
+{
+	return getFileLastModTime(widen(theFilePath));
+}
+
+
+FILETIME getFileLastModTime(const std::wstring& theFilePath)
+{
+	WIN32_FILE_ATTRIBUTE_DATA aFileAttr;
+	if( GetFileAttributesEx(theFilePath.c_str(),
+			GetFileExInfoStandard, &aFileAttr) )
+	{
+		return aFileAttr.ftLastWriteTime;
+	}
+
+	return FILETIME();
+}
+
+
 bool writeResourceToFile(
 	WORD theResID,
 	const wchar_t* theResType,
