@@ -30,10 +30,10 @@ std::string condense(const std::string& theString);
 std::string replaceChar(const std::string& theString, char oldChar, char newChar);
 // Replace all instances of a specific string with a different one
 std::string replaceAllStr(const std::string& theString, const char* oldStr, const char* newStr);
-// Checks if a wide string matches a pattern using *'s as wildcards (case-insensitive)
-// Each non-empty sub-string that was matched to a * is added to 'out' vector (uppercase)
-bool wildcardMatch(const wchar_t* theString, const wchar_t* thePattern,
-				   std::vector<std::wstring>* out = null);
+// Checks if a string matches a pattern using *'s as wildcards (case-insensitive)
+// Result is empty if none found, or contains the sub-strings that matched with
+// each '*' character (with a '*' in result for start of each matched sub-string).
+std::wstring wildcardMatch(const wchar_t* theString, const wchar_t* thePattern);
 
 // File/path utilities (works fine with UTF8-encoding strings)
 std::string getFileName(const std::string& thePath);

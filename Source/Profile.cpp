@@ -403,7 +403,7 @@ static void setPropertyInINI(
 		std::ios::binary | std::ios::trunc);
 	if( !aTmpFile.is_open() )
 	{
-		logError("Could not create temp file %s", narrow(aTmpPath).c_str());
+		logError("Could not create temp file %ls", aTmpPath.c_str());
 		aFile.close();
 		return;
 	}

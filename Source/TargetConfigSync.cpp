@@ -127,6 +127,16 @@ static const int kValueSetLastIdx[] =
 };
 DBG_CTASSERT(ARRAYSIZE(kValueSetLastIdx) == eValueSetType_Num);
 
+static HKEY getRootKeyHandle(const std::string& root)
+{
+	if( root == "HKEY_LOCAL_MACHINE" )	return HKEY_LOCAL_MACHINE;
+	if( root == "HKEY_CURRENT_USER" )	return HKEY_CURRENT_USER;
+	if( root == "HKEY_CLASSES_ROOT" )	return HKEY_CLASSES_ROOT;
+	if( root == "HKEY_CURRENT_CONFIG" )	return HKEY_CURRENT_CONFIG;
+	if( root == "HKEY_USERS" )			return HKEY_USERS;
+	return null;
+}
+
 static EValueFunction valueFuncNameToID(const std::string& theName)
 {
 	struct NameToEnumMapper
@@ -235,32 +245,27 @@ struct ZERO_INIT(DataSource)
 	ValueLinkMap values;
 	EConfigDataFormat format;
 	EDataSourceType type;
-	union { int fileID; int regValID; };
-};
-
-struct ZERO_INIT(ConfigFile)
-{
-	std::wstring pathW;
+	std::string pathPattern;
 	FILETIME lastModTime;
+	HKEY hKeyToRead;
+	std::wstring pathToRead;
+	std::vector<BYTE> dataCache;
+	bool usesWildcards;
 };
 
 struct ZERO_INIT(ConfigFileFolder)
 {
 	HANDLE hChangedSignal;
-	std::vector<u16> sourceIDs;
-};
-
-struct ZERO_INIT(SystemRegistryValue)
-{
-	HKEY hKey;
-	std::wstring valueNameW;
+	std::vector<u16> dataSourceIDs;
+	bool recursiveCheckNeeded;
 };
 
 struct ZERO_INIT(SystemRegistryKey)
 {
 	HKEY hKey;
 	HANDLE hChangedSignal;
-	std::vector<u16> sourceIDs;
+	std::vector<u16> dataSourceIDs;
+	bool recursiveCheckNeeded;
 };
 
 // Data used during parsing/building the sync links but deleted once done
@@ -275,6 +280,7 @@ struct TargetConfigSyncBuilder
 };
 
 // Forward declares
+class ConfigDataFinder;
 class ConfigDataReader;
 class ConfigDataParser;
 
@@ -283,19 +289,20 @@ class ConfigDataParser;
 // Static Variables
 //-----------------------------------------------------------------------------
 
-static std::vector<ConfigFileFolder> sFolders;
-static std::vector<ConfigFile> sFiles;
-static std::vector<SystemRegistryKey> sRegKeys;
-static std::vector<SystemRegistryValue> sRegVals;
 static std::vector<DataSource> sDataSources;
+static std::vector<ConfigFileFolder> sFolders;
+static std::vector<SystemRegistryKey> sRegKeys;
 static std::vector<SyncVariable> sVariables;
 static std::vector<double> sValues;
 static std::vector<u16> sValueSets;
 static std::vector<std::wstring> sCurrWildcardMatches;
 static std::vector<std::wstring> sBestWildcardMatches;
 static std::vector<std::wstring> sLastReadWildcardMatches;
-static BitVector<32> sChangedDataSources;
-static BitVector<64> sChangedValueSets;
+static BitVector<32> sDataSourcesToCheck;
+static BitVector<32> sDataSourcesToRead;
+static BitVector<32> sDataSourcesToReCheck;
+static BitVector<64> sValueSetsChanged;
+static ConfigDataFinder* sFinder;
 static ConfigDataReader* sReader;
 static ConfigDataParser* sParser;
 static bool sInvertAxis[eValueSetSubType_Num];
@@ -362,7 +369,7 @@ protected:
 			const ValueLink& aValueLink =
 				sDataSources[mDataSourceID].values.vals()[aValueLinkID];
 			sValues[aValueLink.valueIdx] = doubleFromString(theValue);
-			sChangedValueSets.set(aValueLink.setIdx);
+			sValueSetsChanged.set(aValueLink.setIdx);
 			mUnfound.reset(aValueLinkID);
 			syncDebugPrint("Read path %s value as %f\n",
 				thePath.c_str(), sValues[aValueLink.valueIdx]);
@@ -747,22 +754,30 @@ public:
 class ConfigDataReader
 {
 public:
-	ConfigDataReader()
+	ConfigDataReader(int theDataSourceID)
 		:
+		mDataSourceID(theDataSourceID),
 		mDoneReading(false),
-		mSourceWasBusy(false)
-	{}
+		mSourceWasBusy(false),
+		mErrorEncountered(false)
+	{
+	}
+
 	virtual ~ConfigDataReader() {}
 
 	virtual std::string readNextChunk() = 0;
 	virtual void reportResults() = 0;
 
-	bool done() const { return mDoneReading; }
+	bool done() const { return mDoneReading || mErrorEncountered; }
 	bool sourceWasBusy() const { return mSourceWasBusy; }
+	bool errorEncountered() const { return mErrorEncountered; }
 
 protected:
+
+	const int mDataSourceID;
 	bool mDoneReading;
 	bool mSourceWasBusy;
+	bool mErrorEncountered;
 };
 
 
@@ -773,9 +788,8 @@ protected:
 class ConfigFileReader : public ConfigDataReader
 {
 public:
-	ConfigFileReader(int theFileID) :
-		ConfigDataReader(),
-		mFileID(theFileID),
+	ConfigFileReader(int theDataSourceID) :
+		ConfigDataReader(theDataSourceID),
 		mBytesRead(),
 		mFileHandle(),
 		mFileLockHandle(),
@@ -785,11 +799,12 @@ public:
 		mBuffer(),
 		mBufferIdx()
 	{
-		DBG_ASSERT(size_t(theFileID) < sFiles.size());
-		ConfigFile& aFile = sFiles[theFileID];
+		DBG_ASSERT(size_t(theDataSourceID) < sDataSources.size());
+		const DataSource& aDataSource = sDataSources[theDataSourceID];
+
 		// Get a file handle that won't block other apps' access to the file
 		mFileLockHandle = CreateFile(
-			aFile.pathW.c_str(),
+			aDataSource.pathToRead.c_str(),
 			0,
 			FILE_SHARE_READ,
 			NULL,
@@ -798,9 +813,9 @@ public:
 			NULL);
 		if( mFileLockHandle == INVALID_HANDLE_VALUE )
 		{
-			logToFile("Failed to find target config file %s",
-				narrow(aFile.pathW).c_str());
-			mDoneReading = true;
+			logToFile("Failed to find target config file %ls",
+				aDataSource.pathToRead.c_str());
+			mErrorEncountered = true;
 			return;
 		}
 
@@ -819,19 +834,19 @@ public:
 		case ERROR_CANNOT_GRANT_REQUESTED_OPLOCK:
 			// File in use - try again later
 			syncDebugPrint("File %s in use - trying again later!\n",
-				getFileName(narrow(aFile.pathW)).c_str());
+				getFileName(narrow(aDataSource.pathToRead)).c_str());
 			mDoneReading = mSourceWasBusy = true;
 			return;
 		default:
-			logToFile("Failed to get oplock read access to target config file %s",
-				narrow(aFile.pathW).c_str());
-			mDoneReading = true;
+			logToFile("Failed to get oplock read access to target config file %ls",
+				aDataSource.pathToRead.c_str());
+			mErrorEncountered = true;
 			return;
 		}
 
 		// Open the OpLock'd file for read
 		mFileHandle = CreateFile(
-			aFile.pathW.c_str(),
+			aDataSource.pathToRead.c_str(),
 			GENERIC_READ,
 			FILE_SHARE_READ | FILE_SHARE_DELETE,
 			NULL,
@@ -840,9 +855,9 @@ public:
 			NULL);
 		if( mFileHandle == INVALID_HANDLE_VALUE )
 		{
-			logToFile("Failed to open target config file %s",
-				narrow(aFile.pathW).c_str());
-			mDoneReading = true;
+			logToFile("Failed to open target config file %ls",
+				aDataSource.pathToRead.c_str());
+			mErrorEncountered = true;
 			return;
 		}
 
@@ -858,9 +873,9 @@ public:
 		{
 			if( GetLastError() != ERROR_IO_PENDING )
 			{
-				logToFile("Error reading target config file %s",
-					narrow(aFile.pathW).c_str());
-				mDoneReading = true;
+				logToFile("Error reading target config file %ls",
+					aDataSource.pathToRead.c_str());
+				mErrorEncountered = true;
 			}
 		}
 	}
@@ -876,17 +891,16 @@ public:
 	virtual std::string readNextChunk()
 	{
 		std::string result;
-		if( mDoneReading )
+		if( done() )
 			return result;
 
-		DBG_ASSERT(size_t(mFileID) < sFiles.size());
-		ConfigFile& aFile = sFiles[mFileID];
+		const DataSource& aDataSource = sDataSources[mDataSourceID];
 
 		// If got OpLock break request abort and try again later
 		if( WaitForSingleObject(mLockOverlapped.hEvent, 0) == WAIT_OBJECT_0 )
 		{
-			syncDebugPrint("Another app needed file %s - delaying read!\n",
-				getFileName(narrow(aFile.pathW)).c_str());
+			syncDebugPrint("Another app needed file %ls - delaying read!\n",
+				aDataSource.pathToRead.c_str());
 			mDoneReading = mSourceWasBusy = true;
 			return result;
 		}
@@ -922,9 +936,9 @@ public:
 			{
 				if( GetLastError() != ERROR_IO_PENDING )
 				{
-					logToFile("Error reading target config file %s",
-						narrow(aFile.pathW).c_str());
-					mDoneReading = true;
+					logToFile("Error reading target config file %ls",
+						aDataSource.pathToRead.c_str());
+					mErrorEncountered = true;
 					return result;
 				}
 			}
@@ -944,13 +958,12 @@ public:
 
 	virtual void reportResults()
 	{
-		syncDebugPrint("Finished parsing '%s'\n",
-			getFileName(narrow(sFiles[mFileID].pathW)).c_str());
+		syncDebugPrint("Finished parsing '%s'\n", getFileName(narrow(
+			sDataSources[mDataSourceID].pathToRead)).c_str());
 	}
 
 private:
 
-	const int mFileID;
 	DWORD mBytesRead[2];
 	HANDLE mFileHandle, mFileLockHandle;
 	LARGE_INTEGER mFilePointer;
@@ -967,185 +980,32 @@ private:
 class SystemRegistryValueReader : public ConfigDataReader
 {
 public:
-	SystemRegistryValueReader(int theRegValID) :
-		ConfigDataReader(),
-		mRegValID(theRegValID),
+	SystemRegistryValueReader(int theDataSourceID) :
+		ConfigDataReader(theDataSourceID),
 		mParsePos()
-	{
-		const SystemRegistryValue& aRegVal = sRegVals[mRegValID];
-		if( !aRegVal.hKey )
-		{
+	{	
+		DBG_ASSERT(size_t(theDataSourceID) < sDataSources.size());
+		const DataSource& aDataSource = sDataSources[theDataSourceID];
+		if( aDataSource.dataCache.empty() )
 			mDoneReading = true;
-			return;
-		}
-
-		// If no wildcard in value name, use it directly
-		if( aRegVal.valueNameW.find(L'*') == std::wstring::npos )
-		{
-			mResolvedValueName.reserve(aRegVal.valueNameW.size()+1);
-			mResolvedValueName.assign(
-				aRegVal.valueNameW.begin(),
-				aRegVal.valueNameW.end());
-			mResolvedValueName.push_back(L'\0');
-			DWORD aDataSize = 0;
-			RegGetValue(aRegVal.hKey, NULL, &mResolvedValueName[0],
-				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
-			if( aDataSize == 0 )
-			{
-				mDoneReading = true;
-				return;
-			}
-
-			mValueData.resize(aDataSize);
-			if( RegGetValue(aRegVal.hKey, NULL, &mResolvedValueName[0],
-					RRF_RT_REG_BINARY, NULL, &mValueData[0], &aDataSize)
-						!= ERROR_SUCCESS)
-			{
-				mDoneReading = true;
-				return;
-			}
-
-			return;
-		}
-
-		// Query the maximum value name length
-		DWORD aMaxValueNameLen = 0;
-		if( RegQueryInfoKey(
-				aRegVal.hKey, NULL, NULL, NULL, NULL, NULL, NULL,
-				NULL, &aMaxValueNameLen, NULL, NULL, NULL)
-					!= ERROR_SUCCESS )
-		{
-			mDoneReading = true;
-			return;
-		}
-		++aMaxValueNameLen;
-
-		// Seach for best candidate if multiple found that match
-		DWORD aValueNameLen;
-		std::vector<WCHAR> aValueName(aMaxValueNameLen);
-		mResolvedValueName.resize(aMaxValueNameLen);
-		std::vector<BYTE> aValueData;
-		u64 aBestValueTimestamp = 0;
-		sBestWildcardMatches.clear();
-		bool madeChangesToRegistry = false;
-
-		for(DWORD aValueIdx = 0; /*until break*/; ++aValueIdx)
-		{
-			aValueNameLen = aMaxValueNameLen;
-			if( RegEnumValue(
-					aRegVal.hKey, aValueIdx, &aValueName[0],
-					&aValueNameLen, NULL, NULL,
-					NULL, NULL) != ERROR_SUCCESS )
-			{
-				// End of enumeration
-				break;
-			}
-
-			sCurrWildcardMatches.clear();
-			if( !wildcardMatch(
-					&aValueName[0],
-					aRegVal.valueNameW.c_str(),
-					&sCurrWildcardMatches) )
-			{
-				continue;
-			}
-
-			DWORD aDataSize = 0;
-			RegGetValue(aRegVal.hKey, NULL, &aValueName[0],
-				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
-			if( aDataSize == 0 )
-				continue;
-
-			aValueData.reserve(aDataSize + kTimestampSuffixSize);
-			aValueData.resize(aDataSize);
-			if( RegGetValue(aRegVal.hKey, NULL, &aValueName[0],
-					RRF_RT_REG_BINARY, NULL, &aValueData[0], &aDataSize)
-						!= ERROR_SUCCESS)
-			{
-				continue;
-			}
-
-			// When there's more than one match, the preference is the newest.
-			// No way to check that though, so we add timestamps ourselves by
-			// hiding them after the terminating null character. If a value
-			// has no timestamp, it's assumed it was written out by the game
-			// (stripping out our timestamp in the process) and thus is
-			// treated as the newest via default timestamp of max u64 value.
-			// Until that happens though, if more than one match without a
-			// timestamp, our choice becomes essentially random.
-			const u64 aValueTimestamp = extractTimestamp(aValueData);
-			if( aValueTimestamp == 0xFFFFFFFFFFFFFFFFULL )
-			{// No custom time stamp found
-				if( appendTimestamp(aValueData) &&
-					RegSetValueEx(aRegVal.hKey, &aValueName[0], NULL,
-						REG_BINARY, &aValueData[0],
-						DWORD(aValueData.size()))
-							== ERROR_SUCCESS )
-				{
-					madeChangesToRegistry = true;
-				}
-			}
-			bool isBetterMatch = aValueTimestamp > aBestValueTimestamp;
-
-			if( aValueTimestamp == aBestValueTimestamp )
-			{
-				// For a tie breaker, if one of the substrings that matched 
-				// with a * is the same as one used in the last-chosen value
-				// name, prefer that one as they are likely related.
-				for(size_t i = 0; i < sLastReadWildcardMatches.size(); ++i)
-				{
-					for(size_t j = 0; j < sCurrWildcardMatches.size(); ++j)
-					{
-						if( sLastReadWildcardMatches[i] == 
-								sCurrWildcardMatches[j] )
-						{
-							isBetterMatch = true;
-							break;
-						}
-					}
-					if( isBetterMatch )
-						break;
-				}
-			}
-
-			if( isBetterMatch )
-			{
-				aBestValueTimestamp = aValueTimestamp;
-				swap(aValueName, this->mResolvedValueName);
-				swap(aValueData, this->mValueData);
-				swap(sCurrWildcardMatches, sBestWildcardMatches);
-			}
-		}
-
-		if( !mValueData.empty() && !sBestWildcardMatches.empty() )
-			swap(sBestWildcardMatches, sLastReadWildcardMatches);
-
-		// After initial load, don't actually parse the data if
-		// wrote a timestamp, as that will trigger a re-parse itself,
-		// so no sense doing it twice. Flag as "busy" to make sure
-		// will parse later even if notification fails to trigger.
-		if( sInitialized && madeChangesToRegistry )
-		{
-			mDoneReading = true;
-			mSourceWasBusy = true;
-		}
 	}
 
 	virtual std::string readNextChunk()
 	{
 		std::string result;
-		if( mDoneReading )
+		if( done() )
 			return result;
 
-		DBG_ASSERT(size_t(mParsePos) < mValueData.size());
+		const DataSource& aDataSource = sDataSources[mDataSourceID];
+		DBG_ASSERT(size_t(mParsePos) < aDataSource.dataCache.size());
 
 		// Return the previously read-in data for parsing
 		const int aBytesToRead = min(
-			intSize(mValueData.size()) - mParsePos,
+			intSize(aDataSource.dataCache.size()) - mParsePos,
 			int(kConfigFileBufferSize));
-		result.assign((char*)&mValueData[mParsePos], aBytesToRead);
+		result.assign((char*)&aDataSource.dataCache[mParsePos], aBytesToRead);
 		mParsePos += aBytesToRead;
-		if( mParsePos >= intSize(mValueData.size()) )
+		if( mParsePos >= intSize(aDataSource.dataCache.size()) )
 			mDoneReading = true;
 
 		syncDebugPrint(
@@ -1157,25 +1017,502 @@ public:
 
 	virtual void reportResults()
 	{
-		if( !mResolvedValueName.empty() &&
-			mResolvedValueName[0] != '\0' )
-		{
-			syncDebugPrint("Finished parsing '%s'\n",
-				narrow(&mResolvedValueName[0]).c_str());
-		}
+		syncDebugPrint("Finished parsing '%ls'\n",
+			sDataSources[mDataSourceID].pathToRead.c_str());
 	}
 
 private:
-	static const int kTimestampMarkerSize = 4;
-	static const int kTimestampSize = sizeof(u64);
-	static const int kTimestampSuffixSize =
-		kTimestampMarkerSize + sizeof(u64) + 1 /* traling null */;
 
-	u64 extractTimestamp(const std::vector<BYTE>& theData) const
+	int mParsePos;
+};
+
+
+//-----------------------------------------------------------------------------
+// ConfigDataFinder
+//-----------------------------------------------------------------------------
+
+class ConfigDataFinder
+{
+public:
+	ConfigDataFinder(int theDataSourceID)
+		:
+		mDataSourceID(theDataSourceID),
+		mDoneSearching(false),
+		mFoundSourceToRead(false),
+		mSearchTriggeredChange(false)
 	{
-		u64 result = 0xFFFFFFFFFFFFFFFFULL;
+	}
+
+	virtual ~ConfigDataFinder() {}
+	virtual void checkNextLocation() = 0;
+
+	bool done() const { return mDoneSearching; }
+	bool foundSourceToRead() const { return mFoundSourceToRead; }
+	bool searchTriggeredChange() const { return mSearchTriggeredChange; }
+	int dataSourceID() const { return mDataSourceID; }
+
+protected:
+
+	void compareBestSource(
+		const std::wstring& thePath,
+		const std::wstring& theMatchedString,
+		FILETIME theModTime)
+	{
+		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
+		DataSource& aDataSource = sDataSources[mDataSourceID];
+		mFoundSourceToRead = true;
+		// For now just always pick the most-recently-modified source
+		if( CompareFileTime(&theModTime, &aDataSource.lastModTime) > 0 )
+		{
+			aDataSource.lastModTime = theModTime;
+			aDataSource.pathToRead = thePath;
+			swap(mValueBuf, aDataSource.dataCache);
+		}
+	}
+
+	void finalizeBestSourceFound()
+	{
+		mDoneSearching = true;
+	}
+
+	std::vector<BYTE> mValueBuf;
+	const int mDataSourceID;
+	bool mDoneSearching;
+	bool mFoundSourceToRead;
+	bool mSearchTriggeredChange;
+};
+
+
+//-----------------------------------------------------------------------------
+// ConfigFileFinder
+//-----------------------------------------------------------------------------
+
+class ConfigFileFinder : public ConfigDataFinder
+{
+public:
+	ConfigFileFinder(int theDataSourceID) :
+		ConfigDataFinder(theDataSourceID),
+		mEntriesCheckedThisUpdate()
+	{
+		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
+		DataSource& aDataSource = sDataSources[mDataSourceID];
+		DBG_ASSERT(aDataSource.type == eDataSourceType_File);
+
+		// Can check for the file right away if don't need wildcard search
+		if( !aDataSource.usesWildcards )
+		{
+			if( aDataSource.pathToRead.empty() )
+				aDataSource.pathToRead = widen(aDataSource.pathPattern);
+			if( !isValidFilePath(aDataSource.pathToRead) )
+			{
+				logToFile("Failed to find target config file '%s'",
+					aDataSource.pathPattern.c_str());
+				mDoneSearching = true;
+				return;
+			}
+			FILETIME aModTime = getFileLastModTime(aDataSource.pathToRead);
+			if( CompareFileTime(&aModTime, &aDataSource.lastModTime) > 0 )
+			{
+				if( aDataSource.lastModTime.dwHighDateTime ||
+					aDataSource.lastModTime.dwLowDateTime )
+				{
+					syncDebugPrint("Detected change in file %s\n",
+						getFileName(aDataSource.pathPattern).c_str());
+				}
+				aDataSource.lastModTime = aModTime;
+				mFoundSourceToRead = true;
+			}
+			mDoneSearching = true;
+			return;
+		}
+
+		// Set up multi-file search with wildcard
+		mRootPath = widen(getFileDir(aDataSource.pathPattern.substr(
+				0, aDataSource.pathPattern.find('*')), true));
+		if( !isValidFolderPath(mRootPath) )
+		{
+			logToFile("Root folder '%ls\' missing for pattern '%s'",
+				mRootPath.c_str(),
+				aDataSource.pathPattern.c_str());
+			mDoneSearching = true;
+			return;
+		}
+
+		mFolderStack.reserve(kMaxFolderStackSize);
+		mFolderStack.resize(1);
+		mPathPattern = widen(aDataSource.pathPattern).substr(mRootPath.size());
+	}
+
+	virtual ~ConfigFileFinder()
+	{
+		for(int i = 0, end = intSize(mFolderStack.size()); i < end; ++i)
+		{
+			if( mFolderStack[i].hFind )
+				FindClose(mFolderStack[i].hFind);
+		}
+	}
+
+	virtual void checkNextLocation()
+	{
+		if( done() )
+			return;
+
+		DataSource& aDataSource = sDataSources[mDataSourceID];
+		mEntriesCheckedThisUpdate = 0;
+
+		while(!mFolderStack.empty())
+		{
+			FolderState& aFolderState = mFolderStack.back();
+			if( !aFolderState.traverseFilesStarted )
+			{
+				aFolderState.hFind = FindFirstFile(
+					(mRootPath + aFolderState.path + L'*').c_str(),
+					&aFolderState.data);
+				if( aFolderState.hFind == INVALID_HANDLE_VALUE )
+				{
+					mFolderStack.pop_back();
+					continue;
+				}
+				aFolderState.traverseFilesStarted = true;
+			}
+			else if( !FindNextFileW(aFolderState.hFind, &aFolderState.data) )
+			{
+				FindClose(aFolderState.hFind);
+				mFolderStack.pop_back();
+				// Finishing a directory is enough work for one update
+				return;
+			}
+
+			const WIN32_FIND_DATAW& ffd = aFolderState.data;
+			std::wstring aFileName(ffd.cFileName);
+			if( aFileName == L"." || aFileName == L".." )
+				continue;
+
+			if( ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
+			{
+				if( mFolderStack.size() < kMaxFolderStackSize )
+				{
+					aFileName = aFolderState.path + aFileName + L'\\';
+					// Warning: invalidates current aFolderState reference!
+					mFolderStack.push_back(FolderState());
+					mFolderStack.back().path = aFileName;
+				}
+			}
+			else
+			{
+				aFileName = aFolderState.path + aFileName;
+				const std::wstring aMatchStr =
+					wildcardMatch(aFileName.c_str(), mPathPattern.c_str());
+				if( !aMatchStr.empty() )
+				{
+					compareBestSource(
+						mRootPath + aFileName,
+						aMatchStr,
+						ffd.ftLastWriteTime);
+					// Finding a match is enough work for one update
+					return;
+				}
+			}
+
+			// Avoid long stalls from large directories
+			if( ++mEntriesCheckedThisUpdate >= kMaxEntriesCheckedPerUpdate )
+				return;
+		}
+
+		// Once mFolderStack is empty we are done searching
+		finalizeBestSourceFound();
+	}
+
+private:
+	static const int kMaxFolderStackSize = 16;
+	static const int kMaxEntriesCheckedPerUpdate = 64;
+
+	struct ZERO_INIT(FolderState)
+	{
+		std::wstring path;
+		bool traverseFilesStarted;
+		HANDLE hFind;
+		WIN32_FIND_DATAW data;
+	};
+
+	std::vector<FolderState> mFolderStack;
+	std::wstring mPathPattern;
+	std::wstring mRootPath;
+	int mEntriesCheckedThisUpdate;
+};
+
+
+//-----------------------------------------------------------------------------
+// SystemRegistryValueFinder
+//-----------------------------------------------------------------------------
+
+class SystemRegistryValueFinder : public ConfigDataFinder
+{
+public:
+	SystemRegistryValueFinder(int theDataSourceID) :
+		ConfigDataFinder(theDataSourceID),
+		mEntriesCheckedThisUpdate()
+	{
+		DBG_ASSERT(size_t(theDataSourceID) < sDataSources.size());
+		DataSource& aDataSource = sDataSources[theDataSourceID];
+		DBG_ASSERT(aDataSource.type == eDataSourceType_RegVal);
+
+		std::string aSearchStartPath = aDataSource.pathPattern;
+		if( aDataSource.usesWildcards )
+		{
+			aSearchStartPath = aSearchStartPath.substr(
+				0, aDataSource.pathPattern.find('*'));
+		}
+		aSearchStartPath = getFileDir(aSearchStartPath);
+		const std::string& aRootKeyName =
+			breakOffNextItem(aSearchStartPath, '\\');
+		HKEY aRootKey = getRootKeyHandle(aRootKeyName);
+		if( !aRootKey )
+		{
+			logError("Invalid root registry key name in path '%s'",
+				aDataSource.pathPattern.c_str());
+			mDoneSearching = true;
+			return;
+		}
+		mRootPath = widen(aSearchStartPath);
+		HKEY aSearchStartHKey = NULL;
+		if( RegOpenKeyEx(aRootKey, mRootPath.c_str(), 0,
+				KEY_READ | KEY_WRITE, &aSearchStartHKey) != ERROR_SUCCESS )
+		{
+			logToFile(
+				"Couldn't open System Registry key '%s\\%s'",
+				aRootKeyName.c_str(),
+				aSearchStartPath.c_str());
+			RegCloseKey(aSearchStartHKey);
+			mDoneSearching = true;
+			return;
+		}
+
+		// Can check for the value right away if don't need wildcard search
+		if( !aDataSource.usesWildcards )
+		{
+			aDataSource.pathToRead =
+				widen(getFileName(aDataSource.pathPattern));
+			DWORD aDataSize = 0;
+			RegGetValue(aSearchStartHKey, NULL,
+				aDataSource.pathToRead.c_str(),
+				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
+			if( aDataSize == 0 )
+			{
+				logToFile(
+					"Failed to read registry value '%ls' in '%s\\%s'",
+					aDataSource.pathToRead.c_str(),
+					aRootKeyName.c_str(),
+					aSearchStartPath.c_str());
+				RegCloseKey(aSearchStartHKey);
+				mDoneSearching = true;
+				return;
+			}
+
+			mValueBuf.reserve(aDataSize + kTimestampSuffixSize);
+			mValueBuf.resize(aDataSize);
+			if( RegGetValue(aSearchStartHKey, NULL,
+					aDataSource.pathToRead.c_str(),
+					RRF_RT_REG_BINARY, NULL,
+					&mValueBuf[0], &aDataSize)
+						!= ERROR_SUCCESS)
+			{
+				logToFile(
+					"Failed to read registry value '%ls' in '%s\\%s' "
+					"(does not exist yet? wrong format?)",
+					aDataSource.pathToRead.c_str(),
+					aRootKeyName.c_str(),
+					aSearchStartPath.c_str());
+				RegCloseKey(aSearchStartHKey);
+				mDoneSearching = true;
+				return;
+			}
+
+			FILETIME aModTime = extractTimestamp(
+				mValueBuf,
+				aSearchStartHKey,
+				aDataSource.pathToRead);
+			if( CompareFileTime(&aModTime, &aDataSource.lastModTime) > 0 )
+			{
+				if( aDataSource.lastModTime.dwHighDateTime ||
+					aDataSource.lastModTime.dwLowDateTime )
+				{
+					syncDebugPrint(
+						"Detected change in registry key value name %ls\n",
+						aDataSource.pathToRead.c_str());
+				}
+				aDataSource.lastModTime = aModTime;
+				swap(aDataSource.dataCache, mValueBuf);
+				mFoundSourceToRead = true;
+			}
+			mDoneSearching = true;
+			RegCloseKey(aSearchStartHKey);
+			return;
+		}
+
+		// Set up multi-value search with wildcard
+		mRootPath += '\\';
+		mKeyStack.reserve(kMaxSubkeyStackSize);
+		mKeyStack.resize(1);
+		mKeyStack[0].hKey = aSearchStartHKey;
+		mPathPattern = widen(aDataSource.pathPattern)
+			.substr(mRootPath.size() + aRootKeyName.size() + 1);
+	}
+
+	virtual ~SystemRegistryValueFinder()
+	{
+		for(int i = 0, end = intSize(mKeyStack.size()); i < end; ++i)
+		{
+			if( mKeyStack[i].hKey )
+				RegCloseKey(mKeyStack[i].hKey);
+		}
+	}
+
+	virtual void checkNextLocation()
+	{
+		if( done() )
+			return;
+
+		DataSource& aDataSource = sDataSources[mDataSourceID];
+		mEntriesCheckedThisUpdate = 0;
+
+		while(!mKeyStack.empty())
+		{
+			SubkeyState& aKeyState = mKeyStack.back();
+
+			if( !aKeyState.traverseSubKeysStarted )
+			{
+				// Allocate name buffer
+				DWORD aMaxValueNameLen, aMaxSubkeyNameLen;
+				if( RegQueryInfoKey(
+						aKeyState.hKey, NULL, NULL, NULL, NULL, &aMaxSubkeyNameLen,
+						NULL, NULL, &aMaxValueNameLen, NULL, NULL, NULL)
+							!= ERROR_SUCCESS )
+				{
+					RegCloseKey(aKeyState.hKey);
+					mKeyStack.pop_back();
+					continue;
+				}
+				aKeyState.maxNameLen =
+					max(aMaxSubkeyNameLen, aMaxValueNameLen)+1;
+				aKeyState.traverseSubKeysStarted = true;
+			}
+
+			DWORD aNameSize = aKeyState.maxNameLen;
+			mNameBuf.resize(aNameSize);
+			if( !aKeyState.traverseValuesStarted )
+			{
+				FILETIME aModTime = FILETIME();
+				if( RegEnumKeyExW(
+						aKeyState.hKey, aKeyState.index++,
+						&mNameBuf[0], &aNameSize,
+						NULL, NULL, NULL,
+						&aModTime) != ERROR_SUCCESS )
+				{
+					// Must be done checking for sub-keys
+					aKeyState.traverseValuesStarted = true;
+					aKeyState.index = 0;
+					continue;
+				}
+
+				if( mKeyStack.size() < kMaxSubkeyStackSize &&
+					CompareFileTime(&aModTime, &aDataSource.lastModTime) > 0 )
+				{
+					SubkeyState aSubkeyState = SubkeyState();
+					if( RegOpenKeyEx(aKeyState.hKey, &mNameBuf[0], 0,
+							KEY_READ | KEY_WRITE,
+							&aSubkeyState.hKey) == ERROR_SUCCESS )
+					{
+						aSubkeyState.path =
+							aKeyState.path + &mNameBuf[0] + L'\\';
+						// Warning: invalidates current aKeyState reference!
+						mKeyStack.push_back(aSubkeyState);
+					}
+				}
+			}
+
+			if( aKeyState.traverseValuesStarted )
+			{
+				DWORD aType;
+				DWORD aDataSize = 0;
+				if( RegEnumValue(
+						aKeyState.hKey, aKeyState.index++,
+						&mNameBuf[0], &aNameSize,
+						NULL, &aType, NULL, &aDataSize) != ERROR_SUCCESS )
+				{
+					// Must be done checking for values
+					RegCloseKey(aKeyState.hKey);
+					mKeyStack.pop_back();
+					// Finishing a key is enough work for one update
+					return;
+				}
+
+				if( aType == REG_BINARY && aDataSize > 0 )
+				{
+					const std::wstring& aValuePath =
+						aKeyState.path + &mNameBuf[0];
+					const std::wstring aMatchStr =
+						wildcardMatch(aValuePath.c_str(), mPathPattern.c_str());
+					if( !aMatchStr.empty() )
+					{
+						mValueBuf.reserve(
+							aDataSize + kTimestampSuffixSize);
+						mValueBuf.resize(aDataSize);
+						if( RegGetValue(aKeyState.hKey, NULL,
+								&mNameBuf[0],
+								RRF_RT_REG_BINARY, NULL,
+								&mValueBuf[0],
+								&aDataSize) == ERROR_SUCCESS )
+						{
+							const FILETIME aModTime = extractTimestamp(
+								mValueBuf, aKeyState.hKey, &mNameBuf[0]);
+							compareBestSource(
+								&mNameBuf[0], aMatchStr, aModTime);
+							// Finding a match is enough work for one update
+							return;
+						}
+					}
+				}
+			}
+
+			// Avoid long stalls from large keys
+			if( ++mEntriesCheckedThisUpdate >= kMaxEntriesCheckedPerUpdate )
+				return;
+		}
+
+		// Once mKeyStack is empty we are done searching
+		finalizeBestSourceFound();
+	}
+
+private:
+	static const int kMaxSubkeyStackSize = 8;
+	static const int kMaxEntriesCheckedPerUpdate = 64;
+	static const int kTimestampMarkerSize = 4;
+	static const int kTimestampSize = sizeof(ULONGLONG);
+	static const int kTimestampSuffixSize =
+		kTimestampMarkerSize + kTimestampSize + 1 /* traling null */;
+
+	const char* timeStampMarker() const
+	{
+		return "_TS_";
+	}
+
+	// Individual registry key values don't have last-modified time stamps
+	// (just the keys as a whole) so instead we add timestamps ourselves by
+	// hiding them after the terminating null character of the text-as-binary
+	// values being read. If a value has no timestamp, it's assumed that value
+	// was written out by the game (stripping out our timestamp in the process)
+	// and thus is treated as being newly modified (current system time).
+	FILETIME extractTimestamp(
+		std::vector<BYTE> theData,
+		HKEY theRegKey,
+		const std::wstring& theRegValName)
+	{
 		if( theData.size() <= 1 + kTimestampSuffixSize )
-			return result;
+		{
+			appendTimestamp(theData, theRegKey, theRegValName);
+			return extractTimestamp(theData, theRegKey, theRegValName);
+		}
 
 		const int kTimestampOffset = intSize(theData.size()) -
 			(1 + kTimestampSize);
@@ -1183,20 +1520,39 @@ private:
 			(1 + kTimestampSize + kTimestampMarkerSize);
 
 		if( theData.back() != '\0' || theData[kMarkerOffset - 1] != '\0')
-			return result;
+		{
+			appendTimestamp(theData, theRegKey, theRegValName);
+			return extractTimestamp(theData, theRegKey, theRegValName);
+		}
 
-		memcpy(&result, &theData[kTimestampOffset], sizeof(u64));
+		if( memcmp(&theData[kMarkerOffset],
+				timeStampMarker(), kTimestampMarkerSize) != 0 )
+		{
+			appendTimestamp(theData, theRegKey, theRegValName);
+			return extractTimestamp(theData, theRegKey, theRegValName);
+		}
+
+		ULARGE_INTEGER timeUnion;
+		memcpy(
+			&timeUnion.QuadPart,
+			&theData[kTimestampOffset],
+			kTimestampSize);
+		FILETIME result;
+		result.dwLowDateTime = timeUnion.LowPart;
+		result.dwHighDateTime = timeUnion.HighPart;
 		return result;
 	}
 
-	bool appendTimestamp(std::vector<BYTE>& theData)
+	void appendTimestamp(
+		std::vector<BYTE>& theData,
+		HKEY theRegKey,
+		const std::wstring& theRegValName)
 	{
 		if( theData.empty() || theData.back() != '\0' )
-			return false;
+			theData.push_back('\0');
 
-		const char* kTimestampMarker = "_TS_";
-		theData.insert(theData.end(), kTimestampMarker,
-			kTimestampMarker + kTimestampMarkerSize);
+		theData.insert(theData.end(), timeStampMarker(),
+			timeStampMarker() + kTimestampMarkerSize);
 
 		FILETIME ft;
 		GetSystemTimeAsFileTime(&ft);
@@ -1208,13 +1564,32 @@ private:
 			aTimestampPtr + kTimestampSize);
 		theData.push_back('\0');
 
-		return true;
+		RegSetValueEx(theRegKey, theRegValName.c_str(), NULL,
+			REG_BINARY, &theData[0],
+			DWORD(theData.size()));
+
+		// Writing to the registry will cause our own notification to fire.
+		// Setting this informs other logic of this happening, in an effort
+		// to prevent duplicating work every time the time stamp is lost
+		mSearchTriggeredChange = true;
 	}
 
-	const int mRegValID;
-	int mParsePos;
-	std::vector<BYTE> mValueData;
-	std::vector<WCHAR> mResolvedValueName;
+	struct ZERO_INIT(SubkeyState)
+	{
+		HKEY hKey;
+		std::wstring path;
+		DWORD index;
+		DWORD maxNameLen;
+		bool traverseSubKeysStarted;
+		bool traverseSubKeysEnded;
+		bool traverseValuesStarted;
+	};
+
+	std::vector<SubkeyState> mKeyStack;
+	std::vector<WCHAR> mNameBuf;
+	std::wstring mPathPattern;
+	std::wstring mRootPath;
+	int mEntriesCheckedThisUpdate;
 };
 
 
@@ -1222,25 +1597,43 @@ private:
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static FILETIME getFileLastModTime(const ConfigFile& theFile)
-{
-	WIN32_FILE_ATTRIBUTE_DATA aFileAttr;
-	if( GetFileAttributesEx(theFile.pathW.c_str(),
-			GetFileExInfoStandard, &aFileAttr) )
-	{
-		return aFileAttr.ftLastWriteTime;
-	}
-
-	return FILETIME();
-}
-
-
 static bool isRegistryPath(const std::string thePath)
 {
 	return
-		thePath.size() > 2 &&
+		thePath.size() > 4 &&
 		::toupper(thePath[0]) == 'H' &&
 		::toupper(thePath[1]) == 'K';
+}
+
+
+static bool monitoredPathExists(const std::wstring& thePath)
+{
+	if( thePath.size() > 4 &&
+		::towupper(thePath[0]) == L'H' &&
+		::towupper(thePath[1]) == L'K' )
+	{// Assume a system registry key path starting with 'HKEY_'
+		const std::wstring& aRootKeyName =
+			thePath.substr(0, thePath.find(L'\\'));
+		HKEY aRootKey = getRootKeyHandle(narrow(aRootKeyName));
+		if( !aRootKey )
+			return false;
+		std::wstring aKeyPath = thePath.substr(aRootKeyName.size() + 1);
+
+		HKEY hTemp;
+		LONG res = RegOpenKeyExW(
+			aRootKey, aKeyPath.c_str(),
+			0, KEY_READ, &hTemp);
+
+		if( res == ERROR_SUCCESS )
+		{
+			RegCloseKey(hTemp);
+			return true;
+		}
+
+		return false;
+	}
+	
+	return isValidFolderPath(thePath);
 }
 
 
@@ -1259,8 +1652,9 @@ static std::string normalizedPath(std::string thePath)
 
 		if( isRegistryPath(thePath) )
 		{// Assume a registry path rather than file path
-			thePath = upper(thePath);
 			thePath = replaceChar(thePath, '/', '\\');
+			const std::string& theRootStr = breakOffNextItem(thePath, '\\');
+			thePath = upper(theRootStr) + "\\" + thePath;
 			// Expand known shorthands for root key
 			if( thePath.compare(0, 4, "HKLM") == 0 )
 				thePath.replace(0, 4, "HKEY_LOCAL_MACHINE");
@@ -1276,19 +1670,27 @@ static std::string normalizedPath(std::string thePath)
 		}
 	}
 
-	thePath = upper(toAbsolutePath(thePath));
+	thePath = toAbsolutePath(thePath);
 	return thePath;
 }
 
 
-static HKEY getRootKeyHandle(const std::string& root)
+static bool isPathAncestorOf(const std::wstring& theAncestor,
+							 const std::wstring& theDescendant)
 {
-	if( root == "HKEY_LOCAL_MACHINE" )	return HKEY_LOCAL_MACHINE;
-	if( root == "HKEY_CURRENT_USER" )	return HKEY_CURRENT_USER;
-	if( root == "HKEY_CLASSES_ROOT" )	return HKEY_CLASSES_ROOT;
-	if( root == "HKEY_CURRENT_CONFIG" )	return HKEY_CURRENT_CONFIG;
-	if( root == "HKEY_USERS" )			return HKEY_USERS;
-	return null;
+	if( theAncestor.empty() || theDescendant.empty() )
+		return false;
+	if( theDescendant.size() < theAncestor.size() )
+		return false;
+	if( _wcsnicmp(theAncestor.c_str(),
+			theDescendant.c_str(),
+			theAncestor.size()) != 0 )
+	{ return false; }
+	if( theDescendant.size() == theAncestor.size() )
+		return true;
+	return
+		theAncestor[theAncestor.size()-1] == L'\\' ||
+		theDescendant[theAncestor.size()] == L'\\';
 }
 
 
@@ -1588,7 +1990,6 @@ static double getSubTypeValue(
 		if( result != 0 )
 		{
 			result *=
-				getSubTypeValue(theValArray, eValueSetSubType_Scale) *
 				getSubTypeValue(
 					theValArray,
 					theSubType == eValueSetSubType_PivotX
@@ -1598,6 +1999,8 @@ static double getSubTypeValue(
 		break;
 	case eValueSetSubType_SizeX:
 	case eValueSetSubType_SizeY:
+		result *= getSubTypeValue(theValArray, eValueSetSubType_Scale);
+		result = floor(result + 0.5);
 		if( sInvertAxis[theSubType] )
 			result = -result;
 		result = max(0.0, result);
@@ -1843,8 +2246,14 @@ void load()
 	aBuilder.nameToLinkMapID.clear();
 
 	// Prepare data sources for reading and monitoring for changes
-	StringToValueMap<int> aFolderPathToIdxMap;
-	StringToValueMap<int> aRegKeyPathToIdxMap;
+	struct MonitoredFolder
+	{
+		std::wstring path;
+		std::vector<u16> dataSourceIDs;
+		EDataSourceType type;
+		bool recursiveCheckNeeded;
+	};
+	std::vector<MonitoredFolder> aMonitoredFolderSet;
 	for(int i = 0; i < aBuilder.pathToLinkMapID.size(); ++i)
 	{
 		const int aValueLinkMapIdx = 
@@ -1856,130 +2265,158 @@ void load()
 		if( aValueLinkMap.empty() )
 			continue;
 		const std::string& aSourcePath = aBuilder.pathToLinkMapID.keys()[i];
-		DataSource aNewDataSource;
-		aNewDataSource.values = aValueLinkMap;
 		const int aSourceID = intSize(sDataSources.size());
-		if( isRegistryPath(aSourcePath) )
-		{
-			aNewDataSource.type = eDataSourceType_RegVal;
-			aNewDataSource.format = eConfigDataFormat_JSON;
-			aNewDataSource.regValID = intSize(sRegVals.size());
-			SystemRegistryValue aNewRegVal;
-			aNewRegVal.valueNameW = widen(getFileName(aSourcePath));
-			std::string aRegKeyPath = getFileDir(aSourcePath);
-			const int aRegKeyID = aRegKeyPathToIdxMap.findOrAdd(
-				aRegKeyPath, intSize(sRegKeys.size()));
-			if( aRegKeyID >= intSize(sRegKeys.size()) )
-			{
-				const HKEY aRootKey = getRootKeyHandle(
-					breakOffNextItem(aRegKeyPath, '\\'));
-				if( !aRootKey )
-				{
-					logError("Invalid root registry key name in path '%s'",
-						getFileDir(aSourcePath).c_str());
-					continue;
-				}
-				SystemRegistryKey aNewRegKey;
-				aNewRegKey.hChangedSignal = aNewRegKey.hKey = NULL;
-				if( RegOpenKeyEx(aRootKey, widen(aRegKeyPath).c_str(), 0,
-						KEY_READ | KEY_WRITE | KEY_NOTIFY, &aNewRegKey.hKey)
-							!= ERROR_SUCCESS )
-				{
-					// Try just read/notify access
-					if( RegOpenKeyEx(aRootKey, widen(aRegKeyPath).c_str(), 0,
-							KEY_READ | KEY_NOTIFY, &aNewRegKey.hKey)
-								!= ERROR_SUCCESS )
-					{
-						logToFile(
-							"Couldn't open System Registry key '%s' "
-							"(does not exist yet?)",
-							getFileDir(aSourcePath).c_str());
-						continue;
-					}
-				}
-				sRegKeys.push_back(aNewRegKey);
-			}
-			aNewRegVal.hKey = sRegKeys[aRegKeyID].hKey;
-			sRegKeys[aRegKeyID].sourceIDs.push_back(dropTo<u16>(aSourceID));
-			sRegVals.push_back(aNewRegVal);
-		}
-		else
-		{
-			aNewDataSource.type = eDataSourceType_File;
-			aNewDataSource.format = eConfigDataFormat_JSON; // TODO properly
-			aNewDataSource.fileID = intSize(sFiles.size());
-			ConfigFile aNewConfigFile;
-			aNewConfigFile.pathW = widen(aSourcePath);
-			aNewConfigFile.lastModTime = getFileLastModTime(aNewConfigFile);
-			const std::string& aFolderPath = getFileDir(aSourcePath);
-			const int aFolderID = aFolderPathToIdxMap.findOrAdd(
-				aFolderPath, intSize(sFolders.size()));
-			if( aFolderID >= intSize(sFolders.size()) )
-			{
-				const std::wstring& aFolderPathW = widen(aFolderPath);
-				if( !isValidFolderPath(aFolderPathW) )
-				{
-					logToFile("Config file folder %s does not exist (yet?)",
-						aFolderPath.c_str());
-					continue;
-				}
-				ConfigFileFolder aNewFolder;
-				// Monitor for future changes to this folder
-				aNewFolder.hChangedSignal = FindFirstChangeNotification(
-					aFolderPathW.c_str(),
-					FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
-				sFolders.push_back(aNewFolder);
-			}
-			sFolders[aFolderID].sourceIDs.push_back(dropTo<u16>(aSourceID));
-			sFiles.push_back(aNewConfigFile);
-		}
-		sDataSources.push_back(aNewDataSource);
+		sDataSources.push_back(DataSource());
 		sDataSources.back().values = aValueLinkMap;
+		sDataSources.back().pathPattern = aSourcePath;
+		if( isRegistryPath(aSourcePath) )
+			sDataSources.back().type = eDataSourceType_RegVal;
+		else
+			sDataSources.back().type = eDataSourceType_File;
+		sDataSources.back().format = eConfigDataFormat_JSON; // TODO properly
+		std::string::size_type aFirstWildcardPos =
+			aSourcePath.find('*');
+		sDataSources.back().usesWildcards =
+			aFirstWildcardPos != std::string::npos;
+		aMonitoredFolderSet.push_back(MonitoredFolder());
+		aMonitoredFolderSet.back().type = sDataSources.back().type;
+		aMonitoredFolderSet.back().path =
+			widen(getFileDir(aSourcePath.substr(0, aFirstWildcardPos), true));
+		aMonitoredFolderSet.back().dataSourceIDs.push_back(
+			dropTo<u16>(aSourceID));
+		aMonitoredFolderSet.back().recursiveCheckNeeded =
+			sDataSources.back().usesWildcards;
 	}
-	aFolderPathToIdxMap.clear();
-	aRegKeyPathToIdxMap.clear();
 	aBuilder.pathToLinkMapID.clear();
 	aBuilder.valueLinkMaps.clear();
+	sValueSetsChanged.clearAndResize(sValueSets.size());
+	sDataSourcesToCheck.clearAndResize(sDataSources.size());
+	sDataSourcesToRead.clearAndResize(sDataSources.size());
+	sDataSourcesToReCheck.clearAndResize(sDataSources.size());
 
-	// Trim memory and resize structures
-	if( sFolders.size() < sFolders.capacity() )
-		std::vector<ConfigFileFolder>(sFolders).swap(sFolders);
-	if( sFiles.size() < sFiles.capacity() )
-		std::vector<ConfigFile>(sFiles).swap(sFiles);
-	if( sRegKeys.size() < sRegKeys.capacity() )
-		std::vector<SystemRegistryKey>(sRegKeys).swap(sRegKeys);
-	if( sRegVals.size() < sRegVals.capacity() )
-		std::vector<SystemRegistryValue>(sRegVals).swap(sRegVals);
+	// Merge duplicate monitored folders
+	for(int i = 0; i < intSize(aMonitoredFolderSet.size())-1; ++i)
+	{
+		for(int j = i+1; j < intSize(aMonitoredFolderSet.size());)
+		{
+			if( isPathAncestorOf(aMonitoredFolderSet[i].path,
+					aMonitoredFolderSet[j].path) )
+			{
+				aMonitoredFolderSet[i].dataSourceIDs.insert(
+					aMonitoredFolderSet[i].dataSourceIDs.end(),
+					aMonitoredFolderSet[j].dataSourceIDs.begin(),
+					aMonitoredFolderSet[j].dataSourceIDs.end());
+				aMonitoredFolderSet[i].recursiveCheckNeeded = true;
+				aMonitoredFolderSet.erase(aMonitoredFolderSet.begin() + j);
+			}
+			else if( isPathAncestorOf(aMonitoredFolderSet[j].path,
+						aMonitoredFolderSet[i].path) )
+			{
+				aMonitoredFolderSet[j].dataSourceIDs.insert(
+					aMonitoredFolderSet[j].dataSourceIDs.end(),
+					aMonitoredFolderSet[i].dataSourceIDs.begin(),
+					aMonitoredFolderSet[i].dataSourceIDs.end());
+				aMonitoredFolderSet[j].recursiveCheckNeeded = true;
+				aMonitoredFolderSet.erase(aMonitoredFolderSet.begin() + i);
+				--i;
+				break;
+			}
+			else
+			{
+				++j;
+			}
+		}
+	}
+
+	// Report and remove missing monitored folders, and prepare to load
+	// data sources from any that do exist
+	for(int i = 0; i < intSize(aMonitoredFolderSet.size()); ++i)
+	{
+		if( !monitoredPathExists(aMonitoredFolderSet[i].path) )
+		{
+			logToFile("Config data base path '%ls' does not exist (yet?)",
+					aMonitoredFolderSet[i].path.c_str());
+			aMonitoredFolderSet.erase(aMonitoredFolderSet.begin() + i);
+			--i;
+			continue;
+		}
+		for(int j = 0;
+			j < intSize(aMonitoredFolderSet[i].dataSourceIDs.size());
+			++j)
+		{
+			sDataSourcesToCheck.set(
+				aMonitoredFolderSet[i].dataSourceIDs[j]);
+		}
+	}
+
+	// Load initial values and log timestamps
+	while(!sPaused && !gShutdown &&
+		  (sDataSourcesToCheck.any() ||
+		   sDataSourcesToRead.any() ||
+		   sValueSetsChanged.any() ||
+		   sFinder || sReader || sParser))
+	{// Keep updating until done for this initial pass
+		update();
+	}
+
+	// Begin monitoring for folder and registry key changes
+	for(int i = 0, end = intSize(aMonitoredFolderSet.size()); i < end; ++i)
+	{
+		if( aMonitoredFolderSet[i].type == eDataSourceType_File )
+		{
+			sFolders.push_back(ConfigFileFolder());
+			sFolders.back().dataSourceIDs =
+				aMonitoredFolderSet[i].dataSourceIDs;
+			sFolders.back().recursiveCheckNeeded =
+				aMonitoredFolderSet[i].recursiveCheckNeeded;
+			sFolders.back().hChangedSignal = FindFirstChangeNotification(
+				aMonitoredFolderSet[i].path.c_str(),
+				sFolders.back().recursiveCheckNeeded,
+				FILE_NOTIFY_CHANGE_LAST_WRITE);
+		}
+		else if( aMonitoredFolderSet[i].type == eDataSourceType_RegVal )
+		{
+			sRegKeys.push_back(SystemRegistryKey());
+			sRegKeys.back().dataSourceIDs =
+				aMonitoredFolderSet[i].dataSourceIDs;
+			sRegKeys.back().recursiveCheckNeeded =
+				aMonitoredFolderSet[i].recursiveCheckNeeded;
+			std::string aRegKeyPath = narrow(aMonitoredFolderSet[i].path);
+			const HKEY aRootKey = getRootKeyHandle(
+				breakOffNextItem(aRegKeyPath, '\\'));
+			if( !aRootKey )
+				continue;
+			if( RegOpenKeyEx(aRootKey, widen(aRegKeyPath).c_str(), 0,
+					KEY_NOTIFY, &sRegKeys.back().hKey) != ERROR_SUCCESS )
+			{
+				continue;
+			}
+			sRegKeys.back().hChangedSignal =
+				CreateEvent(NULL, TRUE, FALSE, NULL);
+			if( sRegKeys.back().hChangedSignal )
+			{
+				RegNotifyChangeKeyValue(
+					sRegKeys.back().hKey,
+					sRegKeys.back().recursiveCheckNeeded,
+					REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET,
+					sRegKeys.back().hChangedSignal, TRUE);
+			}
+		}
+	}
+
+	// Trim memory
 	if( sDataSources.size() < sDataSources.capacity() )
 		std::vector<DataSource>(sDataSources).swap(sDataSources);
+	if( sFolders.size() < sFolders.capacity() )
+		std::vector<ConfigFileFolder>(sFolders).swap(sFolders);
+	if( sRegKeys.size() < sRegKeys.capacity() )
+		std::vector<SystemRegistryKey>(sRegKeys).swap(sRegKeys);
 	if( sVariables.size() < sVariables.capacity() )
 		std::vector<SyncVariable>(sVariables).swap(sVariables);
 	if( sValues.size() < sValues.capacity() )
 		std::vector<double>(sValues).swap(sValues);
 	if( sValueSets.size() < sValueSets.capacity() )
 		std::vector<u16>(sValueSets).swap(sValueSets);
-	sChangedValueSets.clearAndResize(sValueSets.size());
-
-	// Load initial values and log file timestamps
-	sChangedDataSources.clearAndResize(sDataSources.size());
-	sChangedDataSources.set();
-	if( !sFiles.empty() || !sRegVals.empty() )
-		update();
-
-	// Begin monitoring for registry changes only after first load
-	for(int aRegKeyID = 0, aRegKeyEnd = intSize(sRegKeys.size());
-		aRegKeyID < aRegKeyEnd; ++aRegKeyID)
-	{
-		SystemRegistryKey& aRegKey = sRegKeys[aRegKeyID];
-		aRegKey.hChangedSignal = CreateEvent(NULL, TRUE, FALSE, NULL);
-		if( aRegKey.hChangedSignal )
-		{
-			RegNotifyChangeKeyValue(
-				aRegKey.hKey,
-				FALSE, REG_NOTIFY_CHANGE_LAST_SET,
-				aRegKey.hChangedSignal, TRUE);
-		}
-	}
 
 	sInitialized = true;
 }
@@ -2005,7 +2442,6 @@ void cleanup()
 	for(int i = 0, end = intSize(sFolders.size()); i < end; ++i)
 		FindCloseChangeNotification(sFolders[i].hChangedSignal);
 	sFolders.clear();
-	sFiles.clear();
 
 	for(int i = 0, end = intSize(sRegKeys.size()); i < end; ++i)
 	{
@@ -2013,14 +2449,20 @@ void cleanup()
 		CloseHandle(sRegKeys[i].hChangedSignal);
 	}
 	sRegKeys.clear();
-	sRegVals.clear();
 
+	for(int i = 0, end = intSize(sDataSources.size()); i < end; ++i)
+	{
+		RegCloseKey(sDataSources[i].hKeyToRead);
+	}
 	sDataSources.clear();
+
 	sVariables.clear();
 	sValues.clear();
 	sValueSets.clear();
-	sChangedValueSets.clear();
-	sChangedDataSources.clear();
+	sValueSetsChanged.clear();
+	sDataSourcesToCheck.clear();
+	sDataSourcesToRead.clear();
+	sDataSourcesToReCheck.clear();
 	sInitialized = false;
 	sPaused = false;
 }
@@ -2033,22 +2475,57 @@ void update()
 		// Cancel any parsing in-progress
 		delete sReader; sReader = null;
 		delete sParser; sParser = null;
+		delete sFinder; sFinder = null;
 		return;
 	}
 
-	// Continue any active reading & parsing already in progress
-	if( sReader || sParser )
+	// Continue any active parsing already in progress
+	if( sFinder )
+	{
+		sFinder->checkNextLocation();
+		if( sFinder->searchTriggeredChange() && sInitialized )
+		{
+			// Change will trigger our own notification system,
+			// so just continue after that happens
+			sDataSourcesToReCheck.set(sFinder->dataSourceID());
+			delete sFinder; sFinder = null;
+		}
+		else if( sFinder->done() )
+		{
+			sDataSourcesToCheck.reset(sFinder->dataSourceID());
+			if( sFinder->foundSourceToRead() )
+				sDataSourcesToRead.set(sFinder->dataSourceID());
+			delete sFinder; sFinder = null;
+		}
+		return;
+	}
+
+	if( sParser )
 	{
 		DBG_ASSERT(sReader && sParser);
 		sParser->parseNextChunk(sReader->readNextChunk());
-		if( sReader->done() || sParser->done() )
+		if( sReader->sourceWasBusy() )
 		{
-			if( !sReader->sourceWasBusy() )
+			// Try processing this source again later instead
+			sDataSourcesToReCheck.set(sParser->dataSourceID());
+			sDataSourcesToRead.reset(sParser->dataSourceID());
+			sDataSources[sParser->dataSourceID()].dataCache.clear();
+			delete sReader; sReader = null;
+			delete sParser; sParser = null;
+		}
+		else if( sReader->done() || sParser->done() )
+		{
+			if( sReader->errorEncountered() )
+			{
+				syncDebugPrint("No values read - error encountered!\n");
+			}
+			else
 			{
 				sReader->reportResults();
 				sParser->reportResults();
-				sChangedDataSources.reset(sParser->dataSourceID());
 			}
+			sDataSourcesToRead.reset(sParser->dataSourceID());
+			sDataSources[sParser->dataSourceID()].dataCache.clear();
 			delete sReader; sReader = null;
 			delete sParser; sParser = null;
 		}
@@ -2067,21 +2544,11 @@ void update()
 				// Re-arm the notification for next update
 				FindNextChangeNotification(aFolder.hChangedSignal);
 
-				// Use timestamps to check if any contained files are updated
-				for(int i = 0, end = intSize(aFolder.sourceIDs.size());
+				// Flag to check for changes to any related data sources
+				for(int i = 0, end = intSize(aFolder.dataSourceIDs.size());
 					i < end; ++i )
 				{
-					DataSource& aSource = sDataSources[aFolder.sourceIDs[i]];
-					DBG_ASSERT(aSource.type == eDataSourceType_File);
-					ConfigFile& aFile = sFiles[aSource.fileID];
-					FILETIME aModTime = getFileLastModTime(aFile);
-					if( CompareFileTime(&aModTime, &aFile.lastModTime) > 0 )
-					{
-						syncDebugPrint("Detected change in file %s\n",
-							getFileName(narrow(aFile.pathW)).c_str());
-						aFile.lastModTime = aModTime;
-						sChangedDataSources.set(aFolder.sourceIDs[i]);
-					}
+					sDataSourcesToCheck.set(aFolder.dataSourceIDs[i]);
 				}
 			}
 		}
@@ -2096,40 +2563,57 @@ void update()
 				// Rearm the notification for next update
 				RegNotifyChangeKeyValue(
 					aRegKey.hKey,
-					FALSE, REG_NOTIFY_CHANGE_LAST_SET,
+					aRegKey.recursiveCheckNeeded,
+					REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET,
 					aRegKey.hChangedSignal, TRUE);
 
-				// Mark all data sources using this key as changed
-				for(int i = 0, end = intSize(aRegKey.sourceIDs.size());
+				// Flag to check for changes to any related data sources
+				for(int i = 0, end = intSize(aRegKey.dataSourceIDs.size());
 					i < end; ++i )
 				{
-					if( sChangedDataSources.test(aRegKey.sourceIDs[i]) )
-						continue;
-
-					sChangedDataSources.set(aRegKey.sourceIDs[i]);
-					syncDebugPrint(
-						"Detected change in registry key value name %s\n",
-						narrow(sRegVals[sDataSources[aRegKey.sourceIDs[i]].
-							regValID].valueNameW).c_str());
+					sDataSourcesToCheck.set(aRegKey.dataSourceIDs[i]);
 				}
 			}
 		}
 	}
 
-	// Begin parsing any changed data sources
-	for(int aDataSourceID = sChangedDataSources.firstSetBit();
-		aDataSourceID < sChangedDataSources.size();
-		aDataSourceID = sChangedDataSources.nextSetBit(aDataSourceID+1))
+	// Investigate any data sources that might have changed
+	if( sDataSourcesToCheck.any() )
 	{
-		DBG_ASSERT(!sParser && !sReader);
+		const int aDataSourceID = sDataSourcesToCheck.firstSetBit();
 		DataSource& aDataSource = sDataSources[aDataSourceID];
+		aDataSource.dataCache.clear();
+		sDataSourcesToRead.reset(aDataSourceID);
+		sDataSourcesToReCheck.reset(aDataSourceID);
+		DBG_ASSERT(!sFinder);
 		switch(aDataSource.type)
 		{
 		case eDataSourceType_File:
-			sReader = new ConfigFileReader(aDataSource.fileID);
+			sFinder = new ConfigFileFinder(aDataSourceID);
 			break;
 		case eDataSourceType_RegVal:
-			sReader = new SystemRegistryValueReader(aDataSource.regValID);
+			sFinder = new SystemRegistryValueFinder(aDataSourceID);
+			break;
+		default:
+			DBG_ASSERT(false && "Unknown config source data type");
+		}
+		// Search (for file with newer timestamp) will continue next update()
+		return;
+	}
+
+	// Begin reading any new/changed data sources found
+	if( sDataSourcesToRead.any() )
+	{
+		const int aDataSourceID = sDataSourcesToRead.firstSetBit();
+		DataSource& aDataSource = sDataSources[aDataSourceID];
+		DBG_ASSERT(!sParser && !sReader);
+		switch(aDataSource.type)
+		{
+		case eDataSourceType_File:
+			sReader = new ConfigFileReader(aDataSourceID);
+			break;
+		case eDataSourceType_RegVal:
+			sReader = new SystemRegistryValueReader(aDataSourceID);
 			break;
 		default:
 			DBG_ASSERT(false && "Unknown config source data type");
@@ -2146,34 +2630,31 @@ void update()
 			DBG_ASSERT(false && "Unknown config data format");
 		}
 		DBG_ASSERT(sReader && sParser);
-		// Attempt to complete parsing immediately when initializing
-		if( !sInitialized )
+		// Parsing will continue next update()
+		return;
+	}
+
+	if( sDataSourcesToReCheck.any() )
+	{
+		// Need to attempt again to read these data sources
+		// Not during initialization though, or may get stuck
+		// in update loop waiting for them to become available
+		if( sInitialized )
 		{
-			while(!sParser->done() && !sReader->done())
-				sParser->parseNextChunk(sReader->readNextChunk());
-			if( !sReader->sourceWasBusy() )
-			{
-				sReader->reportResults();
-				sParser->reportResults();
-				sChangedDataSources.reset(sParser->dataSourceID());
-			}
-			delete sReader; sReader = null;
-			delete sParser; sParser = null;
-			continue;
+			sDataSourcesToCheck = sDataSourcesToReCheck;
+			sDataSourcesToReCheck.reset();
 		}
-		// Otherwise only parse one file at a time
 		return;
 	}
 
 	// Once done with all parsing, apply change values found
-	if( !sParser && !sReader &&
-		sChangedDataSources.none() && sChangedValueSets.any() )
+	if( !sParser && !sReader && sValueSetsChanged.any() )
 	{
 		for(int aVarID = 0, aVariablesEnd = intSize(sVariables.size());
 			aVarID < aVariablesEnd; ++aVarID)
 		{
 			SyncVariable& aSyncVar = sVariables[aVarID];
-			if( sChangedValueSets.test(aSyncVar.valueSetID) )
+			if( sValueSetsChanged.test(aSyncVar.valueSetID) )
 			{
 				const std::string& aValueStr = getValueString(
 					aSyncVar.funcType, aSyncVar.valueSetID);
@@ -2183,7 +2664,7 @@ void update()
 				Profile::setVariable(aSyncVar.variableID, aValueStr, true);
 			}
 		}
-		sChangedValueSets.reset();
+		sValueSetsChanged.reset();
 		syncDebugPrint("All read properties now being applied!\n");
 	}
 }

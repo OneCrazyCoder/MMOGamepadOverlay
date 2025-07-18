@@ -21,8 +21,13 @@ bool isValidFilePath(const std::string& theFilePath);
 bool isValidFilePath(const std::wstring& theFilePath);
 bool isValidFolderPath(const std::string& thePath);
 bool isValidFolderPath(const std::wstring& thePath);
+
 // Gets a path to a temporary file that can work with ReplaceFile
 std::wstring getTempFilePathFor(const std::wstring& theFileToReplace);
+
+// Gets last modification time for file with given path
+FILETIME getFileLastModTime(const std::string& theFilePath);
+FILETIME getFileLastModTime(const std::wstring& theFilePath);
 
 // Will overwrite any existing file at theDestFilePath, or return false
 bool writeResourceToFile(

@@ -196,8 +196,8 @@ static void checkWindowExists()
 		return;
 
 	// Target window found!
-	targetDebugPrint("Target window '%s' found!\n",
-		narrow(kConfig.targetWindowName).c_str());
+	targetDebugPrint("Target window '%ls' found!\n",
+		kConfig.targetWindowName.c_str());
 	sTargetWindowHandle = aForegroundWindow;
 	sNextCheck = eCheck_WindowPosition;
 	sRepeatCheckTime = 0;
@@ -653,9 +653,9 @@ void autoLaunch()
 			NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 			(LPWSTR)&anErrorMessage, 0, NULL);
 		Dialogs::showError(NULL, strFormat(
-			"Failed to auto-launch target application %s: %s",
-			narrow(aFinalPath).c_str(),
-			narrow((LPWSTR)anErrorMessage).c_str()));
+			"Failed to auto-launch target application %ls: %ls",
+			&aFinalPath[0],
+			(LPWSTR)anErrorMessage));
 		LocalFree(anErrorMessage);
 	}
 }
