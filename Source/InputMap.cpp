@@ -1736,6 +1736,19 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
+	// "= [Change] [Target] Config [Sync] [File]"
+	allowedKeyWords.reset();
+	allowedKeyWords.set(eCmdWord_Change);
+	allowedKeyWords.set(eCmdWord_Edit);
+	allowedKeyWords.set(eCmdWord_Config);
+	allowedKeyWords.set(eCmdWord_File);
+	if( keyWordsFound.test(eCmdWord_Config) &&
+		(keyWordsFound & ~allowedKeyWords).none() )
+	{
+		result.type = eCmdType_ChangeTargetConfigSyncFile;
+		return result;
+	}
+
 	// "= Close App"
 	if( keyWordsFound.test(eCmdWord_Close) &&
 		keyWordsFound.test(eCmdWord_App) &&
@@ -4339,9 +4352,11 @@ int keyBindArrayForHUDElement(int theHUDElementID)
 }
 
 
-const std::string& hudElementKeyName(int theHUDElementID)
+std::string hudElementKeyName(int theHUDElementID)
 {
 	DBG_ASSERT(theHUDElementID >= 0 && theHUDElementID < sHUDElements.size());
+	if( sHUDElements.keys()[theHUDElementID][0] == '~' )
+		return std::string();
 	return sHUDElements.keys()[theHUDElementID];
 }
 

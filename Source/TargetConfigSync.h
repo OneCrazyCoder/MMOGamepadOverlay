@@ -30,4 +30,8 @@ void update();
 void pauseMonitoring();
 void resumeMonitoring();
 
+// If have multiple possible target config sync files due to wildcards,
+// this will force a dialog to pop up to select which one to use
+void promptUserForSyncFileToUse();
+
 } // TargetConfigSync

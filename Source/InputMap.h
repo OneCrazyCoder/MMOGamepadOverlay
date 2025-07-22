@@ -123,7 +123,7 @@ int hotspotForHUDElement(int theHUDElementID);
 // Only valid for HUD element types that are tied to Key Bind Arrays
 int keyBindArrayForHUDElement(int theHUDElementID);
 // Does not include HUD. or Menu. prefix
-const std::string& hudElementKeyName(int theHUDElementID);
+std::string hudElementKeyName(int theHUDElementID);
 
 // SIZES
 int keyBindCount();

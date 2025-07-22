@@ -11,6 +11,7 @@
 #include "LayoutEditor.h"
 #include "Menus.h"
 #include "Profile.h"
+#include "TargetConfigSync.h"
 #include "WindowManager.h" // readUIScale()
 
 namespace InputTranslator
@@ -1195,6 +1196,9 @@ static void processCommand(
 		break;
 	case eCmdType_EditLayout:
 		LayoutEditor::init();
+		break;
+	case eCmdType_ChangeTargetConfigSyncFile:
+		TargetConfigSync::promptUserForSyncFileToUse();
 		break;
 	case eCmdType_QuitApp:
 		gShutdown = true;

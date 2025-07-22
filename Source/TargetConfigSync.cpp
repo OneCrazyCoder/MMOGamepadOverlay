@@ -4,6 +4,7 @@
 
 #include "TargetConfigSync.h"
 
+#include "Dialogs.h"
 #include "HotspotMap.h"
 #include "HUD.h"
 #include "InputMap.h"
@@ -93,10 +94,17 @@ enum EValueFunction
 	eValueFunc_Num
 };
 
+const char* kTargetConfigSettingsSectionName = "System";
 const char* kTargetConfigFilesSectionName = "TargetConfigFiles";
 const char* kTargetConfigVarsSectionName = "TargetConfigVariables";
 const char* kValueFormatStrSectionName = "TargetConfigFormat";
 const char* kValueFormatInvertPrefix = "Invert";
+const char* kPromptForFilesPropertyName =
+	"PromptForTargetConfigSyncFiles";
+const char* kLastFileSelectedPropertyName =
+	"LastTargetConfigSyncFileSelected";
+const char* kLastTimeFileSelectedPropertyName =
+	"LastTimeTargetConfigSyncFileSelected";
 const char* kValueFormatStringKeys[] =
 {
 	"Value",		// eValueSetSubType_Base
@@ -247,7 +255,6 @@ struct ZERO_INIT(DataSource)
 	EDataSourceType type;
 	std::string pathPattern;
 	FILETIME lastModTime;
-	HKEY hKeyToRead;
 	std::wstring pathToRead;
 	std::vector<BYTE> dataCache;
 	bool usesWildcards;
@@ -295,9 +302,6 @@ static std::vector<SystemRegistryKey> sRegKeys;
 static std::vector<SyncVariable> sVariables;
 static std::vector<double> sValues;
 static std::vector<u16> sValueSets;
-static std::vector<std::wstring> sCurrWildcardMatches;
-static std::vector<std::wstring> sBestWildcardMatches;
-static std::vector<std::wstring> sLastReadWildcardMatches;
 static BitVector<32> sDataSourcesToCheck;
 static BitVector<32> sDataSourcesToRead;
 static BitVector<32> sDataSourcesToReCheck;
@@ -305,9 +309,14 @@ static BitVector<64> sValueSetsChanged;
 static ConfigDataFinder* sFinder;
 static ConfigDataReader* sReader;
 static ConfigDataParser* sParser;
+static std::wstring sLastWildcardFileSelected;
+static FILETIME sLastChangeDetectedTime;
+static FILETIME sLastTimeWildcardFileSelected;
 static bool sInvertAxis[eValueSetSubType_Num];
 static bool sInitialized = false;
 static bool sPaused = false;
+static bool sPromptForWildcardFiles = false;
+static bool sForcePromptForWildcardFiles = false;
 
 
 //-----------------------------------------------------------------------------
@@ -1056,25 +1065,164 @@ protected:
 	void compareBestSource(
 		const std::wstring& thePath,
 		const std::wstring& theMatchedString,
-		FILETIME theModTime)
+		FILETIME theModTime) // also matching mValueBuf set for these
 	{
 		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
 		DataSource& aDataSource = sDataSources[mDataSourceID];
-		mFoundSourceToRead = true;
-		// For now just always pick the most-recently-modified source
-		if( CompareFileTime(&theModTime, &aDataSource.lastModTime) > 0 )
-		{
-			aDataSource.lastModTime = theModTime;
-			aDataSource.pathToRead = thePath;
-			swap(mValueBuf, aDataSource.dataCache);
-		}
+		if( CompareFileTime(&theModTime, &aDataSource.lastModTime) < 0 )
+			return;
+
+		mCandidateNames.push_back(theMatchedString);
+		mCandidates.push_back(DataSourceCandidate());
+		mCandidates.back().lastModTime = theModTime;
+		mCandidates.back().pathToRead = thePath;
+		swap(mCandidates.back().dataCache, mValueBuf);
 	}
 
 	void finalizeBestSourceFound()
 	{
+		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
+		DataSource& aDataSource = sDataSources[mDataSourceID];
+
 		mDoneSearching = true;
+		if( mCandidates.empty() )
+			return;
+
+		int aBestIdx = 0;
+		DBG_ASSERT(mCandidates.size() == mCandidateNames.size());
+		if( mCandidates.size() > 1 )
+		{
+			// Check if one of the candidates was previously selected already,
+			// determined by at least one matched sub-string fully matching
+			// from sLastWildcardFileSelected, and if that applies to more
+			// than one candidate, select the one that most closely matches
+			int aLastSelCandidateIdx = -1;
+			if( !sLastWildcardFileSelected.empty() )
+			{
+				int aBestMatchCount = 0;
+				for(int i = 0; i < intSize(mCandidateNames.size()); ++i)
+				{
+					int aMatchCount = 0;
+
+					const std::wstring& a = sLastWildcardFileSelected;
+					const std::wstring& b = mCandidateNames[i];
+
+					const size_t aLen = a.length(), bLen = b.length();
+					size_t aPos = 0, bPos = 0;
+
+					while(aPos < aLen && bPos < bLen)
+					{
+						// Find next asterisk or end of string
+						size_t aNext = a.find(L'*', aPos);
+						size_t bNext = b.find(L'*', bPos);
+						if( aNext == std::wstring::npos ) aNext = aLen;
+						if( bNext == std::wstring::npos ) bNext = bLen;
+
+						// Calculate lengths
+						const int aSubLen = intSize(aNext) - intSize(aPos);
+						const int bSubLen = intSize(bNext) - intSize(bPos);
+
+						// Compare directly (case-insensitive)
+						if( CompareStringOrdinal(
+								&a[aPos], aSubLen,
+								&b[bPos], bSubLen,
+								TRUE) == CSTR_EQUAL )
+						{
+							++aMatchCount;
+						}
+
+						// Move past the '*'
+						aPos = (aNext < aLen) ? aNext + 1 : aLen + 1;
+						bPos = (bNext < bLen) ? bNext + 1 : bLen + 1;
+					}
+					if( aMatchCount > aBestMatchCount )
+					{
+						aBestMatchCount = aMatchCount;
+						aLastSelCandidateIdx = i;
+					}
+				}
+			}
+		
+			// Treat last selected candidate as having last mod time of
+			// at least sLastTimeWildcardFileSelected time, so it will
+			// be preferred over candidates that have newer modification
+			// time yet older than when this one was manually selected
+			if( aLastSelCandidateIdx >= 0 &&
+				CompareFileTime(
+					&mCandidates[aLastSelCandidateIdx].lastModTime,
+					&sLastTimeWildcardFileSelected) < 0 )
+			{
+				mCandidates[aLastSelCandidateIdx].lastModTime =
+					sLastTimeWildcardFileSelected;
+			}
+
+			// Find candidate with most recent modification time
+			for(int i = 1, end = intSize(mCandidates.size()); i < end; ++i)
+			{
+				FILETIME aTestTime = mCandidates[i].lastModTime;
+				FILETIME aBestTime = mCandidates[aBestIdx].lastModTime;
+				LONG aComp = CompareFileTime(&aTestTime, &aBestTime);
+				if( aComp > 0 )
+					aBestIdx = i;
+				else if( aComp == 0 && i == aLastSelCandidateIdx )
+					aBestIdx = i; // last selected candidate is tie-breaker
+			}
+		
+			// If requested prompting for multiple found, and best candidate
+			// isn't the last one selected, and are in initialization phase,
+			// then bring up the dialog. Or if directly requested dialog.
+			if( sForcePromptForWildcardFiles ||
+				(sPromptForWildcardFiles &&
+				 aBestIdx != aLastSelCandidateIdx &&
+				 !sInitialized) )
+			{
+				sForcePromptForWildcardFiles = false;
+				Dialogs::CharacterSelectResult aDialogResult =
+					Dialogs::characterSelect(
+						mCandidateNames, aBestIdx,
+						!sPromptForWildcardFiles);
+				if( !aDialogResult.cancelled )
+				{
+					aBestIdx = aDialogResult.selectedIndex;
+					GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
+					Profile::setStr(
+						kTargetConfigSettingsSectionName,
+						kLastFileSelectedPropertyName,
+						narrow(mCandidateNames[aBestIdx]));
+					Profile::setStr(
+						kTargetConfigSettingsSectionName,
+						kLastTimeFileSelectedPropertyName,
+						toString(sLastTimeWildcardFileSelected));
+					sPromptForWildcardFiles =
+						!aDialogResult.autoSelectRequested;
+					Profile::setStr(
+						kTargetConfigSettingsSectionName,
+						kPromptForFilesPropertyName,
+						sPromptForWildcardFiles ? "Yes" : "No");
+				}
+			}
+
+			sLastWildcardFileSelected = mCandidateNames[aBestIdx];
+			syncDebugPrint(
+				"Selected source for multi-source wildcard match: %s\n",
+				narrow(sLastWildcardFileSelected).c_str());
+		}
+
+		aDataSource.pathToRead = mCandidates[aBestIdx].pathToRead;
+		aDataSource.lastModTime = mCandidates[aBestIdx].lastModTime;
+		swap(aDataSource.dataCache, mCandidates[aBestIdx].dataCache);
+
+		mFoundSourceToRead = true;
 	}
 
+	struct ZERO_INIT(DataSourceCandidate)
+	{
+		FILETIME lastModTime;
+		std::wstring pathToRead;
+		std::vector<BYTE> dataCache;
+	};
+	std::vector<DataSourceCandidate> mCandidates;
+	std::vector<std::wstring> mCandidateNames;
 	std::vector<BYTE> mValueBuf;
 	const int mDataSourceID;
 	bool mDoneSearching;
@@ -1157,7 +1305,6 @@ public:
 		if( done() )
 			return;
 
-		DataSource& aDataSource = sDataSources[mDataSourceID];
 		mEntriesCheckedThisUpdate = 0;
 
 		while(!mFolderStack.empty())
@@ -1201,7 +1348,7 @@ public:
 			else
 			{
 				aFileName = aFolderState.path + aFileName;
-				const std::wstring aMatchStr =
+				const std::wstring& aMatchStr =
 					wildcardMatch(aFileName.c_str(), mPathPattern.c_str());
 				if( !aMatchStr.empty() )
 				{
@@ -1451,7 +1598,7 @@ public:
 				{
 					const std::wstring& aValuePath =
 						aKeyState.path + &mNameBuf[0];
-					const std::wstring aMatchStr =
+					const std::wstring& aMatchStr =
 						wildcardMatch(aValuePath.c_str(), mPathPattern.c_str());
 					if( !aMatchStr.empty() )
 					{
@@ -1554,11 +1701,9 @@ private:
 		theData.insert(theData.end(), timeStampMarker(),
 			timeStampMarker() + kTimestampMarkerSize);
 
-		FILETIME ft;
-		GetSystemTimeAsFileTime(&ft);
 		ULARGE_INTEGER aTimestamp;
-		aTimestamp.LowPart = ft.dwLowDateTime;
-		aTimestamp.HighPart = ft.dwHighDateTime;
+		aTimestamp.LowPart = sLastChangeDetectedTime.dwLowDateTime;
+		aTimestamp.HighPart = sLastChangeDetectedTime.dwHighDateTime;
 		const BYTE* aTimestampPtr = (const BYTE*)(&aTimestamp.QuadPart);
 		theData.insert(theData.end(), aTimestampPtr,
 			aTimestampPtr + kTimestampSize);
@@ -2186,7 +2331,18 @@ void load()
 {
 	if( sInitialized || sPaused )
 		cleanup();
+
+	GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
 	TargetConfigSyncBuilder aBuilder;
+	sPromptForWildcardFiles = Profile::getBool(
+		kTargetConfigSettingsSectionName,
+		kPromptForFilesPropertyName);
+	sLastWildcardFileSelected = widen(Profile::getStr(
+		kTargetConfigSettingsSectionName,
+		kLastFileSelectedPropertyName));
+	sLastTimeWildcardFileSelected = fileTimeFromString(Profile::getStr(
+		kTargetConfigSettingsSectionName,
+		kLastTimeFileSelectedPropertyName));
 
 	{// Fetch target config paths potentially containing sync properties
 		const Profile::PropertyMap& aPropMap =
@@ -2425,7 +2581,8 @@ void load()
 void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	if( theProfileMap.contains(kTargetConfigFilesSectionName) ||
+	if( theProfileMap.contains(kTargetConfigSettingsSectionName) ||
+		theProfileMap.contains(kTargetConfigFilesSectionName) ||
 		theProfileMap.contains(kTargetConfigVarsSectionName) ||
 		theProfileMap.contains(kValueFormatStrSectionName) )
 	{
@@ -2450,12 +2607,7 @@ void cleanup()
 	}
 	sRegKeys.clear();
 
-	for(int i = 0, end = intSize(sDataSources.size()); i < end; ++i)
-	{
-		RegCloseKey(sDataSources[i].hKeyToRead);
-	}
 	sDataSources.clear();
-
 	sVariables.clear();
 	sValues.clear();
 	sValueSets.clear();
@@ -2544,6 +2696,9 @@ void update()
 				// Re-arm the notification for next update
 				FindNextChangeNotification(aFolder.hChangedSignal);
 
+				// Note time of change detected
+				GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
+
 				// Flag to check for changes to any related data sources
 				for(int i = 0, end = intSize(aFolder.dataSourceIDs.size());
 					i < end; ++i )
@@ -2566,6 +2721,9 @@ void update()
 					aRegKey.recursiveCheckNeeded,
 					REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET,
 					aRegKey.hChangedSignal, TRUE);
+
+				// Note time of change detected
+				GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
 
 				// Flag to check for changes to any related data sources
 				for(int i = 0, end = intSize(aRegKey.dataSourceIDs.size());
@@ -2679,6 +2837,24 @@ void pauseMonitoring()
 void resumeMonitoring()
 {
 	sPaused = false;
+}
+
+
+void promptUserForSyncFileToUse()
+{
+	sForcePromptForWildcardFiles = true;
+
+	load();
+
+	if( sForcePromptForWildcardFiles )		
+	{
+		Dialogs::showNotice(NULL,
+			"No selection necessary - all target config file path "
+			"patterns have one or less matching files anyway.",
+			"No action needed");
+	}
+
+	sForcePromptForWildcardFiles = false;
 }
 
 #undef syncDebugPrint
