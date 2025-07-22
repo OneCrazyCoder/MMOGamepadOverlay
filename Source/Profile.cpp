@@ -50,7 +50,7 @@ const ResourceProfile kResTemplateBase[] =
 	{	"AOA Base",						"AOA Base",			IDR_TEXT_INI_BASE_AOA,	7	},
 	{	"EQ P99 Base",					"P99 Base",			IDR_TEXT_INI_BASE_P99,	7	},
 	{	"EQ PQ Base",					"PQ Base",			IDR_TEXT_INI_BASE_PQ,	7	},
-	{	"M&M Base",						"MnM Base",			IDR_TEXT_INI_BASE_MNM,	7	},
+	{	"M&M Base",						"MnM Base",			IDR_TEXT_INI_BASE_MNM,	8	},
 	{	"Pantheon Base",				"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	7	},
 };
 
@@ -1584,7 +1584,7 @@ static void setPropertyAfterLoad(
 	DBG_ASSERT(thePropertyID >= 0 && thePropertyID < aSection.size());
 	Property& aProp = aSection.vals()[thePropertyID];
 	if( (aProp.pattern.empty() && aProp.str == theValue) ||
-		aProp.pattern == theValue )
+		(!aProp.pattern.empty() && aProp.pattern == theValue) )
 		return;
 
 	// Set pattern string (next call will update actual aProp.str)

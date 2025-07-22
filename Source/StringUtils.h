@@ -32,7 +32,7 @@ std::string replaceChar(const std::string& theString, char oldChar, char newChar
 std::string replaceAllStr(const std::string& theString, const char* oldStr, const char* newStr);
 // Checks if a string matches a pattern using *'s as wildcards (case-insensitive)
 // Result is empty if none found, or contains the sub-strings that matched with
-// each '*' character (with a '*' in result for start of each matched sub-string).
+// each '*' character (with a '*' in result for end of each matched sub-string).
 std::wstring wildcardMatch(const wchar_t* theString, const wchar_t* thePattern);
 
 // File/path utilities (works fine with UTF8-encoding strings)
@@ -88,6 +88,7 @@ std::string toString(u16 theValue);
 std::string toString(u8 theValue);
 std::string toString(float theValue);
 std::string toString(double theValue);
+std::string toString(FILETIME theValue);
 
 bool isAnInteger(const std::string& theString); // must be pre-trim()'d
 bool isAnInteger(const char* theString); // must be pre-trim()'d
@@ -97,10 +98,6 @@ u32 u32FromString(const std::string& theString);
 u32 u32FromString(const char* theString);
 u32 u32FromHexString(const std::string& theString);
 u32 u32FromHexString(const char* theString);
-s64 s64FromString(const std::string& theString);
-s64 s64FromString(const char* theString);
-u64 u64FromString(const std::string& theString);
-u64 u64FromString(const char* theString);
 float floatFromString(const std::string& theString);
 float floatFromString(const char* theString);
 double doubleFromString(const std::string& theString);
@@ -109,5 +106,7 @@ double doubleFromStringStrict(const std::string& theString); // returns NaN
 double doubleFromStringStrict(const char* str); // instead of 0 if not valid
 bool boolFromString(const std::string& theString);
 bool boolFromString(const char* theString);
+FILETIME fileTimeFromString(const std::string& theString);
+FILETIME fileTimeFromString(const char* theString);
 
 #include "StringUtils.inc"

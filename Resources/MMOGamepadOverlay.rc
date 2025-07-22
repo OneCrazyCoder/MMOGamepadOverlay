@@ -102,6 +102,18 @@ BEGIN
     LTEXT           "This Profile will read the below files in the order listed.\nProperties in later files will override those in earlier files!",IDC_STATIC_PROMPT,7,7,189,20
 END
 
+IDD_DIALOG_CHARACTER_SELECT DIALOGEX 0, 0, 203, 121
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Select Target Config Sync file (character)"
+FONT 10, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    LISTBOX         IDC_LIST_ITEMS,7,28,189,72,LBS_SORT | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Don't show this again (auto-select)",IDC_CHECK_AUTOLOAD,
+                    "Button",BS_AUTOCHECKBOX | BS_TOP | BS_MULTILINE | WS_TABSTOP,7,106,133,11
+    DEFPUSHBUTTON   "OK",IDOK,145,104,50,14
+    LTEXT           "Which game config file path should overlay settings (like window layout) sync with?",IDC_STATIC_PROMPT,7,7,189,19
+END
+
 IDD_DIALOG_TARGET_APP DIALOGEX 0, 0, 300, 38
 STYLE DS_SETFONT | DS_3DLOOK | DS_FIXEDSYS | DS_CONTROL | WS_CHILD | WS_CLIPSIBLINGS
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -285,6 +297,12 @@ BEGIN
         BOTTOMMARGIN, 63
     END
 
+    IDD_DIALOG_CHARACTER_SELECT, DIALOG
+    BEGIN
+        RIGHTMARGIN, 202
+        BOTTOMMARGIN, 118
+    END
+
     IDD_DIALOG_TARGET_APP, DIALOG
     BEGIN
         LEFTMARGIN, 7
@@ -434,6 +452,7 @@ BEGIN
     POPUP "File"
     BEGIN
         MENUITEM "Profile",                     ID_FILE_PROFILE
+        MENUITEM "Character Config File(s)",    ID_FILE_CHARACTERCONFIGFILE
         MENUITEM SEPARATOR
         MENUITEM "Exit",                        ID_FILE_EXIT
     END

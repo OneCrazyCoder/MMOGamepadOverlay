@@ -33,6 +33,14 @@ namespace Dialogs
 // Const Data
 //-----------------------------------------------------------------------------
 
+enum EDialogLayout
+{
+	eDialogLayout_Basic,
+	eDialogLayout_ProfileSelect,
+	eDialogLayout_CharacterSelect,
+};
+
+
 struct ProfileSelectDialogData
 {
 	const std::vector<std::string>& loadableProfiles;
@@ -53,6 +61,20 @@ struct ProfileSelectDialogData
 		result(res),
 		initialProfile(initialProfile),
 		allowEditing(allowEditing)
+		{}
+};
+
+struct CharacterSelectDialogData
+{
+	const std::vector<std::wstring>& characterNames;
+	CharacterSelectResult& result;
+
+	CharacterSelectDialogData(
+		const std::vector<std::wstring>& characterNames,
+		CharacterSelectResult& result)
+		:
+		characterNames(characterNames),
+		result(result)
 		{}
 };
 
@@ -121,7 +143,7 @@ static void updateProfileList(
 	// Add new items to the list box
 	for(size_t i = 0; i < aStrVec->size(); ++i)
 	{
-		const std::wstring aWStr = widen((*aStrVec)[i]);
+		const std::wstring& aWStr = widen((*aStrVec)[i]);
 		SendMessage(hListBox, LB_ADDSTRING, 0, (LPARAM)(aWStr.c_str()));
 	}
 
@@ -306,6 +328,114 @@ static INT_PTR CALLBACK editProfileSelectProc(
 		case IDCANCEL:
 			if( HIWORD(wParam) == BN_CLICKED )
 			{// Cancel button clicked
+				// Signal to main loop that are ready to close
+				sDialogDone = true;
+				return (INT_PTR)TRUE;
+			}
+			break;
+		}
+		break;
+
+	case WM_DEVICECHANGE:
+		Gamepad::checkDeviceChange();
+		break;
+	}
+
+	return (INT_PTR)FALSE;
+}
+
+
+static INT_PTR CALLBACK characterSelectProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	CharacterSelectDialogData* theData = NULL;
+
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		// Initialize contents
+		theData = (CharacterSelectDialogData*)(UINT_PTR)lParam;
+		// Allow other messages to access theData later
+		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theData);
+		DBG_ASSERT(theData);
+		// Populate the list box with alphabetically sorted character names,
+		// and store each item's original index as item data.
+		{
+			HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
+			DBG_ASSERT(hListBox);
+
+			for(int i = 0, end = intSize(theData->characterNames.size());
+				i < end; ++i)
+			{
+				int aSortedIdx = (int)SendMessage(
+					hListBox, LB_ADDSTRING, 0,
+					(LPARAM)theData->characterNames[i].c_str());
+				DBG_ASSERT(aSortedIdx != LB_ERR);
+				// Store origial index
+				SendMessage(hListBox, LB_SETITEMDATA, aSortedIdx, (LPARAM)i);
+			}
+
+			// Select the item corresponding to the stored original index
+			if( theData->result.selectedIndex < 0 ||
+				theData->result.selectedIndex >=
+					intSize(theData->characterNames.size()) )
+			{// Invalid initial index - just select first item
+				SendMessage(hListBox, LB_SETCURSEL, 0, 0);
+			}
+			else
+			{
+				for(int i = 0, end = intSize(theData->characterNames.size());
+					i < end; ++i)
+				{
+					int aStoredIndex = dropTo<int>(
+						SendMessage(hListBox, LB_GETITEMDATA, i, 0));
+					if( aStoredIndex == theData->result.selectedIndex )
+					{
+						SendMessage(hListBox, LB_SETCURSEL, i, 0);
+						break;
+					}
+				}
+			}
+		}
+		// Set initial value of auto-select checkbox
+		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
+			theData->result.autoSelectRequested);
+		return (INT_PTR)TRUE;
+
+	case WM_COMMAND:
+		// Process control commands
+		theData = (CharacterSelectDialogData*)(UINT_PTR)
+			GetWindowLongPtr(theDialog, GWLP_USERDATA);
+		if( !theData )
+			break;
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Okay button clicked
+				theData->result.cancelled = false;
+				// Add selected item from the list box to result
+				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
+				DBG_ASSERT(hListBox);
+				const int aListSelIdx = max(0, dropTo<int>(
+					SendMessage(hListBox, LB_GETCURSEL, 0, 0)));
+				theData->result.selectedIndex = clamp(dropTo<int>(
+					SendMessage(hListBox, LB_GETITEMDATA, aListSelIdx, 0)),
+					0, intSize(theData->characterNames.size())-1);
+				// Add auto-select checkbox status to result
+				theData->result.autoSelectRequested =
+					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
+						== BST_CHECKED);
+				// Signal to main loop that are ready to close
+				sDialogDone = true;
+				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDCANCEL:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{// Cancel button clicked
+				theData->result.cancelled = true;
 				// Signal to main loop that are ready to close
 				sDialogDone = true;
 				return (INT_PTR)TRUE;
@@ -751,7 +881,7 @@ static INT_PTR CALLBACK editMenuCommandProc(
 }
 
 
-static void dialogCheckGamepad(HWND theDialog)
+static void dialogCheckGamepad(HWND theDialog, EDialogLayout theLayout)
 {
 	Gamepad::update();
 
@@ -770,12 +900,15 @@ static void dialogCheckGamepad(HWND theDialog)
 
 	HWND aFocusControl = GetFocus();
 	UINT aFocusID =
-		(aFocusControl  && IsChild(theDialog, aFocusControl))
+		(aFocusControl && IsChild(theDialog, aFocusControl))
 			? GetDlgCtrlID(aFocusControl) : 0;
-	INPUT input[2] = { 0 };
+	INPUT input[4] = { 0 };
 	input[0].type = INPUT_KEYBOARD;
 	input[1].type = INPUT_KEYBOARD;
-	input[1].ki.dwFlags = KEYEVENTF_KEYUP;
+	input[2].type = INPUT_KEYBOARD;
+	input[2].ki.dwFlags = KEYEVENTF_KEYUP;
+	input[3].type = INPUT_KEYBOARD;
+	input[3].ki.dwFlags = KEYEVENTF_KEYUP;
 
 	// Check for cancel/back (B or Y on XB)
 	if( Gamepad::buttonHit(eBtn_FRight) || Gamepad::buttonHit(eBtn_FUp) )
@@ -791,11 +924,26 @@ static void dialogCheckGamepad(HWND theDialog)
 		switch(aFocusID)
 		{
 		case IDC_EDIT_PROFILE_NAME:
-			setDialogFocus(theDialog, IDC_LIST_ITEMS);
-			break;
+			if( theLayout == eDialogLayout_ProfileSelect )
+			{
+				setDialogFocus(theDialog, IDC_LIST_ITEMS);
+				break;
+			}
+			// fall through
 		default:
-			input[0].ki.wVk = input[1].ki.wVk = VK_RETURN;
-			SendInput(2, input, sizeof(INPUT));
+			{// Checkboxes etc should use SPACE instead of RETURN
+				WCHAR aClassName[32];
+				GetClassName(aFocusControl, aClassName, 32);
+
+				if( wcscmp(aClassName, L"Button") == 0 )
+				{
+					input[1].ki.wVk = input[2].ki.wVk = VK_SPACE;
+					SendInput(2, &input[1], sizeof(INPUT));
+					break;
+				}
+			}
+			input[1].ki.wVk = input[2].ki.wVk = VK_RETURN;
+			SendInput(2, &input[1], sizeof(INPUT));
 			break;
 		}
 		Gamepad::ignoreUntilPressedAgain(eBtn_FDown);
@@ -879,66 +1027,113 @@ static void dialogCheckGamepad(HWND theDialog)
 			0);
 	}
 
+	// Layout-specific overrides to just sending arrow keys
+	if( theLayout == eDialogLayout_ProfileSelect )
+	{
+		switch(aNewDir)
+		{
+		case eDialogDir_Left:
+			switch(aFocusID)
+			{
+			case IDC_LIST_ITEMS:
+			case IDC_EDIT_PROFILE_NAME:
+				return;
+			default:
+				setDialogFocus(theDialog, IDC_LIST_ITEMS);
+				return;
+			}
+			break;
+		case eDialogDir_Right:
+			switch(aFocusID)
+			{
+			case IDC_LIST_ITEMS:
+				setDialogFocus(theDialog, IDOK);
+				return;
+			case IDC_EDIT_PROFILE_NAME:
+				setDialogFocus(theDialog, IDC_CHECK_AUTOLOAD);
+				return;
+			}
+			return;
+		case eDialogDir_Up:
+			switch(aFocusID)
+			{
+			case IDOK:
+				return;
+			case IDC_EDIT_PROFILE_NAME:
+				setDialogFocus(theDialog, IDC_LIST_ITEMS);
+				return;
+			}
+		}
+	}
+	else if( theLayout == eDialogLayout_CharacterSelect )
+	{
+		switch(aNewDir)
+		{
+		case eDialogDir_Left:
+		case eDialogDir_Down:
+			if( aFocusID == IDC_CHECK_AUTOLOAD )
+				return;
+			break;
+		case eDialogDir_Up:
+			if( aFocusID != IDC_LIST_ITEMS )
+			{
+				setDialogFocus(theDialog, IDC_LIST_ITEMS);
+				return;
+			}
+			break;
+		}
+	}
+	if( aNewDir == eDialogDir_Down &&
+		aFocusID == IDC_LIST_ITEMS &&
+		theLayout != eDialogLayout_Basic )
+	{// Check for pushing down while at end of list
+		if( HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS) )
+		{
+			const int aListSize = dropTo<int>(
+				SendMessage(hListBox, LB_GETCOUNT, 0, 0));
+			const int aListSelIdx = dropTo<int>(
+				SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+			if( aListSize == 0 || aListSelIdx >= aListSize - 1 )
+			{
+				switch(theLayout)
+				{
+				case eDialogLayout_ProfileSelect:
+					input[0].ki.wVk = input[3].ki.wVk = VK_SHIFT;
+					input[1].ki.wVk = input[2].ki.wVk = VK_TAB;
+					SendInput(4, &input[0], sizeof(INPUT));
+					return;
+				case eDialogLayout_CharacterSelect:
+					setDialogFocus(theDialog, IDC_CHECK_AUTOLOAD);
+					return;
+				}
+			}
+		}
+	}
+
+	// Basic direction = arrow key input
 	switch(aNewDir)
 	{
 	case eDialogDir_Left:
-		switch(aFocusID)
+		if( aFocusID != IDC_LIST_ITEMS )
 		{
-		case IDC_LIST_ITEMS:
-		case IDC_EDIT_PROFILE_NAME:
-			break;
-		default:
-			if( GetDlgItem(theDialog, IDC_LIST_ITEMS) )
-			{
-				setDialogFocus(theDialog, IDC_LIST_ITEMS);
-			}
-			else
-			{
-				input[0].ki.wVk = input[1].ki.wVk = VK_LEFT;
-				SendInput(2, input, sizeof(INPUT));
-			}
-			break;
+			input[1].ki.wVk = input[2].ki.wVk = VK_LEFT;
+			SendInput(2, &input[1], sizeof(INPUT));
 		}
 		break;
 	case eDialogDir_Right:
-		switch(aFocusID)
+		if( aFocusID != IDC_LIST_ITEMS )
 		{
-		case IDC_LIST_ITEMS:
-		case IDC_EDIT_PROFILE_NAME:
-			input[0].ki.wVk = input[1].ki.wVk = VK_TAB;
-			SendInput(2, input, sizeof(INPUT));
-			break;
-		default:
-			input[0].ki.wVk = input[1].ki.wVk = VK_RIGHT;
-			SendInput(2, input, sizeof(INPUT));
-			break;
+			input[1].ki.wVk = input[2].ki.wVk = VK_RIGHT;
+			SendInput(2, &input[1], sizeof(INPUT));
 		}
 		break;
 	case eDialogDir_Up:
-		switch(aFocusID)
-		{
-		case IDOK:
-			break;
-		case IDC_EDIT_PROFILE_NAME:
-			setDialogFocus(theDialog, IDC_LIST_ITEMS);
-			break;
-		default:
-			input[0].ki.wVk = input[1].ki.wVk = VK_UP;
-			SendInput(2, input, sizeof(INPUT));
-			break;
-		}
+		input[1].ki.wVk = input[2].ki.wVk = VK_UP;
+		SendInput(2, &input[1], sizeof(INPUT));
 		break;
 	case eDialogDir_Down:
-		switch(aFocusID)
-		{
-		case IDC_CHECK_AUTOLOAD:
-			setDialogFocus(theDialog, IDC_EDIT_PROFILE_NAME);
-			break;
-		default:
-			input[0].ki.wVk = input[1].ki.wVk = VK_DOWN;
-			SendInput(2, input, sizeof(INPUT));
-			break;
-		}
+		input[1].ki.wVk = input[2].ki.wVk = VK_DOWN;
+		SendInput(2, &input[1], sizeof(INPUT));
 		break;
 	}
 }
@@ -994,7 +1189,7 @@ ProfileSelectResult profileSelect(
 	while(!gShutdown && !hadFatalError())
 	{
 		mainLoopUpdate(hWnd);
-		dialogCheckGamepad(hWnd);
+		dialogCheckGamepad(hWnd, eDialogLayout_ProfileSelect);
 
 		if( sDialogDone )
 			break;
@@ -1049,7 +1244,7 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 	while(!gShutdown && !hadFatalError())
 	{
 		mainLoopUpdate(hWnd);
-		dialogCheckGamepad(hWnd);
+		dialogCheckGamepad(hWnd, eDialogLayout_Basic);
 
 		if( sDialogDone )
 			break;
@@ -1061,6 +1256,66 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 	WindowManager::endDialogMode();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
+}
+
+
+
+CharacterSelectResult characterSelect(
+	const std::vector<std::wstring>& theFoundCharacters,
+	int theDefaultSelection, bool wantsAutoSelect)
+{
+	DBG_ASSERT(!theFoundCharacters.empty());
+
+	// Initialize data structures
+	CharacterSelectResult result;
+	result.selectedIndex = theDefaultSelection;
+	result.autoSelectRequested = wantsAutoSelect;
+	result.cancelled = true;
+
+	const bool needsToBeTopMost = TargetApp::targetWindowIsTopMost();
+	CharacterSelectDialogData aDataStruct(
+		theFoundCharacters,
+		result);
+
+	// Hide main window and overlays until dialog is done
+	TargetApp::prepareForDialog();
+	WindowManager::prepareForDialog();
+
+	// Release any keys held by InputDispatcher first
+	InputDispatcher::forceReleaseHeldKeys();
+
+	// Create and show dialog window
+	HWND hWnd = CreateDialogParam(
+		GetModuleHandle(NULL),
+		MAKEINTRESOURCE(IDD_DIALOG_CHARACTER_SELECT),
+		NULL,
+		characterSelectProc,
+		reinterpret_cast<LPARAM>(&aDataStruct));
+	ShowWindow(hWnd, SW_SHOW);
+	if( needsToBeTopMost )
+		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	SetForegroundWindow(hWnd);
+
+	// Loop until dialog signals it is done
+	sDialogDone = false;
+	sDialogFocusShown = false;
+	while(!gShutdown && !hadFatalError())
+	{
+		mainLoopUpdate(hWnd);
+		dialogCheckGamepad(hWnd, eDialogLayout_CharacterSelect);
+
+		if( sDialogDone )
+			break;
+
+		mainLoopSleep();
+	}
+
+	// Cleanup
+	WindowManager::endDialogMode();
+	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
+	DestroyWindow(hWnd);
+
+	return result;
 }
 
 
@@ -1097,7 +1352,7 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 	while(!gShutdown && !hadFatalError())
 	{
 		mainLoopUpdate(hWnd);
-		dialogCheckGamepad(hWnd);
+		dialogCheckGamepad(hWnd, eDialogLayout_Basic);
 
 		if( sDialogDone )
 			break;
@@ -1278,7 +1533,7 @@ EResult editMenuCommand(std::string& theString, bool directional)
 	while(!gShutdown && !hadFatalError())
 	{
 		mainLoopUpdate(hWnd);
-		dialogCheckGamepad(hWnd);
+		dialogCheckGamepad(hWnd, eDialogLayout_Basic);
 
 		if( sDialogDone )
 			break;

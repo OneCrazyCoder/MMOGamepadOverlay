@@ -29,6 +29,16 @@ ProfileSelectResult profileSelect(
 	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
 void profileEdit(const std::vector<std::string>& theFileList, bool firstRun);
 
+struct ZERO_INIT(CharacterSelectResult)
+{
+	int selectedIndex;
+	bool autoSelectRequested;
+	bool cancelled;
+};
+CharacterSelectResult characterSelect(
+	const std::vector<std::wstring>& theFoundCharacters,
+	int theDefaultSelection, bool wantsAutoSelect);
+
 struct ZERO_INIT(TreeViewDialogItem)
 {
 	std::string name;

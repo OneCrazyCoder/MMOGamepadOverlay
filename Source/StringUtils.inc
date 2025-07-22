@@ -86,6 +86,19 @@ inline std::string toString(double theValue)
 }
 
 
+inline std::string toString(FILETIME theValue)
+{
+	char aBuf[24];
+	SYSTEMTIME aSystemTime;
+	FileTimeToSystemTime(&theValue, &aSystemTime);
+	sprintf(aBuf, "%04d-%02d-%02dT%02d:%02d:%02d.%03d",
+		aSystemTime.wYear, aSystemTime.wMonth, aSystemTime.wDay,
+		aSystemTime.wHour, aSystemTime.wMinute, aSystemTime.wSecond,
+		aSystemTime.wMilliseconds);
+	return std::string(aBuf);
+}
+
+
 inline bool isAnInteger(const std::string& theString)
 {
 	return isAnInteger(theString.c_str());
@@ -146,30 +159,6 @@ inline u32 u32FromHexString(const std::string& theString)
 inline u32 u32FromHexString(const char* theString)
 {
 	return u32(strtoul(theString, NULL, 16));
-}
-
-
-inline s64 s64FromString(const std::string& theString)
-{
-	return strtol(theString.c_str(), NULL, 10);
-}
-
-
-inline s64 s64FromString(const char* theString)
-{
-	return strtol(theString, NULL, 10);
-}
-
-
-inline u64 u64FromString(const std::string& theString)
-{
-	return strtoul(theString.c_str(), NULL, 10);
-}
-
-
-inline u64 u64FromString(const char* theString)
-{
-	return strtoul(theString, NULL, 10);
 }
 
 
@@ -264,4 +253,30 @@ inline bool boolFromString(const char* theString)
 {
 	return theString != null && theString[0] != '\0' &&
 		doubleFromStringStrict(theString) != 0.0;
+}
+
+
+inline FILETIME fileTimeFromString(const std::string& theString)
+{
+	return fileTimeFromString(theString.c_str());
+}
+
+
+inline FILETIME fileTimeFromString(const char* theString)
+{
+	int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ms = 0;
+	std::sscanf(theString, "%d-%d-%dT%d:%d:%d.%d",
+		&year, &month, &day, &hour, &minute, &second, &ms);
+	SYSTEMTIME aSystemTime;
+	aSystemTime.wYear = dropTo<WORD>(year);
+	aSystemTime.wMonth = dropTo<WORD>(month);
+	aSystemTime.wDay = dropTo<WORD>(day);
+	aSystemTime.wHour = dropTo<WORD>(hour);
+	aSystemTime.wMinute = dropTo<WORD>(minute);
+	aSystemTime.wSecond = dropTo<WORD>(second);
+	aSystemTime.wMilliseconds = dropTo<WORD>(ms);
+
+	FILETIME result = FILETIME();
+	SystemTimeToFileTime(&aSystemTime, &result);
+	return result;
 }

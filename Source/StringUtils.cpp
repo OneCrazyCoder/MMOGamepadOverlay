@@ -255,13 +255,17 @@ std::wstring wildcardMatch(
 	const wchar_t* aLastMatch = NULL;
 	std::wstring result;
 
+	bool firstWildcardFound = false;
 	while(*theString)
 	{
 		if( *thePattern == L'*' )
 		{
 			aLastStar = thePattern++;
 			aLastMatch = theString;
-			result.push_back(L'*');
+			if( firstWildcardFound )
+				result.push_back(L'*');
+			else
+				firstWildcardFound = true;
 		}
 		else if( ::towupper(*theString) == ::towupper(*thePattern) )
 		{
@@ -285,12 +289,17 @@ std::wstring wildcardMatch(
 	// Trailing *'s
 	while(*thePattern == L'*')
 	{
-		result.push_back(L'*');
+		if( firstWildcardFound )
+			result.push_back(L'*');
+		else
+			firstWildcardFound = true;
 		++thePattern;
 	}
 
 	if( *thePattern != L'\0' )
 		result.clear();
+	else if( firstWildcardFound )
+		result.push_back(L'*');
 
 	return result;
 }

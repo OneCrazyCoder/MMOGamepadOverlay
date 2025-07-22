@@ -10,7 +10,7 @@
 #include "LayoutEditor.h"
 #include "Profile.h"
 #include "Resources/resource.h"
-#include "TargetConfigSync.h" // refresh()
+#include "TargetConfigSync.h"
 #include "TargetApp.h" // targetWindowHandle()
 
 // Forward declares of functions defined in Main.cpp for updating in modal mode
@@ -226,6 +226,9 @@ static LRESULT CALLBACK mainWindowProc(
 			return 0;
 		case ID_FILE_PROFILE:
 			gLoadNewProfile = Profile::queryUserForProfile();
+			return 0;
+		case ID_FILE_CHARACTERCONFIGFILE:
+			TargetConfigSync::promptUserForSyncFileToUse();
 			return 0;
 		case ID_EDIT_UILAYOUT:
 			LayoutEditor::init();
