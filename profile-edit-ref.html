@@ -235,7 +235,7 @@ Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> 
 <h2 id="controls-layers">Controls Layers</h2>
 <p>To really unlock the full range of actions in an MMO using a Gamepad, you will almost certainly need to assign more than one function to a single button through the use of button combinations or different “modes” of control. This can be accomplished through the use of <strong>Controls Layers</strong>. These layers change what Commands are assigned to what buttons while the layer is active.</p>
 <p>You can have multiple Controls Layers added at once. They can be thought of as stacked on top of each other, and for any given button, the top-most layer’s assignments will take priority by covering up the button assignments from the layers below it. If the top-most layer has nothing assigned to a button, the next layer below it will be checked for an assignment for that button, and so on. Which layers are on top of which depend on various factors covered later, but in general newly-added layers are placed on top of older ones and thus take priority.</p>
-<p>Layers can be added with the <code>=Add &lt;LayerName&gt;</code> command and removed with the <code>=Remove Layer</code> (removes layer containing the command) or <code>Remove &lt;LayerName&gt;</code> command.</p>
+<p>Layers can be added with the <code>=Add &lt;LayerName&gt;</code> command and removed with the <code>=Remove this layer</code> (removes layer containing the command) or <code>Remove &lt;LayerName&gt;</code> command.</p>
 <p>Layers are defined the same as [Scheme], with just the section name [Layer.LayerName] instead. Here is a simple example of how to utilize adding and removing a layer:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
 <span class="token constant">Square</span> <span class="token attr-value"><span class="token punctuation">=</span> Jump</span>
@@ -290,7 +290,7 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 </code></pre>
 <p>In this case, rather then pressing L2, then Square to Duck, and then pressing R2 to restore normal controls, you can just press and hold L2, tap Square to duck, then release L2. In other words, L2+Square = Duck in this control scheme.</p>
 <p><em>Similar to held keys, a held layer can ONLY be assigned to the button without any actions specified, like the above <code>L2=</code> example. It is not valid to assign something like <code>Tap L2=Hold layer</code>.</em></p>
-<p><em>Also note a Held Layer can not be removed by just using the Remove Layer command - that will only cancel any Add Layer commands used with it. If both Add Layer and Hold Layer are used for the same layer, both the Remove Layer command and releasing the button holding the layer are needed to actually fully remove it. If multiple buttons use Hold Layer on the same layer, all of them must be released before it will be removed.</em></p>
+<p><em>The only way to remove a layer being held active with this command before the button is released is to use <code>=Force Remove &lt;LayerName&gt;</code> command</em></p>
 <h3 id="the-auto-button">The “Auto” Button</h3>
 <p>Each layer has a special ‘virtual button’ unique to it, that can be assigned commands like any real gamepad button. This button is called “Auto”. It is “pressed” whenever the layer is added, and then “released” whenever the layer is removed.</p>
 <p>This Auto Button can be particularly useful in order to assign a button to simultaneously ‘hold’ a layer while also holding a key, by having held layer hold the key down using its Auto Button.</p>
@@ -372,21 +372,52 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <li>They are specified by 2 or more layer names separated by ‘+’ after the <code>[Layer.</code> prefix, referred to here as their “base layers”.</li>
 <li>They are added as soon as <strong>all</strong> their base layers are active, and removed as soon as <strong>any</strong> of their base layers are removed. This is the <strong>only</strong> way they can be added or removed.</li>
 <li>As mentioned above, they can not have a parent layer specified, and when set as a parent themselves their child layer can’t auto-add them. In fact, since a child layer can’t be added without its parent being added first, attempting to manually add a child of a combo layer will do nothing unless the combo layer was already added (a combo layer should add its own children through <code>AutoLayers=</code> to prevent this being a problem).</li>
-<li>They have their own special layer ordering rule (see below).</li>
+<li>Combo layers have some unique layer ordering rules (see next section).</li>
 </ul>
 <h3 id="layer-ordering-and-the-priority-property">Layer ordering and the Priority= property</h3>
 <p>As mentioned before, layers can be thought of as being stacked on top of each other in a specific order. This order determines what button assignments are active as well as other properties like Mouse and HUD. with higher layer properties and button assignments taking priority. The order of layers in the stack is thus very important for determining behavior of the overlay.</p>
-<p>While mostly based on factors like type of layer (normal added layer, held layer, or combo layer) and the <code>Parent=</code> property, one additional sorting factor you can add is a <code>Priority=#</code> property for any layer, with a value from -100 to 100. If this property is not set, a layer has a default priority value of 0.</p>
-<p>Layers follow these rules when determining order:</p>
+<p>Layers use some default sorting rules, outlined below, but some of those can be overridden by adding a <code>Priority=#</code> property, with a value from -100 to 100. If this property is not set, a layer has a default value of 0.</p>
+<p>Taking this extra property into account, layers follow these rules when determining order:</p>
 <ul>
-<li>[Scheme] always exists as the lowest layer and acts as the parent layer to any layers that have none specified.</li>
-<li>Child layers are placed just above their parent layer and below unrelated layers.</li>
-<li>For “sibling” layers (same parent), Held Layers with no <code>Priority=</code> property specified (or have it set to 0) are placed above their siblings regardless of priority values.</li>
-<li>When all of the above are the same, the layer with higher <code>Priority=</code> property is placed above those with a lower value.</li>
-<li>When all of the above are the same, Held Layers with a set non-zero <code>Priority=</code> value are placed above normal layers.</li>
-<li>When all of the above are the same, more recently-added layers are placed above older ones.</li>
+<li>
+<p><strong>Sort Parents</strong></p>
+<p>Layers use their parent layer (specified by <code>Parent=</code> property) during sorting.</p>
+<p><strong>Combo layers</strong> can not have a parent specified, so treat their highest-positioned base layer as their sorting parent.</p>
+<p><strong>Held layers</strong> and normal layers that do not have a <code>Parent=</code> property treat <code>[Scheme]</code> (which is <strong>always</strong> the bottom-most layer) as their sorting parent.</p>
+</li>
+<li>
+<p><strong>Parent-Child Positioning</strong></p>
+<p>A layer is <strong>always</strong> placed directly above its parent (but below any layers that don’t share the same parent) regardless of any other sorting rules.</p>
+<pre><code>[Layer.C]
+[Layer.BChild]
+[Layer.B]
+[Layer.A]
+[Scheme]
+</code></pre>
+<p><em>In the above example, ‘A’, ‘B’, and ‘C’ have no parent specified, so are treated as siblings with [Scheme] as their parent. BChild has ‘B’ set as its parent. Thus it is placed above its parent (‘B’), but below the next sibling of its parent (B’s sibling, ‘C’).</em></p>
+</li>
+<li>
+<p><strong>Sibling Layers</strong></p>
+<p>Sibling layers (same parent, or all the layers with no parent specified) use the following sorting rules with respect to each other:</p>
+<ol>
+<li>
+<p><strong>Priority Property</strong> - sibling layers with a higher <code>Priority=</code> value are placed above those with lower.</p>
+<ul>
+<li><em>Before sorting begins, held layers with priority value 0 (i.e. none specified) have their priority changed to maximum value. Therefore a held layer can not end up below a non-held layer unless its priority is manually set to a lower yet non-zero value!</em></li>
 </ul>
-<p><strong>Combo Layers ignore all of the above</strong> and can not have a <code>Priority=</code> or <code>Parent=</code> property. They are placed just above the highest-positioned base layer they reference. If two combo layers have the same highest-positioned base layer, they are ordered according to the relative order of their other base layers.</p>
+</li>
+<li>
+<p><strong>Layer Type</strong> - With the same priority value and parent, held layers are placed above normal layers which are placed above combo layers.</p>
+</li>
+<li>
+<p><strong>Combo Layers</strong> - if multiple combo layers would otherwise have the same position, they use the relative position of their <em>other</em> base layers to determine order.</p>
+</li>
+<li>
+<p><strong>Added Order</strong> - If all else is equal, the more recently-added layer is placed on top of its older siblings.</p>
+</li>
+</ol>
+</li>
+</ul>
 <h3 id="when-signal-commands">“When Signal” commands</h3>
 <p>Now that layers and the importance of their order is covered, it is time for the exception to the rule - Signal Commands. These commands run whenever a “signal” is sent out, and <strong>ignore layer order.</strong> The layer containing the command must still be actively added to the stack though, of course.</p>
 <p>To add a Signal Command to a layer (or the root [Scheme]), use the syntax <code>When Signal = Command</code>. Most commands can be used, though not ones that must be held like “Hold Layer”.</p>
@@ -751,7 +782,7 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <p>First, any game configuration file that should be parsed needs to be set as a property in the <code>[TargetConfigFiles]</code> section, with a name given to each file. Environment variables such as %USERPROFILE% can be used in the file path, such as  <code>Settings=%USERPROFILE%\AppData\LocalLow\Company\Game\settings.json</code></p>
 <p><em>NOTES: Currently only .json format is supported for this feature!</em></p>
 <p><em>For games that oddly store their config file contents directly in a system registry value in binary format, such as AOA, a registry path can also be used and its contents read as if it was a text file, such as <code>HKEY_CURRENT_USER\Software\Company\Game\uiWindows*_h*</code></em></p>
-<p><em>Paths also support <code>*</code> acting as a wildcard character. If more than one file (or registry value) is found that matches a path using wildcards (namely different characters each having their own files), one will need to be selected. This can be manually done via a dialog box by using the command <code>=Change target config file</code>, or automatically prompted when needed by setting the <code>[System]</code> property <code>PromptForTargetConfigSyncFiles = True</code>. Otherwise the most-recently-modified file matching the wildcard pattern will be automatically selected.</em></p>
+<p><em>Paths also support <code>*</code> acting as a wildcard character, if you don’t want to have separate profiles for each config file (i.e. each of your characters for games that use different files for each). If more than one file (or registry value) is found that matches a path using wildcards, one will need to be selected. This can be manually done via a dialog box by using the command <code>=Change target config file</code>, or automatically prompted at profile load if needed by setting the <code>[System]</code> property <code>PromptForTargetConfigSyncFiles = True</code>. Otherwise the most-recently-modified file matching the wildcard pattern will be automatically selected.</em></p>
 <p>Next, use the <code>[TargetConfigVariables]</code> section to assign a variable to be synced and where to read its new value from. The property name should match the name of one of the properties in the <code>[Variables]</code> section.</p>
 <p>The property values in this section should contain a path through the game’s config file to the value to read in, with each step on the path separated by periods. The first step of the path should be the name of a <code>[TargetConfigFiles]</code> property for which file to read from, followed by section names, key names, value names, etc, depending on the configuration file layout. For example, <em>Monsters and Memories</em> UIScale can be read and apply automatically with this setup:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Variables]</span>

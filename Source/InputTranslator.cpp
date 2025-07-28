@@ -163,6 +163,7 @@ struct ZERO_INIT(ButtonState)
 struct ZERO_INIT(LayerState)
 {
 	ButtonState autoButton;
+	int lastAddedTime;
 	s8 refCount;
 	bool autoButtonHit;
 	bool addedNormally;
@@ -198,9 +199,11 @@ struct TranslatorState
 	std::vector<u16> layerOrder;
 	std::vector<ActiveSignal> signalCommands;
 	ButtonState* exclusiveAutoRepeatButton;
+	int layersAddedCount;
 	int exclusiveAutoRepeatDelay;
 	int syncAutoRepeatDelay;
 	bool syncAutoRepeatActive;
+	bool layersNeedSorting;
 
 	void clear()
 	{
@@ -214,10 +217,12 @@ struct TranslatorState
 		layers.clear();
 		layerOrder.clear();
 		signalCommands.clear();
+		layersAddedCount = 0;
 		exclusiveAutoRepeatButton = null;
 		exclusiveAutoRepeatDelay = 0;
 		syncAutoRepeatDelay = 0;
 		syncAutoRepeatActive = false;
+		layersNeedSorting = false;
 	}
 };
 
@@ -353,6 +358,7 @@ static EButton multiDirParentButton(EButton theButtonID)
 
 static void	loadCommandsForCurrentLayers()
 {
+	DBG_ASSERT(!sState.layersNeedSorting);
 	sState.signalCommands.clear();
 	for(int aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx) // skip eBtn_None
 	{
@@ -509,15 +515,42 @@ static void	loadCommandsForCurrentLayers()
 }
 
 
-static bool removeControlsLayer(int theLayerID)
+static bool removeControlsLayer(int theLayerID, bool force = false)
 {
 	DBG_ASSERT(theLayerID != 0);
+	
+	if( force && sState.layers[theLayerID].heldActiveByButton() )
+	{// Force remove layer held active by a button or buttons
+		for(int i = 0; i < ARRAYSIZE(sState.gamepadButtons); ++i)
+		{
+			ButtonState& aBtnState = sState.gamepadButtons[i];
+			if( aBtnState.layerHeld == theLayerID )
+			{
+				if( sState.layers[theLayerID].buttonCommandUsed )
+					aBtnState.usedInButtonCombo = true;
+				aBtnState.layerHeld = 0;
+			}
+		}
+		for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
+		{
+			ButtonState& aBtnState =
+				sState.layers[sState.layerOrder[i]].autoButton;
+			if( aBtnState.layerHeld == theLayerID )
+			{
+				if( sState.layers[theLayerID].buttonCommandUsed )
+					aBtnState.usedInButtonCombo = true;
+				aBtnState.layerHeld = 0;
+			}
+		}
+		sState.layers[theLayerID].refCount = 0;
+		sState.layers[theLayerID].addedNormally = false;
+	}
 	if( sState.layers[theLayerID].addedNormally )
-	{
+	{// Un-do a previous add layer command
 		--sState.layers[theLayerID].refCount;
 		sState.layers[theLayerID].addedNormally = false;
 	}
-	// Only actually remove if not being kept active by something besides above
+	// Only actually remove if not being kept active after above
 	if( sState.layers[theLayerID].active() )
 		return false;
 
@@ -578,78 +611,8 @@ static bool layerIsDescendant(int theLayerID, int theParentLayerID)
 }
 
 
-static std::vector<u16>::iterator layerOrderInsertPos(
-	int theParentLayerID, int thePriority, bool isHeldLayer)
-{
-	// The order for this function only applies to normal, child, or
-	// held layers - combo layers have their own special sort function.
-	std::vector<u16>::iterator result = sState.layerOrder.begin();
-
-	// Work backwards until find theParentLayerID's position in the order
-	// to make sure to insert after it. If it is not found, should end up
-	// just after the root (0) layer position (or this IS the root layer).
-	for(std::vector<u16>::reverse_iterator itr =
-		sState.layerOrder.rbegin();
-		itr != sState.layerOrder.rend(); ++itr)
-	{
-		result = itr.base(); // gets position AFTER itr (in normal direction)
-		if( *itr == theParentLayerID )
-			break;
-	}
-
-	// Special case: Held layers at default (0) priority are automatically
-	// bumped to max priority to place them on top of their normal siblings
-	// even when said siblings have a > 0 priority set
-	if( isHeldLayer && !thePriority )
-		thePriority = 255;
-
-	// Move forward until find a layer that should be higher priority
-	// (whether due to isHeldLayer, parent hierarchy, or thePriority)
-	for(;result != sState.layerOrder.end(); ++result)
-	{
-
-		// Anything not descended from same parent layer is higher priority
-		const int aTestLayerID = *result;
-		if( !layerIsDescendant(aTestLayerID, theParentLayerID) )
-			break;
-		// Layers descended from same parent but not direct siblings are
-		// lower priority than direct children of theParentLayerID
-		if( InputMap::parentLayer(aTestLayerID) != theParentLayerID )
-			continue;
-	
-		// Layer must be a direct sibling (same parent) - sort by thePriority
-		// Remember that layers with no parent specified are "children" of
-		// root layer 0 and thus also siblings of each other in this context.
-		const bool testLayerIsHeld =
-			sState.layers[aTestLayerID].heldActiveByButton();
-		int aTestPriority = InputMap::layerPriority(aTestLayerID);
-		if( !aTestPriority && testLayerIsHeld )
-			aTestPriority = 255;
-		if( aTestPriority > thePriority )
-			break;
-		if( aTestPriority < thePriority )
-			continue;
-
-		// If both siblings have same priority, place held layers on top
-		// (this can happen for held layers that have a non-0 priority set,
-		// otherwise they would have already been sorted higher by above).
-		if( testLayerIsHeld && !isHeldLayer )
-			break;
-		if( !testLayerIsHeld && isHeldLayer )
-			continue;
-
-		// Must be direct sibling with same priority and held layer status
-		// Continue searching so newer layers are placed on top of older
-		// layers when everything else is equal
-	}
-
-	return result;
-}
-
-
 static void addControlsLayer(int theLayerID, bool = false); // forward declare
 static void addRelatedLayers(int theNewLayerID); // forward declare
-static void sortComboLayers(); // forward declare
 
 static void moveControlsLayerToTop(
 	int theLayerID, BitVector<32>& theMovedLayers)
@@ -664,38 +627,26 @@ static void moveControlsLayerToTop(
 	//	"Re-sorting Controls Layer '%s' as if it had been newly added\n",
 	//	InputMap::layerLabel(theLayerID).c_str());
 
-	std::vector<u16>::iterator anOldPos = std::find(
+	std::vector<u16>::iterator beginItr = std::find(
 		sState.layerOrder.begin(),
 		sState.layerOrder.end(),
 		theLayerID);
-	DBG_ASSERT(anOldPos != sState.layerOrder.end());
+	DBG_ASSERT(beginItr != sState.layerOrder.end());
 	// Make sure to move any descendants along with it
-	std::vector<u16>::iterator anOldPosEnd = anOldPos;
-	for(++anOldPosEnd; anOldPosEnd != sState.layerOrder.end() &&
-		layerIsDescendant(*anOldPosEnd, theLayerID);
-		++anOldPosEnd) {}
-	static std::vector<u16> sTempOrder; 
-	sTempOrder.assign(anOldPos, anOldPosEnd);
-	sState.layerOrder.erase(anOldPos, anOldPosEnd);
-
-	// Reset "Hold Auto ### =" held times for any moved layer that have
-	// not yet executed their hold action (these are usually used for
-	// some kind of delayed action after the layer has been left alone
-	// for a while, like hiding a HUD element by removing themselves).
-	for(int i = 0, end = intSize(sTempOrder.size()); i < end; ++i)
+	std::vector<u16>::iterator itrEnd = beginItr;
+	for(++itrEnd; itrEnd != sState.layerOrder.end() &&
+		layerIsDescendant(*itrEnd, theLayerID);
+		++itrEnd) {}
+	for(std::vector<u16>::iterator itr = beginItr; itr != itrEnd; ++itr)
 	{
-		if( !sState.layers[sTempOrder[i]].autoButton.holdActionDone )
-			sState.layers[sTempOrder[i]].autoButton.heldTime = 0;
+		sState.layers[*itr].lastAddedTime = ++sState.layersAddedCount;
+		// Reset "Hold Auto ### =" held times for any moving layers that have
+		// not yet executed their hold action (these are usually used for
+		// some kind of delayed action after the layer has been left alone
+		// for a while, like hiding a HUD element by removing themselves).
+		if( !sState.layers[*itr].autoButton.holdActionDone )
+			sState.layers[*itr].autoButton.heldTime = 0;
 	}
-
-	// Find new position to add the layers back to
-	sState.layerOrder.insert(
-		layerOrderInsertPos(
-			InputMap::parentLayer(theLayerID),
-			InputMap::layerPriority(theLayerID),
-			sState.layers[theLayerID].heldActiveByButton()),
-		sTempOrder.begin(), sTempOrder.end());
-	sResults.changedLayers.push_back(theLayerID);
 
 	// Re-process associated auto layers
 	const BitVector<32>& autoRemoveLayers =
@@ -713,15 +664,15 @@ static void moveControlsLayerToTop(
 		i < autoAddLayers.size();
 		i = autoAddLayers.nextSetBit(i+1))
 	{
-		if( !sState.layers[i].active() || !!sState.layers[i].addedNormally )
+		if( !sState.layers[i].active() || !sState.layers[i].addedNormally )
 			addControlsLayer(i);
 		else
 			moveControlsLayerToTop(i, theMovedLayers);
 		theMovedLayers.set(i);
 	}
 
-	// Re-sort any possibly affected combo layers
-	sortComboLayers();
+	// Actual moving of layers will happen in sort function
+	sState.layersNeedSorting = true;
 }
 
 
@@ -765,7 +716,8 @@ static void addControlsLayer(int theLayerID, bool asHeldLayer)
 		if( int aComboParentLayerID = InputMap::comboParentLayer(theLayerID) )
 		{
 			transDebugPrint(
-				"Adding Controls Layer '%s' (since '%s' and '%s' exist)\n",
+				"Adding Controls Layer %d '%s' (since '%s' and '%s' exist)\n",
+				theLayerID,
 				InputMap::layerLabel(theLayerID).c_str(),
 				InputMap::layerLabel(aParentLayerID).c_str(),
 				InputMap::layerLabel(aComboParentLayerID).c_str());
@@ -773,32 +725,30 @@ static void addControlsLayer(int theLayerID, bool asHeldLayer)
 		else if( asHeldLayer )
 		{
 			transDebugPrint(
-				"Holding Controls Layer '%s'\n",
-				InputMap::layerLabel(theLayerID).c_str());
+				"Holding Controls Layer %d '%s'\n",
+				theLayerID, InputMap::layerLabel(theLayerID).c_str());
 		}
 		else if( aParentLayerID > 0 )
 		{
 			transDebugPrint(
-				"Adding Controls Layer '%s' as child of Layer '%s'\n",
+				"Adding Controls Layer %d '%s' as child of Layer '%s'\n",
+				theLayerID,
 				InputMap::layerLabel(theLayerID).c_str(),
 				InputMap::layerLabel(aParentLayerID).c_str());
 		}
 		else
 		{
 			transDebugPrint(
-				"Adding Controls Layer '%s'\n",
-				InputMap::layerLabel(theLayerID).c_str());
+				"Adding Controls Layer %d '%s'\n",
+				theLayerID, InputMap::layerLabel(theLayerID).c_str());
 		}
 	}
 	#endif
 
-	sState.layerOrder.insert(
-		layerOrderInsertPos(
-			aParentLayerID,
-			InputMap::layerPriority(theLayerID),
-			asHeldLayer),
-		dropTo<u16>(theLayerID));
+	sState.layerOrder.push_back(dropTo<u16>(theLayerID));
+	sState.layersNeedSorting = true;
 	LayerState& aLayer = sState.layers[theLayerID];
+	aLayer.lastAddedTime = ++sState.layersAddedCount;
 	aLayer.refCount = 1;
 	aLayer.addedNormally = !asHeldLayer;
 	aLayer.autoButtonHit = true;
@@ -818,7 +768,7 @@ static void addRelatedLayers(int theNewLayerID)
 	{
 		removeControlsLayer(i);
 	}
-	const BitVector<>& autoAddLayers =
+	const BitVector<32>& autoAddLayers =
 		InputMap::autoAddLayers(theNewLayerID);
 	for(int i = autoAddLayers.firstSetBit();
 		i < autoAddLayers.size();
@@ -831,7 +781,6 @@ static void addRelatedLayers(int theNewLayerID)
 
 	// Find and add any combo layers with theNewLayerID as a base and
 	// the other base layer also being active
-	bool aLayerWasAdded = false;
 	for(int i = 1; i < intSize(sState.layerOrder.size()); ++i)
 	{
 		const int aLayerID = sState.layerOrder[i];
@@ -839,113 +788,219 @@ static void addRelatedLayers(int theNewLayerID)
 			continue;
 		int aComboLayerID = InputMap::comboLayerID(theNewLayerID, aLayerID);
 		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active() )
-		{
 			addControlsLayer(aComboLayerID);
-			aLayerWasAdded = true;
-			i = 0; // since sState.layerOrder might have changed
-		}
 		aComboLayerID = InputMap::comboLayerID(aLayerID, theNewLayerID);
 		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active() )
-		{
 			addControlsLayer(aComboLayerID);
-			aLayerWasAdded = true;
-			i = 0; // since sState.layerOrder might have changed
-		}
 	}
-
-	// May need to re-sort combo layers into proper positions in layer order
-	// Don't waste time doing this unless both a layer was added, and the
-	// layer being checked (theNewLayerID) is a normal (non-combo) layer,
-	// since could be recursively adding combo layers of combo layers.
-	// This will only trigger once get back to done with the original, normal
-	// layer and therefore will only do a single full sort at the end.
-	if( aLayerWasAdded && !InputMap::comboParentLayer(theNewLayerID) )
-		sortComboLayers();
 }
 
 
-static void sortComboLayers()
+static void sortLayers()
 {
-	// General idea is put combo layers directly above their top-most
-	// parent layer, but it gets more complex if that location can
-	// apply to more than one combo layer, at which point they try to
-	// match the relative order of their respective parent layers.
-	// This sorting relies on the fact that all combo layers should have
-	// only a non-combo layer for their 'parent', with only 'comboParent'
-	// having the possibility of being itself another combo layer.
-	struct LayerPriority
+	if( !sState.layersNeedSorting || sState.layerOrder.size() < 2 )
+		return;
+	sState.layersNeedSorting = false;
+
+	struct ZERO_INIT(LayerSortData)
 	{
-		int oldPos;
-		LayerPriority *parent, *comboParent;
-		int get(int theDepth) const
-		{
-			if( comboParent != null )
-			{// Combo layer, priority depends on parents
-				switch(theDepth)
-				{
-				case 0: return max(parent->get(0), comboParent->get(0))+1;
-				case 1: return parent->get(0);
-				case 2: return comboParent->get(0);
-				default: return comboParent->get(theDepth-2);
-				}
-			}
-			else if( theDepth == 0 )
-			{// Non-combo layer, just base on pre-sort position
-				return oldPos * 2;
-			}
-			// Sentinel
-			return 0;
-		}
+		enum
+		{// This enum's order determines sort order!
+			eType_Combo,
+			eType_Normal,
+			eType_Held,
+		} type;
+		int parentID;
+		int preSortPos;
+		int lastAddedTime;
+		int priority;
 	};
-	struct LayerSorter
+
+	struct SortSiblings
 	{
-		LayerPriority* priority;
-		u16 id;
-		bool operator<(const LayerSorter& rhs) const
+		const std::vector<LayerSortData>& data;
+		SortSiblings(const std::vector<LayerSortData>& d) : data(d) {}
+		bool operator()(int lhs, int rhs) const
 		{
-			int priorityDepth = 0;
-			int priorityA = priority->get(priorityDepth);
-			int priorityB = rhs.priority->get(priorityDepth);
-			while(priorityA == priorityB && (priorityA || priorityB))
+			const LayerSortData& a = data[lhs];
+			const LayerSortData& b = data[rhs];
+
+			// 1. By priority value
+			if( a.priority != b.priority )
+				return a.priority < b.priority;
+
+			// 2. By layer type
+			if( a.type != b.type )
+				return a.type < b.type;
+
+			// 3. By base layers' positions (combo layers only)
+			if( a.type == LayerSortData::eType_Combo )
 			{
-				++priorityDepth;
-				priorityA = priority->get(priorityDepth);
-				priorityB = rhs.priority->get(priorityDepth);
+				if( a.preSortPos != b.preSortPos )
+					return a.preSortPos < b.preSortPos;
 			}
-			return priorityA < priorityB;
+
+			// 4. By time added
+			return a.lastAddedTime < b.lastAddedTime;
 		}
 	};
 
-	// We use two separate vectors and store LayerPriority* in LayerSorter
-	// to ensure stable parent/comboParent pointers during std::sort, since
-	// sorting would otherwise move the elements and invalidate the pointers.
-	static std::vector<LayerPriority> sLayerPriorities;
-	static std::vector<LayerSorter> sLayerSorters;
-	sLayerPriorities.resize(sState.layerOrder.size());
-	sLayerSorters.resize(sState.layerOrder.size());
-	for(int i = 0; i < intSize(sState.layerOrder.size()); ++i)
+	struct SortChildren
 	{
-		const u16 aLayerID = sState.layerOrder[i];
-		sLayerSorters[i].id = aLayerID;
-		sLayerSorters[i].priority = &sLayerPriorities[i];
-		sLayerPriorities[i].oldPos = i;
-		sLayerPriorities[i].parent = null;
-		sLayerPriorities[i].comboParent = null;
-		if( int anAltParentID = InputMap::comboParentLayer(aLayerID) )
+		const std::vector<LayerSortData>& data;
+		SortChildren(const std::vector<LayerSortData>& d) : data(d) {}
+		bool operator()(int lhs, int rhs) const
 		{
-			const int aParentLayerID = InputMap::parentLayer(aLayerID);
-			for(int j = 0; j < intSize(sState.layerOrder.size()); ++j)
+			if( lhs == rhs )
+				return false;
+
+			// Walk up each path to root to check if one is the ancestor
+			// of the other - and get their depths otherwise
+			int lhsDepth = 0, rhsDepth = 0;
+			for(int p = lhs; p != 0; p = data[p].parentID)
 			{
-				if( sState.layerOrder[j] == aParentLayerID )
-					sLayerPriorities[i].parent = &sLayerPriorities[j];
-				if( sState.layerOrder[j] == anAltParentID )
-					sLayerPriorities[i].comboParent = &sLayerPriorities[j];
+				if( p == rhs )
+					return false; // r is ancestor of l, so l > r
+				++lhsDepth;
 			}
+			for(int p = rhs; p != 0; p = data[p].parentID)
+			{
+				if( p == lhs )
+					return true; // l is ancestor of r, so l < r
+				++rhsDepth;
+			}
+
+			// Align depths if different
+			int lhsWalk = lhs, rhsWalk = rhs;
+			while(lhsDepth > rhsDepth)
+			{
+				lhsWalk = data[lhsWalk].parentID;
+				--lhsDepth;
+			}
+			while(rhsDepth > lhsDepth)
+			{
+				rhsWalk = data[rhsWalk].parentID;
+				--rhsDepth;
+			}
+
+			// Walk up in sync to find shared ancestor
+			while(lhsWalk != rhsWalk)
+			{
+				lhsWalk = data[lhsWalk].parentID;
+				rhsWalk = data[rhsWalk].parentID;
+			}
+			const int aSharedAncestor = lhsWalk; // now same as rhsWalk
+
+			// Find the immediate children of that ancestor by walking
+			// one more time and stopping just before hit the ancestor
+			lhsWalk = lhs; rhsWalk = rhs;
+			while(data[lhsWalk].parentID != aSharedAncestor)
+				lhsWalk = data[lhsWalk].parentID;
+			while(data[rhsWalk].parentID != aSharedAncestor)
+				rhsWalk = data[rhsWalk].parentID;
+
+			// Compare pre-sort position at found divergence point
+			return data[lhsWalk].preSortPos < data[rhsWalk].preSortPos;
 		}
+	};
+
+	static std::vector<LayerSortData> sLayerSortData;
+	static std::vector<u16> sLastLayerOrder;
+
+	// Layer 0 is always the first (bottom) layer so can skip it in loops/sorts
+	DBG_ASSERT(sState.layerOrder[0] == 0);
+
+	// Set up static portions of layer sort data
+	const int kLayerCount = InputMap::controlsLayerCount();
+	sLayerSortData.resize(kLayerCount);
+	for(int i = 1; i < kLayerCount; ++i)
+	{
+		if( !sState.layers[i].active() )
+			continue;
+		sLayerSortData[i].parentID = InputMap::parentLayer(i);
+		sLayerSortData[i].priority = InputMap::layerPriority(i);
+		sLayerSortData[i].lastAddedTime = sState.layers[i].lastAddedTime;
+		sLayerSortData[i].type =
+			sState.layers[i].heldActiveByButton() ?
+				LayerSortData::eType_Held :
+			InputMap::comboParentLayer(i) ?
+				LayerSortData::eType_Combo :
+			LayerSortData::eType_Normal;
+
+		// Special case: Held layers at default (0) priority are automatically
+		// bumped to max priority to place them on top of their normal siblings
+		// even when said siblings have a > 0 priority set
+		if( sLayerSortData[i].type == LayerSortData::eType_Held &&
+			sLayerSortData[i].priority == 0 )
+		{ sLayerSortData[i].priority = 255; }
 	}
-	std::sort(sLayerSorters.begin()+1, sLayerSorters.end());
-	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
-		sState.layerOrder[i] = sLayerSorters[i].id;
+
+	int aLoopCount = 0;
+	do
+	{
+		// Make backup of current order so know if any change occurred
+		sLastLayerOrder = sState.layerOrder;
+
+		// Update combo layer data that is dependent on current order
+		for(int i = 1; i < kLayerCount; ++i)
+		{
+			if( !sState.layers[i].active() ||
+				sLayerSortData[i].type != LayerSortData::eType_Combo )
+			{ continue; }
+
+			// Combo layers use the higher-positioned (later in vector) of
+			// their base layers as their parent for sorting, and use the
+			// other layer as a special tie-breaker in the sibling sort.
+			int aParentLayer = InputMap::parentLayer(i);
+			int anAltBaseLayer = InputMap::comboParentLayer(i);
+			std::vector<u16>::const_iterator aParentLayerPos = std::find(
+				sState.layerOrder.begin()+1,
+				sState.layerOrder.end(),
+				dropTo<u16>(aParentLayer));
+			DBG_ASSERT(aParentLayerPos != sState.layerOrder.end());
+
+			std::vector<u16>::const_iterator anAltBaseLayerPos = std::find(
+				sState.layerOrder.begin()+1,
+				sState.layerOrder.end(),
+				dropTo<u16>(anAltBaseLayer));
+			DBG_ASSERT(anAltBaseLayerPos != sState.layerOrder.end());
+
+			if( anAltBaseLayerPos > aParentLayerPos )
+			{
+				swap(aParentLayer, anAltBaseLayer);
+				swap(aParentLayerPos, anAltBaseLayerPos);
+			}
+			sLayerSortData[i].parentID = aParentLayer;
+			sLayerSortData[i].preSortPos =
+				dropTo<int>(anAltBaseLayerPos - sState.layerOrder.begin());
+		}
+
+		// Sort siblings with each other (skip sorting root layer)
+		std::sort(
+			sState.layerOrder.begin()+1,
+			sState.layerOrder.end(),
+			SortSiblings(sLayerSortData));
+
+		// Note order in order to maintain sibling relative order when
+		// sort them to just above their immediate parents
+		for(int i = 1, end = intSize(sState.layerOrder.size()); i < end; ++i)
+			sLayerSortData[sState.layerOrder[i]].preSortPos = i;
+
+		// Sort children just after parents
+		std::sort(
+			sState.layerOrder.begin()+1,
+			sState.layerOrder.end(),
+			SortChildren(sLayerSortData));
+
+		// Since some sort factors depend on previous order, may not actually
+		// be fully sorted yet, so need to repeat sorting until the sort
+		// stabilizes (no change is made from either sort).
+		if( ++aLoopCount > 64 )
+		{
+			DBG_ASSERT(false && "Infinite loop in sortLayers()!");
+			break;
+		}
+	} while(sLastLayerOrder != sState.layerOrder);
 }
 
 
@@ -1207,10 +1262,11 @@ static void processCommand(
 		addControlsLayer(theCmd.layerID);
 		break;
 	case eCmdType_RemoveControlsLayer:
-		aForwardCmd.layerID = theCmd.layerID;
-		if( aForwardCmd.layerID == 0 )
-			aForwardCmd.layerID = dropTo<u16>(theLayerIdx);
-		removeControlsLayer(aForwardCmd.layerID);
+		removeControlsLayer(
+			theCmd.layerID == 0
+				? dropTo<u16>(theLayerIdx)
+				: theCmd.layerID,
+			theCmd.forced);
 		break;
 	case eCmdType_HoldControlsLayer:
 		DBG_ASSERT(theCmd.layerID > 0);
@@ -1875,6 +1931,7 @@ static void processLayerHoldButtons()
 		// (removed layers & HUD will be handled later in main update)
 		if( aLayerWasAdded )
 		{
+			sortLayers();
 			loadCommandsForCurrentLayers();
 			if( ++aLoopCount > kMaxLayerChangesPerUpdate )
 			{
@@ -1892,6 +1949,7 @@ static void updateHUDStateForCurrentLayers()
 	BitVector<32> aPrevVisibleHUD = gVisibleHUD;
 	BitVector<32> aPrevDisabledHUD = gDisabledHUD;
 	gVisibleHUD.reset();
+	DBG_ASSERT(!sState.layersNeedSorting);
 	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
 		gVisibleHUD |=
@@ -1964,6 +2022,7 @@ static void updateHUDStateForCurrentLayers()
 
 static void updateHotspotArraysForCurrentLayers()
 {
+	DBG_ASSERT(!sState.layersNeedSorting);
 	BitVector<32> aHotspotArraysEnabled(InputMap::hotspotArrayCount());
 	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
@@ -1978,6 +2037,7 @@ static void updateHotspotArraysForCurrentLayers()
 
 static void updateMouseModeForCurrentLayers()
 {
+	DBG_ASSERT(!sState.layersNeedSorting);
 	EMouseMode aMouseMode = eMouseMode_Cursor;
 	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
@@ -2012,6 +2072,7 @@ void loadProfile()
 	sResults.clear();
 	loadLayerData();
 	addControlsLayer(0);
+	sState.layersNeedSorting = false;
 	loadCommandsForCurrentLayers();
 	updateHUDStateForCurrentLayers();
 	updateMouseModeForCurrentLayers();
@@ -2119,9 +2180,15 @@ void update()
 		}
 	}
 
-	// Update mouse mode to reflect new layer layout
-	if( !sResults.changedLayers.empty() )
+	const bool aLayerOrderChanged = !sResults.changedLayers.empty();
+	if( aLayerOrderChanged )
+	{
+		// Sort layers so settings reflect layer priorities
+		sortLayers();
+		// Update mouse mode to reflect new layer layout before
+		// sending input that might be affected by mouse mode
 		updateMouseModeForCurrentLayers();
+	}
 
 	// Send input that was queued up by any of the above
 	InputDispatcher::moveCharacter(
@@ -2187,12 +2254,12 @@ void update()
 	}
 
 	// Clear results for next update
-	const bool aLayerOrderChanged = !sResults.changedLayers.empty();
 	sResults.clear();
 
 	// Update settings for new layer order to use during next update
 	if( aLayerOrderChanged )
 	{
+		sortLayers();
 		loadCommandsForCurrentLayers();
 		updateHUDStateForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();

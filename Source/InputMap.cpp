@@ -1798,10 +1798,11 @@ static Command wordsToSpecialCommand(
 		}
 	}
 
-	// "= Remove [this] Layer"
+	// "= [Force] Remove [this] Layer"
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Remove);
+	allowedKeyWords.set(eCmdWord_Force);
 	if( allowButtonActions &&
 		keyWordsFound.test(eCmdWord_Remove) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
@@ -1810,6 +1811,8 @@ static Command wordsToSpecialCommand(
 		// Since can't remove layer 0 (main scheme), 0 acts as a flag
 		// meaning to remove calling layer instead
 		result.layerID = 0;
+		if( keyWordsFound.test(eCmdWord_Force) )
+			result.forced = true;
 		return result;
 	}
 
@@ -1953,17 +1956,21 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Hold);
 
-		// "= Remove [Layer] <aLayerName>"
+		// "= [Force] Remove [Layer] <aLayerName>"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Remove);
+		allowedKeyWords.set(eCmdWord_Force);
 		if( keyWordsFound.test(eCmdWord_Remove) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_RemoveControlsLayer;
 			result.layerID = aLayerID;
+			if( keyWordsFound.test(eCmdWord_Force) )
+				result.forced = true;
 			return result;
 		}
 		//allowedKeyWords.reset(eCmdWord_Remove);
+		//allowedKeyWords.reset(eCmdWord_Force);
 	}
 
 	// Same deal as aLayerName for the Menu-related commands needing a name
@@ -3049,7 +3056,7 @@ static void addButtonAction(
 				sLayers.vals()[theLayerIdx].buttonCommands.find(aBtnID);
 		if( aBtnItr != sLayers.vals()[theLayerIdx].buttonCommands.end() )
 		{
-			aBtnItr->second.cmd[aBtnID].type = eCmdType_Unassigned;
+			aBtnItr->second.cmd[aBtnAct].type = eCmdType_Unassigned;
 			bool shouldRemoveEntirely = true;
 			for(int i = 0; i < eBtnAct_Num; ++i)
 			{
@@ -3438,14 +3445,6 @@ static void applyControlsLayerProperty(
 					"%s = %s property ignored!",
 					sSectionPrintName.c_str(),
 					sPropertyPrintName.c_str(),
-					thePropVal.c_str());
-			}
-			else if( theLayer.comboParentLayer )
-			{
-				logError(
-					"Combo Layer %s ordering is derived automatically "
-					"from base layers, so Priority = %s property is ignored!",
-					sSectionPrintName.c_str(),
 					thePropVal.c_str());
 			}
 			else if( aPriority < -100 || aPriority > 100 )
