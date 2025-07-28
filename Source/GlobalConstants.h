@@ -325,6 +325,7 @@ enum ECommandKeyWord
 	eCmdWord_Replace,
 	eCmdWord_With,
 	eCmdWord_To,
+	eCmdWord_Force,
 	eCmdWord_Toggle,
 	eCmdWord_Layer,
 	eCmdWord_Defer,
