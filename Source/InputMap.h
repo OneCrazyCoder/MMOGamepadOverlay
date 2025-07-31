@@ -66,6 +66,8 @@ s8 layerPriority(int theLayerID);
 
 // Checks what EMouseMode given controls layer requests be used
 EMouseMode mouseMode(int theLayerID);
+// If above returns eMouseMode_Menu, which menu ID?
+int mouseModeMenu(int theLayerID);
 
 // Gets what HUD elements given layer specifically wants to show
 const BitVector<32>& hudElementsToShow(int theLayerID);
