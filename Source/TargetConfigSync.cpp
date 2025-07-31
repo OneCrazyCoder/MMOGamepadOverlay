@@ -2741,7 +2741,6 @@ void update()
 		const int aDataSourceID = sDataSourcesToCheck.firstSetBit();
 		DataSource& aDataSource = sDataSources[aDataSourceID];
 		aDataSource.dataCache.clear();
-		sDataSourcesToRead.reset(aDataSourceID);
 		sDataSourcesToReCheck.reset(aDataSourceID);
 		DBG_ASSERT(!sFinder);
 		switch(aDataSource.type)

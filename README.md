@@ -19,7 +19,7 @@ This application does ***NOT***:
 
 Get the latest release [here](https://github.com/OneCrazyCoder/MMOGamepadOverlay/releases), including 32-bit (x86) and 64-bit (a64) versions.
 
-*Optional: You will also find there custom UI file packs for some games with the custom profile I personally use for them, made for even better integration between the game and the overlay.*
+*Optional: You will also find there UI file packs for some games with the custom profile I personally use for them, made for even better integration between the game and the overlay.*
 
 ## Why though?
 
