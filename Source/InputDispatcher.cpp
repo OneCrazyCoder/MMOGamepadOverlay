@@ -1199,139 +1199,175 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 }
 
 
-static bool manualCharacterMoveInUse()
-{
-	switch(sTracker.autoRunMode)
-	{
-	case eAutoRunMode_Started:
-		return true;
-	case eAutoRunMode_LockedX:
-		return
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_MoveB - eSpecialKey_FirstMove);
-	case eAutoRunMode_LockedY:
-		return
-			sTracker.mouseLookNeededToStrafe ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_TurnL - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_TurnR - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_StrafeL - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_StrafeR - eSpecialKey_FirstMove);
-	case eAutoRunMode_LockedXY:
-		return false;
-	default:
-		return
-			sTracker.moveKeysHeld.any() ||
-			sTracker.mouseLookNeededToStrafe;
-	}
-}
-
-
 static EMouseMode checkAutoMouseLookMode()
 {
-	// This is to assist with the "auto" mouse modes that swap between
-	// other modes depending on the current situation, or in other cases
-	// where mouse mode wanted does not match the actual user request
+	// True if expecting some kind of auto-mode or a transition to/from one
+	bool autoModeExpected = false;
+	// True if should consider auto-run as "movement" for deciding mode
+	bool treatAutoRunAsMovement = false;
+	// Whether should default to _LookTurn vs _LookOnly when starting a
+	// mouse look mode but either could work for current situation, based on
+	// anticipated most likely next mode needed (expceting movement to be more
+	// likely and want RMB, or looking around more likely and want LMB).
+	bool moveAnticipated = false;
+	// True if must have at least one of the two mouse look modes active
+	bool lookRequired = false;
+	// True if in a special mouse mode designed to smooth transition from
+	// an auto-mode to a non-auto-mode or between two different auto modes
+	bool inTransition = false;
+	// For transition modes, which mode to switch to once safe to transition
+	EMouseMode aTransitionEndMode = sTracker.mouseModeExpected;
+
 	switch(sTracker.mouseModeExpected)
 	{
 	case eMouseMode_AutoLook:
-		if( sTracker.moveKeysHeld.any() ||
-			sTracker.mouseLookNeededToStrafe ||
-			sTracker.autoRunMode != eAutoRunMode_Off )
-		{
-			return eMouseMode_LookTurn;
-		}
-		
-		if( sTracker.mouseVelX != 0 )
-			return eMouseMode_LookOnly;
-
-
-		if( sTracker.mouseMode != eMouseMode_LookTurn &&
-			sTracker.mouseMode != eMouseMode_LookOnly )
-		{
-			return eMouseMode_LookTurn;
-		}
-		return sTracker.mouseMode;
-
+		// Switch between LMB (free-look) and RMB (turn-look) automatically
+		autoModeExpected = true;
+		treatAutoRunAsMovement = true;
+		moveAnticipated = true;
+		lookRequired = true;
+		break;
 	case eMouseMode_AutoRunLook:
-		if( manualCharacterMoveInUse() )
-			return eMouseMode_LookTurn;
-
-		if( sTracker.mouseVelX != 0 )
-			return eMouseMode_LookOnly;
-
-		if( sTracker.mouseMode != eMouseMode_LookTurn &&
-			sTracker.mouseMode != eMouseMode_LookOnly )
-		{
-			return eMouseMode_LookOnly;
-		}
-		return sTracker.mouseMode;
-
+		// Same as _AutoLook but don't treat auto-run as movement,
+		// thus allowing LMB (free-look) during auto-run
+		autoModeExpected = true;
+		lookRequired = true;
+		break;
 	case eMouseMode_AutoToTurn:
-		if( sTracker.mouseMode == eMouseMode_LookTurn ||
-			sTracker.moveKeysHeld.any() ||
-			sTracker.mouseLookNeededToStrafe ||
-			sTracker.autoRunMode != eAutoRunMode_Off )
-		{
-			sTracker.mouseModeExpected = eMouseMode_LookTurn;
-			return eMouseMode_LookTurn;
-		}
-		return eMouseMode_LookOnly;
-
+		// Transitioning from _AutoLook to _LookTurn
+		// Immediate for any character or camera movements, but
+		// if stationary looking at own character waits for input
+		autoModeExpected = true;
+		treatAutoRunAsMovement = true;
+		moveAnticipated = true;
+		lookRequired = true;
+		inTransition = true;
+		aTransitionEndMode = eMouseMode_LookTurn;
+		break;
 	case eMouseMode_RunToTurn:
-		if( sTracker.autoRunMode == eAutoRunMode_Off )
-		{
-			sTracker.mouseModeExpected = eMouseMode_AutoToTurn;
-			return checkAutoMouseLookMode();
-		}
-
-		if( sTracker.mouseMode == eMouseMode_LookTurn ||
-			manualCharacterMoveInUse() )
-		{
-			sTracker.mouseModeExpected = eMouseMode_LookTurn;
-			return eMouseMode_LookTurn;
-		}
-		
-		if( sTracker.mouseMode == eMouseMode_LookOnly &&
-			sTracker.mouseVelX != 0 )
-		{
-			return eMouseMode_LookOnly;
-		}
-		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
-		{
-			sTracker.mouseModeExpected = eMouseMode_LookTurn;
-			return eMouseMode_LookTurn;
-		}
-		return eMouseMode_LookReady;
-
+		// Transitioning from _AutoRunLook to _LookTurn
+		// Immediate for any non-auto-run movement, but otherwise waits until
+		// stop moving camera, goes to ready mode to possibly let game auto-
+		// recenter the camera, and transitions when try moving camera again
+		autoModeExpected = true;
+		inTransition = true;
+		aTransitionEndMode = eMouseMode_LookTurn;
+		break;
 	case eMouseMode_RunToAuto:
-		if( sTracker.autoRunMode == eAutoRunMode_Off ||
-			sTracker.mouseMode == eMouseMode_LookTurn ||
-			manualCharacterMoveInUse() )
-		{
-			sTracker.mouseModeExpected = eMouseMode_AutoLook;
-			return checkAutoMouseLookMode();
-		}
-		
-		if( sTracker.mouseMode == eMouseMode_LookOnly &&
-			sTracker.mouseVelX != 0 )
-		{
-			return eMouseMode_LookOnly;
-		}
-		if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
-		{
-			sTracker.mouseModeExpected = eMouseMode_AutoLook;
-			return checkAutoMouseLookMode();
-		}
-		return eMouseMode_LookReady;
+		// Transitioning from _AutoRunLook to _AutoLook
+		// Same as above but just different end state
+		autoModeExpected = true;
+		inTransition = true;
+		aTransitionEndMode = eMouseMode_AutoLook;
+		break;
 	}
 
-	return sTracker.mouseModeExpected;
+	// Not using an auto mode anyway, nothing else need be done here
+	if( !autoModeExpected )
+		return sTracker.mouseModeExpected;
+
+	// Need to determine if character should be considered as moving or not.
+	bool isConsideredMovingNow = false;
+	if( treatAutoRunAsMovement )
+	{
+		// Moving if pressing a movement key, in auto-run, or need _LookTurn
+		// mode for game's turn-becomes-strafe-in-mouse-look code
+		isConsideredMovingNow =
+			sTracker.moveKeysHeld.any() ||
+			sTracker.mouseLookNeededToStrafe ||
+			sTracker.autoRunMode != eAutoRunMode_Off;
+	}
+	else
+	{
+		// Only considered moving if pressing a movement direction that is
+		// not the same as current auto-run locked axis
+		switch(sTracker.autoRunMode)
+		{
+		case eAutoRunMode_Started:
+			isConsideredMovingNow = true;
+			break;
+		case eAutoRunMode_LockedX:
+			isConsideredMovingNow =
+				sTracker.moveKeysHeld.test(
+					eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
+				sTracker.moveKeysHeld.test(
+					eSpecialKey_MoveB - eSpecialKey_FirstMove);
+			break;
+		case eAutoRunMode_LockedY:
+			isConsideredMovingNow =
+				sTracker.mouseLookNeededToStrafe ||
+				sTracker.moveKeysHeld.test(
+					eSpecialKey_TurnL - eSpecialKey_FirstMove) ||
+				sTracker.moveKeysHeld.test(
+					eSpecialKey_TurnR - eSpecialKey_FirstMove) ||
+				sTracker.moveKeysHeld.test(
+					eSpecialKey_StrafeL - eSpecialKey_FirstMove) ||
+				sTracker.moveKeysHeld.test(
+					eSpecialKey_StrafeR - eSpecialKey_FirstMove);
+			break;
+		case eAutoRunMode_LockedXY:
+			isConsideredMovingNow = false;
+			break;
+		default:
+			isConsideredMovingNow =
+				sTracker.moveKeysHeld.any() ||
+				sTracker.mouseLookNeededToStrafe;
+			break;
+		}
+	}
+
+	// _LookTurn should always be used when character is moving.
+	// If transitioning and already in _LookTurn, continue to use it.
+	// Either way this completes all transitions.
+	if( isConsideredMovingNow ||
+		(inTransition && sTracker.mouseMode == eMouseMode_LookTurn) )
+	{
+		if( inTransition )
+		{
+			sTracker.mouseModeExpected = aTransitionEndMode;
+			return checkAutoMouseLookMode();
+		}
+
+		return eMouseMode_LookTurn;
+	}
+
+	// At this point character is considered to be non-moving
+
+	// If camera is moving, need a mouse look mode, and possibly end transition
+	if( sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0 )
+	{
+		// Below is to make sure camera movement was stopped first and
+		// now being started again to end transition. Or if lookRequired was
+		// set for this transition, then end it immediately.
+		if( inTransition &&
+			(lookRequired || sTracker.mouseMode == eMouseMode_LookReady) )
+		{
+			sTracker.mouseModeExpected = aTransitionEndMode;
+			return checkAutoMouseLookMode();
+		}
+		// Even if it wasn't before, a look mode is needed now
+		lookRequired = true;
+	}
+
+	if( lookRequired )
+	{
+		// Currently all auto modes use _LookOnly when move camera horizontally
+		// and character is not considered to be moving
+		if( sTracker.mouseVelX != 0 )
+			return eMouseMode_LookOnly;
+
+		// For vertical-only or no camera movement, continue using last mode
+		// if it is a mouse-look mode. Otherwise try to anticipate which mode
+		// is likely to be needed and switch to it.
+		if( sTracker.mouseMode == eMouseMode_LookTurn )
+			return eMouseMode_LookTurn;
+		if( sTracker.mouseMode == eMouseMode_LookOnly )
+			return eMouseMode_LookOnly;
+		return moveAnticipated ? eMouseMode_LookTurn : eMouseMode_LookOnly;
+	}
+
+	// No look mode is required for current situation - wait until one is
+	return eMouseMode_LookReady;
 }
 
 
