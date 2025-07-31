@@ -56,11 +56,11 @@ const ResourceProfile kResTemplateBase[] =
 
 const ResourceProfile kResTemplateDefault[] =
 {//		dispName						fileName			resID					ver
-	{	"AOA Default",					"AOA Default",		IDR_TEXT_INI_DEF_AOA,	8	},
-	{	"EQ P99 Default",				"P99 Default",		IDR_TEXT_INI_DEF_P99,	7	},
-	{	"EQ PQ Default",				"PQ Default",		IDR_TEXT_INI_DEF_PQ,	7	},
-	{	"M&M Default",					"MnM Default",		IDR_TEXT_INI_DEF_MNM,	8	},
-	{	"Pantheon Default",				"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	7	},
+	{	"AOA Default",					"AOA Default",		IDR_TEXT_INI_DEF_AOA,	9	},
+	{	"EQ P99 Default",				"P99 Default",		IDR_TEXT_INI_DEF_P99,	8	},
+	{	"EQ PQ Default",				"PQ Default",		IDR_TEXT_INI_DEF_PQ,	8	},
+	{	"M&M Default",					"MnM Default",		IDR_TEXT_INI_DEF_MNM,	9	},
+	{	"Pantheon Default",				"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	8	},
 };
 
 const ResourceProfile kResTemplateCustom[] =

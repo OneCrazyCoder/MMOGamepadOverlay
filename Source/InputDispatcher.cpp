@@ -58,12 +58,19 @@ enum EAutoRunMode
 struct Input : public INPUT
 { Input() { ZeroMemory(this, sizeof(INPUT)); } };
 
-struct ZERO_INIT(DispatchTask)
-{ Command cmd; int progress; int queuedTime; bool hasJump; bool slow; };
-
 struct ZERO_INIT(KeyWantDownStatus)
 { s16 depth : 8; s16 queued : 7; u16 pressed : 1; };
 typedef VectorMap<u16, KeyWantDownStatus> KeysWantDownMap;
+
+struct ZERO_INIT(DispatchTask)
+{
+	Command cmd;
+	int progress;
+	int queuedTime;
+	bool hasMouseJump;
+	bool hasMouseClick;
+	bool slow;
+};
 
 
 //-----------------------------------------------------------------------------
@@ -217,8 +224,61 @@ public:
 	void push_back(const Command& theCommand)
 	{
 		confirmCanFitOneMore();
+		mBuffer[mTail] = DispatchTask();
 		mBuffer[mTail].cmd = theCommand;
-		setDataForNewTask(mBuffer[mTail]);
+		mBuffer[mTail].queuedTime = gAppRunTime;
+
+		// Scan command for special details related to queue system
+		// Scan only final form of command that TriggerKeyBind will run
+		Command aFinalCmd = theCommand;
+		while(aFinalCmd.type == eCmdType_TriggerKeyBind)
+			aFinalCmd = InputMap::keyBindCommand(aFinalCmd.keyBindID);
+
+		int aCurrJumpHotspotID = 0;
+		int aFinalJumpHotspotID = 0;
+		Hotspot aJumpDest;
+
+		switch(aFinalCmd.type)
+		{
+		case eCmdType_VKeySequence:
+			scanVKeySeqForFlags(
+				InputMap::cmdVKeySeq(aFinalCmd),
+				aCurrJumpHotspotID, aFinalJumpHotspotID,
+				mBuffer[mTail].hasMouseJump,
+				mBuffer[mTail].hasMouseClick,
+				mBuffer[mTail].slow);
+			if( aCurrJumpHotspotID )
+				aFinalJumpHotspotID = aCurrJumpHotspotID;
+			if( mBuffer[mTail].hasMouseJump )
+			{
+				++mMouseJumpQueueCount;
+				if( aFinalJumpHotspotID )
+				{// Assign _LastCursorPos now as source point for next jump
+					InputMap::modifyHotspot(
+						eSpecialHotspot_LastCursorPos,
+						InputMap::getHotspot(aFinalJumpHotspotID));
+				}
+			}
+			break;
+		case eCmdType_ChatBoxString:
+			mBuffer[mTail].slow = true;
+			break;
+		case eCmdType_MouseClickAtHotspot:
+			mBuffer[mTail].hasMouseClick = true;
+			// fall through
+		case eCmdType_MoveMouseToHotspot:
+		case eCmdType_MoveMouseToMenuItem:
+		case eCmdType_MoveMouseToOffset:
+			mBuffer[mTail].hasMouseJump = true;
+			mBuffer[mTail].slow = true;
+			++mMouseJumpQueueCount;
+			// Assign _LastCursorPos now as source point for next jump
+			aJumpDest.x = aFinalCmd.hotspot.x;
+			aJumpDest.y = aFinalCmd.hotspot.y;
+			InputMap::modifyHotspot(
+				eSpecialHotspot_LastCursorPos, aJumpDest);
+			break;
+		}
 		mTail = (mTail + 1) & dropTo<u32>(mBuffer.size() - 1);
 	}
 
@@ -230,12 +290,14 @@ public:
 		DBG_ASSERT(!empty());
 		confirmCanFitOneMore();
 		const bool flagAsSlow = mBuffer[mHead].slow;
+		const bool flagAsClicks = mBuffer[mHead].hasMouseClick;
 		mHead = (mHead - 1) & dropTo<u32>(mBuffer.size() - 1);
 		mBuffer[mHead].cmd = theCommand;
 		mBuffer[mHead].progress = 0;
 		mBuffer[mHead].queuedTime = 0x7FFFFFFF;
-		mBuffer[mHead].hasJump = false;
+		mBuffer[mHead].hasMouseJump = false;
 		mBuffer[mHead].slow = flagAsSlow;
+		mBuffer[mHead].hasMouseClick = flagAsClicks;
 	}
 
 
@@ -243,7 +305,7 @@ public:
 	{
 		DBG_ASSERT(!empty());
 
-		if( mBuffer[mHead].hasJump )
+		if( mBuffer[mHead].hasMouseJump )
 			--mMouseJumpQueueCount;
 		mHead = (mHead + 1) & dropTo<u32>(mBuffer.size() - 1);
 		DBG_ASSERT(!empty() || mMouseJumpQueueCount == 0);
@@ -261,6 +323,14 @@ public:
 	bool mouseJumpQueued() const
 	{
 		return mMouseJumpQueueCount > 0;
+	}
+
+
+	bool frontTaskHasMouseClick() const
+	{
+		if( empty() )
+			return false;
+		return mBuffer[mHead].hasMouseClick;
 	}
 
 
@@ -326,65 +396,12 @@ private:
 		}
 	}
 
-	void setDataForNewTask(DispatchTask& theTask)
-	{
-		mBuffer[mTail].progress = 0;
-		mBuffer[mTail].queuedTime = gAppRunTime;			
-		int aCurrJumpHotspotID = 0;
-		int aFinalJumpHotspotID = 0;
-		Hotspot aJumpDest;
-		Command aCmd = theTask.cmd;
-		while(aCmd.type == eCmdType_TriggerKeyBind)
-			aCmd = InputMap::keyBindCommand(aCmd.keyBindID);
-		switch(aCmd.type)
-		{
-		case eCmdType_VKeySequence:
-			scanVKeySeqForFlags(
-				InputMap::cmdVKeySeq(aCmd),
-				aCurrJumpHotspotID, aFinalJumpHotspotID,
-				theTask.hasJump, theTask.slow);
-			if( aCurrJumpHotspotID )
-				aFinalJumpHotspotID = aCurrJumpHotspotID;
-			if( theTask.hasJump )
-			{
-				++mMouseJumpQueueCount;
-				if( aFinalJumpHotspotID )
-				{// Assign _LastCursorPos now as source point for next jump
-					InputMap::modifyHotspot(
-						eSpecialHotspot_LastCursorPos,
-						InputMap::getHotspot(aFinalJumpHotspotID));
-				}
-			}
-			break;
-		case eCmdType_ChatBoxString:
-			theTask.hasJump = false;
-			theTask.slow = true;
-			break;
-		case eCmdType_MoveMouseToHotspot:
-		case eCmdType_MouseClickAtHotspot:
-		case eCmdType_MoveMouseToMenuItem:
-		case eCmdType_MoveMouseToOffset:
-			theTask.hasJump = true;
-			theTask.slow = true;
-			++mMouseJumpQueueCount;
-			// Assign _LastCursorPos now as source point for next jump
-			aJumpDest.x = aCmd.hotspot.x;
-			aJumpDest.y = aCmd.hotspot.y;
-			InputMap::modifyHotspot(
-				eSpecialHotspot_LastCursorPos, aJumpDest);
-			break;
-		default:
-			theTask.hasJump = false;
-			theTask.slow = false;
-			break;
-		}
-	}
-
 	static void scanVKeySeqForFlags(
 		const u8* theVKeySeq,
 		int& theCurrJumpHotspotID,
 		int& theFinalJumpHotspotID,
-		bool& hasJump,
+		bool& hasMouseJump,
+		bool& hasMouseClick,
 		bool& isSlow)
 	{
 		DBG_ASSERT(theVKeySeq);
@@ -396,7 +413,7 @@ private:
 			switch(*c)
 			{
 			case kVKeyMouseJump:
-				hasJump = true;
+				hasMouseJump = true;
 				isSlow = true;
 				++c; DBG_ASSERT(*c != '\0');
 				theCurrJumpHotspotID = (*c & 0x7F) << 7U;
@@ -404,6 +421,7 @@ private:
 				theCurrJumpHotspotID |= (*c & 0x7F);
 				break;
 			case VK_LBUTTON: case VK_MBUTTON: case VK_RBUTTON:
+				hasMouseClick = true;
 				// Last hotspot jumped to no longer matters if it is clicked
 				theCurrJumpHotspotID = 0;
 				break;
@@ -439,7 +457,7 @@ private:
 						// Use recursion to scan this sequence
 						scanVKeySeqForFlags(InputMap::cmdVKeySeq(aCmd),
 							theCurrJumpHotspotID, theFinalJumpHotspotID,
-							hasJump, isSlow);
+							hasMouseJump, hasMouseClick, isSlow);
 						break;
 					}
 				}
@@ -1913,7 +1931,9 @@ void update()
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.mouseJumpToHotspot &&
-		(sTracker.currTaskProgress == 0 || sTracker.queuePauseTime > 0) )
+		(sTracker.currTaskProgress == 0 ||
+		 (sTracker.queuePauseTime > 0 &&
+		  !sTracker.queue.frontTaskHasMouseClick())) )
 	{// No tasks in progress that mouse mode change could interfere with
 
 		EMouseMode aNextMouseMode = getNextMouseMode();

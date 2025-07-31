@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MMOGO - Profile Edit Reference Guide</title>
   <link rel="icon" href="Resources/MMOGamepadOverlay.ico" type="image/x-icon">
-  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body class="stackedit">
@@ -23,6 +23,7 @@
 <li><a href="#position-and-size-properties">Position and size properties</a></li>
 <li><a href="#controls-layers">Controls Layers</a></li>
 <li><a href="#menus">Menus</a></li>
+<li><a href="#close-menu-on-confirm">Close menu on confirm</a></li>
 <li><a href="#hud-elements-menu-graphics">HUD Elements (Menu graphics)</a></li>
 <li><a href="#other-commands-and-features">Other Commands and Features</a></li>
 </ul>
@@ -307,6 +308,7 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>You can even assign commands to <code>Press Auto=</code>, <code>Release Auto=</code>,  <code>Tap Auto =</code> and so on, like any real button. Even <code>Hold Auto ### =</code> triggers once the layer has been active for ### milliseconds.</p>
 <h3 id="layer-mouse-property">Layer Mouse= property</h3>
 <p>Layers (and the root [Scheme]) can change how the mouse is treated by using <code>Mouse=Cursor</code> (normal), <code>Mouse=LookTurn</code> (holding the right-mouse button down to keep standard MouseLook mode active), <code>Mouse=LookOnly</code> (holding the left-mouse button down for alternate MouseLook in games that support it), or <code>Mouse=Hide</code> (“hide” the cursor by jumping it to the corner of the screen). The top-most layer with a <code>Mouse=</code> property specified dictates the mouse mode used, with the special exception of <code>Mouse=HideOrLook</code> which changes what it does based on the layers beneath it.</p>
+<p><em>There are also some more advanced/experimental Mouse modes, plus the ability to make the mouse cursor auto-point to selected items in overlay menus. These are covered in the Menus and Other Commands and Features sections.</em></p>
 <h3 id="layer-hud-property">Layer HUD= property</h3>
 <p>Each layer (including [Scheme]) specifies which <strong>HUD Elements</strong> (including <strong>Menus</strong>) should be visible while that Layer in active. Layers can also specifically <em>hide</em> HUD Elements that were requested to be shown by lower layers, stopping them from being shown (unless yet another, higher layer overrides the <em>hide</em>). This is done via the <code>HUD=</code> property including a list of HUD element names to show (and optionally the ‘Show’ and ‘Hide’ key words), such as:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.MainMenu]</span>
@@ -480,11 +482,23 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">PS_X</span> <span class="token attr-value"><span class="token punctuation">=</span> Confirm MainMenu</span>
 <span class="token constant">Circle</span> <span class="token attr-value"><span class="token punctuation">=</span> Back MainMenu</span>
 </code></pre>
+<h3 id="mouse-based-interaction">Mouse-based interaction</h3>
+<p>If the target game has a UI window with clickable options you want to activate via controller, you can align an overlay menu with it and the have the mouse click on the screen position of the center of each menu item in the overlay. Overlay menus don’t respond to mouse clicks themselves, so the click will pass through to the aligned in-game UI.</p>
+<p>To have the mouse cursor always point to the currently-selected item in a menu, set a layer’s <code>Mouse=</code> property to the name of the menu. To have the mouse click at a menu item’s position when confirming a selection, just add <code>with mouse</code> to the confirm command. Example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.MainMenu]</span>
+<span class="token constant">Mouse</span> <span class="token attr-value"><span class="token punctuation">=</span> MainMenu</span>
+<span class="token constant">HUD</span> <span class="token attr-value"><span class="token punctuation">=</span> MainMenu</span>
+<span class="token constant">Auto</span> <span class="token attr-value"><span class="token punctuation">=</span> Reset MainMenu</span>
+<span class="token constant">DPad</span> <span class="token attr-value"><span class="token punctuation">=</span> Select MainMenu using wrapping</span>
+<span class="token constant">PS_X</span> <span class="token attr-value"><span class="token punctuation">=</span> Confirm selection in MainMenu with Mouse Click</span>
+<span class="token constant">Circle</span> <span class="token attr-value"><span class="token punctuation">=</span> Go back in MainMenu</span>
+</code></pre>
+<p>When a menu item is confirmed with this setup, any command assigned to that menu item will still occur alongside the mouse click.</p>
 <h3 id="closing-a-menu-and-the-back-command">Closing a menu and the Back= command</h3>
 <p>Technically, menus are never actually opened, closed, or disabled. They are always there, it is just a matter of whether or not they are visible (via the <code>HUD=</code> command on an active layer) and whether any buttons currently are assigned to control them. This is why when you want to “open” a menu, it makes sense to use <code>=Reset &lt;MenuName&gt;</code> as the first command on it, as it will otherwise still be in whatever state it was last left in.</p>
-<p>You can give the appearance of a menu being closed or disabled by hiding the menu and/or making sure no buttons are assigned to control it (in fact, a menu will automatically fade to its “inactive” transparency if it detects no buttons are currently assigned to control it, to help indicate it currently disabled).</p>
+<p>You can give the appearance of a menu being closed or disabled by hiding the menu and/or making sure no buttons are assigned to control it (in fact, a menu will automatically fade to its “inactive” transparency if it detects no buttons are currently assigned to control it, to help indicate it is currently disabled).</p>
 <p>In order to essentially close a menu when trying to back out of one via the <code>=Back &lt;MenuName&gt;</code> command, you can take advantage of a special command property you can add to any menu or sub-menu named “Back”. This command is run whenever the Back command is used on that menu.</p>
-<p>For the earlier example of MainMenu being controlled by Layer.MainMenu, when the user presses Circle from the root menu, the menu could essentially close by removing the MainMenu layer, which will hide the menu (because the <code>HUD=</code> property making it visible will be gone) and stop controlling it (because the various button assignments related to it will be gone). Here’s how:</p>
+<p>For the earlier example of MainMenu being controlled by Layer.MainMenu, when the user presses Circle from the root menu, the menu could essentially close by removing the MainMenu layer, which will hide the menu (because the <code>HUD=</code> property making it visible will be gone) and stop controlling it (because the various button assignments related to it will be gone):</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.MainMenu]</span>
 <span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> List</span>
 <span class="token constant">Position</span> <span class="token attr-value"><span class="token punctuation">=</span> L+10, 25%</span>
@@ -565,7 +579,10 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">D</span> <span class="token attr-value"><span class="token punctuation">=</span> Roll 100: /rand</span>
 ...
 </code></pre>
-<p>When defining buttons to control such a menu, no <code>Confirm=</code> is needed. If you want the menu to automatically close once a command (that doesn’t open a sub-menu) is selected, like in EQOA, assign a button to <code>=Select and Close &lt;MenuName&gt;</code>.</p>
+<p>When defining buttons to control such a menu, no <code>Confirm=</code> is needed.</p>
+<h2 id="close-menu-on-confirm">Close menu on confirm</h2>
+<p>You may want to have a menu “close” immediately after an item is selected, instead of requiring additional button presses to get out of the menu. For most menu styles, this can be done by adding “and Close” to the Confirm command in the menu-controlling layer, i.e.  <code>=Confirm and Close &lt;MenuName&gt;</code> (for 4Dir style menus, which don’t use the Confirm command, you would instead add it to the selection command such as <code>=Select in &lt;MenuName&gt; then close it</code>).</p>
+<p>This auto-close only happens when selecting a menu item that does NOT open a sub-menu. Since overlay menus don’t truly “close” at all, what this actually does is execute the assigned <code>Back=</code> command for the <em>root</em> menu of , expecting that to be assigned to remove the layer that is controlling &amp; displaying the menu. <em>Note that this auto-close does not by itself reset the menu - current selection and active sub-menus remain - nor does it run the Back command for any sub-menus.</em></p>
 <h3 id="edit-menus-at-runtime">Edit Menus at runtime</h3>
 <p>It can be helpful to allow changing menu contents while playing the game, such as for quickly creating macros in a 4Dir style menu. You can do this by assigning the Command <code>=Edit &lt;MenuName&gt;</code> to a button action, which will edit whichever menu item is currently selected, or <code>=Edit &lt;MenuName&gt; Up/Down/Left/Right</code> for editing directional menu items. For example, to work like the Quick Chat menu in EQOA from the above example, where holding the D-Pad for a while allows editing the macros, you could use:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.Macros]</span>

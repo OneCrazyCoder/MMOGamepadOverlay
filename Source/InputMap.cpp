@@ -241,6 +241,7 @@ struct ZERO_INIT(ControlsLayer)
 	BitVector<32> addLayers;
 	BitVector<32> removeLayers;
 	EMouseMode mouseMode;
+	u16 mouseModeMenu;
 	u16 parentLayer;
 	u16 comboParentLayer;
 	u16 buttonRemapID;
@@ -2007,23 +2008,11 @@ static Command wordsToSpecialCommand(
 
 	if( aMenuID < sMenus.size() )
 	{
-		// If add "[with] mouse" to menu commands, causes actual mouse
-		// cursor to move and point at currently selected item, and
-		// possibly left-click there as well if also use "mouse click".
-		// This is used for menus that directly overlay actual in-game
-		// menus to save on needing a bunch of hotspots and extra
-		// jump/click commands (or alongside eMenuStyle_Hotspots menus).
-		result.andClick = keyWordsFound.test(eCmdWord_Click);
-		result.withMouse = result.andClick ||
-			keyWordsFound.test(eCmdWord_Mouse);
-
-		// "= Reset <aMenuName> [Menu] [to Default] [to #] [with mouse click]"
+		// "= Reset <aMenuName> [Menu] [to Default] [to #]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Menu);
 		allowedKeyWords.set(eCmdWord_Default);
-		allowedKeyWords.set(eCmdWord_Mouse);
-		allowedKeyWords.set(eCmdWord_Click);
 		allowedKeyWords.set(eCmdWord_Integer);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -2040,13 +2029,18 @@ static Command wordsToSpecialCommand(
 	if( allowButtonActions && aMenuID < sMenus.size() )
 	{
 		// "= Confirm <aMenuName> [Menu] [with mouse click]"
-		// allowedKeyWords = Menu & Mouse & Click
+		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Confirm);
+		allowedKeyWords.set(eCmdWord_Mouse);
+		allowedKeyWords.set(eCmdWord_Click);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
 			result.menuID = aMenuID;
+			result.andClick =
+				keyWordsFound.test(eCmdWord_Click) ||
+				keyWordsFound.test(eCmdWord_Mouse);
 			return result;
 		}
 
@@ -2059,6 +2053,9 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuConfirmAndClose;
 			result.menuID = aMenuID;
+			result.andClick =
+				keyWordsFound.test(eCmdWord_Click) ||
+				keyWordsFound.test(eCmdWord_Mouse);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Close);
@@ -2204,13 +2201,11 @@ static Command wordsToSpecialCommand(
 		(allow4DirActions || result.dir != eCmdDir_None) )
 	{
 		// "= 'Select'|'Menu'|'Select Menu'
-		// <aMenuName> <aCmdDir> [No/Wrap] [#] [with mouse click]"
+		// <aMenuName> <aCmdDir> [No/Wrap] [#]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Select);
 		allowedKeyWords.set(eCmdWord_Menu);
 		allowedKeyWords.set(eCmdWord_Integer);
-		allowedKeyWords.set(eCmdWord_Mouse);
-		allowedKeyWords.set(eCmdWord_Click);
 		if( (keyWordsFound.test(eCmdWord_Select) ||
 			 keyWordsFound.test(eCmdWord_Menu)) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -2221,8 +2216,8 @@ static Command wordsToSpecialCommand(
 		}
 
 		// "= 'Select'|'Menu'|'Select Menu' and Close
-		// <aMenuName> <aCmdDir> [No/Wrap] [#] [with mouse click]"
-		// allowedKeyWords = Menu & Select & Mouse & Click
+		// <aMenuName> <aCmdDir> [No/Wrap] [#]"
+		// allowedKeyWords = Menu & Select
 		allowedKeyWords.set(eCmdWord_Close);
 		if( (keyWordsFound.test(eCmdWord_Select) ||
 			 keyWordsFound.test(eCmdWord_Menu)) &&
@@ -2235,8 +2230,6 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Select);
 		allowedKeyWords.reset(eCmdWord_Close);
-		allowedKeyWords.reset(eCmdWord_Mouse);
-		allowedKeyWords.reset(eCmdWord_Click);
 
 		// "= Edit [Menu] <aMenuName> <aCmdDir>"
 		// allowedKeyWords = Menu
@@ -2364,11 +2357,9 @@ static Command wordsToSpecialCommand(
 		// This is all the way down here because "back" could be a direction
 		// for another command, OR mean backing out of a sub-menu, and want
 		// to first make sure <aMenuName> isn't another command's key word
-		// "= Menu <aMenuName> Back [with mouse click]"
+		// "= Menu <aMenuName> Back"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Menu);
-		allowedKeyWords.set(eCmdWord_Mouse);
-		allowedKeyWords.set(eCmdWord_Click);
 		if( result.dir == eCmdDir_Back &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
@@ -3212,6 +3203,26 @@ static void applyControlsLayerProperty(
 			const EMouseMode aMouseMode = mouseModeNameToID(thePropVal);
 			if( aMouseMode >= eMouseMode_Num )
 			{
+				// See if is the name of a menu instead
+				DBG_ASSERT(sParsedString.empty());
+				sanitizeSentence(thePropVal, sParsedString);
+				for(int i = 0, end = intSize(sParsedString.size()); i < end; ++i)
+				{
+					int aMenuID = sMenus.findIndex(sParsedString[i]);
+					if( aMenuID < sMenus.size() )
+					{
+						theLayer.mouseMode = eMouseMode_Menu;
+						theLayer.mouseModeMenu = dropTo<u16>(aMenuID);
+						mapDebugPrint(
+							"%s: Mouse set to Menu mode for menu '%s'\n",
+							sSectionPrintName.c_str(),
+							sMenus.keys()[aMenuID].c_str());
+						sParsedString.clear();
+						return;
+					}
+				}
+				sParsedString.clear();
+
 				logError("Unknown mode for '%s = %s' in Layer %s!",
 					sPropertyPrintName.c_str(),
 					thePropVal.c_str(),
@@ -4065,6 +4076,13 @@ EMouseMode mouseMode(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].mouseMode;
+}
+
+
+int mouseModeMenu(int theLayerID)
+{
+	DBG_ASSERT(mouseMode(theLayerID) == eMouseMode_Menu);
+	return sLayers.vals()[theLayerID].mouseModeMenu;	
 }
 
 

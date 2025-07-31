@@ -59,14 +59,13 @@ struct ZERO_INIT(Command)
 			s16 count;
 			u16 swapDir : 2;
 			u16 wrap : 1;
-			u16 withMouse : 1;
 			u16 andClick : 1;
 			u16 multiDirAutoRun : 1;
 			u16 temporary : 1;
 			u16 hasKeybindSignal : 1;
 			u16 asHoldAction : 1;
 			u16 forced : 1;
-			u16 __padding : 6;
+			u16 __padding : 7;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;
 		u64 compare;
