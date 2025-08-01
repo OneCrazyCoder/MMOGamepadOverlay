@@ -85,6 +85,18 @@ struct ZERO_INIT(OverlayWindowPriority)
 	}
 };
 
+struct PauseModalUpdates
+{
+	PauseModalUpdates() { InterlockedIncrement(&sPauseCount); }
+	~PauseModalUpdates() { InterlockedDecrement(&sPauseCount); }
+	static bool active()
+	{ return InterlockedCompareExchange(&sPauseCount, 0, 0) > 0; }
+
+private:
+	static LONG sPauseCount;
+};
+LONG PauseModalUpdates::sPauseCount = 0;
+
 
 //-----------------------------------------------------------------------------
 // Static Variables
@@ -132,7 +144,7 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 		{
 		case WAIT_OBJECT_0:
 			// Timer update
-			if( sWindowInModalMode )
+			if( sWindowInModalMode && !PauseModalUpdates::active() )
 			{
 				mainTimerUpdate();
 				mainModulesUpdate();
@@ -185,6 +197,7 @@ static void startModalModeUpdates()
 static bool normalWindowsProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
+	PauseModalUpdates autoPauseModalUpdates;
 	switch(theMessage)
 	{
  	case WM_SYSCOLORCHANGE:
@@ -216,6 +229,7 @@ static bool normalWindowsProc(
 static LRESULT CALLBACK mainWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
+	PauseModalUpdates autoPauseModalUpdates;
 	switch(theMessage)
 	{
 	case WM_COMMAND:
@@ -330,6 +344,7 @@ static void setMainWindowEnabled(bool enable = true)
 static INT_PTR CALLBACK toolbarWindowProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
+	PauseModalUpdates autoPauseModalUpdates;
 	if( normalWindowsProc(theDialog, theMessage, wParam, lParam) )
 		return (INT_PTR)TRUE;
 	if( sToolbarDialogProc )

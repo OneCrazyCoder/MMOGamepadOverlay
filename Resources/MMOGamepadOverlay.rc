@@ -451,8 +451,9 @@ IDR_MENU_MAIN MENU
 BEGIN
     POPUP "File"
     BEGIN
-        MENUITEM "Profile",                     ID_FILE_PROFILE
-        MENUITEM "Character Config File(s)",    ID_FILE_CHARACTERCONFIGFILE
+        MENUITEM "Load Profile",                ID_FILE_PROFILE
+        MENUITEM SEPARATOR
+        MENUITEM "Select Character Config",     ID_FILE_CHARACTERCONFIGFILE
         MENUITEM SEPARATOR
         MENUITEM "Exit",                        ID_FILE_EXIT
     END
