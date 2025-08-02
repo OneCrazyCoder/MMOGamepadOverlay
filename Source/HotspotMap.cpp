@@ -1236,25 +1236,27 @@ EResult stringToCoord(std::string& theString,
 	{
 		eState_Prefix,		// Checking for C/R/B in CX+10, R-8, B - 5, etc
 		eState_PrefixEnd,	// Checking for X/Y in CX/CY or 'eft' in 'Left', etc
-		eState_Numerator,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
-		eState_Denominator,	// Checking for 5 in 0.5, 5% in 10.5%, etc
+		eState_AnchorNum,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
+		eState_AnchorDenom,	// Checking for 5 in 0.5, 5% in 10.5%, etc
 		eState_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
 		eState_OffsetSpace,	// Checking for start of offset number after sign
-		eState_OffsetNumber,// Checking for 10 in 50% + 10, CX+10, R-10, etc
+		eState_OffsetNum,	// Checking for 10 in 50% + 10, CX+10, R-10, etc
+		eState_OffsetDenom,	// Checking for post-decimal digits in an offset
 		eState_TrailSpace,	// Check for final , or 'x' after end of coordinate
 	} aState = eState_Prefix;
 
 	u32 aNumerator = 0;
 	u32 aDenominator = 0;
-	u32 anOffset = 0;
+	u32 anAnchorNum = 0;
+	u32 anAnchorDenom = 0;
+	double aTotalOffset = 0;
 	bool done = false;
-	bool isOffsetNegative  = false;
+	bool isNegativeNum = false;
 	int aCharPos = 0;
 	int aValidCharCount = 0;
 	char c = theString[aCharPos];
 	result = eResult_Ok;
 
-	out.offset = 0;
 	while(!done && result == eResult_Ok)
 	{
 		switch(c)
@@ -1263,11 +1265,17 @@ EResult stringToCoord(std::string& theString,
 		case '5': case '6': case '7': case '8': case '9':
 			switch(aState)
 			{
-			case eState_Prefix:
-				aState = eState_Numerator;
+			case eState_Prefix: // +2 = eState_AnchorNum
+			case eState_OffsetSign: // +2 = eState_OffsetNum
+				aState = EState(aState + 1);
 				// fall through
-			case eState_Numerator:
-			case eState_Denominator:
+			case eState_OffsetSpace: // +1 = eState_OffsetNum
+				aState = EState(aState + 1);
+				// fall through
+			case eState_AnchorNum:
+			case eState_AnchorDenom:
+			case eState_OffsetNum:
+			case eState_OffsetDenom:
 				aDenominator *= 10;
 				aNumerator *= 10;
 				aNumerator += u32(c - '0');
@@ -1278,36 +1286,24 @@ EResult stringToCoord(std::string& theString,
 				else
 					aValidCharCount = aCharPos + 1;
 				break;
-			case eState_OffsetSign:
-				aState = EState(aState + 1);
-				// fall through
-			case eState_OffsetSpace:
-				aState = EState(aState + 1);
-				// fall through
-			case eState_OffsetNumber:
-				anOffset *= 10;
-				anOffset += u32(c - '0');
-				if( anOffset > 0x7FFF )
-					result = eResult_Overflow;
-				else if( anOffset || !isOffsetNegative )
-					aValidCharCount = aCharPos + 1;
-				break;
 			default:
-				return eResult_Malformed;
+				result = eResult_Malformed;
 			}
 			break;
 		case '-':
 		case '+':
 			switch(aState)
 			{
-			case eState_Prefix:
-				// Skipping directly to offset
-				aDenominator = 1;
+			case eState_AnchorDenom:
+				anAnchorNum = aNumerator;
+				anAnchorDenom = aDenominator;
 				// fall through
+			case eState_Prefix:
 			case eState_PrefixEnd:
-			case eState_Denominator:
 			case eState_OffsetSign:
-				isOffsetNegative = (c == '-');
+				aNumerator = 0;
+				aDenominator = 0;
+				isNegativeNum = (c == '-');
 				aState = eState_OffsetSpace;
 				break;
 			case eState_OffsetSpace:
@@ -1318,26 +1314,26 @@ EResult stringToCoord(std::string& theString,
 					theString[aCharPos+1] >= '0' &&
 					theString[aCharPos+1] <= '9' )
 				{
-					isOffsetNegative = !isOffsetNegative;
-					aState = eState_OffsetNumber;
+					isNegativeNum = !isNegativeNum;
+					aState = eState_OffsetNum;
 				}
 				else
 				{
 					result = eResult_Malformed;
 				}
 				break;
-			case eState_Numerator:
-				anOffset = aNumerator;
-				aNumerator = 0;
-				aDenominator = 1;
-				// fall through
-			case eState_OffsetNumber:
+			case eState_AnchorNum: // must actually be an offset
+			case eState_OffsetNum:
+			case eState_OffsetDenom:
 			case eState_TrailSpace:
-				// Additional offset
-				out.offset +=
-					isOffsetNegative ? -s16(anOffset) : s16(anOffset);
-				anOffset = 0;
-				isOffsetNegative = (c == '-');
+				// Calculate current and start new offset parsing
+				if( !aDenominator ) aDenominator = 1;
+				aTotalOffset +=
+					(isNegativeNum ? -double(aNumerator) : double(aNumerator))
+					/ double(aDenominator);
+				aNumerator = 0;
+				aDenominator = 0;
+				isNegativeNum = (c == '-');
 				aState = eState_OffsetSpace;
 				break;
 			default:
@@ -1348,8 +1344,11 @@ EResult stringToCoord(std::string& theString,
 			switch(aState)
 			{
 			case eState_Prefix:
-			case eState_Numerator:
-				aState = eState_Denominator;
+				aState = eState_AnchorNum;
+				// fall through
+			case eState_AnchorNum:
+			case eState_OffsetNum:
+				aState = EState(aState+1); // Denominator state
 				aDenominator = 1;
 				break;
 			default:
@@ -1363,10 +1362,14 @@ EResult stringToCoord(std::string& theString,
 			case eState_PrefixEnd:
 				aValidCharCount = aCharPos + 1;
 				break;
-			case eState_Numerator:
-			case eState_Denominator:
-				if( !aDenominator ) aDenominator = 1;
-				aDenominator *= 100; // Convert 50% to 0.5
+			case eState_AnchorNum:
+			case eState_AnchorDenom:
+				anAnchorNum = aNumerator;
+				anAnchorDenom = aDenominator;
+				aNumerator = 0;
+				aDenominator = 0;
+				if( !anAnchorDenom ) anAnchorDenom = 1;
+				anAnchorDenom *= 100; // Convert 50% to 0.5
 				aState = eState_OffsetSign;
 				aValidCharCount = aCharPos + 1;
 				break;
@@ -1382,8 +1385,8 @@ EResult stringToCoord(std::string& theString,
 				aValidCharCount = aCharPos + 1;
 				break;
 			case eState_Prefix:
-				aNumerator = 0;
-				aDenominator = 1;
+				anAnchorNum = 0;
+				anAnchorDenom = 1;
 				aState = eState_PrefixEnd;
 				aValidCharCount = aCharPos + 1;
 				break;
@@ -1399,8 +1402,8 @@ EResult stringToCoord(std::string& theString,
 				aValidCharCount = aCharPos + 1;
 				break;
 			case eState_Prefix:
-				aNumerator = 1;
-				aDenominator = 1;
+				anAnchorNum = 1;
+				anAnchorDenom = 1;
 				aState = eState_PrefixEnd;
 				aValidCharCount = aCharPos + 1;
 				break;
@@ -1415,8 +1418,8 @@ EResult stringToCoord(std::string& theString,
 				aValidCharCount = aCharPos + 1;
 				break;
 			case eState_Prefix:
-				aNumerator = 1;
-				aDenominator = 2;
+				anAnchorNum = 1;
+				anAnchorDenom = 2;
 				aState = eState_PrefixEnd;
 				aValidCharCount = aCharPos + 1;
 				break;
@@ -1433,15 +1436,11 @@ EResult stringToCoord(std::string& theString,
 				else
 					aValidCharCount = aCharPos + 1; // part of CX prefix
 				break;
-			case eState_Numerator:
-				anOffset = aNumerator;
-				aNumerator = 0;
-				aDenominator = 1;
-				done = true;
-				break;
-			case eState_Denominator:
+			case eState_AnchorNum:
+			case eState_AnchorDenom:
 			case eState_OffsetSign:
-			case eState_OffsetNumber:
+			case eState_OffsetNum:
+			case eState_OffsetDenom:
 			case eState_TrailSpace:
 				// Assume marks end of this coordinate
 				done = true;
@@ -1472,15 +1471,16 @@ EResult stringToCoord(std::string& theString,
 			case eState_PrefixEnd:
 				aState = eState_OffsetSign;
 				break;
-			case eState_Denominator:
+			case eState_AnchorDenom:
+				anAnchorNum = aNumerator;
+				anAnchorDenom = aDenominator;
+				aNumerator = 0;
+				aDenominator = 0;
 				aState = eState_OffsetSign;
 				break;
-			case eState_Numerator:
-				anOffset = aNumerator;
-				aNumerator = 0;
-				aDenominator = 1;
-				// fall through
-			case eState_OffsetNumber:
+			case eState_AnchorNum:
+			case eState_OffsetNum:
+			case eState_OffsetDenom:
 				aState = eState_TrailSpace;
 				break;
 			}
@@ -1508,15 +1508,34 @@ EResult stringToCoord(std::string& theString,
 		}
 	}
 
-	if( aDenominator == 0 )
+	if( aNumerator > 0 )
 	{
-		anOffset = aNumerator;
-		aNumerator = 0;
-		aDenominator = 1;
+		// Finalize last number read
+		if( aState == eState_AnchorDenom )
+		{// Just an anchor with no offset found
+			DBG_ASSERT(anAnchorNum == 0);
+			DBG_ASSERT(aDenominator != 0);
+			anAnchorNum = aNumerator;
+			anAnchorDenom = aDenominator;
+		}
+		else
+		{// Use as last offset
+			if( aDenominator == 0 )
+				aDenominator = 1;
+			aTotalOffset +=
+				(isNegativeNum ? -double(aNumerator) : double(aNumerator))
+				/ double(aDenominator);
+		}
 	}
+	if( anAnchorDenom == 0 )
+		anAnchorDenom = 1;
 
-	if( aNumerator > aDenominator )
-		result = eResult_Overflow;
+	// If anchor ratio invalid (> 1.0) treat as extra offset
+	if( anAnchorNum > anAnchorDenom )
+	{
+		aTotalOffset += double(anAnchorNum) / double(anAnchorDenom);
+		anAnchorNum = 0; anAnchorDenom = 1;
+	}
 
 	if( theValidatedString )
 		*theValidatedString = trim(theString.substr(0, aValidCharCount));
@@ -1524,9 +1543,21 @@ EResult stringToCoord(std::string& theString,
 	if( result != eResult_Ok )
 		return result;
 
-	out.anchor = ratioToU16(aNumerator, aDenominator);
-	out.offset +=
-		isOffsetNegative ? -s16(anOffset) : s16(anOffset);
+	out.anchor = ratioToU16(anAnchorNum, anAnchorDenom);
+
+	if( aTotalOffset != 0 )
+	{
+		isNegativeNum = aTotalOffset < 0;
+		if( isNegativeNum ) aTotalOffset = -aTotalOffset;
+
+		double anIntPart;
+		double aFracPart = std::modf(aTotalOffset, &anIntPart);
+		const int aRoundedOffset = isNegativeNum
+			? ((aFracPart > 0.5f) ? -int(anIntPart + 1.0f) : -int(anIntPart))
+			: ((aFracPart >= 0.5f) ? int(anIntPart + 1.0f) : int(anIntPart));
+
+		out.offset = dropTo<s16>(clamp(aRoundedOffset, -32768, 32767));
+	}
 
 	// Remove processed section from start of string
 	theString = theString.substr(aCharPos);
