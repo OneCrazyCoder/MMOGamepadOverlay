@@ -3236,7 +3236,7 @@ static void applyControlsLayerProperty(
 					aMouseMode == eMouseMode_Cursor ? "Cursor" :
 					aMouseMode == eMouseMode_LookTurn ? "RMB Mouse Look" :
 					aMouseMode == eMouseMode_LookOnly ? "LMB Mouse Look" :
-					aMouseMode == eMouseMode_AutoLook ? "Auto-Look" :
+					aMouseMode == eMouseMode_LookAuto ? "Auto-Look" :
 					aMouseMode == eMouseMode_AutoRunLook ? "Auto-Run-Look" :
 					aMouseMode == eMouseMode_Hide ? "Hide" :
 					/*otherwise*/ "Default (use other layer)" );

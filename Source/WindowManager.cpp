@@ -103,9 +103,6 @@ private:
 		~LockWrapper() { DeleteCriticalSection(&mCritSect); }
 		void lock() { EnterCriticalSection(&mCritSect); }
 		void unlock() { LeaveCriticalSection(&mCritSect); }
-	private:
-		LockWrapper(const LockWrapper&); // no copying!
-		LockWrapper& operator=(const LockWrapper&); // no copying!
 		CRITICAL_SECTION mCritSect;
 	};
 
