@@ -85,17 +85,36 @@ struct ZERO_INIT(OverlayWindowPriority)
 	}
 };
 
-struct PauseModalUpdates
+
+class ModalUpdateLock
 {
-	PauseModalUpdates() { InterlockedIncrement(&sPauseCount); }
-	~PauseModalUpdates() { InterlockedDecrement(&sPauseCount); }
-	static bool active()
-	{ return InterlockedCompareExchange(&sPauseCount, 0, 0) > 0; }
+public:
+	ModalUpdateLock() { getLock().lock(); }
+	~ModalUpdateLock() { getLock().unlock(); }
 
 private:
-	static LONG sPauseCount;
+	ModalUpdateLock(const ModalUpdateLock&); // no copying!
+	ModalUpdateLock& operator=(const ModalUpdateLock&); // no copying!
+
+	class LockWrapper
+	{
+	public:
+		LockWrapper() { InitializeCriticalSection(&mCritSect); }
+		~LockWrapper() { DeleteCriticalSection(&mCritSect); }
+		void lock() { EnterCriticalSection(&mCritSect); }
+		void unlock() { LeaveCriticalSection(&mCritSect); }
+	private:
+		LockWrapper(const LockWrapper&); // no copying!
+		LockWrapper& operator=(const LockWrapper&); // no copying!
+		CRITICAL_SECTION mCritSect;
+	};
+
+	static LockWrapper& getLock()
+	{
+		static LockWrapper lock;
+		return lock;
+	}
 };
-LONG PauseModalUpdates::sPauseCount = 0;
 
 
 //-----------------------------------------------------------------------------
@@ -143,11 +162,13 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 		switch(WaitForMultipleObjects(2, handles, FALSE, INFINITE))
 		{
 		case WAIT_OBJECT_0:
-			// Timer update
-			if( sWindowInModalMode && !PauseModalUpdates::active() )
-			{
-				mainTimerUpdate();
-				mainModulesUpdate();
+			{// Timer update
+				ModalUpdateLock autoLock;
+				if( sWindowInModalMode )
+				{
+					mainTimerUpdate();
+					mainModulesUpdate();
+				}
 			}
 			break;
 		case WAIT_OBJECT_0 + 1:
@@ -197,7 +218,7 @@ static void startModalModeUpdates()
 static bool normalWindowsProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	PauseModalUpdates autoPauseModalUpdates;
+	ModalUpdateLock autoLock;
 	switch(theMessage)
 	{
  	case WM_SYSCOLORCHANGE:
@@ -229,7 +250,7 @@ static bool normalWindowsProc(
 static LRESULT CALLBACK mainWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	PauseModalUpdates autoPauseModalUpdates;
+	ModalUpdateLock autoLock;
 	switch(theMessage)
 	{
 	case WM_COMMAND:
@@ -344,7 +365,7 @@ static void setMainWindowEnabled(bool enable = true)
 static INT_PTR CALLBACK toolbarWindowProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	PauseModalUpdates autoPauseModalUpdates;
+	ModalUpdateLock autoLock;
 	if( normalWindowsProc(theDialog, theMessage, wParam, lParam) )
 		return (INT_PTR)TRUE;
 	if( sToolbarDialogProc )
@@ -1055,9 +1076,12 @@ void stopModalModeUpdates()
 {
 	if( !sWindowInModalMode )
 		return;
-	if( sModalModeTimer )
-		CancelWaitableTimer(sModalModeTimer);
-	sWindowInModalMode = false;
+	{
+		ModalUpdateLock autoLock;
+		if( sModalModeTimer )
+			CancelWaitableTimer(sModalModeTimer);
+		sWindowInModalMode = false;
+	}
 }
 
 
