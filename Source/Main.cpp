@@ -112,9 +112,8 @@ void mainLoopUpdate(HWND theDialog)
 			}
 			break;
 		}
+		WindowManager::stopModalModeUpdates();
 	}
-
-	WindowManager::stopModalModeUpdates();
 }
 
 
