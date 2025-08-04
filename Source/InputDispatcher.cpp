@@ -1284,9 +1284,11 @@ static EMouseMode checkMouseLookModeTransitions()
 
 	if( sTracker.mouseModeExpected == eMouseMode_SwapToLook )
 	{
-		if( isConsideredMovingNow &&
-			sTracker.mouseMode == eMouseMode_LookTurn )
-		{// Avoid swapping while actively moving character
+		// Avoid leaving _LookTurn until character stops moving
+		// and are actively trying to pan camera in X axis
+		if( sTracker.mouseMode == eMouseMode_LookTurn &&
+			(isConsideredMovingNow || sTracker.mouseVelX == 0) )
+		{
 			return eMouseMode_LookTurn;
 		}
 		
