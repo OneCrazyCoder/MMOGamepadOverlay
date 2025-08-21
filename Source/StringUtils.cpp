@@ -587,7 +587,7 @@ std::string breakOffNextItem(std::string& theString, char theChar)
 }
 
 
-int breakOffIntegerSuffix(std::string& theString)
+int breakOffIntegerSuffix(std::string& theString, bool allowJustInt)
 {
 	int result = 0;
 	int multiplier = 1;
@@ -602,17 +602,17 @@ int breakOffIntegerSuffix(std::string& theString)
 		--aStrPos;
 	}
 
-	// Don't chop off leading zeroes before the actual integer
-	while(aStrPos < intSize(theString.size())-1 && theString[aStrPos+1] == '0')
-		++aStrPos;
-
-	// If stayed at end of string or got all the way to start, invalid as a
-	// string ending in (but not entirely being) an integer
-	if( aStrPos >= intSize(theString.size())-1 || aStrPos < 0 )
+	// If stayed at end of string, invalid as a string ending in an integer
+	// If got all the way to start, string is entirely an int, and being valid
+	// or not depends on evenIfEntirelyAnInt
+	if( aStrPos >= intSize(theString.size())-1 )
+		result = -1;
+	else if( aStrPos < 0 && !allowJustInt )
 		result = -1;
 	else
 		theString.resize(aStrPos+1);
 
+	// Trim spaces off end of theString
 	while(!theString.empty() &&
 		  u8(theString[theString.size()-1]) <= ' ' )
 	{ theString.resize(theString.size()-1); }

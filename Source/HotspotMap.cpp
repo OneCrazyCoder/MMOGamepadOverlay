@@ -100,7 +100,7 @@ static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<GridPos> sFetchGrid;
 static std::vector<int> sCandidates;
-static std::vector<Links> sLinkMaps;
+static VectorMap<u16, Links> sLinkMaps;
 static int sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
 static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
@@ -919,8 +919,7 @@ void init()
 	sPoints.resize(aHotspotsCount);
 	sRequestedArrays.clearAndResize(aHotspotArraysCount);
 	sActiveArrays.clearAndResize(aHotspotArraysCount);
-	sLinkMaps.reserve(aHotspotArraysCount);
-	sLinkMaps.resize(aHotspotArraysCount);
+	sLinkMaps.clear();
 	sLastTargetSize = WindowManager::overlayTargetSize();
 	sLastUIScale = gUIScale;
 	sNewTasks.set();
@@ -933,8 +932,7 @@ void loadProfileChanges()
 	if( theProfileMap.contains("Hotspots") || theProfileMap.contains("Mouse") )
 	{
 		sNewTasks.set();
-		for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
-			sLinkMaps[i].clear();
+		sLinkMaps.clear();
 	}
 }
 
@@ -1047,19 +1045,18 @@ int getNextHotspotInDir(ECommandDir theDirection)
 }
 
 
-const Links& getLinks(int theArrayID)
+const Links& getLinks(int theMenuID)
 {
-	DBG_ASSERT(size_t(theArrayID) < sLinkMaps.size());
-	if( !sLinkMaps[theArrayID].empty() )
-		return sLinkMaps[theArrayID];
+	Links& result = sLinkMaps.findOrAdd(dropTo<u16>(theMenuID));
+	if( !result.empty() )
+		return result;
 
 	// Generate links
-	mapDebugPrint("Generating links for hotspot array '%s'\n",
-		InputMap::hotspotArrayLabel(theArrayID).c_str());
-	const int aFirstHotspot = InputMap::firstHotspotInArray(theArrayID);
-	const int aNodeCount = InputMap::sizeOfHotspotArray(theArrayID);
-	sLinkMaps[theArrayID].resize(max<size_t>(1, aNodeCount));
-	if( aNodeCount <= 1 ) return sLinkMaps[theArrayID];
+	mapDebugPrint("Generating hotspot links for menu '%s'\n",
+		InputMap::menuLabel(theMenuID).c_str());
+	const int aNodeCount = max(1, InputMap::menuItemCount(theMenuID));
+	result.resize(aNodeCount);
+	if( aNodeCount == 1 ) return result;
 
 	// Make sure hotspots' normalized positions have been assigned
 	while(sNewTasks.test(eTask_TargetSize) ||
@@ -1067,10 +1064,16 @@ const Links& getLinks(int theArrayID)
 	{ processTasks(); }
 
 	// Assign the hotspots to "dots" in "rows" (nearly-matching Y values)
+	// Also create map for converting hotspots back into menu items indexes
+	VectorMap<u16, u8> aHotspotToMenuIdxMap;
+	aHotspotToMenuIdxMap.reserve(aNodeCount);
 	std::vector<Row> aRowVec; aRowVec.reserve(aNodeCount);
-	for(int aPointIdx = aFirstHotspot, aPointEnd = aFirstHotspot + aNodeCount;
-		aPointIdx < aPointEnd; ++aPointIdx)
+	for(int aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
+		const int aPointIdx =
+			InputMap::menuItemHotspotID(theMenuID, aNodeIdx);
+		aHotspotToMenuIdxMap.addPair(
+			dropTo<u16>(aPointIdx), dropTo<u8>(aNodeIdx));
 		TrackedPoint& aPoint = sPoints[aPointIdx];
 		bool addedToExistingRow = false;
 		for(int i = 0, end = intSize(aRowVec.size()); i < end; ++i)
@@ -1081,6 +1084,7 @@ const Links& getLinks(int theArrayID)
 			{
 				aRow.addDot(aPointIdx);
 				addedToExistingRow = true;
+				break;
 			}
 		}
 		if( !addedToExistingRow )
@@ -1089,6 +1093,7 @@ const Links& getLinks(int theArrayID)
 			aRowVec.back().addDot(aPointIdx);
 		}
 	}
+	aHotspotToMenuIdxMap.sort();
 	const int aRowCount = intSize(aRowVec.size());
 
 	// Sort the dots horizontally in each row
@@ -1168,8 +1173,9 @@ const Links& getLinks(int theArrayID)
 			else
 				{ aPointInDir[eCmdDir_R] = aRow[aDotIdx+1].pointID; }
 
-			const u16 aNodeIdx = dropTo<u16>(aDot.pointID - aFirstHotspot);
-			HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
+			const u8 aNodeIdx = aHotspotToMenuIdxMap.find(
+				dropTo<u16>(aDot.pointID))->second;
+			HotspotLinkNode& aNode = result[aNodeIdx];
 			for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 			{
 				if( aPointInDir[aDir] == 0 )
@@ -1179,10 +1185,9 @@ const Links& getLinks(int theArrayID)
 				}
 				else
 				{
-					DBG_ASSERT(aPointInDir[aDir] >= aFirstHotspot);
 					aNode.edge[aDir] = false;
-					aNode.next[aDir] = dropTo<u16>(
-						aPointInDir[aDir] - aFirstHotspot);
+					aNode.next[aDir] = aHotspotToMenuIdxMap.find(
+						dropTo<u16>(aPointInDir[aDir]))->second;
 				}
 			}
 		}
@@ -1191,20 +1196,20 @@ const Links& getLinks(int theArrayID)
 	// Add wrap-around options for edge nodes
 	for(int aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
-		HotspotLinkNode& aNode = sLinkMaps[theArrayID][aNodeIdx];
+		HotspotLinkNode& aNode = result[aNodeIdx];
 		for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
 		{
 			if( !aNode.edge[aDir] )
 				continue;
 			const ECommandDir anOppDir = opposite8Dir(ECommandDir(aDir));
-			u16 aWrapNode = aNode.next[anOppDir];
-			while(!sLinkMaps[theArrayID][aWrapNode].edge[anOppDir])
-				aWrapNode = sLinkMaps[theArrayID][aWrapNode].next[anOppDir];
+			u8 aWrapNode = aNode.next[anOppDir];
+			while(!result[aWrapNode].edge[anOppDir])
+				aWrapNode = result[aWrapNode].next[anOppDir];
 			aNode.next[aDir] = aWrapNode;
 		}
 	}
 
-	return sLinkMaps[theArrayID];
+	return result;
 }
 
 

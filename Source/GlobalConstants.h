@@ -22,7 +22,7 @@ kVKeyAltFlag = 0x0400,
 kVKeyWinFlag = 0x1000,
 kVKeyMask = 0x00FF,
 kAllLayers = 0xFFFF,
-kInvalidItem = 0xFFFF,
+kInvalidID = 0xFFFF,
 };
 
 enum ECommandType
@@ -47,17 +47,15 @@ enum ECommandType
 	eCmdType_MoveMouseToOffset,
 	eCmdType_MouseClickAtHotspot,
 
-	// These active "keybind arrays" which allow a sequence of different keys
+	// These active "keybind cycles" which allow a sequence of different keys
 	// to be pressed by a single buton that changes the key pressed each time.
 	// These first 2 do not actually send any input...
-	eCmdType_KeyBindArrayResetLast, // Sets "last" index to "default" index
-	eCmdType_KeyBindArraySetDefault, // Sets "default" index to "last" index
+	eCmdType_KeyBindCycleReset, // Resets such that prev/next will be "default"
+	eCmdType_KeyBindCycleSetDefault, // Sets "default" index to "last" index
 	// These all update "last" to the index in the array that was pressed
-	eCmdType_KeyBindArrayPrev, // Press previous key in array
-	eCmdType_KeyBindArrayNext, // Press next key in array
-	eCmdType_KeyBindArrayDefault, // Press key at saved "default" index
-	eCmdType_KeyBindArrayLast, // Re-press last-pressed key in the array
-	eCmdType_KeyBindArrayIndex, // Skip to pressing key at specified index
+	eCmdType_KeyBindCyclePrev, // Press previous key in array
+	eCmdType_KeyBindCycleNext, // Press next key in array
+	eCmdType_KeyBindCycleLast, // Re-press last-pressed key in the array
 
 	// These are just a mix of special-case one-off commands
 	eCmdType_SetVariable,
@@ -232,41 +230,44 @@ enum EMouseMode
 	eMouseMode_Num
 };
 
-enum EHUDType
+enum EMenuStyle
 {
 	eMenuStyle_List,
 	eMenuStyle_Bar,
 	eMenuStyle_Grid,
-	eMenuStyle_Hotspots,
 	eMenuStyle_Slots,
 	eMenuStyle_4Dir,
 	eMenuStlye_Ring,
 	eMenuStyle_Radial,
 
-	eHUDItemType_Rect,
-	eHUDItemType_RndRect,
-	eHUDItemType_Bitmap,
-	eHUDItemType_Circle,
-	eHUDItemType_ArrowL,
-	eHUDItemType_ArrowR,
-	eHUDItemType_ArrowU,
-	eHUDItemType_ArrowD,
+	eMenuStyle_Hotspots,
+	eMenuStyle_SelectHotspot,
 
-	eHUDType_Hotspot,
-	eHUDType_KBArrayLast,
-	eHUDType_KBArrayDefault,
+	eMenuStyle_Visual,
+	eMenuStyle_Label,
+	eMenuStyle_KBCycleLast,
+	eMenuStyle_KBCycleDefault,
 
-	eHUDType_HotspotGuide, // Internal use only
-	eHUDType_System, // Internal use only
+	eMenuStyle_HotspotGuide, // Internal use only
+	eMenuStyle_System, // Internal use only
 
-	eHUDType_Num,
+	eMenuStyle_Num,
+};
 
-	eMenuStyle_Begin = 0,
-	eMenuStyle_End = eHUDItemType_Rect,
-	eHUDBaseType_Begin = eHUDItemType_Rect,
-	eHUDBaseType_End = eHUDType_Num,
-	eHUDItemType_Begin = eHUDItemType_Rect,
-	eHUDItemType_End = eHUDType_Hotspot,
+enum EMenuItemType
+{
+	eMenuItemType_Default,
+	eMenuItemType_Rect,
+	eMenuItemType_RndRect,
+	eMenuItemType_Bitmap,
+	eMenuItemType_Circle,
+	eMenuItemType_ArrowL,
+	eMenuItemType_ArrowR,
+	eMenuItemType_ArrowU,
+	eMenuItemType_ArrowD,
+	eMenuItemType_Label,
+
+	eMenuItemType_Num
 };
 
 enum ESpecialKey
@@ -362,10 +363,10 @@ enum ECommandKeyWord
 	eCmdWord_DownWrap,
 	eCmdWord_DownNoWrap,
 	eCmdWord_Default,
-	eCmdWord_Load,
 	eCmdWord_Set,
 	eCmdWord_Variable,
 	eCmdWord_Last,
+	eCmdWord_Repeat,
 	eCmdWord_Change,
 	eCmdWord_Profile,
 	eCmdWord_Layout,
@@ -423,8 +424,8 @@ int keyNameToVirtualKey(const std::string& theKeyName);
 std::string virtualKeyToName(int theVKey);
 EButton buttonNameToID(const std::string& theName);
 EMouseMode mouseModeNameToID(const std::string& theName);
-EHUDType menuStyleNameToID(const std::string& theName);
-EHUDType hudTypeNameToID(const std::string& theName);
+EMenuStyle menuStyleNameToID(const std::string& theName);
+EMenuItemType menuItemTypeNameToID(const std::string& theName);
 ECommandKeyWord commandWordToID(const std::string& theWord);
 
 // Conversions between one constant value to another related one

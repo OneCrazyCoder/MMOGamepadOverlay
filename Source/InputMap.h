@@ -7,8 +7,8 @@
 /*
 	Loads and manages the configuration settings for mapping gamepad
 	input to keyboard/mouse input, including menu configurations and actions.
-	Also tracks some HUD-related information relevant to control schemes
-	such as button labels and which HUD elements need to be displayed.
+	Also tracks some basic menu visual information relevant to control schemes
+	such as button labels and which menu overlays need to be displayed when.
 */
 
 #include "Common.h"
@@ -44,13 +44,9 @@ const u8* cmdVKeySeq(const Command& theCommand);
 Command keyBindCommand(int theKeyBindID);
 u16 keyForSpecialAction(ESpecialKey);
 u16 specialKeyToKeyBindID(ESpecialKey);
+ESpecialKey keyBindIDToSpecialKey(int theKeyBindID); // or _None
 u32 keyBindSignalID(int theKeyBindID);
-u16 keyBindArrayIndexToKeyBindID(int theArrayID, int theIndex);
-u32 keyBindArraySignalID(int theArrayID);
-// Adjust index by theSteps but skipping over any invalid (unassigned) keys
-// Steps of 0 may still adjust by +1 or more if array[theIndex] is invalid
-int offsetKeyBindArrayIndex(
-	int theArrayID, int theIndex, int theSteps, bool wrap);
+u16 keyBindCycleIndexToKeyBindID(int theCycleID, int theIndex);
 
 // CONTROLS LAYERS
 const ButtonActionsMap& buttonCommandsForLayer(int theLayerID);
@@ -69,12 +65,12 @@ EMouseMode mouseMode(int theLayerID);
 // If above returns eMouseMode_Menu, which menu ID?
 int mouseModeMenu(int theLayerID);
 
-// Gets what HUD elements given layer specifically wants to show
-const BitVector<32>& hudElementsToShow(int theLayerID);
+// Gets what overlays (root menus) given layer specifically wants to show
+const BitVector<32>& overlaysToShow(int theLayerID);
 
-// Gets what HUD elements given layer specifically wants to hide
-// (overrides any lower layers wishing to show these HUD elements)
-const BitVector<32>& hudElementsToHide(int theLayerID);
+// Gets what menu overlays given layer specifically wants to hide
+// (overrides any lower layers wishing to show these menus)
+const BitVector<32>& overlaysToHide(int theLayerID);
 
 // Gets what hotspot arrays given layer specifically wants to enable
 const BitVector<32>& hotspotArraysToEnable(int theLayerID);
@@ -95,13 +91,19 @@ Command commandForMenuItem(int theMenuID, int theMenuItemIdx);
 Command commandForMenuDir(int theMenuID, ECommandDir theDir);
 Command menuAutoCommand(int theMenuID);
 Command menuBackCommand(int theMenuID);
-EHUDType menuStyle(int theMenuID);
+EMenuStyle menuStyle(int theMenuID);
 int rootMenuOfMenu(int theMenuID);
-int menuHotspotArray(int theMenuID); // for eMenuStyle_Hotspots only
-int menuGridWidth(int theMenuID); // for eMenuStyle_Grid
-int menuGridHeight(int theMenuID); // for eMenuStyle_Grid
+int menuOverlayID(int theMenuID);
+int overlayRootMenuID(int theOverlayID);
+int menuDefaultItemIdx(int theMenuID);
+int menuItemHotspotID(int theMenuID, int theMenuItemIdx); // or 0
+int menuKeyBindCycleID(int theMenuID); // for _KBCycle styles
+int menuGridWidth(int theMenuID); // for _Grid style
+int menuGridHeight(int theMenuID); // for _Grid style
+int menuSectionID(int theMenuID);
 // Strings used for Profile getStr()/setStr() functions
-std::string menuSectionName(int theMenuID);
+std::string menuSectionName(int theMenuID); // includes "Menu."
+std::string menuKeyName(int theMenuID); // sans "Menu."
 std::string menuItemKeyName(int theMenuItemIdx);
 std::string menuItemDirKeyName(ECommandDir theDir);
 int menuSectionNameToID(const std::string& theProfileSectionName);
@@ -111,29 +113,17 @@ void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 const Hotspot& getHotspot(int theHotspotID);
 int firstHotspotInArray(int theHotspotArrayID);
 int sizeOfHotspotArray(int theHotspotArrayID);
-const Hotspot* keyBindArrayHotspot(int theArrayID, int theIndex);
+float hotspotOffsetScale(int theHotspotID);
+const Hotspot* KeyBindCycleHotspot(int theArrayID, int theIndex);
 void modifyHotspot(int theHotspotID, const Hotspot& theNewValues);
-
-// HUD ELEMENTS
-EHUDType hudElementType(int theHUDElementID);
-bool hudElementIsAMenu(int theHUDElementID);
-// Not all HUD elements are menus, so may return invalid menu ID
-int menuForHUDElement(int theHUDElementID);
-int hudElementForMenu(int theMenuID);
-// Only valid for the Hotspot HUD element type
-int hotspotForHUDElement(int theHUDElementID);
-// Only valid for HUD element types that are tied to Key Bind Arrays
-int keyBindArrayForHUDElement(int theHUDElementID);
-// Does not include HUD. or Menu. prefix
-std::string hudElementKeyName(int theHUDElementID);
 
 // SIZES
 int keyBindCount();
-int keyBindArrayCount();
-int keyBindArraySize(int theArrayID);
+int keyBindCycleCount();
+int keyBindCycleSize(int theCycleID);
 int controlsLayerCount();
-int hudElementCount();
 int menuCount();
+int menuOverlayCount();
 int menuItemCount(int theMenuID);
 int hotspotCount();
 int hotspotArrayCount();

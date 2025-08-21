@@ -3,15 +3,14 @@
 //-----------------------------------------------------------------------------
 
 #include "LayoutEditor.h"
-
 #include "Dialogs.h"
 #include "HotspotMap.h"
-#include "HUD.h"
 #include "InputMap.h"
 #include "Profile.h"
 #include "Resources/resource.h"
 #include "TargetConfigSync.h"
 #include "WindowManager.h"
+#include "WindowPainter.h"
 
 #include <CommCtrl.h>
 
@@ -34,9 +33,7 @@ kMaxOffsetScale = 400,
 const char* kHotspotsPrefix = "Hotspots";
 const char* kIconsPrefix = "Icons";
 const char* kMenuPrefix = "Menu.";
-const char* kHUDPrefix = "HUD.";
-const char* kDefHUDPrefx = "HUD";
-const char* kDefMenuPrefix = "Menu";
+const char* kDefMenuSectName = "Appearance";
 const char* kPositionKey = "Position";
 const char* kSizeKey = "Size";
 const char* kItemSizeKey = "ItemSize";
@@ -83,11 +80,10 @@ struct ZERO_INIT(LayoutEntry)
 		eType_HotspotCategory,
 		eType_CopyIconCategory,
 		eType_MenuCategory,
-		eType_HUDCategory,
 
 		eType_Hotspot,
 		eType_CopyIcon,
-		eType_HUDElement,
+		eType_MenuOverlay,
 
 		eType_Num,
 		eType_CategoryNum = eType_Hotspot
@@ -118,7 +114,7 @@ struct ZERO_INIT(LayoutEntry)
 	Hotspot drawHotspot, drawSize;
 	float drawOffScale;
 	int drawOffX, drawOffY;
-	int hudElementID;
+	int menuOverlayID;
 	int rangeCount;
 
 	LayoutEntry() : type(eType_Num) {}
@@ -154,9 +150,11 @@ static void promptForEditEntry();
 
 static bool entryIncludesPosition(const LayoutEntry& theEntry)
 {
-	if( theEntry.type != LayoutEntry::eType_HUDElement )
+	if( theEntry.type != LayoutEntry::eType_MenuOverlay )
 		return true;
-	switch(InputMap::hudElementType(theEntry.hudElementID))
+	const int aRootMenuID =
+		InputMap::overlayRootMenuID(theEntry.menuOverlayID);
+	switch(InputMap::menuStyle(aRootMenuID))
 	{
 	case eMenuStyle_Hotspots:
 		return false;
@@ -173,7 +171,7 @@ static bool entryIncludesSize(const LayoutEntry& theEntry)
 		return false;
 	case LayoutEntry::eType_CopyIcon:
 		return theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum;
-	case LayoutEntry::eType_HUDElement:
+	case LayoutEntry::eType_MenuOverlay:
 		return true;
 	}
 
@@ -183,7 +181,7 @@ static bool entryIncludesSize(const LayoutEntry& theEntry)
 
 static bool entryIncludesAlignment(const LayoutEntry& theEntry)
 {
-	return theEntry.type == LayoutEntry::eType_HUDElement;
+	return theEntry.type == LayoutEntry::eType_MenuOverlay;
 }
 
 
@@ -200,15 +198,6 @@ static bool entryIsAnOffset(const LayoutEntry& theEntry)
 {
 	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
 		return true;
-	if( theEntry.type != LayoutEntry::eType_HUDElement )
-		return false;
-	switch(InputMap::hudElementType(theEntry.hudElementID))
-	{
-	case eHUDType_Hotspot:
-	case eHUDType_KBArrayLast:
-	case eHUDType_KBArrayDefault:
-		return true;
-	}
 	return false;
 }
 
@@ -379,10 +368,10 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
 	POINT anEntryPos;
-	if( theEntry.type == LayoutEntry::eType_HUDElement )
+	if( theEntry.type == LayoutEntry::eType_MenuOverlay )
 	{
 		const RECT& anEntryRect =
-			WindowManager::hudElementRect(theEntry.hudElementID);
+			WindowManager::overlayRect(theEntry.menuOverlayID);
 		anEntryPos.x = (anEntryRect.left + anEntryRect.right) / 2;
 		anEntryPos.y = (anEntryRect.top + anEntryRect.bottom) / 2;
 	}
@@ -622,7 +611,7 @@ static void processCoordString(
 	{
 		*aDestStr = result;
 		sState->needsDrawPosUpdate = true;
-		HUD::redrawSystemOverlay();
+		WindowPainter::redrawSystemOverlay();
 	}
 }
 
@@ -809,7 +798,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				{
 					sState->entered.offsetScale.clear();
 					sState->needsDrawPosUpdate = true;
-					HUD::redrawSystemOverlay();
+					WindowPainter::redrawSystemOverlay();
 					applyNewPosition();
 				}
 			}
@@ -895,7 +884,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 		SetCapture(theWindow);
 		ShowCursor(FALSE);
 		sState->needsDrawPosUpdate = true;
-		HUD::redrawSystemOverlay();
+		WindowPainter::redrawSystemOverlay();
 		return 0;
 	case WM_LBUTTONUP:
 		stopDragging = true;
@@ -933,7 +922,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 				sState->unappliedDeltaX = sState->unappliedDeltaY = 0;
 				applyNewPosition();
 				sState->needsDrawPosUpdate = true;
-				HUD::redrawSystemOverlay();
+				WindowPainter::redrawSystemOverlay();
 			}
 		}
 		return 0;
@@ -979,10 +968,10 @@ static void updateDrawHotspot(
 	}
 	if( entryIsAnOffset(theEntry) )
 	{
-		if( theEntry.type == LayoutEntry::eType_HUDElement )
-		{// Must be HUD element that offsets from a hotspot
-			const Hotspot& anAnchor =
-				HUD::parentHotspot(theEntry.hudElementID);
+		if( theEntry.type == LayoutEntry::eType_MenuOverlay )
+		{// Must be menu that offsets from a hotspot
+			const Hotspot& anAnchor = WindowPainter::parentHotspot(
+				InputMap::overlayRootMenuID(theEntry.menuOverlayID));
 			theEntry.drawHotspot.x.anchor = u16(clamp(
 				int(anAnchor.x.anchor) + theEntry.drawHotspot.x.anchor,
 				0, 0xFFFF));
@@ -1293,8 +1282,8 @@ static void promptForEditEntry()
 					? IDD_DIALOG_LAYOUT_XYS_TOOLBAR
 					: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
 			editLayoutToolbarProc,
-			anEntry.type == LayoutEntry::eType_HUDElement
-				? anEntry.hudElementID : -1);
+			anEntry.type == LayoutEntry::eType_MenuOverlay
+				? anEntry.menuOverlayID : -1);
 	}
 	else
 	{
@@ -1430,7 +1419,7 @@ static void addArrayEntries(
 }
 
 
-static void tryFetchHUDHotspot(
+static void tryFetchMenuHotspot(
 	LayoutEntry& theEntry,
 	const std::string& thePropName,
 	const std::string& theReadSect,
@@ -1541,10 +1530,6 @@ void init()
 		aCatEntry.item.name = "Menus";
 		aCatEntry.posSect = kMenuPrefix;
 		sState->entries.push_back(aCatEntry);
-		aCatEntry.type = LayoutEntry::eType_HUDCategory;
-		aCatEntry.item.name = "HUD Elements";
-		aCatEntry.posSect = kHUDPrefix;
-		sState->entries.push_back(aCatEntry);
 		DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
 		#ifndef NDEBUG
 		for(int i = 0; i < LayoutEntry::eType_CategoryNum; ++i)
@@ -1564,101 +1549,51 @@ void init()
 		LayoutEntry::eType_CopyIconCategory,
 		LayoutEntry::eType_CopyIcon);
 
-	// Collect HUD Element / Menu position keys from InputMap
-	for(int i = 0, end = intSize(InputMap::hudElementCount()); i < end; ++i)
+	// Collect menu position keys from InputMap
+	for(int i = 0, end = intSize(InputMap::menuOverlayCount()); i < end; ++i)
 	{
+		const int aRootMenuID = InputMap::overlayRootMenuID(i);
 		LayoutEntry aNewEntry;
 		aNewEntry.item.isRootCategory = false;
-		aNewEntry.hudElementID = i;
-		aNewEntry.item.name = InputMap::hudElementKeyName(i);
-		const bool isAMenu = InputMap::hudElementIsAMenu(i);
-		aNewEntry.type = LayoutEntry::eType_HUDElement;
-		aNewEntry.item.parentIndex = isAMenu
-			? LayoutEntry::eType_MenuCategory
-			: LayoutEntry::eType_HUDCategory;
+		aNewEntry.menuOverlayID = i;
+		aNewEntry.item.name = InputMap::menuKeyName(aRootMenuID);
+		aNewEntry.type = LayoutEntry::eType_MenuOverlay;
+		aNewEntry.item.parentIndex = LayoutEntry::eType_MenuCategory;
 		if( aNewEntry.item.name.empty() )
 			continue;
 
+		const std::string& aMenuSectName = kMenuPrefix + aNewEntry.item.name;
 		if( entryIncludesPosition(aNewEntry ) )
 		{
 			// Try read/write [Menu.Name]/Position
-			tryFetchHUDHotspot(aNewEntry, kPositionKey,
-				kMenuPrefix + aNewEntry.item.name,
-				kMenuPrefix + aNewEntry.item.name);
-			// Try read/write [HUD.Name]/Position
-			tryFetchHUDHotspot(aNewEntry, kPositionKey,
-				kHUDPrefix + aNewEntry.item.name,
-				kHUDPrefix + aNewEntry.item.name);
-			// Just write to [HUD/Menu.Name]/Position w/ default settings
-			tryFetchHUDHotspot(aNewEntry, kPositionKey, "",
-				(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+			tryFetchMenuHotspot(aNewEntry, kPositionKey,
+				aMenuSectName, aMenuSectName);
+			// Just write to [Menu.Name]/Position w/ default settings
+			tryFetchMenuHotspot(aNewEntry, kPositionKey, "", aMenuSectName);
 		}
 
-		if( isAMenu )
-		{
-			// Try read/write [Menu.Name]/ItemSize
-			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
-				kMenuPrefix + aNewEntry.item.name,
-				kMenuPrefix + aNewEntry.item.name);
-			// Try read/write [HUD.Name]/ItemSize
-			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
-				kHUDPrefix + aNewEntry.item.name,
-				kHUDPrefix + aNewEntry.item.name);
-			// Try read/write [Menu.Name]/Size
-			tryFetchHUDHotspot(aNewEntry, kSizeKey,
-				kMenuPrefix + aNewEntry.item.name,
-				kMenuPrefix + aNewEntry.item.name);
-			// Try read/write [HUD.Name]/Size
-			tryFetchHUDHotspot(aNewEntry, kSizeKey,
-				kHUDPrefix + aNewEntry.item.name,
-				kHUDPrefix + aNewEntry.item.name);
-		}
-		else
-		{
-			// Try read/write [HUD.Name]/Size
-			tryFetchHUDHotspot(aNewEntry, kSizeKey,
-				kHUDPrefix + aNewEntry.item.name,
-				kHUDPrefix + aNewEntry.item.name);
-			// Try read/write [Menu.Name]/Size
-			tryFetchHUDHotspot(aNewEntry, kSizeKey,
-				kMenuPrefix + aNewEntry.item.name,
-				kMenuPrefix + aNewEntry.item.name);
-			// Try read/write [HUD.Name]/ItemSize
-			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
-				kHUDPrefix + aNewEntry.item.name,
-				kHUDPrefix + aNewEntry.item.name);
-			// Try read/write [Menu.Name]/ItemSize
-			tryFetchHUDHotspot(aNewEntry, kItemSizeKey,
-				kMenuPrefix + aNewEntry.item.name,
-				kMenuPrefix + aNewEntry.item.name);
-		}
-		// Try read [HUD]/ItemSize and write to [HUD/Menu.Name]/ItemSize
-		tryFetchHUDHotspot(aNewEntry, kItemSizeKey, kDefHUDPrefx,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Try read [Menu]/ItemSize and write to [HUD/Menu.Name]/ItemSize
-		tryFetchHUDHotspot(aNewEntry, kItemSizeKey, kDefMenuPrefix,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Just write defaults to [Menu.Name]/ItemSize or [HUD.Name]/Size
-		tryFetchHUDHotspot(aNewEntry, (isAMenu ? kItemSizeKey : kSizeKey), "",
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		// Try read/write [Menu.Name]/ItemSize
+		tryFetchMenuHotspot(aNewEntry, kItemSizeKey,
+			aMenuSectName, aMenuSectName);
+		// Try read/write [Menu.Name]/Size
+		tryFetchMenuHotspot(aNewEntry, kSizeKey,
+			aMenuSectName, aMenuSectName);
+
+		// Try read [Appearance]/ItemSize and write to [Menu.Name]/ItemSize
+		tryFetchMenuHotspot(aNewEntry, kItemSizeKey, kDefMenuSectName,
+			aMenuSectName);
+		// Just write defaults to [Menu.Name]/ItemSize
+		tryFetchMenuHotspot(aNewEntry, kItemSizeKey, "", aMenuSectName);
 
 		// Try read/write [Menu.Name]/Alignment
-		tryFetchHUDHotspot(aNewEntry, kAlignmentKey,
-			kMenuPrefix + aNewEntry.item.name,
-			kMenuPrefix + aNewEntry.item.name);
-		// Try read/write [HUD.Name]/Alignment
-		tryFetchHUDHotspot(aNewEntry, kAlignmentKey,
-			kHUDPrefix + aNewEntry.item.name,
-			kHUDPrefix + aNewEntry.item.name);
-		// Try read [HUD]/Alignment and write to [HUD/Menu.Name]/Alignment
-		tryFetchHUDHotspot(aNewEntry, kAlignmentKey, kDefHUDPrefx,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Try read [Menu]/Alignment and write to [HUD/Menu.Name]/Alignment
-		tryFetchHUDHotspot(aNewEntry, kAlignmentKey, kDefMenuPrefix,
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
-		// Just write to [HUD/Menu.Name]/Alignment w/ default settings
-		tryFetchHUDHotspot(aNewEntry, kAlignmentKey, "",
-			(isAMenu ? kMenuPrefix : kHUDPrefix) + aNewEntry.item.name);
+		tryFetchMenuHotspot(aNewEntry, kAlignmentKey,
+			aMenuSectName, aMenuSectName);
+		// Try read [Appearance]/Alignment and write to [enu.Name]/Alignment
+		tryFetchMenuHotspot(aNewEntry, kAlignmentKey, kDefMenuSectName,
+			aMenuSectName);
+		// Just write to [Menu.Name]/Alignment w/ default settings
+		tryFetchMenuHotspot(aNewEntry, kAlignmentKey, "",
+			aMenuSectName);
 
 		sState->entries.push_back(aNewEntry);
 	}

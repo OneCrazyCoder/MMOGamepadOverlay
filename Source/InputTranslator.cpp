@@ -232,7 +232,7 @@ struct InputResults
 {
 	std::vector<Command> queuedKeys;
 	std::vector<int> changedLayers;
-	BitVector<32> menuHEAutoCommandRun;
+	BitVector<32> menuStackAutoCommandRun;
 	BitArray<eBtn_Num> buttonPressProcessed;
 	ECommandDir selectHotspotDir;
 	int charMove;
@@ -254,7 +254,7 @@ struct InputResults
 	{
 		queuedKeys.clear();
 		changedLayers.clear();
-		menuHEAutoCommandRun.clearAndResize(InputMap::hudElementCount());
+		menuStackAutoCommandRun.clearAndResize(InputMap::menuOverlayCount());
 		buttonPressProcessed.reset();
 		selectHotspotDir = eCmd8Dir_None;
 		charMove = 0;
@@ -645,7 +645,7 @@ static void moveControlsLayerToTop(
 		// Reset "Hold Auto ### =" held times for any moving layers that have
 		// not yet executed their hold action (these are usually used for
 		// some kind of delayed action after the layer has been left alone
-		// for a while, like hiding a HUD element by removing themselves).
+		// for a while, like hiding a menu overlay by removing themselves).
 		if( !sState.layers[*itr].autoButton.holdActionDone )
 			sState.layers[*itr].autoButton.heldTime = 0;
 	}
@@ -1133,109 +1133,101 @@ static void processCommand(
 		// directly from this spot to a different relative hotspot
 		HotspotMap::update();
 		break;
-	case eCmdType_KeyBindArrayResetLast:
-		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
-		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
-			InputMap::offsetKeyBindArrayIndex(
-				theCmd.keybindArrayID,
-				gKeyBindArrayDefaultIndex[theCmd.keybindArrayID],
-				0, false);
+	case eCmdType_KeyBindCycleReset:
+		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
+		gKeyBindCycleLastIndex[theCmd.keyBindCycleID] = -1;
+		gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
 		break;
-	case eCmdType_KeyBindArraySetDefault:
-		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayDefaultIndex.size());
-		gKeyBindArrayDefaultIndex[theCmd.keybindArrayID] =
-			InputMap::offsetKeyBindArrayIndex(
-				theCmd.keybindArrayID,
-				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
-				0, false);
-		gKeyBindArrayDefaultIndexChanged.set(theCmd.keybindArrayID);
+	case eCmdType_KeyBindCycleSetDefault:
+		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleDefaultIndex.size());
+		gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID] =
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID];
+		gKeyBindCycleDefaultIndexChanged.set(theCmd.keyBindCycleID);
 		break;
-	case eCmdType_KeyBindArrayPrev:
-		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
-		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
-			InputMap::offsetKeyBindArrayIndex(
-				theCmd.keybindArrayID,
-				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
-				-theCmd.count, theCmd.wrap);
+	case eCmdType_KeyBindCyclePrev:
+		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
+		if( gKeyBindCycleLastIndex[theCmd.keyBindCycleID] < 0 )
+		{
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] =
+				gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID];
+		}
+		else
+		{
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] -= theCmd.count;
+			while(gKeyBindCycleLastIndex[theCmd.keyBindCycleID] < 0)
+			{
+				if( theCmd.wrap )
+				{
+					gKeyBindCycleLastIndex[theCmd.keyBindCycleID] +=
+						InputMap::keyBindCycleSize(theCmd.keyBindCycleID);
+				}
+				else
+				{
+					gKeyBindCycleLastIndex[theCmd.keyBindCycleID] = 0;
+				}
+			}
+		}
 		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindArrayIndexToKeyBindID(
-			theCmd.keybindArrayID,
-			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		aForwardCmd.keyBindID = InputMap::keyBindCycleIndexToKeyBindID(
+			theCmd.keyBindCycleID,
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
+		aForwardCmd.fromKeyBindCycle = true;
+		aForwardCmd.keyBindCycleID = theCmd.keyBindCycleID;
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
 		// Allow holding this button to auto-repeat after a delay
 		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
-	case eCmdType_KeyBindArrayNext:
-		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
-		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
-			InputMap::offsetKeyBindArrayIndex(
-				theCmd.keybindArrayID,
-				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
-				theCmd.count, theCmd.wrap);
+	case eCmdType_KeyBindCycleNext:
+		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
+		if( gKeyBindCycleLastIndex[theCmd.keyBindCycleID] < 0 )
+		{
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] =
+				gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID];
+		}
+		else
+		{
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] += theCmd.count;
+			while(gKeyBindCycleLastIndex[theCmd.keyBindCycleID] >=
+					InputMap::keyBindCycleSize(theCmd.keyBindCycleID) )
+			{
+				if( theCmd.wrap )
+				{
+					gKeyBindCycleLastIndex[theCmd.keyBindCycleID] -=
+						InputMap::keyBindCycleSize(theCmd.keyBindCycleID);
+				}
+				else
+				{
+					gKeyBindCycleLastIndex[theCmd.keyBindCycleID] =
+						InputMap::keyBindCycleSize(theCmd.keyBindCycleID)-1;
+				}
+			}
+		}
 		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindArrayIndexToKeyBindID(
-			theCmd.keybindArrayID,
-			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		aForwardCmd.keyBindID = InputMap::keyBindCycleIndexToKeyBindID(
+			theCmd.keyBindCycleID,
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
+		aForwardCmd.fromKeyBindCycle = true;
+		aForwardCmd.keyBindCycleID = theCmd.keyBindCycleID;
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
+		gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
 		// Allow holding this button to auto-repeat after a delay
 		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
-	case eCmdType_KeyBindArrayDefault:
-		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
-		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
-			InputMap::offsetKeyBindArrayIndex(
-				theCmd.keybindArrayID,
-				gKeyBindArrayDefaultIndex[theCmd.keybindArrayID],
-				0, false);
+	case eCmdType_KeyBindCycleLast:
+		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
+		if( gKeyBindCycleLastIndex[theCmd.keyBindCycleID] < 0 )
+		{
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] =
+				gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID];
+			gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
+		}
 		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindArrayIndexToKeyBindID(
-			theCmd.keybindArrayID,
-			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
+		aForwardCmd.keyBindID = InputMap::keyBindCycleIndexToKeyBindID(
+			theCmd.keyBindCycleID,
+			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
 		aForwardCmd.asHoldAction = theCmd.asHoldAction;
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
-		break;
-	case eCmdType_KeyBindArrayLast:
-		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
-		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
-			InputMap::offsetKeyBindArrayIndex(
-				theCmd.keybindArrayID,
-				gKeyBindArrayLastIndex[theCmd.keybindArrayID],
-				0, false);
-		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindArrayIndexToKeyBindID(
-			theCmd.keybindArrayID,
-			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
-		aForwardCmd.asHoldAction = theCmd.asHoldAction;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
-		break;
-	case eCmdType_KeyBindArrayIndex:
-		DBG_ASSERT(theCmd.keybindArrayID < gKeyBindArrayLastIndex.size());
-		gFiredSignals.set(
-			InputMap::keyBindArraySignalID(theCmd.keybindArrayID));
-		gKeyBindArrayLastIndex[theCmd.keybindArrayID] =
-			InputMap::offsetKeyBindArrayIndex(
-				theCmd.keybindArrayID,
-				theCmd.arrayIdx,
-				0, false);
-		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindArrayIndexToKeyBindID(
-			theCmd.keybindArrayID,
-			gKeyBindArrayLastIndex[theCmd.keybindArrayID]);
-		aForwardCmd.asHoldAction = theCmd.asHoldAction;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		gKeyBindArrayLastIndexChanged.set(theCmd.keybindArrayID);
 		break;
 	case eCmdType_SetVariable:
 		Profile::setVariable(
@@ -1300,16 +1292,16 @@ static void processCommand(
 	case eCmdType_OpenSubMenu:
 		aForwardCmd = Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		sResults.menuHEAutoCommandRun.set(
-			InputMap::hudElementForMenu(theCmd.menuID));
+		sResults.menuStackAutoCommandRun.set(
+			InputMap::menuOverlayID(theCmd.menuID));
 		updateMouseForMenu(theCmd.menuID);
 		break;
 	case eCmdType_SwapMenu:
 		aForwardCmd = Menus::swapMenu(
 			theCmd.menuID, theCmd.subMenuID, ECommandDir(theCmd.swapDir));
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		sResults.menuHEAutoCommandRun.set(
-			InputMap::hudElementForMenu(theCmd.menuID));
+		sResults.menuStackAutoCommandRun.set(
+			InputMap::menuOverlayID(theCmd.menuID));
 		updateMouseForMenu(theCmd.menuID);
 		break;
 	case eCmdType_MenuReset:
@@ -1317,8 +1309,8 @@ static void processCommand(
 		if( aForwardCmd.type != eCmdType_Invalid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			sResults.menuHEAutoCommandRun.set(
-				InputMap::hudElementForMenu(theCmd.menuID));
+			sResults.menuStackAutoCommandRun.set(
+				InputMap::menuOverlayID(theCmd.menuID));
 		}
 		updateMouseForMenu(theCmd.menuID);
 		break;
@@ -1453,8 +1445,8 @@ static bool isAutoRepeatCommand(const Command& theCommand)
 	switch(theCommand.type)
 	{
 	case eCmdType_MenuSelect:
-	case eCmdType_KeyBindArrayPrev:
-	case eCmdType_KeyBindArrayNext:
+	case eCmdType_KeyBindCyclePrev:
+	case eCmdType_KeyBindCycleNext:
 	case eCmdType_HotspotSelect:
 		return true;
 	}
@@ -1896,6 +1888,30 @@ static bool tryAddLayerFromButton(
 }
 
 
+static void processFiredSignals()
+{
+	gFiredSignals.reset(eBtn_None); // dummy signal, ignored
+	gFiredSignals.reset(eBtn_Num); // aka eSpecialKey_None, ignored
+
+	// Swap to temp bitset in case these cause any other signals to fire
+	// (they'll be processed next time this function is called)
+	const BitVector<256> lastFiredSignals(gFiredSignals);
+	gFiredSignals.reset();
+
+	if( lastFiredSignals.any() )
+	{
+		for(int i = 0, end = intSize(sState.signalCommands.size());
+			i < end; ++i)
+		{
+			ActiveSignal& aSignalCmd = sState.signalCommands[i];
+			DBG_ASSERT(aSignalCmd.signalID < lastFiredSignals.size());
+			if( lastFiredSignals.test(aSignalCmd.signalID) )
+				processCommand(null, aSignalCmd.cmd, aSignalCmd.layerID);
+		}
+	}
+}
+
+
 static void processLayerHoldButtons()
 {
 	int aLoopCount = 0;
@@ -1928,7 +1944,7 @@ static void processLayerHoldButtons()
 		}
 
 		// Update button commands for newly added layers
-		// (removed layers & HUD will be handled later in main update)
+		// (removed layers & menus will be handled later in main update)
 		if( aLayerWasAdded )
 		{
 			sortLayers();
@@ -1944,27 +1960,27 @@ static void processLayerHoldButtons()
 }
 
 
-static void updateHUDStateForCurrentLayers()
+static void updateMenusForCurrentLayers()
 {
-	BitVector<32> aPrevVisibleHUD = gVisibleHUD;
-	BitVector<32> aPrevDisabledHUD = gDisabledHUD;
-	gVisibleHUD.reset();
+	BitVector<32> aPrevVisibleOverlays = gVisibleOverlays;
+	BitVector<32> aPrevDisabledOverlays = gDisabledOverlays;
+	gVisibleOverlays.reset();
 	DBG_ASSERT(!sState.layersNeedSorting);
 	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
-		gVisibleHUD |=
-			InputMap::hudElementsToShow(sState.layerOrder[i]);
-		gVisibleHUD &=
-			~InputMap::hudElementsToHide(sState.layerOrder[i]);
+		gVisibleOverlays |=
+			InputMap::overlaysToShow(sState.layerOrder[i]);
+		gVisibleOverlays &=
+			~InputMap::overlaysToHide(sState.layerOrder[i]);
 	}
 
 	// Also check to see if any Menus should be shown as disabled because
 	// they don't have any commands assigned to them any more.
 	// Start by assuming all visible menus are disabled...
-	for(int i = 0, end = InputMap::hudElementCount(); i < end; ++i)
+	for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
 	{
-		if( InputMap::hudElementIsAMenu(i) && gVisibleHUD.test(i) )
-			gDisabledHUD.set(i);
+		if( gVisibleOverlays.test(i) )
+			gDisabledOverlays.set(i);
 	}
 
 	// Now re-enable any menus that have a command associated with them
@@ -1973,7 +1989,7 @@ static void updateHUDStateForCurrentLayers()
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
 		for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
 		{
-			int aHUDIdx = 0xFFFF;
+			int anOverlayIdx = 0xFFFF;
 			switch(aBtnState.commands.cmd[aBtnAct].type)
 			{
 			case eCmdType_MenuReset:
@@ -1984,14 +2000,14 @@ static void updateHUDStateForCurrentLayers()
 			case eCmdType_MenuSelect:
 			case eCmdType_MenuSelectAndClose:
 			case eCmdType_MenuEditDir:
-				aHUDIdx = InputMap::hudElementForMenu(
+				anOverlayIdx = InputMap::menuOverlayID(
 					aBtnState.commands.cmd[aBtnAct].menuID);
 				break;
 			default:
 				continue;
 			}
-			DBG_ASSERT(aHUDIdx < gDisabledHUD.size());
-			gDisabledHUD.reset(aHUDIdx);
+			DBG_ASSERT(anOverlayIdx < gDisabledOverlays.size());
+			gDisabledOverlays.reset(anOverlayIdx);
 		}
 	}
 
@@ -1999,23 +2015,21 @@ static void updateHUDStateForCurrentLayers()
 	// update cursor for them if they are set to control mouse cursor,
 	// and re-draw menus that changed disabled status to change if
 	// selected item is drawn differently or not
-	for(int i = gVisibleHUD.firstSetBit();
-		i < gVisibleHUD.size();
-		i = gVisibleHUD.nextSetBit(i+1))
+	for(int i = gVisibleOverlays.firstSetBit();
+		i < gVisibleOverlays.size();
+		i = gVisibleOverlays.nextSetBit(i+1))
 	{
-		if( !InputMap::hudElementIsAMenu(i) )
-			continue;
-		const int aMenuID = InputMap::menuForHUDElement(i);
-		const bool wasDisabled = aPrevDisabledHUD.test(i);
-		const bool isDisabled = gDisabledHUD.test(i);
+		const int aMenuID = InputMap::overlayRootMenuID(i);
+		const bool wasDisabled = aPrevDisabledOverlays.test(i);
+		const bool isDisabled = gDisabledOverlays.test(i);
 		if( wasDisabled != isDisabled )
-			gRefreshHUD.set(i);
-		if( sResults.menuHEAutoCommandRun.test(i) )
+			gRefreshOverlays.set(i);
+		if( sResults.menuStackAutoCommandRun.test(i) )
 			continue;
-		if( !aPrevVisibleHUD.test(i) || (wasDisabled && !isDisabled) )
+		if( !aPrevVisibleOverlays.test(i) || (wasDisabled && !isDisabled) )
 		{
 			processCommand(null, Menus::autoCommand(aMenuID), 0);
-			sResults.menuHEAutoCommandRun.set(i);
+			sResults.menuStackAutoCommandRun.set(i);
 			updateMouseForMenu(aMenuID);
 		}
 	}
@@ -2087,7 +2101,7 @@ void loadProfile()
 	addControlsLayer(0);
 	sState.layersNeedSorting = false;
 	loadCommandsForCurrentLayers();
-	updateHUDStateForCurrentLayers();
+	updateMenusForCurrentLayers();
 	updateMouseModeForCurrentLayers();
 }
 
@@ -2102,7 +2116,7 @@ void loadProfileChanges()
 		theProfileMap.containsPrefix("Layer.") )
 	{
 		loadCommandsForCurrentLayers();
-		updateHUDStateForCurrentLayers();
+		updateMenusForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();
 	}
 }
@@ -2127,6 +2141,9 @@ void cleanup()
 
 void update()
 {
+	// Respond to any signals sent by key binds etc last dispatch update
+	processFiredSignals();
+
 	// Buttons that 'hold' layers need to be checked first, in order to make
 	// sure that combinations enabled through layers like 'L2+X' work when
 	// both buttons are pressed at exactly the same time.
@@ -2153,21 +2170,8 @@ void update()
 			Gamepad::buttonAnalogVal(EButton(i)));
 	}
 
-	// Execute commands by active layers in response to fired signals
-	BitVector<256> aFiredSignals(gFiredSignals);
-	gFiredSignals.reset();
-	aFiredSignals.reset(eBtn_None); // dummy signal, ignored
-	if( aFiredSignals.any() )
-	{
-		for(int i = 0, end = intSize(sState.signalCommands.size());
-			i < end; ++i)
-		{
-			ActiveSignal& aSignalCmd = sState.signalCommands[i];
-			DBG_ASSERT(aSignalCmd.signalID < aFiredSignals.size());
-			if( aFiredSignals.test(aSignalCmd.signalID) )
-				processCommand(null, aSignalCmd.cmd, aSignalCmd.layerID);
-		}
-	}
+	// Responds to any signals caused by button presses
+	processFiredSignals();
 
 	// Process auto-button events for any newly-added/removed layers
 	// .changedLayers might increase in size during this loop
@@ -2274,7 +2278,7 @@ void update()
 	{
 		sortLayers();
 		loadCommandsForCurrentLayers();
-		updateHUDStateForCurrentLayers();
+		updateMenusForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();
 		#ifdef INPUT_TRANSLATOR_DEBUG_PRINT
 		std::string aNewLayerOrder("Layers: ");
@@ -2290,13 +2294,6 @@ void update()
 		transDebugPrint("%s", aNewLayerOrder.c_str());
 		#endif
 	}
-}
-
-
-bool isLayerActive(int theLayerID)
-{
-	DBG_ASSERT(size_t(theLayerID) < sState.layers.size());
-	return sState.layers[theLayerID].active();
 }
 
 #undef transDebugPrint

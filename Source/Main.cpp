@@ -13,7 +13,6 @@
 
 #include "Gamepad.h"
 #include "HotspotMap.h"
-#include "HUD.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
 #include "InputTranslator.h"
@@ -23,6 +22,7 @@
 #include "TargetApp.h"
 #include "TargetConfigSync.h"
 #include "WindowManager.h"
+#include "WindowPainter.h"
 
 #ifdef _DEBUG
 // Scan for memory leaks
@@ -127,7 +127,7 @@ void mainModulesUpdate()
 	InputTranslator::update();
 	InputDispatcher::update();
 	TargetApp::update();
-	HUD::update();
+	WindowPainter::update();
 	WindowManager::update();
 	TargetConfigSync::update();
 }
@@ -232,7 +232,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
 			TargetApp::loadProfile();
-			HUD::init();
+			WindowPainter::init();
 			WindowManager::createOverlays(hInstance);
 		}
 
@@ -260,7 +260,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 				InputTranslator::loadProfileChanges();
 				InputDispatcher::loadProfileChanges();
 				TargetApp::loadProfileChanges();
-				HUD::loadProfileChanges();
+				WindowPainter::loadProfileChanges();
 				WindowManager::loadProfileChanges();
 				Profile::clearChangedSections();
 			}
@@ -279,7 +279,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 
 		// Cleanup
 		TargetConfigSync::cleanup();
-		HUD::cleanup();
+		WindowPainter::cleanup();
 		Menus::cleanup();
 		InputDispatcher::cleanup();
 		InputTranslator::cleanup();

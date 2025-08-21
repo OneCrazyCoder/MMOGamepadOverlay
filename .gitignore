@@ -1,0 +1,12 @@
+*.user
+*.suo
+*.ncb
+*.sdf
+*.opensdf
+*.orig
+*.aps
+BuildTemp/*
+*.lnk
+*Thumbs.db
+*~
+*~.*

@@ -2160,7 +2160,7 @@ std::string getStr(
 	const std::string& thePropertyName,
 	const std::string& theDefaultValue)
 {
-	if( const PropertyMap* aSection = getSection(theSection) )
+	if( const PropertyMap* aSection = sSectionsMap.find(theSection) )
 	{
 		if( const Property* aProp = aSection->find(thePropertyName) )
 		{
@@ -2226,16 +2226,10 @@ std::string variableIDToName(int theVariableID)
 }
 
 
-const PropertyMap* getSection(const std::string& theSectionName)
-{
-	return sSectionsMap.find(theSectionName);
-}
-
-
 const PropertyMap& getSectionProperties(const std::string& theSectionName)
 {
 	static const PropertyMap kEmptyMap = PropertyMap();
-	if( const PropertyMap* aSection = getSection(theSectionName) )
+	if( const PropertyMap* aSection = sSectionsMap.find(theSectionName) )
 		return *aSection;
 	return kEmptyMap;
 }
@@ -2244,6 +2238,57 @@ const PropertyMap& getSectionProperties(const std::string& theSectionName)
 const SectionsMap& allSections()
 {
 	return sSectionsMap;
+}
+
+
+std::string getStr(
+	const PropertyMap& theSection,
+	const std::string& thePropertyName,
+	const std::string& theDefaultValue)
+{
+	if( const Property* aProp = theSection.find(thePropertyName) )
+	{
+		if( !aProp->str.empty() )
+			return aProp->str;
+	}
+
+	return theDefaultValue;
+}
+
+
+int getInt(
+	const PropertyMap& theSection,
+	const std::string& theName,
+	int theDefaultValue)
+{
+	const std::string& aStr = getStr(theSection, theName);
+	if( !aStr.empty() )
+		return intFromString(aStr);
+	return theDefaultValue;
+}
+
+
+bool getBool(
+	const PropertyMap& theSection,
+	const std::string& theName,
+	bool theDefaultValue)
+{
+	const std::string& aStr = getStr(theSection, theName);
+	if( !aStr.empty() )
+		return boolFromString(aStr);
+	return theDefaultValue;
+}
+
+
+double getFloat(
+	const PropertyMap& theSection,
+	const std::string& theName,
+	double theDefaultValue)
+{
+	const std::string& aStr = getStr(theSection, theName);
+	if( !aStr.empty() )
+		return doubleFromString(aStr);
+	return theDefaultValue;
 }
 
 

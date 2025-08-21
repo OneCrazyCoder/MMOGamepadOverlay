@@ -1502,7 +1502,7 @@ void showKnownIssues(HWND theParentWindow)
 }
 
 
-EResult editMenuCommand(std::string& theString, bool directional)
+EResult editMenuCommand(std::string& theString, bool allowInsert)
 {
 	const std::string anOriginalString = theString;
 
@@ -1517,8 +1517,8 @@ EResult editMenuCommand(std::string& theString, bool directional)
 	HWND hWnd = CreateDialogParam(
 		GetModuleHandle(NULL),
 		MAKEINTRESOURCE(
-			directional
-				? IDD_DIALOG_EDIT_DIR_CMD
+			allowInsert
+				? IDD_DIALOG_EDIT_MOVE_COMMAND
 				: IDD_DIALOG_EDIT_COMMAND),
 		NULL,
 		editMenuCommandProc,

@@ -5,20 +5,20 @@
 #pragma once
 
 /*
-	Creates and manages the app main window & transparent overlay windows.
-	Handles basic window functionality such as event processing (including the
-	paint events sent to the HUD module), positioning to match the target game
-	window, and alpha fading HUD overlay windows in and out when requested.
-	Also converts between different coordinate systems like window-relative to
-	virtual-desktop-relative for hotspots and mouse cursor positions.
+	Creates and manages the main app window and the transparent overlays.
+	Handles basic window functionality such as event dispatch, paint messaging
+	(to WindowPainter), and alpha fading of overlay windows in/out as needed.
 
-	Note that there is no single "Overlay Window" overlapping target game.
-	Instead, each HUD Element has its own small overlay window, managed by this
-	module, alongside the small (or invisible) normal app window just for
-	allowing the user to close this app (or to have it recognized by other
-	programs like Discord to make it think this is a game being played, in place
-	of older target clients like EverQuest that aren't recognized by Discord).
+	Also handles window sizing and positioning relative to the target game
+	window, and coordinate system conversions (e.g., window-relative to
+	virtual-desktop-relative for hotspots and mouse cursor positions).
+
+	Note: There is no single full-screen overlay. Instead, each (root) menu has
+	its own individual overlay window, along with the small (or hidden) app
+	window for user interaction, taskbar visibility, and compatibility with
+	tools like Discord that detect running applications.
 */
+
 
 #include "Common.h"
 
@@ -78,9 +78,9 @@ RECT overlayClipRect();
 void showTargetWindowFound();
 
 // Creates a floating toolbar window placed on top of the overlays
-// Can also specify a HUD element window to keep visible alognside it.
+// Can also specify a specific overlay window to keep visible alognside it.
 // Only one of these can be active at a time!
-HWND createToolbarWindow(int theResID, DLGPROC, int theHUDElementID = -1);
+HWND createToolbarWindow(int theResID, DLGPROC, int theOverlayID = -1);
 void destroyToolbarWindow();
 
 // Adds callback functions for drawing and getting messages for the System
@@ -91,20 +91,20 @@ void destroyToolbarWindow();
 typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
 void setSystemOverlayCallbacks(WNDPROC, SystemPaintFunc);
 
-// Gets overlay-window-relative/clamped mouse position
+// Gets overlay-relative/clamped mouse position
 POINT mouseToOverlayPos(bool clamped = true);
-// Converts a hotspot into overlay-window-relative position
+// Converts a hotspot into overlay-relative position
 POINT hotspotToOverlayPos(const Hotspot& theHotspot);
-// Converts overlay-window-relative position into a hotspot
+// Converts overlay-relative position into a hotspot
 Hotspot overlayPosToHotspot(POINT thePos);
-// Converts overlay-window-relative mouse position into a
+// Converts overlay-relative mouse position into a
 // virtual-desktop-relative 0-65535 normalized pos for SendInput
 POINT overlayPosToNormalizedMousePos(POINT theMousePos);
-// Converts above back to overlay-window-relative mouse position
+// Converts above back to overlay-relative mouse position
 POINT normalizedMouseToOverlayPos(POINT theSentMousePos);
 // Calculates center-point pos of a menu item as a hotspot
 Hotspot hotspotForMenuItem(int theMenuID, int theMenuItemIdx);
-// Returns overlay-window-relative RECT of given HUD element
-RECT hudElementRect(int theHUDElementID);
+// Returns overlay-relative RECT of given individual overlay (root menu)
+RECT overlayRect(int theMenuOverlayID);
 
 } // WindowManager

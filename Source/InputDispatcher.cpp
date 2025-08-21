@@ -542,14 +542,22 @@ static DispatchTracker sTracker;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static void fireSignal(u32 theSignalID)
+static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 {
-	gFiredSignals.set(theSignalID);
-	static const u32 kFirstSpecialKeySignal =
-		InputMap::keyBindSignalID(
-			InputMap::specialKeyToKeyBindID(
-				ESpecialKey(0)));
-	switch(theSignalID - kFirstSpecialKeySignal)
+	DBG_ASSERT(
+		theCommand.type == eCmdType_TriggerKeyBind ||
+		theCommand.hasKeybindSignal);
+	const int theKeyBindID = theCommand.keyBindID;
+
+	if( recurse )
+	{
+		const Command& aKeyBindCmd = InputMap::keyBindCommand(theKeyBindID);
+		if( aKeyBindCmd.type == eCmdType_TriggerKeyBind )
+			signalKeyBindUsed(aKeyBindCmd);
+	}
+
+	gFiredSignals.set(InputMap::keyBindSignalID(theKeyBindID));
+	switch(InputMap::keyBindIDToSpecialKey(theKeyBindID))
 	{
 	case eSpecialKey_AutoRun:
 		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
@@ -575,15 +583,22 @@ static void fireSignal(u32 theSignalID)
 		}
 		break;
 	}
-}
 
-
-static void fireKeyBindSignals(int theKeyBindID)
-{
-	fireSignal(InputMap::keyBindSignalID(theKeyBindID));
-	const Command& aCmd = InputMap::keyBindCommand(theKeyBindID);
-	if( aCmd.type == eCmdType_TriggerKeyBind )
-		fireKeyBindSignals(aCmd.keyBindID);
+	// Update the last-used key bind in any key bind cycles if
+	// use a key bind directly from outside the cycle
+	for(int i = 0, end = InputMap::keyBindCycleCount(); i < end; ++i)
+	{
+		if( theCommand.fromKeyBindCycle && theCommand.keyBindCycleID == i )
+			continue;
+		for(int j = 1, jend = InputMap::keyBindCycleSize(i); j < jend; ++j)
+		{
+			if( InputMap::keyBindCycleIndexToKeyBindID(i, j) == theKeyBindID )
+			{
+				gKeyBindCycleLastIndex[i] = j;
+				break;
+			}
+		}
+	}
 }
 
 
@@ -1660,7 +1675,7 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 				{// Already have another request to hold this key
 					++aKeyStatus.depth;
 					if( theCommand.hasKeybindSignal )
-						fireKeyBindSignals(theCommand.keyBindID);
+						signalKeyBindUsed(theCommand);
 					return true;
 				}
 				if( setKeyDown(aBaseVKey, true) == eResult_Ok )
@@ -1669,7 +1684,7 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 					aKeyStatus.pressed = true;
 					aKeyStatus.queued = 0;
 					if( theCommand.hasKeybindSignal )
-						fireKeyBindSignals(theCommand.keyBindID);
+						signalKeyBindUsed(theCommand);
 					return true;
 				}
 			}
@@ -1715,7 +1730,7 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 			if( tryQuickSendKeyCommand(
 					InputMap::keyBindCommand(theCommand.keyBindID)) )
 			{
-				fireSignal(InputMap::keyBindSignalID(theCommand.keyBindID));
+				signalKeyBindUsed(theCommand, false);
 				return true;
 			}
 		}
@@ -2118,11 +2133,13 @@ void update()
 			aCurrTask.queuedTime < (gAppRunTime - kConfig.maxTaskQueuedTime);
 
 		Command aCmd = aCurrTask.cmd;
-		while(aCmd.type == eCmdType_TriggerKeyBind)
+		if( aCmd.type == eCmdType_TriggerKeyBind )
 		{
 			if( !taskIsPastDue && sTracker.currTaskProgress == 0 )
-				fireSignal(InputMap::keyBindSignalID(aCmd.keyBindID));
-			aCmd = InputMap::keyBindCommand(aCmd.keyBindID);
+				signalKeyBindUsed(aCmd);
+			do {
+				aCmd = InputMap::keyBindCommand(aCmd.keyBindID);
+			} while(aCmd.type == eCmdType_TriggerKeyBind);
 		}
 		EResult aTaskResult = eResult_TaskCompleted;
 
@@ -2152,7 +2169,7 @@ void update()
 					aKeyStatus.pressed = false;
 				}
 				if( !taskIsPastDue && aCmd.hasKeybindSignal )
-					fireKeyBindSignals(aCmd.keyBindID);
+					signalKeyBindUsed(aCmd);
 			}
 			break;
 		case eCmdType_ReleaseKey:

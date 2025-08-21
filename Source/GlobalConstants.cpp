@@ -383,43 +383,66 @@ EMouseMode mouseModeNameToID(const std::string& theName)
 }
 
 
-EHUDType menuStyleNameToID(const std::string& theName)
+EMenuStyle menuStyleNameToID(const std::string& theName)
 {
 	struct NameToEnumMapper
 	{
-		typedef StringToValueMap<EHUDType, u8> NameToEnumMap;
+		typedef StringToValueMap<EMenuStyle, u8> NameToEnumMap;
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EHUDType val; } kEntries[] = {
-				{ "List",				eMenuStyle_List			},
-				{ "Basic",				eMenuStyle_List			},
-				{ "Default",			eMenuStyle_List			},
-				{ "Normal",				eMenuStyle_List			},
-				{ "Bar",				eMenuStyle_Bar			},
-				{ "Bars",				eMenuStyle_Bar			},
-				{ "Row",				eMenuStyle_Bar			},
-				{ "Rows",				eMenuStyle_Bar			},
-				{ "Hotbar",				eMenuStyle_Bar			},
-				{ "Grid",				eMenuStyle_Grid			},
-				{ "Hotspot",			eMenuStyle_Hotspots		},
-				{ "Hotspots",			eMenuStyle_Hotspots		},
-				{ "HotspotArray",		eMenuStyle_Hotspots		},
-				{ "Slot",				eMenuStyle_Slots		},
-				{ "Slots",				eMenuStyle_Slots		},
-				{ "Pillar",				eMenuStyle_Slots		},
-				{ "Pillars",			eMenuStyle_Slots		},
-				{ "Column",				eMenuStyle_Slots		},
-				{ "Columns",			eMenuStyle_Slots		},
-				{ "4-Dir",				eMenuStyle_4Dir			},
-				{ "Compass",			eMenuStyle_4Dir			},
-				{ "Cross",				eMenuStyle_4Dir			},
-				{ "DPad",				eMenuStyle_4Dir			},
-				{ "Dir",				eMenuStyle_4Dir			},
-				{ "Directions",			eMenuStyle_4Dir			},
-				{ "Directional",		eMenuStyle_4Dir			},
-				{ "Ring",				eMenuStlye_Ring			},
-				{ "Radial",				eMenuStyle_Radial		},
+			struct { const char* str; EMenuStyle val; } kEntries[] = {
+				{ "List",					eMenuStyle_List				},
+				{ "Basic",					eMenuStyle_List				},
+				{ "Default",				eMenuStyle_List				},
+				{ "Normal",					eMenuStyle_List				},
+				{ "Bar",					eMenuStyle_Bar				},
+				{ "Bars",					eMenuStyle_Bar				},
+				{ "Row",					eMenuStyle_Bar				},
+				{ "Rows",					eMenuStyle_Bar				},
+				{ "Hotbar",					eMenuStyle_Bar				},
+				{ "Grid",					eMenuStyle_Grid				},
+				{ "Hotspot",				eMenuStyle_Hotspots			},
+				{ "Hotspots",				eMenuStyle_Hotspots			},
+				{ "SelectHotspot",			eMenuStyle_SelectHotspot	},
+				{ "SelectHotspots",			eMenuStyle_SelectHotspot	},
+				{ "SelectedHotspot",		eMenuStyle_SelectHotspot	},
+				{ "SelectedHotspots",		eMenuStyle_SelectHotspot	},
+				{ "Highlight",				eMenuStyle_SelectHotspot	},
+				{ "Outline",				eMenuStyle_SelectHotspot	},
+				{ "BorderOnly",				eMenuStyle_SelectHotspot	},
+				{ "Slot",					eMenuStyle_Slots			},
+				{ "Slots",					eMenuStyle_Slots			},
+				{ "Pillar",					eMenuStyle_Slots			},
+				{ "Pillars",				eMenuStyle_Slots			},
+				{ "Column",					eMenuStyle_Slots			},
+				{ "Columns",				eMenuStyle_Slots			},
+				{ "4-Dir",					eMenuStyle_4Dir				},
+				{ "Compass",				eMenuStyle_4Dir				},
+				{ "Cross",					eMenuStyle_4Dir				},
+				{ "DPad",					eMenuStyle_4Dir				},
+				{ "Dir",					eMenuStyle_4Dir				},
+				{ "Directions",				eMenuStyle_4Dir				},
+				{ "Directional",			eMenuStyle_4Dir				},
+				{ "Ring",					eMenuStlye_Ring				},
+				{ "Radial",					eMenuStyle_Radial			},
+				{ "Visual",					eMenuStyle_Visual			},
+				{ "Graphic",				eMenuStyle_Visual			},
+				{ "HUD",					eMenuStyle_Visual			},
+				{ "Label",					eMenuStyle_Label			},
+				{ "Text",					eMenuStyle_Label			},
+				{ "String",					eMenuStyle_Label			},
+				{ "KeyBindCycleLast",		eMenuStyle_KBCycleLast		},
+				{ "KeyBindCycle",			eMenuStyle_KBCycleLast		},
+				{ "KBCycleLast",			eMenuStyle_KBCycleLast		},
+				{ "KBCycle",				eMenuStyle_KBCycleLast		},
+				{ "KeyBindCycleDefault",	eMenuStyle_KBCycleDefault	},
+				{ "KBCycleDefault",			eMenuStyle_KBCycleDefault	},
+				{ "KeyBindCycleFavorite",	eMenuStyle_KBCycleDefault	},
+				{ "KBCycleFavorite",		eMenuStyle_KBCycleDefault	},
+				{ "KeyBindCycleSaved",		eMenuStyle_KBCycleDefault	},
+				{ "KBCycleSaved",			eMenuStyle_KBCycleDefault	},
+				{ "",						eMenuStyle_Num				},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
@@ -428,61 +451,55 @@ EHUDType menuStyleNameToID(const std::string& theName)
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
-	EHUDType* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eHUDType_Num;
+	EMenuStyle* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eMenuStyle_Num;
 }
 
 
-EHUDType hudTypeNameToID(const std::string& theName)
+EMenuItemType menuItemTypeNameToID(const std::string& theName)
 {
 	struct NameToEnumMapper
 	{
-		typedef StringToValueMap<EHUDType, u8> NameToEnumMap;
+		typedef StringToValueMap<EMenuItemType, u8> NameToEnumMap;
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EHUDType val; } kEntries[] = {
-				{ "Rectangle",				eHUDItemType_Rect		},
-				{ "Rect",					eHUDItemType_Rect		},
-				{ "Block",					eHUDItemType_Rect		},
-				{ "Square",					eHUDItemType_Rect		},
-				{ "RndRect",				eHUDItemType_RndRect	},
-				{ "RoundRect",				eHUDItemType_RndRect	},
-				{ "RoundedRect",			eHUDItemType_RndRect	},
-				{ "RoundRectangle",			eHUDItemType_RndRect	},
-				{ "RoundedRectangle",		eHUDItemType_RndRect	},
-				{ "Bitmap",					eHUDItemType_Bitmap		},
-				{ "Image",					eHUDItemType_Bitmap		},
-				{ "Circle",					eHUDItemType_Circle		},
-				{ "Dot",					eHUDItemType_Circle		},
-				{ "Ellipse",				eHUDItemType_Circle		},
-				{ "ArrowL",					eHUDItemType_ArrowL		},
-				{ "LArrow",					eHUDItemType_ArrowL		},
-				{ "ArrowLeft",				eHUDItemType_ArrowL		},
-				{ "LeftArrow",				eHUDItemType_ArrowL		},
-				{ "ArrowR",					eHUDItemType_ArrowR		},
-				{ "RArrow",					eHUDItemType_ArrowR		},
-				{ "ArrowRight",				eHUDItemType_ArrowR		},
-				{ "RightArrow",				eHUDItemType_ArrowR		},
-				{ "ArrowU",					eHUDItemType_ArrowU		},
-				{ "UArrow",					eHUDItemType_ArrowU		},
-				{ "ArrowUp",				eHUDItemType_ArrowU		},
-				{ "UpArrow",				eHUDItemType_ArrowU		},
-				{ "ArrowD",					eHUDItemType_ArrowD		},
-				{ "DArrow",					eHUDItemType_ArrowD		},
-				{ "ArrowDown",				eHUDItemType_ArrowD		},
-				{ "DownArrow",				eHUDItemType_ArrowD		},
-				{ "Hotspot",				eHUDType_Hotspot		},
-				{ "KeyBindArrayLast",		eHUDType_KBArrayLast	},
-				{ "KeyBindArray",			eHUDType_KBArrayLast	},
-				{ "KBArrayLast",			eHUDType_KBArrayLast	},
-				{ "KBArray",				eHUDType_KBArrayLast	},
-				{ "KeyBindArrayDefault",	eHUDType_KBArrayDefault	},
-				{ "KBArrayDefault",			eHUDType_KBArrayDefault	},
-				{ "KeyBindArrayFavorite",	eHUDType_KBArrayDefault	},
-				{ "KBArrayFavorite",		eHUDType_KBArrayDefault	},
-				{ "KeyBindArraySaved",		eHUDType_KBArrayDefault	},
-				{ "KBArraySaved",			eHUDType_KBArrayDefault	},
+			struct { const char* str; EMenuItemType val; } kEntries[] = {
+				{ "",						eMenuItemType_Default	},
+				{ "Rectangle",				eMenuItemType_Rect		},
+				{ "Rect",					eMenuItemType_Rect		},
+				{ "Block",					eMenuItemType_Rect		},
+				{ "Square",					eMenuItemType_Rect		},
+				{ "RndRect",				eMenuItemType_RndRect	},
+				{ "RoundRect",				eMenuItemType_RndRect	},
+				{ "RoundedRect",			eMenuItemType_RndRect	},
+				{ "RoundRectangle",			eMenuItemType_RndRect	},
+				{ "RoundedRectangle",		eMenuItemType_RndRect	},
+				{ "Bitmap",					eMenuItemType_Bitmap	},
+				{ "Image",					eMenuItemType_Bitmap	},
+				{ "Circle",					eMenuItemType_Circle	},
+				{ "Dot",					eMenuItemType_Circle	},
+				{ "Ellipse",				eMenuItemType_Circle	},
+				{ "ArrowL",					eMenuItemType_ArrowL	},
+				{ "LArrow",					eMenuItemType_ArrowL	},
+				{ "ArrowLeft",				eMenuItemType_ArrowL	},
+				{ "LeftArrow",				eMenuItemType_ArrowL	},
+				{ "ArrowR",					eMenuItemType_ArrowR	},
+				{ "RArrow",					eMenuItemType_ArrowR	},
+				{ "ArrowRight",				eMenuItemType_ArrowR	},
+				{ "RightArrow",				eMenuItemType_ArrowR	},
+				{ "ArrowU",					eMenuItemType_ArrowU	},
+				{ "UArrow",					eMenuItemType_ArrowU	},
+				{ "ArrowUp",				eMenuItemType_ArrowU	},
+				{ "UpArrow",				eMenuItemType_ArrowU	},
+				{ "ArrowD",					eMenuItemType_ArrowD	},
+				{ "DArrow",					eMenuItemType_ArrowD	},
+				{ "ArrowDown",				eMenuItemType_ArrowD	},
+				{ "DownArrow",				eMenuItemType_ArrowD	},
+				{ "Text",					eMenuItemType_Label		},
+				{ "String",					eMenuItemType_Label		},
+				{ "Label",					eMenuItemType_Label		},
+				{ "Icon",					eMenuItemType_Label		},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(size_t i = 0; i < ARRAYSIZE(kEntries); ++i)
@@ -491,8 +508,8 @@ EHUDType hudTypeNameToID(const std::string& theName)
 	};
 	static NameToEnumMapper sNameToEnumMapper;
 
-	EHUDType* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eHUDType_Num;
+	EMenuItemType* result = sNameToEnumMapper.map.find(theName);
+	return result ? *result : eMenuItemType_Num;
 }
 
 
@@ -632,14 +649,14 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "Favorite",		eCmdWord_Default	},
 				{ "Saved",			eCmdWord_Default	},
 				{ "Default",		eCmdWord_Default	},
-				{ "Load",			eCmdWord_Load		},
-				{ "Recall",			eCmdWord_Load		},
 				{ "Save",			eCmdWord_Set		},
 				{ "Store",			eCmdWord_Set		},
 				{ "Set",			eCmdWord_Set		},
 				{ "Var",			eCmdWord_Variable	},
 				{ "Variable",		eCmdWord_Variable	},
 				{ "Last",			eCmdWord_Last		},
+				{ "Repeat",			eCmdWord_Repeat		},
+				{ "Repress",		eCmdWord_Repeat		},
 				{ "Change",			eCmdWord_Change		},
 				{ "Switch",			eCmdWord_Change		},
 				{ "Update",			eCmdWord_Change		},

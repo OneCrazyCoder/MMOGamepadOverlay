@@ -52,7 +52,7 @@ void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 EResult showLicenseAgreement(HWND theParentWindow = NULL);
 void showKnownIssues(HWND theParentWindow = NULL);
 
-EResult editMenuCommand(std::string& theString, bool directional = false);
+EResult editMenuCommand(std::string& theString, bool allowInsert);
 
 void showError(
 	HWND theParentWindow,

@@ -58,9 +58,9 @@ std::string breakOffNextItem(std::string& theString, char theChar = ',');
 // Supports SQL style for quote chars inside quoted strings ('' or "" or '"' or "'").
 std::string fetchNextItem(
 	const std::string& theString, size_t& thePosition, const char* theDelimiter);
-// If the string ends in a positive integer (but isn't entirely a number), returns
-// that integer and removes those chars (except leading 0's). Otherwise returns -1.
-int breakOffIntegerSuffix(std::string& theString);
+// If the string ends in a positive integer (and isn't entirely one if !allowJustInt),
+// returns that integer and removes those chars. Otherwise returns -1.
+int breakOffIntegerSuffix(std::string& theString, bool allowJustInt = false);
 // Breaks the string into individual sub-strings of ASCII alphanumeric characters,
 // and appends them to the passed-in vector of strings. All other characters are
 // stripped and act as separators for each "word" except for hyphenated or under-

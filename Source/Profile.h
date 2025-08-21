@@ -48,9 +48,13 @@ bool getBool(const std::string&, const std::string&, bool = false);
 double getFloat(const std::string&, const std::string&, double = 0);
 int variableNameToID(const std::string& theVarName); // -1 if not found
 std::string variableIDToName(int theVariableID);
-const PropertyMap* getSection(const std::string& theSectionName);
 const PropertyMap& getSectionProperties(const std::string& theSectionName);
 const SectionsMap& allSections();
+std::string getStr(// from section after getSectionProperties()
+	const PropertyMap&,const std::string&, const std::string& = "");
+int getInt(const PropertyMap&, const std::string&, int = 0);
+bool getBool(const PropertyMap&, const std::string&, bool = false);
+double getFloat(const PropertyMap&, const std::string&, double = 0);
 
 // Add or modify profile properties (does nothing if match prev value)
 // Any changed values are added to changedSections() as well.

@@ -493,14 +493,6 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Source\HUD.cpp"
-			>
-		</File>
-		<File
-			RelativePath=".\Source\HUD.h"
-			>
-		</File>
-		<File
 			RelativePath=".\Source\InputDispatcher.cpp"
 			>
 		</File>
@@ -618,6 +610,14 @@
 		</File>
 		<File
 			RelativePath=".\Resources\XInputStub\Win32\Release\xinput1_3.dll"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\WindowPainter.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\Source\WindowPainter.h"
 			>
 		</File>
 		<File

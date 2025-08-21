@@ -5,11 +5,11 @@
 #pragma once
 
 /*
-	Updates the MenuState of any active menus via InputTranslator, according
-	to the menu configuration set up by InputMap reading current Profile.
-	Each Menu has a Style which determines how the various menu-related
-	commands should be interpreted (as well as how the menu will be displayed
-	as a HUD element).
+	Tracks and updates the current state of all active menus based on input
+	from InputTranslator and configuration from InputMap/Profile.
+
+	Each menu has a Style that defines both its behavior (how menu-related
+	commands are interpreted) and its visual layout (used by WindowPainter).
 */
 
 #include "Common.h"
@@ -57,7 +57,8 @@ Command closeLastSubMenu(int theMenuID);
 // Resets menu to its default state (closes all sub-menus & resets selection),
 // but does NOT trigger this as "activating" the menu in terms of alpha fade.
 // Return value works like closeLastSubMenu (returns _Empty if did nothing).
-Command reset(int theMenuID, int toItemNo = 1);
+// If toItemNo > 0, selects that item (1-based index) instead of default.
+Command reset(int theMenuID, int toItemNo = 0);
 
 // Returns Auto command of menu's currently-active sub-menu
 Command autoCommand(int theMenuID);
@@ -75,8 +76,8 @@ void editMenuItem(int theMenuID);
 // Prompts user for new label & command for directional menu item in theDir
 void editMenuItemDir(int theMenuID, ECommandDir theDir);
 
-// Returns current active sub-menu of given root menu
-int activeSubMenu(int theMenuID);
+// Returns current active (displayed) menuID for given overlay (window) ID
+int activeMenuForOverlayID(int theOverlayID);
 
 // Returns selected item of currently-active sub-menu of given root menu
 int selectedItem(int theMenuID);

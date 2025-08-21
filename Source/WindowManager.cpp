@@ -5,13 +5,14 @@
 #include "WindowManager.h"
 
 #include "Dialogs.h"
-#include "HUD.h"
 #include "InputMap.h"
 #include "LayoutEditor.h"
+#include "Menus.h"
 #include "Profile.h"
 #include "Resources/resource.h"
 #include "TargetConfigSync.h"
 #include "TargetApp.h" // targetWindowHandle()
+#include "WindowPainter.h"
 
 // Forward declares of functions defined in Main.cpp for updating in modal mode
 void mainTimerUpdate();
@@ -63,7 +64,6 @@ struct ZERO_INIT(OverlayWindow)
 	POINT position;
 	SIZE size;
 	SIZE bitmapSize;
-	std::vector<RECT> components;
 	double fadeValue;
 	EFadeState fadeState;
 	u8 alpha;
@@ -133,7 +133,7 @@ static RECT sScreenTargetRect; // relative to main screen
 static RECT sTargetClipRect; // relative to sScreenTargetRect
 static SIZE sTargetSize = { 0 };
 static WNDPROC sSystemOverlayProc = NULL;
-static int sToolbarWindowHUDElementID = -1;
+static int sToolbarWindowOverlayID = -1;
 static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sMainWindowPosInit = false;
 static bool sUseChildWindows = false;
@@ -275,7 +275,7 @@ static LRESULT CALLBACK mainWindowProc(
 		break;
 
 	case WM_PAINT:
-		HUD::drawMainWindowContents(theWindow,
+		WindowPainter::paintMainWindowContents(theWindow,
 			sMainWindowDisabled || (GetActiveWindow() != theWindow));
 		break;
 
@@ -326,7 +326,7 @@ static LRESULT CALLBACK mainWindowProc(
 				sOverlayWindows[i].bitmap = NULL;
 			}
 		}
-		HUD::init();
+		WindowPainter::init();
 		break;
 	}
 
@@ -374,12 +374,12 @@ static INT_PTR CALLBACK toolbarWindowProc(
 static LRESULT CALLBACK overlayWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	const int aHUDElementID = dropTo<int>(
+	const int anOverlayID = dropTo<int>(
 		GetWindowLongPtr(theWindow, GWLP_USERDATA));
 	switch(theMessage)
 	{
 	case WM_PAINT:
-		gRefreshHUD.set(aHUDElementID);
+		gRefreshOverlays.set(anOverlayID);
 		break;
 	}
 
@@ -390,12 +390,12 @@ static LRESULT CALLBACK overlayWindowProc(
 static LRESULT CALLBACK systemOverlayWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	const int aHUDElementID = dropTo<int>(
+	const int anOverlayID = dropTo<int>(
 		GetWindowLongPtr(theWindow, GWLP_USERDATA));
 	switch(theMessage)
 	{
 	case WM_PAINT:
-		gRefreshHUD.set(aHUDElementID);
+		gRefreshOverlays.set(anOverlayID);
 		break;
 	case WM_MOUSEACTIVATE:
 		return MA_NOACTIVATE;
@@ -412,8 +412,8 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 {
 	EFadeState oldState;
 	u8 aNewAlpha = theWindow.alpha;
-	const u8 aMaxAlpha = HUD::maxAlpha(id);
-	const u8 anInactiveAlpha = HUD::inactiveAlpha(id);
+	const WindowPainter::MenuAlphaInfo& afi =
+		WindowPainter::getMenuAlphaInfo(Menus::activeMenuForOverlayID(id));
 	bool allowReCheck = true;
 	do
 	{
@@ -423,38 +423,38 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 		{
 		case eFadeState_Hidden:
 			aNewAlpha = 0;
-			if( gActiveHUD.test(id) )
+			if( gActiveOverlays.test(id) )
 			{
 				// Flash on briefly even if fade back out immediately
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
-				aNewAlpha = aMaxAlpha;
+				aNewAlpha = afi.maxAlpha;
 				allowReCheck = false;
 				break;
 			}
-			if( gVisibleHUD.test(id) )
+			if( gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadeInDelay;
 				theWindow.fadeValue = 0;
 			}
 			break;
 		case eFadeState_FadeInDelay:
-			if( gActiveHUD.test(id) )
+			if( gActiveOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
-				aNewAlpha = aMaxAlpha;
+				aNewAlpha = afi.maxAlpha;
 				allowReCheck = false;
 				break;
 			}
-			if( !gVisibleHUD.test(id) )
+			if( !gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_Hidden;
 				theWindow.fadeValue = 0;
 				break;
 			}
 			theWindow.fadeValue += gAppFrameTime;
-			if( theWindow.fadeValue >= HUD::alphaFadeInDelay(id) )
+			if( theWindow.fadeValue >= afi.fadeInDelay )
 			{
 				theWindow.fadeState = eFadeState_FadingIn;
 				theWindow.fadeValue = 0;
@@ -462,55 +462,54 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 			}
 			break;
 		case eFadeState_FadingIn:
-			theWindow.fadeValue += HUD::alphaFadeInRate(id) * gAppFrameTime;
-			aNewAlpha = u8(min(
-				theWindow.fadeValue, (double)aMaxAlpha));
-			if( gDisabledHUD.test(id) &&
-				anInactiveAlpha < aMaxAlpha &&
-				aNewAlpha >= anInactiveAlpha )
+			theWindow.fadeValue += afi.fadeInRate * gAppFrameTime;
+			aNewAlpha = u8(min(theWindow.fadeValue, double(afi.maxAlpha)));
+			if( gDisabledOverlays.test(id) &&
+				afi.inactiveAlpha < afi.maxAlpha &&
+				aNewAlpha >= afi.inactiveAlpha )
 			{
 				theWindow.fadeState = eFadeState_DisabledFadeOut;
-				if( oldFadeValue < anInactiveAlpha )
-					aNewAlpha = min(aNewAlpha, anInactiveAlpha);
+				if( oldFadeValue < afi.inactiveAlpha )
+					aNewAlpha = min(aNewAlpha, afi.inactiveAlpha);
 				break;
 			}
-			if( gActiveHUD.test(id) || aNewAlpha >= aMaxAlpha )
+			if( gActiveOverlays.test(id) || aNewAlpha >= afi.maxAlpha )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
 				break;
 			}
-			if( !gVisibleHUD.test(id) )
+			if( !gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingOut;
 				break;
 			}
 			break;
 		case eFadeState_MaxAlpha:
-			aNewAlpha = aMaxAlpha;
-			if( !gVisibleHUD.test(id) )
+			aNewAlpha = afi.maxAlpha;
+			if( !gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadeOutDelay;
 				theWindow.fadeValue = aNewAlpha;
 				break;
 			}
-			if( gActiveHUD.test(id) )
+			if( gActiveOverlays.test(id) )
 			{
 				theWindow.fadeValue = 0;
 				break;
 			}
-			if( gDisabledHUD.test(id) &&
-				anInactiveAlpha < aMaxAlpha )
+			if( gDisabledOverlays.test(id) &&
+				afi.inactiveAlpha < afi.maxAlpha )
 			{
 				theWindow.fadeState = eFadeState_DisabledFadeOut;
 				theWindow.fadeValue = aNewAlpha;
 				break;
 			}
-			if( HUD::inactiveFadeOutDelay(id) > 0 &&
-				anInactiveAlpha < aMaxAlpha )
+			if( afi.inactiveFadeOutDelay > 0 &&
+				afi.inactiveAlpha < afi.maxAlpha )
 			{
 				theWindow.fadeValue += gAppFrameTime;
-				if( theWindow.fadeValue >= HUD::inactiveFadeOutDelay(id) )
+				if( theWindow.fadeValue >= afi.inactiveFadeOutDelay )
 				{
 					theWindow.fadeState = eFadeState_InactiveFadeOut;
 					theWindow.fadeValue = aNewAlpha;
@@ -519,28 +518,28 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 			}
 			break;
 		case eFadeState_DisabledFadeOut:
-			if( !gDisabledHUD.test(id) && gVisibleHUD.test(id) )
+			if( !gDisabledOverlays.test(id) && gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingIn;
-				theWindow.fadeValue = max(anInactiveAlpha, aNewAlpha);
+				theWindow.fadeValue = max(afi.inactiveAlpha, aNewAlpha);
 				break;
 			}
 			// fall through
 		case eFadeState_InactiveFadeOut:
-			if( !gVisibleHUD.test(id) )
+			if( !gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingOut;
 				break;
 			}
-			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
-			aNewAlpha = u8(max<double>(theWindow.fadeValue, anInactiveAlpha));
-			if( gActiveHUD.test(id) )
+			theWindow.fadeValue -= afi.fadeOutRate * gAppFrameTime;
+			aNewAlpha = u8(max<double>(theWindow.fadeValue, afi.inactiveAlpha));
+			if( gActiveOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
 				break;
 			}
-			if( aNewAlpha <= anInactiveAlpha )
+			if( aNewAlpha <= afi.inactiveAlpha )
 			{
 				theWindow.fadeState = oldState == eFadeState_InactiveFadeOut
 					? eFadeState_Inactive : eFadeState_Disabled;
@@ -549,17 +548,16 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 			}
 			break;
 		case eFadeState_Disabled:
-			if( !gDisabledHUD.test(id) )
+			if( !gDisabledOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingIn;
-				theWindow.fadeValue = anInactiveAlpha;
+				theWindow.fadeValue = afi.inactiveAlpha;
 				break;
 			}
-			if( HUD::inactiveFadeOutDelay(id) > 0 &&
-				anInactiveAlpha < aMaxAlpha )
+			if( afi.fadeOutDelay > 0 && afi.inactiveAlpha < afi.maxAlpha )
 			{
 				theWindow.fadeValue += gAppFrameTime;
-				if( theWindow.fadeValue >= HUD::inactiveFadeOutDelay(id) )
+				if( theWindow.fadeValue >= afi.inactiveFadeOutDelay )
 				{
 					theWindow.fadeState = eFadeState_Inactive;
 					theWindow.fadeValue = 0;
@@ -568,14 +566,14 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 			}
 			// fall through
 		case eFadeState_Inactive:
-			aNewAlpha = anInactiveAlpha;
-			if( !gVisibleHUD.test(id) )
+			aNewAlpha = afi.inactiveAlpha;
+			if( !gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadeOutDelay;
 				theWindow.fadeValue = aNewAlpha;
 				break;
 			}
-			if( gActiveHUD.test(id) )
+			if( gActiveOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_MaxAlpha;
 				theWindow.fadeValue = 0;
@@ -583,14 +581,14 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 			}
 			break;
 		case eFadeState_FadeOutDelay:
-			if( gVisibleHUD.test(id) )
+			if( gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingIn;
 				theWindow.fadeValue = aNewAlpha;
 				break;
 			}
 			theWindow.fadeValue += gAppFrameTime;
-			if( theWindow.fadeValue >= HUD::alphaFadeOutDelay(id) )
+			if( theWindow.fadeValue >= afi.fadeOutDelay )
 			{
 				theWindow.fadeState = eFadeState_FadingOut;
 				theWindow.fadeValue = aNewAlpha;
@@ -598,7 +596,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 			}
 			break;
 		case eFadeState_FadingOut:
-			theWindow.fadeValue -= HUD::alphaFadeOutRate(id) * gAppFrameTime;
+			theWindow.fadeValue -= afi.fadeOutRate * gAppFrameTime;
 			aNewAlpha = u8(max(theWindow.fadeValue, 0.0));
 			if( aNewAlpha == 0 )
 			{
@@ -606,7 +604,7 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 				theWindow.fadeValue = 0;
 				break;
 			}
-			if( gVisibleHUD.test(id) )
+			if( gVisibleOverlays.test(id) )
 			{
 				theWindow.fadeState = eFadeState_FadingIn;
 				break;
@@ -619,11 +617,11 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 		}
 	} while(oldState != theWindow.fadeState && allowReCheck);
 
-	if( sToolbarWindowHUDElementID == id )
+	if( sToolbarWindowOverlayID == id )
 	{
 		theWindow.fadeState = eFadeState_MaxAlpha;
 		theWindow.fadeValue = 0;
-		aNewAlpha = aMaxAlpha;
+		aNewAlpha = afi.maxAlpha;
 	}
 
 	if( aNewAlpha != theWindow.alpha )
@@ -766,37 +764,39 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 	DBG_ASSERT(sOverlayWindows.empty());
 	DBG_ASSERT(sOverlayWindowOrder.empty());
 
-	// Create one transparent overlay window per HUD Element
-	sOverlayWindows.reserve(InputMap::hudElementCount());
-	sOverlayWindows.resize(InputMap::hudElementCount());
+	// Create one transparent overlay window per root menu
+	sOverlayWindows.reserve(InputMap::menuOverlayCount());
+	sOverlayWindows.resize(InputMap::menuOverlayCount());
 	sOverlayWindowOrder.reserve(sOverlayWindows.size());
 	sOverlayWindowOrder.resize(sOverlayWindows.size());
 	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
 		sOverlayWindowOrder[i].id = dropTo<u16>(i);
-		sOverlayWindowOrder[i].priority = dropTo<s16>(HUD::drawPriority(i));
+		const int aRootMenuID = InputMap::overlayRootMenuID(i);
+		sOverlayWindowOrder[i].priority = dropTo<s16>(
+			WindowPainter::drawPriority(aRootMenuID));
 	}
 	std::sort(sOverlayWindowOrder.begin(), sOverlayWindowOrder.end());
 	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const int aHUDElementID = sOverlayWindowOrder[i].id;
-		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+		const int anOverlayID = sOverlayWindowOrder[i].id;
+		const int aMenuID = InputMap::overlayRootMenuID(anOverlayID);
+		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
 		const bool isSystemOverlay =
-			InputMap::hudElementType(aHUDElementID) == eHUDType_System;
-		HUD::updateWindowLayout(aHUDElementID,
-			sTargetSize, aWindow.components,
-			aWindow.position, aWindow.size,
-			sTargetClipRect);
+			InputMap::menuStyle(aMenuID) == eMenuStyle_System;
+		WindowPainter::updateWindowLayout(
+			aMenuID, sTargetSize, sTargetClipRect,
+			aWindow.position, aWindow.size);
 		aWindow.layoutReady = true;
 		aWindow.windowReady = false;
-		gReshapeHUD.reset(aHUDElementID);
+		gReshapeOverlays.reset(anOverlayID);
 
 		aWindow.handle = CreateWindowExW(
 			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
 			WS_EX_TRANSPARENT | WS_EX_LAYERED,
 			isSystemOverlay
 				? kSystemOverlayWindowClassName : kOverlayWindowClassName,
-			widen(InputMap::hudElementKeyName(aHUDElementID)).c_str(),
+			widen(InputMap::menuLabel(aMenuID)).c_str(),
 			WS_POPUP | (sUseChildWindows ? WS_CHILD : 0),
 			aWindow.position.x,
 			aWindow.position.y,
@@ -805,7 +805,7 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 			sUseChildWindows ? sMainWindow : NULL,
 			NULL, theAppInstanceHandle, NULL);
 
-		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, aHUDElementID);
+		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, anOverlayID);
 		if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture &&
 			pSetWindowDisplayAffinity )
 		{
@@ -882,7 +882,7 @@ void loadProfileChanges()
 		gUIScale = aUIScale * gWindowUIScale;
 		if( gUIScale != oldUIScale )
 		{
-			HUD::updateScaling();
+			WindowPainter::updateScaling();
 			for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 				sOverlayWindows[i].layoutReady = false;
 		}
@@ -916,18 +916,19 @@ void update()
 	POINT anOriginPoint = { 0, 0 };
 	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const int aHUDElementID = sOverlayWindowOrder[i].id;
-		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+		const int anOverlayID = sOverlayWindowOrder[i].id;
+		const int aMenuID = Menus::activeMenuForOverlayID(anOverlayID);
+		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
 
 		// Check for flag that need to update layout
-		if( gReshapeHUD.test(aHUDElementID) )
+		if( gReshapeOverlays.test(anOverlayID) )
 		{
 			aWindow.layoutReady = false;
-			gReshapeHUD.reset(aHUDElementID);
+			gReshapeOverlays.reset(anOverlayID);
 		}
 
-		// Update alpha fade effects based on gVisibleHUD & gActiveHUD
-		updateAlphaFades(aWindow, aHUDElementID);
+		// Update alpha fade effects based on gVisibleOverlay & gActiveOverlay
+		updateAlphaFades(aWindow, anOverlayID);
 
 		// Check visibility status so can mostly ignore hidden windows
 		if( sHidden || aWindow.alpha == 0 ||
@@ -936,9 +937,9 @@ void update()
 		{
 			if( IsWindowVisible(aWindow.handle) )
 				ShowWindow(aWindow.handle, SW_HIDE);
-			gActiveHUD.reset(aHUDElementID);
+			gActiveOverlays.reset(anOverlayID);
 			if( aWindow.bitmap &&
-				InputMap::hudElementType(aHUDElementID) == eHUDType_System )
+				InputMap::menuStyle(anOverlayID) == eMenuStyle_System )
 			{// Large bitmap that's rarely needed, so free it from memory
 				DeleteObject(aWindow.bitmap);
 				aWindow.bitmap = null;
@@ -949,10 +950,10 @@ void update()
 		// Check for possible update to window layout
 		if( !aWindow.layoutReady )
 		{
-			HUD::updateWindowLayout(aHUDElementID, sTargetSize,
-				aWindow.components, aWindow.position,
-				aWindow.size, sTargetClipRect);
-			aWindow.layoutReady = true;
+			WindowPainter::updateWindowLayout(
+				aMenuID, sTargetSize, sTargetClipRect,
+				aWindow.position, aWindow.size);
+				aWindow.layoutReady = true;
 			aWindow.windowReady = false;
 		}
 
@@ -970,14 +971,14 @@ void update()
 		{
 			aWindow.size.cx = aWindow.size.cy = 0;
 			ShowWindow(aWindow.handle, SW_HIDE);
-			gActiveHUD.reset(aHUDElementID);
+			gActiveOverlays.reset(anOverlayID);
 			continue;
 		}
 
 		// Create bitmap if doesn't exist
 		if( !aWindow.bitmap )
 		{
-			gFullRedrawHUD.set(aHUDElementID);
+			gFullRedrawOverlays.set(anOverlayID);
 			aWindow.bitmapSize = aWindow.size;
 			aWindow.bitmap = CreateCompatibleBitmap(
 				aScreenDC, aWindow.size.cx, aWindow.size.cy);
@@ -997,16 +998,15 @@ void update()
 			continue;
 		}
 		SelectObject(aWindowDC, aWindow.bitmap);
-		if( gRefreshHUD.test(aHUDElementID) ||
-			gFullRedrawHUD.test(aHUDElementID) )
+		if( gRefreshOverlays.test(anOverlayID) ||
+			gFullRedrawOverlays.test(anOverlayID) )
 		{
-			HUD::drawElement(
+			WindowPainter::paintWindowContents(
 				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
-				aHUDElementID, aWindow.components,
-				gFullRedrawHUD.test(aHUDElementID));
+				aMenuID, gFullRedrawOverlays.test(anOverlayID));
 			aWindow.windowReady = false;
-			gRefreshHUD.reset(aHUDElementID);
-			gFullRedrawHUD.reset(aHUDElementID);
+			gRefreshOverlays.reset(anOverlayID);
+			gFullRedrawOverlays.reset(anOverlayID);
 		}
 
 		// Update window
@@ -1019,11 +1019,11 @@ void update()
 			UpdateLayeredWindow(aWindow.handle, aScreenDC,
 				&aWindowScreenPos, &aWindow.size,
 				aWindowDC, &anOriginPoint,
-				HUD::transColor(aHUDElementID),
+				WindowPainter::transColor(aMenuID),
 				&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
 			aWindow.windowReady = true;
 		}
-		gActiveHUD.reset(aHUDElementID);
+		gActiveOverlays.reset(anOverlayID);
 
 		// Show window if it isn't visible yet
 		if( !IsWindowVisible(aWindow.handle) )
@@ -1048,8 +1048,8 @@ void prepareForDialog()
 	sInDialogMode = true;
 	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const int aHUDElementID = sOverlayWindowOrder[i].id;
-		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+		const int anOverlayID = sOverlayWindowOrder[i].id;
+		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
 
 		if( IsWindowVisible(aWindow.handle) )
 			ShowWindow(aWindow.handle, SW_HIDE);
@@ -1184,7 +1184,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		if( aUIScale <= 0 ) aUIScale = 1.0;
 		gUIScale = aUIScale * gWindowUIScale;
 		if( gUIScale != oldUIScale )
-			HUD::updateScaling();
+			WindowPainter::updateScaling();
 	}
 
 	// Flag all overlay windows to update position & size accordingly
@@ -1219,8 +1219,8 @@ void setOverlaysToTopZ()
 {
 	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		const int aHUDElementID = sOverlayWindowOrder[i].id;
-		OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
+		const int anOverlayID = sOverlayWindowOrder[i].id;
+		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
 
 		DBG_ASSERT(aWindow.handle);
 		SetWindowPos(
@@ -1258,11 +1258,11 @@ RECT overlayClipRect()
 
 void showTargetWindowFound()
 {
-	HUD::flashSystemWindowBorder();
+	WindowPainter::flashSystemOverlayBorder();
 }
 
 
-HWND createToolbarWindow(int theResID, DLGPROC theProc, int theHUDElementID)
+HWND createToolbarWindow(int theResID, DLGPROC theProc, int theOverlayID)
 {
 	destroyToolbarWindow();
 	sToolbarDialogProc = theProc;
@@ -1270,7 +1270,7 @@ HWND createToolbarWindow(int theResID, DLGPROC theProc, int theHUDElementID)
 		GetModuleHandle(NULL),
 		MAKEINTRESOURCE(theResID),
 		NULL, toolbarWindowProc, 0);
-	sToolbarWindowHUDElementID = theHUDElementID;
+	sToolbarWindowOverlayID = theOverlayID;
 	setMainWindowEnabled(false);
 	return sToolbarWindow;
 }
@@ -1283,13 +1283,13 @@ void destroyToolbarWindow()
 	DestroyWindow(sToolbarWindow);
 	sToolbarWindow = NULL;
 	sToolbarDialogProc = NULL;
-	sToolbarWindowHUDElementID = -1;
+	sToolbarWindowOverlayID = -1;
 }
 
 
 void setSystemOverlayCallbacks(WNDPROC theProc, SystemPaintFunc thePaintFunc)
 {
-	HUD::setSystemOverlayDrawHook(thePaintFunc);
+	WindowPainter::setSystemOverlayDrawHook(thePaintFunc);
 	if( sSystemOverlayWindow && theProc != sSystemOverlayProc )
 	{
 		sSystemOverlayProc = theProc;
@@ -1394,33 +1394,33 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 
 Hotspot hotspotForMenuItem(int theMenuID, int theMenuItemIdx)
 {
-	const int aHUDElementID = InputMap::hudElementForMenu(theMenuID);
-	OverlayWindow& aWindow = sOverlayWindows[aHUDElementID];
-
 	switch(InputMap::menuStyle(theMenuID))
 	{
 	case eMenuStyle_Slots:
 		// Only ever allow pointing at the top component (selected item)
 		theMenuItemIdx = 0;
 		break;
+	case eMenuStyle_Hotspots:
+	case eMenuStyle_SelectHotspot:
+		// Directly use the hotspot associated with the menu item already
+		return InputMap::getHotspot(
+			InputMap::menuItemHotspotID(theMenuID, theMenuItemIdx));
 	}
 
+	return Hotspot();
+
+	const int anOverlayID = InputMap::menuOverlayID(theMenuID);
+	OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
+	const std::vector<RECT>& aMenuComponents =
+		WindowPainter::menuLayoutComponents(theMenuID, sTargetSize, sTargetClipRect);
 	const size_t aCompIndex =
-		min<size_t>(aWindow.components.size()-1, theMenuItemIdx + 1);
-	if( !aWindow.layoutReady || gReshapeHUD.test(aHUDElementID) )
-	{
-		HUD::updateWindowLayout(aHUDElementID, sTargetSize,
-			aWindow.components, aWindow.position,
-			aWindow.size, sTargetClipRect);
-		aWindow.layoutReady = true;
-		aWindow.windowReady = false;
-		gReshapeHUD.reset(aHUDElementID);
-	}
+		min<size_t>(aMenuComponents.size()-1, theMenuItemIdx + 1);
+	DBG_ASSERT(aCompIndex < aMenuComponents.size());
 	POINT aPos;
-	aPos.x = aWindow.components[aCompIndex].left;
-	aPos.y = aWindow.components[aCompIndex].top;
-	aPos.x += aWindow.components[aCompIndex].right;
-	aPos.y += aWindow.components[aCompIndex].bottom;
+	aPos.x = aMenuComponents[aCompIndex].left;
+	aPos.y = aMenuComponents[aCompIndex].top;
+	aPos.x += aMenuComponents[aCompIndex].right;
+	aPos.y += aMenuComponents[aCompIndex].bottom;
 	aPos.x /= 2;
 	aPos.y /= 2;
 	aPos.x += aWindow.position.x;
@@ -1430,17 +1430,18 @@ Hotspot hotspotForMenuItem(int theMenuID, int theMenuItemIdx)
 }
 
 
-RECT hudElementRect(int theHUDElementID)
+RECT overlayRect(int theMenuOverlayID)
 {
-	OverlayWindow& aWindow = sOverlayWindows[theHUDElementID];
-	if( !aWindow.layoutReady || gReshapeHUD.test(theHUDElementID) )
+	OverlayWindow& aWindow = sOverlayWindows[theMenuOverlayID];
+	if( !aWindow.layoutReady || gReshapeOverlays.test(theMenuOverlayID) )
 	{
-		HUD::updateWindowLayout(theHUDElementID, sTargetSize,
-			aWindow.components, aWindow.position,
-			aWindow.size, sTargetClipRect);
+		const int aMenuID = Menus::activeMenuForOverlayID(theMenuOverlayID);
+		WindowPainter::updateWindowLayout(
+			aMenuID, sTargetSize, sTargetClipRect,
+			aWindow.position, aWindow.size);
 		aWindow.layoutReady = true;
 		aWindow.windowReady = false;
-		gReshapeHUD.reset(theHUDElementID);
+		gReshapeOverlays.reset(theMenuOverlayID);
 	}
 
 	RECT result;

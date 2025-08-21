@@ -5,12 +5,7 @@
 #include "TargetConfigSync.h"
 
 #include "Dialogs.h"
-#include "HotspotMap.h"
-#include "HUD.h"
-#include "InputMap.h"
-#include "Lookup.h"
 #include "Profile.h"
-#include "WindowManager.h"
 
 #include <winioctl.h> // FSCTL_REQUEST_FILTER_OPLOCK
 
