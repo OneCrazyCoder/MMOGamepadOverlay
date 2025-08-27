@@ -33,18 +33,18 @@ void update();
 // Refreshes cached drawing data related to target window size
 void updateScaling();
 
-// Draws given menu to given Device Context (bitmap), starting at 0,0
+// Draws given overlay to given Device Context (bitmap), starting at 0,0
 void paintWindowContents(
 	HDC hdc,
 	HDC hCaptureDC,
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
-	int theMenuID,
+	int theOverlayID,
 	bool needsInitialErase);
 
-// Updates layout properties needed for a menu's overlay window
+// Updates layout properties needed for an overlay (menu) window
 void updateWindowLayout(
-	int theMenuID,
+	int theOverlayID,
 	const SIZE& theTargetSize,
 	const RECT& theTargetClipRect,
 	POINT& theWindowPos,
@@ -63,26 +63,20 @@ void setSystemOverlayDrawHook(SystemPaintFunc);
 void redrawSystemOverlay(bool fullRedraw = false);
 
 // Get alpha fade in/out information
-struct MenuAlphaInfo
+struct WindowAlphaInfo
 {
 	double fadeInRate, fadeOutRate;
 	int fadeInDelay, fadeOutDelay, inactiveFadeOutDelay;
 	u8 maxAlpha, inactiveAlpha;
 };
-MenuAlphaInfo getMenuAlphaInfo(int theMenuID);
+const WindowAlphaInfo& alphaInfo(int theOverlayID);
 
-const std::vector<RECT>& menuLayoutComponents(
-	int theMenuID,
-	const SIZE& theTargetSize,
-	const RECT& theTargetClipRect);
+const std::vector<RECT>& windowLayoutRects(int theOverlayID);
 
 // Returns background color to become fully transparent
-COLORREF transColor(int theMenuID);
+COLORREF transColor(int theOverlayID);
 
-// Returns draw priority (which are on top of which)
-int drawPriority(int theMenuID);
-
-// Returns associated parent hotspot if have one
-Hotspot parentHotspot(int theMenuID);
+// Returns draw priority (which overlays are on top of which)
+int drawPriority(int theOverlayID);
 
 } // WindowPainter

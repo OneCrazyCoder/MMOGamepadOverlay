@@ -147,7 +147,6 @@ struct ZERO_INIT(LabelIcon)
 struct ZERO_INIT(MenuPosition)
 {
 	Hotspot base;
-	u16 parentHotspotID;
 	u16 parentKBCycleID;
 	s8 drawPriority;
 
@@ -171,14 +170,12 @@ struct ZERO_INIT(MenuLayout)
 	{ return std::memcmp(this, &rhs, sizeof(MenuLayout)) == 0; }
 };
 
-typedef std::vector<RECT> MenuLayoutRects;
-
 struct ZERO_INIT(MenuAppearance)
 {
 	EMenuItemType itemType;
 	COLORREF transColor;
 	COLORREF titleColor;
-	u32 flashMaxTime;
+	u16 flashMaxTime;
 	u16 fontID;
 	u8 radius;
 	u8 scaledRadius;
@@ -249,6 +246,7 @@ struct MenuCacheEntry
 
 struct OverlayPaintState
 {
+	std::vector<RECT> rects;
 	int flashStartTime;
 	u16 selection;
 	u16 flashing;
@@ -277,15 +275,12 @@ struct ZERO_INIT(DrawData)
 {
 	HDC hdc;
 	HDC hCaptureDC;
-	const std::vector<RECT>& components;
 	POINT captureOffset;
 	SIZE targetSize;
 	int overlayID;
+	int menuID;
 	EMenuItemDrawState itemDrawState;
 	bool firstDraw;
-
-	DrawData(const std::vector<RECT>& theComponents)
-		: components(theComponents) {}
 };
 
 //struct HUDBuilder
@@ -312,10 +307,9 @@ static std::vector<BitmapIcon> sBitmapIcons;
 static StringToValueMap<LabelIcon> sLabelIcons;
 static std::vector<MenuPosition> sMenuPositions;
 static std::vector<MenuLayout> sMenuLayouts;
-static std::vector<MenuLayoutRects> sMenuLayoutRects;
 static std::vector<MenuAppearance> sMenuAppearances;
+static std::vector<WindowAlphaInfo> sMenuAlphaInfo;
 static std::vector<MenuItemAppearance> sMenuItemAppearances;
-static std::vector<MenuAlphaInfo> sMenuAlphaInfo;
 static std::vector<OverlayPaintState> sOverlayPaintStates;
 static std::vector<MenuCacheEntry> sMenuDrawCache;
 static std::vector<ResizedFontInfo> sAutoSizedFonts;
@@ -331,11 +325,52 @@ static int sSystemBorderFlashTimer = 0;
 static int sCopyRectUpdateRate = 100;
 static int sAutoRefreshCopyRectTime = 0;
 
-#if 0
-
 //-----------------------------------------------------------------------------
 // Local Functions
 //-----------------------------------------------------------------------------
+
+static MenuPosition& getMenuPosition(int theMenuID)
+{
+	// TEMP
+	static MenuPosition dummy;
+	return dummy;
+}
+
+
+static MenuLayout& getMenuLayout(int theMenuID)
+{
+	// TEMP
+	static MenuLayout dummy;
+	return dummy;
+}
+
+
+static MenuAppearance& getMenuAppearance(int theMenuID)
+{
+	// TEMP
+	static MenuAppearance dummy;
+	return dummy;
+}
+
+
+static WindowAlphaInfo& getMenuAlphaInfo(int theMenuID)
+{
+	// TEMP
+	static WindowAlphaInfo dummy;
+	return dummy;
+}
+
+
+static MenuItemAppearance& getMenuItemAppearance(
+	int theMenuID, EMenuItemDrawState theDrawState)
+{
+	// TEMP
+	static MenuItemAppearance dummy;
+	return dummy;
+}
+
+
+#if 0
 
 static std::string getNamedHUDPropStr(
 	const std::string& theName,
@@ -2027,7 +2062,6 @@ void init()
 	sBitmapIcons.resize(1);
 	sMenuPositions.resize(1);
 	sMenuLayouts.resize(1);
-	sMenuLayoutRects.resize(1);
 	sMenuAppearances.resize(1);
 	sMenuAlphaInfo.resize(1);
 	sMenuItemAppearances.resize(eMenuItemDrawState_Num);
@@ -2051,7 +2085,6 @@ void init()
 	}
 
 	// Add data from base [Appearance] section for default look
-	// (use the full profile data set, not just theProfileMap)
 	const Profile::PropertyMap& aDefaultProps =
 		Profile::getSectionProperties(kMenuDefaultSectionName);
 	//fetchMenuLayoutProperties(aDefaultProps, sMenuLayouts[0]);
@@ -2061,7 +2094,7 @@ void init()
 	//	fetchItemAppearanceProperties(aDefaultProps,
 	//		sMenuItemAppearances[i], EMenuItemDrawState(i));
 	//}
-	sMenuAlphaInfo[0] = MenuAlphaInfo();
+	sMenuAlphaInfo[0] = WindowAlphaInfo();
 	sMenuAlphaInfo[0].fadeInRate = sMenuAlphaInfo[0].fadeOutRate = 255;
 	sMenuAlphaInfo[0].maxAlpha = sMenuAlphaInfo[0].inactiveAlpha = 255;
 	//fetchAlphaFadeProperties(aDefaultProps, sMenuAlphaInfo[0]);
@@ -2087,7 +2120,7 @@ void init()
 		DBG_ASSERT(InputMap::menuOverlayID(kHotspotGuideMenuID) ==
 			kHotspotGuideOverlayID);
 		MenuCacheEntry& theHSGuideMenu = sMenuDrawCache[kHotspotGuideMenuID];
-		MenuAlphaInfo anAlphaInfo = sMenuAlphaInfo[0];
+		WindowAlphaInfo anAlphaInfo = sMenuAlphaInfo[0];
 		anAlphaInfo.maxAlpha = u8(clamp(Profile::getInt(
 			aDefaultProps, "HotspotGuideAlpha", 0), 0, 255));
 		anAlphaInfo.inactiveFadeOutDelay = max(0, Profile::getInt(
@@ -2121,6 +2154,10 @@ void loadProfileChanges()
 {
 	// TODO - invalidate (mark dirty) cache entries that might have changed
 	// Just run init() if change kMenuDefaultSectionName section
+	// Make sure to inform WindowManager if any layout or position properties
+	// changed so it can re-do updateWindowLayout(), as well as account for any
+	// other changes that might affect WindowManager like sudden change in alpha
+	// setting, transparency color, etc (perhaps in its own version of this func?)
 
 	sCopyRectUpdateRate =
 		Profile::getInt("System", "CopyRectFrameTime", sCopyRectUpdateRate);
@@ -2160,7 +2197,6 @@ void cleanup()
 	sLabelIcons.clear();
 	sMenuPositions.clear();
 	sMenuLayouts.clear();
-	sMenuLayoutRects.clear();
 	sMenuAppearances.clear();
 	sMenuItemAppearances.clear();
 	sMenuAlphaInfo.clear();
@@ -2181,11 +2217,7 @@ void cleanup()
 
 void update()
 {
-#if 0
-	// Handle display of error messages and other notices via _System HUD
-	DBG_ASSERT(sSystemHUDElementID < sHUDElementInfo.size());
-	DBG_ASSERT(sHUDElementInfo[sSystemHUDElementID].type == eHUDType_System);
-
+	// Handle display of error messages and other notices via _System menu
 	if( sErrorMessageTimer > 0 )
 	{
 		sErrorMessageTimer -= gAppFrameTime;
@@ -2193,7 +2225,7 @@ void update()
 		{
 			sErrorMessageTimer = 0;
 			sErrorMessage.clear();
-			gFullRedrawHUD.set(sSystemHUDElementID);
+			gFullRedrawOverlays.set(kSystemOverlayID);
 		}
 	}
 	else if( !gErrorString.empty() && !hadFatalError() )
@@ -2207,7 +2239,7 @@ void update()
 			int(kNoticeStringDisplayTimePerChar *
 				sErrorMessage.size()));
 		gErrorString.clear();
-		gFullRedrawHUD.set(sSystemHUDElementID);
+		gFullRedrawOverlays.set(kSystemOverlayID);
 	}
 
 	if( sNoticeMessageTimer > 0 )
@@ -2217,7 +2249,7 @@ void update()
 		{
 			sNoticeMessageTimer = 0;
 			sNoticeMessage.clear();
-			gFullRedrawHUD.set(sSystemHUDElementID);
+			gFullRedrawOverlays.set(kSystemOverlayID);
 		}
 	}
 	if( !gNoticeString.empty() )
@@ -2228,7 +2260,7 @@ void update()
 			int(kNoticeStringDisplayTimePerChar *
 				sNoticeMessage.size()));
 		gNoticeString.clear();
-		gFullRedrawHUD.set(sSystemHUDElementID);
+		gFullRedrawOverlays.set(kSystemOverlayID);
 	}
 
 	bool showSystemBorder = false;
@@ -2236,85 +2268,79 @@ void update()
 		sErrorMessage.empty() && sNoticeMessage.empty() )
 	{
 		showSystemBorder =
-			((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0;
+			((sSystemBorderFlashTimer / kSystemOverlayFlashFreq) & 0x01) != 0;
 		sSystemBorderFlashTimer = max(0, sSystemBorderFlashTimer - gAppFrameTime);
-		if( gVisibleHUD.test(sSystemHUDElementID) != showSystemBorder )
-			gRefreshHUD.set(sSystemHUDElementID);
+		if( gVisibleOverlays.test(kSystemOverlayID) != showSystemBorder )
+			gRefreshOverlays.set(kSystemOverlayID);
 	}
 
 	#ifdef DEBUG_DRAW_TOTAL_OVERLAY_FRAME
 		showSystemBorder = true;
 	#endif
 
-	gVisibleHUD.set(sSystemHUDElementID,
+	gVisibleOverlays.set(kSystemOverlayID,
 		!sNoticeMessage.empty() ||
 		!sErrorMessage.empty() ||
 		sSystemOverlayPaintFunc ||
 		showSystemBorder);
 
-	if( gVisibleHUD.test(sSystemHUDElementID) )
-		gActiveHUD.set(sSystemHUDElementID);
+	if( gVisibleOverlays.test(kSystemOverlayID) )
+		gActiveOverlays.set(kSystemOverlayID);
 
 	// Check for updates to other HUD elements
-	for(u16 i = 0; i < sHUDElementInfo.size(); ++i)
+	for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
 	{
-		HUDElementInfo& hi = sHUDElementInfo[i];
-		switch(hi.type)
+		const int aMenuID = Menus::activeMenuForOverlayID(i);
+		switch(InputMap::menuStyle(aMenuID))
 		{
-		case eHUDType_KBCycleLast:
-			TODO: Make it so if gKeyBindCycleLastIndex < 0 (use default next) that
-			keep selection in last position and make this HUD element fade out to
-			invisible even if it is set to still be visible in profile scheme
-			if( gKeyBindCycleLastIndexChanged.test(hi.kbArrayID) )
-			{
-				gActiveHUD.set(i);
-				gReshapeHUD.set(i);
-				hi.selection = gKeyBindCycleLastIndex[hi.kbArrayID];
-			}
+		case eMenuStyle_KBCycleLast:
+			if( gKeyBindCycleLastIndexChanged.test(
+					InputMap::menuKeyBindCycleID(aMenuID)) )
+			{ gReshapeOverlays.set(i); }
 			break;
-		case eHUDType_KBCycleDefault:
-			if( gKeyBindCycleDefaultIndexChanged.test(hi.kbArrayID) )
-			{
-				gActiveHUD.set(i);
-				gReshapeHUD.set(i);
-				hi.selection = gKeyBindCycleDefaultIndex[hi.kbArrayID];
-			}
+		case eMenuStyle_KBCycleDefault:
+			if( gKeyBindCycleLastIndexChanged.test(
+					InputMap::menuKeyBindCycleID(aMenuID)) )
+			{ gReshapeOverlays.set(i); }
 			break;
 		}
 
 		// Update flash effect on confirmed menu item
+		OverlayPaintState& aPaintState = sOverlayPaintStates[i];
+		const MenuAppearance& aMenuApp = getMenuAppearance(aMenuID);
 		if( gConfirmedMenuItem[i] != kInvalidID )
 		{
-			if( hi.flashMaxTime )
+			if( aMenuApp.flashMaxTime )
 			{
-				hi.flashing = gConfirmedMenuItem[i];
-				hi.flashStartTime = gAppRunTime;
-				gRefreshHUD.set(i);
+				aPaintState.flashing = gConfirmedMenuItem[i];
+				aPaintState.flashStartTime = gAppRunTime;
+				gRefreshOverlays.set(i);
 			}
 			gConfirmedMenuItem[i] = kInvalidID;
 		}
-		else if( hi.flashing != kInvalidID &&
-				 (gAppRunTime - hi.flashStartTime) > hi.flashMaxTime )
+		else if( aPaintState.flashing != kInvalidID &&
+				 (gAppRunTime - aPaintState.flashStartTime)
+					> aMenuApp.flashMaxTime )
 		{
-			hi.flashing = kInvalidID;
-			gRefreshHUD.set(i);
+			aPaintState.flashing = kInvalidID;
+			gRefreshOverlays.set(i);
 		}
 	}
 
 	switch(gHotspotsGuideMode)
 	{
 	case eHotspotGuideMode_Disabled:
-		gVisibleHUD.reset(sHotspotGuideHUDElementID);
+		gVisibleOverlays.reset(kHotspotGuideOverlayID);
 		break;
 	case eHotspotGuideMode_Redraw:
-		gRefreshHUD.set(sHotspotGuideHUDElementID);
+		gRefreshOverlays.set(kHotspotGuideOverlayID);
 		// fall through
 	case eHotspotGuideMode_Redisplay:
-		gActiveHUD.set(sHotspotGuideHUDElementID);
+		gActiveOverlays.set(kHotspotGuideOverlayID);
 		gHotspotsGuideMode = eHotspotGuideMode_Showing;
 		// fall through
 	case eHotspotGuideMode_Showing:
-		gVisibleHUD.set(sHotspotGuideHUDElementID);
+		gVisibleOverlays.set(kHotspotGuideOverlayID);
 		break;
 	}
 
@@ -2332,37 +2358,31 @@ void update()
 			itr != sAutoRefreshCopyRectQueue.end(); itr = next_itr)
 		{
 			++next_itr;
+			DBG_ASSERT(size_t(itr->overlayID) < sOverlayPaintStates.size());
+			OverlayPaintState& aPaintState =
+				sOverlayPaintStates[itr->overlayID];
 			// Make sure this item is still valid
-			u16 aMaxItemID = 0;
-			DBG_ASSERT(itr->hudElementID < sHUDElementInfo.size());
-			HUDElementInfo& hi = sHUDElementInfo[itr->hudElementID];
-			const bool isAMenu =
-				hi.type >= eMenuStyle_Begin && hi.type < eMenuStyle_End;
-			if( isAMenu )
-			{
-				aMaxItemID = Menus::itemCount(
-					InputMap::menuForHUDElement(itr->hudElementID)) - 1;
-			}
+			const int aMaxItemID = InputMap::menuItemCount(
+				Menus::activeMenuForOverlayID(itr->overlayID));
 			if( itr->itemIdx > aMaxItemID )
 			{// Invalid item ID, can't refresh, just remove it from queue
 				next_itr = sAutoRefreshCopyRectQueue.erase(itr);
 				continue;
 			}
-			// If hi.forcedRedrawItemID is already set as a valid entry, it's
+			// If .forcedRedrawItemID is already set as a valid entry, it's
 			// still waiting for it to refresh (might be currently hidden), so
-			// don't count any of this HUD Element's items as valid until then
-			if( hi.forcedRedrawItemID <= aMaxItemID )
+			// don't count any of this menu's items as valid until then
+			if( aPaintState.forcedRedrawItemID <= aMaxItemID )
 			{
-				gRefreshHUD.set(itr->hudElementID);
+				gRefreshOverlays.set(itr->overlayID);
 				continue;
 			}
 			// Only first valid item found actually refreshes, and only once
 			// have waited at least one time since found valid items
 			if( validItemCount++ == 0 && sAutoRefreshCopyRectTime > 0 )
 			{
-				gRefreshHUD.set(itr->hudElementID);
-				sHUDElementInfo[itr->hudElementID].
-					forcedRedrawItemID = itr->itemIdx;
+				gRefreshOverlays.set(itr->overlayID);
+				aPaintState.forcedRedrawItemID = itr->itemIdx;
 				// Still need to continue to count valid items for refresh
 				// timing, but this one no longer need be in the queue
 				next_itr = sAutoRefreshCopyRectQueue.erase(itr);
@@ -2379,64 +2399,55 @@ void update()
 
 	gKeyBindCycleLastIndexChanged.reset();
 	gKeyBindCycleDefaultIndexChanged.reset();
-#endif
 }
 
 
 void updateScaling()
 {
-#if 0
-	if( sHUDElementInfo.empty() )
+	if( sMenuDrawCache.empty() )
 		return;
 
-	// Reset menu item cache entries
-	for(size_t i = 0; i < sMenuDrawCache.size(); ++i)
-	{
-		for(size_t j = 0; j < sMenuDrawCache[i].size(); ++j)
-			sMenuDrawCache[i][j] = MenuDrawCacheEntry();
-	}
-
 	// Clear fonts and border pens
-	sResizedFontsMap.clear();
-	for(size_t i = 0; i < sFonts.size(); ++i)
-		DeleteObject(sFonts[i]);
-	for(size_t i = 0; i < sPens.size(); ++i)
-		DeleteObject(sPens[i]);
-	sFonts.clear();
+	for(int i = 0, end = intSize(sAutoSizedFonts.size()); i < end; ++i)
+		DeleteObject(sAutoSizedFonts[i].handle);
+	for(int i = 0, end = intSize(sPens.size()); i < end; ++i)
+		DeleteObject(sPens[i].handle);
+	sAutoSizedFonts.clear();
 	sPens.clear();
 
-	// Generate fonts, border pens, etc based on current gUIScale values
-	HUDBuilder aHUDBuilder;
-	for(u16 aHUDElementID = 0;
-		aHUDElementID < sHUDElementInfo.size();
-		++aHUDElementID)
+	// Clear label cache data for each menu as labels are affect by scale
+	for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
+		sMenuDrawCache[i].labelCache.clear();
+
+	// Update scaled Radius for each Menu Appearance
+	for(int i = 0, end = intSize(sMenuAppearances.size()); i < end; ++i)
 	{
-		HUDElementInfo& hi = sHUDElementInfo[aHUDElementID];
-		if( hi.type == eHUDType_System || hi.type == eHUDType_HotspotGuide )
-			continue;
-		const std::string& aHUDName =
-			InputMap::hudElementKeyName(aHUDElementID);
-		hi.fontID = getOrCreateFontID(aHUDBuilder,
-			getHUDPropStr(aHUDName, eHUDProp_FontName),
-			getHUDPropStr(aHUDName, eHUDProp_FontSize),
-			getHUDPropStr(aHUDName, eHUDProp_FontWeight));
-		hi.scaledRadius = hi.radius * gUIScale;
+		MenuAppearance& aMenuApp = sMenuAppearances[i];
+		aMenuApp.scaledRadius = dropTo<u8>(
+			aMenuApp.radius * gUIScale);
 	}
-	for(u16 anAppearanceID = 0;
-		anAppearanceID < sAppearances.size();
-		++anAppearanceID)
+
+	// Recreate base font handle for each base menu font
+	for(int i = 0, end = intSize(sFonts.size()); i < end; ++i)
 	{
-		Appearance& appearance = sAppearances[anAppearanceID];
-		appearance.borderSize = 0;
-		if( appearance.baseBorderSize > 0 )
+		DeleteObject(sFonts[i].handle);
+		//createBaseFontHandle(sFonts[i]);
+	}
+
+	// Update border pen for each Menu Item Appearance
+	for(int i = 0, end = intSize(sMenuItemAppearances.size()); i < end; ++i)
+	{
+		MenuItemAppearance& aMenuItemApp = sMenuItemAppearances[i];
+		aMenuItemApp.borderSize = 0;
+		if( aMenuItemApp.baseBorderSize > 0 )
 		{
-			appearance.borderSize =
-				max(1.0, appearance.baseBorderSize * gUIScale);
+			aMenuItemApp.borderSize = dropTo<u8>(max(1.0,
+				aMenuItemApp.baseBorderSize * gUIScale));
 		}
-		appearance.borderPenID = getOrCreatePenID(aHUDBuilder,
-			appearance.borderColor, appearance.borderSize);
+		//aMenuItemApp.borderPen = getBorderPenHandle(
+		//	aMenuItemApp.borderSize,
+		//	aMenuItemApp.borderColor);
 	}
-#endif
 }
 
 
@@ -2445,30 +2456,37 @@ void paintWindowContents(
 	HDC hCaptureDC,
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
-	int theMenuID,
+	int theOverlayID,
 	bool needsInitialErase)
 {
-#if 0
-	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
+	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
+	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
+	OverlayPaintState& ps = sOverlayPaintStates[theOverlayID];
+	DBG_ASSERT(size_t(theMenuID) < sMenuDrawCache.size());
+	MenuCacheEntry& mce = sMenuDrawCache[theMenuID];
 
-	DBG_ASSERT(!theComponents.empty());
-	HUDDrawData aDrawData(theComponents);
-	aDrawData.hdc = hdc;
-	aDrawData.hCaptureDC = hCaptureDC;
-	aDrawData.captureOffset = theCaptureOffset;
-	aDrawData.targetSize = theTargetSize;
-	aDrawData.hudElementID = theHUDElementID;
-	aDrawData.appearanceMode = eAppearanceMode_Normal;
-	aDrawData.firstDraw = needsInitialErase;
+	DrawData dd;
+	dd.hdc = hdc;
+	dd.hCaptureDC = hCaptureDC;
+	dd.menuID = theMenuID;
+	dd.overlayID = theOverlayID;
+	dd.captureOffset = theCaptureOffset;
+	dd.targetSize = theTargetSize;
+	dd.itemDrawState = eMenuItemDrawState_Normal;
+	dd.firstDraw = needsInitialErase;
+
+	DBG_ASSERT(size_t(mce.layoutID) < sMenuLayouts.size());
+	const EMenuStyle aMenuStyle = sMenuLayouts[mce.layoutID].style;
+	DBG_ASSERT(!ps.rects.empty());
 	if( !sBitmapDrawSrc )
-		sBitmapDrawSrc = CreateCompatibleDC(hdc);
+		sBitmapDrawSrc = CreateCompatibleDC(dd.hdc);
 	if( !sClipRegion )
 		sClipRegion = CreateRectRgn(0, 0, 0, 0);
 
 	// Select the transparent color (erase) brush by default first
-	SelectObject(hdc, GetStockObject(DC_BRUSH));
-	SetDCBrushColor(hdc, hi.transColor);
+	DBG_ASSERT(size_t(mce.appearanceID) < sMenuAppearances.size());
+	SelectObject(dd.hdc, GetStockObject(DC_BRUSH));
+	SetDCBrushColor(dd.hdc, sMenuAppearances[mce.appearanceID].transColor);
 
 	#ifdef _DEBUG
 		COLORREF aFrameColor = RGB(0, 0, 0);
@@ -2476,17 +2494,18 @@ void paintWindowContents(
 			aFrameColor = RGB(0, 0, 200);
 		#endif
 	#ifdef DEBUG_DRAW_TOTAL_OVERLAY_FRAME
-		if( hi.type == eHUDType_System )
+		if( aMenuStyle == eMenuStyle_System )
 			aFrameColor = RGB(255, 0, 0);
 	#endif
 	if( aFrameColor != RGB(0, 0, 0) && needsInitialErase )
 	{
 		HPEN hFramePen = CreatePen(PS_INSIDEFRAME, 3, aFrameColor);
 
-		HPEN hOldPen = (HPEN)SelectObject(hdc, hFramePen);
-		Rectangle(hdc, theComponents[0].left, theComponents[0].top,
-			theComponents[0].right, theComponents[0].bottom);
-		SelectObject(hdc, hOldPen);
+		HPEN hOldPen = (HPEN)SelectObject(dd.hdc, hFramePen);
+		Rectangle(hdc,
+			ps.rects[0].left, ps.rects[0].top,
+			ps.rects[0].right, ps.rects[0].bottom);
+		SelectObject(dd.hdc, hOldPen);
 
 		DeleteObject(hFramePen);
 
@@ -2495,37 +2514,33 @@ void paintWindowContents(
 	}
 	#endif // _DEBUG
 
-	if( needsInitialErase )
-		eraseRect(aDrawData, theComponents[0]);
+	//if( needsInitialErase )
+	//	eraseRect(dd, ps.rects[0]);
 
-	const EHUDType aHUDType = sHUDElementInfo[theHUDElementID].type;
-	switch(aHUDType)
+	switch(aMenuStyle)
 	{
 	case eMenuStyle_List:
 	case eMenuStyle_Bar:
-	case eMenuStyle_Grid:
-	case eMenuStyle_Hotspots:		drawBasicMenu(aDrawData);	break;
-	case eMenuStyle_Slots:			drawSlotsMenu(aDrawData);	break;
-	case eMenuStyle_4Dir:			draw4DirMenu(aDrawData);	break;
-	case eMenuStlye_Ring:			/* TODO */					break;
-	case eMenuStyle_Radial:			/* TODO */					break;
-	case eHUDType_Hotspot:
-	case eHUDType_KBCycleLast:
-	case eHUDType_KBCycleDefault:	drawBasicHUD(aDrawData);	break;
-	case eHUDType_HotspotGuide:		drawHSGuide(aDrawData);		break;
-	case eHUDType_System:			drawSystemHUD(aDrawData);	break;
-	default:
-		if( aHUDType >= eHUDItemType_Begin && aHUDType < eHUDItemType_End )
-			drawHUDItem(aDrawData, aDrawData.components[0]);
-		else
-			DBG_ASSERT(false && "Invaild HUD/Menu Type/Style!");
+	case eMenuStyle_Grid:			/*drawBasicMenu(dd);*/	break;
+	case eMenuStyle_Slots:			/*drawSlotsMenu(dd);*/	break;
+	case eMenuStyle_4Dir:			/*draw4DirMenu(dd);*/	break;
+	case eMenuStlye_Ring:			/* TODO */				break;
+	case eMenuStyle_Radial:			/* TODO */				break;
+	case eMenuStyle_Hotspots:		/*drawBasicMenu(dd);*/	break;
+	case eMenuStyle_SelectHotspot:	/* TODO */				break;
+	case eMenuStyle_Visual:
+	case eMenuStyle_Label:
+	case eMenuStyle_KBCycleLast:
+	case eMenuStyle_KBCycleDefault:	/*drawBasicHUD(dd);*/	break;
+	case eMenuStyle_HotspotGuide:	/*drawHSGuide(dd);*/	break;
+	case eMenuStyle_System:			/*drawSystemHUD(dd);*/	break;
+	default:						DBG_ASSERT(false && "Invaild Menu Style");
 	}
-#endif
 }
 
 
 void updateWindowLayout(
-	int theMenuID,
+	int theOverlayID,
 	const SIZE& theTargetSize,
 	const RECT& theTargetClipRect,
 	POINT& theWindowPos,
@@ -2627,6 +2642,16 @@ void updateWindowLayout(
 	double aWinScalingPosX = hi.position.x.offset;
 	double aWinScalingPosY = hi.position.y.offset;
 
+	// TODO: change this to directly use key bind cycle data
+	case eHUDType_KBCycleLast:
+	case eHUDType_KBCycleDefault:
+		if( const Hotspot* aHotspot =
+				InputMap::KeyBindCycleHotspot(hi.kbArrayID, ???) )
+		{
+			result = *aHotspot;
+		}
+		break;
+
 	// Offset by parent hotspot, if have one
 	const Hotspot& aHotspot = parentHotspot(theHUDElementID);
 	aWinBasePosX += hotspotAnchorValue(aHotspot.x, theTargetSize.cx);
@@ -2694,7 +2719,7 @@ void updateWindowLayout(
 	theWindowSize.cx = aWinClippedRect.right - aWinClippedRect.left;
 	theWindowSize.cy = aWinClippedRect.bottom - aWinClippedRect.top;
 
-	// Calculate component rect's based on menu type
+	// Calculate component rects based on menu type
 	theComponents.clear();
 	POINT aCompTopLeft =
 		{ aWinPosX - theWindowPos.x, aWinPosY - theWindowPos.y };
@@ -2900,135 +2925,58 @@ void paintMainWindowContents(HWND theWindow, bool asDisabled)
 
 void flashSystemOverlayBorder()
 {
-	//sSystemBorderFlashTimer = kSystemHUDFlashTime;
+	sSystemBorderFlashTimer = kSystemOverlayFlashTime;
 }
 
 
 void setSystemOverlayDrawHook(SystemPaintFunc theFunc)
 {
-	//sSystemOverlayPaintFunc = theFunc;
-	//if( sSystemHUDElementID < gFullRedrawHUD.size() )
-	//	gFullRedrawHUD.set(sSystemHUDElementID);
+	sSystemOverlayPaintFunc = theFunc;
+	if( kSystemOverlayID < gFullRedrawOverlays.size() )
+		gFullRedrawOverlays.set(kSystemOverlayID);
 }
 
 
 void redrawSystemOverlay(bool fullRedraw)
 {
-	//if( fullRedraw )
-	//{
-	//	if( sSystemHUDElementID < gFullRedrawHUD.size() )
-	//		gFullRedrawHUD.set(sSystemHUDElementID);
-	//}
-	//else
-	//{
-	//	if( sSystemHUDElementID < gRefreshHUD.size() )
-	//		gRefreshHUD.set(sSystemHUDElementID);
-	//}
-}
-
-
-MenuAlphaInfo getMenuAlphaInfo(int theMenuID)
-{
-	//u8 maxAlpha(int theHUDElementID)
-	//{
-	//	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//	return sHUDElementInfo[theHUDElementID].maxAlpha;
-	//}
-	//
-	//
-	//u8 inactiveAlpha(int theHUDElementID)
-	//{
-	//	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//	return sHUDElementInfo[theHUDElementID].inactiveAlpha;
-	//}
-	//
-	//
-	//int alphaFadeInDelay(int theHUDElementID)
-	//{
-	//	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//	return sHUDElementInfo[theHUDElementID].fadeInDelay;
-	//}
-	//
-	//
-	//double alphaFadeInRate(int theHUDElementID)
-	//{
-	//	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//	return sHUDElementInfo[theHUDElementID].fadeInRate;
-	//}
-	//
-	//
-	//int alphaFadeOutDelay(int theHUDElementID)
-	//{
-	//	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//	return sHUDElementInfo[theHUDElementID].fadeOutDelay;
-	//}
-	//
-	//
-	//double alphaFadeOutRate(int theHUDElementID)
-	//{
-	//	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//	return sHUDElementInfo[theHUDElementID].fadeOutRate;
-	//}
-	//
-	//
-	//int inactiveFadeOutDelay(int theHUDElementID)
-	//{
-	//	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//	return sHUDElementInfo[theHUDElementID].delayUntilInactive;
-	//}
-	return MenuAlphaInfo();
-}
-
-
-const std::vector<RECT>& menuLayoutComponents(
-	int theMenuID,
-	const SIZE& theTargetSize,
-	const RECT& theTargetClipRect)
-{
-	static std::vector<RECT> aDummyResult;
-	return aDummyResult;
-}
-
-
-COLORREF transColor(int theMenuID)
-{
-	//DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//return sHUDElementInfo[theHUDElementID].transColor;
-	return COLORREF();
-}
-
-
-int drawPriority(int theMenuID)
-{
-	//DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	//return sHUDElementInfo[theHUDElementID].drawPriority;
-	return 0;
-}
-
-
-Hotspot parentHotspot(int theMenuID)
-{
-	Hotspot result;
-#if 0
-	DBG_ASSERT(size_t(theHUDElementID) < sHUDElementInfo.size());
-	const HUDElementInfo& hi = sHUDElementInfo[theHUDElementID];
-
-	switch(hi.type)
+	if( fullRedraw )
 	{
-	case eHUDType_Hotspot: // TODO - merge with eMenuStyle_Visual if hotspotID > 0
-		result = InputMap::getHotspot(hi.hotspotID);
-		break;
-	case eHUDType_KBCycleLast:
-	case eHUDType_KBCycleDefault:
-		if( const Hotspot* aHotspot =
-				InputMap::KeyBindCycleHotspot(hi.kbArrayID, hi.selection) )
-		{
-			result = *aHotspot;
-		}
-		break;
+		if( kSystemOverlayID < gFullRedrawOverlays.size() )
+			gFullRedrawOverlays.set(kSystemOverlayID);
 	}
-#endif
-	return result;
+	else
+	{
+		if( kSystemOverlayID < gRefreshOverlays.size() )
+			gRefreshOverlays.set(kSystemOverlayID);
+	}
+}
+
+
+const WindowAlphaInfo& alphaInfo(int theOverlayID)
+{
+	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
+	return getMenuAlphaInfo(theMenuID);
+}
+
+
+const std::vector<RECT>& windowLayoutRects(int theOverlayID)
+{
+	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
+	return sOverlayPaintStates[theOverlayID].rects;
+}
+
+
+COLORREF transColor(int theOverlayID)
+{
+	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
+	return getMenuAppearance(theMenuID).transColor;
+}
+
+
+int drawPriority(int theOverlayID)
+{
+	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
+	return getMenuPosition(theMenuID).drawPriority;
 }
 
 } // WindowPainter

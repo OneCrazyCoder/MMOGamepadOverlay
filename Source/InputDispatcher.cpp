@@ -2812,7 +2812,7 @@ void moveMouseTo(const Command& theCommand)
 	case eCmdType_MoveMouseToMenuItem:
 		gHotspotsGuideMode = eHotspotGuideMode_Disabled;
 		aDestHotspot = WindowManager::hotspotForMenuItem(
-			theCommand.menuID, theCommand.menuItemID);
+			theCommand.rootMenuID, theCommand.menuItemID);
 		break;
 	case eCmdType_MoveMouseToOffset:
 		aDestHotspot =

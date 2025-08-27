@@ -199,7 +199,7 @@ struct TranslatorState
 	std::vector<u16> layerOrder;
 	std::vector<ActiveSignal> signalCommands;
 	ButtonState* exclusiveAutoRepeatButton;
-	int mouseControllingMenu;
+	int mouseControllingRootMenu;
 	int layersAddedCount;
 	int exclusiveAutoRepeatDelay;
 	int syncAutoRepeatDelay;
@@ -218,7 +218,7 @@ struct TranslatorState
 		layers.clear();
 		layerOrder.clear();
 		signalCommands.clear();
-		mouseControllingMenu = -1;
+		mouseControllingRootMenu = -1;
 		layersAddedCount = 0;
 		exclusiveAutoRepeatButton = null;
 		exclusiveAutoRepeatDelay = 0;
@@ -1073,14 +1073,14 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 }
 
 
-static void updateMouseForMenu(int theMenuID, bool andClick = false)
+static void updateMouseForMenu(int theRootMenuID, bool andClick = false)
 {
-	if( andClick || theMenuID == sState.mouseControllingMenu )
+	if( andClick || theRootMenuID == sState.mouseControllingRootMenu )
 	{
 		Command aMoveCmd;
 		aMoveCmd.type = eCmdType_MoveMouseToMenuItem;
-		aMoveCmd.menuID = dropTo<u16>(theMenuID);
-		aMoveCmd.menuItemID = dropTo<u16>(Menus::selectedItem(theMenuID));
+		aMoveCmd.rootMenuID = dropTo<u16>(theRootMenuID);
+		aMoveCmd.menuItemID = dropTo<u16>(Menus::selectedItem(theRootMenuID));
 		aMoveCmd.andClick = andClick;
 		InputDispatcher::moveMouseTo(aMoveCmd);
 		HotspotMap::update();
@@ -1290,38 +1290,38 @@ static void processCommand(
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_OpenSubMenu:
-		aForwardCmd = Menus::openSubMenu(theCmd.menuID, theCmd.subMenuID);
+		aForwardCmd = Menus::openSubMenu(theCmd.rootMenuID, theCmd.subMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		sResults.menuStackAutoCommandRun.set(
-			InputMap::menuOverlayID(theCmd.menuID));
-		updateMouseForMenu(theCmd.menuID);
+			InputMap::menuOverlayID(theCmd.rootMenuID));
+		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_SwapMenu:
 		aForwardCmd = Menus::swapMenu(
-			theCmd.menuID, theCmd.subMenuID, ECommandDir(theCmd.swapDir));
+			theCmd.rootMenuID, theCmd.subMenuID, ECommandDir(theCmd.swapDir));
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		sResults.menuStackAutoCommandRun.set(
-			InputMap::menuOverlayID(theCmd.menuID));
-		updateMouseForMenu(theCmd.menuID);
+			InputMap::menuOverlayID(theCmd.rootMenuID));
+		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuReset:
-		aForwardCmd = Menus::reset(theCmd.menuID, theCmd.menuItemID);
+		aForwardCmd = Menus::reset(theCmd.rootMenuID, theCmd.menuItemID);
 		if( aForwardCmd.type != eCmdType_Invalid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			sResults.menuStackAutoCommandRun.set(
-				InputMap::menuOverlayID(theCmd.menuID));
+				InputMap::menuOverlayID(theCmd.rootMenuID));
 		}
-		updateMouseForMenu(theCmd.menuID);
+		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuConfirm:
-		updateMouseForMenu(theCmd.menuID, theCmd.andClick);
-		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
+		updateMouseForMenu(theCmd.rootMenuID, theCmd.andClick);
+		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuConfirmAndClose:
-		updateMouseForMenu(theCmd.menuID, theCmd.andClick);
-		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.menuID);
+		updateMouseForMenu(theCmd.rootMenuID, theCmd.andClick);
+		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
 		if( aForwardCmd.type >= eCmdType_FirstValid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
@@ -1330,37 +1330,37 @@ static void processCommand(
 				aForwardCmd.type > eCmdType_LastMenuControl )
 			{
 				processCommand(theBtnState,
-					Menus::closeCommand(theCmd.menuID), theLayerIdx);
+					Menus::closeCommand(theCmd.rootMenuID), theLayerIdx);
 			}
 		}
 		break;
 	case eCmdType_MenuBack:
 		processCommand(theBtnState,
-			Menus::backCommand(theCmd.menuID), theLayerIdx);
-		aForwardCmd = Menus::closeLastSubMenu(theCmd.menuID);
+			Menus::backCommand(theCmd.rootMenuID), theLayerIdx);
+		aForwardCmd = Menus::closeLastSubMenu(theCmd.rootMenuID);
 		if( aForwardCmd.type != eCmdType_Invalid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			updateMouseForMenu(theCmd.menuID);
+			updateMouseForMenu(theCmd.rootMenuID);
 		}
 		break;
 	case eCmdType_MenuClose:
 		processCommand(theBtnState,
-			Menus::closeCommand(theCmd.menuID), theLayerIdx);
+			Menus::closeCommand(theCmd.rootMenuID), theLayerIdx);
 		break;
 	case eCmdType_MenuEdit:
-		Menus::editMenuItem(theCmd.menuID);
+		Menus::editMenuItem(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuSelect:
 		for(int i = 0; i < theCmd.count; ++i)
 		{
 			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 			aForwardCmd = Menus::selectMenuItem(
-				theCmd.menuID, ECommandDir(theCmd.dir),
+				theCmd.rootMenuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
-		updateMouseForMenu(theCmd.menuID);
+		updateMouseForMenu(theCmd.rootMenuID);
 		// Allow holding this button to auto-repeat after a delay
 		sState.exclusiveAutoRepeatButton = theBtnState;
 		break;
@@ -1369,7 +1369,7 @@ static void processCommand(
 		{
 			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 			aForwardCmd = Menus::selectMenuItem(
-				theCmd.menuID, ECommandDir(theCmd.dir),
+				theCmd.rootMenuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			// Close menu if didn't just switch to a sub-menu
@@ -1377,15 +1377,15 @@ static void processCommand(
 				aForwardCmd.type > eCmdType_LastMenuControl )
 			{
 				processCommand(theBtnState,
-					Menus::closeCommand(theCmd.menuID), theLayerIdx);
+					Menus::closeCommand(theCmd.rootMenuID), theLayerIdx);
 				return;
 			}
 		}
-		updateMouseForMenu(theCmd.menuID);
+		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuEditDir:
 		DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
-		Menus::editMenuItemDir(theCmd.menuID, ECommandDir(theCmd.dir));
+		Menus::editMenuItemDir(theCmd.rootMenuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
 		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
@@ -2001,7 +2001,7 @@ static void updateMenusForCurrentLayers()
 			case eCmdType_MenuSelectAndClose:
 			case eCmdType_MenuEditDir:
 				anOverlayIdx = InputMap::menuOverlayID(
-					aBtnState.commands.cmd[aBtnAct].menuID);
+					aBtnState.commands.cmd[aBtnAct].rootMenuID);
 				break;
 			default:
 				continue;
@@ -2055,7 +2055,7 @@ static void updateMouseModeForCurrentLayers()
 {
 	DBG_ASSERT(!sState.layersNeedSorting);
 	EMouseMode aFinalMouseMode = eMouseMode_Cursor;
-	sState.mouseControllingMenu = -1;
+	sState.mouseControllingRootMenu = -1;
 	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
 		const EMouseMode aLayerMouseMode =
@@ -2063,7 +2063,7 @@ static void updateMouseModeForCurrentLayers()
 		// _Default means just use lower layers' mode
 		if( aLayerMouseMode == eMouseMode_Default )
 			continue;
-		sState.mouseControllingMenu = -1;
+		sState.mouseControllingRootMenu = -1;
 		if( aLayerMouseMode == eMouseMode_HideOrLook )
 		{
 			// Act like _Default unless currently set to show cursor,
@@ -2077,7 +2077,7 @@ static void updateMouseModeForCurrentLayers()
 			// Act as cursor mode but will trail cursor to point at
 			// given menu ID's active selection whenever it changes
 			aFinalMouseMode = eMouseMode_Cursor;
-			sState.mouseControllingMenu =
+			sState.mouseControllingRootMenu =
 				InputMap::mouseModeMenu(sState.layerOrder[i]);
 			continue;
 		}

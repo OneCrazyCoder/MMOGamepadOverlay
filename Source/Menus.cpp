@@ -21,10 +21,10 @@ struct SubMenuState
 	u16 id;
 	s8 selected;
 	s8 depth;
-	SubMenuState(int theMenuID)
-		: id(dropTo<u16>(theMenuID)), depth()
+	SubMenuState(int theRootMenuID)
+		: id(dropTo<u16>(theRootMenuID)), depth()
 	{
-		selected = dropTo<s8>(InputMap::menuDefaultItemIdx(theMenuID));
+		selected = dropTo<s8>(InputMap::menuDefaultItemIdx(theRootMenuID));
 	}
 };
 
@@ -41,9 +41,9 @@ std::vector<SubMenuStack> sMenuStacks;
 // Local Functions
 //-----------------------------------------------------------------------------
 
-static int getMenuOverlayID(int theMenuID)
+static int getMenuOverlayID(int theRootMenuID)
 {
-	const int anOverlayID = InputMap::menuOverlayID(theMenuID);
+	const int anOverlayID = InputMap::menuOverlayID(theRootMenuID);
 	DBG_ASSERT(anOverlayID >= 0);
 	DBG_ASSERT(anOverlayID < gVisibleOverlays.size());
 	DBG_ASSERT(anOverlayID < gRefreshOverlays.size());
@@ -54,6 +54,14 @@ static int getMenuOverlayID(int theMenuID)
 	DBG_ASSERT(size_t(anOverlayID) < gConfirmedMenuItem.size());
 	DBG_ASSERT(!sMenuStacks[anOverlayID].empty());
 	return anOverlayID;
+}
+
+
+static int activeMenuItemCount(int theRootMenuID)
+{
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
+	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
+	return InputMap::menuItemCount(aMenuStack.back().id);
 }
 
 
@@ -102,9 +110,9 @@ void loadProfileChanges()
 }
 
 
-Command selectedMenuItemCommand(int theMenuID)
+Command selectedMenuItemCommand(int theRootMenuID)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 
 	// Even if no actual change made, mark menu as having been interacted with
@@ -113,7 +121,7 @@ Command selectedMenuItemCommand(int theMenuID)
 	Command result;
 	const int aSubMenuID = aMenuStack.back().id;
 	const int aSelection = aMenuStack.back().selected;
-	if( InputMap::menuStyle(theMenuID) == eMenuStyle_4Dir )
+	if( InputMap::menuStyle(aSubMenuID) == eMenuStyle_4Dir )
 		return result;
 
 	// Have selected menu item show a confirmation flash if
@@ -135,12 +143,12 @@ Command selectedMenuItemCommand(int theMenuID)
 
 
 Command selectMenuItem(
-	int theMenuID,
+	int theRootMenuID,
 	ECommandDir theDir,
 	bool wrap,
 	bool repeat)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 
 	SubMenuState& aSubMenu = aMenuStack.back();
@@ -154,8 +162,8 @@ Command selectMenuItem(
 	// Even if no actual change made, mark menu as having been interacted with
 	gActiveOverlays.set(anOverlayID);
 
-	const EMenuStyle aMenuStyle = InputMap::menuStyle(theMenuID);
-	const int aGridWidth = gridWidth(theMenuID);
+	const EMenuStyle aMenuStyle = InputMap::menuStyle(aSubMenuID);
+	const int aGridWidth = InputMap::menuGridWidth(aSubMenuID);
 	switch(aMenuStyle)
 	{
 	case eMenuStyle_List:
@@ -248,7 +256,7 @@ Command selectMenuItem(
 	case eMenuStyle_SelectHotspot:
 		{
 			const HotspotMap::Links& aLinkMap =
-				HotspotMap::getLinks(theMenuID);
+				HotspotMap::getLinks(aSubMenuID);
 			aSelection = min(aSelection, intSize(aLinkMap.size()));
 			pushedPastEdge = aLinkMap[aSelection].edge[theDir];
 			if( !pushedPastEdge || wrap )
@@ -305,12 +313,12 @@ Command selectMenuItem(
 }
 
 
-Command openSubMenu(int theMenuID, int theSubMenuID)
+Command openSubMenu(int theRootMenuID, int theSubMenuID)
 {
-	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theSubMenuID));
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	DBG_ASSERT(theRootMenuID == InputMap::rootMenuOfMenu(theSubMenuID));
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
-	const int oldMenuItemCount = itemCount(theMenuID);
+	const int oldMenuItemCount = activeMenuItemCount(theRootMenuID);
 
 	// Even if no actual change made, mark menu as having been interacted with
 	gActiveOverlays.set(anOverlayID);
@@ -328,26 +336,26 @@ Command openSubMenu(int theMenuID, int theSubMenuID)
 	gFullRedrawOverlays.set(anOverlayID);
 
 	// Might need to reshape menu for new menu item count
-	if( oldMenuItemCount != itemCount(theMenuID) )
+	if( oldMenuItemCount != InputMap::menuItemCount(theSubMenuID) )
 		gReshapeOverlays.set(anOverlayID);
 
 	return InputMap::menuAutoCommand(theSubMenuID);
 }
 
 
-Command swapMenu(int theMenuID, int theAltMenuID, ECommandDir theDir)
+Command swapMenu(int theRootMenuID, int theAltMenuID, ECommandDir theDir)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
-	const int oldMenuItemCount = itemCount(theMenuID);
+	const int oldMenuItemCount = activeMenuItemCount(theRootMenuID);
 
-	if( theMenuID != InputMap::rootMenuOfMenu(theAltMenuID) )
+	if( theRootMenuID != InputMap::rootMenuOfMenu(theAltMenuID) )
 	{
 		logError(
 			"Attempted to open sub-menu '%s' from menu '%s', "
 			"but it is not a sub-menu of this root menu!",
 			InputMap::menuLabel(theAltMenuID).c_str(),
-			InputMap::menuLabel(theMenuID).c_str());
+			InputMap::menuLabel(theRootMenuID).c_str());
 		return Command();
 	}
 
@@ -363,7 +371,7 @@ Command swapMenu(int theMenuID, int theAltMenuID, ECommandDir theDir)
 
 	int aNextSel = aMenuStack.back().selected;
 	const int aStackDepth = aMenuStack.back().depth;
-	switch(InputMap::menuStyle(theMenuID))
+	switch(InputMap::menuStyle(aMenuStack.back().id))
 	{
 	case eMenuStyle_Slots:
 		// Want to retain selection of any "side menus", so check
@@ -377,7 +385,7 @@ Command swapMenu(int theMenuID, int theAltMenuID, ECommandDir theDir)
 				const SubMenuState aSideMenuState = *itr;
 				aMenuStack.erase(itr);
 				aMenuStack.push_back(aSideMenuState);
-				if( oldMenuItemCount != itemCount(theMenuID) )
+				if( oldMenuItemCount != InputMap::menuItemCount(theAltMenuID) )
 					gReshapeOverlays.set(anOverlayID);
 				return InputMap::menuAutoCommand(aSideMenuState.id);
 			}
@@ -387,7 +395,7 @@ Command swapMenu(int theMenuID, int theAltMenuID, ECommandDir theDir)
 		aMenuStack.push_back(
 			SubMenuState(theAltMenuID));
 		aMenuStack.back().depth = dropTo<s8>(aStackDepth);
-		if( oldMenuItemCount != itemCount(theMenuID) )
+		if( oldMenuItemCount != InputMap::menuItemCount(theAltMenuID) )
 			gReshapeOverlays.set(anOverlayID);
 		return InputMap::menuAutoCommand(theAltMenuID);
 
@@ -417,14 +425,14 @@ Command swapMenu(int theMenuID, int theAltMenuID, ECommandDir theDir)
 
 	case eMenuStyle_Grid:
 		{
-			const int anOldGridWidth = gridWidth(theMenuID);
+			const int anOldGridWidth = gridWidth(theRootMenuID);
 			const int anOldX = aNextSel % anOldGridWidth;
 			const int anOldY = aNextSel / anOldGridWidth;
 			const u16 anOldMenuID = aMenuStack.back().id;
 			aMenuStack.back().id = dropTo<u16>(theAltMenuID);
-			const int aNewGridWidth = gridWidth(theMenuID);
-			const int aNewGridHeight = gridHeight(theMenuID);
-			const int aNewItemCount = itemCount(theMenuID);
+			const int aNewGridWidth = gridWidth(theRootMenuID);
+			const int aNewGridHeight = gridHeight(theRootMenuID);
+			const int aNewItemCount = InputMap::menuItemCount(theAltMenuID);
 			aMenuStack.back().id = anOldMenuID;
 			int aNewX = min(anOldX, aNewGridWidth-1);
 			int aNewY = min(anOldY, aNewGridHeight-1);
@@ -456,18 +464,18 @@ Command swapMenu(int theMenuID, int theAltMenuID, ECommandDir theDir)
 	aNextSel = min(aNextSel, InputMap::menuItemCount(theAltMenuID)-1);
 	aMenuStack.back().id = dropTo<u16>(theAltMenuID);
 	aMenuStack.back().selected = dropTo<s8>(aNextSel);
-	if( oldMenuItemCount != itemCount(theMenuID) )
+	if( oldMenuItemCount != InputMap::menuItemCount(theAltMenuID) )
 		gReshapeOverlays.set(anOverlayID);
 
 	return InputMap::menuAutoCommand(theAltMenuID);
 }
 
 
-Command closeLastSubMenu(int theMenuID)
+Command closeLastSubMenu(int theRootMenuID)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
-	const int oldMenuItemCount = itemCount(theMenuID);
+	const int oldMenuItemCount = activeMenuItemCount(theRootMenuID);
 	Command result;
 
 	// Even if no actual change made, mark menu as having been interacted with
@@ -475,17 +483,17 @@ Command closeLastSubMenu(int theMenuID)
 
 	// If already at root, do nothing
 	if( aMenuStack.size() == 1 &&
-		aMenuStack[0].id == theMenuID )
+		aMenuStack[0].id == theRootMenuID )
 		return result;
 
 	const s16 aStackDepth = aMenuStack.back().depth;
 	if( aStackDepth == 0 )
 	{
-		if( InputMap::menuStyle(theMenuID) == eMenuStyle_Slots )
+		if( InputMap::menuStyle(aMenuStack.back().id) == eMenuStyle_Slots )
 		{// Swap back to root menu
-			if( aMenuStack.back().id == theMenuID )
+			if( aMenuStack.back().id == theRootMenuID )
 				return result;
-			swapMenu(theMenuID, theMenuID, eCmdDir_None);
+			swapMenu(theRootMenuID, theRootMenuID, eCmdDir_None);
 			result =
 				InputMap::menuAutoCommand(aMenuStack.back().id);
 			// Make sure even if command is empty caller knows change happened
@@ -494,7 +502,7 @@ Command closeLastSubMenu(int theMenuID)
 			return result;
 		}
 		// Reset back to root menu
-		result = reset(theMenuID);
+		result = reset(theRootMenuID);
 		return result;
 	}
 
@@ -502,7 +510,7 @@ Command closeLastSubMenu(int theMenuID)
 	while(aMenuStack.back().depth == aStackDepth)
 		aMenuStack.pop_back();
 	gFullRedrawOverlays.set(anOverlayID);
-	if( oldMenuItemCount != itemCount(theMenuID) )
+	if( oldMenuItemCount != InputMap::menuItemCount(aMenuStack.back().id) )
 		gReshapeOverlays.set(anOverlayID);
 	result =
 		InputMap::menuAutoCommand(aMenuStack.back().id);
@@ -513,30 +521,30 @@ Command closeLastSubMenu(int theMenuID)
 }
 
 
-Command reset(int theMenuID, int toItemNo)
+Command reset(int theRootMenuID, int toItemNo)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
-	const int oldMenuItemCount = itemCount(theMenuID);
+	const int oldMenuItemCount = activeMenuItemCount(theRootMenuID);
 	Command result;
 
 	if( toItemNo > 0 )
 		toItemNo -= 1;
 	else
-		toItemNo = InputMap::menuDefaultItemIdx(theMenuID);
+		toItemNo = InputMap::menuDefaultItemIdx(theRootMenuID);
 	if( aMenuStack.size() > 1 ||
-		aMenuStack.back().id != theMenuID ||
+		aMenuStack.back().id != theRootMenuID ||
 		aMenuStack.back().selected != toItemNo )
 	{
 		aMenuStack.clear();
-		aMenuStack.push_back(SubMenuState(theMenuID));
+		aMenuStack.push_back(SubMenuState(theRootMenuID));
 		aMenuStack.back().selected = dropTo<s8>(
-			min(toItemNo, InputMap::menuItemCount(theMenuID)-1));
+			min(toItemNo, InputMap::menuItemCount(theRootMenuID)-1));
 		gFullRedrawOverlays.set(anOverlayID);
-		if( oldMenuItemCount != itemCount(theMenuID) )
+		if( oldMenuItemCount != InputMap::menuItemCount(aMenuStack.back().id) )
 			gReshapeOverlays.set(anOverlayID);
 		result =
-			InputMap::menuAutoCommand(theMenuID);
+			InputMap::menuAutoCommand(theRootMenuID);
 		// Make sure even if command is empty caller knows change happened
 		if( result.type == eCmdType_Invalid )
 			result.type = eCmdType_Unassigned;
@@ -546,42 +554,42 @@ Command reset(int theMenuID, int toItemNo)
 }
 
 
-Command autoCommand(int theMenuID)
+Command autoCommand(int theRootMenuID)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 	return InputMap::menuAutoCommand(aMenuStack.back().id);
 }
 
 
-Command backCommand(int theMenuID)
+Command backCommand(int theRootMenuID)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 	return InputMap::menuBackCommand(aMenuStack.back().id);
 }
 
 
-Command closeCommand(int theMenuID)
+Command closeCommand(int theRootMenuID)
 {
-	DBG_ASSERT(theMenuID == InputMap::rootMenuOfMenu(theMenuID));
-	return InputMap::menuBackCommand(theMenuID);
+	DBG_ASSERT(theRootMenuID == InputMap::rootMenuOfMenu(theRootMenuID));
+	return InputMap::menuBackCommand(theRootMenuID);
 }
 
 
-void editMenuItem(int theMenuID)
+void editMenuItem(int theRootMenuID)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 
 	const int aSubMenuID = aMenuStack.back().id;
-	const int anItemIdx = selectedItem(theMenuID);
+	const int anItemIdx = selectedItem(theRootMenuID);
 	const std::string& aMenuProfileName =
 		InputMap::menuSectionName(aSubMenuID);
 	std::string aMenuItemCmd = Profile::getStr(
 		aMenuProfileName, InputMap::menuItemKeyName(anItemIdx));
 	bool allowInsert = true;
-	switch(InputMap::menuStyle(theMenuID))
+	switch(InputMap::menuStyle(aSubMenuID))
 	{
 	case eMenuStyle_4Dir:
 	case eMenuStyle_Hotspots:
@@ -599,7 +607,8 @@ void editMenuItem(int theMenuID)
 		{// Insert as new menu item after current
 			aMenuItemCmd = trim(&aMenuItemCmd[1]);
 			if( aMenuItemCmd.empty() ) aMenuItemCmd = ":";
-			for(int i = itemCount(theMenuID); i > anItemIdx+1; --i)
+			for(int i = activeMenuItemCount(theRootMenuID);
+				i > anItemIdx+1; --i)
 			{
 				Profile::setStr(
 					aMenuProfileName,
@@ -616,7 +625,8 @@ void editMenuItem(int theMenuID)
 		{// Insert as new menu item before current
 			aMenuItemCmd = trim(&aMenuItemCmd[1]);
 			if( aMenuItemCmd.empty() ) aMenuItemCmd = ":";
-			for(int i = itemCount(theMenuID); i > anItemIdx; --i)
+			for(int i = activeMenuItemCount(theRootMenuID);
+				i > anItemIdx; --i)
 			{
 				Profile::setStr(
 					aMenuProfileName,
@@ -631,7 +641,7 @@ void editMenuItem(int theMenuID)
 		}
 		else if( allowInsert && aMenuItemCmd.empty() )
 		{// Remove menu item
-			const int aMenuItemCount = itemCount(theMenuID);
+			const int aMenuItemCount = activeMenuItemCount(theRootMenuID);
 			for(int i = anItemIdx+1; i < aMenuItemCount; ++i)
 			{
 				Profile::setStr(
@@ -672,9 +682,9 @@ void editMenuItem(int theMenuID)
 }
 
 
-void editMenuItemDir(int theMenuID, ECommandDir theDir)
+void editMenuItemDir(int theRootMenuID, ECommandDir theDir)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 
 	const int aSubMenuID = aMenuStack.back().id;
@@ -715,39 +725,27 @@ int activeMenuForOverlayID(int theOverlayID)
 }
 
 
-int selectedItem(int theMenuID)
+int selectedItem(int theRootMenuID)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 
 	return aMenuStack.back().selected;
 }
 
 
-int itemCount(int theMenuID)
+int gridWidth(int theRootMenuID)
 {
-	if( InputMap::menuStyle(theMenuID) == eMenuStyle_4Dir )
-		return eCmdDir_Num;
-
-	const int anOverlayID = getMenuOverlayID(theMenuID);
-	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
-	return InputMap::menuItemCount(
-		aMenuStack.back().id);
-}
-
-
-int gridWidth(int theMenuID)
-{
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 	return InputMap::menuGridWidth(
 		aMenuStack.back().id);
 }
 
 
-int gridHeight(int theMenuID)
+int gridHeight(int theRootMenuID)
 {
-	const int anOverlayID = getMenuOverlayID(theMenuID);
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 	return InputMap::menuGridHeight(
 		aMenuStack.back().id);

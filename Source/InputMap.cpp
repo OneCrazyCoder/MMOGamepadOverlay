@@ -2152,11 +2152,11 @@ static Command wordsToSpecialCommand(
 		if( itr != sKeyWordMap.end() )
 			aMenuName = &theWords[itr->second];
 	}
-	u16 aMenuID = kInvalidID;
+	u16 aRootMenuID = kInvalidID;
 	if( aMenuName )
-		aMenuID = dropTo<u16>(getOnlyRootMenuID(*aMenuName));
+		aRootMenuID = dropTo<u16>(getOnlyRootMenuID(*aMenuName));
 
-	if( aMenuID < sMenus.size() )
+	if( aRootMenuID < sMenus.size() )
 	{
 		// "= Reset <aMenuName> [Menu] [to Default] [to #]"
 		allowedKeyWords.reset();
@@ -2168,7 +2168,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuReset;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			if( anIntegerWord )
 				result.menuItemID = result.count;
 			return result;
@@ -2177,7 +2177,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Default);
 	}
 
-	if( allowButtonActions && aMenuID < sMenus.size() )
+	if( allowButtonActions && aRootMenuID < sMenus.size() )
 	{
 		// "= Confirm <aMenuName> [Menu] [with mouse click]"
 		// allowedKeyWords = Menu
@@ -2188,7 +2188,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			result.andClick =
 				keyWordsFound.test(eCmdWord_Click) ||
 				keyWordsFound.test(eCmdWord_Mouse);
@@ -2203,7 +2203,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirmAndClose;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			result.andClick =
 				keyWordsFound.test(eCmdWord_Click) ||
 				keyWordsFound.test(eCmdWord_Mouse);
@@ -2221,7 +2221,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEdit;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			return result;
 		}
 	}
@@ -2344,7 +2344,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Back);
 	keyWordsFound &= ~allowedKeyWords;
 
-	if( allowButtonActions && aMenuID < sMenus.size() &&
+	if( allowButtonActions && aRootMenuID < sMenus.size() &&
 		(allow4DirActions || result.dir != eCmdDir_None) )
 	{
 		// "= 'Select'|'Menu'|'Select Menu'
@@ -2358,7 +2358,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelect;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			return result;
 		}
 
@@ -2372,7 +2372,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuSelectAndClose;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Select);
@@ -2385,7 +2385,7 @@ static Command wordsToSpecialCommand(
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEditDir;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			return result;
 		}
 	}
@@ -2499,7 +2499,7 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	if( allowButtonActions && aMenuID < sMenus.size() )
+	if( allowButtonActions && aRootMenuID < sMenus.size() )
 	{
 		// This is all the way down here because "back" could be a direction
 		// for another command, OR mean backing out of a sub-menu, and want
@@ -2512,7 +2512,7 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuBack;
 			result.dir = eCmdDir_None;
-			result.menuID = aMenuID;
+			result.rootMenuID = aRootMenuID;
 			return result;
 		}
 	}
@@ -2694,7 +2694,7 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 			return aMenuItem;
 		}
 		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
-		aMenuItem.cmd.menuID =
+		aMenuItem.cmd.rootMenuID =
 			sMenus.vals()[aMenuItem.cmd.subMenuID].rootMenuID;
 		aMenuItem.label = theString;
 		return aMenuItem;
@@ -2719,14 +2719,14 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 	if( theString == ".." || commandWordToID(theString) == eCmdWord_Back )
 	{// Go back one sub-menu
 		aMenuItem.cmd.type = eCmdType_MenuBack;
-		aMenuItem.cmd.menuID = sMenus.vals()[theMenuID].rootMenuID;
+		aMenuItem.cmd.rootMenuID = sMenus.vals()[theMenuID].rootMenuID;
 		return aMenuItem;
 	}
 
 	if( commandWordToID(theString) == eCmdWord_Close )
 	{// Close menu
 		aMenuItem.cmd.type = eCmdType_MenuClose;
-		aMenuItem.cmd.menuID = sMenus.vals()[theMenuID].rootMenuID;
+		aMenuItem.cmd.rootMenuID = sMenus.vals()[theMenuID].rootMenuID;
 		return aMenuItem;
 	}
 
@@ -2987,12 +2987,12 @@ static void validateMenu(int theMenuID)
 		aMenuStyle == eMenuStyle_KBCycleLast )
 	{// Confirm has a key bind cycle specified
 		int aKeyBindCycleID = theMenu.keyBindCycleID;
-		if( !isRootMenu && aKeyBindCycleID >= sKeyBinds.size() )
+		if( !isRootMenu && aKeyBindCycleID >= sKeyBindCycles.size() )
 			aKeyBindCycleID = sMenus.vals()[theMenu.rootMenuID].keyBindCycleID;
-		if( aKeyBindCycleID >= sKeyBinds.size() )
+		if( aKeyBindCycleID >= sKeyBindCycles.size() )
 		{
 			logError("%s: Style requires KeyBindCycle = property but it is "
-				" missing or given name did not match a known cycle! %s",
+				"missing or given name did not match a known cycle! %s",
 				sSectionPrintName.c_str(),
 				isRootMenu
 					? "Setting to Style = List!"
@@ -3007,9 +3007,10 @@ static void validateMenu(int theMenuID)
 	{
 		// Root menus MUST have a valid style, so force _List
 		if( isRootMenu )
-			aMenuStyle = eMenuStyle_List;
+			theMenu.style = eMenuStyle_List;
 		else
-			aMenuStyle = eMenuStyle_Num;
+			theMenu.style = eMenuStyle_Num;
+		aMenuStyle = menuStyle(theMenuID);
 	}
 	
 	if( aMenuStyle == eMenuStyle_Visual ||
@@ -3383,20 +3384,20 @@ static void applyControlsLayerProperty(
 			const EMouseMode aMouseMode = mouseModeNameToID(thePropVal);
 			if( aMouseMode >= eMouseMode_Num )
 			{
-				// See if is the name of a menu instead
+				// See if is the name of a root menu instead
 				DBG_ASSERT(sParsedString.empty());
 				sanitizeSentence(thePropVal, sParsedString);
 				for(int i = 0, end = intSize(sParsedString.size()); i < end; ++i)
 				{
-					int aMenuID = sMenus.findIndex(sParsedString[i]);
-					if( aMenuID < sMenus.size() )
+					int aRootMenuID = getOnlyRootMenuID(sParsedString[i]);
+					if( aRootMenuID < sMenus.size() )
 					{
 						theLayer.mouseMode = eMouseMode_Menu;
-						theLayer.mouseModeMenu = dropTo<u16>(aMenuID);
+						theLayer.mouseModeMenu = dropTo<u16>(aRootMenuID);
 						mapDebugPrint(
 							"%s: Mouse set to Menu mode for menu '%s'\n",
 							sSectionPrintName.c_str(),
-							sMenus.keys()[aMenuID].c_str());
+							sMenus.keys()[aRootMenuID].c_str());
 						sParsedString.clear();
 						return;
 					}
@@ -4314,6 +4315,9 @@ int menuItemHotspotID(int theMenuID, int theMenuItemIdx)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	DBG_ASSERT(theMenuItemIdx >= 0);
+	DBG_ASSERT(
+		menuStyle(theMenuID) == eMenuStyle_Hotspots ||
+		menuStyle(theMenuID) == eMenuStyle_SelectHotspot);
 	if( theMenuItemIdx >= intSize(sMenus.vals()[theMenuID].items.size()) )
 		return 0;
 	return sMenus.vals()[theMenuID].items[theMenuItemIdx].hotspotID;
@@ -4322,7 +4326,10 @@ int menuItemHotspotID(int theMenuID, int theMenuItemIdx)
 
 int menuKeyBindCycleID(int theMenuID)
 {
-	DBG_ASSERT(menuStyle(theMenuID) == eMenuStyle_Hotspots);
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	DBG_ASSERT(
+		menuStyle(theMenuID) == eMenuStyle_KBCycleLast ||
+		menuStyle(theMenuID) == eMenuStyle_KBCycleDefault);
 	int result = sMenus.vals()[theMenuID].keyBindCycleID;
 	if( result >= sKeyBindCycles.size() &&
 		sMenus.vals()[theMenuID].rootMenuID != theMenuID &&

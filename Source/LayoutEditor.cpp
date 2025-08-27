@@ -968,61 +968,41 @@ static void updateDrawHotspot(
 	}
 	if( entryIsAnOffset(theEntry) )
 	{
-		if( theEntry.type == LayoutEntry::eType_MenuOverlay )
-		{// Must be menu that offsets from a hotspot
-			const Hotspot& anAnchor = WindowPainter::parentHotspot(
-				InputMap::overlayRootMenuID(theEntry.menuOverlayID));
-			theEntry.drawHotspot.x.anchor = u16(clamp(
-				int(anAnchor.x.anchor) + theEntry.drawHotspot.x.anchor,
-				0, 0xFFFF));
-			theEntry.drawHotspot.y.anchor = u16(clamp(
-				int(anAnchor.y.anchor) + theEntry.drawHotspot.y.anchor,
-				0, 0xFFFF));
-			theEntry.drawHotspot.x.offset = s16(clamp(
-				theEntry.drawHotspot.x.offset + anAnchor.x.offset,
-				-0x8000, 0x7FFF));
-			theEntry.drawHotspot.y.offset = s16(clamp(
-				theEntry.drawHotspot.y.offset + anAnchor.y.offset,
-				-0x8000, 0x7FFF));
+		LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
+		DBG_ASSERT(aParent.type == theEntry.type);
+		if( updateParentIfNeeded )
+			updateDrawHotspot(aParent, aParent.shape, true, false);
+		theEntry.drawOffScale = aParent.drawOffScale;
+		Hotspot anAnchor = aParent.drawHotspot;
+		if( aParent.rangeCount > 1 )
+		{// Rare case where the parent is itself a range of hotspots
+			anAnchor.x.offset = s16(clamp(int(
+				anAnchor.x.offset +
+				aParent.drawOffX *
+				(aParent.rangeCount-1) *
+				aParent.drawOffScale), -0x8000, 0x7FFF));
+			anAnchor.y.offset = s16(clamp(int(
+				anAnchor.y.offset +
+				aParent.drawOffY *
+				(aParent.rangeCount-1) *
+				aParent.drawOffScale), -0x8000, 0x7FFF));
 		}
-		else
-		{// Must be offset by a parent hotspot or copy icon
-			LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
-			DBG_ASSERT(aParent.type == theEntry.type);
-			if( updateParentIfNeeded )
-				updateDrawHotspot(aParent, aParent.shape, true, false);
-			theEntry.drawOffScale = aParent.drawOffScale;
-			Hotspot anAnchor = aParent.drawHotspot;
-			if( aParent.rangeCount > 1 )
-			{// Rare case where the parent is itself a range of hotspots
-				anAnchor.x.offset = s16(clamp(int(
-					anAnchor.x.offset +
-					aParent.drawOffX *
-					(aParent.rangeCount-1) *
-					aParent.drawOffScale), -0x8000, 0x7FFF));
-				anAnchor.y.offset = s16(clamp(int(
-					anAnchor.y.offset +
-					aParent.drawOffY *
-					(aParent.rangeCount-1) *
-					aParent.drawOffScale), -0x8000, 0x7FFF));
-			}
-			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
-			{
-				theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
-				theEntry.drawHotspot.x.offset = s16(clamp(int(
-					theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
-					anAnchor.x.offset, -0x8000, 0x7FFF));
-			}
-			if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
-			{
-				theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
-				theEntry.drawHotspot.y.offset = s16(clamp(int(
-					theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
-					anAnchor.y.offset, -0x8000, 0x7FFF));
-			}
-			if( theEntry.type == LayoutEntry::eType_CopyIcon )
-				theEntry.drawSize = aParent.drawSize;
+		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
+		{
+			theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
+			theEntry.drawHotspot.x.offset = s16(clamp(int(
+				theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
+				anAnchor.x.offset, -0x8000, 0x7FFF));
 		}
+		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
+		{
+			theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
+			theEntry.drawHotspot.y.offset = s16(clamp(int(
+				theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
+				anAnchor.y.offset, -0x8000, 0x7FFF));
+		}
+		if( theEntry.type == LayoutEntry::eType_CopyIcon )
+			theEntry.drawSize = aParent.drawSize;
 	}
 	if( updateChildren )
 	{

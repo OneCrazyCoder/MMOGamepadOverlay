@@ -50,7 +50,7 @@ struct ZERO_INIT(Command)
 			union
 			{
 				u16 hotspotID;
-				u16 menuID;
+				u16 rootMenuID;
 				u16 keyBindID;
 				u16 variableID;
 				u16 replacementLayer;
