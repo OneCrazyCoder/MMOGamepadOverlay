@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -48,7 +48,7 @@ extern BitVector<32> gDisabledOverlays;
 // Displays hotspots mouse cursor can jump to with Select Hotspot command
 extern EHotspotGuideMode gHotspotsGuideMode;
 
-// A menu item has been selected & confirmed and should show a confirmation flash
+// A menu item has been selected & confirmed - should show a confirmation flash
 extern std::vector<u16> gConfirmedMenuItem;
 
 // Last-used and default index for Key Bind Cycles, and flags for changing them

@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -14,7 +14,7 @@
 #include "BitHacks.h" // trailingZeroBits
 #include <functional> // std::less. std::equal_to
 
-/*-----------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
 	VectorMap
 	---------
 	Vector of key-value pairs sorted by key and searched with binary search.
@@ -37,7 +37,7 @@
 
 	*	If really need pointer-stable values, just store pointers or indexes to
 		objects stored in a different, stable container.
-//---------------------------------------------------------------------------*/
+//----------------------------------------------------------------------------*/
 
 template<class K, class V, class C = std::less<K> >
 class VectorMap : public std::vector<std::pair<K, V> >
@@ -97,7 +97,7 @@ public:
 };
 
 
-/*-----------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
 	StringToValueMap
 	----------------
 
@@ -159,7 +159,7 @@ public:
 		'UserFriendly', and 'USER_FRIENDLY' would all count as the same key,
 		but 'Range10-12' and 'Range1012' would not. Strict mode offers faster
 		performance, however.
-//---------------------------------------------------------------------------*/
+//----------------------------------------------------------------------------*/
 template<class V, class I = u16, bool S = false>
 class StringToValueMap
 {

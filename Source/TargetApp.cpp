@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "TargetApp.h"
 
@@ -16,9 +16,9 @@ namespace TargetApp
 // Uncomment this to print status of target app/window tracking to debug window
 //#define TARGET_APP_DEBUG_PRINT
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum ECheck
 {
@@ -46,14 +46,15 @@ const LONG_PTR kFullScreenWindowStyle = WS_VISIBLE;
 const LONG_PTR kFullScreenWindowStyleEx = 0;
 const LONG_PTR kNormalWindowStyle = WS_VISIBLE | WS_CAPTION | WS_MINIMIZEBOX;
 const LONG_PTR kNormalOnlyStyleFlags = WS_CAPTION | WS_BORDER | WS_THICKFRAME;
-const LONG_PTR kIgnoredStyleFlags = WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+const LONG_PTR kIgnoredStyleFlags =
+	WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
 const LONG_PTR kIgnoredStyleExFlags =
 	WS_EX_RIGHT | WS_EX_LEFTSCROLLBAR | WS_EX_RTLREADING;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Config
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(Config)
 {
@@ -80,9 +81,9 @@ struct ZERO_INIT(Config)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static Variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static Config kConfig;
 static HANDLE sTargetAppProcess = NULL;
@@ -102,9 +103,9 @@ static bool sSwapWindowModeHotkeyRegistered = false;
 static bool sRestoreTargetWindow = false;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #ifdef TARGET_APP_DEBUG_PRINT
 #define targetDebugPrint(...) debugPrint("TargetApp: " __VA_ARGS__)
@@ -557,9 +558,9 @@ static void checkAppClosed()
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 void loadProfile()
 {

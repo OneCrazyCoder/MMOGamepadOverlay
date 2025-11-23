@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -111,8 +111,12 @@ void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 
 // HOTSPOTS
 const Hotspot& getHotspot(int theHotspotID);
+int hotspotIDFromName(const std::string& theHotspotName); // or 0
+int hotspotArrayIDFromName(const std::string& theHotspotArrayName); // or count
 int firstHotspotInArray(int theHotspotArrayID);
+int lastHotspotInArray(int theHotspotArrayID);
 int sizeOfHotspotArray(int theHotspotArrayID);
+bool hotspotArrayHasAnchor(int theHotspotArrayID);
 float hotspotOffsetScale(int theHotspotID);
 const Hotspot* KeyBindCycleHotspot(int theArrayID, int theIndex);
 void modifyHotspot(int theHotspotID, const Hotspot& theNewValues);

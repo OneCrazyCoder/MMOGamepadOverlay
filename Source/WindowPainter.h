@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -66,8 +66,12 @@ void redrawSystemOverlay(bool fullRedraw = false);
 struct WindowAlphaInfo
 {
 	double fadeInRate, fadeOutRate;
-	int fadeInDelay, fadeOutDelay, inactiveFadeOutDelay;
+	u16 fadeInTime, fadeOutTime;
+	u16 fadeInDelay, fadeOutDelay, inactiveFadeOutDelay;
 	u8 maxAlpha, inactiveAlpha;
+
+	WindowAlphaInfo();
+	bool operator==(const WindowAlphaInfo& rhs) const;
 };
 const WindowAlphaInfo& alphaInfo(int theOverlayID);
 

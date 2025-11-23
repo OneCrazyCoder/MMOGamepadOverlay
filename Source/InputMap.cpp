@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "InputMap.h"
 
@@ -13,9 +13,9 @@ namespace InputMap
 // Uncomment this to print command assignments to debug window
 //#define INPUT_MAP_DEBUG_PRINT
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 const char* kMainLayerSectionName = "Scheme";
 const char* kLayerPrefix = "Layer.";
@@ -217,9 +217,9 @@ EPropertyType propKeyToType(const std::string& theName)
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Structures
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(KeyBindCycleEntry)
 {
@@ -320,9 +320,9 @@ struct ZERO_INIT(HotspotArray)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static Variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static std::vector<Hotspot> sHotspots;
 static StringToValueMap<HotspotArray> sHotspotArrays;
@@ -339,9 +339,9 @@ static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #ifdef INPUT_MAP_DEBUG_PRINT
 #define mapDebugPrint(...) debugPrint("InputMap: " __VA_ARGS__)
@@ -352,32 +352,10 @@ static std::string sPropertyPrintName;
 static void createEmptyHotspotArray(const std::string& theName)
 {
 	// Check if name ends in a number and thus could be part of an array
-	std::string anArrayKey = theName;
-	int aRangeEndIdx = breakOffIntegerSuffix(anArrayKey);
-	int aRangeStartIdx = aRangeEndIdx;
-	bool isAnchorHotspot = aRangeEndIdx <= 0;
-
-	// Check for range syntax like HotspotName7-10
-	bool isRange = false;
-	if( !isAnchorHotspot )
-	{
-		isRange = anArrayKey[anArrayKey.size()-1] == '-';
-		if( isRange )
-		{
-			anArrayKey.resize(anArrayKey.size()-1);
-			aRangeStartIdx = breakOffIntegerSuffix(anArrayKey);
-			if( aRangeStartIdx <= 0 || aRangeStartIdx > aRangeEndIdx )
-			{
-				logError("Invalid range in '%s', treating as non-array hotspot",
-					theName.c_str());
-				isAnchorHotspot = true;
-			}
-		}
-	}
-
-	// Restore full key string for an anchor name that may have been modified
-	if( isAnchorHotspot && aRangeEndIdx >= 0 )
-		anArrayKey = theName;
+	int aStartIdx, anEndIdx;
+	std::string anArrayKey;
+	bool isRange = fetchRangeSuffix(theName, anArrayKey, aStartIdx, anEndIdx);
+	bool isAnchorHotspot = anEndIdx <= 0;
 
 	// Create hotspot array object
 	HotspotArray& anArray = sHotspotArrays.findOrAdd(anArrayKey);
@@ -388,9 +366,10 @@ static void createEmptyHotspotArray(const std::string& theName)
 	}
 
 	// Now create the range to add
+	DBG_ASSERT(anEndIdx >= aStartIdx && aStartIdx > 0 && anEndIdx > 0);
 	HotspotRange aNewRange;
-	aNewRange.firstIdx = dropTo<u16>(aRangeStartIdx);
-	aNewRange.count = aRangeEndIdx - aRangeStartIdx + 1;
+	aNewRange.firstIdx = dropTo<u16>(aStartIdx);
+	aNewRange.count = anEndIdx - aStartIdx + 1;
 	aNewRange.offsetFromPrev = isRange;
 	aNewRange.hasOwnXAnchor = !isRange;
 	aNewRange.hasOwnYAnchor = !isRange;
@@ -492,27 +471,10 @@ static void applyHotspotProperty(
 	BitVector<512>& theUpdatedHotspots)
 {
 	// Determine if this is a single hotspot or part of a range
-	std::string anArrayKey = theKey;
-	int aRangeEndIdx = breakOffIntegerSuffix(anArrayKey);
-	int aRangeStartIdx = aRangeEndIdx;
+	int aRangeStartIdx, aRangeEndIdx;
+	std::string anArrayKey;
+	fetchRangeSuffix(theKey, anArrayKey, aRangeStartIdx, aRangeEndIdx);
 	bool isAnchorHotspot = aRangeEndIdx <= 0;
-
-	// Check for range syntax like HotspotName7-10
-	if( !isAnchorHotspot )
-	{
-		if( anArrayKey[anArrayKey.size()-1] == '-' )
-		{
-			anArrayKey.resize(anArrayKey.size()-1);
-			aRangeStartIdx = breakOffIntegerSuffix(anArrayKey);
-			// Treat malformed same as before, but no warning any more
-			if( aRangeStartIdx <= 0 || aRangeStartIdx > aRangeEndIdx )
-				isAnchorHotspot = true;
-		}
-	}
-
-	// If anchor name was modified during parsing, restore full form
-	if( isAnchorHotspot && aRangeEndIdx >= 0 )
-		anArrayKey = theKey;
 
 	// Look up hotspot metadata using array key
 	int aHotspotArrayID = sHotspotArrays.findIndex(anArrayKey);
@@ -522,7 +484,7 @@ static void applyHotspotProperty(
 	DBG_ASSERT(!isAnchorHotspot || anArray.hasAnchor);
 
 	// Parse hotspot data from the description string
-	const bool isEmptyHotspot = commandWordToID(theDesc) == eCmdWord_Skip;
+	const bool isEmptyHotspot = isEffectivelyEmptyString(theDesc);
 	Hotspot aHotspot;
 	double anOffsetScale = 0;
 	if( !isEmptyHotspot )
@@ -613,7 +575,7 @@ static void applyHotspotProperty(
 			aRange = itr + 1;
 		else
 			aRange = itr;
-		
+
 		// Empty description removes range from array and shortens it
 		// This changes ->size but does not remove ranges/hotspots so they can
 		// be restored later by setting the hotspot back to a valid value
@@ -1112,7 +1074,7 @@ static int applyKeyBindProperty(
 		aCmd.type = eCmdType_Empty;
 		return aKeyBindID;
 	}
-	
+
 	// Tap key
 	DBG_ASSERT(sParsedString.empty());
 	sanitizeSentence(theCmdStr, sParsedString);
@@ -1193,7 +1155,7 @@ static void validateKeyBind(
 					aCmd.type = eCmdType_DoNothing;
 					return;
 				}
-				validateKeyBind(anotherKeyBindID, theReferencedKeyBinds);	
+				validateKeyBind(anotherKeyBindID, theReferencedKeyBinds);
 			}
 		}
 	}
@@ -1244,47 +1206,34 @@ static void applyKeyBindCycleProperty(
 		}
 
 		// Range name (i.e. "TargetGroup1-5")
-		const int aRangeEndIdx = breakOffIntegerSuffix(aKeyBindName);
-		if( aRangeEndIdx > 0 )
+		int aRangeStartIdx, aRangeEndIdx;
+		std::string aRangeBaseKey;
+		if( fetchRangeSuffix(
+			aKeyBindName, aRangeBaseKey,
+			aRangeStartIdx, aRangeEndIdx) )
 		{
-			if( aKeyBindName[aKeyBindName.size()-1] == '-' )
+			for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
 			{
-				aKeyBindName.resize(aKeyBindName.size()-1);
-				const int aRangeStartIdx = breakOffIntegerSuffix(aKeyBindName);
-				if( aRangeStartIdx <= aRangeEndIdx )
+				if( intSize(aNewCycle.size()) >= aMaxCycleLength )
+					break;
+				int aKeyBindIndex = sKeyBinds.findIndex(
+					aRangeBaseKey + toString(i));
+				if( aKeyBindIndex < sKeyBinds.size() )
 				{
-					for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
-					{
-						if( intSize(aNewCycle.size()) >= aMaxCycleLength )
-							break;
-						int aKeyBindIndex = sKeyBinds.findIndex(
-							aKeyBindName + toString(i));
-						if( aKeyBindIndex < sKeyBinds.size() )
-						{
-							aNewCycle.push_back(KeyBindCycleEntry());
-							aNewCycle.back().keyBindID =
-								dropTo<u16>(aKeyBindIndex);
-						}
-						else
-						{
-							logError(
-								"Can't find Key Bind '%s%d' for cycle '%s'",
-								aKeyBindName.c_str(), i,
-								theCycleName.c_str());
-							break;
-						}
-					}
-					continue;
+					aNewCycle.push_back(KeyBindCycleEntry());
+					aNewCycle.back().keyBindID =
+						dropTo<u16>(aKeyBindIndex);
 				}
 				else
 				{
-					aKeyBindName += '-' + toString(aRangeEndIdx);
+					logError(
+						"Can't find Key Bind '%s%d' for cycle '%s'",
+						aRangeBaseKey.c_str(), i,
+						theCycleName.c_str());
+					break;
 				}
 			}
-			else
-			{
-				aKeyBindName += toString(aRangeEndIdx);
-			}
+			continue;
 		}
 
 		logError("Can't find Key Bind '%s' for cycle '%s'",
@@ -1473,6 +1422,8 @@ static bool createEmptyMenu(
 	const std::string& aMenuName =
 		aSectionName.substr(posAfterPrefix(aSectionName, thePrefix));
 	DBG_ASSERT(!aMenuName.empty());
+	// Quick access to this menu's profile section later
+	DBG_ASSERT(&theSectionsMap == &Profile::allSections());
 	sMenus.findOrAdd(aMenuName).profileSectionID = dropTo<u16>(theSectionID);
 	return true;
 }
@@ -1617,7 +1568,7 @@ static Command stringToSetVariableCommand(
 	const int aVariableID = Profile::variableNameToID(theWords[aVarNameIdx]);
 	if( aVariableID < 0 )
 		return result;
-	
+
 	// We now have "Set <varname> to", now need to get string to set it to
 	// Need to find " to " in the original string
 	int aPatternIdx = 0;
@@ -2875,37 +2826,32 @@ static void applyMenuProperty(
 			logError("%s: Not sure how to assign default menu item to '%s'!",
 				sSectionPrintName.c_str(),
 				thePropVal.c_str());
-		}		
+		}
 		break;
 
 	case ePropType_Num:
 		{// Unrecognized
 
 			// Possibly a range of items assigned to same command
-			std::string aRangeBaseKey = thePropKey;
-			const int aRangeEndIdx = breakOffIntegerSuffix(aRangeBaseKey);
-			if( aRangeEndIdx > 0 &&
-				aRangeBaseKey[aRangeBaseKey.size()-1] == '-' )
+			int aRangeStartIdx, aRangeEndIdx;
+			std::string aRangeBaseKey;
+			if( fetchRangeSuffix(
+					thePropKey, aRangeBaseKey,
+					aRangeStartIdx, aRangeEndIdx, true) )
 			{
-				aRangeBaseKey.resize(aRangeBaseKey.size()-1);
-				const int aRangeStartIdx =
-					breakOffIntegerSuffix(aRangeBaseKey, true);
-				if( aRangeStartIdx >= 0 && aRangeStartIdx <= aRangeEndIdx )
+				std::string anIntStr, aNumberedPropVal;
+				for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
 				{
-					std::string anIntStr, aNumberedPropVal;
-					for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
-					{
-						anIntStr = toString(i);
-						sPropertyPrintName = aRangeBaseKey + anIntStr;
-						aNumberedPropVal = replaceAllStr(
-							thePropVal, "#", anIntStr.c_str());
-						applyMenuProperty(
-							theMenuID, init,
-							sPropertyPrintName,
-							aNumberedPropVal);
-					}
-					return;
+					anIntStr = toString(i);
+					sPropertyPrintName = aRangeBaseKey + anIntStr;
+					aNumberedPropVal = replaceAllStr(
+						thePropVal, "#", anIntStr.c_str());
+					applyMenuProperty(
+						theMenuID, init,
+						sPropertyPrintName,
+						aNumberedPropVal);
 				}
+				return;
 			}
 
 			// Possibly name of a hotspot for hotspot menu type
@@ -3002,7 +2948,7 @@ static void validateMenu(int theMenuID)
 				theMenu.keyBindCycleID = kInvalidID;
 		}
 	}
-	
+
 	if( styleIsInvalid )
 	{
 		// Root menus MUST have a valid style, so force _List
@@ -3012,7 +2958,7 @@ static void validateMenu(int theMenuID)
 			theMenu.style = eMenuStyle_Num;
 		aMenuStyle = menuStyle(theMenuID);
 	}
-	
+
 	if( aMenuStyle == eMenuStyle_Visual ||
 		aMenuStyle == eMenuStyle_KBCycleLast ||
 		aMenuStyle == eMenuStyle_KBCycleDefault )
@@ -3189,7 +3135,7 @@ static void addButtonAction(
 		} while(aBtnID >= eBtn_Num && !aTimeAsString.empty());
 	}
 
-	// If still no valid button ID, must just be a badly-named action + button key
+	// If still no valid button ID, must just be a badly-named entry
 	if( aBtnID >= eBtn_Num )
 	{
 		logError("Unable to identify Gamepad Button from '%s' requested in %s",
@@ -3387,7 +3333,7 @@ static void applyControlsLayerProperty(
 				// See if is the name of a root menu instead
 				DBG_ASSERT(sParsedString.empty());
 				sanitizeSentence(thePropVal, sParsedString);
-				for(int i = 0, end = intSize(sParsedString.size()); i < end; ++i)
+				for(int i = 0,end = intSize(sParsedString.size()); i < end; ++i)
 				{
 					int aRootMenuID = getOnlyRootMenuID(sParsedString[i]);
 					if( aRootMenuID < sMenus.size() )
@@ -3424,7 +3370,7 @@ static void applyControlsLayerProperty(
 			}
 		}
 		return;
-	
+
 	case ePropType_ShowMenus:
 	case ePropType_Hotspots:
 	case ePropType_AutoLayers:
@@ -3582,7 +3528,9 @@ static void applyControlsLayerProperty(
 					{
 						if( aBtnNum == 1 )
 						{// We have a swap!
-							swap(aBtnRemap[aBtnSwapID[0]], aBtnRemap[aBtnSwapID[1]]);
+							swap(
+								aBtnRemap[aBtnSwapID[0]],
+								aBtnRemap[aBtnSwapID[1]]);
 							mapDebugPrint("%s: Swapping button assignments for "
 								"'%s' and '%s'\n",
 								sSectionPrintName.c_str(),
@@ -3659,7 +3607,7 @@ static void applyControlsLayerProperty(
 			}
 		}
 		return;
-	
+
 	case ePropType_Parent:
 		{
 			int aParentLayerID = 0;
@@ -3670,7 +3618,7 @@ static void applyControlsLayerProperty(
 				{
 					logError("Unrecognized parent layer name '%s' for layer %s",
 						thePropVal.c_str(),
-						sSectionPrintName.c_str());		
+						sSectionPrintName.c_str());
 					return;
 				}
 			}
@@ -3716,7 +3664,7 @@ static void applyControlsLayerProperty(
 			thePropVal);
 		return;
 	}
-	
+
 	// BUTTON COMMAND ASSIGNMENT
 	addButtonAction(
 		theLayerID,
@@ -3907,9 +3855,9 @@ static void loadDataFromProfile(
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 void loadProfile()
 {
@@ -4048,7 +3996,7 @@ void loadProfileChanges()
 				linkMenuToSubMenus(i);
 			// Only valid to add sub-menus, not root menus / overlays!
 			DBG_ASSERT(sMenus.vals()[aMenuID].parentMenuID < kInvalidID);
-			setupRootMenu(aMenuID);	
+			setupRootMenu(aMenuID);
 		}
 	}
 
@@ -4178,7 +4126,7 @@ EMouseMode mouseMode(int theLayerID)
 int mouseModeMenu(int theLayerID)
 {
 	DBG_ASSERT(mouseMode(theLayerID) == eMouseMode_Menu);
-	return sLayers.vals()[theLayerID].mouseModeMenu;	
+	return sLayers.vals()[theLayerID].mouseModeMenu;
 }
 
 
@@ -4307,7 +4255,7 @@ int overlayRootMenuID(int theOverlayID)
 int menuDefaultItemIdx(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
-	return max(int(sMenus.vals()[theMenuID].defaultMenuItemIdx)-1, 0);	
+	return max(int(sMenus.vals()[theMenuID].defaultMenuItemIdx)-1, 0);
 }
 
 
@@ -4327,15 +4275,17 @@ int menuItemHotspotID(int theMenuID, int theMenuItemIdx)
 int menuKeyBindCycleID(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
-	DBG_ASSERT(
-		menuStyle(theMenuID) == eMenuStyle_KBCycleLast ||
-		menuStyle(theMenuID) == eMenuStyle_KBCycleDefault);
-	int result = sMenus.vals()[theMenuID].keyBindCycleID;
-	if( result >= sKeyBindCycles.size() &&
-		sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
-		sMenus.vals()[theMenuID].rootMenuID < sMenus.size() )
-	{// Defer to root menu's version
-		result = menuKeyBindCycleID(sMenus.vals()[theMenuID].rootMenuID);
+	int result = kInvalidID;
+	if( menuStyle(theMenuID) == eMenuStyle_KBCycleLast ||
+		menuStyle(theMenuID) == eMenuStyle_KBCycleDefault )
+	{
+		result = sMenus.vals()[theMenuID].keyBindCycleID;
+		if( result >= sKeyBindCycles.size() &&
+			sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
+			sMenus.vals()[theMenuID].rootMenuID < sMenus.size() )
+		{// Defer to root menu's version
+			result = menuKeyBindCycleID(sMenus.vals()[theMenuID].rootMenuID);
+		}
 	}
 	return result;
 }
@@ -4434,6 +4384,18 @@ const Hotspot& getHotspot(int theHotspotID)
 }
 
 
+int hotspotIDFromName(const std::string& theHotspotName)
+{
+	return getHotspotID(theHotspotName);
+}
+
+
+int hotspotArrayIDFromName(const std::string& theHotspotArrayName)
+{
+	return sHotspotArrays.findIndex(theHotspotArrayName);
+}
+
+
 int firstHotspotInArray(int theHotspotArrayID)
 {
 	DBG_ASSERT(theHotspotArrayID >= 0);
@@ -4443,11 +4405,27 @@ int firstHotspotInArray(int theHotspotArrayID)
 }
 
 
+int lastHotspotInArray(int theHotspotArrayID)
+{
+	return
+		firstHotspotInArray(theHotspotArrayID) +
+		sizeOfHotspotArray(theHotspotArrayID) - 1;
+}
+
+
 int sizeOfHotspotArray(int theHotspotArrayID)
 {
 	DBG_ASSERT(theHotspotArrayID >= 0);
 	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
 	return sHotspotArrays.vals()[theHotspotArrayID].size;
+}
+
+
+bool hotspotArrayHasAnchor(int theHotspotArrayID)
+{
+	DBG_ASSERT(theHotspotArrayID >= 0);
+	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
+	return sHotspotArrays.vals()[theHotspotArrayID].hasAnchor != 0;
 }
 
 
@@ -4471,7 +4449,7 @@ float hotspotOffsetScale(int theHotspotID)
 		--itr;
 		result = itr->offsetScale;
 	}
-	
+
 	return result;
 }
 
@@ -4592,7 +4570,7 @@ std::string hotspotLabel(int theHotspotID)
 		if( theHotspotID > itr->anchorIdx )
 			result += toString(theHotspotID - itr->anchorIdx);
 	}
-	
+
 	return result;
 }
 

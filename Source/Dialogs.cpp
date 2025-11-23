@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "Dialogs.h"
 
@@ -29,9 +29,9 @@ void mainLoopTimeSkip();
 namespace Dialogs
 {
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum EDialogLayout
 {
@@ -86,9 +86,9 @@ struct ZERO_INIT(RTF_StreamData)
 
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static Variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static std::string* sDialogEditText;
 static int sDialogSelected = 0;
@@ -96,9 +96,9 @@ static bool sDialogDone = false;
 static bool sDialogFocusShown = false;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static void setDialogFocus(HWND hdlg, HWND hwndControl)
 {
@@ -462,20 +462,10 @@ static int CALLBACK layoutItemSortProc(
 		(*theItems)[LOWORD(lParam1)];
 	TreeViewDialogItem* anItem2 =
 		(*theItems)[LOWORD(lParam2)];
-	std::string aName1 = condense(anItem1->name);
-	std::string aName2 = condense(anItem2->name);
-	int aName1Val = breakOffIntegerSuffix(aName1);
-	int aName2Val = breakOffIntegerSuffix(aName2);
-	if( aName1Val >= 0 && aName1[aName1.size()-1] == '-' )
-	{
-		aName1.resize(aName1.size()-1);
-		aName1Val = breakOffIntegerSuffix(aName1);
-	}
-	if( aName2Val >= 0 && aName2[aName2.size()-1] == '-' )
-	{
-		aName2.resize(aName2.size()-1);
-		aName2Val = breakOffIntegerSuffix(aName2);
-	}
+	int aName1Val, aName2Val, aDummyVal;
+	std::string aName1, aName2;
+	fetchRangeSuffix(condense(anItem1->name), aName1, aName1Val, aDummyVal);
+	fetchRangeSuffix(condense(anItem2->name), aName2, aName2Val, aDummyVal);
 	if( aName1 == aName2 )
 		return aName1Val - aName2Val;
 	return anItem1->name.compare(anItem2->name);
@@ -1139,9 +1129,9 @@ static void dialogCheckGamepad(HWND theDialog, EDialogLayout theLayout)
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 ProfileSelectResult profileSelect(
 	const std::vector<std::string>& theLoadableProfiles,

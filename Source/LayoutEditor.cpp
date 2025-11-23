@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "LayoutEditor.h"
 #include "Dialogs.h"
@@ -17,9 +17,9 @@
 namespace LayoutEditor
 {
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum {
 kBoundBoxAnchorDrawSize = 6,
@@ -68,9 +68,9 @@ const char* kAlignmentStr[][2] =
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Structures
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(LayoutEntry)
 {
@@ -115,9 +115,9 @@ struct ZERO_INIT(LayoutEntry)
 	float drawOffScale;
 	int drawOffX, drawOffY;
 	int menuOverlayID;
-	int rangeCount;
+	int rangeCount; // -1 = anchor, 0 = single, 1+ = actual range
 
-	LayoutEntry() : type(eType_Num) {}
+	LayoutEntry() : type(eType_Num), rangeCount(-1) {}
 };
 
 
@@ -134,16 +134,16 @@ struct ZERO_INIT(EditorState)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static Variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static EditorState* sState = null;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 // Forward declares
 static void promptForEditEntry();
@@ -379,10 +379,14 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 	{
 		Hotspot anEntryHSPos, anEntryHSSize;
 		std::string aStr;
-		aStr = theEntry.shape.x; HotspotMap::stringToCoord(aStr, anEntryHSPos.x);
-		aStr = theEntry.shape.y; HotspotMap::stringToCoord(aStr, anEntryHSPos.y);
-		aStr = theEntry.shape.w; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
-		aStr = theEntry.shape.h; HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
+		aStr = theEntry.shape.x;
+		HotspotMap::stringToCoord(aStr, anEntryHSPos.x);
+		aStr = theEntry.shape.y;
+		HotspotMap::stringToCoord(aStr, anEntryHSPos.y);
+		aStr = theEntry.shape.w;
+		HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
+		aStr = theEntry.shape.h;
+		HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
 		anEntryPos = WindowManager::hotspotToOverlayPos(anEntryHSPos);
 		POINT anEntrySize = WindowManager::hotspotToOverlayPos(anEntryHSSize);
 		anEntryPos.x = anEntryPos.x + anEntrySize.x / 2;
@@ -955,7 +959,7 @@ static void updateDrawHotspot(
 	theEntry.drawOffScale = floatFromString(theShape.offsetScale);
 	if( theEntry.drawOffScale == 0 )
 		theEntry.drawOffScale = 1.0f;
-	if( theEntry.rangeCount > 1 )
+	if( theEntry.rangeCount > 0 )
 	{
 		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
 		theEntry.drawOffY = theEntry.drawHotspot.y.offset;
@@ -974,7 +978,7 @@ static void updateDrawHotspot(
 			updateDrawHotspot(aParent, aParent.shape, true, false);
 		theEntry.drawOffScale = aParent.drawOffScale;
 		Hotspot anAnchor = aParent.drawHotspot;
-		if( aParent.rangeCount > 1 )
+		if( aParent.rangeCount > 0 )
 		{// Rare case where the parent is itself a range of hotspots
 			anAnchor.x.offset = s16(clamp(int(
 				anAnchor.x.offset +
@@ -987,14 +991,14 @@ static void updateDrawHotspot(
 				(aParent.rangeCount-1) *
 				aParent.drawOffScale), -0x8000, 0x7FFF));
 		}
-		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.x.anchor == 0 )
+		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
 		{
 			theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
 			theEntry.drawHotspot.x.offset = s16(clamp(int(
 				theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
 				anAnchor.x.offset, -0x8000, 0x7FFF));
 		}
-		if( theEntry.rangeCount > 1 || theEntry.drawHotspot.y.anchor == 0 )
+		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
 		{
 			theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
 			theEntry.drawHotspot.y.offset = s16(clamp(int(
@@ -1296,12 +1300,13 @@ static void setEntryParent(
 	LayoutEntry& theEntry,
 	const StringToValueMap<u32>& theEntryNameMap)
 {
-	if( theEntry.rangeCount == 0 )
+	if( theEntry.rangeCount < 0 )
 		return;
-	std::string anArrayName = theEntry.item.name;
-	breakOffIntegerSuffix(anArrayName);
-	if( theEntry.rangeCount == 1 )
+
+	if( theEntry.rangeCount == 0 )
 	{// Search for an anchor to act as parent
+		std::string anArrayName = theEntry.item.name;
+		breakOffIntegerSuffix(anArrayName);
 		const u32* aParentIdx = theEntryNameMap.find(anArrayName);
 		if( aParentIdx )
 			theEntry.item.parentIndex = *aParentIdx;
@@ -1309,11 +1314,13 @@ static void setEntryParent(
 	}
 
 	// Search for previous index in the array
-	DBG_ASSERT(anArrayName[anArrayName.size()-1] == '-');
-	anArrayName.resize(anArrayName.size()-1);
-	const int anArrayStartIdx = breakOffIntegerSuffix(anArrayName);
-	DBG_ASSERT(anArrayStartIdx >= 0);
-	const int anArrayPrevIdx = anArrayStartIdx - 1;
+	int aRangeStartIdx, aRangeEndIdx;
+	std::string anArrayName;
+	fetchRangeSuffix(
+		theEntry.item.name, anArrayName,
+		aRangeStartIdx, aRangeEndIdx);
+	DBG_ASSERT(theEntry.rangeCount == 1 + aRangeEndIdx - aRangeStartIdx);
+	const int anArrayPrevIdx = aRangeStartIdx - 1;
 	const u32* aParentIdx = theEntryNameMap.find(
 		anArrayName + toString(anArrayPrevIdx));
 	if( aParentIdx )
@@ -1350,7 +1357,7 @@ static void addArrayEntries(
 	StringToValueMap<u32> anEntryNameToIdxMap;
 	for(int i = 0, end = intSize(aPropertyMap.size()); i < end; ++i)
 	{
-		aNewEntry.rangeCount = 0;
+		aNewEntry.rangeCount = -1;
 		aNewEntry.item.name = aPropertyMap.keys()[i];
 		aNewEntry.propName = aNewEntry.item.name;
 		std::string aKeyName = aNewEntry.item.name;
@@ -1370,20 +1377,23 @@ static void addArrayEntries(
 			aNewEntry.shape.h.empty() )
 		{// Possibly has a parent to offset from
 			aNewEntry.shape.w.clear();
-			const int anArrayEndIdx = breakOffIntegerSuffix(aKeyName);
-			if( anArrayEndIdx > 0 )
+			// Check for a range of values, like Name2-8
+			int aRangeStartIdx, aRangeEndIdx;
+			std::string aRangeName;
+			const bool isRange = fetchRangeSuffix(
+				aKeyName, aRangeName,
+				aRangeStartIdx, aRangeEndIdx);
+			if( aRangeEndIdx > 0 )
 			{
-				aNewEntry.rangeCount = 1;
-				int anArrayStartIdx = anArrayEndIdx;
-				if( aKeyName[aKeyName.size()-1] == '-' )
-				{// Part of a range of values, like Name2-8
-					aKeyName.resize(aKeyName.size()-1);
-					anArrayStartIdx = breakOffIntegerSuffix(aKeyName);
-				}
-				aNewEntry.rangeCount += anArrayEndIdx - anArrayStartIdx;
+				// 0 = only single index specified (-1 = none/is anchor)
+				aNewEntry.rangeCount = 0;
+				// If range specified (even single-value like "12-12"), then
+				// rangeCount = at least 1, or number of entries in the range
+				if( isRange )
+					aNewEntry.rangeCount = 1 + aRangeEndIdx - aRangeStartIdx;
 			}
 		}
-		if( aNewEntry.rangeCount == 0 && !aDesc.empty() && aDesc[0] == '*' )
+		if( aNewEntry.rangeCount < 0 && !aDesc.empty() && aDesc[0] == '*' )
 			aNewEntry.shape.offsetScale = trim(aDesc.substr(1));
 		else
 			aNewEntry.shape.offsetScale.clear();
@@ -1474,9 +1484,9 @@ static void tryFetchMenuHotspot(
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 void init()
 {
@@ -1589,8 +1599,12 @@ void init()
 	for(int i = LayoutEntry::eType_CategoryNum,
 		end = intSize(sState->entries.size()); i < end; ++i)
 	{
-		if( sState->entries[i].item.parentIndex >= LayoutEntry::eType_CategoryNum )
-			sState->entries[sState->entries[i].item.parentIndex].children.push_back(i);
+		if( sState->entries[i].item.parentIndex >=
+				LayoutEntry::eType_CategoryNum )
+		{
+			sState->entries[sState->entries[i].item.parentIndex]
+				.children.push_back(i);
+		}
 	}
 
 	sState->dialogItems.reserve(sState->entries.size());

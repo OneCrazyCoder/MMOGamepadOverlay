@@ -1,12 +1,12 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "Common.h"
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 std::string narrow(const wchar_t *s)
 {
@@ -471,17 +471,13 @@ std::string fetchNextItem(
 	#endif
 
 	std::string result;
-	if( thePosition >= theString.size() )
-		return result;
 
 	// Skip leading whitespace
 	while(thePosition < theString.size() && u8(theString[thePosition]) <= ' ' )
 		++thePosition;
 
-	if( thePosition >= theString.size() )
-		return result;
-
-	const char aQuoteChar = theString[thePosition];
+	const char aQuoteChar =
+		thePosition >= theString.size() ? '\0' : theString[thePosition];
 	bool isQuoted = aQuoteChar == '\'' || aQuoteChar == '"';
 	std::string::size_type aPos = 0;
 	if( isQuoted )
@@ -618,6 +614,41 @@ int breakOffIntegerSuffix(std::string& theString, bool allowJustInt)
 	{ theString.resize(theString.size()-1); }
 
 	return result;
+}
+
+
+bool fetchRangeSuffix(
+	const std::string& theString,
+	std::string& theRangeName,
+	int& theStart,
+	int& theEnd,
+	bool allowJustInt)
+{
+	// Break off integer suffix as end of range
+	theRangeName = theString;
+	theStart = theEnd = breakOffIntegerSuffix(theRangeName, allowJustInt);
+	bool isInRangeFormat = false;
+
+	if( theEnd >= 0 && theRangeName[theRangeName.size()-1] == '-' )
+	{// Possibly in range format like 'Name3-5'
+		isInRangeFormat = true;
+		theRangeName.resize(theRangeName.size()-1);
+		theStart = breakOffIntegerSuffix(theRangeName, allowJustInt);
+		if( theStart < 0 )
+		{
+			// If no theStart value, it means suffix is a negative integer
+			// (like 'Name-4'), which isn't valid, so revert to defaults
+			theRangeName = theString;
+			theStart = theEnd = -1;
+			isInRangeFormat = false;
+		}
+		else if( theStart > theEnd )
+		{
+			swap(theStart, theEnd);
+		}
+	}
+
+	return isInRangeFormat;
 }
 
 

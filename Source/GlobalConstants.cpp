@@ -1,12 +1,12 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "Common.h"
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Data Tables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 DBG_CTASSERT(eCmdType_Num <= 256);
 
@@ -171,7 +171,8 @@ int keyNameToVirtualKey(const std::string& theKeyName)
 				{ "Quote",			VK_OEM_7			},
 			};
 			// VK_PAUSE not included because it has special use/meaning
-			map.reserve(ARRAYSIZE(kEntries) + 10 /*num*/ + 10 /*numpad*/ + 12 /*F1-12*/);
+			map.reserve(ARRAYSIZE(kEntries)
+				+ 10 /*num*/ + 10 /*numpad*/ + 12 /*F1-12*/);
 			for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
 				map.setValue(kEntries[i].str, kEntries[i].val);
 			for(int i = 0; i <= 9; ++i)
@@ -465,7 +466,6 @@ EMenuItemType menuItemTypeNameToID(const std::string& theName)
 		NameToEnumMapper()
 		{
 			struct { const char* str; EMenuItemType val; } kEntries[] = {
-				{ "",						eMenuItemType_Default	},
 				{ "Rectangle",				eMenuItemType_Rect		},
 				{ "Rect",					eMenuItemType_Rect		},
 				{ "Block",					eMenuItemType_Rect		},
@@ -736,6 +736,12 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 	}
 
 	return *result;
+}
+
+
+bool isEffectivelyEmptyString(const std::string& theString)
+{
+	return commandWordToID(theString) == eCmdWord_Skip;
 }
 
 

@@ -1,4 +1,4 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	These were mostly all found around the internet as faster methods to do
 //	math functions by bit twiddling. Most were found from StackOverflow or
 //	http://graphics.stanford.edu/~seander/bithacks.html A few I made myself,
@@ -9,13 +9,13 @@
 //	basic implementation would be, since they have the side effect of making
 //	it difficult for a compiler to know what is trying to be accomplished and
 //	the compiler may have an even faster method of doing the same thing.
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Global Function Declarations
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 int numberOfSetBits(u32 val);
 int bitsRequired(u32 val); // aka position of most significant set bit + 1
@@ -30,7 +30,7 @@ int nextClearBit(const u32* bitArray, int sizeOfArrayInBits, int pos);
 int prevClearBit(const u32* bitArray, int sizeOfArrayInBits, int pos);
 
 
-/*-----------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
 	BitArray
 	--------
 
@@ -42,7 +42,7 @@ int prevClearBit(const u32* bitArray, int sizeOfArrayInBits, int pos);
 
 	WARNING: Does NOT initialize bits (is a POD type), need to manually clear
 	memory or use reset() to set all bits to false initially.
-//---------------------------------------------------------------------------*/
+//----------------------------------------------------------------------------*/
 template<u32 S> struct BitArray
 {
 	typedef BitArray<S> This;
@@ -90,7 +90,7 @@ template<u32 S> struct BitArray
 };
 
 
-/*-----------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
 	BitVector
 	---------
 
@@ -104,7 +104,7 @@ template<u32 S> struct BitArray
 	use instead. Actual initial capacity is rounded up to nearest multiple of
 	32 from what is specified in template, and when more is needed it only adds
 	32 bits at a time.
-//---------------------------------------------------------------------------*/
+//----------------------------------------------------------------------------*/
 template<u32 kInitialCapacityInBits = 32> class BitVector
 {
 public:
@@ -183,7 +183,7 @@ private:
 };
 
 
-/*-----------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
 	BitArray8
 	---------
 
@@ -193,7 +193,7 @@ private:
 
 	WARNING: Does NOT initialize bits (is a POD type), need to manually clear
 	memory or use reset() to set all bits to false initially.
-//---------------------------------------------------------------------------*/
+//----------------------------------------------------------------------------*/
 template<u32 S> struct BitArray8
 {
 	typedef BitArray8<S> This;
@@ -232,9 +232,9 @@ template<u32 S> struct BitArray8
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Global Function Definitions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 inline int numberOfSetBits(u32 val)
 {
@@ -362,9 +362,9 @@ inline int prevClearBit(const u32* bitArray, int size, int pos)
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	BitArray Definition
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 template<u32 S> inline void BitArray<S>::set()
 {
@@ -564,9 +564,9 @@ template<u32 S> inline int BitArray<S>::prevClearBit(int pos) const
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	BitVector Definition
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 template<u32 C> inline BitVector<C>::BitVector(size_t theSize)
 	:
@@ -988,9 +988,9 @@ template<u32 C> inline int BitVector<C>::prevClearBit(int pos) const
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	BitArray8 Definition
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 template<u32 S> inline void BitArray8<S>::set()
 {

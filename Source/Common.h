@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -117,7 +117,7 @@ struct conditional<false, T, F> { typedef F type; };
 	other memory like the vtable in the process. To work properly, this MUST be
 	the FIRST base class derived from or it will clobber the memory of other
 	base classes after they have constructed!
-	
+
 	Use with the syntax:
 	struct MyStruct : private ZeroInit<MyStruct>
 	or

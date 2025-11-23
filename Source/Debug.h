@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -25,7 +25,7 @@ bool hadFatalError();
 // Compile-time assert - use DBG_CTASSERT to make sure a const static condition
 // is true during compiling. Does not generate any actual code when used, just
 // spits out an error if condition is false.
-// Of particular use is making sure enums line up with tables with something like:
+// Of particular use is making sure enums line up with tables w/ something like:
 // DBG_CTASSERT(LENGTH(arrayName) == eArrayEnum_Num);
 #define DBG_CTASSERT( B ) \
    typedef static_assert_test<\

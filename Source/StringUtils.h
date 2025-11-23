@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -51,16 +51,21 @@ std::string getPathParams(const std::string& thePath);
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
 // Like above but always "breaks off" even if no/starting theChar (clears theString).
 std::string breakOffNextItem(std::string& theString, char theChar = ',');
-// Returns substring from thePosition to first theDelimiter, updating thePosition to
-// theDelimiter's position (or theString.size() if not found). Returned string is
-// trimmed. If entire string is quoted, theDelimiter is ignored inside the quoted
-// section, whitespace in the quotes is left as-is, and the outer quotes are removed.
+// Returns substring from thePosition to first theDelimiter (or .size()),
+// updating thePosition to theDelimiter's position. Returned string is trimmed.
+// If entire string is quoted, theDelimiter is ignored inside the quoted section,
+// whitespace in the quotes is left as-is, and the outer quote chars are removed.
 // Supports SQL style for quote chars inside quoted strings ('' or "" or '"' or "'").
 std::string fetchNextItem(
-	const std::string& theString, size_t& thePosition, const char* theDelimiter);
+	const std::string& theString, size_t& thePosition, const char* theDelimiter = ",");
 // If the string ends in a positive integer (and isn't entirely one if !allowJustInt),
 // returns that integer and removes those chars. Otherwise returns -1.
 int breakOffIntegerSuffix(std::string& theString, bool allowJustInt = false);
+// Converts an integer range suffix of positive integers into their component values,
+// such as "Name12-17" into "Name", 12, and 17 (or both 12 for just "Name12").
+// Returns true if was a valid range with 2 values (even if match like "Name15-15").
+bool fetchRangeSuffix(const std::string& theString, std::string& theRangeName,
+					  int& theStart, int& theEnd, bool allowJustInt = false);
 // Breaks the string into individual sub-strings of ASCII alphanumeric characters,
 // and appends them to the passed-in vector of strings. All other characters are
 // stripped and act as separators for each "word" except for hyphenated or under-

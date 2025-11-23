@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "Gamepad.h"
 
@@ -18,9 +18,9 @@ namespace Gamepad
 // Uncomment this to print details about detecting gamepads to debug window
 //#define GAMEPAD_DEBUG_PRINT
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum {
 kMaxGamepadsEnumerated = 8,
@@ -137,9 +137,9 @@ static const EAxis kDItoEAxis[eVendorID_Num][6][2] =
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // GamepadData
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(GamepadData)
 {
@@ -173,17 +173,17 @@ struct ZERO_INIT(GamepadData)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static Variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static GamepadData sGamepadData;
 static bool sNotifyWhenSelectGamepad = false;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #ifdef GAMEPAD_DEBUG_PRINT
 #define gamepadDebugPrint(...) debugPrint("Gamepad: " __VA_ARGS__)
@@ -234,12 +234,12 @@ static void filterInitialInputs(int theGamepadID)
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // This function was taken directly from MSDN wholesale!
 // Enum each PNP device using WMI and check each deviceID to see if it contains
 // "IG_" (ex. "VID_045E&PID_028E&IG_00"). If so, then it's an XInput device!
 // Unfortunately this information can not be found by just using DirectInput.
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 #include <wbemidl.h>
 #include <oleauto.h>
 #define SAFE_RELEASE(p) { if(p) { (p)->Release(); (p)=NULL; } }
@@ -710,7 +710,8 @@ static void pollGamepad(int theGamepadID)
 				aGamepad.buttonsDown.reset(eBtn_DUp);
 				aGamepad.buttonsDown.reset(eBtn_DDown);
 				aGamepad.buttonsDown.reset(eBtn_DPadAny);
-				if( (signed)rgdod[i].dwData != -1 && (LOWORD(rgdod[i].dwData) != 0xFFFF) )
+				if( (signed)rgdod[i].dwData != -1 &&
+					(LOWORD(rgdod[i].dwData) != 0xFFFF) )
 				{// A direction is being presed
 					if( rgdod[i].dwData >= 22500 && rgdod[i].dwData <= 31500 )
 					{// Left
@@ -843,7 +844,7 @@ static void pollGamepad(int theGamepadID)
 		}
 		else if( aGamepad.wasConnected )
 		{
-			// Controller was connected but no longer is - need to re-check controllers!
+			// Controller was connected but no longer is!
 			sGamepadData.disconnectDetected = true;
 			gamepadDebugPrint(
 				"Failed re-acquiring gamepad %s! Assuming disconnected...\n",
@@ -956,9 +957,9 @@ static BOOL CALLBACK enumDevicesCallback(LPCDIDEVICEINSTANCE lpddi, LPVOID)
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 void init(bool restartAfterDisconnect)
 {

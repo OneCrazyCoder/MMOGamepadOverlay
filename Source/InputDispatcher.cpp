@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "InputDispatcher.h"
 
@@ -18,9 +18,9 @@ namespace InputDispatcher
 // Uncomment this to stop sending actual input (can still print via above)
 //#define INPUT_DISPATCHER_SIMULATION_ONLY
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum {
 kMouseMaxSpeed = 256,
@@ -51,9 +51,9 @@ enum EAutoRunMode
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Structures
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct Input : public INPUT
 { Input() { ZeroMemory(this, sizeof(INPUT)); } };
@@ -73,9 +73,9 @@ struct ZERO_INIT(DispatchTask)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Config
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(Config)
 {
@@ -208,9 +208,9 @@ struct ZERO_INIT(Config)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // DispatchQueue - auto-capacity-exanding circular buffer
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class DispatchQueue
 {
@@ -345,7 +345,7 @@ public:
 	{
 		if( empty() )
 			return false;
-		
+
 		if( !mBuffer[mHead].slow )
 			return true;
 
@@ -473,9 +473,9 @@ private:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // DispatchTracker
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(DispatchTracker)
 {
@@ -530,17 +530,17 @@ struct ZERO_INIT(DispatchTracker)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static Config kConfig;
 static DispatchTracker sTracker;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 {
@@ -1152,7 +1152,7 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 		sStartTime = gAppRunTime - gAppFrameTime;
 		sTracker.mouseInterpolateUpdateDest = true;
 	}
-	
+
 	if( sTracker.mouseInterpolateUpdateDest )
 	{
 		const POINT& aDestPos =
@@ -1229,7 +1229,7 @@ static EMouseMode checkMouseLookModeTransitions()
 	if( sTracker.mouseModeExpected == eMouseMode_LookAuto )
 	{
 		EMouseMode aDesiredMode = sTracker.mouseMode;
-		
+
 		if( sTracker.moveKeysHeld.any() ||
 			sTracker.mouseLookNeededToStrafe ||
 			sTracker.autoRunMode != eAutoRunMode_Off )
@@ -1306,7 +1306,7 @@ static EMouseMode checkMouseLookModeTransitions()
 		{
 			return eMouseMode_LookTurn;
 		}
-		
+
 		sTracker.mouseModeExpected = eMouseMode_LookOnly;
 		return eMouseMode_LookOnly;
 	}
@@ -1858,9 +1858,9 @@ static void flushInputVector()
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 void loadProfile()
 {
@@ -2085,7 +2085,7 @@ void update()
 				// so just move it out of the way (bottom corner usually)
 				if( !sTracker.queue.mouseJumpQueued() )
 				{
-					sTracker.mouseJumpDest = 
+					sTracker.mouseJumpDest =
 						InputMap::getHotspot(eSpecialHotspot_MouseHidden);
 					sTracker.mouseJumpToMode = aNextMouseMode;
 					sTracker.mouseJumpToHotspot = true;
@@ -2098,7 +2098,7 @@ void update()
 				// attempt to move mouse to start actual look mode
 				if( !sTracker.queue.mouseJumpQueued() )
 				{
-					sTracker.mouseJumpDest = 
+					sTracker.mouseJumpDest =
 						InputMap::getHotspot(eSpecialHotspot_MouseLookStart);
 					sTracker.mouseJumpToMode = aNextMouseMode;
 					sTracker.mouseJumpToHotspot = true;
@@ -2760,7 +2760,7 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 			dx += lookX;
 		}
 	}
-	
+
 	// Possibly track and re-apply potentially chopped-off sub-pixel motion
 	// Sign of result of operator%() w/ negative dividend may differ by
 	// compiler, hence the extra sign checks in this section
@@ -3121,18 +3121,24 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		sTracker.autoRunMode == eAutoRunMode_LockedX ||
 		sTracker.autoRunMode == eAutoRunMode_LockedXY )
 	{// Continue using already-held keys for x axis
-		//moveKeysWantDown.set(eMoveKey_TL, sTracker.moveKeysHeld.test(eMoveKey_TL));
-		//moveKeysWantDown.set(eMoveKey_TR, sTracker.moveKeysHeld.test(eMoveKey_TR));
-		moveKeysWantDown.set(eMoveKey_SL, sTracker.moveKeysHeld.test(eMoveKey_SL));
-		moveKeysWantDown.set(eMoveKey_SR, sTracker.moveKeysHeld.test(eMoveKey_SR));
+		//moveKeysWantDown.set(eMoveKey_TL,
+		//	sTracker.moveKeysHeld.test(eMoveKey_TL));
+		//moveKeysWantDown.set(eMoveKey_TR,
+		//	sTracker.moveKeysHeld.test(eMoveKey_TR));
+		moveKeysWantDown.set(eMoveKey_SL,
+			sTracker.moveKeysHeld.test(eMoveKey_SL));
+		moveKeysWantDown.set(eMoveKey_SR,
+			sTracker.moveKeysHeld.test(eMoveKey_SR));
 	}
 	if( sTracker.autoRunMode == eAutoRunMode_StartLockY ||
 		sTracker.autoRunMode == eAutoRunMode_StartLockXY ||
 		sTracker.autoRunMode == eAutoRunMode_LockedY ||
 		sTracker.autoRunMode == eAutoRunMode_LockedXY )
 	{// Continue using already-held keys for y axis
-		moveKeysWantDown.set(eMoveKey_F, sTracker.moveKeysHeld.test(eMoveKey_F));
-		moveKeysWantDown.set(eMoveKey_B, sTracker.moveKeysHeld.test(eMoveKey_B));
+		moveKeysWantDown.set(eMoveKey_F,
+			sTracker.moveKeysHeld.test(eMoveKey_F));
+		moveKeysWantDown.set(eMoveKey_B,
+			sTracker.moveKeysHeld.test(eMoveKey_B));
 	}
 	if( autoRun && !InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
 	{// Force push forward when try auto run without an auto run key

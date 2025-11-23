@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "HotspotMap.h"
 
@@ -14,9 +14,9 @@ namespace HotspotMap
 // Uncomment this to print details about hotspot searches to debug window
 //#define HOTSPOT_MAP_DEBUG_PRINT
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum {
 // This value won't overflow a u32 when used with dist formula
@@ -73,9 +73,9 @@ enum ETask
 #endif
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Structures
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(TrackedPoint)
 {
@@ -90,9 +90,9 @@ struct ZERO_INIT(GridPos)
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static Variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static BitVector<32> sRequestedArrays;
 static BitVector<32> sActiveArrays;
@@ -117,9 +117,9 @@ static u32 sMinJumpDistSquared = kDefaultMinJumpDist * kDefaultMinJumpDist;
 static u32 sBestCandidateDistPenalty = 0xFFFFFFFF;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Row class - helper class for generating hotspot link maps
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum EHDir { eHDir_L, eHDir_R, eHDir_Num };
 enum EVDir { eVDir_U, eVDir_D, eVDir_Num };
@@ -313,9 +313,9 @@ private:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static void processTargetSizeTask()
 {
@@ -814,7 +814,7 @@ static void safeLinkHotspotRows(
 				const int aPrevYDist =
 					abs(aRow.avgY - theRows[aPrevRowIdx].avgY);
 				if( aPrevYDist < aNextYDist )
-					continue; // allow loop to process other dir instead 
+					continue; // allow loop to process other dir instead
 			}
 			Row& aNextRow = theRows[aRowIdx + dirDelta(aVDir)];
 
@@ -905,9 +905,9 @@ static void safeLinkHotspotRows(
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 void init()
 {
@@ -1102,7 +1102,7 @@ const Links& getLinks(int theMenuID)
 
 	// Sort the rows from top to bottom
 	std::sort(aRowVec.begin(), aRowVec.end());
-	
+
 	// Generate vertical links with guarantee all points can be reached
 	// (even if not always by the most convenient route)
 	safeLinkHotspotRows(aRowVec, 0, aRowCount);
@@ -1136,7 +1136,7 @@ const Links& getLinks(int theMenuID)
 						continue;
 					const u32 aDistPenalty =
 						aDistY + aDistX * kColumnXDistPenaltyMult;
-					if( aDistPenalty < aBestCandidateDistPenalty ) 
+					if( aDistPenalty < aBestCandidateDistPenalty )
 					{
 						aFromDot.vertLink[aVDir] = aToDot.pointID;
 						aBestCandidateDistPenalty = aDistPenalty;

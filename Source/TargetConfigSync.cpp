@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #include "TargetConfigSync.h"
 
@@ -15,9 +15,9 @@ namespace TargetConfigSync
 // Uncomment this to print details about config file syncing to debug window
 //#define TARGET_CONFIG_SYNC_DEBUG_PRINT
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Const Data
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 enum {
 kConfigFileBufferSize = 4096 // How many chars to stream from file per read
@@ -225,9 +225,9 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 #endif
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Structures
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 struct ZERO_INIT(SyncVariable)
 {
@@ -287,9 +287,9 @@ class ConfigDataReader;
 class ConfigDataParser;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Static Variables
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static std::vector<DataSource> sDataSources;
 static std::vector<ConfigFileFolder> sFolders;
@@ -314,9 +314,9 @@ static bool sPromptForWildcardFiles = false;
 static bool sForcePromptForWildcardFiles = false;
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // ConfigDataParser
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class ConfigDataParser
 {
@@ -388,9 +388,9 @@ protected:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // JSONParser
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class JSONParser : public ConfigDataParser
 {
@@ -730,9 +730,9 @@ private:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // INIParser
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class INIParser : public ConfigDataParser
 {
@@ -751,9 +751,9 @@ public:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // ConfigDataReader
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class ConfigDataReader
 {
@@ -785,9 +785,9 @@ protected:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // ConfigFileReader
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class ConfigFileReader : public ConfigDataReader
 {
@@ -842,7 +842,8 @@ public:
 			mDoneReading = mSourceWasBusy = true;
 			return;
 		default:
-			logToFile("Failed to get oplock read access to target config file %ls",
+			logToFile(
+				"Failed to get oplock read access to target config file %ls",
 				aDataSource.pathToRead.c_str());
 			mErrorEncountered = true;
 			return;
@@ -977,9 +978,9 @@ private:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // SystemRegistryValueReader
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class SystemRegistryValueReader : public ConfigDataReader
 {
@@ -987,7 +988,7 @@ public:
 	SystemRegistryValueReader(int theDataSourceID) :
 		ConfigDataReader(theDataSourceID),
 		mParsePos()
-	{	
+	{
 		DBG_ASSERT(size_t(theDataSourceID) < sDataSources.size());
 		const DataSource& aDataSource = sDataSources[theDataSourceID];
 		if( aDataSource.dataCache.empty() )
@@ -1031,9 +1032,9 @@ private:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // ConfigDataFinder
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class ConfigDataFinder
 {
@@ -1137,7 +1138,7 @@ protected:
 					}
 				}
 			}
-		
+
 			// Treat last selected candidate as having last mod time of
 			// at least sLastTimeWildcardFileSelected time, so it will
 			// be preferred over candidates that have newer modification
@@ -1162,7 +1163,7 @@ protected:
 				else if( aComp == 0 && i == aLastSelCandidateIdx )
 					aBestIdx = i; // last selected candidate is tie-breaker
 			}
-		
+
 			// If requested prompting for multiple found, and best candidate
 			// isn't the last one selected, and are in initialization phase,
 			// then bring up the dialog. Or if directly requested dialog.
@@ -1226,9 +1227,9 @@ protected:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // ConfigFileFinder
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class ConfigFileFinder : public ConfigDataFinder
 {
@@ -1384,9 +1385,9 @@ private:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // SystemRegistryValueFinder
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 class SystemRegistryValueFinder : public ConfigDataFinder
 {
@@ -1527,8 +1528,9 @@ public:
 				// Allocate name buffer
 				DWORD aMaxValueNameLen, aMaxSubkeyNameLen;
 				if( RegQueryInfoKey(
-						aKeyState.hKey, NULL, NULL, NULL, NULL, &aMaxSubkeyNameLen,
-						NULL, NULL, &aMaxValueNameLen, NULL, NULL, NULL)
+						aKeyState.hKey, NULL, NULL, NULL, NULL,
+						&aMaxSubkeyNameLen, NULL, NULL,
+						&aMaxValueNameLen, NULL, NULL, NULL)
 							!= ERROR_SUCCESS )
 				{
 					RegCloseKey(aKeyState.hKey);
@@ -1733,9 +1735,9 @@ private:
 };
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Local Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 static bool isRegistryPath(const std::string thePath)
 {
@@ -1772,7 +1774,7 @@ static bool monitoredPathExists(const std::wstring& thePath)
 
 		return false;
 	}
-	
+
 	return isValidFolderPath(thePath);
 }
 
@@ -2318,9 +2320,9 @@ static std::string getValueString(
 }
 
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // Global Functions
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 void load()
 {
@@ -2407,7 +2409,7 @@ void load()
 	std::vector<MonitoredFolder> aMonitoredFolderSet;
 	for(int i = 0; i < aBuilder.pathToLinkMapID.size(); ++i)
 	{
-		const int aValueLinkMapIdx = 
+		const int aValueLinkMapIdx =
 			aBuilder.pathToLinkMapID.values()[i];
 		DBG_ASSERT(aValueLinkMapIdx >= 0);
 		DBG_ASSERT(aValueLinkMapIdx < intSize(aBuilder.valueLinkMaps.size()));
@@ -2840,7 +2842,7 @@ void promptUserForSyncFileToUse()
 
 	load();
 
-	if( sForcePromptForWildcardFiles )		
+	if( sForcePromptForWildcardFiles )
 	{
 		Dialogs::showNotice(NULL,
 			"No selection necessary - all target config file path "

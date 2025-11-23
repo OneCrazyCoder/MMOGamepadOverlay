@@ -1,6 +1,6 @@
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 //	Originally written by Taron Millet, except where otherwise noted
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 
 #pragma once
 
@@ -152,7 +152,7 @@ enum EButtonAction
 	eBtnAct_Down,		// Action (key) held as long as button is held (if can)
 	eBtnAct_Press,		// First pushed (assigned action is just 'tapped')
 	eBtnAct_Hold,		// Held a short time (action tapped once)
-	eBtnAct_Tap,		// Released before _S/LHold triggers (action tapped once)
+	eBtnAct_Tap,		// Released before _Hold triggers (action tapped once)
 	eBtnAct_Release,	// Released (any hold time, action tapped once)
 
 	eBtnAct_Num
@@ -256,7 +256,6 @@ enum EMenuStyle
 
 enum EMenuItemType
 {
-	eMenuItemType_Default,
 	eMenuItemType_Rect,
 	eMenuItemType_RndRect,
 	eMenuItemType_Bitmap,
@@ -427,6 +426,7 @@ EMouseMode mouseModeNameToID(const std::string& theName);
 EMenuStyle menuStyleNameToID(const std::string& theName);
 EMenuItemType menuItemTypeNameToID(const std::string& theName);
 ECommandKeyWord commandWordToID(const std::string& theWord);
+bool isEffectivelyEmptyString(const std::string& theString);
 
 // Conversions between one constant value to another related one
 ECommandDir opposite8Dir(ECommandDir);
