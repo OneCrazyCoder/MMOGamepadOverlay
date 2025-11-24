@@ -70,7 +70,6 @@ const char* kAppVersionString = "Version: " __DATE__;
 const char* kPositionPropName = "Position";
 const char* kItemTypePropName = "ItemType";
 const char* kItemSizePropName = "ItemSize";
-const char* kSizePropName = "Size";
 const char* kAlignmentPropName = "Alignment";
 const char* kFontNamePropName = "Font";
 const char* kFontSizePropName = "FontSize";
@@ -127,7 +126,7 @@ struct ZERO_INIT(FontInfo)
 	int weight;
 
 	bool operator==(const FontInfo& rhs) const
-	{ return name == name && size == rhs.size && weight == rhs.weight; }
+	{ return name == rhs.name && size == rhs.size && weight == rhs.weight; }
 };
 
 struct ZERO_INIT(PenInfo)
@@ -135,6 +134,9 @@ struct ZERO_INIT(PenInfo)
 	HPEN handle;
 	COLORREF color;
 	int width;
+
+	bool operator==(const PenInfo& rhs) const
+	{ return color == rhs.color && width == rhs.width; }
 };
 
 struct ZERO_INIT(BitmapFileInfo)
@@ -150,7 +152,15 @@ struct ZERO_INIT(BitmapIcon)
 	HBITMAP mask;
 	POINT fileTL;
 	SIZE size;
-	u16 bitmapFileID;
+	u16 fileID;
+
+	bool operator==(const BitmapIcon& rhs) const
+	{
+		return
+			fileID == rhs.fileID &&
+			fileTL.x == rhs.fileTL.x && fileTL.y == rhs.fileTL.y &&
+			size.cx == rhs.size.cx && size.cy == rhs.size.cy;
+	}
 };
 
 struct ZERO_INIT(LabelIcon)
@@ -197,10 +207,18 @@ struct ZERO_INIT(MenuAppearance)
 	u16 flashMaxTime;
 	u16 fontID;
 	u8 radius;
-	u8 scaledRadius;
+	u8 baseRadius;
 
 	bool operator==(const MenuAppearance& rhs) const
-	{ return std::memcmp(this, &rhs, sizeof(MenuAppearance)) == 0; }
+	{
+		return
+			itemType == rhs.itemType &&
+			transColor == rhs.transColor &&
+			titleColor == rhs.titleColor &&
+			flashMaxTime == rhs.flashMaxTime &&
+			fontID == rhs.fontID &&
+			baseRadius == rhs.baseRadius;
+	}
 };
 
 struct ZERO_INIT(MenuItemAppearance)
@@ -214,7 +232,14 @@ struct ZERO_INIT(MenuItemAppearance)
 	u8 baseBorderSize;
 
 	bool operator==(const MenuItemAppearance& rhs) const
-	{ return std::memcmp(this, &rhs, sizeof(MenuItemAppearance)) == 0; }
+	{
+		return
+			baseColor == rhs.baseColor &&
+			labelColor == rhs.labelColor &&
+			borderColor == rhs.borderColor &&
+			bitmapIconID == rhs.bitmapIconID &&
+			baseBorderSize == rhs.baseBorderSize;
+	}
 };
 
 // Actual struct defined in WindowPainter.h
@@ -489,55 +514,80 @@ static SIZE getHotspotSize(int theHotspotID)
 }
 
 
-static void setLabelIcon(
-	const std::string& theTextLabel,
-	const std::string& theIconDesc,
-	bool ignoreRangeSuffix = false)
+static void createBaseFontHandle(FontInfo& theFontInfo)
 {
-	if( !ignoreRangeSuffix )
-	{// Possibly a range of labels specified as "Name1-12 = Something#"
-		int aRangeStartIdx, aRangeEndIdx;
-		std::string aLabelBaseName;
-		if( fetchRangeSuffix(
-				theTextLabel, aLabelBaseName,
-				aRangeStartIdx, aRangeEndIdx) )
-		{
-			for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
-			{
-				// Need local var because sending toString(i).c_str() is unsafe
-				const std::string& anIntStr = toString(i);
-				const std::string& aNumberedDesc = replaceAllStr(
-					theIconDesc, "#", anIntStr.c_str());
-				setLabelIcon(aLabelBaseName + anIntStr, aNumberedDesc, true);
-			}
-			return;
-		}
-	}
+	DBG_ASSERT(theFontInfo.handle == NULL);
+	const int aFontPointSize = int(gUIScale * theFontInfo.size);
+	HDC hdc = GetDC(NULL);
+	const int aFontHeight =
+		-MulDiv(aFontPointSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+	ReleaseDC(NULL, hdc);
+	// Below always succeeds with fallbacks even if the font name was
+	// typed in wrong, so don't need to report error back to user here
+	// (they'll just have to notice the font looks off and check the name)
+	theFontInfo.handle = CreateFont(
+		aFontHeight, // Height of the font
+		0, // Width of the font
+		0, // Angle of escapement
+		0, // Orientation angle
+		theFontInfo.weight, // Font weight
+		FALSE, // Italic
+		FALSE, // Underline
+		FALSE, // Strikeout
+		DEFAULT_CHARSET, // Character set identifier
+		OUT_DEFAULT_PRECIS, // Output precision
+		CLIP_DEFAULT_PRECIS, // Clipping precision
+		DEFAULT_QUALITY, // Output quality
+		DEFAULT_PITCH | FF_DONTCARE, // Pitch and family
+		widen(theFontInfo.name).c_str() // Font face name
+	);
+}
 
-	LabelIcon& anIconEntry = sLabelIcons.setValue(theTextLabel, LabelIcon());
-	
-	// Is the label description a bitmap, a section of bitmap, a hotspot, or ?
-	// Hotspot: HotSpotName
-	// Bitmap: BitmapName
-	// Bitmap Section: BitMapName: 0, 0, 50, 50
-	size_t aPos = 0;
-	const std::string& anAssetName = fetchNextItem(theIconDesc, aPos, ":");
-	int aFoundIndex = sBitmapFiles.findIndex(anAssetName);
-	if( aFoundIndex < sBitmapFiles.size() )
+
+static HPEN getBorderPenHandle(int theBorderWidth, COLORREF theBorderColor)
+{
+	PenInfo aPenInfo;
+	if( theBorderWidth <= 0 )
 	{
-		// TODO: Find/create bm icon entry that matches rest of description
-		return;
+		aPenInfo.width = 0;
+		aPenInfo.color = RGB(0, 0, 0);
 	}
-
-	aFoundIndex = InputMap::hotspotIDFromName(anAssetName);
-	if( !aFoundIndex )
+	else
 	{
-		// TODO - error, can't find bitmap or hotspot being referenced
-		return;
+		aPenInfo.width = theBorderWidth;
+		aPenInfo.color = theBorderColor;
 	}
+	for(int i = 0, end = intSize(sPens.size()); i < end; ++i)
+	{
+		if( sPens[i] == aPenInfo )
+			return sPens[i].handle;
+	}
+	aPenInfo.handle = CreatePen(
+		aPenInfo.width ? PS_INSIDEFRAME : PS_NULL,
+		aPenInfo.width,
+		aPenInfo.color);
+	sPens.push_back(aPenInfo);
+	return sPens.back().handle;
+}
 
-	anIconEntry.copyFromScreen = true;
-	anIconEntry.hotspotID = dropTo<u16>(aFoundIndex);
+
+static void loadBitmapFile(
+	const std::string& theEntryName,
+	const std::string& theBitmapDesc)
+{
+	// TODO
+}
+
+
+static int getOrCreateBitmapIconID(const std::string& theIconDesc)
+{
+	// TODO
+	// Do NOT report error here if bitmap name not found - just return 0
+	// and let calling code handle error, since this is used to check if it
+	// is a bitmap icon vs a hotspot copy-from-screen icon being described.
+	// If the description includes a region and coords are formatted wrong,
+	// though, then do report the issue with them here.
+	return 0;
 }
 
 
@@ -550,6 +600,8 @@ static int getOrCreateFontID(const FontInfo& theFontInfo)
 			return anID;
 	}
 	sFonts.push_back(theFontInfo);
+	// Initialize derived properties not used in the == comparison
+	createBaseFontHandle(sFonts.back());
 	return anID;
 }
 
@@ -592,6 +644,12 @@ static int getOrCreateBaseAppearanceID(
 			return anID;
 	}
 	sMenuAppearances.push_back(theMenuAppInfo);
+	// Initialize derived properties not used in the == comparison
+	if( sMenuAppearances.back().baseRadius || sMenuAppearances.back().radius )
+	{
+		sMenuAppearances.back().radius = u8(clamp(int(
+			sMenuAppearances.back().baseRadius * gUIScale), 0, 0xFF));
+	}
 	return anID;
 }
 
@@ -606,6 +664,18 @@ static int getOrCreateItemAppearanceID(
 			return anID;
 	}
 	sMenuItemAppearances.push_back(theItemAppInfo);
+	// Initialize derived properties not used in the == comparison
+	if( sMenuItemAppearances.back().baseBorderSize > 0 )
+	{
+		sMenuItemAppearances.back().borderSize = u8(clamp(int(
+			sMenuItemAppearances.back().baseBorderSize * gUIScale), 1, 0xFF));
+	}
+	if( !sMenuItemAppearances.back().borderPen )
+	{
+		sMenuItemAppearances.back().borderPen = getBorderPenHandle(
+			sMenuItemAppearances.back().borderSize,
+			sMenuItemAppearances.back().borderColor);
+	}
 	return anID;
 }
 
@@ -621,6 +691,51 @@ static int getOrCreateAlphaInfoID(
 	}
 	sMenuAlphaInfo.push_back(theAlphaInfo);
 	return anID;
+}
+
+
+static void setLabelIcon(
+	const std::string& theTextLabel,
+	const std::string& theIconDesc,
+	bool ignoreRangeSuffix = false)
+{
+	if( !ignoreRangeSuffix )
+	{// Possibly a range of labels specified as "Name1-12 = Something#"
+		int aRangeStartIdx, aRangeEndIdx;
+		std::string aLabelBaseName;
+		if( fetchRangeSuffix(
+				theTextLabel, aLabelBaseName,
+				aRangeStartIdx, aRangeEndIdx) )
+		{
+			for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
+			{
+				// Need local var because sending toString(i).c_str() is unsafe
+				const std::string& anIntStr = toString(i);
+				const std::string& aNumberedDesc = replaceAllStr(
+					theIconDesc, "#", anIntStr.c_str());
+				setLabelIcon(aLabelBaseName + anIntStr, aNumberedDesc, true);
+			}
+			return;
+		}
+	}
+
+	// Check if is a bitmap icon description
+	LabelIcon aNewIcon;
+	aNewIcon.bitmapIconID =
+		dropTo<u16>(getOrCreateBitmapIconID(theIconDesc));
+	if( !aNewIcon.bitmapIconID )
+	{// Nope! Copy-from-screen hotspot instead?
+		aNewIcon.hotspotID =
+			dropTo<u16>(InputMap::hotspotIDFromName(theIconDesc));
+		if( !aNewIcon.hotspotID )
+		{
+			// TODO - error, can't find bitmap or hotspot being referenced
+			return;
+		}
+		aNewIcon.copyFromScreen = true;
+	}
+
+	sLabelIcons.setValue(theTextLabel, aNewIcon);
 }
 
 
@@ -686,7 +801,7 @@ static void fetchMenuLayoutProperties(
 			/*otherwise*/					  eAlignment_Center;
 	}
 
-	if( PropString p = getPropString(thePropMap, kSizePropName) )
+	if( PropString p = getPropString(thePropMap, kItemSizePropName) )
 	{
 		theDestLayout.sizeX = u16(clamp(intFromString(
 			breakOffNextItem(p.str)), 0, 0xFFFF));
@@ -724,14 +839,6 @@ static void fetchBaseAppearanceProperties(
 	const Profile::PropertyMap& thePropMap,
 	MenuAppearance& theDestAppearance)
 {
-	//EMenuItemType itemType;
-	//COLORREF transColor;
-	//COLORREF titleColor;
-	//u16 flashMaxTime;
-	//u16 fontID;
-	//u8 radius;
-	//u8 scaledRadius;
-
 	if( PropString p = getPropString(thePropMap, kItemTypePropName) )
 	{
 		theDestAppearance.itemType = menuItemTypeNameToID(p.str);
@@ -750,8 +857,10 @@ static void fetchBaseAppearanceProperties(
 	if( theDestAppearance.itemType == eMenuItemType_RndRect )
 	{
 		if( PropString p = getPropString(thePropMap, kRadiusPropName) )
-			theDestAppearance.radius = u8(clamp(intFromString(p.str), 0, 0xFF));
-		theDestAppearance.scaledRadius = theDestAppearance.radius;
+		{
+			theDestAppearance.baseRadius =
+				u8(clamp(intFromString(p.str), 0, 0xFF));
+		}
 	}
 	
 	PropString aFontNameProp = getPropString(thePropMap, kFontNamePropName);
@@ -760,6 +869,7 @@ static void fetchBaseAppearanceProperties(
 	if( aFontNameProp || aFontSizeProp || aFontWeightProp )
 	{
 		FontInfo aNewFont = sFonts[theDestAppearance.fontID];
+		aNewFont.handle = NULL;
 		if( aFontNameProp ) aNewFont.name = aFontNameProp.str;
 		if( aFontSizeProp ) aNewFont.size = intFromString(aFontSizeProp.str);
 		if( aFontWeightProp )
@@ -769,12 +879,77 @@ static void fetchBaseAppearanceProperties(
 }
 
 
+static PropString getPropStringForDrawState(
+	const Profile::PropertyMap& thePropMap,
+	const std::string& thePropName,
+	EMenuItemDrawState theDrawState)
+{
+	PropString result = getPropString(thePropMap,
+		kDrawStatePrefix[theDrawState] + thePropName);
+	if( !result.valid )
+	{
+		switch(theDrawState)
+		{
+		case eMenuItemDrawState_FlashSelected:
+			// Try getting "flash" appearance version of this property
+			result = getPropString(thePropMap,
+				kDrawStatePrefix[eMenuItemDrawState_Flash] + thePropName);
+			if( result.valid )
+				break;
+			// If that didn't exist, try getting "selected" version
+			result = getPropString(thePropMap,
+				kDrawStatePrefix[eMenuItemDrawState_Selected] + thePropName);
+			if( result.valid )
+				break;
+			// Fall through
+		case eMenuItemDrawState_Selected:
+		case eMenuItemDrawState_Flash:
+			// Try getting normal appearance version of this property
+			result = getPropString(thePropMap, thePropName);
+			break;
+		}
+	}
+
+	return result;
+}
+
+
 static void fetchItemAppearanceProperties(
 	const Profile::PropertyMap& thePropMap,
 	MenuItemAppearance& theDestAppearance,
 	EMenuItemDrawState theDrawState)
 {
-	// TODO - including checking alternate draw states if property not found
+	if( PropString p = getPropStringForDrawState(
+			thePropMap, kItemColorPropName, theDrawState) )
+	{
+		theDestAppearance.baseColor = stringToRGB(p.str);
+	}
+	if( PropString p = getPropStringForDrawState(
+			thePropMap, kFontColorPropName, theDrawState) )
+	{
+		theDestAppearance.labelColor = stringToRGB(p.str);
+	}
+	if( PropString p = getPropStringForDrawState(
+			thePropMap, kBorderColorPropName, theDrawState) )
+	{
+		theDestAppearance.borderColor = stringToRGB(p.str);
+		theDestAppearance.borderPen = NULL;
+	}
+	if( PropString p = getPropStringForDrawState(
+			thePropMap, kBorderSizePropName, theDrawState) )
+	{
+		theDestAppearance.baseBorderSize =
+			u8(clamp(intFromString(p.str), 0, 0xFF));
+		theDestAppearance.borderSize = 0;
+		theDestAppearance.borderPen = NULL;
+	}
+	if( PropString p = getPropStringForDrawState(
+			thePropMap, kBitmapPropName, theDrawState) )
+	{
+		theDestAppearance.bitmapIconID =
+			dropTo<u16>(getOrCreateBitmapIconID(p.str));
+		// TODO - report error if get 0 back from above
+	}
 }
 
 
@@ -931,203 +1106,6 @@ static WindowAlphaInfo& getMenuAlphaInfo(int theMenuID)
 }
 
 
-static void createBaseFontHandle(FontInfo& theFontInfo)
-{
-	// TEMP
-	theFontInfo.handle = NULL;
-}
-
-
-static HPEN getBorderPenHandle(int theBorderWidth, COLORREF theBorderColor)
-{
-	// TEMP
-	return HPEN();
-}
-
-
-#if 0
-
-static std::string getNamedHUDPropStr(
-	const std::string& theName,
-	EHUDProperty theProperty,
-	u32 theAppearanceMode = eAppearanceMode_Normal,
-	bool recursive = false)
-{
-	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
-	std::string result;
-
-	if( theName.empty() )
-		return result;
-
-	const std::string& aPropName =
-		std::string(kAppearancePrefix[theAppearanceMode]) +
-		kHUDPropStr[theProperty];
-	const std::string& aSectSuffix = "." + theName;
-
-	// Try [Menu.Name] first since most HUD elements are likely Menus
-	result = Profile::getStr(kMenuSectionName + aSectSuffix, aPropName);
-	if( !result.empty() )
-		return result;
-
-	// Try [HUD.Name] next
-	result = Profile::getStr(kHUDSectionName + aSectSuffix, aPropName);
-	if( !result.empty() )
-		return result;
-
-	switch(theAppearanceMode)
-	{
-	case eAppearanceMode_FlashSelected:
-		// Try getting "flash" appearance version of this property
-		result = getNamedHUDPropStr(
-			theName, theProperty, eAppearanceMode_Flash, true);
-		if( !result.empty() )
-			return result;
-		// If that didn't exist, try getting "selected" version
-		result = getNamedHUDPropStr(
-			theName, theProperty, eAppearanceMode_Selected, true);
-		if( !result.empty() )
-			return result;
-		// Fall through
-	case eAppearanceMode_Selected:
-	case eAppearanceMode_Flash:
-		// Try getting normal appearance version of this property
-		if( !recursive )
-		{
-			result = getNamedHUDPropStr(
-				theName, theProperty, eAppearanceMode_Normal, true);
-		}
-		break;
-	}
-
-	return result;
-}
-
-
-static std::string getDefaultHUDPropStr(
-	EHUDProperty theProperty,
-	u32 theAppearanceMode = eAppearanceMode_Normal,
-	bool recursive = false)
-{
-	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
-	std::string result;
-	const std::string& aPropName =
-		std::string(kAppearancePrefix[theAppearanceMode]) +
-		kHUDPropStr[theProperty];
-
-	// Try just [HUD] for a default value
-	result = Profile::getStr(kHUDSectionName, aPropName);
-	if( !result.empty() )
-		return result;
-
-	// Maybe just [Menu] for default value?
-	result = Profile::getStr(kMenuSectionName, aPropName);
-	if( !result.empty() )
-		return result;
-
-	switch(theAppearanceMode)
-	{
-	case eAppearanceMode_FlashSelected:
-		// Trying getting "flash" version of appearance
-		result = getDefaultHUDPropStr(
-			theProperty, eAppearanceMode_Flash, true);
-		if( !result.empty() )
-			return result;
-		// If that didn't exist, try getting "selected" version
-		result = getDefaultHUDPropStr(
-			theProperty, eAppearanceMode_Selected, true);
-		if( !result.empty() )
-			return result;
-		// Fall through
-	case eAppearanceMode_Selected:
-	case eAppearanceMode_Flash:
-		// Get property use for normal appearance instead
-		if( !recursive )
-		{
-			result = getDefaultHUDPropStr(
-				theProperty, eAppearanceMode_Normal, true);
-		}
-		break;
-	}
-
-	return result;
-}
-
-
-static std::string getHUDPropStr(
-	const std::string& theName,
-	EHUDProperty theProperty,
-	u32 theAppearanceMode = eAppearanceMode_Normal)
-{
-	DBG_ASSERT(theAppearanceMode < eAppearanceMode_Num);
-	std::string result;
-
-	// Try specific named HUD Element first
-	result = getNamedHUDPropStr(theName, theProperty, theAppearanceMode);
-	if( !result.empty() )
-		return result;
-
-	// Try default setting under just [HUD] or [Menu]
-	result = getDefaultHUDPropStr(theProperty, theAppearanceMode);
-	return result;
-}
-
-
-static Hotspot strToHotspot(
-	const std::string& theString,
-	const std::string& theHUDElementName,
-	const EHUDProperty theHUDProperty)
-{
-	Hotspot result;
-	if( !theString.empty() )
-	{
-		std::string aStr = theString;
-		if( HotspotMap::stringToHotspot(aStr, result) != eResult_Ok )
-		{
-			logError(
-				"Error parsing HUD Element '%s' %s property: '%s' "
-				"- incorrect format?",
-				theHUDElementName.c_str(),
-				kHUDPropStr[theHUDProperty],
-				theString.c_str());
-		}
-	}
-	return result;
-}
-
-
-static void loadBitmapFile(
-	HUDBuilder& theBuilder,
-	const std::string& theBitmapName,
-	std::string theBitmapPath)
-{
-	if( theBitmapPath.empty() )
-		return;
-
-	// Convert given path into a wstring absolute path
-	theBitmapPath = removeExtension(toAbsolutePath(theBitmapPath)) + ".bmp";
-	const std::wstring aFilePathW = widen(theBitmapPath);
-
-	if( !isValidFilePath(aFilePathW) )
-	{
-		logError("Could not find requested bitmap file %s!",
-			theBitmapPath.c_str());
-		return;
-	}
-
-	HBITMAP aBitmapHandle = (HBITMAP)LoadImage(
-		NULL, aFilePathW.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
-	if( !aBitmapHandle )
-	{
-		logError("Could not load bitmap %s. Wrong file format?",
-			theBitmapPath.c_str());
-		return;
-	}
-
-	theBuilder.bitmapNameToHandleMap.setValue(theBitmapName, aBitmapHandle);
-}
-#endif
-
-
 static POINT hotspotToPoint(
 	const Hotspot& theHotspot,
 	const SIZE& theTargetSize)
@@ -1143,445 +1121,18 @@ static POINT hotspotToPoint(
 }
 
 
-#if 0
-static SIZE hotspotToSize(
-	const Hotspot& theHotspot,
-	const SIZE& theTargetSize)
+
+static void eraseRect(DrawData& dd, const RECT& theRect)
 {
-	POINT aPoint = hotspotToPoint(theHotspot, theTargetSize);
-	SIZE result;
-	result.cx = max(1L, aPoint.x);
-	result.cy = max(1L, aPoint.y);
-	return result;
-}
-
-
-static LONG hotspotUnscaledValue(
-	const Hotspot::Coord& theCoord,
-	const LONG theMaxValue)
-{
-	return
-		LONG(u16ToRangeVal(theCoord.anchor, theMaxValue)) +
-		LONG(theCoord.offset);
-}
-
-
-static LONG hotspotAnchorValue(
-	const Hotspot::Coord& theCoord,
-	const LONG theMaxValue)
-{
-	return LONG(u16ToRangeVal(theCoord.anchor, theMaxValue));
-}
-
-
-static u16 getOrCreatePenID(
-	HUDBuilder& theBuilder,
-	COLORREF theColor,
-	int theWidth)
-{
-	int theStyle = PS_INSIDEFRAME;
-	if( theWidth <= 0 )
-	{
-		theWidth = 0;
-		theStyle = PS_NULL;
-		theColor = RGB(0, 0, 0);
-	}
-	// Check for and return existing pen
-	HUDBuilder::PenDef aPenDef =
-		std::make_pair(theColor, std::make_pair(theStyle, theWidth));
-	u16 result = theBuilder.penDefToPenMap.findOrAdd(
-		aPenDef, dropTo<u16>(sPens.size()));
-	if( result < sPens.size() )
-		return result;
-
-	// Create new pen
-	HPEN aPen = CreatePen(theStyle, theWidth, theColor);
-	sPens.push_back(aPen);
-	return result;
-}
-
-
-static u16 getOrCreateFontID(
-	HUDBuilder& theBuilder,
-	const std::string& theFontName,
-	const std::string& theFontSize,
-	const std::string& theFontWeight)
-{
-	// Check for and return existing font
-	const std::string& aKeyStr =
-		theFontName + "_" + theFontSize + "_" + theFontWeight;
-	u16 result = theBuilder.fontInfoToFontIDMap.findOrAdd(
-		aKeyStr, dropTo<u16>(sFonts.size()));
-	if( result < sFonts.size() )
-		return result;
-
-	// Create new font
-	const int aFontPointSize = gUIScale *
-		intFromString(theFontSize);
-	HDC hdc = GetDC(NULL);
-	const int aFontHeight =
-		-MulDiv(aFontPointSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
-	ReleaseDC(NULL, hdc);
-	HFONT aFont = CreateFont(
-		aFontHeight, // Height of the font
-		0, // Width of the font
-		0, // Angle of escapement
-		0, // Orientation angle
-		intFromString(theFontWeight), // Font weight
-		FALSE, // Italic
-		FALSE, // Underline
-		FALSE, // Strikeout
-		DEFAULT_CHARSET, // Character set identifier
-		OUT_DEFAULT_PRECIS, // Output precision
-		CLIP_DEFAULT_PRECIS, // Clipping precision
-		DEFAULT_QUALITY, // Output quality
-		DEFAULT_PITCH | FF_DONTCARE, // Pitch and family
-		widen(theFontName).c_str() // Font face name
-	);
-	sFonts.push_back(aFont);
-	return result;
-}
-
-
-static u16 getOrCreateAppearanceID(const Appearance& theAppearance)
-{
-	for(u16 i = 0; i < sAppearances.size(); ++i)
-	{
-		if( sAppearances[i] == theAppearance )
-			return i;
-	}
-
-	sAppearances.push_back(theAppearance);
-	return dropTo<u16>(sAppearances.size()-1);
-}
-
-
-static size_t getOrCreateBuildIconEntry(
-	HUDBuilder& theBuilder,
-	const std::string& theIconDescription,
-	bool allowCopyFromTarget)
-{
-	if( theIconDescription.empty() )
-		return 0;
-
-	// The description could contain just the bitmap name, just a rectangle
-	// (to copy from target), or "bitmap : rect" format for both.
-	// First try getting the bitmap name
-	std::string aRectDesc = theIconDescription;
-	std::string aBitmapName = breakOffItemBeforeChar(aRectDesc, ':');
-	HBITMAP* hBitmapPtr = aBitmapName.empty()
-		? theBuilder.bitmapNameToHandleMap.find(theIconDescription)
-		: theBuilder.bitmapNameToHandleMap.find(aBitmapName);
-	BuildIconEntry aBuildEntry = BuildIconEntry();
-	aBuildEntry.srcFile = hBitmapPtr ? *hBitmapPtr : 0;
-
-	// If aBuildEntry.srcFile != null, a bitmap name was found
-	// If it wasn't separated by : (aBitmapName is empty), then full string
-	// was used, meaning there must not be any included rect description
-	if( aBuildEntry.srcFile && aBitmapName.empty() )
-		aRectDesc.clear();
-
-	// If separated by : (aBitmapName isn't empty) yet no bitmap found,
-	// the given name must be incorrect. Also, a proper bitmap handle is
-	// required if !allowCopyFromTarget.
-	if( !aBuildEntry.srcFile &&
-		(!aBitmapName.empty() || !allowCopyFromTarget) )
-	{
-		if( aBitmapName.empty() )
-			aBitmapName = theIconDescription;
-		logError("Could not find a [%s] entry '%s='!",
-			kBitmapsSectionName,
-			aBitmapName.c_str());
-		return 0;
-	}
-
-	// aRectDesc should now be empty, or contain two hotspots
-	EResult aHotspotParseResult = eResult_None;
-	if( !aRectDesc.empty() )
-	{
-		HotspotMap::stringToHotspot(aRectDesc, aBuildEntry.pos);
-		aHotspotParseResult =
-			HotspotMap::stringToHotspot(aRectDesc, aBuildEntry.size);
-	}
-
-	// Check for malformed entry
-	if( aBuildEntry.srcFile &&
-		aHotspotParseResult != eResult_Ok &&
-		aHotspotParseResult != eResult_None )
-	{
-		// Bitmap + rect specified yet rect didn't parse properly
-		// aRectDesc is modified during parse, so re-create it for error
-		aRectDesc = theIconDescription;
-		breakOffItemBeforeChar(aRectDesc, ':');
-		logError("Could not decipher bitmap source rect '%s'",
-			aRectDesc.c_str());
-		return 0;
-	}
-	if( !aBuildEntry.srcFile && aHotspotParseResult != eResult_Ok )
-	{
-		// No bitmap file, yet couldn't parse as a rect description
-		logError("Could not decipher bitmap/icon description '%s'",
-			theIconDescription.c_str());
-		return 0;
-	}
-
-	// Check if a duplicate of aBuildEntry was already created
-	for(size_t i = 0; i < theBuilder.iconBuilders.size(); ++i)
-	{
-		if( theBuilder.iconBuilders[i].srcFile == aBuildEntry.srcFile &&
-			theBuilder.iconBuilders[i].pos == aBuildEntry.pos &&
-			theBuilder.iconBuilders[i].size == aBuildEntry.size )
-			return i;
-	}
-
-	theBuilder.iconBuilders.push_back(aBuildEntry);
-	return theBuilder.iconBuilders.size()-1;
-}
-
-
-static void setBitmapIcon(IconEntry& theEntry, BuildIconEntry& theBuildEntry)
-{
-	if( !theBuildEntry.srcFile || theEntry.isUpToDate )
-		return;
-
-	// Create a bitmap in memory from portion of bitmap file
-	BITMAP bm;
-	GetObject(theBuildEntry.srcFile, sizeof(bm), &bm);
-	LONG x = 0, y = 0, w = bm.bmWidth, h = bm.bmHeight;
-	if( !(theBuildEntry.size == Hotspot()) )
-	{
-		// Hotspot to pixel conversions are endpoint-exclusive so add +1
-		x = clamp(hotspotUnscaledValue(theBuildEntry.pos.x, w+1), 0, w);
-		y = clamp(hotspotUnscaledValue(theBuildEntry.pos.y, h+1), 0, h);
-		w = clamp(hotspotUnscaledValue(theBuildEntry.size.x, w+1), 0, w-x);
-		h = clamp(hotspotUnscaledValue(theBuildEntry.size.y, h+1), 0, h-y);
-	}
-
-	// Copy over to the new bitmap
-	HDC hdcSrc = CreateCompatibleDC(NULL);
-	HBITMAP hOldSrcBitmap = (HBITMAP)
-		SelectObject(hdcSrc, theBuildEntry.srcFile);
-	HDC hdcDest = CreateCompatibleDC(NULL);
-	BitmapIcon aBitmapIcon = BitmapIcon();
-	aBitmapIcon.image = CreateCompatibleBitmap(hdcSrc, w, h);
-	aBitmapIcon.size.cx = w;
-	aBitmapIcon.size.cy = h;
-	HBITMAP hOldDestBitmap = (HBITMAP)
-		SelectObject(hdcDest, aBitmapIcon.image);
-
-	BitBlt(hdcDest, 0, 0, w, h, hdcSrc, x, y, SRCCOPY);
-
-	SelectObject(hdcSrc, hOldSrcBitmap);
-	DeleteDC(hdcSrc);
-	SelectObject(hdcDest, hOldDestBitmap);
-	DeleteDC(hdcDest);
-
-	if( theEntry.iconID == 0 )
-	{
-		sBitmapIcons.push_back(aBitmapIcon);
-		theEntry.iconID = dropTo<u16>(sBitmapIcons.size()-1);
-	}
-	else
-	{
-		DeleteObject(sBitmapIcons[theEntry.iconID].image);
-		DeleteObject(sBitmapIcons[theEntry.iconID].mask);
-		sBitmapIcons[theEntry.iconID] = aBitmapIcon;
-	}
-	theEntry.copyFromTarget = false;
-	theEntry.isUpToDate = true;
-	theBuildEntry.result = theEntry;
-}
-
-
-static void generateBitmapIconMask(BitmapIcon& theIcon, COLORREF theTransColor)
-{
-	BITMAP bm;
-	GetObject(theIcon.image, sizeof(BITMAP), &bm);
-	theIcon.mask = CreateBitmap(bm.bmWidth, bm.bmHeight, 1, 1, NULL);
-
-	HDC hdcImage = CreateCompatibleDC(NULL);
-	HDC hdcMask = CreateCompatibleDC(NULL);
-	SelectObject(hdcImage, theIcon.image);
-	SelectObject(hdcMask, theIcon.mask);
-
-	// Generate 1-bit - theTransColor areas become 1, opaque areas become 0
-	SetBkColor(hdcImage, theTransColor);
-	BitBlt(hdcMask, 0, 0, bm.bmWidth, bm.bmHeight, hdcImage, 0, 0, SRCCOPY);
-	// Change theTransColor pixels in the original image to black
-	BitBlt(hdcImage, 0, 0, bm.bmWidth, bm.bmHeight, hdcMask, 0, 0, SRCINVERT);
-
-	DeleteDC(hdcImage);
-	DeleteDC(hdcMask);
-}
-
-
-static void setCopyRect(IconEntry& theEntry, BuildIconEntry& theBuildEntry)
-{
-	if( theBuildEntry.srcFile || theEntry.isUpToDate )
-		return;
-
-	CopyRect aCopyRect = CopyRect();
-	aCopyRect.pos = theBuildEntry.pos;
-	aCopyRect.size = theBuildEntry.size;
-
-	if( theEntry.iconID == 0 )
-	{
-		sCopyRects.push_back(aCopyRect);
-		theEntry.iconID = dropTo<u16>(sCopyRects.size()-1);
-	}
-	else
-	{
-		sCopyRects[theEntry.iconID] = aCopyRect;
-	}
-	theEntry.copyFromTarget = true;
-	theEntry.isUpToDate = true;
-	theBuildEntry.result = theEntry;
-}
-
-
-static void setOffsetCopyRect(
-	IconEntry& theEntry,
-	const IconEntry& theBaseCopyRect,
-	const Hotspot& theOffsetHotspot)
-{
-	if( theEntry.isUpToDate && theEntry.copyFromTarget )
-		return;
-
-	CopyRect aCopyRect = CopyRect();
-	DBG_ASSERT(theBaseCopyRect.iconID < sCopyRects.size());
-	aCopyRect.pos = sCopyRects[theBaseCopyRect.iconID].pos;
-	aCopyRect.size = sCopyRects[theBaseCopyRect.iconID].size;
-	aCopyRect.pos.x.offset += theOffsetHotspot.x.offset;
-	aCopyRect.pos.y.offset += theOffsetHotspot.y.offset;
-
-	if( theEntry.iconID == 0 )
-	{
-		sCopyRects.push_back(aCopyRect);
-		theEntry.iconID = dropTo<u16>(sCopyRects.size()-1);
-	}
-	else
-	{
-		sCopyRects[theEntry.iconID] = aCopyRect;
-	}
-	theEntry.copyFromTarget = true;
-	theEntry.isUpToDate = true;
-}
-
-
-static u16 getOrCreateBitmapIconID(
-	HUDBuilder& theBuilder,
-	const std::string& theIconDescription)
-{
-	size_t anIconBuildID = getOrCreateBuildIconEntry(
-		theBuilder, theIconDescription, false);
-	if( anIconBuildID == 0 )
-		return 0;
-	BuildIconEntry& aBuildEntry = theBuilder.iconBuilders[anIconBuildID];
-	if( !aBuildEntry.srcFile )
-		return 0;
-	if( aBuildEntry.result.isUpToDate )
-		return aBuildEntry.result.iconID;
-	setBitmapIcon(aBuildEntry.result, aBuildEntry);
-	return aBuildEntry.result.iconID;
-}
-
-
-static IconEntry getOrCreateLabelIcon(
-	HUDBuilder& theBuilder,
-	const std::string& theTextLabel,
-	const std::string& theIconDescription,
-	bool usePrevIdxAsBase = false)
-{
-	std::string aTextLabel = theTextLabel;
-
-	// Check if might just be an offset from another copy icon
-	int anArrayIdx = breakOffIntegerSuffix(aTextLabel);
-	int aStartArrayIdx = anArrayIdx;
-	if( anArrayIdx > 0 )
-	{
-		if( aTextLabel[aTextLabel.size()-1] == '-' )
-		{
-			aTextLabel.resize(aTextLabel.size()-1);
-			aStartArrayIdx =
-				breakOffIntegerSuffix(aTextLabel);
-			usePrevIdxAsBase = true;
-		}
-		else if( IconEntry* anOldEntry =
-					sLabelIcons.find(aTextLabel + toString(anArrayIdx)) )
-		{
-			if( anOldEntry->isUpToDate )
-				return *anOldEntry;
-		}
-		Hotspot anOffset;
-		std::string anIconDesc(theIconDescription);
-		HotspotMap::stringToHotspot(anIconDesc, anOffset);
-		if( anIconDesc.empty() &&
-			anOffset.x.anchor == 0 && anOffset.y.anchor == 0 )
-		{// Find icon to use as a base to offset from
-			IconEntry aBaseIcon;
-			if( usePrevIdxAsBase )
-			{// Use aStartArrayIdx - 1 as base
-				std::string aBaseLabel =
-					aTextLabel + toString(aStartArrayIdx-1);
-				aBaseIcon = getOrCreateLabelIcon(
-					theBuilder, aBaseLabel,
-					Profile::getStr(kIconsSectionName, aBaseLabel));
-			}
-			else
-			{// Use un-numbered entry as base
-				aBaseIcon = getOrCreateLabelIcon(
-					theBuilder, aTextLabel,
-					Profile::getStr(kIconsSectionName, aTextLabel));
-			}
-			if( aBaseIcon.isUpToDate && aBaseIcon.copyFromTarget )
-			{
-				for(int i = aStartArrayIdx; i <= anArrayIdx; ++i)
-				{
-					IconEntry& anEntry = sLabelIcons.findOrAdd(
-						aTextLabel + toString(i), IconEntry());
-					setOffsetCopyRect(anEntry, aBaseIcon, anOffset);
-					aBaseIcon = anEntry;
-				}
-				return aBaseIcon;
-			}
-		}
-		// Restore full label
-		aTextLabel = theTextLabel;
-	}
-
-	IconEntry& anEntry = sLabelIcons.findOrAdd(aTextLabel, IconEntry());
-	if( anEntry.isUpToDate )
-		return anEntry;
-	size_t anIconBuildID = getOrCreateBuildIconEntry(
-		theBuilder, theIconDescription, true);
-	if( anIconBuildID == 0 )
-		return anEntry;
-	BuildIconEntry& aBuildEntry = theBuilder.iconBuilders[anIconBuildID];
-	if( aBuildEntry.result.isUpToDate )
-	{
-		anEntry = aBuildEntry.result;
-		return anEntry;
-	}
-	if( aBuildEntry.srcFile )
-	{
-		setBitmapIcon(anEntry, aBuildEntry);
-		return anEntry;
-	}
-	setCopyRect(anEntry, aBuildEntry);
-	return anEntry;
-}
-
-
-static void eraseRect(HUDDrawData& dd, const RECT& theRect)
-{
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	COLORREF oldColor = SetDCBrushColor(dd.hdc, hi.transColor);
+	const MenuAppearance& app = getMenuAppearance(dd.menuID);
+	COLORREF oldColor = SetDCBrushColor(dd.hdc, app.transColor);
 	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 	FillRect(dd.hdc, &theRect, hBrush);
 	SetDCBrushColor(dd.hdc, oldColor);
 }
 
 
+#if 0
 static void drawHUDRect(HUDDrawData& dd, const RECT& theRect)
 {
 	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
@@ -1605,7 +1156,7 @@ static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
 	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
 	SetDCBrushColor(dd.hdc, appearance.itemColor);
 
-	int aRadius = hi.scaledRadius;
+	int aRadius = hi.radius;
 	aRadius = min<int>(aRadius, (theRect.right-theRect.left) * 3 / 4);
 	aRadius = min<int>(aRadius, (theRect.bottom-theRect.top) * 3 / 4);
 
@@ -2101,10 +1652,10 @@ static void drawMenuTitle(
 		hi.appearanceID[eAppearanceMode_Normal]];
 	DBG_ASSERT(dd.components.size() > 1);
 	RECT aTitleRect = dd.components[0];
-	if( hi.radius > 0 && hi.itemType == eMenuItemType_RndRect )
+	if( hi.radius )
 	{
-		aTitleRect.left += hi.scaledRadius * 0.75;
-		aTitleRect.right -= hi.scaledRadius * 0.75;
+		aTitleRect.left += hi.radius * 0.75;
+		aTitleRect.right -= hi.radius * 0.75;
 	}
 	aTitleRect.bottom = theTitleBottomY;
 
@@ -2184,7 +1735,7 @@ static void drawMenuItem(
 
 	// Label (usually word-wrapped and centered text)
 	RECT aLabelRect = theRect;
-	int aBorderSize = hi.scaledRadius / 4;
+	int aBorderSize = hi.radius / 4;
 	int aMaxBorderSize = aBorderSize;
 	aBorderSize = max(aBorderSize, int(appearance.borderSize));
 	for(int i = 0; i < eAppearanceMode_Num; ++i)
@@ -2440,10 +1991,10 @@ static void drawHSGuide(HUDDrawData& dd)
 			const POINT& aHotspotPos = hotspotToPoint(
 				InputMap::getHotspot(aHotspotID), dd.targetSize);
 			const RECT aDrawRect = {
-				aHotspotPos.x - hi.radius,
-				aHotspotPos.y - hi.radius,
-				aHotspotPos.x + hi.radius,
-				aHotspotPos.y + hi.radius };
+				aHotspotPos.x - hi.baseRadius,
+				aHotspotPos.y - hi.baseRadius,
+				aHotspotPos.x + hi.baseRadius,
+				aHotspotPos.y + hi.baseRadius };
 			FillRect(dd.hdc, &aDrawRect, hBrush);
 		}
 	}
@@ -2613,12 +2164,16 @@ void init()
 		}
 	}
 
-	{// Prepare for loaded bitmap file handles
+	{// Load bitmap files
 		const Profile::PropertyMap& aPropMap =
 			Profile::getSectionProperties(kBitmapsSectionName);
 		sBitmapFiles.reserve(aPropMap.size());
 		for(int i = 0, end = aPropMap.size(); i < end; ++i)
-			sBitmapFiles.setValue(aPropMap.keys()[i], BitmapFileInfo());
+		{
+			loadBitmapFile(
+				aPropMap.keys()[i],
+				aPropMap.vals()[i].str);
+		}
 	}
 
 	{// Set up converting text labels to icons
@@ -2661,7 +2216,7 @@ void init()
 			dropTo<u16>(getOrCreateMenuPositionID(aMenuPos));
 	}
 
-	{// Add data for the  built-in _HotspotGuide menu
+	{// Add data for the built-in _HotspotGuide menu
 		DBG_ASSERT(InputMap::menuStyle(kHotspotGuideMenuID) ==
 			eMenuStyle_HotspotGuide);
 		DBG_ASSERT(InputMap::menuOverlayID(kHotspotGuideMenuID) ==
@@ -2677,7 +2232,7 @@ void init()
 			dropTo<u16>(getOrCreateAlphaInfoID(anAlphaInfo));
 		MenuAppearance anAppearance = sMenuAppearances[0];
 		anAppearance.itemType = eMenuItemType_Circle;
-		anAppearance.radius = dropTo<u8>(clamp((Profile::getInt(
+		anAppearance.baseRadius = dropTo<u8>(clamp((Profile::getInt(
 			aDefaultProps, "HotspotGuideSize", 6) / 2), 1, 255));
 		theHSGuideMenu.appearanceID =
 			dropTo<u16>(getOrCreateBaseAppearanceID(anAppearance));
@@ -2983,45 +2538,48 @@ void updateScaling()
 	if( sMenuDrawCache.empty() )
 		return;
 
-	// Clear fonts and border pens
+	// Clear auto-sized fonts and border pens so they'll regenerate at new scale
 	for(int i = 0, end = intSize(sAutoSizedFonts.size()); i < end; ++i)
 		DeleteObject(sAutoSizedFonts[i].handle);
+	sAutoSizedFonts.clear();
 	for(int i = 0, end = intSize(sPens.size()); i < end; ++i)
 		DeleteObject(sPens[i].handle);
-	sAutoSizedFonts.clear();
 	sPens.clear();
 
-	// Clear label cache data for each menu as labels are affect by scale
+	// Clear label cache data for each menu since they are affected by scale
 	for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
 		sMenuDrawCache[i].labelCache.clear();
 
-	// TODO: Update hotspot sizes
+	// TODO: Update things affected by hotspot sizes
 
-	// Update scaled Radius for each Menu Appearance
+	// Update radius scaling for each MenuAppearance
 	for(int i = 0, end = intSize(sMenuAppearances.size()); i < end; ++i)
 	{
 		MenuAppearance& aMenuApp = sMenuAppearances[i];
-		aMenuApp.scaledRadius = dropTo<u8>(
-			aMenuApp.radius * gUIScale);
+		if( aMenuApp.baseRadius || aMenuApp.radius )
+		{
+			aMenuApp.radius = u8(clamp(int(
+				aMenuApp.baseRadius * gUIScale), 0, 0xFF));
+		}
 	}
 
-	// Recreate base font handle for each base menu font
-	for(int i = 0, end = intSize(sFonts.size()); i < end; ++i)
+	// Re-create base font handle for each base menu font (skip dummy 0th font)
+	for(int i = 1, end = intSize(sFonts.size()); i < end; ++i)
 	{
 		DeleteObject(sFonts[i].handle);
 		sFonts[i].handle = NULL;
 		createBaseFontHandle(sFonts[i]);
 	}
 
-	// Update border pen for each Menu Item Appearance
+	// Update border pen for each MenuItemAppearance
 	for(int i = 0, end = intSize(sMenuItemAppearances.size()); i < end; ++i)
 	{
 		MenuItemAppearance& aMenuItemApp = sMenuItemAppearances[i];
 		aMenuItemApp.borderSize = 0;
 		if( aMenuItemApp.baseBorderSize > 0 )
 		{
-			aMenuItemApp.borderSize = dropTo<u8>(max(1.0,
-				aMenuItemApp.baseBorderSize * gUIScale));
+			aMenuItemApp.borderSize = u8(clamp(int(
+				aMenuItemApp.baseBorderSize * gUIScale), 1, 0xFF));
 		}
 		aMenuItemApp.borderPen = getBorderPenHandle(
 			aMenuItemApp.borderSize,
@@ -3089,8 +2647,8 @@ void paintWindowContents(
 	}
 	#endif // _DEBUG
 
-	//if( needsInitialErase )
-	//	eraseRect(dd, ps.rects[0]);
+	if( needsInitialErase )
+		eraseRect(dd, ps.rects[0]);
 
 	switch(aMenuStyle)
 	{
