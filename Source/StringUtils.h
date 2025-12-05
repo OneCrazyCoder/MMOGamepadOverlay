@@ -27,10 +27,11 @@ std::string lower(const std::string& theString);
 // hyphenated words (L-Click to LClick), but number ranges like "8-12" are left
 std::string condense(const std::string& theString);
 // Replace all instances of a specific char with a different one
-std::string replaceChar(const std::string& theString, char oldChar, char newChar);
+std::string replaceChar(const std::string& theString, char oldC, char newC);
 // Replace all instances of a specific string with a different one
-std::string replaceAllStr(const std::string& theString, const char* oldStr, const char* newStr);
-// Checks if a string matches a pattern using *'s as wildcards (case-insensitive)
+std::string replaceAllStr(
+	const std::string& theString, const char* oldStr, const char* newStr);
+// Checks if string matches a pattern using *'s as wildcards (case-insensitive)
 // Result is empty if none found, or contains the sub-strings that matched with
 // each '*' character (with a '*' in result for end of each matched sub-string).
 std::wstring wildcardMatch(const wchar_t* theString, const wchar_t* thePattern);
@@ -41,7 +42,7 @@ std::string safeFileName(const std::string& theFileName);
 std::string getFileDir(const std::string& thePath, bool withSlash = false);
 std::string getExtension(const std::string& thePath);
 std::string removeExtension(const std::string& thePath);
-std::string withExtension(const std::string& thePath, const std::string& theExt);
+std::string withExtension(const std::string& thePath, const std::string& ext);
 std::string getPathParams(const std::string& thePath);
 
 // Returns string before first theChar, and removes it+theChar from theString
@@ -49,38 +50,40 @@ std::string getPathParams(const std::string& thePath);
 // If theChar is not found or is the first non-whitespace character,
 // returns empty string and only trims whitespace from beginning of theString.
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
-// Like above but always "breaks off" even if no/starting theChar (clears theString).
+// Always "breaks off" version, even if no/starting theChar (clears theString).
 std::string breakOffNextItem(std::string& theString, char theChar = ',');
-// Returns substring from thePosition to first theDelimiter (or .size()),
-// updating thePosition to theDelimiter's position. Returned string is trimmed.
-// If entire string is quoted, theDelimiter is ignored inside the quoted section,
-// whitespace in the quotes is left as-is, and the outer quote chars are removed.
-// Supports SQL style for quote chars inside quoted strings ('' or "" or '"' or "'").
+// Returns substring from thePosition to just before first theDelimiter or end
+// of string, and updates thePosition to char just after Delimiter (or size()).
+// Returned string is trimmed.
+// If entire string is quoted, theDelimiter is ignored inside quoted section,
+// whitespace in the quotes is left as-is, and the outer quotes are stripped.
+// Supports SQL style for quote chars inside quoted strings ("" or '"' etc).
 std::string fetchNextItem(
-	const std::string& theString, size_t& thePosition, const char* theDelimiter = ",");
-// If the string ends in a positive integer (and isn't entirely one if !allowJustInt),
+	const std::string&, size_t& thePosition, const char* theDelimiter = ",");
+// If the string ends in a positive integer (and isn't entirely one),
 // returns that integer and removes those chars. Otherwise returns -1.
+// allowJustInt must be true to work for a string that is entirely an integer.
 int breakOffIntegerSuffix(std::string& theString, bool allowJustInt = false);
-// Converts an integer range suffix of positive integers into their component values,
+// Converts an integer range suffix of positive integers into their components,
 // such as "Name12-17" into "Name", 12, and 17 (or both 12 for just "Name12").
-// Returns true if was a valid range with 2 values (even if match like "Name15-15").
+// Returns true if was a valid range with 2 values (even for i.e. "Name12-12").
 bool fetchRangeSuffix(const std::string& theString, std::string& theRangeName,
 					  int& theStart, int& theEnd, bool allowJustInt = false);
-// Breaks the string into individual sub-strings of ASCII alphanumeric characters,
+// Breaks the string into individual sub-strings of ASCII alphanumeric chars,
 // and appends them to the passed-in vector of strings. All other characters are
-// stripped and act as separators for each "word" except for hyphenated or under-
-// scored words which are conjoined (Left-Click or Left_Click becomes LeftClick).
-void sanitizeSentence(const std::string& theString, std::vector<std::string>& out);
-// Finds first character in theString that is after thePrefix, even if upper/lower
-// case does not match or whitespace (including '_' and '-') differs between them.
-// Returns 0 if theString does not start with entire prefix or the prefix is empty
-size_t posAfterPrefix(const std::string& theString, const std::string& thePrefix);
-bool hasPrefix(const std::string& theString, const std::string& thePrefix);
-// Finds the first most-nested string "tag" such as ${TagContents} or <TagContents>
-// and returns its start pos and length (which include theTagSttart/End chars).
-// If no tags are found, .first will be set to std::string::npos and .second to 0
+// stripped and act as separators for each "word" (except for hyphenated or
+// under-scored words which are conjoined (i.e. Left-Click becomes LeftClick).
+void sanitizeSentence(const std::string&, std::vector<std::string>& out);
+// Finds first character in theString that is after thePrefix, even if casing
+// or whitespace (including '_' and '-') differs between them.
+// Returns 0 if theString does not start with entire prefix or prefix is empty
+size_t posAfterPrefix(const std::string&, const std::string& thePrefix);
+bool hasPrefix(const std::string&, const std::string& thePrefix);
+// Finds the first most-nested string "tag" (${TagContents}, <TagContents>, etc)
+// and returns its start pos and length (which include theTagStart/End chars).
+// If no tags are found, .first will be set to npos and .second to 0
 std::pair<std::string::size_type, std::string::size_type>
-findStringTag(const std::string& theString, std::string::size_type theStartPos = 0,
+findStringTag(const std::string&, std::string::size_type theStartPos = 0,
 			  const char* theTagStart = "<", const char theTagEnd = '>');
 
 // Conversion between numbers and (pure ASCII) strings

@@ -242,7 +242,7 @@ inline int numberOfSetBits(u32 val)
 		return int(__builtin_popcount(val));
 	#else
 		// Algorithm taken from
-		// http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+		// http://graphics.stanford.edu/~seander/bithacks.html
 		val = val - ((val >> 1) & 0x55555555);
 		val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
 		return int((((val + (val >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24);

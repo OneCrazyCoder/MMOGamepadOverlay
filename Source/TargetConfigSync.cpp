@@ -218,12 +218,6 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 	return result ? *result : eValueFunc_Num;
 }
 
-#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
-#define syncDebugPrint(...) debugPrint("TargetConfigSync: " __VA_ARGS__)
-#else
-#define syncDebugPrint(...) ((void)0)
-#endif
-
 
 //------------------------------------------------------------------------------
 // Local Structures
@@ -312,6 +306,17 @@ static bool sInitialized = false;
 static bool sPaused = false;
 static bool sPromptForWildcardFiles = false;
 static bool sForcePromptForWildcardFiles = false;
+
+
+//------------------------------------------------------------------------------
+// Debugging
+//------------------------------------------------------------------------------
+
+#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
+#define syncDebugPrint(...) debugPrint("TargetConfigSync: " __VA_ARGS__)
+#else
+#define syncDebugPrint(...) ((void)0)
+#endif
 
 
 //------------------------------------------------------------------------------
@@ -2342,20 +2347,20 @@ void load()
 		kLastTimeFileSelectedPropertyName));
 
 	{// Fetch target config paths potentially containing sync properties
-		const Profile::PropertyMap& aPropMap =
+		Profile::PropertyMapPtr aPropMap =
 			Profile::getSectionProperties(kTargetConfigFilesSectionName);
-		aBuilder.nameToLinkMapID.reserve(aPropMap.size());
-		aBuilder.pathToLinkMapID.reserve(aPropMap.size());
-		aBuilder.valueLinkMaps.reserve(aPropMap.size());
-		for(int i = 0; i < aPropMap.size(); ++i)
+		aBuilder.nameToLinkMapID.reserve(aPropMap->size());
+		aBuilder.pathToLinkMapID.reserve(aPropMap->size());
+		aBuilder.valueLinkMaps.reserve(aPropMap->size());
+		for(int i = 0; i < aPropMap->size(); ++i)
 		{
 			const int aLinkMapID = aBuilder.pathToLinkMapID.findOrAdd(
-				normalizedPath(aPropMap.vals()[i].str),
+				normalizedPath(aPropMap->vals()[i].str),
 				intSize(aBuilder.valueLinkMaps.size()));
 			if( aLinkMapID >= intSize(aBuilder.valueLinkMaps.size()) )
 				aBuilder.valueLinkMaps.push_back(ValueLinkMap());
 			aBuilder.nameToLinkMapID.setValue(
-				aPropMap.keys()[i], aLinkMapID);
+				aPropMap->keys()[i], aLinkMapID);
 		}
 	}
 
@@ -2372,24 +2377,24 @@ void load()
 	}
 
 	{// Fetch sync variable values to read from the data sources
-		const Profile::PropertyMap& aPropMap =
+		Profile::PropertyMapPtr aPropMap =
 			Profile::getSectionProperties(kTargetConfigVarsSectionName);
-		for(int i = 0; i < aPropMap.size(); ++i)
+		for(int i = 0; i < aPropMap->size(); ++i)
 		{
-			aBuilder.debugString = aPropMap.keys()[i];
+			aBuilder.debugString = aPropMap->keys()[i];
 			aBuilder.debugString += " = ";
-			aBuilder.debugString += aPropMap.vals()[i].str;
+			aBuilder.debugString += aPropMap->vals()[i].str;
 			SyncVariable aSyncVar = parseSyncVariableFunc(
 				aBuilder,
-				aPropMap.vals()[i].str);
+				aPropMap->vals()[i].str);
 			if( aSyncVar.valueSetID < 0 )
 				continue;
 			aSyncVar.variableID =
-				Profile::variableNameToID(aPropMap.keys()[i]);
+				Profile::variableNameToID(aPropMap->keys()[i]);
 			if( aSyncVar.variableID < 0 )
 			{
 				logError("Unknown variable name '%s' in %s.",
-					aPropMap.keys()[i].c_str(),
+					aPropMap->keys()[i].c_str(),
 					aBuilder.debugString.c_str());
 				continue;
 			}

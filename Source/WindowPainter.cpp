@@ -266,7 +266,7 @@ bool WindowAlphaInfo::operator==(const WindowAlphaInfo& rhs) const
 struct ZERO_INIT(ResizedFontInfo)
 {
 	HFONT baseFontHandle, handle;
-	int altSize;
+	LONG altSize;
 };
 
 struct StringScaleCacheEntry
@@ -300,9 +300,11 @@ struct MenuCacheEntry
 	u16 appearanceID;
 	u16 itemAppearanceID[eMenuItemDrawState_Num];
 	u16 alphaInfoID;
+	s16 maxBorderSize;
 
 	MenuCacheEntry()
 	{
+		maxBorderSize = -1;
 		positionID = layoutID = appearanceID = alphaInfoID = kInvalidID;
 		for(int i = 0; i < eMenuItemDrawState_Num; ++i)
 			itemAppearanceID[i] = kInvalidID;
@@ -496,22 +498,22 @@ static void setHotspotSizes(
 }
 
 
-static SIZE getHotspotSize(int theHotspotID)
-{
-	SIZE result = {0, 0};
-	for(int i = 0, end = intSize(sHotspotSizes.size()); i < end; ++i)
-	{
-		if( i >= sHotspotSizes[i].firstHotspotID &&
-			i <= sHotspotSizes[i].lastHotspotID )
-		{
-			result.cx = sHotspotSizes[i].width;
-			result.cy = sHotspotSizes[i].height;
-			return result;
-		}
-	}
-
-	return result;
-}
+//static SIZE getHotspotSize(int theHotspotID)
+//{
+//	SIZE result = {0, 0};
+//	for(int i = 0, end = intSize(sHotspotSizes.size()); i < end; ++i)
+//	{
+//		if( theHotspotID >= sHotspotSizes[i].firstHotspotID &&
+//			theHotspotID <= sHotspotSizes[i].lastHotspotID )
+//		{
+//			result.cx = sHotspotSizes[i].width;
+//			result.cy = sHotspotSizes[i].height;
+//			return result;
+//		}
+//	}
+//
+//	return result;
+//}
 
 
 static void createBaseFontHandle(FontInfo& theFontInfo)
@@ -572,14 +574,14 @@ static HPEN getBorderPenHandle(int theBorderWidth, COLORREF theBorderColor)
 
 
 static void loadBitmapFile(
-	const std::string& theEntryName,
-	const std::string& theBitmapDesc)
+	const std::string& /*theEntryName*/,
+	const std::string& /*theBitmapDesc*/)
 {
 	// TODO
 }
 
 
-static int getOrCreateBitmapIconID(const std::string& theIconDesc)
+static int getOrCreateBitmapIconID(const std::string& /*theIconDesc*/)
 {
 	// TODO
 	// Do NOT report error here if bitmap name not found - just return 0
@@ -600,7 +602,6 @@ static int getOrCreateFontID(const FontInfo& theFontInfo)
 			return anID;
 	}
 	sFonts.push_back(theFontInfo);
-	// Initialize derived properties not used in the == comparison
 	createBaseFontHandle(sFonts.back());
 	return anID;
 }
@@ -644,12 +645,6 @@ static int getOrCreateBaseAppearanceID(
 			return anID;
 	}
 	sMenuAppearances.push_back(theMenuAppInfo);
-	// Initialize derived properties not used in the == comparison
-	if( sMenuAppearances.back().baseRadius || sMenuAppearances.back().radius )
-	{
-		sMenuAppearances.back().radius = u8(clamp(int(
-			sMenuAppearances.back().baseRadius * gUIScale), 0, 0xFF));
-	}
 	return anID;
 }
 
@@ -664,18 +659,6 @@ static int getOrCreateItemAppearanceID(
 			return anID;
 	}
 	sMenuItemAppearances.push_back(theItemAppInfo);
-	// Initialize derived properties not used in the == comparison
-	if( sMenuItemAppearances.back().baseBorderSize > 0 )
-	{
-		sMenuItemAppearances.back().borderSize = u8(clamp(int(
-			sMenuItemAppearances.back().baseBorderSize * gUIScale), 1, 0xFF));
-	}
-	if( !sMenuItemAppearances.back().borderPen )
-	{
-		sMenuItemAppearances.back().borderPen = getBorderPenHandle(
-			sMenuItemAppearances.back().borderSize,
-			sMenuItemAppearances.back().borderColor);
-	}
 	return anID;
 }
 
@@ -740,7 +723,7 @@ static void setLabelIcon(
 
 
 static inline PropString getPropString(
-	const Profile::PropertyMap& thePropMap,
+	Profile::PropertyMapPtr thePropMap,
 	const std::string& thePropName)
 {
 	PropString result;
@@ -765,7 +748,7 @@ static COLORREF stringToRGB(const std::string& theColorString)
 
 
 static void fetchMenuPositionProperties(
-	const Profile::PropertyMap& thePropMap,
+	Profile::PropertyMapPtr thePropMap,
 	MenuPosition& theDestPosition)
 {
 	if( PropString p = getPropString(thePropMap, kPositionPropName) )
@@ -783,7 +766,7 @@ static void fetchMenuPositionProperties(
 
 
 static void fetchMenuLayoutProperties(
-	const Profile::PropertyMap& thePropMap,
+	Profile::PropertyMapPtr thePropMap,
 	MenuLayout& theDestLayout)
 {
 	if( PropString p = getPropString(thePropMap, kAlignmentPropName) )
@@ -836,7 +819,7 @@ static void fetchMenuLayoutProperties(
 
 
 static void fetchBaseAppearanceProperties(
-	const Profile::PropertyMap& thePropMap,
+	Profile::PropertyMapPtr thePropMap,
 	MenuAppearance& theDestAppearance)
 {
 	if( PropString p = getPropString(thePropMap, kItemTypePropName) )
@@ -860,6 +843,8 @@ static void fetchBaseAppearanceProperties(
 		{
 			theDestAppearance.baseRadius =
 				u8(clamp(intFromString(p.str), 0, 0xFF));
+			theDestAppearance.radius = u8(clamp(int(
+				theDestAppearance.baseRadius * gUIScale), 0, 0xFF));
 		}
 	}
 	
@@ -880,7 +865,7 @@ static void fetchBaseAppearanceProperties(
 
 
 static PropString getPropStringForDrawState(
-	const Profile::PropertyMap& thePropMap,
+	Profile::PropertyMapPtr thePropMap,
 	const std::string& thePropName,
 	EMenuItemDrawState theDrawState)
 {
@@ -915,7 +900,7 @@ static PropString getPropStringForDrawState(
 
 
 static void fetchItemAppearanceProperties(
-	const Profile::PropertyMap& thePropMap,
+	Profile::PropertyMapPtr thePropMap,
 	MenuItemAppearance& theDestAppearance,
 	EMenuItemDrawState theDrawState)
 {
@@ -942,6 +927,11 @@ static void fetchItemAppearanceProperties(
 			u8(clamp(intFromString(p.str), 0, 0xFF));
 		theDestAppearance.borderSize = 0;
 		theDestAppearance.borderPen = NULL;
+		if( theDestAppearance.baseBorderSize > 0 )
+		{
+			theDestAppearance.borderSize = u8(clamp(int(
+				theDestAppearance.baseBorderSize * gUIScale), 1, 0xFF));
+		}
 	}
 	if( PropString p = getPropStringForDrawState(
 			thePropMap, kBitmapPropName, theDrawState) )
@@ -950,30 +940,37 @@ static void fetchItemAppearanceProperties(
 			dropTo<u16>(getOrCreateBitmapIconID(p.str));
 		// TODO - report error if get 0 back from above
 	}
+
+	if( !theDestAppearance.borderPen )
+	{
+		theDestAppearance.borderPen = getBorderPenHandle(
+			theDestAppearance.borderSize,
+			theDestAppearance.borderColor);
+	}
 }
 
 
 static void fetchAlphaFadeProperties(
-	const Profile::PropertyMap& thePropMap,
+	Profile::PropertyMapPtr thePropMap,
 	WindowAlphaInfo& theDestAlpha)
 {
 	const WindowAlphaInfo anOldAlphaInfo = theDestAlpha;
-	if( const Profile::Property* p = thePropMap.find(kMaxAlphaPropName) )
-		theDestAlpha.maxAlpha = u8(clamp(intFromString(p->str), 0, 0xFF));
-	if( const Profile::Property* p = thePropMap.find(kInactiveAlphaPropName) )
-		theDestAlpha.inactiveAlpha = u8(clamp(intFromString(p->str), 0, 0xFF));
-	if( const Profile::Property* p = thePropMap.find(kFadeInTimePropName) )
-		theDestAlpha.fadeInTime = u16(clamp(intFromString(p->str), 1, 0xFFFF));
-	if( const Profile::Property* p = thePropMap.find(kFadeOutTimePropName) )
-		theDestAlpha.fadeOutTime = u16(clamp(intFromString(p->str), 1, 0xFFFF));
-	if( const Profile::Property* p = thePropMap.find(kFadeInDelayPropName) )
-		theDestAlpha.fadeInDelay = u16(clamp(intFromString(p->str), 0, 0xFFFF));
-	if( const Profile::Property* p = thePropMap.find(kFadeOutDelayPropName) )
+	if( PropString p = getPropString(thePropMap, kMaxAlphaPropName) )
+		theDestAlpha.maxAlpha = u8(clamp(intFromString(p.str), 0, 0xFF));
+	if( PropString p = getPropString(thePropMap, kInactiveAlphaPropName) )
+		theDestAlpha.inactiveAlpha = u8(clamp(intFromString(p.str), 0, 0xFF));
+	if( PropString p = getPropString(thePropMap, kFadeInTimePropName) )
+		theDestAlpha.fadeInTime = u16(clamp(intFromString(p.str), 1, 0xFFFF));
+	if( PropString p = getPropString(thePropMap, kFadeOutTimePropName) )
+		theDestAlpha.fadeOutTime = u16(clamp(intFromString(p.str), 1, 0xFFFF));
+	if( PropString p = getPropString(thePropMap, kFadeInDelayPropName) )
+		theDestAlpha.fadeInDelay = u16(clamp(intFromString(p.str), 0, 0xFFFF));
+	if( PropString p = getPropString(thePropMap, kFadeOutDelayPropName) )
 		theDestAlpha.fadeOutDelay =
-			u16(clamp(intFromString(p->str), 0, 0xFFFF));
-	if( const Profile::Property* p = thePropMap.find(kInactiveDelayPropName) )
+			u16(clamp(intFromString(p.str), 0, 0xFFFF));
+	if( PropString p = getPropString(thePropMap, kInactiveDelayPropName) )
 		theDestAlpha.inactiveFadeOutDelay =
-			u16(clamp(intFromString(p->str), 0, 0xFFFF));
+			u16(clamp(intFromString(p.str), 0, 0xFFFF));
 
 	if( !(anOldAlphaInfo == theDestAlpha) )
 	{// Cache fade rate to avoid doing this calculation every frame
@@ -985,7 +982,7 @@ static void fetchAlphaFadeProperties(
 }
 
 
-static MenuPosition& getMenuPosition(int theMenuID)
+static MenuPosition getMenuPosition(int theMenuID)
 {
 	// Check if already have index of valid cached info
 	MenuCacheEntry& theMenuCacheEntry = sMenuDrawCache[theMenuID];
@@ -1001,7 +998,7 @@ static MenuPosition& getMenuPosition(int theMenuID)
 		aMenuPosition.parentKBCycleID =
 			dropTo<u16>(InputMap::menuKeyBindCycleID(theMenuID));
 		fetchMenuPositionProperties(
-			Profile::allSections().vals()[InputMap::menuSectionID(theMenuID)],
+			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			aMenuPosition);
 		// Add the data to the cache
 		theMenuCacheEntry.positionID = dropTo<u16>(
@@ -1013,7 +1010,7 @@ static MenuPosition& getMenuPosition(int theMenuID)
 }
 
 
-static MenuLayout& getMenuLayout(int theMenuID)
+static MenuLayout getMenuLayout(int theMenuID)
 {
 	MenuCacheEntry& theMenuCacheEntry = sMenuDrawCache[theMenuID];
 	if( theMenuCacheEntry.layoutID >= sMenuLayouts.size() )
@@ -1025,7 +1022,7 @@ static MenuLayout& getMenuLayout(int theMenuID)
 				: sMenuLayouts[0];
 		aMenuLayout.style = InputMap::menuStyle(theMenuID);
 		fetchMenuLayoutProperties(
-			Profile::allSections().vals()[InputMap::menuSectionID(theMenuID)],
+			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			aMenuLayout);
 		theMenuCacheEntry.layoutID = dropTo<u16>(
 			getOrCreateMenuLayoutID(aMenuLayout));
@@ -1036,7 +1033,7 @@ static MenuLayout& getMenuLayout(int theMenuID)
 }
 
 
-static MenuAppearance& getMenuAppearance(int theMenuID)
+static MenuAppearance getMenuAppearance(int theMenuID)
 {
 	MenuCacheEntry& theMenuCacheEntry = sMenuDrawCache[theMenuID];
 	if( theMenuCacheEntry.appearanceID >= sMenuAppearances.size() )
@@ -1047,7 +1044,7 @@ static MenuAppearance& getMenuAppearance(int theMenuID)
 				? getMenuAppearance(theRootMenuID)
 				: sMenuAppearances[0];
 		fetchBaseAppearanceProperties(
-			Profile::allSections().vals()[InputMap::menuSectionID(theMenuID)],
+			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			aMenuApp);
 		theMenuCacheEntry.appearanceID = dropTo<u16>(
 			getOrCreateBaseAppearanceID(aMenuApp));
@@ -1058,7 +1055,7 @@ static MenuAppearance& getMenuAppearance(int theMenuID)
 }
 
 
-static MenuItemAppearance& getMenuItemAppearance(
+static MenuItemAppearance getMenuItemAppearance(
 	int theMenuID,
 	EMenuItemDrawState theDrawState)
 {
@@ -1072,7 +1069,7 @@ static MenuItemAppearance& getMenuItemAppearance(
 				? getMenuItemAppearance(theRootMenuID, theDrawState)
 				: sMenuItemAppearances[theDrawState];
 		fetchItemAppearanceProperties(
-			Profile::allSections().vals()[InputMap::menuSectionID(theMenuID)],
+			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			anItemApp, theDrawState);
 		anAppID = getOrCreateItemAppearanceID(anItemApp);
 		theMenuCacheEntry.itemAppearanceID[theDrawState] =
@@ -1084,7 +1081,7 @@ static MenuItemAppearance& getMenuItemAppearance(
 }
 
 
-static WindowAlphaInfo& getMenuAlphaInfo(int theMenuID)
+static WindowAlphaInfo getMenuAlphaInfo(int theMenuID)
 {
 	MenuCacheEntry& theMenuCacheEntry = sMenuDrawCache[theMenuID];
 	if( theMenuCacheEntry.alphaInfoID >= sMenuAlphaInfo.size() )
@@ -1095,7 +1092,7 @@ static WindowAlphaInfo& getMenuAlphaInfo(int theMenuID)
 				? getMenuAlphaInfo(theRootMenuID)
 				: sMenuAlphaInfo[0];
 		fetchAlphaFadeProperties(
-			Profile::allSections().vals()[InputMap::menuSectionID(theMenuID)],
+			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			anAlphaInfo);
 		theMenuCacheEntry.alphaInfoID = dropTo<u16>(
 			getOrCreateAlphaInfoID(anAlphaInfo));
@@ -1121,7 +1118,6 @@ static POINT hotspotToPoint(
 }
 
 
-
 static void eraseRect(DrawData& dd, const RECT& theRect)
 {
 	const MenuAppearance& app = getMenuAppearance(dd.menuID);
@@ -1132,57 +1128,50 @@ static void eraseRect(DrawData& dd, const RECT& theRect)
 }
 
 
-#if 0
-static void drawHUDRect(HUDDrawData& dd, const RECT& theRect)
+static void drawBGRect(
+	DrawData& dd, const MenuItemAppearance& theApp, const RECT& theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	DBG_ASSERT(theApp.borderPen);
+	SelectObject(dd.hdc, theApp.borderPen);
+	SetDCBrushColor(dd.hdc, theApp.baseColor);
 
 	Rectangle(dd.hdc,
 		theRect.left, theRect.top,
-		theRect.right + (appearance.borderSize ? 0 : 1),
-		theRect.bottom + (appearance.borderSize ? 0 : 1));
+		theRect.right + (theApp.borderSize ? 0 : 1),
+		theRect.bottom + (theApp.borderSize ? 0 : 1));
 }
 
 
-static void drawHUDRndRect(HUDDrawData& dd, const RECT& theRect)
+static void drawBGRndRect(
+	DrawData& dd, const MenuItemAppearance& theApp, const RECT& theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	DBG_ASSERT(theApp.borderPen);
+	SelectObject(dd.hdc, theApp.borderPen);
+	SetDCBrushColor(dd.hdc, theApp.baseColor);
 
-	int aRadius = hi.radius;
-	aRadius = min<int>(aRadius, (theRect.right-theRect.left) * 3 / 4);
-	aRadius = min<int>(aRadius, (theRect.bottom-theRect.top) * 3 / 4);
+	int aRadius = getMenuAppearance(dd.menuID).radius;
+	aRadius = min<int>(aRadius, (theRect.right - theRect.left) * 3 / 4);
+	aRadius = min<int>(aRadius, (theRect.bottom - theRect.top) * 3 / 4);
 
 	RoundRect(dd.hdc,
 		theRect.left, theRect.top,
-		theRect.right + (appearance.borderSize ? 0 : 1),
-		theRect.bottom + (appearance.borderSize ? 0 : 1),
+		theRect.right + (theApp.borderSize ? 0 : 1),
+		theRect.bottom + (theApp.borderSize ? 0 : 1),
 		aRadius, aRadius);
 }
 
 
-static void drawHUDBitmap(HUDDrawData& dd, const RECT& theRect)
+static void drawBGBitmap(
+	DrawData& dd, const MenuItemAppearance& theApp, const RECT& theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	const u16 anIconID = appearance.bitmapIconID;
-
-	if( anIconID == 0 )
+	if( theApp.bitmapIconID == 0 )
 	{
-		drawHUDRect(dd, theRect);
+		drawBGRect(dd, theApp, theRect);
 		return;
 	}
 
-	DBG_ASSERT(anIconID < sBitmapIcons.size());
-	const BitmapIcon& anIcon = sBitmapIcons[anIconID];
+	DBG_ASSERT(theApp.bitmapIconID < sBitmapIcons.size());
+	const BitmapIcon& anIcon = sBitmapIcons[theApp.bitmapIconID];
 	DBG_ASSERT(sBitmapDrawSrc);
 	HBITMAP hOldBitmap = (HBITMAP)
 		SelectObject(sBitmapDrawSrc, anIcon.image);
@@ -1201,13 +1190,12 @@ static void drawHUDBitmap(HUDDrawData& dd, const RECT& theRect)
 }
 
 
-static void drawHUDCircle(HUDDrawData& dd, const RECT& theRect)
+static void drawBGCircle(
+	DrawData& dd, const MenuItemAppearance& theApp, const RECT& theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	DBG_ASSERT(theApp.borderPen);
+	SelectObject(dd.hdc, theApp.borderPen);
+	SetDCBrushColor(dd.hdc, theApp.baseColor);
 
 	Ellipse(dd.hdc,
 		theRect.left, theRect.top,
@@ -1215,16 +1203,17 @@ static void drawHUDCircle(HUDDrawData& dd, const RECT& theRect)
 }
 
 
-static void drawHUDArrowL(HUDDrawData& dd, RECT theRect)
+static void drawBGArrowL(
+	DrawData& dd, const MenuItemAppearance& theApp, RECT theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
-	if( appearance.borderSize > 0 )
+	DBG_ASSERT(theApp.borderPen);
+	SelectObject(dd.hdc, theApp.borderPen);
+	SetDCBrushColor(dd.hdc, theApp.baseColor);
+	if( theApp.borderSize > 0 )
+	{
 		InflateRect(&theRect,
-			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
+			-theApp.borderSize / 2 - 1, -theApp.borderSize / 2 - 1);
+	}
 
 	POINT points[3];
 	points[0].x = theRect.right;
@@ -1237,16 +1226,17 @@ static void drawHUDArrowL(HUDDrawData& dd, RECT theRect)
 }
 
 
-static void drawHUDArrowR(HUDDrawData& dd, RECT theRect)
+static void drawBGArrowR(
+	DrawData& dd, const MenuItemAppearance& theApp, RECT theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
-	if( appearance.borderSize > 0 )
+	DBG_ASSERT(theApp.borderPen);
+	SelectObject(dd.hdc, theApp.borderPen);
+	SetDCBrushColor(dd.hdc, theApp.baseColor);
+	if( theApp.borderSize > 0 )
+	{
 		InflateRect(&theRect,
-			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
+			-theApp.borderSize / 2 - 1, -theApp.borderSize / 2 - 1);
+	}
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -1259,16 +1249,17 @@ static void drawHUDArrowR(HUDDrawData& dd, RECT theRect)
 }
 
 
-static void drawHUDArrowU(HUDDrawData& dd, RECT theRect)
+static void drawBGArrowU(
+	DrawData& dd, const MenuItemAppearance& theApp, RECT theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
-	if( appearance.borderSize > 0 )
+	DBG_ASSERT(theApp.borderPen);
+	SelectObject(dd.hdc, theApp.borderPen);
+	SetDCBrushColor(dd.hdc, theApp.baseColor);
+	if( theApp.borderSize > 0 )
+	{
 		InflateRect(&theRect,
-			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
+			-theApp.borderSize / 2 - 1, -theApp.borderSize / 2 - 1);
+	}
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -1281,16 +1272,17 @@ static void drawHUDArrowU(HUDDrawData& dd, RECT theRect)
 }
 
 
-static void drawHUDArrowD(HUDDrawData& dd, RECT theRect)
+static void drawBGArrowD(
+	DrawData& dd, const MenuItemAppearance& theApp, RECT theRect)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
-	SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
-	if( appearance.borderSize > 0 )
+	DBG_ASSERT(theApp.borderPen);
+	SelectObject(dd.hdc, theApp.borderPen);
+	SetDCBrushColor(dd.hdc, theApp.baseColor);
+	if( theApp.borderSize > 0 )
+	{
 		InflateRect(&theRect,
-			-appearance.borderSize / 2 - 1, -appearance.borderSize / 2 - 1);
+			-theApp.borderSize / 2 - 1, -theApp.borderSize / 2 - 1);
+	}
 
 	POINT points[3];
 	points[0].x = theRect.left;
@@ -1303,22 +1295,44 @@ static void drawHUDArrowD(HUDDrawData& dd, RECT theRect)
 }
 
 
-static void drawHUDItem(HUDDrawData& dd, const RECT& theRect)
+static void drawMenuItemBG(
+	DrawData& dd,
+	const MenuAppearance& theMenuApp,
+	const MenuItemAppearance& theItemApp,
+	const RECT& theRect)
 {
-	switch(sHUDElementInfo[dd.hudElementID].itemType)
+	switch(theMenuApp.itemType)
 	{
-	case eHUDItemType_Default: TODO - Rect unless overall menu is _Label, then _Label
-	case eHUDItemType_Rect:		drawHUDRect(dd, theRect);		break;
-	case eHUDItemType_RndRect:	drawHUDRndRect(dd, theRect);	break;
-	case eHUDItemType_Bitmap:	drawHUDBitmap(dd, theRect);		break;
-	case eHUDItemType_Circle:	drawHUDCircle(dd, theRect);		break;
-	case eHUDItemType_ArrowL:	drawHUDArrowL(dd, theRect);		break;
-	case eHUDItemType_ArrowR:	drawHUDArrowR(dd, theRect);		break;
-	case eHUDItemType_ArrowU:	drawHUDArrowU(dd, theRect);		break;
-	case eHUDItemType_ArrowD:	drawHUDArrowD(dd, theRect);		break;
-	case eHUDItemType_Label:	drawHUDLabelOnly(dd, theRect);	break;
+	case eMenuItemType_Rect:	drawBGRect(dd, theItemApp, theRect);	break;
+	case eMenuItemType_RndRect:	drawBGRndRect(dd, theItemApp, theRect);	break;
+	case eMenuItemType_Bitmap:	drawBGBitmap(dd, theItemApp, theRect);	break;
+	case eMenuItemType_Circle:	drawBGCircle(dd, theItemApp, theRect);	break;
+	case eMenuItemType_ArrowL:	drawBGArrowL(dd, theItemApp, theRect);	break;
+	case eMenuItemType_ArrowR:	drawBGArrowR(dd, theItemApp, theRect);	break;
+	case eMenuItemType_ArrowU:	drawBGArrowU(dd, theItemApp, theRect);	break;
+	case eMenuItemType_ArrowD:	drawBGArrowD(dd, theItemApp, theRect);	break;
+	case eMenuItemType_Label:	/* no background drawn */				break;
 	default: DBG_ASSERT(false && "Invalid HUD ItemType!");
 	}
+}
+
+
+static LONG getMaxBorderSize(int theMenuID)
+{
+	int result = sMenuDrawCache[theMenuID].maxBorderSize;
+	if( result < 0 )
+	{
+		result = getMenuAppearance(theMenuID).radius / 4;
+		for(int i = 0; i < eMenuItemDrawState_Num; ++i)
+		{
+			result = max<int>(result,
+				getMenuItemAppearance(theMenuID, EMenuItemDrawState(i))
+					.borderSize);
+		}
+		sMenuDrawCache[theMenuID].maxBorderSize = dropTo<s16>(result);
+	}
+
+	return result;
 }
 
 
@@ -1396,49 +1410,71 @@ static LONG getFontHeightToFit(
 
 
 static void initStringCacheEntry(
-	HUDDrawData& dd,
+	DrawData& dd,
 	const RECT& theRect,
 	const std::wstring& theStr,
+	const HFONT theBaseFontHandle,
 	UINT theFormat,
 	StringScaleCacheEntry& theCacheEntry)
 {
 	if( theCacheEntry.width > 0 )
-		return;
+		return; // already initialized!
 
 	// This will not only check if an alternate font size is needed, but
 	// also calculate drawn width and height for given string, which
 	// can be used to calculate offsets for things like vertical justify
 	// when not using DT_SINGLELINE (meaning DT_VCENTER/_BOTTOM don't work).
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	theCacheEntry.fontID = hi.fontID;
-
-	SelectObject(dd.hdc, sFonts[hi.fontID]);
 	RECT aNeededRect = theRect;
+	SelectObject(dd.hdc, theBaseFontHandle);
+	HFONT aChosenFontHandle = NULL;
 	if( LONG aFontHeight = getFontHeightToFit(
 			dd.hdc, theStr, theRect, &aNeededRect, theFormat) )
-	{
-		theCacheEntry.fontID = sResizedFontsMap.findOrAdd(
-			std::make_pair(hi.fontID, aFontHeight),
-			dropTo<u16>(sFonts.size()));
-		if( theCacheEntry.fontID == sFonts.size() )
+	{// Use an alternate size of the font from sAutoSizedFonts
+
+		// First see if already created an auto-sized font for this setup
+		for(int i = 0, end = intSize(sAutoSizedFonts.size()); i < end; ++i)
 		{
-			LOGFONT aFont;
-			GetObject(sFonts[hi.fontID], sizeof(LOGFONT), &aFont);
-			aFont.lfWidth = 0;
-			aFont.lfHeight = aFontHeight;
-			sFonts.push_back(CreateFontIndirect(&aFont));
+			if( sAutoSizedFonts[i].baseFontHandle == theBaseFontHandle &&
+				sAutoSizedFonts[i].altSize == aFontHeight )
+			{
+				aChosenFontHandle = sAutoSizedFonts[i].handle;
+				break;
+			}
+		}
+
+		// If no font chosen yet, create a new indirect resized font
+		if( !aChosenFontHandle )
+		{
+			sAutoSizedFonts.push_back(ResizedFontInfo());
+			sAutoSizedFonts.back().baseFontHandle = theBaseFontHandle;
+			sAutoSizedFonts.back().altSize = aFontHeight;
+			LOGFONT aNewLogFont;
+			GetObject(theBaseFontHandle, sizeof(LOGFONT), &aNewLogFont);
+			aNewLogFont.lfWidth = 0;
+			aNewLogFont.lfHeight = aFontHeight;
+			aChosenFontHandle = CreateFontIndirect(&aNewLogFont);
+			sAutoSizedFonts.back().handle = aChosenFontHandle;
 		}
 	}
+	else
+	{// The base font is fine to use directly
+		aChosenFontHandle = theBaseFontHandle;
+	}
 
-	theCacheEntry.width = max(1L, aNeededRect.right - aNeededRect.left);
-	theCacheEntry.height = max(1L, aNeededRect.bottom - aNeededRect.top);
+	DBG_ASSERT(aChosenFontHandle);
+	theCacheEntry.fontHandle = aChosenFontHandle;
+	theCacheEntry.width = u16(clamp(
+		aNeededRect.right - aNeededRect.left, 1, 0xFFFF));
+	theCacheEntry.height = u16(clamp(
+		aNeededRect.bottom - aNeededRect.top, 1, 0xFFFF));
 }
 
 
 static void drawLabelString(
-	HUDDrawData& dd,
+	DrawData& dd,
 	RECT theRect,
 	const std::wstring& theStr,
+	const HFONT theBaseFontHandle,
 	UINT theFormat,
 	StringScaleCacheEntry& theCacheEntry)
 {
@@ -1448,7 +1484,8 @@ static void drawLabelString(
 	theFormat |= DT_NOPREFIX;
 
 	// Initialize cache entry to get font & height
-	initStringCacheEntry(dd, theRect, theStr, theFormat, theCacheEntry);
+	initStringCacheEntry(
+		dd, theRect, theStr, theBaseFontHandle, theFormat, theCacheEntry);
 
 	// Adjust vertial draw position manually when not using DT_SINGLELINE,
 	// which is the only time DT_VCENTER and DT_BOTTOM work normally
@@ -1470,46 +1507,47 @@ static void drawLabelString(
 	// Draw label based on cache entry's fields
 	if( theCacheEntry.width > 0 )
 	{
-		SelectObject(dd.hdc, sFonts[theCacheEntry.fontID]);
+		SelectObject(dd.hdc, theCacheEntry.fontHandle);
 		DrawText(dd.hdc, theStr.c_str(), -1, &theRect, theFormat);
 	}
 }
 
 
 static void drawMenuItemLabel(
-	HUDDrawData& dd,
+	DrawData& dd,
 	RECT theRect,
-	u16 theItemIdx,
-	std::string theLabel,
-	const Appearance& theAppearance,
-	u8 theCurrBorderSize, u8 theMaxBorderSize,
-	MenuDrawCacheEntry& theCacheEntry)
+	int /*theItemIdx*/,
+	const std::string& theLabel,
+	const MenuAppearance& theMenuApp,
+	const MenuItemAppearance& theItemApp,
+	int /*theCurrBorderSize*/, int theMaxBorderSize,
+	LabelDrawCacheEntry& theCacheEntry)
 {
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{// Initialize cache entry
-		IconEntry* anIconEntry = sLabelIcons.find(theLabel);
-		if( anIconEntry && anIconEntry->copyFromTarget )
-		{
-			theCacheEntry.type = eMenuItemLabelType_CopyRect;
-			theCacheEntry.copyRect.fromPos = hotspotToPoint(
-				sCopyRects[anIconEntry->iconID].pos,
-				dd.targetSize);
-			theCacheEntry.copyRect.fromSize = hotspotToSize(
-				sCopyRects[anIconEntry->iconID].size,
-				dd.targetSize);
-		}
-		else if( anIconEntry && !anIconEntry->copyFromTarget )
-		{
-			theCacheEntry.type = eMenuItemLabelType_Bitmap;
-			theCacheEntry.bitmapIconID = anIconEntry->iconID;
-			if( !sBitmapIcons[anIconEntry->iconID].mask )
-			{
-				generateBitmapIconMask(
-					sBitmapIcons[anIconEntry->iconID],
-					sHUDElementInfo[dd.hudElementID].transColor);
-			}
-		}
-		else
+		//IconEntry* anIconEntry = sLabelIcons.find(theLabel);
+		//if( anIconEntry && anIconEntry->copyFromTarget )
+		//{
+		//	theCacheEntry.type = eMenuItemLabelType_CopyRect;
+		//	theCacheEntry.copyRect.fromPos = hotspotToPoint(
+		//		sCopyRects[anIconEntry->iconID].pos,
+		//		dd.targetSize);
+		//	theCacheEntry.copyRect.fromSize = hotspotToSize(
+		//		sCopyRects[anIconEntry->iconID].size,
+		//		dd.targetSize);
+		//}
+		//else if( anIconEntry && !anIconEntry->copyFromTarget )
+		//{
+		//	theCacheEntry.type = eMenuItemLabelType_Bitmap;
+		//	theCacheEntry.bitmapIconID = anIconEntry->iconID;
+		//	if( !sBitmapIcons[anIconEntry->iconID].mask )
+		//	{
+		//		generateBitmapIconMask(
+		//			sBitmapIcons[anIconEntry->iconID],
+		//			sHUDElementInfo[dd.hudElementID].transColor);
+		//	}
+		//}
+		//else
 		{
 			theCacheEntry.type = eMenuItemLabelType_String;
 			theCacheEntry.str = StringScaleCacheEntry();
@@ -1518,14 +1556,16 @@ static void drawMenuItemLabel(
 
 	if( theCacheEntry.type == eMenuItemLabelType_String )
 	{
-		SetTextColor(dd.hdc, theAppearance.labelColor);
-		SetBkColor(dd.hdc, theAppearance.itemColor);
+		SetTextColor(dd.hdc, theItemApp.labelColor);
+		SetBkColor(dd.hdc, theItemApp.baseColor);
 		if( theMaxBorderSize > 0 )
 			InflateRect(&theRect, -theMaxBorderSize, -theMaxBorderSize);
 		drawLabelString(dd, theRect, widen(theLabel),
+			sFonts[theMenuApp.fontID].handle,
 			DT_WORDBREAK | DT_CENTER | DT_VCENTER,
 			theCacheEntry.str);
 	}
+#if 0
 	else if( theCacheEntry.type == eMenuItemLabelType_Bitmap )
 	{
 		DBG_ASSERT(theCacheEntry.bitmapIconID < sBitmapIcons.size());
@@ -1638,33 +1678,29 @@ static void drawMenuItemLabel(
 		if( theCurrBorderSize > 0 )
 			SelectClipRgn(dd.hdc, NULL);
 	}
+#endif
 }
 
 
 static void drawMenuTitle(
-	HUDDrawData& dd,
-	u16 theSubMenuID,
-	int theTitleBottomY,
-	MenuDrawCacheEntry& theCacheEntry)
+	DrawData& dd,
+	const MenuAppearance& theMenuApp,
+	const MenuLayout& theLayout,
+	LabelDrawCacheEntry& theCacheEntry,
+	int theTitleBottomY)
 {
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[eAppearanceMode_Normal]];
-	DBG_ASSERT(dd.components.size() > 1);
-	RECT aTitleRect = dd.components[0];
-	if( hi.radius )
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+	RECT aRect = ps.rects[0];
+	if( theMenuApp.radius )
 	{
-		aTitleRect.left += hi.radius * 0.75;
-		aTitleRect.right -= hi.radius * 0.75;
+		aRect.left += LONG(theMenuApp.radius * 0.75);
+		aRect.right -= LONG(theMenuApp.radius * 0.75);
 	}
-	aTitleRect.bottom = theTitleBottomY;
-
-	EAlignment alignment = EAlignment(hi.alignmentX);
+	aRect.bottom = theTitleBottomY;
 
 	if( !dd.firstDraw )
-		eraseRect(dd, aTitleRect);
-	std::string aStr = InputMap::menuLabel(theSubMenuID);
-	const std::wstring& aWStr = widen(aStr);
+		eraseRect(dd, aRect);
+	const std::wstring& aWStr = widen(InputMap::menuLabel(dd.menuID));
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{
 		theCacheEntry.type = eMenuItemLabelType_String;
@@ -1672,141 +1708,139 @@ static void drawMenuTitle(
 	}
 
 	UINT aFormat = DT_WORDBREAK | DT_BOTTOM;
-	switch(alignment)
+	const EAlignment theAlignment = theLayout.alignmentX;
+	switch(theAlignment)
 	{
 	case eAlignment_Min: aFormat |= DT_LEFT; break;
 	case eAlignment_Center: aFormat |= DT_CENTER; break;
 	case eAlignment_Max: aFormat |= DT_RIGHT; break;
 	}
-	const int aBorderSize = gUIScale > 1.0 ? 2 * gUIScale : 2;
-	InflateRect(&aTitleRect, -aBorderSize, -aBorderSize);
-	initStringCacheEntry(dd, aTitleRect, aWStr, aFormat, theCacheEntry.str);
+	const int aBorderSize = gUIScale > 1.0 ? int(2 * gUIScale) : 2;
+	InflateRect(&aRect, -aBorderSize, -aBorderSize);
+
+	const HFONT aFont = sFonts[theMenuApp.fontID].handle;
+	initStringCacheEntry(dd, aRect, aWStr, aFont, aFormat, theCacheEntry.str);
 
 	// Fill in 2px margin around text with titleBG (border) color
-	RECT aBGRect = aTitleRect;
+	RECT aBGRect = aRect;
 	InflateRect(&aBGRect, aBorderSize, aBorderSize);
-	if( alignment == eAlignment_Center )
+	if( theAlignment == eAlignment_Center )
 	{
 		aBGRect.left =
-			((dd.components[0].left + dd.components[0].right) / 2) -
+			((ps.rects[0].left + ps.rects[0].right) / 2) -
 			(theCacheEntry.str.width / 2) - aBorderSize;
 	}
-	else if( alignment == eAlignment_Max )
+	else if( theAlignment == eAlignment_Max )
 	{
 		aBGRect.left =
-			aTitleRect.right - theCacheEntry.str.width - aBorderSize;
+			aRect.right - theCacheEntry.str.width - aBorderSize;
 	}
 	aBGRect.right = aBGRect.left + theCacheEntry.str.width + aBorderSize * 2;
 	aBGRect.top = aBGRect.bottom - theCacheEntry.str.height - aBorderSize * 2;
-	COLORREF oldColor = SetDCBrushColor(dd.hdc, appearance.borderColor);
+
+	const MenuItemAppearance& theTitleApp =
+		getMenuItemAppearance(dd.menuID, eMenuItemDrawState_Normal);
+	COLORREF oldColor = SetDCBrushColor(dd.hdc, theTitleApp.borderColor);
 	FillRect(dd.hdc, &aBGRect, (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH));
 	SetDCBrushColor(dd.hdc, oldColor);
 
-	SetTextColor(dd.hdc, hi.titleColor);
-	SetBkColor(dd.hdc, appearance.borderColor);
-	drawLabelString(dd, aTitleRect, aWStr, aFormat, theCacheEntry.str);
+	SetTextColor(dd.hdc, theMenuApp.titleColor);
+	SetBkColor(dd.hdc, theTitleApp.borderColor);
+	drawLabelString(dd, aRect, aWStr, aFont, aFormat, theCacheEntry.str);
 }
 
 
 static void drawMenuItem(
-	HUDDrawData& dd,
+	DrawData& dd,
 	const RECT& theRect,
-	u16 theItemIdx,
+	int theItemIdx,
 	const std::string& theLabel,
-	MenuDrawCacheEntry& theCacheEntry)
+	LabelDrawCacheEntry& theLabelCacheEntry)
 {
 	// Select appropriate appearance
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const bool selected = theItemIdx == hi.selection;
-	const bool flashing = theItemIdx == hi.flashing;
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+	const bool selected = theItemIdx == ps.selection;
+	const bool flashing = theItemIdx == ps.flashing;
 	if( selected && flashing )
-		dd.appearanceMode = eAppearanceMode_FlashSelected;
+		dd.itemDrawState = eMenuItemDrawState_FlashSelected;
 	else if( flashing )
-		dd.appearanceMode = eAppearanceMode_Flash;
+		dd.itemDrawState = eMenuItemDrawState_Flash;
 	else if( selected )
-		dd.appearanceMode = eAppearanceMode_Selected;
+		dd.itemDrawState = eMenuItemDrawState_Selected;
 	else
-		dd.appearanceMode = eAppearanceMode_Normal;
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[dd.appearanceMode]];
+		dd.itemDrawState = eMenuItemDrawState_Normal;
+	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
+	const MenuItemAppearance& itemApp =
+		getMenuItemAppearance(dd.menuID, dd.itemDrawState);
 
 	// Background (usually a bordered rectangle)
-	drawHUDItem(dd, theRect);
+	drawMenuItemBG(dd, menuApp, itemApp, theRect);
 
 	// Label (usually word-wrapped and centered text)
 	RECT aLabelRect = theRect;
-	int aBorderSize = hi.radius / 4;
-	int aMaxBorderSize = aBorderSize;
-	aBorderSize = max(aBorderSize, int(appearance.borderSize));
-	for(int i = 0; i < eAppearanceMode_Num; ++i)
-	{
-		aMaxBorderSize = max<int>(aMaxBorderSize,
-			sAppearances[hi.appearanceID[i]].borderSize);
-	}
 	drawMenuItemLabel(
 		dd, aLabelRect,
 		theItemIdx,
 		theLabel,
-		appearance,
-		aBorderSize, aMaxBorderSize,
-		theCacheEntry);
+		menuApp, itemApp,
+		max(menuApp.radius / 4, int(itemApp.borderSize)),
+		getMaxBorderSize(dd.menuID),
+		theLabelCacheEntry);
 
 	// Flag when successfully redrew forced-redraw item
-	if( hi.forcedRedrawItemID == theItemIdx )
-		hi.forcedRedrawItemID = kInvalidID;
+	if( ps.forcedRedrawItemID == theItemIdx )
+		ps.forcedRedrawItemID = kInvalidID;
 }
 
 
-static void drawBasicMenu(HUDDrawData& dd)
+static void drawBasicMenu(DrawData& dd)
 {
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	const u16 aPrevSelection = hi.selection;
-	hi.selection = gDisabledHUD.test(dd.hudElementID)
-		? kInvalidID : Menus::selectedItem(aMenuID);
-	const u16 anItemCount = dropTo<u16>(dd.components.size() - 1);
-	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
-	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
-	sMenuDrawCache[aSubMenuID].resize(anItemCount + hasTitle);
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+	const MenuLayout& layout = getMenuLayout(dd.menuID);
+	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
+	const int aPrevSelection = ps.selection;
+	ps.selection = dropTo<u16>(gDisabledOverlays.test(dd.overlayID)
+		? kInvalidID : Menus::selectedItem(dd.menuID));
+	const int anItemCount = intSize(ps.rects.size()) - 1;
+	DBG_ASSERT(anItemCount == InputMap::menuItemCount(dd.menuID));
+	const u8 hasTitle = layout.titleHeight > 0 ? 1 : 0;
+	std::vector<LabelDrawCacheEntry>& labelCache =
+		sMenuDrawCache[dd.menuID].labelCache;
+	labelCache.resize(anItemCount + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
-	{
-		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
-			sMenuDrawCache[aSubMenuID][0]);
-	}
+		drawMenuTitle(dd, menuApp, layout, labelCache[0], ps.rects[1].top);
 
-	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = hi.selection != aPrevSelection;
+	const bool flashingChanged = ps.flashing != ps.prevFlashing;
+	const bool selectionChanged = ps.selection != aPrevSelection;
 	const bool shouldRedrawAll =
 		dd.firstDraw ||
-		((hi.gapSizeX < 0 || hi.gapSizeY < 0) &&
+		((layout.gapSizeX < 0 || layout.gapSizeY < 0) &&
 			(flashingChanged || selectionChanged));
 
 	bool redrawSelectedItem = false;
-	for(u16 itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
+	for(int itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
 		if( shouldRedrawAll ||
-			hi.forcedRedrawItemID == itemIdx ||
+			ps.forcedRedrawItemID == itemIdx ||
 			(selectionChanged &&
-				(itemIdx == aPrevSelection || itemIdx == hi.selection)) ||
+				(itemIdx == aPrevSelection || itemIdx == ps.selection)) ||
 			(flashingChanged &&
-				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
+				(itemIdx == ps.prevFlashing || itemIdx == ps.flashing)) )
 		{
-			// Non-rect shapes may not fully overwrite previous drawing
-			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
-				eraseRect(dd, dd.components[itemIdx+1]);
-			if( itemIdx == hi.selection &&
-				(hi.gapSizeX < 0 || hi.gapSizeY < 0) )
+			// Non-rect shapes may not fully overwrite previous drawing,
+			if( !dd.firstDraw && menuApp.itemType != eMenuItemType_Rect )
+				eraseRect(dd, ps.rects[itemIdx+1]);
+			if( itemIdx == ps.selection &&
+				(layout.gapSizeX < 0 || layout.gapSizeY < 0) )
 			{// Make sure selection is drawn on top of other items
 				redrawSelectedItem = true;
 			}
 			else
 			{
-				drawMenuItem(dd, dd.components[itemIdx+1], itemIdx,
-					InputMap::menuItemLabel(aSubMenuID, itemIdx),
-					sMenuDrawCache[aSubMenuID][itemIdx + hasTitle]);
+				drawMenuItem(dd, ps.rects[itemIdx+1], itemIdx,
+					InputMap::menuItemLabel(dd.menuID, itemIdx),
+					labelCache[itemIdx + hasTitle]);
 			}
 		}
 	}
@@ -1814,207 +1848,214 @@ static void drawBasicMenu(HUDDrawData& dd)
 	// Draw selected menu item last
 	if( redrawSelectedItem )
 	{
-		drawMenuItem(dd, dd.components[hi.selection+1], hi.selection,
-			InputMap::menuItemLabel(aSubMenuID, hi.selection),
-			sMenuDrawCache[aSubMenuID][hi.selection + hasTitle]);
+		drawMenuItem(dd, ps.rects[ps.selection+1], ps.selection,
+			InputMap::menuItemLabel(dd.menuID, ps.selection),
+			labelCache[ps.selection + hasTitle]);
 	}
 
-	hi.prevFlashing = hi.flashing;
+	ps.prevFlashing = ps.flashing;
 }
 
 
-static void drawSlotsMenu(HUDDrawData& dd)
+static void drawSlotsMenu(DrawData& dd)
 {
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	u16 aPrevSelection = hi.selection;
-	hi.selection = Menus::selectedItem(aMenuID);
-	const u16 anItemCount = dropTo<u16>(dd.components.size() -
-		(hi.altLabelWidth ? 2 : 1));
-	DBG_ASSERT(anItemCount == Menus::itemCount(aMenuID));
-	DBG_ASSERT(hi.selection < anItemCount);
-	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
-	sMenuDrawCache[aSubMenuID].resize(
-		anItemCount + hasTitle + (hi.altLabelWidth ? anItemCount : 0));
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+	const MenuLayout& layout = getMenuLayout(dd.menuID);
+	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
+	int aPrevSelection = ps.selection;
+	ps.selection = dropTo<u16>(Menus::selectedItem(dd.menuID));
+	const int anItemCount = intSize(ps.rects.size()) -
+		(layout.altLabelWidth ? 2 : 1);
+	DBG_ASSERT(anItemCount == InputMap::menuItemCount(dd.menuID));
+	DBG_ASSERT(ps.selection < anItemCount);
+	const u8 hasTitle = layout.titleHeight > 0 ? 1 : 0;
+	std::vector<LabelDrawCacheEntry>& labelCache =
+		sMenuDrawCache[dd.menuID].labelCache;
+	labelCache.resize(anItemCount + hasTitle +
+		(layout.altLabelWidth ? anItemCount : 0));
 
 	if( hasTitle && dd.firstDraw )
-	{
-		drawMenuTitle(dd, aSubMenuID, dd.components[1].top,
-			sMenuDrawCache[aSubMenuID][0]);
-	}
+		drawMenuTitle(dd, menuApp, layout, labelCache[0], ps.rects[1].top);
 
-	const bool flashingChanged = hi.flashing != hi.prevFlashing;
-	const bool selectionChanged = hi.selection != aPrevSelection;
+	const bool flashingChanged = ps.flashing != ps.prevFlashing;
+	const bool selectionChanged = ps.selection != aPrevSelection;
 	const bool shouldRedrawAll = dd.firstDraw || selectionChanged;
 
 	// Draw alternate label for selected item off to the side
-	if( hi.altLabelWidth &&
+	if( layout.altLabelWidth &&
 		(selectionChanged || shouldRedrawAll ||
-		 hi.forcedRedrawItemID == hi.selection) )
+		 ps.forcedRedrawItemID == ps.selection) )
 	{
-		const std::string& anAltLabel =
-			InputMap::menuItemAltLabel(aSubMenuID, hi.selection);
-		const std::string& aPrevAltLabel =
-			InputMap::menuItemAltLabel(aSubMenuID, aPrevSelection);
+		std::string anAltLabel =
+			InputMap::menuItemAltLabel(dd.menuID, ps.selection);
+		std::string aPrevAltLabel =
+			InputMap::menuItemAltLabel(dd.menuID, aPrevSelection);
 		if( anAltLabel.empty() && !aPrevAltLabel.empty() )
-			eraseRect(dd, dd.components.back());
+			eraseRect(dd, ps.rects.back());
 		if( !anAltLabel.empty() )
 		{
-			dd.appearanceMode = eAppearanceMode_Normal;
-			RECT anAltLabelRect = dd.components.back();
-			drawHUDRect(dd, anAltLabelRect);
-			const Appearance& appearance = sAppearances[
-				hi.appearanceID[dd.appearanceMode]];
+			dd.itemDrawState = eMenuItemDrawState_Normal;
+			RECT anAltLabelRect = ps.rects.back();
+			const MenuItemAppearance& itemApp =
+				getMenuItemAppearance(dd.menuID, dd.itemDrawState);
+			drawBGRect(dd, itemApp, anAltLabelRect);
 			drawMenuItemLabel(
 				dd, anAltLabelRect,
-				hi.selection,
+				ps.selection,
 				anAltLabel,
-				appearance,
-				appearance.borderSize, appearance.borderSize,
-				sMenuDrawCache[aSubMenuID]
-					[anItemCount+hi.selection+hasTitle]);
+				menuApp, itemApp,
+				itemApp.borderSize,
+				getMaxBorderSize(dd.menuID),
+				labelCache[anItemCount+ps.selection+hasTitle]);
 		}
 	}
 
 	// Make sure only flash top slot even if selection changes during flash
-	if( hi.flashing != kInvalidID )
-		hi.flashing = hi.selection;
+	if( ps.flashing != kInvalidID )
+		ps.flashing = ps.selection;
 
-	// Draw in a wrapping fashion, starting with hi.selection+1 being drawn
-	// just below the top slot, and ending when draw hi.selection last at top
-	for(u16 compIdx = (1 % anItemCount),
-		itemIdx = (hi.selection + 1) % anItemCount; /*until break*/;
+	// Draw in a wrapping fashion, starting with ps.selection+1 being drawn
+	// just below the top slot, and ending when draw ps.selection last at top
+	for(int compIdx = (1 % anItemCount),
+		itemIdx = (ps.selection + 1) % anItemCount; /*until break*/;
 		itemIdx = (itemIdx + 1) % anItemCount,
 		compIdx = (compIdx + 1) % anItemCount)
 	{
-		const bool isSelection = itemIdx == hi.selection;
+		const bool isSelection = itemIdx == ps.selection;
 		if( isSelection )
 		{
-			aPrevSelection = hi.selection;
-			if( gDisabledHUD.test(dd.hudElementID) )
-				hi.selection = kInvalidID;
+			aPrevSelection = ps.selection;
+			if( gDisabledOverlays.test(dd.overlayID) )
+				ps.selection = kInvalidID;
 		}
 		if( shouldRedrawAll ||
-			hi.forcedRedrawItemID == itemIdx ||
+			ps.forcedRedrawItemID == itemIdx ||
 			(isSelection && flashingChanged) )
 		{
-			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
-				eraseRect(dd, dd.components[compIdx+1]);
-			drawMenuItem(dd, dd.components[compIdx+1], itemIdx,
-				InputMap::menuItemLabel(aSubMenuID, itemIdx),
-				sMenuDrawCache[aSubMenuID][itemIdx + hasTitle]);
+			if( !dd.firstDraw && menuApp.itemType != eMenuItemType_Rect )
+				eraseRect(dd, ps.rects[compIdx+1]);
+			drawMenuItem(dd, ps.rects[compIdx+1], itemIdx,
+				InputMap::menuItemLabel(dd.menuID, itemIdx),
+				labelCache[itemIdx + hasTitle]);
 		}
 		if( isSelection )
 		{
-			hi.selection = aPrevSelection;
+			ps.selection = dropTo<u16>(aPrevSelection);
 			break;
 		}
 	}
 
-	hi.prevFlashing = hi.flashing;
+	ps.prevFlashing = ps.flashing;
 }
 
 
-static void draw4DirMenu(HUDDrawData& dd)
+static void draw4DirMenu(DrawData& dd)
 {
-	HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	const u16 aMenuID = InputMap::menuForHUDElement(dd.hudElementID);
-	hi.selection = kInvalidID;
-	const u8 hasTitle = hi.titleHeight > 0 ? 1 : 0;
-	const u16 aSubMenuID = Menus::activeSubMenu(aMenuID);
-	sMenuDrawCache.resize(max<size_t>(sMenuDrawCache.size(), aSubMenuID+1));
-	sMenuDrawCache[aSubMenuID].resize(eCmdDir_Num + hasTitle);
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+	const MenuLayout& layout = getMenuLayout(dd.menuID);
+	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
+	ps.selection = kInvalidID;
+	const u8 hasTitle = layout.titleHeight > 0 ? 1 : 0;
+	std::vector<LabelDrawCacheEntry>& labelCache =
+		sMenuDrawCache[dd.menuID].labelCache;
+	labelCache.resize(eCmdDir_Num + hasTitle);
 
 	if( hasTitle && dd.firstDraw )
 	{
 		drawMenuTitle(dd,
-			aSubMenuID, dd.components[1 + eCmdDir_Up].top,
-			sMenuDrawCache[aSubMenuID][0]);
+			menuApp, layout, labelCache[0],
+			ps.rects[1 + eCmdDir_Up].top);
 	}
 
-	for(u16 itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
+	for(int itemIdx = 0; itemIdx < eCmdDir_Num; ++itemIdx)
 	{
 		const ECommandDir aDir = ECommandDir(itemIdx);
 		if( dd.firstDraw ||
-			hi.forcedRedrawItemID == itemIdx ||
-			(hi.flashing != hi.prevFlashing &&
-				(itemIdx == hi.prevFlashing || itemIdx == hi.flashing)) )
+			ps.forcedRedrawItemID == itemIdx ||
+			(ps.flashing != ps.prevFlashing &&
+				(itemIdx == ps.prevFlashing || itemIdx == ps.flashing)) )
 		{
-			if( !dd.firstDraw && hi.itemType != eHUDItemType_Rect )
-				eraseRect(dd, dd.components[itemIdx+1]);
-			drawMenuItem(dd, dd.components[itemIdx+1], itemIdx,
-				InputMap::menuDirLabel(aSubMenuID, aDir),
-				sMenuDrawCache[aSubMenuID][aDir + hasTitle]);
+			if( !dd.firstDraw && menuApp.itemType != eMenuItemType_Rect )
+				eraseRect(dd, ps.rects[itemIdx+1]);
+			drawMenuItem(dd, ps.rects[itemIdx+1], itemIdx,
+				InputMap::menuDirLabel(dd.menuID, aDir),
+				labelCache[aDir + hasTitle]);
 		}
 	}
 
-	hi.prevFlashing = hi.flashing;
+	ps.prevFlashing = ps.flashing;
 }
 
 
-static void drawBasicHUD(HUDDrawData& dd)
+static void drawIndicator(DrawData& dd)
 {
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+
 	if( !dd.firstDraw )
-		eraseRect(dd, dd.components[0]);
+		eraseRect(dd, ps.rects[0]);
 
-	drawHUDItem(dd, dd.components[0]);
+	drawMenuItemBG(
+		dd,
+		getMenuAppearance(dd.menuID),
+		getMenuItemAppearance(dd.menuID, dd.itemDrawState),
+		ps.rects[0]);
 }
 
 
-static void drawHSGuide(HUDDrawData& dd)
+static void drawHSGuide(DrawData& dd)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	DBG_ASSERT(hi.type == eHUDType_HotspotGuide);
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+	const MenuLayout& layout = getMenuLayout(dd.menuID);
+	DBG_ASSERT(layout.style == eMenuStyle_HotspotGuide);
 	const BitVector<32>& arraysToShow = HotspotMap::getEnabledHotspotArrays();
 
 	if( !dd.firstDraw )
-		eraseRect(dd, dd.components[0]);
+		eraseRect(dd, ps.rects[0]);
 
-	const Appearance& appearance = sAppearances[
-		hi.appearanceID[eAppearanceMode_Normal]];
-	//SelectObject(dd.hdc, sPens[appearance.borderPenID]);
-	SetDCBrushColor(dd.hdc, appearance.itemColor);
+	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
+	const MenuItemAppearance& itemApp =
+		getMenuItemAppearance(dd.menuID, eMenuItemDrawState_Normal);
+	//SelectObject(dd.hdc, itemApp.borderPen);
+	SetDCBrushColor(dd.hdc, itemApp.baseColor);
 	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 
 	for(int anArrayIdx = arraysToShow.firstSetBit();
 		anArrayIdx < arraysToShow.size();
 		anArrayIdx = arraysToShow.nextSetBit(anArrayIdx+1))
 	{
-		const u16 aHotspotCount = InputMap::sizeOfHotspotArray(anArrayIdx);
-		const u16 aFirstHotspot = InputMap::firstHotspotInArray(anArrayIdx);
-		for(u16 aHotspotID = aFirstHotspot;
-			aHotspotID < aFirstHotspot + aHotspotCount;
-			++aHotspotID)
+		const int aHotspotCount = InputMap::sizeOfHotspotArray(anArrayIdx);
+		const int aFirstHotspot = InputMap::firstHotspotInArray(anArrayIdx);
+		for(int i = aFirstHotspot, end = aFirstHotspot + aHotspotCount;
+			i < end; ++i)
 		{
 			const POINT& aHotspotPos = hotspotToPoint(
-				InputMap::getHotspot(aHotspotID), dd.targetSize);
+				InputMap::getHotspot(i), dd.targetSize);
 			const RECT aDrawRect = {
-				aHotspotPos.x - hi.baseRadius,
-				aHotspotPos.y - hi.baseRadius,
-				aHotspotPos.x + hi.baseRadius,
-				aHotspotPos.y + hi.baseRadius };
+				aHotspotPos.x - menuApp.baseRadius,
+				aHotspotPos.y - menuApp.baseRadius,
+				aHotspotPos.x + menuApp.baseRadius,
+				aHotspotPos.y + menuApp.baseRadius };
 			FillRect(dd.hdc, &aDrawRect, hBrush);
 		}
 	}
 }
 
 
-static void drawSystemHUD(HUDDrawData& dd)
+static void drawSystemHUD(DrawData& dd)
 {
-	const HUDElementInfo& hi = sHUDElementInfo[dd.hudElementID];
-	DBG_ASSERT(hi.type == eHUDType_System);
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+	const MenuLayout& layout = getMenuLayout(dd.menuID);
+	DBG_ASSERT(layout.style == eMenuStyle_System);
 
-	if( ((sSystemBorderFlashTimer / kSystemHUDFlashFreq) & 0x01) != 0 &&
+	if( ((sSystemBorderFlashTimer / kSystemOverlayFlashFreq) & 0x01) != 0 &&
 		sErrorMessage.empty() && sNoticeMessage.empty() )
 	{
 		COLORREF aFrameColor = RGB(0, 180, 0);
 		HPEN hFramePen = CreatePen(PS_INSIDEFRAME, 4, aFrameColor);
 
 		HPEN hOldPen = (HPEN)SelectObject(dd.hdc, hFramePen);
-		Rectangle(dd.hdc, dd.components[0].left, dd.components[0].top,
-			dd.components[0].right, dd.components[0].bottom);
+		Rectangle(dd.hdc, ps.rects[0].left, ps.rects[0].top,
+			ps.rects[0].right, ps.rects[0].bottom);
 		SelectObject(dd.hdc, hOldPen);
 
 		DeleteObject(hFramePen);
@@ -2025,12 +2066,12 @@ static void drawSystemHUD(HUDDrawData& dd)
 
 	if( sSystemOverlayPaintFunc )
 	{
-		COLORREF oldColor = SetDCBrushColor(dd.hdc, hi.transColor);
-		sSystemOverlayPaintFunc(dd.hdc, dd.components[0], dd.firstDraw);
+		COLORREF oldColor = SetDCBrushColor(dd.hdc, transColor(dd.overlayID));
+		sSystemOverlayPaintFunc(dd.hdc, ps.rects[0], dd.firstDraw);
 		SetDCBrushColor(dd.hdc, oldColor);
 	}
 
-	RECT aTextRect = dd.components[1];
+	RECT aTextRect = ps.rects[1];
 	InflateRect(&aTextRect, -8, -8);
 
 	if( !sErrorMessage.empty() )
@@ -2049,15 +2090,14 @@ static void drawSystemHUD(HUDDrawData& dd)
 			DT_RIGHT | DT_BOTTOM | DT_SINGLELINE | DT_NOPREFIX);
 	}
 }
-#endif
 
 
 static void updateHotspotsMenuLayout(
 	int theOverlayID,
 	const SIZE& theTargetSize,
 	const RECT& theTargetClipRect,
-	POINT& theWindowPos,
-	SIZE& theWindowSize)
+	POINT& theWinPos,
+	SIZE& theWinSize)
 {
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
@@ -2111,19 +2151,19 @@ static void updateHotspotsMenuLayout(
 	aWinRect.top = max(aWinRect.top, theTargetClipRect.top);
 	aWinRect.right = min(aWinRect.right, theTargetClipRect.right);
 	aWinRect.bottom = min(aWinRect.bottom, theTargetClipRect.bottom);
-	theWindowPos.x = aWinRect.left;
-	theWindowPos.y = aWinRect.top;
-	theWindowSize.cx = aWinRect.right - aWinRect.left;
-	theWindowSize.cy = aWinRect.bottom - aWinRect.top;
+	theWinPos.x = aWinRect.left;
+	theWinPos.y = aWinRect.top;
+	theWinSize.cx = aWinRect.right - aWinRect.left;
+	theWinSize.cy = aWinRect.bottom - aWinRect.top;
 
 	// Make all rects be window-relative instead of target-relative
 	for(std::vector<RECT>::iterator itr = ps.rects.begin();
 		itr != ps.rects.end(); ++itr)
 	{
-		itr->left -= theWindowPos.x;
-		itr->top -= theWindowPos.y;
-		itr->right -= theWindowPos.x;
-		itr->bottom -= theWindowPos.y;
+		itr->left -= theWinPos.x;
+		itr->top -= theWinPos.y;
+		itr->right -= theWinPos.x;
+		itr->bottom -= theWinPos.y;
 	}
 }
 
@@ -2153,42 +2193,42 @@ void init()
 	sMenuItemAppearances.resize(eMenuItemDrawState_Num);
 
 	{// Get hotspot sizes
-		const Profile::PropertyMap& aPropMap =
+		Profile::PropertyMapPtr aPropMap =
 			Profile::getSectionProperties(kHotspotSizesSectionName);
-		sHotspotSizes.reserve(aPropMap.size());
-		for(int i = 0; i < aPropMap.size(); ++i)
+		sHotspotSizes.reserve(aPropMap->size());
+		for(int i = 0; i < aPropMap->size(); ++i)
 		{
 			setHotspotSizes(
-				aPropMap.keys()[i],
-				aPropMap.vals()[i].str);
+				aPropMap->keys()[i],
+				aPropMap->vals()[i].str);
 		}
 	}
 
 	{// Load bitmap files
-		const Profile::PropertyMap& aPropMap =
+		Profile::PropertyMapPtr aPropMap =
 			Profile::getSectionProperties(kBitmapsSectionName);
-		sBitmapFiles.reserve(aPropMap.size());
-		for(int i = 0, end = aPropMap.size(); i < end; ++i)
+		sBitmapFiles.reserve(aPropMap->size());
+		for(int i = 0, end = aPropMap->size(); i < end; ++i)
 		{
 			loadBitmapFile(
-				aPropMap.keys()[i],
-				aPropMap.vals()[i].str);
+				aPropMap->keys()[i],
+				aPropMap->vals()[i].str);
 		}
 	}
 
 	{// Set up converting text labels to icons
-		const Profile::PropertyMap& aPropMap =
+		Profile::PropertyMapPtr aPropMap =
 			Profile::getSectionProperties(kIconsSectionName);
-		for(int i = 0; i < aPropMap.size(); ++i)
+		for(int i = 0; i < aPropMap->size(); ++i)
 		{
 			setLabelIcon(
-				aPropMap.keys()[i],
-				aPropMap.vals()[i].str);
+				aPropMap->keys()[i],
+				aPropMap->vals()[i].str);
 		}
 	}
 
 	// Add data from base [Appearance] section for default look
-	const Profile::PropertyMap& aDefaultProps =
+	Profile::PropertyMapPtr aDefaultProps =
 		Profile::getSectionProperties(kMenuDefaultSectionName);
 	fetchMenuLayoutProperties(aDefaultProps, sMenuLayouts[0]);
 	fetchBaseAppearanceProperties(aDefaultProps, sMenuAppearances[0]);
@@ -2209,6 +2249,10 @@ void init()
 		for(u16 i = 0; i < eMenuItemDrawState_Num; ++i)
 			theSystemMenu.itemAppearanceID[i] = i;
 		theSystemMenu.layoutID = 0;
+		MenuLayout aMenuLayout;
+		aMenuLayout.style = eMenuStyle_System;
+		theSystemMenu.layoutID =
+			dropTo<u16>(getOrCreateMenuLayoutID(aMenuLayout));
 		MenuPosition aMenuPos;
 		// Set draw priority to higher than any can be manually set to
 		aMenuPos.drawPriority = 127;
@@ -2245,7 +2289,10 @@ void init()
 			dropTo<u16>(getOrCreateItemAppearanceID(anItemAppearance));
 		for(u16 i = 0; i < eMenuItemDrawState_Num; ++i)
 			theHSGuideMenu.itemAppearanceID[i] = i;
-		theHSGuideMenu.layoutID = 0;
+		MenuLayout aMenuLayout;
+		aMenuLayout.style = eMenuStyle_HotspotGuide;
+		theHSGuideMenu.layoutID =
+			dropTo<u16>(getOrCreateMenuLayoutID(aMenuLayout));
 		MenuPosition aMenuPos;
 		// Lower than any can be manually set to
 		aMenuPos.drawPriority = -127;
@@ -2548,7 +2595,11 @@ void updateScaling()
 
 	// Clear label cache data for each menu since they are affected by scale
 	for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
+	{
 		sMenuDrawCache[i].labelCache.clear();
+		// Also reset max border size
+		sMenuDrawCache[i].maxBorderSize = -1;
+	}
 
 	// TODO: Update things affected by hotspot sizes
 
@@ -2654,19 +2705,19 @@ void paintWindowContents(
 	{
 	case eMenuStyle_List:
 	case eMenuStyle_Bar:
-	case eMenuStyle_Grid:			/*drawBasicMenu(dd);*/	break;
-	case eMenuStyle_Slots:			/*drawSlotsMenu(dd);*/	break;
-	case eMenuStyle_4Dir:			/*draw4DirMenu(dd);*/	break;
-	case eMenuStlye_Ring:			/* TODO */				break;
-	case eMenuStyle_Radial:			/* TODO */				break;
-	case eMenuStyle_Hotspots:		/*drawBasicMenu(dd);*/	break;
-	case eMenuStyle_SelectHotspot:	/* TODO */				break;
+	case eMenuStyle_Grid:			drawBasicMenu(dd);	break;
+	case eMenuStyle_Slots:			drawSlotsMenu(dd);	break;
+	case eMenuStyle_4Dir:			draw4DirMenu(dd);	break;
+	case eMenuStlye_Ring:			/* TODO */			break;
+	case eMenuStyle_Radial:			/* TODO */			break;
+	case eMenuStyle_Hotspots:		drawBasicMenu(dd);	break;
+	case eMenuStyle_SelectHotspot:	/* TODO */			break;
 	case eMenuStyle_Visual:
 	case eMenuStyle_Label:
 	case eMenuStyle_KBCycleLast:
-	case eMenuStyle_KBCycleDefault:	/*drawBasicHUD(dd);*/	break;
-	case eMenuStyle_HotspotGuide:	/*drawHSGuide(dd);*/	break;
-	case eMenuStyle_System:			/*drawSystemHUD(dd);*/	break;
+	case eMenuStyle_KBCycleDefault:	drawIndicator(dd);	break;
+	case eMenuStyle_HotspotGuide:	drawHSGuide(dd);	break;
+	case eMenuStyle_System:			drawSystemHUD(dd);	break;
 	default:						DBG_ASSERT(false && "Invaild Menu Style");
 	}
 }
@@ -2676,8 +2727,8 @@ void updateWindowLayout(
 	int theOverlayID,
 	const SIZE& theTargetSize,
 	const RECT& theTargetClipRect,
-	POINT& theWindowPos,
-	SIZE& theWindowSize)
+	POINT& theWinPos,
+	SIZE& theWinSize)
 {
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
@@ -2692,7 +2743,7 @@ void updateWindowLayout(
 	case eMenuStyle_SelectHotspot:
 		updateHotspotsMenuLayout(
 			theOverlayID, theTargetSize, theTargetClipRect,
-			theWindowPos, theWindowSize);
+			theWinPos, theWinSize);
 		return;
 	}
 
@@ -2765,8 +2816,10 @@ void updateWindowLayout(
 	}
 
 	// Get base window position (top-left corner) assuming top-left alignment
-	double aWinBasePosX = 0;//hotspotAnchorValue(thePos.base.x, theTargetSize.cx);
-	double aWinBasePosY = 0;//hotspotAnchorValue(thePos.base.y, theTargetSize.cy);
+	double aWinBasePosX = LONG(u16ToRangeVal(
+		thePos.base.x.anchor, theTargetSize.cx));
+	double aWinBasePosY = LONG(u16ToRangeVal(
+		thePos.base.y.anchor, theTargetSize.cy));
 	double aWinScalingPosX = thePos.base.x.offset;
 	double aWinScalingPosY = thePos.base.y.offset;
 
@@ -2835,15 +2888,15 @@ void updateWindowLayout(
 	aWinClippedRect.top = max(aWinRect.top, theTargetClipRect.top);
 	aWinClippedRect.right = min(aWinRect.right, theTargetClipRect.right);
 	aWinClippedRect.bottom = min(aWinRect.bottom, theTargetClipRect.bottom);
-	theWindowPos.x = aWinClippedRect.left;
-	theWindowPos.y = aWinClippedRect.top;
-	theWindowSize.cx = aWinClippedRect.right - aWinClippedRect.left;
-	theWindowSize.cy = aWinClippedRect.bottom - aWinClippedRect.top;
+	theWinPos.x = aWinClippedRect.left;
+	theWinPos.y = aWinClippedRect.top;
+	theWinSize.cx = max(0, int(aWinClippedRect.right - aWinClippedRect.left));
+	theWinSize.cy = max(0, int(aWinClippedRect.bottom - aWinClippedRect.top));
 
 	// Calculate component rects based on menu type
 	ps.rects.clear();
 	POINT aCompTopLeft =
-		{ aWinPosX - theWindowPos.x, aWinPosY - theWindowPos.y };
+		{ aWinPosX - theWinPos.x, aWinPosY - theWinPos.y };
 	POINT aCompBotRight =
 		{ aCompTopLeft.x + aWinSizeX, aCompTopLeft.y + aWinSizeY };
 	// Component 0 is the entire dest rect (before clipping)
@@ -3018,14 +3071,14 @@ void paintMainWindowContents(HWND theWindow, bool asDisabled)
 	const std::wstring& aWStr = widen(kAppVersionString);
 
 	// Make sure string will actually fit with default system font
-	//if( LONG aFontHeight = getFontHeightToFit(
-	//		hdc, aWStr, aRect, NULL, DT_SINGLELINE) )
-	//{// Need alternate font to actually fit string properly
-	//	ncm.lfMessageFont.lfWidth = 0;
-	//	ncm.lfMessageFont.lfHeight = aFontHeight;
-	//	DeleteObject(SelectObject(hdc,
-	//		CreateFontIndirect(&ncm.lfMessageFont)));
-	//}
+	if( LONG aFontHeight = getFontHeightToFit(
+			hdc, aWStr, aRect, NULL, DT_SINGLELINE) )
+	{// Need alternate font to actually fit string properly
+		ncm.lfMessageFont.lfWidth = 0;
+		ncm.lfMessageFont.lfHeight = aFontHeight;
+		DeleteObject(SelectObject(hdc,
+			CreateFontIndirect(&ncm.lfMessageFont)));
+	}
 
 	// Set to appear grayed out while window is disabled/inactive
 	COLORREF oldTextColor = 0;
@@ -3075,17 +3128,19 @@ void redrawSystemOverlay(bool fullRedraw)
 }
 
 
-const WindowAlphaInfo& alphaInfo(int theOverlayID)
+WindowAlphaInfo alphaInfo(int theOverlayID)
 {
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
 	return getMenuAlphaInfo(theMenuID);
 }
 
 
-const std::vector<RECT>& windowLayoutRects(int theOverlayID)
+RECT windowLayoutRect(int theOverlayID, int theRectIndex)
 {
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
-	return sOverlayPaintStates[theOverlayID].rects;
+	theRectIndex = min(theRectIndex,
+		intSize(sOverlayPaintStates[theOverlayID].rects.size()-1));
+	return sOverlayPaintStates[theOverlayID].rects[theRectIndex];
 }
 
 

@@ -1431,16 +1431,13 @@ Hotspot hotspotForMenuItem(int theRootMenuID, int theMenuItemIdx)
 		gReshapeOverlays.reset(theOverlayID);
 	}
 
-	const std::vector<RECT>& aMenuRects =
-		WindowPainter::windowLayoutRects(theOverlayID);
-	const size_t aRectIndex =
-		min<size_t>(aMenuRects.size()-1, theMenuItemIdx + 1);
-	DBG_ASSERT(aRectIndex < aMenuRects.size());
+	const RECT& aMenuRect =
+		WindowPainter::windowLayoutRect(theOverlayID, theMenuItemIdx + 1);
 	POINT aPos;
-	aPos.x = aMenuRects[aRectIndex].left;
-	aPos.y = aMenuRects[aRectIndex].top;
-	aPos.x += aMenuRects[aRectIndex].right;
-	aPos.y += aMenuRects[aRectIndex].bottom;
+	aPos.x = aMenuRect.left;
+	aPos.y = aMenuRect.top;
+	aPos.x += aMenuRect.right;
+	aPos.y += aMenuRect.bottom;
 	aPos.x /= 2;
 	aPos.y /= 2;
 	aPos.x += aWindow.position.x;

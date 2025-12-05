@@ -43,33 +43,33 @@ struct ResourceProfile
 };
 
 const ResourceProfile kResTemplateCore =
-	{	"Core",							"Core",				IDR_TEXT_INI_CORE,		7	};
+	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		7	};
 
 const ResourceProfile kResTemplateBase[] =
-{//		dispName						fileName			resID					ver
-	{	"AOA Base",						"AOA Base",			IDR_TEXT_INI_BASE_AOA,	7	},
-	{	"EQ P99 Base",					"P99 Base",			IDR_TEXT_INI_BASE_P99,	7	},
-	{	"EQ PQ Base",					"PQ Base",			IDR_TEXT_INI_BASE_PQ,	7	},
-	{	"M&M Base",						"MnM Base",			IDR_TEXT_INI_BASE_MNM,	8	},
-	{	"Pantheon Base",				"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	7	},
+{//		dispName			fileName			resID					ver
+	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	7	},
+	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	7	},
+	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	7	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	8	},
+	{	"Pantheon Base",	"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	7	},
 };
 
 const ResourceProfile kResTemplateDefault[] =
-{//		dispName						fileName			resID					ver
-	{	"AOA Default",					"AOA Default",		IDR_TEXT_INI_DEF_AOA,	9	},
-	{	"EQ P99 Default",				"P99 Default",		IDR_TEXT_INI_DEF_P99,	8	},
-	{	"EQ PQ Default",				"PQ Default",		IDR_TEXT_INI_DEF_PQ,	8	},
-	{	"M&M Default",					"MnM Default",		IDR_TEXT_INI_DEF_MNM,	9	},
-	{	"Pantheon Default",				"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	8	},
+{//		dispName			fileName			resID					ver
+	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	9	},
+	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	8	},
+	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	8	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	9	},
+	{	"Pantheon Default",	"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	8	},
 };
 
 const ResourceProfile kResTemplateCustom[] =
-{//		dispName						fileName			resID					ver
-	{	"Adrullan Online Adventures",	"AOA",				IDR_TEXT_INI_CUST_AOA,	0	},
-	{	"EverQuest: Project 1999",		"P99",				IDR_TEXT_INI_CUST_P99,	0	},
-	{	"EverQuest: Project Quarm",		"PQ",				IDR_TEXT_INI_CUST_PQ,	0	},
-	{	"Monsters & Memories",			"MnM",				IDR_TEXT_INI_CUST_MNM,	0	},
-	{	"Pantheon: Rise of the Fallen",	"Pantheon",			IDR_TEXT_INI_CUST_PAN,	0	},
+{//		dispName						fileName	resID					ver
+	{	"Adrullan Online Adventures",	"AOA",		IDR_TEXT_INI_CUST_AOA,	0 },
+	{	"EverQuest: Project 1999",		"P99",		IDR_TEXT_INI_CUST_P99,	0 },
+	{	"EverQuest: Project Quarm",		"PQ",		IDR_TEXT_INI_CUST_PQ,	0 },
+	{	"Monsters & Memories",			"MnM",		IDR_TEXT_INI_CUST_MNM,	0 },
+	{	"Pantheon: Rise of the Fallen",	"Pantheon",	IDR_TEXT_INI_CUST_PAN,	0 },
 };
 
 enum EParseMode
@@ -135,6 +135,29 @@ static std::string sKnownIssuesRTF;
 static bool sNeedShowKnownIssues = false;
 static int sAutoProfileIdx = 0;
 static int sNewBaseProfileIdx = -1;
+
+
+//------------------------------------------------------------------------------
+// Debugging
+//------------------------------------------------------------------------------
+
+#ifndef NDEBUG
+static int sPropertyMapPtrCount = 0;
+PropertyMapPtr::PropertyMapPtr(const PropertyMap* ptr)
+: ptr(ptr) { ++sPropertyMapPtrCount; }
+PropertyMapPtr::PropertyMapPtr(const PropertyMapPtr& rhs)
+: ptr(rhs.ptr) { ++sPropertyMapPtrCount; }
+PropertyMapPtr::~PropertyMapPtr()
+{ --sPropertyMapPtrCount; }
+PropertyMapPtr& PropertyMapPtr::operator=(const PropertyMapPtr& rhs)
+{ ptr = rhs.ptr; return *this; }
+const PropertyMap* PropertyMapPtr::operator->() const { return ptr; }
+const PropertyMap& PropertyMapPtr::operator*() const { return *ptr; }
+inline static void confirmSafeToWriteToMap()
+{ DBG_ASSERT(sPropertyMapPtrCount == 0); }
+#else
+inline static void confirmSafeToWriteToMap() {}
+#endif
 
 
 //------------------------------------------------------------------------------
@@ -1261,16 +1284,17 @@ static std::string varTagToString(
 
 	// Get first parameter for operator
 	const std::string& aParam = fetchNextItem(theTagStr, aPos, aNextDel);
+	DBG_ASSERT(aPos > 0);
 
 	// Have all we need for arithmetic operators now
 	if( anOpC == '+' || anOpC == '-' || anOpC == '*' || anOpC == '/' )
 	{
-		if( theTagStr[aPos] != '}' )
+		if( theTagStr[aPos-1] != '}' )
 		{
 			logError("Unexpected %c found in '%s'. "
 				"Only one operator is allowed per ${} block! "
 				"Use nested ${} blocks for more options.",
-				theTagStr[aPos], theTagStr.c_str());
+				theTagStr[aPos-1], theTagStr.c_str());
 		}
 		double aVarNum = doubleFromString(result);
 		double aParamNum = doubleFromStringStrict(aParam);
@@ -1337,7 +1361,7 @@ static std::string varTagToString(
 	}
 
 	// What to do with compare result depends on second operator
-	const char anOpC2 = theTagStr[aPos++];
+	const char anOpC2 = theTagStr[aPos-1];
 	if( anOpC2 == '}' )
 	{
 		if( anOpC == '?' )
@@ -1369,7 +1393,7 @@ static std::string varTagToString(
 	const std::string& aTrueResult = fetchNextItem(theTagStr, aPos, ":}");
 	if( isTrue )
 		result = aTrueResult;
-	else if( theTagStr[aPos++] == ':' )
+	else if( theTagStr[aPos-1] == ':' )
 		result = fetchNextItem(theTagStr, aPos, "}");
 	else
 		result = "";
@@ -1410,6 +1434,8 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		size_t aVarOpPos = aTagCoords.first + 2;
 		const std::string& aVarName =
 			fetchNextItem(aStr, aVarOpPos, "}+-*/?!~<>=");
+		DBG_ASSERT(aVarOpPos > 0);
+		--aVarOpPos;
 		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
 		std::string aRepStr;
 		if( aVarName.empty() )
@@ -1483,6 +1509,7 @@ static void readProfileCallback(
 
 static void loadProfile(int theProfilesCanLoadIdx)
 {
+	confirmSafeToWriteToMap();
 	sSectionsMap.clear();
 	// Make sure "variables" section is always section 0
 	sSectionsMap.setValue(kVariablesSectionName, PropertyMap());
@@ -1538,7 +1565,7 @@ static void loadProfile(int theProfilesCanLoadIdx)
 }
 
 
-void propogatePropertyChange(int theSectionID, int thePropertyID)
+static void propogatePropertyChange(int theSectionID, int thePropertyID)
 {
 	// Apply variable expansion to this property
 	DBG_ASSERT(theSectionID >= 0 && theSectionID < sSectionsMap.size());
@@ -2226,12 +2253,18 @@ std::string variableIDToName(int theVariableID)
 }
 
 
-const PropertyMap& getSectionProperties(const std::string& theSectionName)
+PropertyMapPtr getSectionProperties(const std::string& theSectionName)
+{
+	return getSectionProperties(sSectionsMap.findIndex(theSectionName));
+}
+
+
+PropertyMapPtr getSectionProperties(int theSectionID)
 {
 	static const PropertyMap kEmptyMap = PropertyMap();
-	if( const PropertyMap* aSection = sSectionsMap.find(theSectionName) )
-		return *aSection;
-	return kEmptyMap;
+	if( theSectionID < sSectionsMap.size() )
+		return &sSectionsMap.vals()[theSectionID];
+	return &kEmptyMap;
 }
 
 
@@ -2242,11 +2275,11 @@ const SectionsMap& allSections()
 
 
 std::string getStr(
-	const PropertyMap& theSection,
+	PropertyMapPtr theSection,
 	const std::string& thePropertyName,
 	const std::string& theDefaultValue)
 {
-	if( const Property* aProp = theSection.find(thePropertyName) )
+	if( const Property* aProp = theSection->find(thePropertyName) )
 	{
 		if( !aProp->str.empty() )
 			return aProp->str;
@@ -2257,7 +2290,7 @@ std::string getStr(
 
 
 int getInt(
-	const PropertyMap& theSection,
+	PropertyMapPtr theSection,
 	const std::string& theName,
 	int theDefaultValue)
 {
@@ -2269,7 +2302,7 @@ int getInt(
 
 
 bool getBool(
-	const PropertyMap& theSection,
+	PropertyMapPtr theSection,
 	const std::string& theName,
 	bool theDefaultValue)
 {
@@ -2281,7 +2314,7 @@ bool getBool(
 
 
 double getFloat(
-	const PropertyMap& theSection,
+	PropertyMapPtr theSection,
 	const std::string& theName,
 	double theDefaultValue)
 {
@@ -2298,6 +2331,7 @@ void setStr(
 	const std::string& theValue,
 	bool saveToFile)
 {
+	confirmSafeToWriteToMap();
 	const int aSectionID = sSectionsMap.findOrAddIndex(theSection);
 	PropertyMap& aSection = sSectionsMap.vals()[aSectionID];
 	const int aPropID = aSection.findOrAddIndex(thePropertyName);
@@ -2307,6 +2341,7 @@ void setStr(
 
 void setVariable(int theVarID, const std::string& theValue, bool temporary)
 {
+	confirmSafeToWriteToMap();
 	setPropertyAfterLoad(kVarsSectionIdx, theVarID, theValue, !temporary);
 }
 
@@ -2316,6 +2351,7 @@ void setVariable(
 	const std::string& theValue,
 	bool temporary)
 {
+	confirmSafeToWriteToMap();
 	const int theVarID =
 		sSectionsMap.vals()[kVarsSectionIdx].findOrAddIndex(theVarName);
 	setPropertyAfterLoad(kVarsSectionIdx, theVarID, theValue, !temporary);

@@ -66,6 +66,11 @@ enum ETask
 	eTask_None = eTask_Num,
 };
 
+
+//------------------------------------------------------------------------------
+// Debugging
+//------------------------------------------------------------------------------
+
 #ifdef HOTSPOT_MAP_DEBUG_PRINT
 #define mapDebugPrint(...) debugPrint("HotspotMap: " __VA_ARGS__)
 #else
@@ -89,6 +94,8 @@ struct ZERO_INIT(GridPos)
 	int x, y;
 };
 
+typedef std::vector<HotspotLinkNode> MenuLinks;
+
 
 //------------------------------------------------------------------------------
 // Static Variables
@@ -100,7 +107,7 @@ static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<GridPos> sFetchGrid;
 static std::vector<int> sCandidates;
-static VectorMap<u16, Links> sLinkMaps;
+static VectorMap<u16, MenuLinks> sLinkMaps;
 static int sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
 static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
@@ -379,7 +386,7 @@ static void processActiveArraysTask()
 		{
 			mapDebugPrint(
 				"Enabling hotspots in Hotspot Array '%s'\n",
-				InputMap::hotspotArrayLabel(anArray).c_str());
+				InputMap::hotspotArrayLabel(anArray));
 			needChangeMade = true;
 			enableHotspots = true;
 		}
@@ -388,7 +395,7 @@ static void processActiveArraysTask()
 		{
 			mapDebugPrint(
 				"Disabling hotspots in Hotspot Array '%s'\n",
-				InputMap::hotspotArrayLabel(anArray).c_str());
+				InputMap::hotspotArrayLabel(anArray));
 			needChangeMade = true;
 			enableHotspots = false;
 		}
@@ -1045,18 +1052,19 @@ int getNextHotspotInDir(ECommandDir theDirection)
 }
 
 
-const Links& getLinks(int theMenuID)
+HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 {
-	Links& result = sLinkMaps.findOrAdd(dropTo<u16>(theMenuID));
-	if( !result.empty() )
-		return result;
+	MenuLinks& aLinkVec = sLinkMaps.findOrAdd(dropTo<u16>(theMenuID));
+	if( !aLinkVec.empty() )
+		return aLinkVec[min(theMenuItemIdx, intSize(aLinkVec.size())-1)];
 
 	// Generate links
 	mapDebugPrint("Generating hotspot links for menu '%s'\n",
-		InputMap::menuLabel(theMenuID).c_str());
+		InputMap::menuLabel(theMenuID));
 	const int aNodeCount = max(1, InputMap::menuItemCount(theMenuID));
-	result.resize(aNodeCount);
-	if( aNodeCount == 1 ) return result;
+	aLinkVec.resize(aNodeCount);
+	if( aNodeCount == 1 )
+		return aLinkVec[min(theMenuItemIdx, intSize(aLinkVec.size())-1)];
 
 	// Make sure hotspots' normalized positions have been assigned
 	while(sNewTasks.test(eTask_TargetSize) ||
@@ -1175,7 +1183,7 @@ const Links& getLinks(int theMenuID)
 
 			const u8 aNodeIdx = aHotspotToMenuIdxMap.find(
 				dropTo<u16>(aDot.pointID))->second;
-			HotspotLinkNode& aNode = result[aNodeIdx];
+			HotspotLinkNode& aNode = aLinkVec[aNodeIdx];
 			for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 			{
 				if( aPointInDir[aDir] == 0 )
@@ -1196,20 +1204,20 @@ const Links& getLinks(int theMenuID)
 	// Add wrap-around options for edge nodes
 	for(int aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
-		HotspotLinkNode& aNode = result[aNodeIdx];
+		HotspotLinkNode& aNode = aLinkVec[aNodeIdx];
 		for(u8 aDir = 0; aDir < eCmdDir_Num; ++aDir)
 		{
 			if( !aNode.edge[aDir] )
 				continue;
 			const ECommandDir anOppDir = opposite8Dir(ECommandDir(aDir));
 			u8 aWrapNode = aNode.next[anOppDir];
-			while(!result[aWrapNode].edge[anOppDir])
-				aWrapNode = result[aWrapNode].next[anOppDir];
+			while(!aLinkVec[aWrapNode].edge[anOppDir])
+				aWrapNode = aLinkVec[aWrapNode].next[anOppDir];
 			aNode.next[aDir] = aWrapNode;
 		}
 	}
 
-	return result;
+	return aLinkVec[min(theMenuItemIdx, intSize(aLinkVec.size())-1)];
 }
 
 

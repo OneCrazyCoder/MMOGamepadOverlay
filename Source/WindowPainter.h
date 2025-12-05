@@ -73,9 +73,9 @@ struct WindowAlphaInfo
 	WindowAlphaInfo();
 	bool operator==(const WindowAlphaInfo& rhs) const;
 };
-const WindowAlphaInfo& alphaInfo(int theOverlayID);
+WindowAlphaInfo alphaInfo(int theOverlayID);
 
-const std::vector<RECT>& windowLayoutRects(int theOverlayID);
+RECT windowLayoutRect(int theOverlayID, int theRectIndex);
 
 // Returns background color to become fully transparent
 COLORREF transColor(int theOverlayID);

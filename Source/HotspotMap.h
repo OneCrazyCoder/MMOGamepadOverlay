@@ -30,16 +30,13 @@ void update();
 void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays);
 const BitVector<32>& getEnabledHotspotArrays();
 
-// Returns which hotspot to jump to in given direction (or 0)
+// Returns which hotspot to jump mouse cursor to in given direction (or 0)
 int getNextHotspotInDir(ECommandDir theDirection);
 
-// Get a pre-generated map linking hotspot with cardinal directions for a menu
-// (with values being which menu item to select in given direction)
-// Returned reference may become invalid by this and other functions here!
+// Get Link in a pre-generated map linking menu hotspot with cardinal directions
 struct ZERO_INIT(HotspotLinkNode)
 { u8 next[eCmdDir_Num]; bool edge[eCmdDir_Num]; };
-typedef std::vector<HotspotLinkNode> Links;
-const Links& getLinks(int theMenuID);
+HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx);
 
 // Converts a Profile string into a Hotspot (and removes the hotspot
 // from the start of the string in case there are multiple included).

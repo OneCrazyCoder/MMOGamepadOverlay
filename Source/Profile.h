@@ -25,6 +25,23 @@ struct Property
 };
 typedef StringToValueMap<Property> PropertyMap;
 typedef StringToValueMap<PropertyMap> SectionsMap;
+#ifdef NDEBUG
+typedef const PropertyMap* PropertyMapPtr;
+#else
+// Just causes an assert if modify the SectionsMap while one of these exists,
+// to make sure don't end up with dangling reference to a PropertyMap
+class PropertyMapPtr
+{
+	const PropertyMap* ptr;
+public:
+	PropertyMapPtr(const PropertyMap*);
+	PropertyMapPtr(const PropertyMapPtr&);
+	~PropertyMapPtr();
+	PropertyMapPtr& operator=(const PropertyMapPtr&);
+	const PropertyMap* operator->() const;
+	const PropertyMap& operator*() const;
+};
+#endif
 
 // Load (and/or generate) .ini files for core profile data only
 void loadCore();
@@ -48,13 +65,14 @@ bool getBool(const std::string&, const std::string&, bool = false);
 double getFloat(const std::string&, const std::string&, double = 0);
 int variableNameToID(const std::string& theVarName); // -1 if not found
 std::string variableIDToName(int theVariableID);
-const PropertyMap& getSectionProperties(const std::string& theSectionName);
 const SectionsMap& allSections();
-std::string getStr(// from section after getSectionProperties()
-	const PropertyMap&,const std::string&, const std::string& = "");
-int getInt(const PropertyMap&, const std::string&, int = 0);
-bool getBool(const PropertyMap&, const std::string&, bool = false);
-double getFloat(const PropertyMap&, const std::string&, double = 0);
+PropertyMapPtr getSectionProperties(const std::string& theSectionName);
+PropertyMapPtr getSectionProperties(int theSectionID);
+std::string getStr(// from section returned by getSectionProperties()
+	PropertyMapPtr, const std::string&, const std::string& = "");
+int getInt(PropertyMapPtr, const std::string&, int = 0);
+bool getBool(PropertyMapPtr, const std::string&, bool = false);
+double getFloat(PropertyMapPtr, const std::string&, double = 0);
 
 // Add or modify profile properties (does nothing if match prev value)
 // Any changed values are added to changedSections() as well.

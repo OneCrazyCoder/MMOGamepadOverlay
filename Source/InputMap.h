@@ -133,13 +133,13 @@ int hotspotCount();
 int hotspotArrayCount();
 
 // LABELS
-const std::string& layerLabel(int theLayerID);
+const char* layerLabel(int theLayerID);
 std::string hotspotLabel(int theHotspotID);
-const std::string& hotspotArrayLabel(int theHotspotArrayID);
-const std::string& menuLabel(int theMenuID);
-const std::string& menuItemLabel(int theMenuID, int theMenuItemIdx);
-const std::string& menuItemAltLabel(int theMenuID, int theMenuItemIdx);
-const std::string& menuDirLabel(int theMenuID, ECommandDir theDir);
-const std::string& keyBindLabel(int theKeyBindID);
+const char* hotspotArrayLabel(int theHotspotArrayID);
+const char* menuLabel(int theMenuID);
+const char* menuItemLabel(int theMenuID, int theMenuItemIdx);
+const char* menuItemAltLabel(int theMenuID, int theMenuItemIdx);
+const char* menuDirLabel(int theMenuID, ECommandDir theDir);
+const char* keyBindLabel(int theKeyBindID);
 
 } // InputMap

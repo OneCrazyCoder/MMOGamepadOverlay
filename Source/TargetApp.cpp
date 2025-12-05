@@ -104,7 +104,7 @@ static bool sRestoreTargetWindow = false;
 
 
 //------------------------------------------------------------------------------
-// Local Functions
+// Debugging
 //------------------------------------------------------------------------------
 
 #ifdef TARGET_APP_DEBUG_PRINT
@@ -112,6 +112,12 @@ static bool sRestoreTargetWindow = false;
 #else
 #define targetDebugPrint(...) ((void)0)
 #endif
+
+
+//------------------------------------------------------------------------------
+// Local Functions
+//------------------------------------------------------------------------------
+
 
 static void dropTargetWindow()
 {

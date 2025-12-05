@@ -285,7 +285,7 @@ static InputResults sResults;
 
 
 //------------------------------------------------------------------------------
-// Local Functions
+// Debugging
 //------------------------------------------------------------------------------
 
 #ifdef INPUT_TRANSLATOR_DEBUG_PRINT
@@ -293,6 +293,11 @@ static InputResults sResults;
 #else
 #define transDebugPrint(...) ((void)0)
 #endif
+
+
+//------------------------------------------------------------------------------
+// Local Functions
+//------------------------------------------------------------------------------
 
 static void loadLayerData()
 {
@@ -567,7 +572,7 @@ static bool removeControlsLayer(int theLayerID, bool force = false)
 		if( *itr == theLayerID )
 		{
 			transDebugPrint("Removing Controls Layer: %s\n",
-				InputMap::layerLabel(*itr).c_str());
+				InputMap::layerLabel(*itr));
 
 			// Log layer change made
 			aLayer.buttonCommandUsed = false;
@@ -627,7 +632,7 @@ static void moveControlsLayerToTop(
 	theMovedLayers.set(theLayerID);
 	//transDebugPrint(
 	//	"Re-sorting Controls Layer '%s' as if it had been newly added\n",
-	//	InputMap::layerLabel(theLayerID).c_str());
+	//	InputMap::layerLabel(theLayerID));
 
 	std::vector<u16>::iterator beginItr = std::find(
 		sState.layerOrder.begin(),
@@ -720,29 +725,29 @@ static void addControlsLayer(int theLayerID, bool asHeldLayer)
 			transDebugPrint(
 				"Adding Controls Layer %d '%s' (since '%s' and '%s' exist)\n",
 				theLayerID,
-				InputMap::layerLabel(theLayerID).c_str(),
-				InputMap::layerLabel(aParentLayerID).c_str(),
-				InputMap::layerLabel(aComboParentLayerID).c_str());
+				InputMap::layerLabel(theLayerID),
+				InputMap::layerLabel(aParentLayerID),
+				InputMap::layerLabel(aComboParentLayerID));
 		}
 		else if( asHeldLayer )
 		{
 			transDebugPrint(
 				"Holding Controls Layer %d '%s'\n",
-				theLayerID, InputMap::layerLabel(theLayerID).c_str());
+				theLayerID, InputMap::layerLabel(theLayerID));
 		}
 		else if( aParentLayerID > 0 )
 		{
 			transDebugPrint(
 				"Adding Controls Layer %d '%s' as child of Layer '%s'\n",
 				theLayerID,
-				InputMap::layerLabel(theLayerID).c_str(),
-				InputMap::layerLabel(aParentLayerID).c_str());
+				InputMap::layerLabel(theLayerID),
+				InputMap::layerLabel(aParentLayerID));
 		}
 		else
 		{
 			transDebugPrint(
 				"Adding Controls Layer %d '%s'\n",
-				theLayerID, InputMap::layerLabel(theLayerID).c_str());
+				theLayerID, InputMap::layerLabel(theLayerID));
 		}
 	}
 	#endif

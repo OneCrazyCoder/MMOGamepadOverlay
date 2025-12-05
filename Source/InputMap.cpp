@@ -340,7 +340,7 @@ static std::string sPropertyPrintName;
 
 
 //------------------------------------------------------------------------------
-// Local Functions
+// Debugging
 //------------------------------------------------------------------------------
 
 #ifdef INPUT_MAP_DEBUG_PRINT
@@ -348,6 +348,11 @@ static std::string sPropertyPrintName;
 #else
 #define mapDebugPrint(...) ((void)0)
 #endif
+
+
+//------------------------------------------------------------------------------
+// Local Functions
+//------------------------------------------------------------------------------
 
 static void createEmptyHotspotArray(const std::string& theName)
 {
@@ -1661,7 +1666,6 @@ static Command wordsToSpecialCommand(
 	const std::string* aSecondLayerName = null;
 	bool wrapSpecified = false;
 	result.wrap = false;
-	bool countSpecified = false;
 	result.count = 1;
 	for(int i = 0, end = intSize(theWords.size()); i < end; ++i)
 	{
@@ -3512,7 +3516,7 @@ static void applyControlsLayerProperty(
 				case eCmdWord_Nothing:
 					if( aBtnNum == 0 && !hadAtLeastOneSwap )
 					{
-						theLayer.buttonRemapID = 1; // use default map
+						theLayer.buttonRemapID = 1; // use default no-swap map
 						sParsedString.clear();
 						mapDebugPrint("%s: Disabling button swaps\n",
 							sSectionPrintName.c_str());
@@ -3728,30 +3732,30 @@ static void loadDataFromProfile(
 				? theProfileMap.keys()[aSectID].substr(0, aSectionKeySplit)
 				: theProfileMap.keys()[aSectID];
 		const EPropertyType aPropType = propKeyToType(aSectionTypeName);
-		const Profile::PropertyMap& aPropMap = theProfileMap.vals()[aSectID];
+		Profile::PropertyMapPtr aPropMap = &theProfileMap.vals()[aSectID];
 		sSectionPrintName = "[" + theProfileMap.keys()[aSectID] + "]";
 
 		int aComponentID = kInvalidID;
 		switch(aPropType)
 		{
 		case ePropType_Hotspots:
-			for(int aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.keys()[aPropIdx];
+				sPropertyPrintName = aPropMap->keys()[aPropIdx];
 				applyHotspotProperty(
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].str,
+					aPropMap->keys()[aPropIdx],
+					aPropMap->vals()[aPropIdx].str,
 					loadedHotspotArrays,
 					loadedHotspots);
 			}
 			break;
 		case ePropType_KeyBinds:
-			for(int aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.keys()[aPropIdx];
+				sPropertyPrintName = aPropMap->keys()[aPropIdx];
 				const int aKeyBindID = applyKeyBindProperty(
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].str);
+					aPropMap->keys()[aPropIdx],
+					aPropMap->vals()[aPropIdx].str);
 				if( aKeyBindID < eSpecialKey_Num &&
 					sKeyBinds.vals()[aKeyBindID].type != eCmdType_TapKey &&
 					sKeyBinds.vals()[aKeyBindID].type >= eCmdType_FirstValid )
@@ -3760,22 +3764,22 @@ static void loadDataFromProfile(
 						"Special key bind '%s' may only be assigned to a "
 						"single key or modifier+key (or nothing)! "
 						"Could not assign %s!",
-						aPropMap.keys()[aPropIdx].c_str(),
-						aPropMap.vals()[aPropIdx].str.c_str());
+						aPropMap->keys()[aPropIdx].c_str(),
+						aPropMap->vals()[aPropIdx].str.c_str());
 					sKeyBinds.vals()[aKeyBindID].type = eCmdType_DoNothing;
 				}
 				reportCommandAssignment(
 					sKeyBinds.vals()[aKeyBindID],
-					aPropMap.vals()[aPropIdx].str,
+					aPropMap->vals()[aPropIdx].str,
 					keyBindSignalID(aKeyBindID));
 			}
 			break;
 		case ePropType_KeyBindCycles:
-			for(int aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 			{
 				applyKeyBindCycleProperty(
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].str);
+					aPropMap->keys()[aPropIdx],
+					aPropMap->vals()[aPropIdx].str);
 			}
 			break;
 		case ePropType_Menu:
@@ -3784,13 +3788,13 @@ static void loadDataFromProfile(
 			aComponentID = sMenus.findIndex(aSectionKey);
 			if( aComponentID >= sMenus.size() )
 				break;
-			for(int aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.keys()[aPropIdx];
+				sPropertyPrintName = aPropMap->keys()[aPropIdx];
 				applyMenuProperty(
 					aComponentID, init,
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].str);
+					aPropMap->keys()[aPropIdx],
+					aPropMap->vals()[aPropIdx].str);
 			}
 			loadedMenus.set(aComponentID);
 			break;
@@ -3802,13 +3806,13 @@ static void loadDataFromProfile(
 			aComponentID = sLayers.findIndex(aSectionKey);
 			if( aComponentID >= sLayers.size() )
 				break;
-			for(int aPropIdx = 0; aPropIdx < aPropMap.size(); ++aPropIdx)
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 			{
-				sPropertyPrintName = aPropMap.keys()[aPropIdx];
+				sPropertyPrintName = aPropMap->keys()[aPropIdx];
 				applyControlsLayerProperty(
 					aComponentID,
-					aPropMap.keys()[aPropIdx],
-					aPropMap.vals()[aPropIdx].str);
+					aPropMap->keys()[aPropIdx],
+					aPropMap->vals()[aPropIdx].str);
 			}
 			loadedLayers.set(aComponentID);
 			break;
@@ -3878,8 +3882,8 @@ void loadProfile()
 	// Start with the the special named hotspots so they get correct IDs
 	for(int i = 0; i < eSpecialHotspot_Num - eSpecialHotspot_FirstNamed; ++i)
 		createEmptyHotspotArray(kSpecialNamedHotspots[i]);
-	 const Profile::PropertyMap* aPropMapPtr =
-		 &Profile::getSectionProperties(kHotspotsSectionName);
+	 Profile::PropertyMapPtr aPropMapPtr =
+		 Profile::getSectionProperties(kHotspotsSectionName);
 	for(int i = 0; i < aPropMapPtr->size(); ++i)
 		createEmptyHotspotArray(aPropMapPtr->keys()[i]);
 	sHotspotArrays.trim();
@@ -3896,15 +3900,13 @@ void loadProfile()
 	// Start with the special keys so they get correct IDs
 	for(int i = 0; i < eSpecialKey_Num; ++i)
 		sKeyBinds.findOrAdd(kSpecialKeyBindNames[i], Command());
-	aPropMapPtr =
-		 &Profile::getSectionProperties(kKeyBindsSectionName);
+	aPropMapPtr =  Profile::getSectionProperties(kKeyBindsSectionName);
 	for(int i = 0; i < aPropMapPtr->size(); ++i)
 		sKeyBinds.findOrAdd(aPropMapPtr->keys()[i], Command());
 	sKeyBinds.trim();
 
 	// Allocate key bind cycles
-	aPropMapPtr =
-		 &Profile::getSectionProperties(kKeyBindCyclesSectionName);
+	aPropMapPtr = Profile::getSectionProperties(kKeyBindCyclesSectionName);
 	for(int i = 0; i < aPropMapPtr->size(); ++i)
 		sKeyBindCycles.findOrAdd(aPropMapPtr->keys()[i], KeyBindCycle());
 	sKeyBindCycles.trim();
@@ -3935,7 +3937,6 @@ void loadProfile()
 
 	// Allocate controls layers
 	sLayers.setValue(kMainLayerSectionName, ControlsLayer());
-	sLayers.vals()[0].buttonRemapID = 1; // Set base scheme to have default map
 	Profile::allSections().findAllWithPrefix(
 		kLayerPrefix, createEmptyLayer);
 	// sLayers can grow during this loop from creation of interim combo layers!
@@ -4087,9 +4088,12 @@ const ButtonRemap& buttonRemap(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	const int aButtonRemapID = sLayers.vals()[theLayerID].buttonRemapID;
-	DBG_ASSERT(theLayerID != 0 || aButtonRemapID > 0);
-	if( !aButtonRemapID )
+	if( aButtonRemapID == 0 )
+	{// Use parent (or deafult in the case of base layer)
+		if( theLayerID == 0 )
+			return sButtonRemaps[0];
 		return buttonRemap(parentLayer(theLayerID));
+	}
 
 	return sButtonRemaps[aButtonRemapID-1];
 }
@@ -4531,10 +4535,10 @@ int hotspotArrayCount()
 }
 
 
-const std::string& layerLabel(int theLayerID)
+const char* layerLabel(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
-	return sLayers.keys()[theLayerID];
+	return sLayers.keys()[theLayerID].c_str();
 }
 
 
@@ -4575,51 +4579,51 @@ std::string hotspotLabel(int theHotspotID)
 }
 
 
-const std::string& hotspotArrayLabel(int theHotspotArrayID)
+const char* hotspotArrayLabel(int theHotspotArrayID)
 {
 	DBG_ASSERT(theHotspotArrayID >= 0);
 	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
-	return sHotspotArrays.keys()[theHotspotArrayID];
+	return sHotspotArrays.keys()[theHotspotArrayID].c_str();
 }
 
 
-const std::string& menuLabel(int theMenuID)
+const char* menuLabel(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	if( !sMenus.vals()[theMenuID].label.empty() )
-		return sMenus.vals()[theMenuID].label;
-	return sMenus.keys()[theMenuID];
+		return sMenus.vals()[theMenuID].label.c_str();
+	return sMenus.keys()[theMenuID].c_str();
 }
 
 
-const std::string& menuItemLabel(int theMenuID, int theMenuItemIdx)
+const char* menuItemLabel(int theMenuID, int theMenuItemIdx)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	DBG_ASSERT(size_t(theMenuItemIdx) < sMenus.vals()[theMenuID].items.size());
-	return sMenus.vals()[theMenuID].items[theMenuItemIdx].label;
+	return sMenus.vals()[theMenuID].items[theMenuItemIdx].label.c_str();
 }
 
 
-const std::string& menuItemAltLabel(int theMenuID, int theMenuItemIdx)
+const char* menuItemAltLabel(int theMenuID, int theMenuItemIdx)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	DBG_ASSERT(size_t(theMenuItemIdx) < sMenus.vals()[theMenuID].items.size());
-	return sMenus.vals()[theMenuID].items[theMenuItemIdx].altLabel;
+	return sMenus.vals()[theMenuID].items[theMenuItemIdx].altLabel.c_str();
 }
 
 
-const std::string& menuDirLabel(int theMenuID, ECommandDir theDir)
+const char* menuDirLabel(int theMenuID, ECommandDir theDir)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	DBG_ASSERT(theDir >= 0 && theDir < eCmdDir_Num);
-	return sMenus.vals()[theMenuID].dirItems[theDir].label;
+	return sMenus.vals()[theMenuID].dirItems[theDir].label.c_str();
 }
 
 
-const std::string& keyBindLabel(int theKeyBindID)
+const char* keyBindLabel(int theKeyBindID)
 {
 	DBG_ASSERT(theKeyBindID >= 0 && theKeyBindID < sKeyBinds.size());
-	return sKeyBinds.keys()[theKeyBindID];
+	return sKeyBinds.keys()[theKeyBindID].c_str();
 }
 
 #undef mapDebugPrint

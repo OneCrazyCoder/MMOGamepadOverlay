@@ -255,12 +255,11 @@ Command selectMenuItem(
 	case eMenuStyle_Hotspots:
 	case eMenuStyle_SelectHotspot:
 		{
-			const HotspotMap::Links& aLinkMap =
-				HotspotMap::getLinks(aSubMenuID);
-			aSelection = min(aSelection, intSize(aLinkMap.size()));
-			pushedPastEdge = aLinkMap[aSelection].edge[theDir];
+			HotspotMap::HotspotLinkNode aLink =
+				HotspotMap::getMenuHotspotsLink(aSubMenuID, aSelection);
+			pushedPastEdge = aLink.edge[theDir];
 			if( !pushedPastEdge || wrap )
-				aSelection = aLinkMap[aSelection].next[theDir];
+				aSelection = aLink.next[theDir];
 		}
 		break;
 	case eMenuStyle_Slots:
@@ -354,8 +353,8 @@ Command swapMenu(int theRootMenuID, int theAltMenuID, ECommandDir theDir)
 		logError(
 			"Attempted to open sub-menu '%s' from menu '%s', "
 			"but it is not a sub-menu of this root menu!",
-			InputMap::menuLabel(theAltMenuID).c_str(),
-			InputMap::menuLabel(theRootMenuID).c_str());
+			InputMap::menuLabel(theAltMenuID),
+			InputMap::menuLabel(theRootMenuID));
 		return Command();
 	}
 

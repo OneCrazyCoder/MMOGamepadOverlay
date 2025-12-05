@@ -15,7 +15,8 @@ std::string narrow(const wchar_t *s)
 	if( aSize < 256 )
 	{
 		char dest[255];
-		aSize = WideCharToMultiByte(CP_UTF8, 0, s, -1, &dest[0], aSize, NULL, NULL);
+		aSize = WideCharToMultiByte(
+			CP_UTF8, 0, s, -1, &dest[0], aSize, NULL, NULL);
 		DBG_ASSERT(aSize > 0);
 		aResult = &dest[0];
 	}
@@ -107,19 +108,19 @@ std::string vformat(const char* fmt, va_list argPtr)
 	char* aCStringPtr = &aCharBuffer[0];
 	std::vector<char> aCharVector;
 
-	int aBufferSize = kInitialBufferSize;
-	int aResult = vsnprintf(aCStringPtr, aBufferSize, fmt, argPtr);
+	int aBuffSize = kInitialBufferSize;
+	int aResult = vsnprintf(aCStringPtr, aBuffSize, fmt, argPtr);
 
-	while((aResult < 0 || aResult >= aBufferSize) && aBufferSize < kMaxBufferSize)
+	while((aResult < 0 || aResult >= aBuffSize) && aBuffSize < kMaxBufferSize)
 	{
 		// Make buffer size needed, or if don't know just double size until do
 		// Note that this doubling loop is only needed for older Visual Studio
 		// which has a broken version of vsnprintf that doesn't return the
 		// needed size but just returns -1 instead when the buffer is too small
-		aBufferSize = max(aResult + 1, aBufferSize * 2);
-		aCharVector.resize(aBufferSize);
+		aBuffSize = max(aResult + 1, aBuffSize * 2);
+		aCharVector.resize(aBuffSize);
 		aCStringPtr = &aCharVector[0];
-		aResult = vsnprintf(aCStringPtr, aBufferSize, fmt, argPtr);
+		aResult = vsnprintf(aCStringPtr, aBuffSize, fmt, argPtr);
 	}
 	DBG_ASSERT(aResult >= 0);
 
@@ -211,7 +212,8 @@ std::string condense(const std::string& theString)
 }
 
 
-std::string replaceChar(const std::string& theString, char oldChar, char newChar)
+std::string replaceChar(
+	const std::string& theString, char oldChar, char newChar)
 {
 	// Only safe with ANSI chars so don't mess up UTF-8 strings
 	DBG_ASSERT(u8(oldChar) <= 0x7F);
@@ -231,7 +233,8 @@ std::string replaceChar(const std::string& theString, char oldChar, char newChar
 }
 
 
-std::string replaceAllStr(const std::string& theString, const char* oldStr, const char* newStr)
+std::string replaceAllStr(
+	const std::string& theString, const char* oldStr, const char* newStr)
 {
 	std::string result = theString;
 	const size_t oldLen = std::strlen(oldStr);
@@ -525,10 +528,9 @@ std::string fetchNextItem(
 	if( !isQuoted )
 	{
 		aPos = theString.find_first_of(theDelimiter, thePosition);
-		aPos = min(aPos, theString.size());
 		if( aPos > thePosition )
 		{
-			size_t anItemLastChar = aPos - 1;
+			size_t anItemLastChar = min(aPos, theString.size()) - 1;
 			while(anItemLastChar > thePosition &&
 				  u8(theString[anItemLastChar]) <= ' ')
 			{ --anItemLastChar; }
@@ -538,8 +540,8 @@ std::string fetchNextItem(
 		}
 	}
 
-	// Report position of delimiter (or end of string)
-	thePosition = aPos;
+	// Report position after delimiter (or end of string)
+	thePosition = min(aPos + 1, theString.size());
 
 	return result;
 }
@@ -552,7 +554,6 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 	std::string result = fetchNextItem(theString, aStrPos, &aDelimiter[0]);
 	if( aStrPos >= theString.size() )
 		result.clear();
-	++aStrPos;
 	if( result.empty() )
 		aStrPos = 0;
 	while(aStrPos < theString.size() && u8(theString[aStrPos]) <= ' ' )
@@ -652,7 +653,8 @@ bool fetchRangeSuffix(
 }
 
 
-void sanitizeSentence(const std::string& theString, std::vector<std::string>& out)
+void sanitizeSentence(
+	const std::string& theString, std::vector<std::string>& out)
 {
 	std::string word;
 	for(size_t i = 0; i < theString.length(); ++i)

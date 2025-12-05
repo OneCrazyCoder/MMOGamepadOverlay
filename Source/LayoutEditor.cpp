@@ -1352,18 +1352,18 @@ static void addArrayEntries(
 	aNewEntry.type = theEntryType;
 	aNewEntry.item.parentIndex = theCategoryType;
 
-	const Profile::PropertyMap& aPropertyMap =
+	Profile::PropertyMapPtr aPropMap =
 		Profile::getSectionProperties(theEntryList[theCategoryType].posSect);
 	StringToValueMap<u32> anEntryNameToIdxMap;
-	for(int i = 0, end = intSize(aPropertyMap.size()); i < end; ++i)
+	for(int i = 0, end = intSize(aPropMap->size()); i < end; ++i)
 	{
 		aNewEntry.rangeCount = -1;
-		aNewEntry.item.name = aPropertyMap.keys()[i];
+		aNewEntry.item.name = aPropMap->keys()[i];
 		aNewEntry.propName = aNewEntry.item.name;
 		std::string aKeyName = aNewEntry.item.name;
 		anEntryNameToIdxMap.setValue(
 			aKeyName, u32(theEntryList.size()));
-		std::string aDesc = aPropertyMap.vals()[i].str;
+		std::string aDesc = aPropMap->vals()[i].str;
 		Hotspot aHotspot;
 		HotspotMap::stringToCoord(aDesc, aHotspot.x, &aNewEntry.shape.x);
 		HotspotMap::stringToCoord(aDesc, aHotspot.y, &aNewEntry.shape.y);

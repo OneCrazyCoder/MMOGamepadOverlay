@@ -609,10 +609,6 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Resources\XInputStub\Win32\Release\xinput1_3.dll"
-			>
-		</File>
-		<File
 			RelativePath=".\Source\WindowPainter.cpp"
 			>
 		</File>
@@ -625,7 +621,7 @@
 			>
 		</File>
 		<File
-			RelativePath=".\Resources\XInputFix.rtf"
+			RelativePath=".\Resources\XInputStub\Win32\Release\xinput1_3.dll"
 			>
 		</File>
 	</Files>

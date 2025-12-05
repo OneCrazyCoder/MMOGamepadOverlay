@@ -182,7 +182,7 @@ static bool sNotifyWhenSelectGamepad = false;
 
 
 //------------------------------------------------------------------------------
-// Local Functions
+// Debugging
 //------------------------------------------------------------------------------
 
 #ifdef GAMEPAD_DEBUG_PRINT
@@ -190,6 +190,13 @@ static bool sNotifyWhenSelectGamepad = false;
 #else
 #define gamepadDebugPrint(...) ((void)0)
 #endif
+
+
+//------------------------------------------------------------------------------
+// Local Functions
+//------------------------------------------------------------------------------
+
+
 
 // Forward declares
 static EResult activateGamepad(int);
