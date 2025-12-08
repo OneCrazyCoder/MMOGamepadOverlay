@@ -616,14 +616,6 @@
 			RelativePath=".\Source\WindowPainter.h"
 			>
 		</File>
-		<File
-			RelativePath=".\Resources\XInputStub\x64\Release\xinput1_3.dll"
-			>
-		</File>
-		<File
-			RelativePath=".\Resources\XInputStub\Win32\Release\xinput1_3.dll"
-			>
-		</File>
 	</Files>
 	<Globals>
 	</Globals>

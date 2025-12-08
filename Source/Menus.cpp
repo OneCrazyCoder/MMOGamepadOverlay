@@ -253,7 +253,7 @@ Command selectMenuItem(
 		}
 		break;
 	case eMenuStyle_Hotspots:
-	case eMenuStyle_SelectHotspot:
+	case eMenuStyle_Highlight:
 		{
 			HotspotMap::HotspotLinkNode aLink =
 				HotspotMap::getMenuHotspotsLink(aSubMenuID, aSelection);
@@ -304,8 +304,11 @@ Command selectMenuItem(
 	if( aSelection != aSubMenu.selected )
 	{
 		aSubMenu.selected = dropTo<s8>(aSelection);
-		// Need to refresh to show selection differently
-		gRefreshOverlays.set(anOverlayID);
+		// Need to refresh or re-position to show selection differently
+		if( aMenuStyle == eMenuStyle_Highlight )
+			gReshapeOverlays.set(anOverlayID);
+		else
+			gRefreshOverlays.set(anOverlayID);
 	}
 
 	return aDirCmd;
@@ -592,8 +595,8 @@ void editMenuItem(int theRootMenuID)
 	{
 	case eMenuStyle_4Dir:
 	case eMenuStyle_Hotspots:
-	case eMenuStyle_SelectHotspot:
-	case eMenuStyle_Visual:
+	case eMenuStyle_Highlight:
+	case eMenuStyle_HUD:
 	case eMenuStyle_Label:
 	case eMenuStyle_KBCycleLast:
 	case eMenuStyle_KBCycleDefault:
@@ -721,6 +724,23 @@ int activeMenuForOverlayID(int theOverlayID)
 {
 	DBG_ASSERT(size_t(theOverlayID) < sMenuStacks.size());
 	return sMenuStacks[theOverlayID].back().id;
+}
+
+
+bool overlayMenuAcceptsCommands(int theOverlayID)
+{
+	switch(InputMap::menuStyle(activeMenuForOverlayID(theOverlayID)))
+	{
+	case eMenuStyle_HUD:
+	case eMenuStyle_Label:
+	case eMenuStyle_KBCycleLast:
+	case eMenuStyle_KBCycleDefault:
+	case eMenuStyle_HotspotGuide:
+	case eMenuStyle_System:
+		return false;
+	}
+
+	return true;
 }
 
 

@@ -528,9 +528,10 @@ std::string fetchNextItem(
 	if( !isQuoted )
 	{
 		aPos = theString.find_first_of(theDelimiter, thePosition);
+		aPos = min(aPos, theString.size());
 		if( aPos > thePosition )
 		{
-			size_t anItemLastChar = min(aPos, theString.size()) - 1;
+			size_t anItemLastChar = aPos - 1;
 			while(anItemLastChar > thePosition &&
 				  u8(theString[anItemLastChar]) <= ' ')
 			{ --anItemLastChar; }
@@ -540,8 +541,8 @@ std::string fetchNextItem(
 		}
 	}
 
-	// Report position after delimiter (or end of string)
-	thePosition = min(aPos + 1, theString.size());
+	// Report position of delimiter (or end of string if it wasn't found)
+	thePosition = aPos;
 
 	return result;
 }
@@ -554,6 +555,7 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar)
 	std::string result = fetchNextItem(theString, aStrPos, &aDelimiter[0]);
 	if( aStrPos >= theString.size() )
 		result.clear();
+	++aStrPos;
 	if( result.empty() )
 		aStrPos = 0;
 	while(aStrPos < theString.size() && u8(theString[aStrPos]) <= ' ' )

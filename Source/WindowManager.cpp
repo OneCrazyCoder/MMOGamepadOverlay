@@ -63,6 +63,7 @@ struct ZERO_INIT(OverlayWindow)
 	HBITMAP bitmap;
 	POINT position;
 	SIZE size;
+	SIZE lastDrawnSize;
 	SIZE bitmapSize;
 	double fadeValue;
 	EFadeState fadeState;
@@ -960,17 +961,29 @@ void update()
 			WindowPainter::updateWindowLayout(
 				anOverlayID, sTargetSize, sTargetClipRect,
 				aWindow.position, aWindow.size);
-				aWindow.layoutReady = true;
+			aWindow.layoutReady = true;
 			aWindow.windowReady = false;
 		}
 
-		// Delete bitmap if bitmap size doesn't match window size
+		// Check for window size changes requiring redraw or bitmap delete
 		if( aWindow.bitmap &&
-			(aWindow.bitmapSize.cx != aWindow.size.cx ||
-			 aWindow.bitmapSize.cy != aWindow.size.cy) )
+			(aWindow.size.cx != aWindow.lastDrawnSize.cx ||
+			 aWindow.size.cy != aWindow.lastDrawnSize.cy) )
 		{
-			DeleteObject(aWindow.bitmap);
-			aWindow.bitmap = NULL;
+			// Always do full redraw for size changes even if reuse bitmap
+			gFullRedrawOverlays.set(anOverlayID);
+			// If bitmap is too small, or this is a large window that shrank
+			// significantly, than delete and re-create the bitmap
+			if( aWindow.bitmapSize.cx < aWindow.size.cx ||
+				aWindow.bitmapSize.cy < aWindow.size.cy ||
+				(aWindow.bitmapSize.cx >= aWindow.size.cx * 3 / 2 &&
+				 aWindow.bitmapSize.cx >= sTargetSize.cx / 3) ||
+				(aWindow.bitmapSize.cy >= aWindow.size.cy * 3 / 2 &&
+				 aWindow.bitmapSize.cy >= sTargetSize.cy / 3) )
+			{
+				DeleteObject(aWindow.bitmap);
+				aWindow.bitmap = NULL;
+			}
 		}
 
 		// Don't create bitmap for a 0-sized window (likely off screen edge)
@@ -982,7 +995,7 @@ void update()
 			continue;
 		}
 
-		// Create bitmap if doesn't exist
+		// Create bitmap if doesn't exist by this point
 		if( !aWindow.bitmap )
 		{
 			gFullRedrawOverlays.set(anOverlayID);
@@ -1012,6 +1025,7 @@ void update()
 				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
 				anOverlayID, gFullRedrawOverlays.test(anOverlayID));
 			aWindow.windowReady = false;
+			aWindow.lastDrawnSize = aWindow.size;
 			gRefreshOverlays.reset(anOverlayID);
 			gFullRedrawOverlays.reset(anOverlayID);
 		}
@@ -1414,7 +1428,7 @@ Hotspot hotspotForMenuItem(int theRootMenuID, int theMenuItemIdx)
 		theMenuItemIdx = 0;
 		break;
 	case eMenuStyle_Hotspots:
-	case eMenuStyle_SelectHotspot:
+	case eMenuStyle_Highlight:
 		// Directly use the hotspot associated with the menu item already
 		return InputMap::getHotspot(
 			InputMap::menuItemHotspotID(theMenuID, theMenuItemIdx));

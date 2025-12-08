@@ -1284,17 +1284,17 @@ static std::string varTagToString(
 
 	// Get first parameter for operator
 	const std::string& aParam = fetchNextItem(theTagStr, aPos, aNextDel);
-	DBG_ASSERT(aPos > 0);
+
 
 	// Have all we need for arithmetic operators now
 	if( anOpC == '+' || anOpC == '-' || anOpC == '*' || anOpC == '/' )
 	{
-		if( theTagStr[aPos-1] != '}' )
+		if( theTagStr[aPos] != '}' )
 		{
 			logError("Unexpected %c found in '%s'. "
 				"Only one operator is allowed per ${} block! "
 				"Use nested ${} blocks for more options.",
-				theTagStr[aPos-1], theTagStr.c_str());
+				theTagStr[aPos], theTagStr.c_str());
 		}
 		double aVarNum = doubleFromString(result);
 		double aParamNum = doubleFromStringStrict(aParam);
@@ -1361,7 +1361,7 @@ static std::string varTagToString(
 	}
 
 	// What to do with compare result depends on second operator
-	const char anOpC2 = theTagStr[aPos-1];
+	const char anOpC2 = theTagStr[aPos++];
 	if( anOpC2 == '}' )
 	{
 		if( anOpC == '?' )
@@ -1393,7 +1393,7 @@ static std::string varTagToString(
 	const std::string& aTrueResult = fetchNextItem(theTagStr, aPos, ":}");
 	if( isTrue )
 		result = aTrueResult;
-	else if( theTagStr[aPos-1] == ':' )
+	else if( theTagStr[aPos++] == ':' )
 		result = fetchNextItem(theTagStr, aPos, "}");
 	else
 		result = "";
@@ -1434,8 +1434,8 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		size_t aVarOpPos = aTagCoords.first + 2;
 		const std::string& aVarName =
 			fetchNextItem(aStr, aVarOpPos, "}+-*/?!~<>=");
-		DBG_ASSERT(aVarOpPos > 0);
-		--aVarOpPos;
+
+
 		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
 		std::string aRepStr;
 		if( aVarName.empty() )

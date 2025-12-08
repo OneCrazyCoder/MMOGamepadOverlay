@@ -322,7 +322,7 @@ struct OverlayPaintState
 
 	OverlayPaintState() :
 		flashStartTime(),
-		selection(),
+		selection(kInvalidID),
 		flashing(kInvalidID),
 		prevFlashing(kInvalidID),
 		forcedRedrawItemID(kInvalidID)
@@ -380,6 +380,7 @@ static int sNoticeMessageTimer = 0;
 static int sSystemBorderFlashTimer = 0;
 static int sCopyRectUpdateRate = 100;
 static int sAutoRefreshCopyRectTime = 0;
+
 
 //------------------------------------------------------------------------------
 // Local Functions
@@ -439,7 +440,7 @@ static void setHotspotSizes(
 	u16 aNewWidth = u16(clamp(
 		intFromString(fetchNextItem(theSizeDesc, aPos)), 0, 0xFFFF));
 	u16 aNewHeight = u16(clamp(
-		intFromString(fetchNextItem(theSizeDesc, aPos)), 0, 0xFFFF));
+		intFromString(fetchNextItem(theSizeDesc, ++aPos)), 0, 0xFFFF));
 
 	// Insert into sorted vector, such that not only are earlier ranges
 	// before later ones, but sub-ranges are sorted before their containing
@@ -498,22 +499,22 @@ static void setHotspotSizes(
 }
 
 
-//static SIZE getHotspotSize(int theHotspotID)
-//{
-//	SIZE result = {0, 0};
-//	for(int i = 0, end = intSize(sHotspotSizes.size()); i < end; ++i)
-//	{
-//		if( theHotspotID >= sHotspotSizes[i].firstHotspotID &&
-//			theHotspotID <= sHotspotSizes[i].lastHotspotID )
-//		{
-//			result.cx = sHotspotSizes[i].width;
-//			result.cy = sHotspotSizes[i].height;
-//			return result;
-//		}
-//	}
-//
-//	return result;
-//}
+static SIZE getHotspotSize(int theHotspotID)
+{
+	SIZE result = {0, 0};
+	for(int i = 0, end = intSize(sHotspotSizes.size()); i < end; ++i)
+	{
+		if( theHotspotID >= sHotspotSizes[i].firstHotspotID &&
+			theHotspotID <= sHotspotSizes[i].lastHotspotID )
+		{
+			result.cx = sHotspotSizes[i].width;
+			result.cy = sHotspotSizes[i].height;
+			return result;
+		}
+	}
+
+	return result;
+}
 
 
 static void createBaseFontHandle(FontInfo& theFontInfo)
@@ -740,9 +741,9 @@ static COLORREF stringToRGB(const std::string& theColorString)
 	const u32 r = clamp(intFromString(
 		fetchNextItem(theColorString, aPos)), 0, 255);
 	const u32 g = clamp(intFromString(
-		fetchNextItem(theColorString, aPos)), 0, 255);
+		fetchNextItem(theColorString, ++aPos)), 0, 255);
 	const u32 b = clamp(intFromString(
-		fetchNextItem(theColorString, aPos)), 0, 255);
+		fetchNextItem(theColorString, ++aPos)), 0, 255);
 	return RGB(r, g, b);
 }
 
@@ -807,13 +808,10 @@ static void fetchMenuLayoutProperties(
 	if( PropString p = getPropString(thePropMap, kTitleHeightPropName) )
 		theDestLayout.titleHeight = u8(clamp(intFromString(p.str), 0, 0xFF));
 
-	if( theDestLayout.style == eMenuStyle_Slots )
+	if( PropString p = getPropString(thePropMap, kAltLabelWidthPropName) )
 	{
-		if( PropString p = getPropString(thePropMap, kAltLabelWidthPropName) )
-		{
-			theDestLayout.altLabelWidth =
-				u16(clamp(intFromString(p.str), 0, 0xFFFF));
-		}
+		theDestLayout.altLabelWidth =
+			u16(clamp(intFromString(p.str), 0, 0xFFFF));
 	}
 }
 
@@ -1103,10 +1101,9 @@ static WindowAlphaInfo getMenuAlphaInfo(int theMenuID)
 }
 
 
-static POINT hotspotToPoint(
-	const Hotspot& theHotspot,
-	const SIZE& theTargetSize)
+static POINT hotspotToPoint(int theHotspotID, const SIZE& theTargetSize)
 {
+	const Hotspot theHotspot = InputMap::getHotspot(theHotspotID);
 	POINT result;
 	result.x =
 		LONG(u16ToRangeVal(theHotspot.x.anchor, theTargetSize.cx)) +
@@ -1777,15 +1774,18 @@ static void drawMenuItem(
 	drawMenuItemBG(dd, menuApp, itemApp, theRect);
 
 	// Label (usually word-wrapped and centered text)
-	RECT aLabelRect = theRect;
-	drawMenuItemLabel(
-		dd, aLabelRect,
-		theItemIdx,
-		theLabel,
-		menuApp, itemApp,
-		max(menuApp.radius / 4, int(itemApp.borderSize)),
-		getMaxBorderSize(dd.menuID),
-		theLabelCacheEntry);
+	if( !theLabel.empty() )
+	{
+		RECT aLabelRect = theRect;
+		drawMenuItemLabel(
+			dd, aLabelRect,
+			theItemIdx,
+			theLabel,
+			menuApp, itemApp,
+			max(menuApp.radius / 4, int(itemApp.borderSize)),
+			getMaxBorderSize(dd.menuID),
+			theLabelCacheEntry);
+	}
 
 	// Flag when successfully redrew forced-redraw item
 	if( ps.forcedRedrawItemID == theItemIdx )
@@ -1987,18 +1987,40 @@ static void draw4DirMenu(DrawData& dd)
 }
 
 
-static void drawIndicator(DrawData& dd)
+static void drawHighlightMenu(DrawData& dd)
 {
 	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+
+	// Title is not drawn for this menu style
 
 	if( !dd.firstDraw )
 		eraseRect(dd, ps.rects[0]);
 
-	drawMenuItemBG(
-		dd,
-		getMenuAppearance(dd.menuID),
-		getMenuItemAppearance(dd.menuID, dd.itemDrawState),
-		ps.rects[0]);
+	// Always draw as the selected item
+	dd.itemDrawState = eMenuItemDrawState_Selected;
+
+	// Don't draw base BG shape - just the border
+	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
+	MenuItemAppearance itemApp =
+		getMenuItemAppearance(dd.menuID, dd.itemDrawState);
+	itemApp.baseColor = menuApp.transColor;
+	drawMenuItemBG(dd, menuApp, itemApp, ps.rects[0]);
+}
+
+
+static void drawHUDElement(DrawData& dd)
+{
+	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
+
+	// Title is not drawn for this menu style
+
+	if( !dd.firstDraw )
+		eraseRect(dd, ps.rects[0]);
+
+	sMenuDrawCache[dd.menuID].labelCache.resize(1);
+	drawMenuItem(dd, ps.rects[0], 0,
+		InputMap::menuItemLabel(dd.menuID, 0),
+		sMenuDrawCache[dd.menuID].labelCache[0]);
 }
 
 
@@ -2028,8 +2050,7 @@ static void drawHSGuide(DrawData& dd)
 		for(int i = aFirstHotspot, end = aFirstHotspot + aHotspotCount;
 			i < end; ++i)
 		{
-			const POINT& aHotspotPos = hotspotToPoint(
-				InputMap::getHotspot(i), dd.targetSize);
+			const POINT& aHotspotPos = hotspotToPoint(i, dd.targetSize);
 			const RECT aDrawRect = {
 				aHotspotPos.x - menuApp.baseRadius,
 				aHotspotPos.y - menuApp.baseRadius,
@@ -2093,49 +2114,35 @@ static void drawSystemHUD(DrawData& dd)
 
 
 static void updateHotspotsMenuLayout(
-	int theOverlayID,
+	int theMenuID,
+	OverlayPaintState& ps,
+	const MenuLayout& theLayout,
+	int theMenuItemCount,
 	const SIZE& theTargetSize,
 	const RECT& theTargetClipRect,
 	POINT& theWinPos,
 	SIZE& theWinSize)
 {
-	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
-	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
-	OverlayPaintState& ps = sOverlayPaintStates[theOverlayID];
-	const MenuLayout& theLayout = getMenuLayout(theMenuID);
-
-	DBG_ASSERT(
-		theLayout.style == eMenuStyle_Hotspots ||
-		theLayout.style == eMenuStyle_SelectHotspot);
-	const int anItemCount = InputMap::menuItemCount(theMenuID);
-	ps.rects.reserve(anItemCount + 1);
+	DBG_ASSERT(theLayout.style == eMenuStyle_Hotspots);
+	ps.rects.reserve(theMenuItemCount + 1);
 	ps.rects.resize(1);
 	RECT aWinRect = { 0 };
 	aWinRect.left = theTargetSize.cx;
 	aWinRect.top = theTargetSize.cy;
-	const int anItemSizeX = int(max(0.0, ceil(theLayout.sizeX * gUIScale)));
-	const int anItemSizeY = int(max(0.0, ceil(theLayout.sizeY * gUIScale)));
-	const int anItemHalfSizeX = anItemSizeX / 2;
-	const int anItemHalfSizeY = anItemSizeY / 2;
-	for(int i = 0; i < anItemCount; ++i)
+	for(int i = 0; i < theMenuItemCount; ++i)
 	{
 		const int aHotspotID = InputMap::menuItemHotspotID(theMenuID, i);
-		const POINT& anItemPos = hotspotToPoint(
-			InputMap::getHotspot(aHotspotID), theTargetSize);
-
+		const POINT& anItemPos = hotspotToPoint(aHotspotID, theTargetSize);
+		SIZE anItemSize = getHotspotSize(aHotspotID);
+		if( !anItemSize.cx ) anItemSize.cx = theLayout.sizeX;
+		if( !anItemSize.cy ) anItemSize.cy = theLayout.sizeY;
+		anItemSize.cx = LONG(anItemSize.cx * gUIScale);
+		anItemSize.cy = LONG(anItemSize.cy * gUIScale);
 		RECT anItemRect;
-		anItemRect.left = anItemPos.x;
-		if( theLayout.alignmentX == eAlignment_Center )
-			anItemRect.left -= anItemHalfSizeX;
-		else if( theLayout.alignmentX == eAlignment_Max )
-			anItemRect.left -= anItemSizeX - 1;
-		anItemRect.right = anItemRect.left + anItemSizeX;
-		anItemRect.top = anItemPos.y;
-		if( theLayout.alignmentY == eAlignment_Center )
-			anItemRect.top -= anItemHalfSizeY;
-		else if( theLayout.alignmentY == eAlignment_Max )
-			anItemRect.top -= anItemSizeY - 1;
-		anItemRect.bottom = anItemRect.top + anItemSizeY;
+		anItemRect.left = anItemPos.x - anItemSize.cx / 2;
+		anItemRect.right = anItemRect.left + anItemSize.cx;
+		anItemRect.top = anItemPos.y - anItemSize.cy / 2;
+		anItemRect.bottom = anItemRect.top + anItemSize.cy;
 		ps.rects.push_back(anItemRect);
 		aWinRect.left = min(aWinRect.left, anItemRect.left);
 		aWinRect.top = min(aWinRect.top, anItemRect.top);
@@ -2705,19 +2712,19 @@ void paintWindowContents(
 	{
 	case eMenuStyle_List:
 	case eMenuStyle_Bar:
-	case eMenuStyle_Grid:			drawBasicMenu(dd);	break;
-	case eMenuStyle_Slots:			drawSlotsMenu(dd);	break;
-	case eMenuStyle_4Dir:			draw4DirMenu(dd);	break;
-	case eMenuStlye_Ring:			/* TODO */			break;
-	case eMenuStyle_Radial:			/* TODO */			break;
-	case eMenuStyle_Hotspots:		drawBasicMenu(dd);	break;
-	case eMenuStyle_SelectHotspot:	/* TODO */			break;
-	case eMenuStyle_Visual:
+	case eMenuStyle_Grid:			drawBasicMenu(dd);		break;
+	case eMenuStyle_Slots:			drawSlotsMenu(dd);		break;
+	case eMenuStyle_4Dir:			draw4DirMenu(dd);		break;
+	case eMenuStlye_Ring:			/* TODO */				break;
+	case eMenuStyle_Radial:			/* TODO */				break;
+	case eMenuStyle_Hotspots:		drawBasicMenu(dd);		break;
+	case eMenuStyle_Highlight:		drawHighlightMenu(dd);	break;
+	case eMenuStyle_HUD:
 	case eMenuStyle_Label:
 	case eMenuStyle_KBCycleLast:
-	case eMenuStyle_KBCycleDefault:	drawIndicator(dd);	break;
-	case eMenuStyle_HotspotGuide:	drawHSGuide(dd);	break;
-	case eMenuStyle_System:			drawSystemHUD(dd);	break;
+	case eMenuStyle_KBCycleDefault:	drawHUDElement(dd);		break;
+	case eMenuStyle_HotspotGuide:	drawHSGuide(dd);		break;
+	case eMenuStyle_System:			drawSystemHUD(dd);		break;
 	default:						DBG_ASSERT(false && "Invaild Menu Style");
 	}
 }
@@ -2735,20 +2742,15 @@ void updateWindowLayout(
 	OverlayPaintState& ps = sOverlayPaintStates[theOverlayID];
 	const MenuPosition& thePos = getMenuPosition(theMenuID);
 	const MenuLayout& theLayout = getMenuLayout(theMenuID);
-
-	// Some special element types have their own unique calculation method
-	switch(theLayout.style)
-	{
-	case eMenuStyle_Hotspots:
-	case eMenuStyle_SelectHotspot:
-		updateHotspotsMenuLayout(
-			theOverlayID, theTargetSize, theTargetClipRect,
-			theWinPos, theWinSize);
-		return;
-	}
+	EAlignment theAlignmentX = theLayout.alignmentX;
+	EAlignment theAlignmentY = theLayout.alignmentY;
 
 	// To prevent too many rounding errors, initially calculate everything
 	// as if gUIScale has value 1.0, then apply gUIScale it in a later step.
+	double aWinBasePosX = 0;
+	double aWinBasePosY = 0;
+	double aWinScalingPosX = 0;
+	double aWinScalingPosY = 0;
 	double aWinBaseSizeX = 0;
 	double aWinBaseSizeY = 0;
 	double aWinScalingSizeX = theLayout.sizeX;
@@ -2773,7 +2775,6 @@ void updateWindowLayout(
 	case eMenuStyle_Bar:
 		aMenuItemXCount = aMenuItemCount = InputMap::menuItemCount(theMenuID);
 		ps.rects.reserve(1 + aMenuItemCount);
-		aWinBaseSizeX *= aMenuItemXCount;
 		aWinScalingSizeX *= aMenuItemXCount;
 		if( aMenuItemXCount > 1 )
 			aWinScalingSizeX += theLayout.gapSizeX * (aMenuItemXCount - 1);
@@ -2784,7 +2785,6 @@ void updateWindowLayout(
 		aMenuItemXCount = InputMap::menuGridWidth(theMenuID);
 		aMenuItemYCount = InputMap::menuGridHeight(theMenuID);
 		ps.rects.reserve(1 + aMenuItemCount);
-		aWinBaseSizeX *= aMenuItemXCount;
 		aWinBaseSizeY *= aMenuItemYCount;
 		aWinScalingSizeX *= aMenuItemXCount;
 		aWinScalingSizeY *= aMenuItemYCount;
@@ -2796,11 +2796,68 @@ void updateWindowLayout(
 		break;
 	case eMenuStyle_4Dir:
 		ps.rects.reserve(1 + 4);
-		aWinBaseSizeX *= 2;
-		aWinBaseSizeY *= 3;
 		aWinScalingSizeX = aWinScalingSizeX * 2 + theLayout.gapSizeX;
 		aWinScalingSizeY = aWinScalingSizeY * 3 + theLayout.gapSizeY * 2;
 		aWinScalingSizeY += theLayout.titleHeight;
+		break;
+	case eMenuStyle_Hotspots:
+		// Whole different function for this style
+		updateHotspotsMenuLayout(
+			theMenuID, ps, theLayout, aMenuItemCount,
+			theTargetSize, theTargetClipRect,
+			theWinPos, theWinSize);
+		return;
+	case eMenuStyle_HUD:
+	case eMenuStyle_Label:
+		ps.rects.reserve(1);
+		break;
+	case eMenuStyle_Highlight:
+		ps.rects.reserve(1);
+		theAlignmentX = eAlignment_Center;
+		theAlignmentY = eAlignment_Center;
+		{
+			const int aHotspotID = InputMap::menuItemHotspotID(
+					theMenuID, Menus::selectedItem(theMenuID));
+			const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
+			aWinBasePosX = LONG(u16ToRangeVal(
+				aHotspot.x.anchor, theTargetSize.cx));
+			aWinBasePosY = LONG(u16ToRangeVal(
+				aHotspot.y.anchor, theTargetSize.cy));
+			aWinScalingPosX += aHotspot.x.offset;
+			aWinScalingPosY += aHotspot.y.offset;
+			const SIZE& aHotspotSize = getHotspotSize(aHotspotID);
+			if( aHotspotSize.cx != 0 || aHotspotSize.cy != 0 )
+			{
+				// Border size is added to the hotspot size in this case,
+				// since hotspot size is potentially the size of an icon
+				// (for copy-icon-from-dest) and border ought to be drawn
+				// around the icon rather than overlapping it
+				const int aSelectedBorderSize = getMenuItemAppearance(
+					theMenuID, eMenuItemDrawState_Selected).borderSize;
+				aWinScalingSizeX = aHotspotSize.cx + aSelectedBorderSize * 2;
+				aWinScalingSizeY = aHotspotSize.cy + aSelectedBorderSize * 2;
+			}
+		}
+		break;
+	case eMenuStyle_KBCycleLast:
+	case eMenuStyle_KBCycleDefault:
+		ps.rects.reserve(1);
+		theAlignmentX = eAlignment_Center;
+		theAlignmentY = eAlignment_Center;
+		if( const Hotspot* aHotspot = InputMap::KeyBindCycleHotspot(
+				thePos.parentKBCycleID,
+				theLayout.style == eMenuStyle_KBCycleLast &&
+				gKeyBindCycleLastIndex[thePos.parentKBCycleID] >= 0
+					? gKeyBindCycleLastIndex[thePos.parentKBCycleID]
+					: gKeyBindCycleDefaultIndex[thePos.parentKBCycleID]) )
+		{
+			aWinBasePosX = LONG(u16ToRangeVal(
+				aHotspot->x.anchor, theTargetSize.cx));
+			aWinBasePosY = LONG(u16ToRangeVal(
+				aHotspot->y.anchor, theTargetSize.cy));
+			aWinScalingPosX += aHotspot->x.offset;
+			aWinScalingPosY += aHotspot->y.offset;
+		}		
 		break;
 	case eMenuStyle_HotspotGuide:
 	case eMenuStyle_System:
@@ -2811,30 +2868,20 @@ void updateWindowLayout(
 		aWinScalingSizeY = 0;
 		break;
 	default:
-		ps.rects.reserve(1);
+		DBG_ASSERT(false && "Unhandled menu style in updateWindowLayout()!");
 		break;
 	}
 
 	// Get base window position (top-left corner) assuming top-left alignment
-	double aWinBasePosX = LONG(u16ToRangeVal(
+	aWinBasePosX += LONG(u16ToRangeVal(
 		thePos.base.x.anchor, theTargetSize.cx));
-	double aWinBasePosY = LONG(u16ToRangeVal(
+	aWinBasePosY += LONG(u16ToRangeVal(
 		thePos.base.y.anchor, theTargetSize.cy));
-	double aWinScalingPosX = thePos.base.x.offset;
-	double aWinScalingPosY = thePos.base.y.offset;
-
-	//// TODO: change this to directly use key bind cycle data
-	//case eHUDType_KBCycleLast:
-	//case eHUDType_KBCycleDefault:
-	//	if( const Hotspot* aHotspot =
-	//			InputMap::KeyBindCycleHotspot(hi.kbArrayID, ???) )
-	//	{
-	//		result = *aHotspot;
-	//	}
-	//	break;
+	aWinScalingPosX += thePos.base.x.offset;
+	aWinScalingPosY += thePos.base.y.offset;
 
 	// Adjust position according to size and alignment settings
-	switch(theLayout.alignmentX)
+	switch(theAlignmentX)
 	{
 	case eAlignment_Min:
 		// Do nothing
@@ -2849,7 +2896,7 @@ void updateWindowLayout(
 		aWinScalingPosX -= aWinScalingSizeX;
 		break;
 	}
-	switch(theLayout.alignmentY)
+	switch(theAlignmentY)
 	{
 	case eAlignment_Min:
 		// Do nothing
@@ -2913,7 +2960,7 @@ void updateWindowLayout(
 	case eMenuStyle_Slots:
 		if( theLayout.altLabelWidth )
 		{
-			if( theLayout.alignmentX == eAlignment_Max )
+			if( theAlignmentX == eAlignment_Max )
 			{// Align components to right edge of window
 				aCompTopLeft.x = LONG(aCompBotRight.x -
 					ceil(gUIScale * theLayout.sizeX));
@@ -3035,10 +3082,10 @@ void updateWindowLayout(
 		const u8 aSelectedBorderSize =
 			getMenuItemAppearance(theMenuID, eMenuItemDrawState_Selected)
 				.borderSize;
-		anItemRect.left = (theLayout.alignmentX == eAlignment_Max)
+		anItemRect.left = (theAlignmentX == eAlignment_Max)
 			? ps.rects[0].left
 			: ps.rects[1].right - aBorderSize;
-		anItemRect.right = (theLayout.alignmentX == eAlignment_Max)
+		anItemRect.right = (theAlignmentX == eAlignment_Max)
 			? ps.rects[1].left + aBorderSize
 			: ps.rects[0].right;
 		anItemRect.top = (theLayout.titleHeight > 0)

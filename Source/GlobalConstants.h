@@ -241,9 +241,9 @@ enum EMenuStyle
 	eMenuStyle_Radial,
 
 	eMenuStyle_Hotspots,
-	eMenuStyle_SelectHotspot,
+	eMenuStyle_Highlight,
 
-	eMenuStyle_Visual,
+	eMenuStyle_HUD,
 	eMenuStyle_Label,
 	eMenuStyle_KBCycleLast,
 	eMenuStyle_KBCycleDefault,

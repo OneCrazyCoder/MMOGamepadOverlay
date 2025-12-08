@@ -1981,11 +1981,14 @@ static void updateMenusForCurrentLayers()
 
 	// Also check to see if any Menus should be shown as disabled because
 	// they don't have any commands assigned to them any more.
-	// Start by assuming all visible menus are disabled...
+	// Start by assuming all visible menus (that are of a style that CAN
+	// have commmands assigned) are disabled...
 	for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
 	{
-		if( gVisibleOverlays.test(i) )
-			gDisabledOverlays.set(i);
+		if( !Menus::overlayMenuAcceptsCommands(i) )
+			gDisabledOverlays.set(i, false);
+		else if( gVisibleOverlays.test(i) )
+			gDisabledOverlays.set(i, true);
 	}
 
 	// Now re-enable any menus that have a command associated with them

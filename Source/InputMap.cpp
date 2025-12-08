@@ -2963,7 +2963,7 @@ static void validateMenu(int theMenuID)
 		aMenuStyle = menuStyle(theMenuID);
 	}
 
-	if( aMenuStyle == eMenuStyle_Visual ||
+	if( aMenuStyle == eMenuStyle_HUD ||
 		aMenuStyle == eMenuStyle_KBCycleLast ||
 		aMenuStyle == eMenuStyle_KBCycleDefault )
 	{// Guarantee a single empty menu item
@@ -4269,7 +4269,7 @@ int menuItemHotspotID(int theMenuID, int theMenuItemIdx)
 	DBG_ASSERT(theMenuItemIdx >= 0);
 	DBG_ASSERT(
 		menuStyle(theMenuID) == eMenuStyle_Hotspots ||
-		menuStyle(theMenuID) == eMenuStyle_SelectHotspot);
+		menuStyle(theMenuID) == eMenuStyle_Highlight);
 	if( theMenuItemIdx >= intSize(sMenus.vals()[theMenuID].items.size()) )
 		return 0;
 	return sMenus.vals()[theMenuID].items[theMenuItemIdx].hotspotID;

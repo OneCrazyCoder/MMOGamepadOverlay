@@ -52,11 +52,10 @@ std::string getPathParams(const std::string& thePath);
 std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
 // Always "breaks off" version, even if no/starting theChar (clears theString).
 std::string breakOffNextItem(std::string& theString, char theChar = ',');
-// Returns substring from thePosition to just before first theDelimiter or end
-// of string, and updates thePosition to char just after Delimiter (or size()).
-// Returned string is trimmed.
+// Returns substring from thePosition to first theDelimiter (or whole string),
+// updating thePosition to theDelimiter or '\0' pos. Returned string is trimmed.
 // If entire string is quoted, theDelimiter is ignored inside quoted section,
-// whitespace in the quotes is left as-is, and the outer quotes are stripped.
+// whitespace in the quotes is left as-is, and outer quote chars are removed.
 // Supports SQL style for quote chars inside quoted strings ("" or '"' etc).
 std::string fetchNextItem(
 	const std::string&, size_t& thePosition, const char* theDelimiter = ",");

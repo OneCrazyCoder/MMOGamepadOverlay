@@ -79,6 +79,9 @@ void editMenuItemDir(int theRootMenuID, ECommandDir theDir);
 // Returns current active (displayed) menuID for given overlay (window) ID
 int activeMenuForOverlayID(int theOverlayID);
 
+// Returns if active menu for given overlay ID actually accepts menu commands
+bool overlayMenuAcceptsCommands(int theOverlayID);
+
 // Returns selected item index for given menu
 int selectedItem(int theRootMenuID);
 
