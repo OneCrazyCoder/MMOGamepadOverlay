@@ -141,8 +141,8 @@ struct ZERO_INIT(PenInfo)
 
 struct ZERO_INIT(BitmapFileInfo)
 {
-	std::string path;
-	HBITMAP image;
+	HBITMAP handle;
+	SIZE size;
 	COLORREF maskColor;
 };
 
@@ -170,7 +170,7 @@ struct ZERO_INIT(LabelIcon)
 		u16 bitmapIconID;
 		u16 hotspotID;
 	};
-	bool copyFromScreen;
+	bool copyFromTarget;
 };
 
 struct ZERO_INIT(MenuPosition)
@@ -358,7 +358,7 @@ struct ZERO_INIT(DrawData)
 static std::vector<HotspotSizesRange> sHotspotSizes;
 static std::vector<FontInfo> sFonts;
 static std::vector<PenInfo> sPens;
-static StringToValueMap<BitmapFileInfo> sBitmapFiles;
+static std::vector<BitmapFileInfo> sBitmapFiles;
 static std::vector<BitmapIcon> sBitmapIcons;
 static StringToValueMap<LabelIcon> sLabelIcons;
 static std::vector<MenuPosition> sMenuPositions;
@@ -375,6 +375,7 @@ static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
 static HRGN sClipRegion = NULL;
 static SystemPaintFunc sSystemOverlayPaintFunc = NULL;
+static int sBitmapsProfileSectionID = 0;
 static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
 static int sSystemBorderFlashTimer = 0;
@@ -385,6 +386,19 @@ static int sAutoRefreshCopyRectTime = 0;
 //------------------------------------------------------------------------------
 // Local Functions
 //------------------------------------------------------------------------------
+
+static COLORREF stringToRGB(const std::string& theString, size_t thePos = 0)
+{
+	// TODO: Error checking?
+	const u32 r = clamp(intFromString(
+		fetchNextItem(theString, thePos)), 0, 255);
+	const u32 g = clamp(intFromString(
+		fetchNextItem(theString, ++thePos)), 0, 255);
+	const u32 b = clamp(intFromString(
+		fetchNextItem(theString, ++thePos)), 0, 255);
+	return RGB(r, g, b);
+}
+
 
 static void setHotspotSizes(
    const std::string& theHotspotSizesKey,
@@ -441,6 +455,8 @@ static void setHotspotSizes(
 		intFromString(fetchNextItem(theSizeDesc, aPos)), 0, 0xFFFF));
 	u16 aNewHeight = u16(clamp(
 		intFromString(fetchNextItem(theSizeDesc, ++aPos)), 0, 0xFFFF));
+	// If only specified a width, use it for both width and height
+	if( aNewWidth && !aNewHeight ) aNewHeight = aNewWidth;
 
 	// Insert into sorted vector, such that not only are earlier ranges
 	// before later ones, but sub-ranges are sorted before their containing
@@ -499,7 +515,7 @@ static void setHotspotSizes(
 }
 
 
-static SIZE getHotspotSize(int theHotspotID)
+static SIZE getHotspotUnscaledSize(int theHotspotID)
 {
 	SIZE result = {0, 0};
 	for(int i = 0, end = intSize(sHotspotSizes.size()); i < end; ++i)
@@ -574,23 +590,149 @@ static HPEN getBorderPenHandle(int theBorderWidth, COLORREF theBorderColor)
 }
 
 
-static void loadBitmapFile(
-	const std::string& /*theEntryName*/,
-	const std::string& /*theBitmapDesc*/)
+static BitmapFileInfo loadBitmapFile(
+	Profile::PropertyMapPtr theBitmapsPropMap,
+	int theBitmapPropID)
 {
-	// TODO
+	DBG_ASSERT(size_t(theBitmapPropID) < sBitmapFiles.size());
+	BitmapFileInfo& theSrcFileInfo = sBitmapFiles[theBitmapPropID];
+	if( theSrcFileInfo.handle )
+		return theSrcFileInfo;
+
+	const std::string& theBitmapDesc =
+		theBitmapsPropMap->vals()[theBitmapPropID].str;
+	size_t aStrPos = 0;
+	const std::string& aFilePath = fetchNextItem(theBitmapDesc, aStrPos);
+	if( aFilePath.empty() )
+		return theSrcFileInfo;
+
+	// Convert given path into a wstring absolute path w/ .bmp extension
+	const std::wstring aFilePathW =
+		widen(removeExtension(toAbsolutePath(aFilePath)) + ".bmp");
+
+	if( !isValidFilePath(aFilePathW) )
+	{
+		logError("Could not find requested bitmap file %s!",
+			aFilePath.c_str());
+		return theSrcFileInfo;
+	}
+
+	theSrcFileInfo.handle = (HBITMAP)LoadImage(
+		NULL, aFilePathW.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+	if( !theSrcFileInfo.handle )
+	{
+		logError("Could not load bitmap %s. Wrong file format?",
+			aFilePath.c_str());
+		return theSrcFileInfo;
+	}
+
+	theSrcFileInfo.maskColor = stringToRGB(theBitmapDesc, ++aStrPos);
+	BITMAP aBitmapStruct;
+	GetObject(theSrcFileInfo.handle, sizeof(aBitmapStruct), &aBitmapStruct);
+	theSrcFileInfo.size.cx = aBitmapStruct.bmWidth;
+	theSrcFileInfo.size.cy = aBitmapStruct.bmHeight;
+	return theSrcFileInfo;
 }
 
 
-static int getOrCreateBitmapIconID(const std::string& /*theIconDesc*/)
+static void createBitmapIconImage(int theIconID)
 {
-	// TODO
-	// Do NOT report error here if bitmap name not found - just return 0
-	// and let calling code handle error, since this is used to check if it
-	// is a bitmap icon vs a hotspot copy-from-screen icon being described.
-	// If the description includes a region and coords are formatted wrong,
-	// though, then do report the issue with them here.
-	return 0;
+	DBG_ASSERT(size_t(theIconID) < sBitmapIcons.size());
+	BitmapIcon& theIcon = sBitmapIcons[theIconID];
+	DBG_ASSERT(theIcon.image == NULL);
+	DBG_ASSERT(theIcon.mask == NULL);
+	DBG_ASSERT(theIcon.fileID < sBitmapFiles.size());
+	const BitmapFileInfo& theSrcBitmapFileInfo = sBitmapFiles[theIcon.fileID];
+
+	HDC hdcSrc = CreateCompatibleDC(NULL);
+	HBITMAP hOldSrcBitmap = (HBITMAP)
+		SelectObject(hdcSrc, theSrcBitmapFileInfo.handle);
+	HDC hdcImage = CreateCompatibleDC(NULL);
+	theIcon.image = CreateCompatibleBitmap(
+		hdcSrc, theIcon.size.cx, theIcon.size.cy);
+	HBITMAP hOldImageBitmap = (HBITMAP)
+		SelectObject(hdcImage, theIcon.image);
+	HDC hdcMask = CreateCompatibleDC(NULL);
+	theIcon.mask = CreateBitmap(
+		theIcon.size.cx, theIcon.size.cy, 1, 1, NULL);
+	HBITMAP hOldMaskBitmap = (HBITMAP)
+		SelectObject(hdcMask, theIcon.mask);
+
+	// Copy source to image bitmap
+	BitBlt(
+		hdcImage, 0, 0, theIcon.size.cx, theIcon.size.cy,
+		hdcSrc, theIcon.fileTL.x, theIcon.fileTL.y, SRCCOPY);
+
+	// Generate 1-bit - maskColor areas become 1, opaque areas become 0
+	SetBkColor(hdcImage, sBitmapFiles[theIcon.fileID].maskColor);
+	BitBlt(
+		hdcMask, 0, 0, theIcon.size.cx, theIcon.size.cy,
+		hdcImage, 0, 0, SRCCOPY);
+
+	// Change maskColor pixels in the image bitmap to black
+	BitBlt(
+		hdcImage, 0, 0, theIcon.size.cx, theIcon.size.cy,
+		hdcMask, 0, 0, SRCINVERT);
+
+	SelectObject(hdcSrc, hOldSrcBitmap);
+	DeleteDC(hdcSrc);
+	SelectObject(hdcImage, hOldImageBitmap);
+	DeleteDC(hdcImage);
+	SelectObject(hdcImage, hOldMaskBitmap);
+	DeleteDC(hdcMask);
+}
+
+
+static int getOrCreateBitmapIconID(const std::string& theIconDesc)
+{
+	int anID = 0;
+	size_t aStrPos = 0;
+	const std::string& theBitmapKey = fetchNextItem(theIconDesc, aStrPos, ":");
+	Profile::PropertyMapPtr aBitmapFilesSection =
+		Profile::getSectionProperties(sBitmapsProfileSectionID);
+	const int aBitmapFileID = aBitmapFilesSection->findIndex(theBitmapKey);
+
+	// Bitmap name not found, but might be a hotspot, so don't give error here!
+	if( aBitmapFileID >= aBitmapFilesSection->size() )
+		return anID;
+
+	// Get/load source bitmap file
+	const BitmapFileInfo& theSrcBitmapFileInfo =
+		loadBitmapFile(aBitmapFilesSection, aBitmapFileID);
+	if( !theSrcBitmapFileInfo.handle )
+		return anID;
+
+	BitmapIcon anIcon;
+	anIcon.fileID = dropTo<u16>(aBitmapFileID);
+	if( aStrPos >= theIconDesc.size() - 1 )
+	{// Use entire bitmap
+		anIcon.fileTL.x = 0;
+		anIcon.fileTL.y = 0;
+		anIcon.size = theSrcBitmapFileInfo.size;
+	}
+	else
+	{// Use region of bitmap
+		anIcon.fileTL.x = dropTo<LONG>(intFromString(
+			fetchNextItem(theIconDesc, ++aStrPos)));
+		anIcon.fileTL.y = dropTo<LONG>(intFromString(
+			fetchNextItem(theIconDesc, ++aStrPos)));
+		anIcon.size.cx = dropTo<LONG>(intFromString(
+			fetchNextItem(theIconDesc, ++aStrPos)));
+		anIcon.size.cy = dropTo<LONG>(intFromString(
+			fetchNextItem(theIconDesc, ++aStrPos)));
+		// TODO - report error if above numbers are invalid somehow
+	}
+
+	// Check to see if already have created an icon with these parameters
+	for(int end = intSize(sBitmapIcons.size()); anID < end; ++anID)
+	{
+		if( sBitmapIcons[anID] == anIcon )
+			return anID;
+	}
+
+	sBitmapIcons.push_back(anIcon);
+	createBitmapIconImage(anID);
+	return anID;
 }
 
 
@@ -716,7 +858,7 @@ static void setLabelIcon(
 			// TODO - error, can't find bitmap or hotspot being referenced
 			return;
 		}
-		aNewIcon.copyFromScreen = true;
+		aNewIcon.copyFromTarget = true;
 	}
 
 	sLabelIcons.setValue(theTextLabel, aNewIcon);
@@ -731,20 +873,6 @@ static inline PropString getPropString(
 	result.str = Profile::getStr(thePropMap, thePropName);
 	result.valid = !isEffectivelyEmptyString(result.str);
 	return result;
-}
-
-
-static COLORREF stringToRGB(const std::string& theColorString)
-{
-	// TODO: Error checking?
-	size_t aPos = 0;
-	const u32 r = clamp(intFromString(
-		fetchNextItem(theColorString, aPos)), 0, 255);
-	const u32 g = clamp(intFromString(
-		fetchNextItem(theColorString, ++aPos)), 0, 255);
-	const u32 b = clamp(intFromString(
-		fetchNextItem(theColorString, ++aPos)), 0, 255);
-	return RGB(r, g, b);
 }
 
 
@@ -1125,6 +1253,45 @@ static void eraseRect(DrawData& dd, const RECT& theRect)
 }
 
 
+static void drawBitmapIcon(
+	DrawData& dd, const BitmapIcon& theIcon, const RECT& theRect)
+{
+	DBG_ASSERT(theIcon.image && theIcon.mask && sBitmapDrawSrc);
+	HBITMAP hOldBitmap = (HBITMAP)
+		SelectObject(sBitmapDrawSrc, theIcon.mask);
+
+	// Draw 1-bit mask with SRCAND, which will overwrite any pixels in
+	// destination that are (0) in the mask to be all-black (0) while
+	// leaving the other pixels (white (1) in the mask) in dest as-is.
+	// Need to make sure 0 and 1 in the 1-bit image map to literal black
+	// and white first, which map to dest DC's background and text colors.
+	SetBkColor(dd.hdc, RGB(255, 255, 255));
+	SetTextColor(dd.hdc, RGB(0, 0, 0));
+	StretchBlt(dd.hdc,
+			   theRect.left, theRect.top,
+			   theRect.right - theRect.left,
+			   theRect.bottom - theRect.top,
+			   sBitmapDrawSrc,
+			   0, 0, theIcon.size.cx, theIcon.size.cy,
+			   SRCAND);
+
+	// Draw image using SRCPAINT (OR) to mask out transparent pixels
+	// Black (0) source (was maskColor) | any dest = keep dest color
+	// Color source | black (0) dest (masked via above) = icon color
+	SelectObject(sBitmapDrawSrc, theIcon.image);
+	StretchBlt(dd.hdc,
+			   theRect.left, theRect.top,
+			   theRect.right - theRect.left,
+			   theRect.bottom - theRect.top,
+			   sBitmapDrawSrc,
+			   0, 0, theIcon.size.cx, theIcon.size.cy,
+			   SRCPAINT);
+
+	// Cleanup
+	SelectObject(sBitmapDrawSrc, hOldBitmap);
+}
+
+
 static void drawBGRect(
 	DrawData& dd, const MenuItemAppearance& theApp, const RECT& theRect)
 {
@@ -1168,22 +1335,7 @@ static void drawBGBitmap(
 	}
 
 	DBG_ASSERT(theApp.bitmapIconID < sBitmapIcons.size());
-	const BitmapIcon& anIcon = sBitmapIcons[theApp.bitmapIconID];
-	DBG_ASSERT(sBitmapDrawSrc);
-	HBITMAP hOldBitmap = (HBITMAP)
-		SelectObject(sBitmapDrawSrc, anIcon.image);
-
-	StretchBlt(dd.hdc,
-			   theRect.left, theRect.top,
-			   theRect.right - theRect.left,
-			   theRect.bottom - theRect.top,
-			   sBitmapDrawSrc,
-			   0, 0,
-			   anIcon.size.cx,
-			   anIcon.size.cy,
-			   SRCCOPY);
-
-	SelectObject(sBitmapDrawSrc, hOldBitmap);
+	drawBitmapIcon(dd, sBitmapIcons[theApp.bitmapIconID], theRect);
 }
 
 
@@ -1513,38 +1665,36 @@ static void drawLabelString(
 static void drawMenuItemLabel(
 	DrawData& dd,
 	RECT theRect,
-	int /*theItemIdx*/,
+	int theItemIdx,
 	const std::string& theLabel,
 	const MenuAppearance& theMenuApp,
 	const MenuItemAppearance& theItemApp,
-	int /*theCurrBorderSize*/, int theMaxBorderSize,
+	int theCurrBorderSize, int theMaxBorderSize,
 	LabelDrawCacheEntry& theCacheEntry)
 {
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{// Initialize cache entry
-		//IconEntry* anIconEntry = sLabelIcons.find(theLabel);
-		//if( anIconEntry && anIconEntry->copyFromTarget )
-		//{
-		//	theCacheEntry.type = eMenuItemLabelType_CopyRect;
-		//	theCacheEntry.copyRect.fromPos = hotspotToPoint(
-		//		sCopyRects[anIconEntry->iconID].pos,
-		//		dd.targetSize);
-		//	theCacheEntry.copyRect.fromSize = hotspotToSize(
-		//		sCopyRects[anIconEntry->iconID].size,
-		//		dd.targetSize);
-		//}
-		//else if( anIconEntry && !anIconEntry->copyFromTarget )
-		//{
-		//	theCacheEntry.type = eMenuItemLabelType_Bitmap;
-		//	theCacheEntry.bitmapIconID = anIconEntry->iconID;
-		//	if( !sBitmapIcons[anIconEntry->iconID].mask )
-		//	{
-		//		generateBitmapIconMask(
-		//			sBitmapIcons[anIconEntry->iconID],
-		//			sHUDElementInfo[dd.hudElementID].transColor);
-		//	}
-		//}
-		//else
+		LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
+		if( aLabelIcon && aLabelIcon->copyFromTarget )
+		{
+			theCacheEntry.type = eMenuItemLabelType_CopyRect;
+			const double aHotspotScale =
+				InputMap::hotspotScale(aLabelIcon->hotspotID);
+			theCacheEntry.copyRect.fromPos =
+				hotspotToPoint(aLabelIcon->hotspotID, dd.targetSize);
+			theCacheEntry.copyRect.fromSize =
+				getHotspotUnscaledSize(aLabelIcon->hotspotID);
+			theCacheEntry.copyRect.fromSize.cx = LONG(
+				theCacheEntry.copyRect.fromSize.cx * aHotspotScale * gUIScale);
+			theCacheEntry.copyRect.fromSize.cy = LONG(
+				theCacheEntry.copyRect.fromSize.cy * aHotspotScale * gUIScale);
+		}
+		else if( aLabelIcon && !aLabelIcon->copyFromTarget )
+		{
+			theCacheEntry.type = eMenuItemLabelType_Bitmap;
+			theCacheEntry.bitmapIconID = aLabelIcon->bitmapIconID;
+		}
+		else
 		{
 			theCacheEntry.type = eMenuItemLabelType_String;
 			theCacheEntry.str = StringScaleCacheEntry();
@@ -1562,14 +1712,18 @@ static void drawMenuItemLabel(
 			DT_WORDBREAK | DT_CENTER | DT_VCENTER,
 			theCacheEntry.str);
 	}
-#if 0
 	else if( theCacheEntry.type == eMenuItemLabelType_Bitmap )
 	{
 		DBG_ASSERT(theCacheEntry.bitmapIconID < sBitmapIcons.size());
-		const BitmapIcon& anIcon = sBitmapIcons[theCacheEntry.bitmapIconID];
-		DBG_ASSERT(sBitmapDrawSrc);
-		if( theCurrBorderSize > 0 )
-		{
+		BitmapIcon& anIcon = sBitmapIcons[theCacheEntry.bitmapIconID];
+		DBG_ASSERT(anIcon.image);
+
+		const bool shouldClipOutBorder =
+			theCurrBorderSize > 0 &&
+			theMenuApp.itemType != eMenuItemType_Bitmap;
+		
+		if( shouldClipOutBorder )
+		{// Clip to within border
 			RECT aClipRect = theRect;
 			InflateRect(&aClipRect, -theCurrBorderSize, -theCurrBorderSize);
 			DBG_ASSERT(sClipRegion);
@@ -1579,37 +1733,11 @@ static void drawMenuItemLabel(
 			SelectClipRgn(dd.hdc, sClipRegion);
 		}
 
-		// Draw 1-bit mask with SRCAND, which will overwrite any pixels in
-		// destination that are (0) in the mask to be all-black (0) while
-		// leaving the other pixels (white (1) in the mask) in dest as-is
-		HBITMAP hOldBitmap = (HBITMAP)
-			SelectObject(sBitmapDrawSrc, anIcon.mask);
-		StretchBlt(dd.hdc,
-				   theRect.left, theRect.top,
-				   theRect.right - theRect.left,
-				   theRect.bottom - theRect.top,
-				   sBitmapDrawSrc,
-				   0, 0,
-				   anIcon.size.cx,
-				   anIcon.size.cy,
-				   SRCAND);
+		// Draw the bitmap icon itself
+		drawBitmapIcon(dd, anIcon, theRect);
 
-		// Draw image using SRCPAINT (OR) to mask out transparent pixels
-		// Black (0) source (was TransColor) | any dest = keep dest color
-		// Color source | black dest (masked via above) = icon color
-		SelectObject(sBitmapDrawSrc, anIcon.image);
-		StretchBlt(dd.hdc,
-				   theRect.left, theRect.top,
-				   theRect.right - theRect.left,
-				   theRect.bottom - theRect.top,
-				   sBitmapDrawSrc,
-				   0, 0,
-				   anIcon.size.cx,
-				   anIcon.size.cy,
-				   SRCPAINT);
-
-		SelectObject(sBitmapDrawSrc, hOldBitmap);
-		if( theCurrBorderSize > 0 )
+		// Cleanup
+		if( shouldClipOutBorder )
 			SelectClipRgn(dd.hdc, NULL);
 	}
 	else if( theCacheEntry.type == eMenuItemLabelType_CopyRect )
@@ -1623,7 +1751,7 @@ static void drawMenuItemLabel(
 		int aSrcW = theCacheEntry.copyRect.fromSize.cx;
 		int aSrcH = theCacheEntry.copyRect.fromSize.cy;
 		if( theCurrBorderSize > 0 )
-		{
+		{// Clip to within border
 			RECT aClipRect = theRect;
 			InflateRect(&aClipRect, -theCurrBorderSize, -theCurrBorderSize);
 			DBG_ASSERT(sClipRegion);
@@ -1665,17 +1793,19 @@ static void drawMenuItemLabel(
 				dd.hCaptureDC, aSrcL, aSrcT, aSrcW, aSrcH, SRCCOPY);
 		}
 		// Queue auto-refresh this icon later if nothing else draws it
-		CopyRectRefreshEntry anAutoRefreshEntry = { dd.overlayID, theItemIdx };
+		CopyRectRefreshEntry anAutoRefreshEntry;
+		anAutoRefreshEntry.overlayID = dropTo<u16>(dd.overlayID);
+		anAutoRefreshEntry.itemIdx = dropTo<u16>(theItemIdx);
 		// If it was already queued, bump it to the end
 		sAutoRefreshCopyRectQueue.erase(std::remove(
 			sAutoRefreshCopyRectQueue.begin(),
 			sAutoRefreshCopyRectQueue.end(), anAutoRefreshEntry),
 			sAutoRefreshCopyRectQueue.end());
 		sAutoRefreshCopyRectQueue.push_back(anAutoRefreshEntry);
+		// Reset clipping
 		if( theCurrBorderSize > 0 )
 			SelectClipRgn(dd.hdc, NULL);
 	}
-#endif
 }
 
 
@@ -2133,11 +2263,16 @@ static void updateHotspotsMenuLayout(
 	{
 		const int aHotspotID = InputMap::menuItemHotspotID(theMenuID, i);
 		const POINT& anItemPos = hotspotToPoint(aHotspotID, theTargetSize);
-		SIZE anItemSize = getHotspotSize(aHotspotID);
-		if( !anItemSize.cx ) anItemSize.cx = theLayout.sizeX;
-		if( !anItemSize.cy ) anItemSize.cy = theLayout.sizeY;
-		anItemSize.cx = LONG(anItemSize.cx * gUIScale);
-		anItemSize.cy = LONG(anItemSize.cy * gUIScale);
+		SIZE anItemSize = { theLayout.sizeX, theLayout.sizeY };
+		const SIZE& aHotspotSize = getHotspotUnscaledSize(aHotspotID);
+		if( aHotspotSize.cx > 0 )
+		{
+			const double aHotspotScale = InputMap::hotspotScale(aHotspotID);
+			anItemSize.cx = LONG(
+				aHotspotSize.cx * aHotspotScale * gUIScale);
+			anItemSize.cy = LONG(
+				aHotspotSize.cy * aHotspotScale * gUIScale);
+		}
 		RECT anItemRect;
 		anItemRect.left = anItemPos.x - anItemSize.cx / 2;
 		anItemRect.right = anItemRect.left + anItemSize.cx;
@@ -2211,16 +2346,10 @@ void init()
 		}
 	}
 
-	{// Load bitmap files
-		Profile::PropertyMapPtr aPropMap =
-			Profile::getSectionProperties(kBitmapsSectionName);
-		sBitmapFiles.reserve(aPropMap->size());
-		for(int i = 0, end = aPropMap->size(); i < end; ++i)
-		{
-			loadBitmapFile(
-				aPropMap->keys()[i],
-				aPropMap->vals()[i].str);
-		}
+	{// Get bitmaps Profile Section info
+		sBitmapsProfileSectionID = Profile::getSectionID(kBitmapsSectionName);
+		sBitmapFiles.resize(
+			Profile::getSectionProperties(sBitmapsProfileSectionID)->size());
 	}
 
 	{// Set up converting text labels to icons
@@ -2306,6 +2435,14 @@ void init()
 		theHSGuideMenu.positionID =
 			dropTo<u16>(getOrCreateMenuPositionID(aMenuPos));
 	}
+
+	// Bitmap source files are only needed temporarily to make
+	// BitmapIcons out of, so can be freed when done creating icons
+	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
+	{
+		DeleteObject(sBitmapFiles[i].handle);
+		sBitmapFiles[i].handle = NULL;
+	}
 }
 
 
@@ -2354,6 +2491,12 @@ void loadProfileChanges()
 		//		aPropMap.vals()[i].str);
 		//}
 	}
+
+	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
+	{
+		DeleteObject(sBitmapFiles[i].handle);
+		sBitmapFiles[i].handle = NULL;
+	}
 }
 
 
@@ -2366,7 +2509,7 @@ void cleanup()
 	for(int i = 0, end = intSize(sPens.size()); i < end; ++i)
 		DeleteObject(sPens[i].handle);
 	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
-		DeleteObject(sBitmapFiles.vals()[i].image);
+		DeleteObject(sBitmapFiles[i].handle);
 	for(int i = 0, end = intSize(sBitmapIcons.size()); i < end; ++i)
 	{
 		DeleteObject(sBitmapIcons[i].image);
@@ -2658,6 +2801,10 @@ void paintWindowContents(
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
 	OverlayPaintState& ps = sOverlayPaintStates[theOverlayID];
 
+	// Bitmap BG's have unpredictable shape so should always fully re-draw
+	if( getMenuAppearance(theMenuID).itemType == eMenuItemType_Bitmap )
+		needsInitialErase = true;
+
 	DrawData dd;
 	dd.hdc = hdc;
 	dd.hCaptureDC = hCaptureDC;
@@ -2825,7 +2972,7 @@ void updateWindowLayout(
 				aHotspot.y.anchor, theTargetSize.cy));
 			aWinScalingPosX += aHotspot.x.offset;
 			aWinScalingPosY += aHotspot.y.offset;
-			const SIZE& aHotspotSize = getHotspotSize(aHotspotID);
+			const SIZE& aHotspotSize = getHotspotUnscaledSize(aHotspotID);
 			if( aHotspotSize.cx != 0 || aHotspotSize.cy != 0 )
 			{
 				// Border size is added to the hotspot size in this case,
@@ -2836,6 +2983,9 @@ void updateWindowLayout(
 					theMenuID, eMenuItemDrawState_Selected).borderSize;
 				aWinScalingSizeX = aHotspotSize.cx + aSelectedBorderSize * 2;
 				aWinScalingSizeY = aHotspotSize.cy + aSelectedBorderSize * 2;
+				const double aHotspotScale = InputMap::hotspotScale(aHotspotID);
+				aWinScalingSizeX *= aHotspotScale;
+				aWinScalingSizeY *= aHotspotScale;
 			}
 		}
 		break;

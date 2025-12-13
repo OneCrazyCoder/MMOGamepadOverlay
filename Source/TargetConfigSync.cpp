@@ -1949,8 +1949,7 @@ static bool setFetchValueFromDataSource(
 		sValueSets[theDestValueSetID] +
 		theDestValueSetSubType -
 		kValueSetFirstIdx[theValueSetType]);
-	DBG_ASSERT(*aValueLinkMapID >= 0);
-	DBG_ASSERT(*aValueLinkMapID < intSize(theBuilder.valueLinkMaps.size()));
+	DBG_ASSERT(size_t(*aValueLinkMapID) < theBuilder.valueLinkMaps.size());
 	theBuilder.valueLinkMaps[*aValueLinkMapID].setValue(
 		aConfigDataPath, aDestValue);
 	return true;
@@ -2416,8 +2415,7 @@ void load()
 	{
 		const int aValueLinkMapIdx =
 			aBuilder.pathToLinkMapID.values()[i];
-		DBG_ASSERT(aValueLinkMapIdx >= 0);
-		DBG_ASSERT(aValueLinkMapIdx < intSize(aBuilder.valueLinkMaps.size()));
+		DBG_ASSERT(size_t(aValueLinkMapIdx) < aBuilder.valueLinkMaps.size());
 		ValueLinkMap& aValueLinkMap =
 			aBuilder.valueLinkMaps[aValueLinkMapIdx];
 		if( aValueLinkMap.empty() )

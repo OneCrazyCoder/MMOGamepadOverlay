@@ -376,9 +376,8 @@ static INT_PTR CALLBACK characterSelectProc(
 			}
 
 			// Select the item corresponding to the stored original index
-			if( theData->result.selectedIndex < 0 ||
-				theData->result.selectedIndex >=
-					intSize(theData->characterNames.size()) )
+			if( size_t(theData->result.selectedIndex) >=
+					theData->characterNames.size() )
 			{// Invalid initial index - just select first item
 				SendMessage(hListBox, LB_SETCURSEL, 0, 0);
 			}

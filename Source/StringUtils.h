@@ -54,7 +54,7 @@ std::string breakOffItemBeforeChar(std::string& theString, char theChar = ',');
 std::string breakOffNextItem(std::string& theString, char theChar = ',');
 // Returns substring from thePosition to first theDelimiter (or whole string),
 // updating thePosition to theDelimiter or '\0' pos. Returned string is trimmed.
-// If entire string is quoted, theDelimiter is ignored inside quoted section,
+// If entire substring is quoted, theDelimiter is ignored inside quoted section,
 // whitespace in the quotes is left as-is, and outer quote chars are removed.
 // Supports SQL style for quote chars inside quoted strings ("" or '"' etc).
 std::string fetchNextItem(

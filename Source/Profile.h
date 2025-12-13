@@ -66,6 +66,7 @@ double getFloat(const std::string&, const std::string&, double = 0);
 int variableNameToID(const std::string& theVarName); // -1 if not found
 std::string variableIDToName(int theVariableID);
 const SectionsMap& allSections();
+int getSectionID(const std::string& theSectionName); // -1 if not found
 PropertyMapPtr getSectionProperties(const std::string& theSectionName);
 PropertyMapPtr getSectionProperties(int theSectionID);
 std::string getStr(// from section returned by getSectionProperties()

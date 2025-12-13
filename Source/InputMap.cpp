@@ -3381,10 +3381,10 @@ static void applyControlsLayerProperty(
 		{
 			if( aPropType == ePropType_ShowMenus )
 			{
-				DBG_ASSERT(theLayer.showOverlays.size() ==
-					intSize(sOverlayRootMenus.size()));
-				DBG_ASSERT(theLayer.hideOverlays.size() ==
-					intSize(sOverlayRootMenus.size()));
+				DBG_ASSERT(size_t(theLayer.showOverlays.size()) ==
+					sOverlayRootMenus.size());
+				DBG_ASSERT(size_t(theLayer.hideOverlays.size()) ==
+					sOverlayRootMenus.size());
 				theLayer.showOverlays.reset();
 				theLayer.hideOverlays.reset();
 			}
@@ -3912,18 +3912,20 @@ void loadProfile()
 	sKeyBindCycles.trim();
 
 	// Allocate menus, starting with built-in system ones
-	const u16 kMenuDefaultsSectionID = dropTo<u16>(
-		 Profile::allSections().findIndex(kMenuDefaultsSectionName));
+	const int kMenuDefaultsSectionID =
+		 Profile::getSectionID(kMenuDefaultsSectionName);
 	sMenus.setValue("~", Menu());
 	sMenus.vals().back().style = eMenuStyle_System;
 	sMenus.vals().back().overlayID = 0;
-	sMenus.vals().back().profileSectionID = kMenuDefaultsSectionID;
+	sMenus.vals().back().profileSectionID = dropTo<u16>(
+		kMenuDefaultsSectionID < 0 ? kInvalidID : kMenuDefaultsSectionID);
 	sOverlayRootMenus.push_back(0);
 	sMenus.vals().back().rootMenuID = 0;
 	sMenus.setValue("~~", Menu());
 	sMenus.vals().back().style = eMenuStyle_HotspotGuide;
 	sMenus.vals().back().overlayID = 1;
-	sMenus.vals().back().profileSectionID = kMenuDefaultsSectionID;
+	sMenus.vals().back().profileSectionID = dropTo<u16>(
+		kMenuDefaultsSectionID < 0 ? kInvalidID : kMenuDefaultsSectionID);
 	sOverlayRootMenus.push_back(1);
 	sMenus.vals().back().rootMenuID = 1;
 	Profile::allSections().findAllWithPrefix(
@@ -4433,7 +4435,7 @@ bool hotspotArrayHasAnchor(int theHotspotArrayID)
 }
 
 
-float hotspotOffsetScale(int theHotspotID)
+float hotspotScale(int theHotspotID)
 {
 	float result = 1.0;
 	if( theHotspotID >= eSpecialHotspot_Num && !sHotspotArrays.empty() )

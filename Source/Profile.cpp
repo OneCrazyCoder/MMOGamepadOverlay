@@ -1873,7 +1873,7 @@ retryQuery:
 		aTemplateProfileNames,
 		aDefaultSelectedIdx,
 		sAutoProfileIdx >= 0 &&
-		sAutoProfileIdx < intSize(sProfilesCanLoad.size()) &&
+		size_t(sAutoProfileIdx) < sProfilesCanLoad.size() &&
 		!sProfilesCanLoad[sAutoProfileIdx].empty(),
 		needFirstProfile);
 
@@ -2253,16 +2253,25 @@ std::string variableIDToName(int theVariableID)
 }
 
 
+int getSectionID(const std::string& theSectionName)
+{
+	int result = sSectionsMap.findIndex(theSectionName);
+	if( result >= sSectionsMap.size() )
+		result = -1;
+	return result;
+}
+
+
 PropertyMapPtr getSectionProperties(const std::string& theSectionName)
 {
-	return getSectionProperties(sSectionsMap.findIndex(theSectionName));
+	return getSectionProperties(getSectionID(theSectionName));
 }
 
 
 PropertyMapPtr getSectionProperties(int theSectionID)
 {
 	static const PropertyMap kEmptyMap = PropertyMap();
-	if( theSectionID < sSectionsMap.size() )
+	if( theSectionID >= 0 && theSectionID < sSectionsMap.size() )
 		return &sSectionsMap.vals()[theSectionID];
 	return &kEmptyMap;
 }

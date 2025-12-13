@@ -117,7 +117,7 @@ int firstHotspotInArray(int theHotspotArrayID);
 int lastHotspotInArray(int theHotspotArrayID);
 int sizeOfHotspotArray(int theHotspotArrayID);
 bool hotspotArrayHasAnchor(int theHotspotArrayID);
-float hotspotOffsetScale(int theHotspotID);
+float hotspotScale(int theHotspotID);
 const Hotspot* KeyBindCycleHotspot(int theArrayID, int theIndex);
 void modifyHotspot(int theHotspotID, const Hotspot& theNewValues);
 
