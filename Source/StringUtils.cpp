@@ -828,3 +828,72 @@ std::string commaSeparate(u32 theValue)
 
 	return aResult;
 }
+
+
+double stringToDoubleSum(
+	const std::string& theString,
+	std::string::size_type& theOffset)
+{
+	return stringToDoubleSum(theString.c_str(), theOffset);
+}
+
+
+double stringToDoubleSum(
+	const char* theString,
+	std::string::size_type& theOffset)
+{
+	double result = 0;
+	char* end = const_cast<char*>(&theString[theOffset]);
+	if( *end == '\0' )
+		return result;
+
+	bool foundOperator = false;
+	bool subtract = false;
+	while(*end != '\0')
+	{
+		const char* start = end;
+		const double num = strtod(start, &end);
+
+		// Treat NaN the same as no valid conversion happened
+		if( _isnan(num) )
+			end = const_cast<char*>(start);
+
+		if( end != start )
+		{// Add result to sum and continue to rest of the string
+			result += subtract ? -num : num;
+			subtract = false;
+			foundOperator = false;
+			continue;
+		}
+
+		// Skip any whitespace found before invalid character was hit
+		// (strtod skips leading whitespace but sets 'end' back to 'start'
+		// rather than pointing at the first invalid character it found)
+		while(*end <= ' ' && *end != '\0')
+			++end;
+
+		// Check if invalid character was possibly "+ " or "- " (operator)
+		if( (*end == '+' || *end == '-') && *(end+1) == ' ' )
+		{// Fine to have a lone operator as long as not two in a row
+			if( foundOperator )
+				break;
+			foundOperator = true;
+			if( *end == '-' )
+				subtract = true;
+			end += 2;
+			continue;
+		}
+
+		// Unexpected/invalid character prevented full conversion - stop here
+		break;
+	}
+
+	// If last operator found didn't have a valid number after it,
+	// set the operator itself as the first invalid character
+	if( foundOperator )
+		end -= 2;
+
+	// If no problems found this will set theOffset == len(theString)
+	theOffset = end - &theString[0];
+	return result;
+}

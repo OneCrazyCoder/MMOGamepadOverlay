@@ -520,7 +520,7 @@ static void applyHotspotProperty(
 			}
 			else
 			{
-				anOffsetScale = floatFromString(aHotspotDesc.substr(1));
+				anOffsetScale = stringToFloat(aHotspotDesc.substr(1));
 				if( anOffsetScale == 0 )
 				{
 					logError("Hotspot %s: Invalid offset scale factor '%s'",
@@ -1178,7 +1178,7 @@ static void applyKeyBindCycleProperty(
 		std::string aLenStr = breakOffItemBeforeChar(theList, ':');
 		if( !aLenStr.empty() )
 		{
-			aMaxCycleLength = intFromString(aLenStr);
+			aMaxCycleLength = stringToInt(aLenStr);
 			if( aMaxCycleLength <= 0 )
 			{
 				logError("%s: Specified length (%d) must be >= 1",
@@ -1260,7 +1260,19 @@ static void applyKeyBindCycleProperty(
 			sKeyBinds.keys()[aNewCycle[i].keyBindID]));
 	}
 
-	sKeyBindCycles.setValue(theCycleName, aNewCycle);
+	// Add the new cycle (or update existing to new setup)
+	const int aNewCycleID = sKeyBindCycles.findOrAddIndex(theCycleName);
+	sKeyBindCycles.vals()[aNewCycleID] = aNewCycle;
+
+	// If the cycle shrunk in size, make sure global indices are still valid
+	if( aNewCycleID < intSize(gKeyBindCycleLastIndex.size()) )
+	{
+		if( gKeyBindCycleLastIndex[aNewCycleID] >= intSize(aNewCycle.size()) )
+			gKeyBindCycleLastIndex[aNewCycleID] = -1;
+		gKeyBindCycleDefaultIndex[aNewCycleID] = min(
+			gKeyBindCycleDefaultIndex[aNewCycleID],
+			intSize(aNewCycle.size())-1);
+	}
 
 	#ifdef INPUT_MAP_DEBUG_PRINT
 	mapDebugPrint("%s: '%s' set to cycle ",
@@ -1394,9 +1406,18 @@ static void reportCommandAssignment(
 				: "");
 		break;
 	case eCmdType_OpenSubMenu:
-		mapDebugPrint("%s: Assigned '%s' as a sub-menu\n",
-			sSectionPrintName.c_str(),
-			sPropertyPrintName.c_str());
+		if( sPropertyPrintName[0] == '.' )
+		{
+			mapDebugPrint("%s: Assigned '%s' as a \"side\" menu\n",
+				sSectionPrintName.c_str(),
+				&sPropertyPrintName.c_str()[1]);
+		}
+		else
+		{
+			mapDebugPrint("%s: Assigned '%s' as a sub-menu\n",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str());
+		}
 		break;
 	case eCmdType_MenuBack:
 		mapDebugPrint("%s: Assigned '%s' to back out of menu\n",
@@ -1511,9 +1532,7 @@ static int getMenuID(std::string theMenuName, int theParentMenuID)
 		if( theParentMenuID >= sMenus.size() )
 			return kInvalidID;
 		aParentPath = sMenus.keys()[theParentMenuID];
-		// Name being ".." means treat this as direct alias to grandparent menu
-		if( theMenuName == ".." )
-			return theParentMenuID;
+		DBG_ASSERT(theMenuName != ".."); // should have caught before this
 		// Remove leading '.'
 		theMenuName = theMenuName.substr(1);
 	}
@@ -1746,7 +1765,7 @@ static Command wordsToSpecialCommand(
 		case eCmdWord_Integer:
 			anIntegerWord = &theWords[i];
 			result.count = s16(clamp(
-				intFromString(theWords[i]),
+				stringToInt(theWords[i]),
 				result.count, 0x7FFF));
 			// fall through
 		case eCmdWord_Unknown:
@@ -2131,7 +2150,6 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Reset);
 		allowedKeyWords.reset(eCmdWord_Default);
 	}
-
 	if( allowButtonActions && aRootMenuID < sMenus.size() )
 	{
 		// "= Confirm <aMenuName> [Menu] [with mouse click]"
@@ -2631,6 +2649,13 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 		return aMenuItem;
 	}
 
+	if( theString == ".." )
+	{
+		aMenuItem.cmd.type = eCmdType_MenuBack;
+		aMenuItem.cmd.rootMenuID = sMenus.vals()[theMenuID].rootMenuID;
+		return aMenuItem;
+	}
+
 	std::string aLabel = breakOffItemBeforeChar(theString, ':');
 	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
 	{// Having no : character means this points to a sub-menu
@@ -2729,7 +2754,7 @@ static void applyMenuProperty(
 		return;
 
 	case ePropType_GridWidth:
-		theMenu.gridWidth = u8(max(0, intFromString(thePropVal)) & 0xFF);
+		theMenu.gridWidth = u8(max(0, stringToInt(thePropVal)) & 0xFF);
 		return;
 
 	case ePropType_Auto:
@@ -2758,7 +2783,7 @@ static void applyMenuProperty(
 
 	case ePropType_MenuItemNumber:
 		{
-			const int aMenuItemID = intFromString(thePropKey);
+			const int aMenuItemID = stringToInt(thePropKey);
 			if( aMenuItemID < 1 )
 			{
 				logError("Menu items in %s should start with "
@@ -2789,7 +2814,7 @@ static void applyMenuProperty(
 		}
 		else
 		{
-			int aMenuItemID = intFromString(thePropVal);
+			int aMenuItemID = stringToInt(thePropVal);
 			if( aMenuItemID > 0 )
 			{
 				if( --aMenuItemID > intSize(theMenu.items.size()) )
@@ -2798,7 +2823,7 @@ static void applyMenuProperty(
 					gReshapeOverlays.set(theMenu.overlayID);
 				}
 				theMenu.defaultMenuItemIdx = dropTo<u8>(aMenuItemID+1);
-				mapDebugPrint("%s: Default menu item set to %d",
+				mapDebugPrint("%s: Default menu item set to %d\n",
 					sSectionPrintName.c_str(),
 					aMenuItemID+1);
 				return;
@@ -2934,11 +2959,37 @@ static void validateMenu(int theMenuID)
 	}
 
 	if( aMenuStyle == eMenuStyle_KBCycleDefault ||
+		aMenuStyle == eMenuStyle_KBCycleLast ||
+		aMenuStyle == eMenuStyle_HUD )
+	{
+		if( !isRootMenu )
+		{
+			logError("%s: Menu style can not be used on a sub-menu!",
+				sSectionPrintName.c_str());
+			// If got this style from root, force to list, otherwise,
+			// switch to root's menu style - which might itself be invalid
+			// to spread to a sub-menu, so re-run check from the start
+			if( theMenu.style == eMenuStyle_Num )
+				theMenu.style = eMenuStyle_List;
+			else
+				theMenu.style = eMenuStyle_Num;
+			validateMenu(theMenuID);
+			return;
+		}
+	}
+
+	if( aMenuStyle == eMenuStyle_KBCycleDefault ||
 		aMenuStyle == eMenuStyle_KBCycleLast )
 	{// Confirm has a key bind cycle specified
+		// Can't be used as a sub-menu
+		if( !isRootMenu )
+		{
+			logError("%s: Menu style can not be used on a sub-menu!",
+				sSectionPrintName.c_str());
+			theMenu.style = eMenuStyle_List;
+			aMenuStyle = menuStyle(theMenuID);
+		}
 		int aKeyBindCycleID = theMenu.keyBindCycleID;
-		if( !isRootMenu && aKeyBindCycleID >= sKeyBindCycles.size() )
-			aKeyBindCycleID = sMenus.vals()[theMenu.rootMenuID].keyBindCycleID;
 		if( aKeyBindCycleID >= sKeyBindCycles.size() )
 		{
 			logError("%s: Style requires KeyBindCycle = property but it is "
@@ -2966,13 +3017,9 @@ static void validateMenu(int theMenuID)
 	if( aMenuStyle == eMenuStyle_HUD ||
 		aMenuStyle == eMenuStyle_KBCycleLast ||
 		aMenuStyle == eMenuStyle_KBCycleDefault )
-	{// Guarantee a single empty menu item
+	{// Guarantee a single menu item with label matching menu's custom label
 		theMenu.items.resize(1);
-	}
-	else if( aMenuStyle == eMenuStyle_Label )
-	{// Guarantee a single menu item with label matching menu's label
-		theMenu.items.resize(1);
-		theMenu.items.back().label = menuLabel(theMenuID);
+		theMenu.items.back().label = theMenu.label;
 	}
 	else if( aMenuStyle != eMenuStyle_4Dir &&
 			 aMenuStyle != eMenuStyle_Hotspots )
@@ -3135,7 +3182,7 @@ static void addButtonAction(
 			aTimeAsString.erase(0, 1);
 			aBtnID = buttonNameToID(theBtnKeyName);
 			aBtnTime = aTimeAsString.empty()
-				? -1 : intFromString(aTimeAsString);
+				? -1 : stringToInt(aTimeAsString);
 		} while(aBtnID >= eBtn_Num && !aTimeAsString.empty());
 	}
 
@@ -3585,7 +3632,7 @@ static void applyControlsLayerProperty(
 
 	case ePropType_Priority:
 		{
-			int aPriority = intFromString(thePropVal);
+			int aPriority = stringToInt(thePropVal);
 			if( theLayerID == 0 )
 			{
 				logError(
@@ -3911,23 +3958,30 @@ void loadProfile()
 		sKeyBindCycles.findOrAdd(aPropMapPtr->keys()[i], KeyBindCycle());
 	sKeyBindCycles.trim();
 
-	// Allocate menus, starting with built-in system ones
+	// Allocate built-in system menus and overlays
+	// (order created matters for system ones to have correct IDs)
 	const int kMenuDefaultsSectionID =
 		 Profile::getSectionID(kMenuDefaultsSectionName);
-	sMenus.setValue("~", Menu());
-	sMenus.vals().back().style = eMenuStyle_System;
-	sMenus.vals().back().overlayID = 0;
-	sMenus.vals().back().profileSectionID = dropTo<u16>(
+	int anIdx = sMenus.findOrAddIndex("~");
+	DBG_ASSERT(anIdx == kSystemMenuID);
+	DBG_ASSERT(sOverlayRootMenus.size() == kSystemOverlayID);
+	sOverlayRootMenus.push_back(kSystemMenuID);
+	sMenus.vals()[anIdx].style = eMenuStyle_System;
+	sMenus.vals()[anIdx].overlayID = kSystemOverlayID;
+	sMenus.vals()[anIdx].profileSectionID = dropTo<u16>(
 		kMenuDefaultsSectionID < 0 ? kInvalidID : kMenuDefaultsSectionID);
-	sOverlayRootMenus.push_back(0);
-	sMenus.vals().back().rootMenuID = 0;
-	sMenus.setValue("~~", Menu());
+	sMenus.vals().back().rootMenuID = kSystemMenuID;
+	anIdx = sMenus.findOrAddIndex("~~");
+	DBG_ASSERT(anIdx == kHotspotGuideMenuID);
+	DBG_ASSERT(sOverlayRootMenus.size() == kHotspotGuideOverlayID);
+	sOverlayRootMenus.push_back(kHotspotGuideMenuID);
 	sMenus.vals().back().style = eMenuStyle_HotspotGuide;
-	sMenus.vals().back().overlayID = 1;
+	sMenus.vals().back().overlayID = kHotspotGuideOverlayID;
 	sMenus.vals().back().profileSectionID = dropTo<u16>(
 		kMenuDefaultsSectionID < 0 ? kInvalidID : kMenuDefaultsSectionID);
-	sOverlayRootMenus.push_back(1);
-	sMenus.vals().back().rootMenuID = 1;
+	sMenus.vals().back().rootMenuID = kHotspotGuideMenuID;
+
+	// Allocate profile-defined menus
 	Profile::allSections().findAllWithPrefix(
 		kMenuPrefix, createEmptyMenu);
 	for(int i = 2; i < sMenus.size(); ++i)

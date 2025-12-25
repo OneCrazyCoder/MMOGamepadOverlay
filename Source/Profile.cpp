@@ -718,7 +718,7 @@ static void getProfileListCallback(
 			aProfileKeyPrefix.length(), aProfileKeyPrefix) == 0 )
 	{// Profile name entry
 		const int aProfileNum =
-			intFromString(aProfileNameKey.substr(aProfileKeyPrefix.length()));
+			stringToInt(aProfileNameKey.substr(aProfileKeyPrefix.length()));
 		if( aProfileNum > 0 && !theValue.empty() )
 		{
 			const ProfileEntry& aProfileEntry = profileNameToEntry(theValue);
@@ -743,7 +743,7 @@ static void getProfileListCallback(
 		if( theValue.empty() )
 			return;
 
-		int anAutoProfileNum = intFromString(theValue);
+		int anAutoProfileNum = stringToInt(theValue);
 		if( anAutoProfileNum > 0 &&
 			toString(anAutoProfileNum).length() == theValue.length() )
 		{// Specified by number
@@ -1045,7 +1045,7 @@ static void readVersionCallback(
 
 	int* aVersion = (int*)(theVersion);
 	if( condense(theName) == condense(kAutoGenVersionKey) )
-		*aVersion = intFromString(theValue);
+		*aVersion = stringToInt(theValue);
 }
 #endif
 
@@ -1296,8 +1296,8 @@ static std::string varTagToString(
 				"Use nested ${} blocks for more options.",
 				theTagStr[aPos], theTagStr.c_str());
 		}
-		double aVarNum = doubleFromString(result);
-		double aParamNum = doubleFromStringStrict(aParam);
+		double aVarNum = stringToDouble(result);
+		double aParamNum = stringToDoubleStrict(aParam);
 		if( _isnan(aParamNum) )
 		{
 			logError("Expected a number instead of '%s' for arithmetic "
@@ -1330,20 +1330,20 @@ static std::string varTagToString(
 	switch(anOpC)
 	{
 	case '<':
-		isTrue = doubleFromString(result) < doubleFromString(aParam);
+		isTrue = stringToDouble(result) < stringToDouble(aParam);
 		break;
 	case '[':
-		isTrue = doubleFromString(result) <= doubleFromString(aParam);
+		isTrue = stringToDouble(result) <= stringToDouble(aParam);
 		break;
 	case '>':
-		isTrue = doubleFromString(result) > doubleFromString(aParam);
+		isTrue = stringToDouble(result) > stringToDouble(aParam);
 		break;
 	case ']':
-		isTrue = doubleFromString(result) >= doubleFromString(aParam);
+		isTrue = stringToDouble(result) >= stringToDouble(aParam);
 	case '=': case '!':
 		{
-			const double da = doubleFromStringStrict(result);
-			const double db = doubleFromStringStrict(aParam);
+			const double da = stringToDoubleStrict(result);
+			const double db = stringToDoubleStrict(aParam);
 			if( !_isnan(da) && !_isnan(db) )
 				isTrue = da == db;
 			else
@@ -1353,7 +1353,7 @@ static std::string varTagToString(
 		}
 		break;
 	case '?':
-		isTrue = boolFromString(result);
+		isTrue = stringToBool(result);
 		break;
 	default:
 		DBG_ASSERT(false && "Unhandled conditional operator");
@@ -2207,7 +2207,7 @@ int getInt(
 {
 	const std::string& aStr = getStr(theSection, theName);
 	if( !aStr.empty() )
-		return intFromString(aStr);
+		return stringToInt(aStr);
 	return theDefaultValue;
 }
 
@@ -2219,7 +2219,7 @@ bool getBool(
 {
 	const std::string& aStr = getStr(theSection, theName);
 	if( !aStr.empty() )
-		return boolFromString(aStr);
+		return stringToBool(aStr);
 	return theDefaultValue;
 }
 
@@ -2231,7 +2231,7 @@ double getFloat(
 {
 	const std::string& aStr = getStr(theSection, theName);
 	if( !aStr.empty() )
-		return doubleFromString(aStr);
+		return stringToDouble(aStr);
 	return theDefaultValue;
 }
 
@@ -2305,7 +2305,7 @@ int getInt(
 {
 	const std::string& aStr = getStr(theSection, theName);
 	if( !aStr.empty() )
-		return intFromString(aStr);
+		return stringToInt(aStr);
 	return theDefaultValue;
 }
 
@@ -2317,7 +2317,7 @@ bool getBool(
 {
 	const std::string& aStr = getStr(theSection, theName);
 	if( !aStr.empty() )
-		return boolFromString(aStr);
+		return stringToBool(aStr);
 	return theDefaultValue;
 }
 
@@ -2329,7 +2329,7 @@ double getFloat(
 {
 	const std::string& aStr = getStr(theSection, theName);
 	if( !aStr.empty() )
-		return doubleFromString(aStr);
+		return stringToDouble(aStr);
 	return theDefaultValue;
 }
 

@@ -59,8 +59,6 @@ void flashSystemOverlayBorder();
 // Sets a draw hook for eMenuStyle_System and (keeps it visible if != NULL)
 typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
 void setSystemOverlayDrawHook(SystemPaintFunc);
-// Requests redraw eMenuStyle_System overlay contents
-void redrawSystemOverlay(bool fullRedraw = false);
 
 // Get alpha fade in/out information
 struct WindowAlphaInfo

@@ -27,10 +27,6 @@ kNoticeStringDisplayTimePerChar = 50,
 kNoticeStringMinTime = 3000,
 kSystemOverlayFlashFreq = 125,
 kSystemOverlayFlashTime = kSystemOverlayFlashFreq * 8,
-kSystemMenuID = 0,
-kSystemOverlayID = 0,
-kHotspotGuideMenuID = 1,
-kHotspotGuideOverlayID = 1,
 };
 
 enum EAlignment
@@ -144,6 +140,7 @@ struct ZERO_INIT(BitmapFileInfo)
 	HBITMAP handle;
 	SIZE size;
 	COLORREF maskColor;
+	bool useMaskColor;
 };
 
 struct ZERO_INIT(BitmapIcon)
@@ -390,13 +387,46 @@ static int sAutoRefreshCopyRectTime = 0;
 static COLORREF stringToRGB(const std::string& theString, size_t thePos = 0)
 {
 	// TODO: Error checking?
-	const u32 r = clamp(intFromString(
+	const u32 r = clamp(stringToInt(
 		fetchNextItem(theString, thePos)), 0, 255);
-	const u32 g = clamp(intFromString(
+	const u32 g = clamp(stringToInt(
 		fetchNextItem(theString, ++thePos)), 0, 255);
-	const u32 b = clamp(intFromString(
+	const u32 b = clamp(stringToInt(
 		fetchNextItem(theString, ++thePos)), 0, 255);
 	return RGB(r, g, b);
+}
+
+
+static LONG stringToWidth(const std::string& theString, size_t& thePos)
+{
+	// Calling code will have to do error checking (thePos != theString.size())
+	// since this may be part of a larger string like "width, height"
+	const double aSum = stringToDoubleSum(theString, thePos);
+	return LONG(clamp(floor(aSum + 0.5), 0.0, double(LONG_MAX)));
+}
+
+
+static SIZE stringToSize(const std::string& theString, size_t thePos = 0)
+{
+	// Calling code should check for cx < 0 for invalid results
+	SIZE result = { -1, -1 };
+	result.cx = stringToWidth(theString, thePos);
+	if( thePos >= theString.size() )
+	{// Only width was specified - use same value for both
+		result.cy = result.cx;
+		return result;
+	}
+	if( theString[thePos] != ',' &&
+		theString[thePos] != 'x' &&
+		theString[thePos] != 'X' )
+	{// Appropriate character separating width from height not found!
+		result.cx = -1;
+		return result;
+	}
+	result.cy = stringToWidth(theString, ++thePos);
+	if( thePos != theString.size() )
+		result.cx = result.cy = -1;
+	return result;
 }
 
 
@@ -450,13 +480,7 @@ static void setHotspotSizes(
 	}
 	
 	// Extract width and height from theSizeDesc
-	size_t aPos = 0;
-	u16 aNewWidth = u16(clamp(
-		intFromString(fetchNextItem(theSizeDesc, aPos)), 0, 0xFFFF));
-	u16 aNewHeight = u16(clamp(
-		intFromString(fetchNextItem(theSizeDesc, ++aPos)), 0, 0xFFFF));
-	// If only specified a width, use it for both width and height
-	if( aNewWidth && !aNewHeight ) aNewHeight = aNewWidth;
+	const SIZE& aNewSize = stringToSize(theSizeDesc);
 
 	// Insert into sorted vector, such that not only are earlier ranges
 	// before later ones, but sub-ranges are sorted before their containing
@@ -480,8 +504,8 @@ static void setHotspotSizes(
 		if( aRangeStartIdx == aNextRangeStartIdx &&
 			aRangeEndIdx == aNextRangeEndIdx )
 		{// Just replace existing range with new values
-			sHotspotSizes[aCheckPos].width = aNewWidth;
-			sHotspotSizes[aCheckPos].height = aNewHeight;
+			sHotspotSizes[aCheckPos].width = u16(min(aNewSize.cx, 0xFFFFL));
+			sHotspotSizes[aCheckPos].height = u16(min(aNewSize.cy, 0xFFFFL));
 			return;
 		}
 
@@ -494,8 +518,8 @@ static void setHotspotSizes(
 			HotspotSizesRange aNewRange;
 			aNewRange.firstHotspotID = dropTo<u16>(aRangeStartIdx);
 			aNewRange.lastHotspotID = dropTo<u16>(aRangeEndIdx);
-			aNewRange.width = aNewWidth;
-			aNewRange.height = aNewHeight;
+			aNewRange.width = u16(min(aNewSize.cx, 0xFFFFL));
+			aNewRange.height = u16(min(aNewSize.cy, 0xFFFFL));
 			sHotspotSizes.insert(
 				sHotspotSizes.begin() + aCheckPos,
 				aNewRange);
@@ -626,11 +650,17 @@ static BitmapFileInfo loadBitmapFile(
 		return theSrcFileInfo;
 	}
 
-	theSrcFileInfo.maskColor = stringToRGB(theBitmapDesc, ++aStrPos);
 	BITMAP aBitmapStruct;
 	GetObject(theSrcFileInfo.handle, sizeof(aBitmapStruct), &aBitmapStruct);
 	theSrcFileInfo.size.cx = aBitmapStruct.bmWidth;
 	theSrcFileInfo.size.cy = aBitmapStruct.bmHeight;
+
+	if( aStrPos < theBitmapDesc.size() )
+	{
+		theSrcFileInfo.useMaskColor = true;
+		theSrcFileInfo.maskColor = stringToRGB(theBitmapDesc, ++aStrPos);
+	}
+
 	return theSrcFileInfo;
 }
 
@@ -652,34 +682,39 @@ static void createBitmapIconImage(int theIconID)
 		hdcSrc, theIcon.size.cx, theIcon.size.cy);
 	HBITMAP hOldImageBitmap = (HBITMAP)
 		SelectObject(hdcImage, theIcon.image);
-	HDC hdcMask = CreateCompatibleDC(NULL);
-	theIcon.mask = CreateBitmap(
-		theIcon.size.cx, theIcon.size.cy, 1, 1, NULL);
-	HBITMAP hOldMaskBitmap = (HBITMAP)
-		SelectObject(hdcMask, theIcon.mask);
 
 	// Copy source to image bitmap
 	BitBlt(
 		hdcImage, 0, 0, theIcon.size.cx, theIcon.size.cy,
 		hdcSrc, theIcon.fileTL.x, theIcon.fileTL.y, SRCCOPY);
 
-	// Generate 1-bit - maskColor areas become 1, opaque areas become 0
-	SetBkColor(hdcImage, sBitmapFiles[theIcon.fileID].maskColor);
-	BitBlt(
-		hdcMask, 0, 0, theIcon.size.cx, theIcon.size.cy,
-		hdcImage, 0, 0, SRCCOPY);
+	if( sBitmapFiles[theIcon.fileID].useMaskColor )
+	{
+		HDC hdcMask = CreateCompatibleDC(NULL);
+		theIcon.mask = CreateBitmap(
+			theIcon.size.cx, theIcon.size.cy, 1, 1, NULL);
+		HBITMAP hOldMaskBitmap = (HBITMAP)
+			SelectObject(hdcMask, theIcon.mask);
 
-	// Change maskColor pixels in the image bitmap to black
-	BitBlt(
-		hdcImage, 0, 0, theIcon.size.cx, theIcon.size.cy,
-		hdcMask, 0, 0, SRCINVERT);
+		// Generate 1-bit - maskColor areas become 1, opaque areas become 0
+		SetBkColor(hdcImage, sBitmapFiles[theIcon.fileID].maskColor);
+		BitBlt(
+			hdcMask, 0, 0, theIcon.size.cx, theIcon.size.cy,
+			hdcImage, 0, 0, SRCCOPY);
 
-	SelectObject(hdcSrc, hOldSrcBitmap);
-	DeleteDC(hdcSrc);
+		// Change maskColor pixels in the image bitmap to black
+		BitBlt(
+			hdcImage, 0, 0, theIcon.size.cx, theIcon.size.cy,
+			hdcMask, 0, 0, SRCINVERT);
+
+		SelectObject(hdcMask, hOldMaskBitmap);
+		DeleteDC(hdcMask);
+	}
+
 	SelectObject(hdcImage, hOldImageBitmap);
 	DeleteDC(hdcImage);
-	SelectObject(hdcImage, hOldMaskBitmap);
-	DeleteDC(hdcMask);
+	SelectObject(hdcSrc, hOldSrcBitmap);
+	DeleteDC(hdcSrc);
 }
 
 
@@ -712,13 +747,13 @@ static int getOrCreateBitmapIconID(const std::string& theIconDesc)
 	}
 	else
 	{// Use region of bitmap
-		anIcon.fileTL.x = dropTo<LONG>(intFromString(
+		anIcon.fileTL.x = dropTo<LONG>(stringToInt(
 			fetchNextItem(theIconDesc, ++aStrPos)));
-		anIcon.fileTL.y = dropTo<LONG>(intFromString(
+		anIcon.fileTL.y = dropTo<LONG>(stringToInt(
 			fetchNextItem(theIconDesc, ++aStrPos)));
-		anIcon.size.cx = dropTo<LONG>(intFromString(
+		anIcon.size.cx = dropTo<LONG>(stringToInt(
 			fetchNextItem(theIconDesc, ++aStrPos)));
-		anIcon.size.cy = dropTo<LONG>(intFromString(
+		anIcon.size.cy = dropTo<LONG>(stringToInt(
 			fetchNextItem(theIconDesc, ++aStrPos)));
 		// TODO - report error if above numbers are invalid somehow
 	}
@@ -889,7 +924,7 @@ static void fetchMenuPositionProperties(
 	if( PropString p = getPropString(thePropMap, kDrawPriorityPropName) )
 	{
 		theDestPosition.drawPriority =
-			s8(clamp(intFromString(p.str), -100, 100));
+			s8(clamp(stringToInt(p.str), -100, 100));
 	}
 }
 
@@ -915,31 +950,46 @@ static void fetchMenuLayoutProperties(
 
 	if( PropString p = getPropString(thePropMap, kItemSizePropName) )
 	{
-		theDestLayout.sizeX = u16(clamp(intFromString(
-			breakOffNextItem(p.str)), 0, 0xFFFF));
-		if( !p.str.empty() )
-			theDestLayout.sizeY = u16(clamp(intFromString(p.str), 0, 0xFFFF));
+		const SIZE& aSize = stringToSize(p.str);
+		if( aSize.cx < 0 )
+		{
+			// TODO - error invalid size
+		}
 		else
-			theDestLayout.sizeY = theDestLayout.sizeX;
+		{
+			theDestLayout.sizeX = u16(min(aSize.cx, 0xFFFFL));
+			theDestLayout.sizeY = u16(min(aSize.cy, 0xFFFFL));
+		}
 	}
 
 	if( PropString p = getPropString(thePropMap, kGapSizePropName) )
 	{
-		theDestLayout.gapSizeX = s8(clamp(intFromString(
-			breakOffNextItem(p.str)), -128, 127));
-		if( !p.str.empty() )
-			theDestLayout.sizeY = s8(clamp(intFromString(p.str), -128, 127));
+		const SIZE& aSize = stringToSize(p.str);
+		if( aSize.cx < 0 )
+		{
+			// TODO - error invalid size
+		}
 		else
-			theDestLayout.gapSizeY = theDestLayout.gapSizeX;
+		{
+			theDestLayout.gapSizeX = s8(clamp(aSize.cx, -127, 128));
+			theDestLayout.gapSizeY = s8(clamp(aSize.cy, -127, 128));
+		}
 	}
 
 	if( PropString p = getPropString(thePropMap, kTitleHeightPropName) )
-		theDestLayout.titleHeight = u8(clamp(intFromString(p.str), 0, 0xFF));
+	{
+		size_t aPos = 0;
+		theDestLayout.titleHeight =
+			u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
+		// TODO - error if aPos != p.str.size()
+	}
 
 	if( PropString p = getPropString(thePropMap, kAltLabelWidthPropName) )
 	{
+		size_t aPos = 0;
 		theDestLayout.altLabelWidth =
-			u16(clamp(intFromString(p.str), 0, 0xFFFF));
+			u16(clamp(stringToWidth(p.str, aPos), 0, 0xFFFF));
+		// TODO - error if aPos != p.str.size()
 	}
 }
 
@@ -961,14 +1011,16 @@ static void fetchBaseAppearanceProperties(
 	if( PropString p = getPropString(thePropMap, kFlashTimePropName) )
 	{
 		theDestAppearance.flashMaxTime = u16(clamp(
-			intFromString(p.str), 0, 0xFFFF));
+			stringToInt(p.str), 0, 0xFFFF));
 	}
 	if( theDestAppearance.itemType == eMenuItemType_RndRect )
 	{
 		if( PropString p = getPropString(thePropMap, kRadiusPropName) )
 		{
+			size_t aPos = 0;
 			theDestAppearance.baseRadius =
-				u8(clamp(intFromString(p.str), 0, 0xFF));
+				u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
+			// TODO - error if aPos != p.str.size()
 			theDestAppearance.radius = u8(clamp(int(
 				theDestAppearance.baseRadius * gUIScale), 0, 0xFF));
 		}
@@ -982,9 +1034,14 @@ static void fetchBaseAppearanceProperties(
 		FontInfo aNewFont = sFonts[theDestAppearance.fontID];
 		aNewFont.handle = NULL;
 		if( aFontNameProp ) aNewFont.name = aFontNameProp.str;
-		if( aFontSizeProp ) aNewFont.size = intFromString(aFontSizeProp.str);
 		if( aFontWeightProp )
-			aNewFont.weight = intFromString(aFontWeightProp.str);
+			aNewFont.weight = stringToInt(aFontWeightProp.str);
+		if( aFontSizeProp )
+		{
+			size_t aPos = 0;
+			aNewFont.size = int(stringToWidth(aFontSizeProp.str, aPos));
+			// TODO - error if aPos != p.str.size()
+		}
 		theDestAppearance.fontID = dropTo<u16>(getOrCreateFontID(aNewFont));
 	}
 }
@@ -1049,8 +1106,10 @@ static void fetchItemAppearanceProperties(
 	if( PropString p = getPropStringForDrawState(
 			thePropMap, kBorderSizePropName, theDrawState) )
 	{
+		size_t aPos = 0;
 		theDestAppearance.baseBorderSize =
-			u8(clamp(intFromString(p.str), 0, 0xFF));
+			u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
+		// TODO - error if aPos != p.str.size()
 		theDestAppearance.borderSize = 0;
 		theDestAppearance.borderPen = NULL;
 		if( theDestAppearance.baseBorderSize > 0 )
@@ -1082,21 +1141,21 @@ static void fetchAlphaFadeProperties(
 {
 	const WindowAlphaInfo anOldAlphaInfo = theDestAlpha;
 	if( PropString p = getPropString(thePropMap, kMaxAlphaPropName) )
-		theDestAlpha.maxAlpha = u8(clamp(intFromString(p.str), 0, 0xFF));
+		theDestAlpha.maxAlpha = u8(clamp(stringToInt(p.str), 0, 0xFF));
 	if( PropString p = getPropString(thePropMap, kInactiveAlphaPropName) )
-		theDestAlpha.inactiveAlpha = u8(clamp(intFromString(p.str), 0, 0xFF));
+		theDestAlpha.inactiveAlpha = u8(clamp(stringToInt(p.str), 0, 0xFF));
 	if( PropString p = getPropString(thePropMap, kFadeInTimePropName) )
-		theDestAlpha.fadeInTime = u16(clamp(intFromString(p.str), 1, 0xFFFF));
+		theDestAlpha.fadeInTime = u16(clamp(stringToInt(p.str), 1, 0xFFFF));
 	if( PropString p = getPropString(thePropMap, kFadeOutTimePropName) )
-		theDestAlpha.fadeOutTime = u16(clamp(intFromString(p.str), 1, 0xFFFF));
+		theDestAlpha.fadeOutTime = u16(clamp(stringToInt(p.str), 1, 0xFFFF));
 	if( PropString p = getPropString(thePropMap, kFadeInDelayPropName) )
-		theDestAlpha.fadeInDelay = u16(clamp(intFromString(p.str), 0, 0xFFFF));
+		theDestAlpha.fadeInDelay = u16(clamp(stringToInt(p.str), 0, 0xFFFF));
 	if( PropString p = getPropString(thePropMap, kFadeOutDelayPropName) )
 		theDestAlpha.fadeOutDelay =
-			u16(clamp(intFromString(p.str), 0, 0xFFFF));
+			u16(clamp(stringToInt(p.str), 0, 0xFFFF));
 	if( PropString p = getPropString(thePropMap, kInactiveDelayPropName) )
 		theDestAlpha.inactiveFadeOutDelay =
-			u16(clamp(intFromString(p.str), 0, 0xFFFF));
+			u16(clamp(stringToInt(p.str), 0, 0xFFFF));
 
 	if( !(anOldAlphaInfo == theDestAlpha) )
 	{// Cache fade rate to avoid doing this calculation every frame
@@ -1229,9 +1288,9 @@ static WindowAlphaInfo getMenuAlphaInfo(int theMenuID)
 }
 
 
-static POINT hotspotToPoint(int theHotspotID, const SIZE& theTargetSize)
+static POINT hotspotToPoint(
+	const Hotspot& theHotspot, const SIZE& theTargetSize)
 {
-	const Hotspot theHotspot = InputMap::getHotspot(theHotspotID);
 	POINT result;
 	result.x =
 		LONG(u16ToRangeVal(theHotspot.x.anchor, theTargetSize.cx)) +
@@ -1256,36 +1315,52 @@ static void eraseRect(DrawData& dd, const RECT& theRect)
 static void drawBitmapIcon(
 	DrawData& dd, const BitmapIcon& theIcon, const RECT& theRect)
 {
-	DBG_ASSERT(theIcon.image && theIcon.mask && sBitmapDrawSrc);
-	HBITMAP hOldBitmap = (HBITMAP)
-		SelectObject(sBitmapDrawSrc, theIcon.mask);
+	DBG_ASSERT(theIcon.image && sBitmapDrawSrc);
+	HBITMAP hOldBitmap = NULL;
 
-	// Draw 1-bit mask with SRCAND, which will overwrite any pixels in
-	// destination that are (0) in the mask to be all-black (0) while
-	// leaving the other pixels (white (1) in the mask) in dest as-is.
-	// Need to make sure 0 and 1 in the 1-bit image map to literal black
-	// and white first, which map to dest DC's background and text colors.
-	SetBkColor(dd.hdc, RGB(255, 255, 255));
-	SetTextColor(dd.hdc, RGB(0, 0, 0));
-	StretchBlt(dd.hdc,
-			   theRect.left, theRect.top,
-			   theRect.right - theRect.left,
-			   theRect.bottom - theRect.top,
-			   sBitmapDrawSrc,
-			   0, 0, theIcon.size.cx, theIcon.size.cy,
-			   SRCAND);
+	if( !theIcon.mask )
+	{
+		hOldBitmap = (HBITMAP)
+			SelectObject(sBitmapDrawSrc, theIcon.image);
+		StretchBlt(dd.hdc,
+				   theRect.left, theRect.top,
+				   theRect.right - theRect.left,
+				   theRect.bottom - theRect.top,
+				   sBitmapDrawSrc,
+				   0, 0, theIcon.size.cx, theIcon.size.cy,
+				   SRCCOPY);
+	}
+	else
+	{
+		// Draw 1-bit mask with SRCAND, which will overwrite any pixels in
+		// destination that are (0) in the mask to be all-black (0) while
+		// leaving the other pixels (white (1) in the mask) in dest as-is.
+		// Need to make sure 0 and 1 in the 1-bit image map to literal black
+		// and white first, which map to dest DC's background and text colors.
+		hOldBitmap = (HBITMAP)
+			SelectObject(sBitmapDrawSrc, theIcon.mask);
+		SetBkColor(dd.hdc, RGB(255, 255, 255));
+		SetTextColor(dd.hdc, RGB(0, 0, 0));
+		StretchBlt(dd.hdc,
+				   theRect.left, theRect.top,
+				   theRect.right - theRect.left,
+				   theRect.bottom - theRect.top,
+				   sBitmapDrawSrc,
+				   0, 0, theIcon.size.cx, theIcon.size.cy,
+				   SRCAND);
 
-	// Draw image using SRCPAINT (OR) to mask out transparent pixels
-	// Black (0) source (was maskColor) | any dest = keep dest color
-	// Color source | black (0) dest (masked via above) = icon color
-	SelectObject(sBitmapDrawSrc, theIcon.image);
-	StretchBlt(dd.hdc,
-			   theRect.left, theRect.top,
-			   theRect.right - theRect.left,
-			   theRect.bottom - theRect.top,
-			   sBitmapDrawSrc,
-			   0, 0, theIcon.size.cx, theIcon.size.cy,
-			   SRCPAINT);
+		// Draw image using SRCPAINT (OR) to mask out transparent pixels
+		// Black (0) source (was maskColor) | any dest = keep dest color
+		// Color source | black (0) dest (masked via above) = icon color
+		SelectObject(sBitmapDrawSrc, theIcon.image);
+		StretchBlt(dd.hdc,
+				   theRect.left, theRect.top,
+				   theRect.right - theRect.left,
+				   theRect.bottom - theRect.top,
+				   sBitmapDrawSrc,
+				   0, 0, theIcon.size.cx, theIcon.size.cy,
+				   SRCPAINT);
+	}
 
 	// Cleanup
 	SelectObject(sBitmapDrawSrc, hOldBitmap);
@@ -1461,7 +1536,7 @@ static void drawMenuItemBG(
 	case eMenuItemType_ArrowU:	drawBGArrowU(dd, theItemApp, theRect);	break;
 	case eMenuItemType_ArrowD:	drawBGArrowD(dd, theItemApp, theRect);	break;
 	case eMenuItemType_Label:	/* no background drawn */				break;
-	default: DBG_ASSERT(false && "Invalid HUD ItemType!");
+	default: DBG_ASSERT(false && "Invalid Menu Item Type!");
 	}
 }
 
@@ -1680,14 +1755,23 @@ static void drawMenuItemLabel(
 			theCacheEntry.type = eMenuItemLabelType_CopyRect;
 			const double aHotspotScale =
 				InputMap::hotspotScale(aLabelIcon->hotspotID);
-			theCacheEntry.copyRect.fromPos =
-				hotspotToPoint(aLabelIcon->hotspotID, dd.targetSize);
-			theCacheEntry.copyRect.fromSize =
+			Hotspot aCopySrcHotspot =
+				InputMap::getHotspot(aLabelIcon->hotspotID);
+			const SIZE& aHotspotSize =
 				getHotspotUnscaledSize(aLabelIcon->hotspotID);
+			aCopySrcHotspot.x.offset =
+				aCopySrcHotspot.x.offset - dropTo<s16>(aHotspotSize.cx / 2);
+			aCopySrcHotspot.y.offset =
+				aCopySrcHotspot.y.offset - dropTo<s16>(aHotspotSize.cy / 2);
+			theCacheEntry.copyRect.fromPos =
+				hotspotToPoint(aCopySrcHotspot, dd.targetSize);
+			// TODO: Give warning that size 0x or 0y hotspot won't actually
+			// copy anything to screen, and maybe switch to string type
+			// of label instead in that case?
 			theCacheEntry.copyRect.fromSize.cx = LONG(
-				theCacheEntry.copyRect.fromSize.cx * aHotspotScale * gUIScale);
+				aHotspotSize.cx * aHotspotScale * gUIScale);
 			theCacheEntry.copyRect.fromSize.cy = LONG(
-				theCacheEntry.copyRect.fromSize.cy * aHotspotScale * gUIScale);
+				aHotspotSize.cy * aHotspotScale * gUIScale);
 		}
 		else if( aLabelIcon && !aLabelIcon->copyFromTarget )
 		{
@@ -2123,18 +2207,22 @@ static void drawHighlightMenu(DrawData& dd)
 
 	// Title is not drawn for this menu style
 
-	if( !dd.firstDraw )
-		eraseRect(dd, ps.rects[0]);
-
+	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
 	// Always draw as the selected item
 	dd.itemDrawState = eMenuItemDrawState_Selected;
-
-	// Don't draw base BG shape - just the border
-	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
 	MenuItemAppearance itemApp =
 		getMenuItemAppearance(dd.menuID, dd.itemDrawState);
-	itemApp.baseColor = menuApp.transColor;
-	drawMenuItemBG(dd, menuApp, itemApp, ps.rects[0]);
+	if( !dd.firstDraw || itemApp.borderSize == 0 )
+		eraseRect(dd, ps.rects[0]);
+
+	if( itemApp.borderSize > 0 )
+	{
+		// Don't draw entire BG shape - just its border
+		itemApp.baseColor = menuApp.transColor;
+		drawMenuItemBG(dd, menuApp, itemApp, ps.rects[0]);
+	}
+
+	// Label is not drawn for this menu style
 }
 
 
@@ -2180,7 +2268,8 @@ static void drawHSGuide(DrawData& dd)
 		for(int i = aFirstHotspot, end = aFirstHotspot + aHotspotCount;
 			i < end; ++i)
 		{
-			const POINT& aHotspotPos = hotspotToPoint(i, dd.targetSize);
+			const POINT& aHotspotPos = hotspotToPoint(
+				InputMap::getHotspot(i), dd.targetSize);
 			const RECT aDrawRect = {
 				aHotspotPos.x - menuApp.baseRadius,
 				aHotspotPos.y - menuApp.baseRadius,
@@ -2192,7 +2281,7 @@ static void drawHSGuide(DrawData& dd)
 }
 
 
-static void drawSystemHUD(DrawData& dd)
+static void drawSystemOverlay(DrawData& dd)
 {
 	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
 	const MenuLayout& layout = getMenuLayout(dd.menuID);
@@ -2262,7 +2351,8 @@ static void updateHotspotsMenuLayout(
 	for(int i = 0; i < theMenuItemCount; ++i)
 	{
 		const int aHotspotID = InputMap::menuItemHotspotID(theMenuID, i);
-		const POINT& anItemPos = hotspotToPoint(aHotspotID, theTargetSize);
+		const POINT& anItemPos = hotspotToPoint(
+			InputMap::getHotspot(aHotspotID), theTargetSize);
 		SIZE anItemSize = { theLayout.sizeX, theLayout.sizeY };
 		const SIZE& aHotspotSize = getHotspotUnscaledSize(aHotspotID);
 		if( aHotspotSize.cx > 0 )
@@ -2443,11 +2533,21 @@ void init()
 		DeleteObject(sBitmapFiles[i].handle);
 		sBitmapFiles[i].handle = NULL;
 	}
+
+	// Make sure paint states rects get initialized via updateWindowLayout
+	gReshapeOverlays.set();
 }
 
 
 void loadProfileChanges()
 {
+	// TEMP
+	init();
+	updateScaling();
+	gFullRedrawOverlays.set();
+	return;
+	// TEMP
+
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
 	// TODO - invalidate (mark dirty) cache entries that might have changed
 	// Keep in mind that all menus can be affected by changes to anything in
@@ -2615,7 +2715,7 @@ void update()
 	if( gVisibleOverlays.test(kSystemOverlayID) )
 		gActiveOverlays.set(kSystemOverlayID);
 
-	// Check for updates to other HUD elements
+	// Check for updates to other menus
 	for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
 	{
 		const int aMenuID = Menus::activeMenuForOverlayID(i);
@@ -2624,12 +2724,18 @@ void update()
 		case eMenuStyle_KBCycleLast:
 			if( gKeyBindCycleLastIndexChanged.test(
 					InputMap::menuKeyBindCycleID(aMenuID)) )
-			{ gReshapeOverlays.set(i); }
+			{
+				gActiveOverlays.set(i);
+				gReshapeOverlays.set(i);
+			}
 			break;
 		case eMenuStyle_KBCycleDefault:
-			if( gKeyBindCycleLastIndexChanged.test(
+			if( gKeyBindCycleDefaultIndexChanged.test(
 					InputMap::menuKeyBindCycleID(aMenuID)) )
-			{ gReshapeOverlays.set(i); }
+			{
+				gActiveOverlays.set(i);
+				gReshapeOverlays.set(i);
+			}
 			break;
 		}
 
@@ -2867,11 +2973,10 @@ void paintWindowContents(
 	case eMenuStyle_Hotspots:		drawBasicMenu(dd);		break;
 	case eMenuStyle_Highlight:		drawHighlightMenu(dd);	break;
 	case eMenuStyle_HUD:
-	case eMenuStyle_Label:
 	case eMenuStyle_KBCycleLast:
 	case eMenuStyle_KBCycleDefault:	drawHUDElement(dd);		break;
 	case eMenuStyle_HotspotGuide:	drawHSGuide(dd);		break;
-	case eMenuStyle_System:			drawSystemHUD(dd);		break;
+	case eMenuStyle_System:			drawSystemOverlay(dd);	break;
 	default:						DBG_ASSERT(false && "Invaild Menu Style");
 	}
 }
@@ -2955,7 +3060,6 @@ void updateWindowLayout(
 			theWinPos, theWinSize);
 		return;
 	case eMenuStyle_HUD:
-	case eMenuStyle_Label:
 		ps.rects.reserve(1);
 		break;
 	case eMenuStyle_Highlight:
@@ -3310,21 +3414,6 @@ void setSystemOverlayDrawHook(SystemPaintFunc theFunc)
 }
 
 
-void redrawSystemOverlay(bool fullRedraw)
-{
-	if( fullRedraw )
-	{
-		if( kSystemOverlayID < gFullRedrawOverlays.size() )
-			gFullRedrawOverlays.set(kSystemOverlayID);
-	}
-	else
-	{
-		if( kSystemOverlayID < gRefreshOverlays.size() )
-			gRefreshOverlays.set(kSystemOverlayID);
-	}
-}
-
-
 WindowAlphaInfo alphaInfo(int theOverlayID)
 {
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
@@ -3335,8 +3424,9 @@ WindowAlphaInfo alphaInfo(int theOverlayID)
 RECT windowLayoutRect(int theOverlayID, int theRectIndex)
 {
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
+	DBG_ASSERT(!sOverlayPaintStates[theOverlayID].rects.empty());
 	theRectIndex = min(theRectIndex,
-		intSize(sOverlayPaintStates[theOverlayID].rects.size()-1));
+		intSize(sOverlayPaintStates[theOverlayID].rects.size())-1);
 	return sOverlayPaintStates[theOverlayID].rects[theRectIndex];
 }
 

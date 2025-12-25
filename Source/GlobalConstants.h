@@ -23,6 +23,10 @@ kVKeyWinFlag = 0x1000,
 kVKeyMask = 0x00FF,
 kAllLayers = 0xFFFF,
 kInvalidID = 0xFFFF,
+kSystemMenuID = 0,
+kSystemOverlayID = 0,
+kHotspotGuideMenuID = 1,
+kHotspotGuideOverlayID = 1,
 };
 
 enum ECommandType
@@ -244,7 +248,6 @@ enum EMenuStyle
 	eMenuStyle_Highlight,
 
 	eMenuStyle_HUD,
-	eMenuStyle_Label,
 	eMenuStyle_KBCycleLast,
 	eMenuStyle_KBCycleDefault,
 

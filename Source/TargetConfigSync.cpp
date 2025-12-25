@@ -377,7 +377,7 @@ protected:
 		{
 			const ValueLink& aValueLink =
 				sDataSources[mDataSourceID].values.vals()[aValueLinkID];
-			sValues[aValueLink.valueIdx] = doubleFromString(theValue);
+			sValues[aValueLink.valueIdx] = stringToDouble(theValue);
 			sValueSetsChanged.set(aValueLink.setIdx);
 			mUnfound.reset(aValueLinkID);
 			syncDebugPrint("Read path %s value as %f\n",
@@ -1873,7 +1873,7 @@ static bool setFetchValueFromDataSource(
 			if( isAnInteger(aTag) || aTag == "NAME" )
 			{
 				// <name> can be used the same as <1>
-				const u32 aTagNum = max(intFromString(aTag), 1) - 1;
+				const u32 aTagNum = max(stringToInt(aTag), 1) - 1;
 				if( aTagNum < aReplacementStrings.size() )
 				{
 					aConfigDataPath.replace(
@@ -2341,7 +2341,7 @@ void load()
 	sLastWildcardFileSelected = widen(Profile::getStr(
 		kTargetConfigSettingsSectionName,
 		kLastFileSelectedPropertyName));
-	sLastTimeWildcardFileSelected = fileTimeFromString(Profile::getStr(
+	sLastTimeWildcardFileSelected = stringToFileTime(Profile::getStr(
 		kTargetConfigSettingsSectionName,
 		kLastTimeFileSelectedPropertyName));
 

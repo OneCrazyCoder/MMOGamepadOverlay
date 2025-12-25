@@ -5,8 +5,8 @@
 #pragma once
 
 /*
-	Allows for setting hotspot positions, copy-from-screen icon regions, and
-	HUD element positions at runtime. Changes are saved to current Profile.
+	Allows for setting hotspot and menu positions and sizes at runtime.
+	Changes are saved to current Profile.
 */
 
 #include "Common.h"

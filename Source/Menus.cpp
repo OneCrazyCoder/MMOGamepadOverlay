@@ -597,7 +597,6 @@ void editMenuItem(int theRootMenuID)
 	case eMenuStyle_Hotspots:
 	case eMenuStyle_Highlight:
 	case eMenuStyle_HUD:
-	case eMenuStyle_Label:
 	case eMenuStyle_KBCycleLast:
 	case eMenuStyle_KBCycleDefault:
 		allowInsert = false;
@@ -732,7 +731,6 @@ bool overlayMenuAcceptsCommands(int theOverlayID)
 	switch(InputMap::menuStyle(activeMenuForOverlayID(theOverlayID)))
 	{
 	case eMenuStyle_HUD:
-	case eMenuStyle_Label:
 	case eMenuStyle_KBCycleLast:
 	case eMenuStyle_KBCycleDefault:
 	case eMenuStyle_HotspotGuide:

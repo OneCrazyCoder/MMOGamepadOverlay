@@ -1141,18 +1141,21 @@ static void processCommand(
 	case eCmdType_KeyBindCycleReset:
 		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
 		gKeyBindCycleLastIndex[theCmd.keyBindCycleID] = -1;
-		gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
 		break;
 	case eCmdType_KeyBindCycleSetDefault:
 		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleDefaultIndex.size());
-		gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID] =
-			gKeyBindCycleLastIndex[theCmd.keyBindCycleID];
+		if( gKeyBindCycleLastIndex[theCmd.keyBindCycleID] >= 0 )
+		{
+			gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID] =
+				gKeyBindCycleLastIndex[theCmd.keyBindCycleID];
+		}
 		gKeyBindCycleDefaultIndexChanged.set(theCmd.keyBindCycleID);
 		break;
 	case eCmdType_KeyBindCyclePrev:
 		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
 		if( gKeyBindCycleLastIndex[theCmd.keyBindCycleID] < 0 )
 		{
+			DBG_ASSERT(gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID] >= 0);
 			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] =
 				gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID];
 		}
@@ -1187,6 +1190,7 @@ static void processCommand(
 		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
 		if( gKeyBindCycleLastIndex[theCmd.keyBindCycleID] < 0 )
 		{
+			DBG_ASSERT(gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID] >= 0);
 			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] =
 				gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID];
 		}
@@ -1223,6 +1227,7 @@ static void processCommand(
 		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
 		if( gKeyBindCycleLastIndex[theCmd.keyBindCycleID] < 0 )
 		{
+			DBG_ASSERT(gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID] >= 0);
 			gKeyBindCycleLastIndex[theCmd.keyBindCycleID] =
 				gKeyBindCycleDefaultIndex[theCmd.keyBindCycleID];
 			gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);

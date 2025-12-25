@@ -128,79 +128,67 @@ inline bool isAnInteger(const char* theString)
 }
 
 
-inline int intFromString(const std::string& theString)
+inline int stringToInt(const std::string& theString)
 {
 	return atoi(theString.c_str());
 }
 
 
-inline int intFromString(const char* theString)
+inline int stringToInt(const char* theString)
 {
 	return atoi(theString);
 }
 
 
-inline u32 u32FromString(const std::string& theString)
+inline u32 stringToU32(const std::string& theString)
 {
 	return u32(strtoul(theString.c_str(), NULL, 10));
 }
 
 
-inline u32 u32FromString(const char* theString)
+inline u32 stringToU32(const char* theString)
 {
 	return u32(strtoul(theString, NULL, 10));
 }
 
 
-inline u32 u32FromHexString(const std::string& theString)
+inline float stringToFloat(const std::string& theString)
 {
-	return u32(strtoul(theString.c_str(), NULL, 16));
-}
-
-
-inline u32 u32FromHexString(const char* theString)
-{
-	return u32(strtoul(theString, NULL, 16));
-}
-
-
-inline float floatFromString(const std::string& theString)
-{
-	double result = doubleFromStringStrict(theString.c_str());
+	double result = stringToDoubleStrict(theString.c_str());
 	if( _isnan(result) )
 		result = 0;
 	return float(result);
 }
 
 
-inline float floatFromString(const char* theString)
+inline float stringToFloat(const char* theString)
 {
-	double result = doubleFromStringStrict(theString);
+	double result = stringToDoubleStrict(theString);
 	if( _isnan(result) )
 		result = 0;
 	return float(result);
 }
 
 
-inline double doubleFromString(const std::string& theString)
+inline double stringToDouble(const std::string& theString)
 {
-	double result = doubleFromStringStrict(theString.c_str());
+	double result = stringToDoubleStrict(theString.c_str());
 	if( _isnan(result) )
 		result = 0;
 	return result;
 }
 
 
-inline double doubleFromString(const char* theString)
+inline double stringToDouble(const char* theString)
 {
-	double result = doubleFromStringStrict(theString);
+	double result = stringToDoubleStrict(theString);
 	if( _isnan(result) )
 		result = 0;
 	return result;
 }
 
 
-inline double doubleFromStringStrict(const char* theString)
+inline double stringToDoubleStrict(const char* theString)
 {
 	if( !theString || *theString == '\0' )
 		return std::numeric_limits<double>::quiet_NaN();
@@ -238,33 +226,33 @@ inline double doubleFromStringStrict(const char* theString)
 }
 
 
-inline double doubleFromStringStrict(const std::string& theString)
+inline double stringToDoubleStrict(const std::string& theString)
 {
-	return doubleFromStringStrict(theString.c_str());
+	return stringToDoubleStrict(theString.c_str());
 }
 
 
-inline bool boolFromString(const std::string& theString)
+inline bool stringToBool(const std::string& theString)
 {
 	return !theString.empty() &&
-		doubleFromStringStrict(theString) != 0.0;
+		stringToDoubleStrict(theString) != 0.0;
 }
 
 
-inline bool boolFromString(const char* theString)
+inline bool stringToBool(const char* theString)
 {
 	return theString != null && theString[0] != '\0' &&
-		doubleFromStringStrict(theString) != 0.0;
+		stringToDoubleStrict(theString) != 0.0;
 }
 
 
-inline FILETIME fileTimeFromString(const std::string& theString)
+inline FILETIME stringToFileTime(const std::string& theString)
 {
-	return fileTimeFromString(theString.c_str());
+	return stringToFileTime(theString.c_str());
 }
 
 
-inline FILETIME fileTimeFromString(const char* theString)
+inline FILETIME stringToFileTime(const char* theString)
 {
 	int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ms = 0;
 	std::sscanf(theString, "%d-%d-%dT%d:%d:%d.%d",

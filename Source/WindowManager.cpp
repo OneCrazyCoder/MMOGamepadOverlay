@@ -851,7 +851,7 @@ void loadProfileChanges()
 
 	if( const Profile::Property* aFrameTimeProp = aPropMap->find("FrameTime") )
 	{
-		const int aFrameTime = intFromString(aFrameTimeProp->str);
+		const int aFrameTime = stringToInt(aFrameTimeProp->str);
 		if( aFrameTime != gAppFrameTime )
 		{
 			timeEndPeriod(gAppTargetFrameTime / 2);
@@ -877,7 +877,7 @@ void loadProfileChanges()
 	{
 		const std::string& aUIScaleStr = aUIScalePtr->str;
 		const double oldUIScale = gUIScale;
-		double aUIScale = doubleFromString(aUIScaleStr);
+		double aUIScale = stringToDouble(aUIScaleStr);
 		if( aUIScale <= 0 ) aUIScale = 1.0;
 		gUIScale = aUIScale * gWindowUIScale;
 		if( gUIScale != oldUIScale )

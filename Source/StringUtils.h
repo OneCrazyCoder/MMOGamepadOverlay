@@ -99,21 +99,23 @@ std::string toString(FILETIME theValue);
 
 bool isAnInteger(const std::string& theString); // must be pre-trim()'d
 bool isAnInteger(const char* theString); // must be pre-trim()'d
-int intFromString(const std::string& theString);
-int intFromString(const char* theString);
-u32 u32FromString(const std::string& theString);
-u32 u32FromString(const char* theString);
-u32 u32FromHexString(const std::string& theString);
-u32 u32FromHexString(const char* theString);
-float floatFromString(const std::string& theString);
-float floatFromString(const char* theString);
-double doubleFromString(const std::string& theString);
-double doubleFromString(const char* theString);
-double doubleFromStringStrict(const std::string& theString); // returns NaN
-double doubleFromStringStrict(const char* str); // instead of 0 if not valid
-bool boolFromString(const std::string& theString);
-bool boolFromString(const char* theString);
-FILETIME fileTimeFromString(const std::string& theString);
-FILETIME fileTimeFromString(const char* theString);
+int stringToInt(const std::string& theString);
+int stringToInt(const char* theString);
+u32 stringToU32(const std::string& theString);
+u32 stringToU32(const char* theString);
+float stringToFloat(const std::string& theString);
+float stringToFloat(const char* theString);
+double stringToDouble(const std::string& theString);
+double stringToDouble(const char* theString);
+double stringToDoubleStrict(const std::string& theString); // returns NaN
+double stringToDoubleStrict(const char* str); // instead of 0 if not valid
+// Converts a string (starting w/ offset) sum expression like "5 + -1.2 - 1",
+// and updates offset to first invalid character found (or theString.size())
+double stringToDoubleSum(const std::string&, std::string::size_type&);
+double stringToDoubleSum(const char*, std::string::size_type&);
+bool stringToBool(const std::string& theString);
+bool stringToBool(const char* theString);
+FILETIME stringToFileTime(const std::string& theString);
+FILETIME stringToFileTime(const char* theString);
 
 #include "StringUtils.inc"

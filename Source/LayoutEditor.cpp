@@ -10,7 +10,6 @@
 #include "Resources/resource.h"
 #include "TargetConfigSync.h"
 #include "WindowManager.h"
-#include "WindowPainter.h"
 
 #include <CommCtrl.h>
 
@@ -214,7 +213,7 @@ static double entryScaleFactor(const LayoutEntry& theEntry)
 			&sState->entries[theEntry.item.parentIndex];
 		while(entryIsAnOffset(*anAnchorEntry))
 			anAnchorEntry = &sState->entries[anAnchorEntry->item.parentIndex];
-		result = doubleFromString(anAnchorEntry->shape.offsetScale);
+		result = stringToDouble(anAnchorEntry->shape.offsetScale);
 		if( result == 0 )
 			result = 1.0;
 	}
@@ -256,8 +255,8 @@ static void applyNewPosition()
 	}
 	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot &&
 			 !sState->entered.offsetScale.empty() &&
-			 floatFromString(sState->entered.offsetScale) >= 0 &&
-			 floatFromString(sState->entered.offsetScale) != 1 )
+			 stringToFloat(sState->entered.offsetScale) >= 0 &&
+			 stringToFloat(sState->entered.offsetScale) != 1 )
 	{
 		Profile::setStr(kHotspotsPrefix, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y +
@@ -499,7 +498,7 @@ static void processCoordString(
 	Hotspot::Coord aCoord = {};
 	if( theControlID != IDC_EDIT_S )
 		HotspotMap::stringToCoord(aTempStr, aCoord, &result);
-	else if( floatFromString(aControlStr) <= 0 )
+	else if( stringToFloat(aControlStr) <= 0 )
 		result = "100%";
 	if( result.empty() )
 	{
@@ -615,7 +614,7 @@ static void processCoordString(
 	{
 		*aDestStr = result;
 		sState->needsDrawPosUpdate = true;
-		WindowPainter::redrawSystemOverlay();
+		gRefreshOverlays.set(kSystemOverlayID);
 	}
 }
 
@@ -711,7 +710,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 				TBM_SETRANGE, TRUE,
 				MAKELPARAM(kMinOffsetScale, kMaxOffsetScale));
-			const float aScale = floatFromString(sState->entered.offsetScale);
+			const float aScale = stringToFloat(sState->entered.offsetScale);
 			if( anEntry.shape.offsetScale.empty() ||
 				aScale <= 0 || aScale == 1 )
 			{
@@ -778,7 +777,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				if( LOWORD(wParam) == IDC_EDIT_S )
 				{// Update slider to match
 					const float aScale =
-						floatFromString(sState->entered.offsetScale);
+						stringToFloat(sState->entered.offsetScale);
 					SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 						TBM_SETPOS, TRUE, LPARAM(aScale * 100));
 				}
@@ -802,7 +801,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				{
 					sState->entered.offsetScale.clear();
 					sState->needsDrawPosUpdate = true;
-					WindowPainter::redrawSystemOverlay();
+					gRefreshOverlays.set(kSystemOverlayID);
 					applyNewPosition();
 				}
 			}
@@ -888,7 +887,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 		SetCapture(theWindow);
 		ShowCursor(FALSE);
 		sState->needsDrawPosUpdate = true;
-		WindowPainter::redrawSystemOverlay();
+		gRefreshOverlays.set(kSystemOverlayID);
 		return 0;
 	case WM_LBUTTONUP:
 		stopDragging = true;
@@ -926,7 +925,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 				sState->unappliedDeltaX = sState->unappliedDeltaY = 0;
 				applyNewPosition();
 				sState->needsDrawPosUpdate = true;
-				WindowPainter::redrawSystemOverlay();
+				gRefreshOverlays.set(kSystemOverlayID);
 			}
 		}
 		return 0;
@@ -956,7 +955,7 @@ static void updateDrawHotspot(
 	theEntry.drawOffX = theEntry.drawOffY = 0;
 	theEntry.drawSize = Hotspot();
 	theEntry.drawOffScale = 0;
-	theEntry.drawOffScale = floatFromString(theShape.offsetScale);
+	theEntry.drawOffScale = stringToFloat(theShape.offsetScale);
 	if( theEntry.drawOffScale == 0 )
 		theEntry.drawOffScale = 1.0f;
 	if( theEntry.rangeCount > 0 )

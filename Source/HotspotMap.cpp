@@ -1237,343 +1237,174 @@ EResult stringToCoord(std::string& theString,
 					  Hotspot::Coord& out,
 					  std::string* theValidatedString)
 {
+	// NOTE: This function also removes the coordinate from start of string
 	EResult result = eResult_Empty;
-	// This function also removes the coordinate from start of string
 	out = Hotspot::Coord();
 	if( theValidatedString )
 		theValidatedString->clear();
-	if( theString.empty() )
-		return result;
+	size_t aValidCharCount = 0;
 
-	enum EState
-	{
-		eState_Prefix,		// Checking for C/R/B in CX+10, R-8, B - 5, etc
-		eState_PrefixEnd,	// Checking for X/Y in CX/CY or 'eft' in 'Left', etc
-		eState_AnchorNum,	// Checking for 50%, 10. in 10.5%, 0. in 0.75, etc
-		eState_AnchorDenom,	// Checking for 5 in 0.5, 5% in 10.5%, etc
-		eState_OffsetSign,	// Checking for -/+ in 50%+10, R-8, B - 5, etc
-		eState_OffsetSpace,	// Checking for start of offset number after sign
-		eState_OffsetNum,	// Checking for 10 in 50% + 10, CX+10, R-10, etc
-		eState_OffsetDenom,	// Checking for post-decimal digits in an offset
-		eState_TrailSpace,	// Check for final , or 'x' after end of coordinate
-	} aState = eState_Prefix;
+	size_t aCharPos = 0;
+	while(aCharPos < theString.size() && u8(theString[aCharPos]) <= ' ')
+	{ ++aCharPos; }
+
+	if( aCharPos >= theString.size() )
+		return result;
 
 	u32 aNumerator = 0;
 	u32 aDenominator = 0;
-	u32 anAnchorNum = 0;
-	u32 anAnchorDenom = 0;
-	double aTotalOffset = 0;
-	bool done = false;
-	bool isNegativeNum = false;
-	int aCharPos = 0;
-	int aValidCharCount = 0;
-	char c = theString[aCharPos];
+	switch(theString[aCharPos])
+	{
+	case 'l': case 'L':
+	case 't': case 'T':
+		// L(eft) or T(op)
+		aDenominator = 1;
+		aCharPos = min(theString.size(),
+			theString.find_first_of(" +-*0123456789,", aCharPos+1));
+		break;
+	case 'r': case 'R': case 'w': case 'W':
+	case 'b': case 'B': case 'h': case 'H':
+		// R(ight) or B(ottom) or W(idth) or H(eight)
+		aNumerator = 1;
+		aDenominator = 1;
+		aCharPos = min(theString.size(),
+			theString.find_first_of(" +-*0123456789,", aCharPos+1));
+		break;
+	case 'c': case 'C':
+		// C(enter) or CX or CY
+		aNumerator = 1;
+		aDenominator = 2;
+		aCharPos = min(theString.size(),
+			theString.find_first_of(" +-*0123456789,", aCharPos+1));
+		break;
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9':
+		// Processed later
+		break;
+	case '+': case '-':
+		// Skip to processing offsets (anchor = 0)
+		aDenominator = 1;
+		break;
+	case '*':
+		// Only a scale factor, no coordinate
+		return result;
+	case ',': case 'x': case 'X': 
+		// Empty coordinate
+		theString = theString.substr(1);
+		return result;
+	default:
+		// Unknown character - malformed coordinate
+		result = eResult_Malformed;
+		return result;
+	}
+
+	if( theValidatedString )
+		*theValidatedString = trim(theString.substr(0, aCharPos));
 	result = eResult_Ok;
 
-	while(!done && result == eResult_Ok)
-	{
-		switch(c)
+	if( !aDenominator )
+	{// Read in anchor as a ratio (possibly ending in %)
+		bool done = false;
+		while(!done && result == eResult_Ok)
 		{
-		case '0': case '1': case '2': case '3': case '4':
-		case '5': case '6': case '7': case '8': case '9':
-			switch(aState)
+			switch(theString[aCharPos])
 			{
-			case eState_Prefix: // +2 = eState_AnchorNum
-			case eState_OffsetSign: // +2 = eState_OffsetNum
-				aState = EState(aState + 1);
-				// fall through
-			case eState_OffsetSpace: // +1 = eState_OffsetNum
-				aState = EState(aState + 1);
-				// fall through
-			case eState_AnchorNum:
-			case eState_AnchorDenom:
-			case eState_OffsetNum:
-			case eState_OffsetDenom:
+			case '0': case '1': case '2': case '3': case '4':
+			case '5': case '6': case '7': case '8': case '9':
 				aDenominator *= 10;
 				aNumerator *= 10;
-				aNumerator += u32(c - '0');
+				aNumerator += u32(theString[aCharPos]) - u32('0');
 				if( aNumerator > 0x7FFFFFFF )
 					result = eResult_Overflow;
 				else if( aDenominator > 0x7FFFFFFF )
 					result = eResult_Overflow;
-				else
-					aValidCharCount = aCharPos + 1;
+				else if( theValidatedString )
+					theValidatedString->push_back(theString[aCharPos]);
 				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case '-':
-		case '+':
-			switch(aState)
-			{
-			case eState_AnchorDenom:
-				anAnchorNum = aNumerator;
-				anAnchorDenom = aDenominator;
-				// fall through
-			case eState_Prefix:
-			case eState_PrefixEnd:
-			case eState_OffsetSign:
-				aNumerator = 0;
-				aDenominator = 0;
-				isNegativeNum = (c == '-');
-				aState = eState_OffsetSpace;
+			case '%': case 'p':
+				if( !aDenominator )
+					aDenominator = 1;
+				aDenominator *= 100; // Convert 50% to 0.5, etc
+				if( aNumerator > aDenominator )
+					result = eResult_Overflow;
+				else if( theValidatedString )
+					theValidatedString->push_back(theString[aCharPos]);
+				done = true;
 				break;
-			case eState_OffsetSpace:
-				// Allow flipping the offset sign once by using a '-' just
-				// before the actual number starts, like "+ -5" or "- -10"
-				if( c == '-' &&
-					aCharPos < intSize(theString.size()) - 1 &&
-					theString[aCharPos+1] >= '0' &&
-					theString[aCharPos+1] <= '9' )
-				{
-					isNegativeNum = !isNegativeNum;
-					aState = eState_OffsetNum;
-				}
-				else
-				{
+			case '.':
+				if( aDenominator != 0 )
 					result = eResult_Malformed;
-				}
-				break;
-			case eState_AnchorNum: // must actually be an offset
-			case eState_OffsetNum:
-			case eState_OffsetDenom:
-			case eState_TrailSpace:
-				// Calculate current and start new offset parsing
-				if( !aDenominator ) aDenominator = 1;
-				aTotalOffset +=
-					(isNegativeNum ? -double(aNumerator) : double(aNumerator))
-					/ double(aDenominator);
-				aNumerator = 0;
-				aDenominator = 0;
-				isNegativeNum = (c == '-');
-				aState = eState_OffsetSpace;
-				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case '.':
-			switch(aState)
-			{
-			case eState_Prefix:
-				aState = eState_AnchorNum;
-				// fall through
-			case eState_AnchorNum:
-			case eState_OffsetNum:
-				aState = EState(aState+1); // Denominator state
+				else if( theValidatedString )
+					theValidatedString->push_back(theString[aCharPos]);
 				aDenominator = 1;
 				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case '%':
-		case 'p':
-			switch(aState)
-			{
-			case eState_PrefixEnd:
-				aValidCharCount = aCharPos + 1;
-				break;
-			case eState_AnchorNum:
-			case eState_AnchorDenom:
-				anAnchorNum = aNumerator;
-				anAnchorDenom = aDenominator;
-				aNumerator = 0;
-				aDenominator = 0;
-				if( !anAnchorDenom ) anAnchorDenom = 1;
-				anAnchorDenom *= 100; // Convert 50% to 0.5
-				aState = eState_OffsetSign;
-				aValidCharCount = aCharPos + 1;
-				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case 'l': case 'L': // aka "Left"
-		case 't': case 'T': // aka "Top"
-			switch(aState)
-			{
-			case eState_PrefixEnd:
-				aValidCharCount = aCharPos + 1;
-				break;
-			case eState_Prefix:
-				anAnchorNum = 0;
-				anAnchorDenom = 1;
-				aState = eState_PrefixEnd;
-				aValidCharCount = aCharPos + 1;
-				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case 'r': case 'R': case 'w': case 'W': // aka "Right" or "Width"
-		case 'b': case 'B': case 'h': case 'H':// aka "Bottom" or "Height"
-			switch(aState)
-			{
-			case eState_PrefixEnd:
-				aValidCharCount = aCharPos + 1;
-				break;
-			case eState_Prefix:
-				anAnchorNum = 1;
-				anAnchorDenom = 1;
-				aState = eState_PrefixEnd;
-				aValidCharCount = aCharPos + 1;
-				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case 'c': case 'C': // aka "Center"
-			switch(aState)
-			{
-			case eState_PrefixEnd:
-				aValidCharCount = aCharPos + 1;
-				break;
-			case eState_Prefix:
-				anAnchorNum = 1;
-				anAnchorDenom = 2;
-				aState = eState_PrefixEnd;
-				aValidCharCount = aCharPos + 1;
-				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case 'x': case 'X': case ',':
-			switch(aState)
-			{
-			case eState_PrefixEnd:
-				if( c == ',' )
-					done = true;
-				else
-					aValidCharCount = aCharPos + 1; // part of CX prefix
-				break;
-			case eState_AnchorNum:
-			case eState_AnchorDenom:
-			case eState_OffsetSign:
-			case eState_OffsetNum:
-			case eState_OffsetDenom:
-			case eState_TrailSpace:
-				// Assume marks end of this coordinate
+			case ' ': case '-': case '+': case ',': case '*':
 				done = true;
 				break;
-			default:
-				result = eResult_Malformed;
 			}
-			break;
-		case 'y': case 'Y':
-			switch(aState)
-			{
-			case eState_PrefixEnd:
-				aValidCharCount = aCharPos + 1; // part of CY prefix
-				break;
-			default:
-				result = eResult_Malformed;
-			}
-			break;
-		case ' ':
-			switch(aState)
-			{
-			case eState_OffsetSign:
-			case eState_OffsetSpace:
-			case eState_Prefix:
-			case eState_TrailSpace:
-				// Allowed whitespace, ignore
-				break;
-			case eState_PrefixEnd:
-				aState = eState_OffsetSign;
-				break;
-			case eState_AnchorDenom:
-				anAnchorNum = aNumerator;
-				anAnchorDenom = aDenominator;
-				aNumerator = 0;
-				aDenominator = 0;
-				aState = eState_OffsetSign;
-				break;
-			case eState_AnchorNum:
-			case eState_OffsetNum:
-			case eState_OffsetDenom:
-				aState = eState_TrailSpace;
-				break;
-			}
-			break;
-		case '*':
-			// Offset scale indicator - treat as eol but return the '*'
-			--aCharPos;
-			done = true;
-			break;
-		default:
-			if( aState == eState_PrefixEnd )
-				aValidCharCount = aCharPos + 1;
-			else
-				result = eResult_Malformed;
-			break;
-		}
-
-		++aCharPos;
-		if( !done )
-		{
-			if( aCharPos >= intSize(theString.size()) )
+			if( !done && ++aCharPos >= theString.size() )
 				done = true;
-			else
-				c = theString[aCharPos];
 		}
+		if( result != eResult_Ok )
+			return result;
+		if( !aDenominator )
+			aDenominator = 1;
 	}
 
-	if( aNumerator > 0 )
+	// Was the value read above an offset or an anchor (0 - 1.0)?
+	double anOffsetVal = 0;
+	if( aNumerator > aDenominator )
+		anOffsetVal = aNumerator / double(aDenominator);
+	else if( aNumerator )
+		out.anchor = ratioToU16(aNumerator, aDenominator);
+
+	// Read remaining coord string as a sum of offsets
+	if( aCharPos < theString.size() )
+		anOffsetVal += stringToDoubleSum(theString, aCharPos);
+	if( anOffsetVal != 0 )
 	{
-		// Finalize last number read
-		if( aState == eState_AnchorDenom )
-		{// Just an anchor with no offset found
-			DBG_ASSERT(anAnchorNum == 0);
-			DBG_ASSERT(aDenominator != 0);
-			anAnchorNum = aNumerator;
-			anAnchorDenom = aDenominator;
-		}
-		else
-		{// Use as last offset
-			if( aDenominator == 0 )
-				aDenominator = 1;
-			aTotalOffset +=
-				(isNegativeNum ? -double(aNumerator) : double(aNumerator))
-				/ double(aDenominator);
-		}
-	}
-	if( anAnchorDenom == 0 )
-		anAnchorDenom = 1;
-
-	// If anchor ratio invalid (> 1.0) treat as extra offset
-	if( anAnchorNum > anAnchorDenom )
-	{
-		aTotalOffset += double(anAnchorNum) / double(anAnchorDenom);
-		anAnchorNum = 0; anAnchorDenom = 1;
-	}
-
-	if( theValidatedString )
-		*theValidatedString = trim(theString.substr(0, aValidCharCount));
-
-	if( result != eResult_Ok )
-		return result;
-
-	out.anchor = ratioToU16(anAnchorNum, anAnchorDenom);
-
-	if( aTotalOffset != 0 )
-	{
-		isNegativeNum = aTotalOffset < 0;
-		if( isNegativeNum ) aTotalOffset = -aTotalOffset;
-
+		// This rounding method enables the following invariant:
+		//	round(val) - anInt == round(val - anInt)
+		// even in cases where val is positive but (val - anInt) would change
+		// it to be negative. This improves consistency in position offsets.
+		const bool isNegativeNum = anOffsetVal < 0;
+		if( isNegativeNum ) anOffsetVal = -anOffsetVal;
 		double anIntPart;
-		double aFracPart = std::modf(aTotalOffset, &anIntPart);
+		double aFracPart = std::modf(anOffsetVal, &anIntPart);
 		const int aRoundedOffset = isNegativeNum
-			? ((aFracPart > 0.5f) ? -int(anIntPart + 1.0f) : -int(anIntPart))
-			: ((aFracPart >= 0.5f) ? int(anIntPart + 1.0f) : int(anIntPart));
+			? ((aFracPart > 0.5) ? -int(anIntPart + 1.0) : -int(anIntPart))
+			: ((aFracPart >= 0.5) ? int(anIntPart + 1.0) : int(anIntPart));
 
-		out.offset = dropTo<s16>(clamp(aRoundedOffset, -32768, 32767));
+		if( aRoundedOffset < -32768 || aRoundedOffset > 32767 )
+			result = eResult_Overflow;
+		else
+			out.offset = s16(aRoundedOffset);
 	}
 
-	// Remove processed section from start of string
-	theString = theString.substr(aCharPos);
+	DBG_ASSERT(aCharPos > 0 && aCharPos <= theString.size());
+	if( theValidatedString )
+		*theValidatedString = trim(theString.substr(0, aCharPos));
+
+	// Check for end of coord and modify theString
+	switch(theString.c_str()[aCharPos])
+	{
+	case '*':
+		// Anchor hotspot scaling factor - keep the * in final string
+		theString = theString.substr(aCharPos);
+		break;
+	case '\0':
+		// End of string - nothing else to read from this string
+		theString.clear();
+		break;
+	case ',': case 'x': case 'X':
+		// Set string to be the next coordinate, starting after this char
+		theString = theString.substr(aCharPos+1);
+		break;
+	default:
+		// Unexpected character
+		result = eResult_Malformed;
+		break;
+	}
 
 	return result;
 }

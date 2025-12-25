@@ -28,7 +28,7 @@ namespace WindowManager
 // Create the main window and begin window management
 void createMain(HINSTANCE);
 
-// Create the overlay windows needed based on number of HUD elements defined
+// Create the overlay windows needed based on number of (root) menus defined
 void createOverlays(HINSTANCE);
 
 // Destroy all windows
@@ -86,7 +86,7 @@ void destroyToolbarWindow();
 // Adds callback functions for drawing and getting messages for the System
 // overlay window (the top-most, full-sized one) for editor functionality.
 // Allows non-transparent pixels of the overlay to get mouse click messages.
-// Said overlay will stay visible, but gRefreshHUD must be used for redraws.
+// Said overlay will stay visible, but gRefreshOverlays must be used to redraw.
 // Set the callbacks to NULL to stop this behaviour and clear/hide the window.
 typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
 void setSystemOverlayCallbacks(WNDPROC, SystemPaintFunc);
