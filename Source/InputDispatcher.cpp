@@ -2014,15 +2014,24 @@ void update()
 			wantDifferentMode = false;
 			break;
 		case eMouseMode_LookTurn:
-			// Don't exit LookTurn mode while holding a turn key,
-			// or it may change from strafing to turning
-			if( sTracker.keysHeldDown.test(
-					InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
-				sTracker.keysHeldDown.test(
-					InputMap::keyForSpecialAction(eSpecialKey_TurnR)) )
+			if( wantDifferentMode )
 			{
-				wantDifferentMode = false;
-				break;
+				// Don't exit LookTurn mode while holding a turn key directly
+				// or it may change from strafing to turning.
+				if( sTracker.keysHeldDown.test(
+						InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
+					sTracker.keysHeldDown.test(
+						InputMap::keyForSpecialAction(eSpecialKey_TurnR)) )
+				{
+					// If key is being held as part of auto-strafe-run in X axis,
+					// abort that first so aren't stuck in LookTurn mode
+					if( sTracker.autoRunMode == eAutoRunMode_LockedX )
+						sTracker.autoRunMode = eAutoRunMode_Off;
+					else if( sTracker.autoRunMode == eAutoRunMode_LockedXY )
+						sTracker.autoRunMode = eAutoRunMode_LockedY;
+					wantDifferentMode = false;
+					break;
+				}
 			}
 			// fall through
 		case eMouseMode_LookOnly:
@@ -3156,15 +3165,26 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		break;
 	}
 
+	// Need to know if using a mouse look mode that converts turning
+	// left/right into strafing left/right
+	// (every game I know of with RMB mouse look mode does this!)
+	const bool useMouseLookMovement =
+		sTracker.mouseModeRequested == eMouseMode_LookTurn ||
+		sTracker.mouseModeRequested == eMouseMode_LookAuto ||
+		sTracker.keysHeldDown.test(VK_RBUTTON);
+
 	if( sTracker.autoRunMode == eAutoRunMode_StartLockX ||
 		sTracker.autoRunMode == eAutoRunMode_StartLockXY ||
 		sTracker.autoRunMode == eAutoRunMode_LockedX ||
 		sTracker.autoRunMode == eAutoRunMode_LockedXY )
 	{// Continue using already-held keys for x axis
-		//moveKeysWantDown.set(eMoveKey_TL,
-		//	sTracker.moveKeysHeld.test(eMoveKey_TL));
-		//moveKeysWantDown.set(eMoveKey_TR,
-		//	sTracker.moveKeysHeld.test(eMoveKey_TR));
+		if( useMouseLookMovement )
+		{
+			moveKeysWantDown.set(eMoveKey_TL,
+				sTracker.moveKeysHeld.test(eMoveKey_TL));
+			moveKeysWantDown.set(eMoveKey_TR,
+				sTracker.moveKeysHeld.test(eMoveKey_TR));
+		}
 		moveKeysWantDown.set(eMoveKey_SL,
 			sTracker.moveKeysHeld.test(eMoveKey_SL));
 		moveKeysWantDown.set(eMoveKey_SR,
@@ -3204,10 +3224,6 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	}
 	// If trying to turn in mouse look mode, convert to strafing if can,
 	// or expect the game will do it if RMB is currently held down
-	const bool useMouseLookMovement =
-		sTracker.mouseModeRequested == eMouseMode_LookTurn ||
-		sTracker.mouseModeRequested == eMouseMode_LookAuto ||
-		sTracker.keysHeldDown.test(VK_RBUTTON);
 	sTracker.mouseLookNeededToStrafe = false;
 	if( useMouseLookMovement && moveKeysWantDown.test(eMoveKey_TL) )
 	{
@@ -3307,8 +3323,8 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			sTracker.moveKeysHeld.test(eMoveKey_F) ||
 			sTracker.moveKeysHeld.test(eMoveKey_B);
 		const bool lockX =
-			//sTracker.moveKeysHeld.test(eMoveKey_TL) ||
-			//sTracker.moveKeysHeld.test(eMoveKey_TR) ||
+			(useMouseLookMovement && sTracker.moveKeysHeld.test(eMoveKey_TL)) ||
+			(useMouseLookMovement && sTracker.moveKeysHeld.test(eMoveKey_TR)) ||
 			sTracker.moveKeysHeld.test(eMoveKey_SL) ||
 			sTracker.moveKeysHeld.test(eMoveKey_SR);
 		if( lockX && lockY )
