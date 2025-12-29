@@ -1242,7 +1242,6 @@ EResult stringToCoord(std::string& theString,
 	out = Hotspot::Coord();
 	if( theValidatedString )
 		theValidatedString->clear();
-	size_t aValidCharCount = 0;
 
 	size_t aCharPos = 0;
 	while(aCharPos < theString.size() && u8(theString[aCharPos]) <= ' ')

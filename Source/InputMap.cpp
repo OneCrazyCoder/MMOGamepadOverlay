@@ -2191,6 +2191,7 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Edit);
 		if( keyWordsFound.test(eCmdWord_Edit) &&
+			!allow4DirActions && // assume intended _MenuEditDir if this is set
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuEdit;

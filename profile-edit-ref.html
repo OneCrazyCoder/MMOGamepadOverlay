@@ -121,14 +121,18 @@ Hold R2 400 <span class="token attr-value"><span class="token punctuation">=</sp
 <span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> Tab, pause 100, C</span>
 </code></pre>
 <p><em>WARNING: Do NOT use this to fully automate complex tasks, or you’re likely to get banned from whichever game you are using this app with!</em></p>
-<h4 id="mouse-jump-in-key-sequence">Mouse jump in key sequence</h4>
-<p>You can also request in a key sequence to jump the mouse cursor to a named <strong>Hotspot</strong> location (defined in [Hotspots] and covered in detail later) to click on it, such as:</p>
+<h3 id="mouse-cursor-repositioning">Mouse cursor repositioning</h3>
+<p>You can request in a key sequence to jump the mouse cursor to a named <strong>Hotspot</strong> location (defined in [Hotspots] and covered in detail later) to click on it, such as:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
 <span class="token constant">CenterScreen</span> <span class="token attr-value"><span class="token punctuation">=</span> 50%, 50%</span>
 
 <span class="token selector">[Scheme]</span>
 <span class="token constant">R1</span> <span class="token attr-value"><span class="token punctuation">=</span> Point to CenterScreen, LClick</span>
 <span class="token constant">R2</span> <span class="token attr-value"><span class="token punctuation">=</span> LClick at CenterScreen -&gt; RClick</span>
+<span class="token constant">L1</span> <span class="token attr-value"><span class="token punctuation">=</span> Jump cursor cursor to CenterScreen</span>
+</code></pre>
+<p>You can also request the mouse move to a specific hotspot with a smooth motion over time by using “move” instead of “jump” or “point” or “click”. This form is not supported during key sequences - only as a standalone command - and thus doesn’t support actually clicking at the location. It is intended more for use as a visual “hint” or convenience to prepare for a likely future click. Example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token constant">L1</span> <span class="token attr-value"><span class="token punctuation">=</span> Move mouse to LootWindow1</span>
 </code></pre>
 <h3 id="chat-box-macros">Chat box macros</h3>
 <p>While a key sequence could technically be used to type a message directly into the game’s chat box, it is easier to directly use a <em>Slash Command</em> or <em>Say String</em> command to do this.</p>
@@ -805,7 +809,7 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <p>You can modify how this command functions with the <code>[Mouse]</code> settings <code>MoveLookDeadzone=</code>, <code>MoveLookSaturation=</code>, and <code>MoveLookSpeed=</code>.</p>
 <h3 id="experimental-command-lock-movement">Experimental command: Lock Movement</h3>
 <p>This acts a potential alternative to <code>=AutoRun</code> that allows continuous movement in other directions - namely strafing or walking backwards. You could think of it as “Auto-Strafe-Run”. It looks at what movement commands are currently being held active by other buttons (analog sticks) at the same time the command is executed to “lock” the same movement direction to be automatically held after that point - until cancelled.</p>
-<p>For MoveForward, or when not holding any directions, it will use the standard AutoRun key bind (unless there is none defined, then it will hold down the MoveForward key continuously). For turning left/right, it will NOT lock them (so as not to just spin in circles) unless are also in right-click Mouse Look mode at the time (where it assumes the turn keys will cause strafing instead).</p>
+<p>For MoveForward, or when not holding any directions, it will use the standard AutoRun key bind (unless there is none defined, then it will hold down the MoveForward key continuously). For turning left/right, it will <em>not</em> lock them (so as not to just spin in circles) <em>unless</em> are also in right-click Mouse Look mode at the time (where it assumes the turn keys will cause strafing instead).</p>
 <p>This locked movement mode will cancel once release and re-press any direction on the same axis as any locked direction. In other words, if you lock walking backwards, you can press left or right to strafe while continuing to move back automatically, but pressing forward or back again will cancel it. If you lock moving slant, re-pressing any direction will cancel it entirely.</p>
 <p><em>WARNING: For directions that can’t just use the AutoRun key, the game itself may stop you from continuing to move in the direction desired while using the chat message box - particularly if type one of the movement keys (i.e. WASD) as part of your message. To help avoid this, consider re-mapping your movement keys to ones you aren’t likely to use while typing, like the arrow keys or num pad. Some games will stop any movement from held keys as soon as the chat box opens regardless though.</em></p>
 <h3 id="experimental-mouse-mode-lookauto">Experimental Mouse Mode: LookAuto</h3>
