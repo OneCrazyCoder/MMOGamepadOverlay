@@ -2255,7 +2255,8 @@ static void drawHSGuide(DrawData& dd)
 	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
 	const MenuItemAppearance& itemApp =
 		getMenuItemAppearance(dd.menuID, eMenuItemDrawState_Normal);
-	//SelectObject(dd.hdc, itemApp.borderPen);
+	DBG_ASSERT(itemApp.borderPen);
+	SelectObject(dd.hdc, itemApp.borderPen);
 	SetDCBrushColor(dd.hdc, itemApp.baseColor);
 	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 
@@ -2501,7 +2502,6 @@ void init()
 		theHSGuideMenu.alphaInfoID =
 			dropTo<u16>(getOrCreateAlphaInfoID(anAlphaInfo));
 		MenuAppearance anAppearance = sMenuAppearances[0];
-		anAppearance.itemType = eMenuItemType_Circle;
 		anAppearance.baseRadius = dropTo<u8>(clamp((Profile::getInt(
 			aDefaultProps, "HotspotGuideSize", 6) / 2), 1, 255));
 		theHSGuideMenu.appearanceID =
@@ -2513,8 +2513,6 @@ void init()
 			anItemAppearance.baseColor = stringToRGB(p.str);
 		theHSGuideMenu.itemAppearanceID[eMenuItemDrawState_Normal] =
 			dropTo<u16>(getOrCreateItemAppearanceID(anItemAppearance));
-		for(u16 i = 0; i < eMenuItemDrawState_Num; ++i)
-			theHSGuideMenu.itemAppearanceID[i] = i;
 		MenuLayout aMenuLayout;
 		aMenuLayout.style = eMenuStyle_HotspotGuide;
 		theHSGuideMenu.layoutID =
@@ -2545,9 +2543,9 @@ void loadProfileChanges()
 	init();
 	updateScaling();
 	gFullRedrawOverlays.set();
-	return;
 	// TEMP
 
+#if 0
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
 	// TODO - invalidate (mark dirty) cache entries that might have changed
 	// Keep in mind that all menus can be affected by changes to anything in
@@ -2597,6 +2595,7 @@ void loadProfileChanges()
 		DeleteObject(sBitmapFiles[i].handle);
 		sBitmapFiles[i].handle = NULL;
 	}
+#endif
 }
 
 
