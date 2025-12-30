@@ -147,6 +147,8 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "KBCycle",					ePropType_KBCycle		},
 				{ "Array",						ePropType_KBCycle		},
 				{ "GridWidth",					ePropType_GridWidth		},
+				{ "ColumnHeight",				ePropType_GridWidth		},
+				{ "ColumnsHeight",				ePropType_GridWidth		},
 				{ "Label",						ePropType_Label			},
 				{ "Title",						ePropType_Label			},
 				{ "Name",						ePropType_Label			},
@@ -3747,6 +3749,24 @@ static void validateLayer(
 }
 
 
+static int calcMenuGridWidth(int theMenuID)
+{
+	int result = sMenus.vals()[theMenuID].gridWidth;
+	if( result == 0 &&
+		sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
+		sMenus.vals()[theMenuID].rootMenuID < sMenus.size() )
+	{
+		result = sMenus.vals()[sMenus.vals()[theMenuID].rootMenuID].gridWidth;
+	}
+	const int aMenuItemCount = menuItemCount(theMenuID);
+	// Auto-calculate based on item count
+	if( result == 0 )
+		result = int(ceil(sqrt(double(aMenuItemCount))));
+	result = min(result, aMenuItemCount);
+	return result;
+}
+
+
 static void loadDataFromProfile(
 	const Profile::SectionsMap& theProfileMap,
 	bool init)
@@ -4356,20 +4376,16 @@ int menuGridWidth(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	int result = 1;
-	if( menuStyle(theMenuID) != eMenuStyle_Grid )
-		return result;
-	result = sMenus.vals()[theMenuID].gridWidth;
-	if( result == 0 &&
-		sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
-		sMenus.vals()[theMenuID].rootMenuID < sMenus.size() )
+	switch(menuStyle(theMenuID))
 	{
-		result = sMenus.vals()[sMenus.vals()[theMenuID].rootMenuID].gridWidth;
+	case eMenuStyle_Grid:
+		result = calcMenuGridWidth(theMenuID);
+		break;
+	case eMenuStyle_Columns:
+		result = calcMenuGridWidth(theMenuID);
+		result = (menuItemCount(theMenuID) + result - 1) / result;
+		break;
 	}
-	const int aMenuItemCount = menuItemCount(theMenuID);
-	// Auto-calculate based on item count
-	if( result == 0 )
-		result = int(ceil(sqrt(double(aMenuItemCount))));
-	result = min(result, aMenuItemCount);
 
 	return result;
 }
@@ -4377,9 +4393,20 @@ int menuGridWidth(int theMenuID)
 
 int menuGridHeight(int theMenuID)
 {
-	const int anItemCount = menuItemCount(theMenuID);
-	const int aGridWidth = menuGridWidth(theMenuID);
-	return (anItemCount + aGridWidth - 1) / aGridWidth;
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	int result = 1;
+	switch(menuStyle(theMenuID))
+	{
+	case eMenuStyle_Grid:
+		result = calcMenuGridWidth(theMenuID);
+		result = (menuItemCount(theMenuID) + result - 1) / result;
+		break;
+	case eMenuStyle_Columns:
+		result = calcMenuGridWidth(theMenuID);
+		break;
+	}
+
+	return result;
 }
 
 

@@ -163,7 +163,7 @@ Command selectMenuItem(
 	gActiveOverlays.set(anOverlayID);
 
 	const EMenuStyle aMenuStyle = InputMap::menuStyle(aSubMenuID);
-	const int aGridWidth = InputMap::menuGridWidth(aSubMenuID);
+	int aGridSize;
 	switch(aMenuStyle)
 	{
 	case eMenuStyle_List:
@@ -213,42 +213,84 @@ Command selectMenuItem(
 		}
 		break;
 	case eMenuStyle_Grid:
+		aGridSize = InputMap::menuGridWidth(aSubMenuID);
 		switch(theDir)
 		{
 		case eCmdDir_L:
-			pushedPastEdge = aSelection % aGridWidth == 0;
+			pushedPastEdge = aSelection % aGridSize == 0;
 			if( !pushedPastEdge )
 				--aSelection;
 			else if( wrap && anItemCount > 2 )
-				aSelection = min(anItemCount - 1, aSelection + aGridWidth - 1);
+				aSelection = min(anItemCount - 1, aSelection + aGridSize - 1);
 			break;
 		case eCmdDir_R:
 			pushedPastEdge =
 				aSelection >= anItemCount -1 ||
-				aSelection % aGridWidth == aGridWidth - 1;
+				aSelection % aGridSize == aGridSize - 1;
 			if( !pushedPastEdge )
 				++aSelection;
 			else if( wrap && anItemCount > 2 )
-				aSelection = (aSelection / aGridWidth) * aGridWidth;
+				aSelection = (aSelection / aGridSize) * aGridSize;
 			break;
 		case eCmdDir_U:
-			pushedPastEdge = aSelection < aGridWidth;
+			pushedPastEdge = aSelection < aGridSize;
 			if( !pushedPastEdge )
-				aSelection -= aGridWidth;
+				aSelection -= aGridSize;
 			else if( wrap && anItemCount > 2 )
-				aSelection += ((anItemCount-1) / aGridWidth) * aGridWidth;
+				aSelection += ((anItemCount-1) / aGridSize) * aGridSize;
 			if( aSelection >= anItemCount )
-				aSelection -= aGridWidth;
+				aSelection -= aGridSize;
 			break;
 		case eCmdDir_D:
-			pushedPastEdge = aSelection + aGridWidth >= anItemCount;
+			pushedPastEdge = aSelection + aGridSize >= anItemCount;
 			if( !pushedPastEdge )
-				aSelection += aGridWidth;
+				aSelection += aGridSize;
 			else if( wrap && anItemCount > 2 )
-				aSelection = aSelection % aGridWidth;
+				aSelection = aSelection % aGridSize;
 			else if( aDirCmd.type < eCmdType_FirstValid &&
-					 aSelection < ((anItemCount-1) / aGridWidth) * aGridWidth )
+					 aSelection < ((anItemCount-1) / aGridSize) * aGridSize )
 				aSelection = anItemCount - 1;
+			break;
+		}
+		break;
+	case eMenuStyle_Columns:
+		aGridSize = InputMap::menuGridHeight(aSubMenuID);
+		switch(theDir)
+		{
+		case eCmdDir_L:
+			pushedPastEdge = aSelection < aGridSize;
+			if( !pushedPastEdge )
+				aSelection -= aGridSize;
+			else if( wrap && anItemCount > 2 )
+				aSelection += ((anItemCount-1) / aGridSize) * aGridSize;
+			if( aSelection >= anItemCount )
+				aSelection -= aGridSize;
+			break;
+		case eCmdDir_R:
+			pushedPastEdge = aSelection + aGridSize >= anItemCount;
+			if( !pushedPastEdge )
+				aSelection += aGridSize;
+			else if( wrap && anItemCount > 2 )
+				aSelection = aSelection % aGridSize;
+			else if( aDirCmd.type < eCmdType_FirstValid &&
+					 aSelection < ((anItemCount-1) / aGridSize) * aGridSize )
+				aSelection = anItemCount - 1;
+			break;
+		case eCmdDir_U:
+			pushedPastEdge = aSelection % aGridSize == 0;
+			if( !pushedPastEdge )
+				--aSelection;
+			else if( wrap && anItemCount > 2 )
+				aSelection = min(anItemCount - 1, aSelection + aGridSize - 1);
+			break;
+		case eCmdDir_D:
+			pushedPastEdge =
+				aSelection >= anItemCount -1 ||
+				aSelection % aGridSize == aGridSize - 1;
+			if( !pushedPastEdge )
+				++aSelection;
+			else if( wrap && anItemCount > 2 )
+				aSelection = (aSelection / aGridSize) * aGridSize;
 			break;
 		}
 		break;
@@ -452,7 +494,37 @@ Command swapMenu(int theRootMenuID, int theAltMenuID, ECommandDir theDir)
 					aNextSel = aNewItemCount-1;
 				else
 					aNextSel -= aNewGridWidth;
-				DBG_ASSERT(aNextSel < aNewItemCount);
+			}
+		}
+		break;
+
+	case eMenuStyle_Columns:
+		{
+			const int anOldGridHeight = gridHeight(theRootMenuID);
+			const int anOldX = aNextSel / anOldGridHeight;
+			const int anOldY = aNextSel % anOldGridHeight;
+			const u16 anOldMenuID = aMenuStack.back().id;
+			aMenuStack.back().id = dropTo<u16>(theAltMenuID);
+			const int aNewGridWidth = gridWidth(theRootMenuID);
+			const int aNewGridHeight = gridHeight(theRootMenuID);
+			const int aNewItemCount = InputMap::menuItemCount(theAltMenuID);
+			aMenuStack.back().id = anOldMenuID;
+			int aNewX = min(anOldX, aNewGridWidth-1);
+			int aNewY = min(anOldY, aNewGridHeight-1);
+			switch(theDir)
+			{
+			case eCmdDir_L: aNewX = aNewGridWidth-1; break;
+			case eCmdDir_R: aNewX = 0; break;
+			case eCmdDir_U: aNewY = aNewGridHeight-1; break;
+			case eCmdDir_D: aNewY = 0; break;
+			}
+			aNextSel = aNewY * aNewGridWidth + aNewX;
+			if( aNextSel >= aNewItemCount )
+			{
+				if( theDir == eCmdDir_U )
+					aNextSel = aNewItemCount-1;
+				else
+					aNextSel -= aNewGridHeight;
 			}
 		}
 		break;
@@ -755,8 +827,7 @@ int gridWidth(int theRootMenuID)
 {
 	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
-	return InputMap::menuGridWidth(
-		aMenuStack.back().id);
+	return InputMap::menuGridWidth(aMenuStack.back().id);
 }
 
 
@@ -764,8 +835,7 @@ int gridHeight(int theRootMenuID)
 {
 	const int anOverlayID = getMenuOverlayID(theRootMenuID);
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
-	return InputMap::menuGridHeight(
-		aMenuStack.back().id);
+	return InputMap::menuGridHeight(aMenuStack.back().id);
 }
 
 } // Menus

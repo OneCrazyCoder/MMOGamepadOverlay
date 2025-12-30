@@ -239,6 +239,7 @@ enum EMenuStyle
 	eMenuStyle_List,
 	eMenuStyle_Bar,
 	eMenuStyle_Grid,
+	eMenuStyle_Columns,
 	eMenuStyle_Slots,
 	eMenuStyle_4Dir,
 	eMenuStlye_Ring,

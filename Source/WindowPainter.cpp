@@ -2964,7 +2964,8 @@ void paintWindowContents(
 	{
 	case eMenuStyle_List:
 	case eMenuStyle_Bar:
-	case eMenuStyle_Grid:			drawBasicMenu(dd);		break;
+	case eMenuStyle_Grid:
+	case eMenuStyle_Columns:		drawBasicMenu(dd);		break;
 	case eMenuStyle_Slots:			drawSlotsMenu(dd);		break;
 	case eMenuStyle_4Dir:			draw4DirMenu(dd);		break;
 	case eMenuStlye_Ring:			/* TODO */				break;
@@ -3032,6 +3033,7 @@ void updateWindowLayout(
 		aWinScalingSizeY += theLayout.titleHeight;
 		break;
 	case eMenuStyle_Grid:
+	case eMenuStyle_Columns:
 		aMenuItemCount = InputMap::menuItemCount(theMenuID);
 		aMenuItemXCount = InputMap::menuGridWidth(theMenuID);
 		aMenuItemYCount = InputMap::menuGridHeight(theMenuID);
@@ -3207,6 +3209,7 @@ void updateWindowLayout(
 	anItemRect.bottom = aCompBotRight.y;
 	ps.rects.push_back(anItemRect);
 	double aCenterX;
+	bool inHorizOrder = true;
 
 	switch(theLayout.style)
 	{
@@ -3226,8 +3229,12 @@ void updateWindowLayout(
 		}
 		// fall through
 	case eMenuStyle_List:
+	case eMenuStyle_Columns:
+		inHorizOrder = false;
+		// fall through
 	case eMenuStyle_Bar:
 	case eMenuStyle_Grid:
+		ps.rects.resize(aMenuItemCount + 1);
 		for(int y = 0; y < aMenuItemYCount; ++y)
 		{
 			anItemRect.top = max<LONG>(aCompTopLeft.y,
@@ -3243,8 +3250,11 @@ void updateWindowLayout(
 			}
 			for(int x = 0; x < aMenuItemXCount; ++x)
 			{
-				if( dropTo<int>(ps.rects.size()) == aMenuItemCount + 1 )
-					break;
+				const int aMenuItemIdx = inHorizOrder
+					? y * aMenuItemXCount + x
+					: x * aMenuItemYCount + y;
+				if( aMenuItemIdx >= aMenuItemCount )
+					continue;
 				anItemRect.left = aCompTopLeft.x;
 				anItemRect.right = aCompBotRight.x;
 				if( x > 0 )
@@ -3257,7 +3267,7 @@ void updateWindowLayout(
 					anItemRect.right = LONG(aCompTopLeft.x + gUIScale *
 						(theLayout.sizeX * (x+1) + theLayout.gapSizeX * x));
 				}
-				ps.rects.push_back(anItemRect);
+				ps.rects[aMenuItemIdx + 1] = anItemRect;
 			}
 		}
 		break;
