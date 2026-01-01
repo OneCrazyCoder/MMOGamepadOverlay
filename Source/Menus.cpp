@@ -346,11 +346,8 @@ Command selectMenuItem(
 	if( aSelection != aSubMenu.selected )
 	{
 		aSubMenu.selected = dropTo<s8>(aSelection);
-		// Need to refresh or re-position to show selection differently
-		if( aMenuStyle == eMenuStyle_Highlight )
-			gReshapeOverlays.set(anOverlayID);
-		else
-			gRefreshOverlays.set(anOverlayID);
+		// Need to refresh to show selection differently
+		gRefreshOverlays.set(anOverlayID);
 	}
 
 	return aDirCmd;
@@ -820,6 +817,14 @@ int selectedItem(int theRootMenuID)
 	const SubMenuStack& aMenuStack = sMenuStacks[anOverlayID];
 
 	return aMenuStack.back().selected;
+}
+
+
+EMenuMouseMode menuMouseMode(int theRootMenuID)
+{
+	const int anOverlayID = getMenuOverlayID(theRootMenuID);
+	const int aMenuID = activeMenuForOverlayID(anOverlayID);
+	return InputMap::menuMouseMode(aMenuID);
 }
 
 

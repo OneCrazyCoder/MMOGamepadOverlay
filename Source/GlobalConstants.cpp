@@ -588,6 +588,7 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "Movement",		eCmdWord_Move		},
 				{ "Motion",			eCmdWord_Move		},
 				{ "Slide",			eCmdWord_Move		},
+				{ "Point",			eCmdWord_Move		}, // for menu Mouse=
 				{ "Turn",			eCmdWord_Turn		},
 				{ "MoveTurn",		eCmdWord_Turn		},
 				{ "Strafe",			eCmdWord_Strafe		},

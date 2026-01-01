@@ -1202,6 +1202,7 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 		{// Already at destination - treat as verified jump
 			sTracker.mouseJumpAttempted = true;
 			sTracker.mouseJumpVerified = true;
+			sTracker.mouseInterpolateRestart = false;
 			return;
 		}
 		sStartPosX = aCurrPos.x; sStartPosY = aCurrPos.y;
@@ -2289,6 +2290,7 @@ void update()
 				aCmdHotspot.x = aCmd.hotspot.x;
 				aCmdHotspot.y = aCmd.hotspot.y;
 				sTracker.mouseInterpolateRestart =
+					sTracker.mouseInterpolateRestart ||
 					!sTracker.mouseJumpInterpolate ||
 					!sTracker.mouseJumpToHotspot ||
 					sTracker.mouseJumpDest != aCmdHotspot;

@@ -62,8 +62,6 @@ s8 layerPriority(int theLayerID);
 
 // Checks what EMouseMode given controls layer requests be used
 EMouseMode mouseMode(int theLayerID);
-// If above returns eMouseMode_Menu, which menu ID?
-int mouseModeMenu(int theLayerID);
 
 // Gets what overlays (root menus) given layer specifically wants to show
 const BitVector<32>& overlaysToShow(int theLayerID);
@@ -92,6 +90,7 @@ Command commandForMenuDir(int theMenuID, ECommandDir theDir);
 Command menuAutoCommand(int theMenuID);
 Command menuBackCommand(int theMenuID);
 EMenuStyle menuStyle(int theMenuID);
+EMenuMouseMode menuMouseMode(int theMenuID);
 int rootMenuOfMenu(int theMenuID);
 int menuOverlayID(int theMenuID);
 int overlayRootMenuID(int theOverlayID);

@@ -85,6 +85,9 @@ bool overlayMenuAcceptsCommands(int theOverlayID);
 // Returns selected item index for given menu
 int selectedItem(int theRootMenuID);
 
+// Returns mouse mode used by given menu (or its active sub-menu)
+EMenuMouseMode menuMouseMode(int theRootMenuID);
+
 // Returns grid width and height for grid-style menus
 int gridWidth(int theRootMenuID);
 int gridHeight(int theRootMenuID);

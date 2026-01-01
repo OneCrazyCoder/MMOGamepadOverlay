@@ -402,14 +402,13 @@ static LONG stringToWidth(const std::string& theString, size_t& thePos)
 	// Calling code will have to do error checking (thePos != theString.size())
 	// since this may be part of a larger string like "width, height"
 	const double aSum = stringToDoubleSum(theString, thePos);
-	return LONG(clamp(floor(aSum + 0.5), 0.0, double(LONG_MAX)));
+	return LONG(clamp(floor(aSum + 0.5), double(LONG_MIN), double(LONG_MAX)));
 }
 
 
 static SIZE stringToSize(const std::string& theString, size_t thePos = 0)
 {
-	// Calling code should check for cx < 0 for invalid results
-	SIZE result = { -1, -1 };
+	SIZE result;
 	result.cx = stringToWidth(theString, thePos);
 	if( thePos >= theString.size() )
 	{// Only width was specified - use same value for both
@@ -420,12 +419,14 @@ static SIZE stringToSize(const std::string& theString, size_t thePos = 0)
 		theString[thePos] != 'x' &&
 		theString[thePos] != 'X' )
 	{// Appropriate character separating width from height not found!
-		result.cx = -1;
+		result.cx = 0x10000; // calling code should check for this for invalid
 		return result;
 	}
 	result.cy = stringToWidth(theString, ++thePos);
 	if( thePos != theString.size() )
-		result.cx = result.cy = -1;
+	{// Garbage found after end of otherwise proper size string!
+		result.cx = result.cy = 0x10000; // invalid size
+	}
 	return result;
 }
 
@@ -479,9 +480,6 @@ static void setHotspotSizes(
 		}
 	}
 	
-	// Extract width and height from theSizeDesc
-	const SIZE& aNewSize = stringToSize(theSizeDesc);
-
 	// Insert into sorted vector, such that not only are earlier ranges
 	// before later ones, but sub-ranges are sorted before their containing
 	// larger ranges (like Name2-7 before just 'Name').
@@ -504,8 +502,18 @@ static void setHotspotSizes(
 		if( aRangeStartIdx == aNextRangeStartIdx &&
 			aRangeEndIdx == aNextRangeEndIdx )
 		{// Just replace existing range with new values
-			sHotspotSizes[aCheckPos].width = u16(min(aNewSize.cx, 0xFFFFL));
-			sHotspotSizes[aCheckPos].height = u16(min(aNewSize.cy, 0xFFFFL));
+			const SIZE& aNewSize = stringToSize(theSizeDesc);
+			if( aNewSize.cx < 0 || aNewSize.cx > 0xFFFF ||
+				aNewSize.cy < 0 || aNewSize.cy > 0xFFFF )
+			{
+				// TODO - error invalid size
+
+			}
+			else
+			{
+				sHotspotSizes[aCheckPos].width = dropTo<u16>(aNewSize.cx);
+				sHotspotSizes[aCheckPos].height = dropTo<u16>(aNewSize.cy);
+			}
 			return;
 		}
 
@@ -518,8 +526,18 @@ static void setHotspotSizes(
 			HotspotSizesRange aNewRange;
 			aNewRange.firstHotspotID = dropTo<u16>(aRangeStartIdx);
 			aNewRange.lastHotspotID = dropTo<u16>(aRangeEndIdx);
-			aNewRange.width = u16(min(aNewSize.cx, 0xFFFFL));
-			aNewRange.height = u16(min(aNewSize.cy, 0xFFFFL));
+			const SIZE& aNewSize = stringToSize(theSizeDesc);
+			if( aNewSize.cx < 0 || aNewSize.cx > 0xFFFF ||
+				aNewSize.cy < 0 || aNewSize.cy > 0xFFFF )
+			{
+				// TODO - error invalid size
+
+			}
+			else
+			{
+				aNewRange.width = dropTo<u16>(aNewSize.cx);
+				aNewRange.height = dropTo<u16>(aNewSize.cy);
+			}
 			sHotspotSizes.insert(
 				sHotspotSizes.begin() + aCheckPos,
 				aNewRange);
@@ -951,28 +969,30 @@ static void fetchMenuLayoutProperties(
 	if( PropString p = getPropString(thePropMap, kItemSizePropName) )
 	{
 		const SIZE& aSize = stringToSize(p.str);
-		if( aSize.cx < 0 )
+		if( aSize.cx < 0 || aSize.cx > 0xFFFF ||
+			aSize.cy < 0 || aSize.cy > 0xFFFF )
 		{
 			// TODO - error invalid size
 		}
 		else
 		{
-			theDestLayout.sizeX = u16(min(aSize.cx, 0xFFFFL));
-			theDestLayout.sizeY = u16(min(aSize.cy, 0xFFFFL));
+			theDestLayout.sizeX = dropTo<u16>(aSize.cx);
+			theDestLayout.sizeY = dropTo<u16>(aSize.cy);
 		}
 	}
 
 	if( PropString p = getPropString(thePropMap, kGapSizePropName) )
 	{
 		const SIZE& aSize = stringToSize(p.str);
-		if( aSize.cx < 0 )
+		if( aSize.cx < -127 || aSize.cx > 128 ||
+			aSize.cy < -127 || aSize.cy > 128 )
 		{
 			// TODO - error invalid size
 		}
 		else
 		{
-			theDestLayout.gapSizeX = s8(clamp(aSize.cx, -127, 128));
-			theDestLayout.gapSizeY = s8(clamp(aSize.cy, -127, 128));
+			theDestLayout.gapSizeX = dropTo<s8>(aSize.cx);
+			theDestLayout.gapSizeY = dropTo<s8>(aSize.cy);
 		}
 	}
 
@@ -981,7 +1001,7 @@ static void fetchMenuLayoutProperties(
 		size_t aPos = 0;
 		theDestLayout.titleHeight =
 			u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
-		// TODO - error if aPos != p.str.size()
+		// TODO - error if aPos != p.str.size() (and if size was < 0?)
 	}
 
 	if( PropString p = getPropString(thePropMap, kAltLabelWidthPropName) )
@@ -989,7 +1009,7 @@ static void fetchMenuLayoutProperties(
 		size_t aPos = 0;
 		theDestLayout.altLabelWidth =
 			u16(clamp(stringToWidth(p.str, aPos), 0, 0xFFFF));
-		// TODO - error if aPos != p.str.size()
+		// TODO - error if aPos != p.str.size() (and if size was < 0?)
 	}
 }
 
@@ -1020,7 +1040,7 @@ static void fetchBaseAppearanceProperties(
 			size_t aPos = 0;
 			theDestAppearance.baseRadius =
 				u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
-			// TODO - error if aPos != p.str.size()
+			// TODO - error if aPos != p.str.size() (and if size was < 0?)
 			theDestAppearance.radius = u8(clamp(int(
 				theDestAppearance.baseRadius * gUIScale), 0, 0xFF));
 		}
@@ -1039,8 +1059,8 @@ static void fetchBaseAppearanceProperties(
 		if( aFontSizeProp )
 		{
 			size_t aPos = 0;
-			aNewFont.size = int(stringToWidth(aFontSizeProp.str, aPos));
-			// TODO - error if aPos != p.str.size()
+			aNewFont.size = max(0, int(stringToWidth(aFontSizeProp.str, aPos)));
+			// TODO - error if aPos != p.str.size() (and if size was < 0?)
 		}
 		theDestAppearance.fontID = dropTo<u16>(getOrCreateFontID(aNewFont));
 	}
@@ -1109,7 +1129,7 @@ static void fetchItemAppearanceProperties(
 		size_t aPos = 0;
 		theDestAppearance.baseBorderSize =
 			u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
-		// TODO - error if aPos != p.str.size()
+		// TODO - error if aPos != p.str.size() (and if size was < 0?)
 		theDestAppearance.borderSize = 0;
 		theDestAppearance.borderPen = NULL;
 		if( theDestAppearance.baseBorderSize > 0 )
@@ -2734,6 +2754,16 @@ void update()
 			{
 				gActiveOverlays.set(i);
 				gReshapeOverlays.set(i);
+			}
+			break;
+		case eMenuStyle_Highlight:
+			if( gRefreshOverlays.test(i) ||
+				gFullRedrawOverlays.test(i) )
+			{
+				// This menu style needs to reshape (move) instead of
+				// re-drawing in order to show changes to selected item
+				gReshapeOverlays.set(i);
+				gRefreshOverlays.reset(i);
 			}
 			break;
 		}

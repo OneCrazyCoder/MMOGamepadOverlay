@@ -1287,7 +1287,7 @@ EResult stringToCoord(std::string& theString,
 	case '*':
 		// Only a scale factor, no coordinate
 		return result;
-	case ',': case 'x': case 'X': 
+	case ',': case 'x': case 'X':
 		// Empty coordinate
 		theString = theString.substr(1);
 		return result;
@@ -1328,16 +1328,18 @@ EResult stringToCoord(std::string& theString,
 					result = eResult_Overflow;
 				else if( theValidatedString )
 					theValidatedString->push_back(theString[aCharPos]);
+				++aCharPos;
 				done = true;
 				break;
-			case '.':
+			case '.': 
 				if( aDenominator != 0 )
 					result = eResult_Malformed;
 				else if( theValidatedString )
 					theValidatedString->push_back(theString[aCharPos]);
 				aDenominator = 1;
 				break;
-			case ' ': case '-': case '+': case ',': case '*':
+			case ' ': case '-': case '+':
+			case ',': case '*': case 'x': case 'X':
 				done = true;
 				break;
 			}

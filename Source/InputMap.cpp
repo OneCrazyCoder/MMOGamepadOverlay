@@ -253,6 +253,7 @@ struct Menu
 	Command autoCommand;
 	Command backCommand;
 	EMenuStyle style;
+	EMenuMouseMode mouseMode;
 	u16 parentMenuID;
 	u16 rootMenuID;
 	u16 overlayID;
@@ -264,6 +265,7 @@ struct Menu
 
 	Menu() :
 		style(eMenuStyle_Num),
+		mouseMode(eMenuMouseMode_Num),
 		profileSectionID(kInvalidID),
 		parentMenuID(kInvalidID),
 		rootMenuID(),
@@ -285,7 +287,6 @@ struct ZERO_INIT(ControlsLayer)
 	BitVector<32> addLayers;
 	BitVector<32> removeLayers;
 	EMouseMode mouseMode;
-	u16 mouseModeMenu;
 	u16 parentLayer;
 	u16 comboParentLayer;
 	u16 buttonRemapID;
@@ -339,6 +340,7 @@ static std::vector<ButtonRemap> sButtonRemaps;
 static std::vector<std::string> sParsedString(16);
 static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
+static bool sHotspotArrayResized = false;
 
 
 //------------------------------------------------------------------------------
@@ -598,6 +600,7 @@ static void applyHotspotProperty(
 			for(itr = anArray.ranges.begin();
 				itr != anArray.ranges.end() && !itr->removed; ++itr)
 			{ anArray.size = itr->lastIdx(); }
+			sHotspotArrayResized = true;
 		}
 	}
 
@@ -2154,23 +2157,18 @@ static Command wordsToSpecialCommand(
 	}
 	if( allowButtonActions && aRootMenuID < sMenus.size() )
 	{
-		// "= Confirm <aMenuName> [Menu] [with mouse click]"
+		// "= Confirm <aMenuName> [Menu]"
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Confirm);
-		allowedKeyWords.set(eCmdWord_Mouse);
-		allowedKeyWords.set(eCmdWord_Click);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
 			result.rootMenuID = aRootMenuID;
-			result.andClick =
-				keyWordsFound.test(eCmdWord_Click) ||
-				keyWordsFound.test(eCmdWord_Mouse);
 			return result;
 		}
 
-		// "= Confirm <aMenuName> [Menu] and Close [with mouse click]"
+		// "= Confirm <aMenuName> [Menu] and Close"
 		// allowedKeyWords = Menu & Confirm & Mouse & Click
 		allowedKeyWords.set(eCmdWord_Close);
 		if( keyWordsFound.test(eCmdWord_Confirm) &&
@@ -2179,15 +2177,10 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuConfirmAndClose;
 			result.rootMenuID = aRootMenuID;
-			result.andClick =
-				keyWordsFound.test(eCmdWord_Click) ||
-				keyWordsFound.test(eCmdWord_Mouse);
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Confirm);
-		allowedKeyWords.reset(eCmdWord_Mouse);
-		allowedKeyWords.reset(eCmdWord_Click);
 
 		// "= Edit <aMenuName> [Menu]"
 		// allowedKeyWords = Menu
@@ -2750,6 +2743,29 @@ static void applyMenuProperty(
 		theMenu.style = menuStyleNameToID(thePropVal);
 		return;
 
+	case ePropType_Mouse:
+		switch(commandWordToID(thePropVal))
+		{
+		case eCmdWord_Nothing:
+			theMenu.mouseMode = eMenuMouseMode_None;
+			break;
+		case eCmdWord_Skip:
+			theMenu.mouseMode = eMenuMouseMode_Num;
+			break;
+		case eCmdWord_Move:
+			theMenu.mouseMode = eMenuMouseMode_Move;
+			break;
+		case eCmdWord_Click:
+			theMenu.mouseMode = eMenuMouseMode_Click;
+			break;
+		default:
+			logError("%s: Invalid menu mouse mode '%s'!",
+				sSectionPrintName.c_str(),
+				thePropVal.c_str());
+			break;
+		}
+		return;
+
 	case ePropType_KeyBinds:
 	case ePropType_KBCycle:
 		theMenu.keyBindCycleID = dropTo<u16>(
@@ -2848,6 +2864,7 @@ static void applyMenuProperty(
 				{
 					theMenu.items.resize(aMenuItemID+1);
 					theMenu.items.back().hotspotID = dropTo<u16>(aHotspotID);
+					gReshapeOverlays.set(theMenu.overlayID);
 				}
 				theMenu.defaultMenuItemIdx = dropTo<u8>(aMenuItemID+1);
 				mapDebugPrint("%s: Default menu item set to %s",
@@ -2899,8 +2916,11 @@ static void applyMenuProperty(
 						break;
 					}
 				}
-				if( aMenuItemID >= aMenuLen )
-					theMenu.items.resize(aMenuItemID+1);
+				if( aMenuItemID == aMenuLen )
+				{
+					theMenu.items.push_back(MenuItem());
+					gReshapeOverlays.set(theMenu.overlayID);
+				}
 				aMenuItem = &theMenu.items[aMenuItemID];
 				if( init && aMenuItem->cmd.type != eCmdType_Invalid )
 				{
@@ -3023,39 +3043,48 @@ static void validateMenu(int theMenuID)
 	{// Guarantee a single menu item with label matching menu's custom label
 		theMenu.items.resize(1);
 		theMenu.items.back().label = theMenu.label;
+		return;
 	}
-	else if( aMenuStyle != eMenuStyle_4Dir &&
-			 aMenuStyle != eMenuStyle_Hotspots )
-	{// Guarantee at least 1 menu item and no gaps in menu items
-		if( theMenu.items.empty() )
+	
+	// No non-directional menu items for 4-dir, so no need to verify item count
+	if( aMenuStyle == eMenuStyle_4Dir )
+		return;
+
+	// Guarantee at least 1 menu item
+	if( theMenu.items.empty() )
+	{
+		if( !styleIsInvalid )
 		{
-			if( !styleIsInvalid )
-			{
-				logError("%s: No menu items found! If empty menu intended, "
-					"Set \"1 = :\" to suppress this error",
-					sSectionPrintName.c_str());
-			}
-			theMenu.items.push_back(MenuItem());
+			logError("%s: No menu items found! If empty menu intended, "
+				"Set \"1 = :\" to suppress this error",
+				sSectionPrintName.c_str());
 		}
-		// Silently trim off any empty items on the end of the menu
-		while(theMenu.items.size() > 1 &&
-			  theMenu.items.back().cmd.type <= eCmdType_Empty )
+		theMenu.items.push_back(MenuItem());
+	}
+
+	// Don't need to search for gaps in hotspot-using menus
+	if( aMenuStyle == eMenuStyle_Hotspots ||
+		aMenuStyle == eMenuStyle_Highlight )
+	{ return; }
+
+	// Silently trim off any empty items on the end of the menu
+	while(theMenu.items.size() > 1 &&
+		  theMenu.items.back().cmd.type <= eCmdType_Empty )
+	{
+		theMenu.items.resize(theMenu.items.size()-1);
+		gReshapeOverlays.set(theMenu.overlayID);
+	}
+	theMenu.defaultMenuItemIdx = dropTo<u8>(min<size_t>(
+		theMenu.items.size(), theMenu.defaultMenuItemIdx));
+	// Any empty items between first and last must be a missing gap
+	for(int i = 1, end = intSize(theMenu.items.size()) - 1; i < end; ++i)
+	{
+		if( theMenu.items[i].cmd.type <= eCmdType_Empty )
 		{
-			theMenu.items.resize(theMenu.items.size()-1);
-			gReshapeOverlays.set(theMenu.overlayID);
-		}
-		theMenu.defaultMenuItemIdx = dropTo<u8>(min<size_t>(
-			theMenu.items.size(), theMenu.defaultMenuItemIdx));
-		// Any empty items between first and last must be a missing gap
-		for(int i = 1, end = intSize(theMenu.items.size()) - 1; i < end; ++i)
-		{
-			if( theMenu.items[i].cmd.type <= eCmdType_Empty )
-			{
-				logError(" %s is missing menu item #%d! "
-					"Set \"%d = : \" to suppress this error",
-					sSectionPrintName.c_str(), i+1, i+1);
-				break;
-			}
+			logError(" %s is missing menu item #%d! "
+				"Set \"%d = : \" to suppress this error",
+				sSectionPrintName.c_str(), i+1, i+1);
+			break;
 		}
 	}
 }
@@ -3363,8 +3392,7 @@ static void addWhenSignalCommand(
 		}
 	}
 
-	logError("Unrecognized signal name for '%s %s' requested in %s",
-		kSignalCommandPrefix.c_str(),
+	logError("Unrecognized signal name for '%s' requested in %s",
 		sPropertyPrintName.c_str(),
 		sSectionPrintName.c_str());
 }
@@ -3384,26 +3412,6 @@ static void applyControlsLayerProperty(
 			const EMouseMode aMouseMode = mouseModeNameToID(thePropVal);
 			if( aMouseMode >= eMouseMode_Num )
 			{
-				// See if is the name of a root menu instead
-				DBG_ASSERT(sParsedString.empty());
-				sanitizeSentence(thePropVal, sParsedString);
-				for(int i = 0,end = intSize(sParsedString.size()); i < end; ++i)
-				{
-					int aRootMenuID = getOnlyRootMenuID(sParsedString[i]);
-					if( aRootMenuID < sMenus.size() )
-					{
-						theLayer.mouseMode = eMouseMode_Menu;
-						theLayer.mouseModeMenu = dropTo<u16>(aRootMenuID);
-						mapDebugPrint(
-							"%s: Mouse set to Menu mode for menu '%s'\n",
-							sSectionPrintName.c_str(),
-							sMenus.keys()[aRootMenuID].c_str());
-						sParsedString.clear();
-						return;
-					}
-				}
-				sParsedString.clear();
-
 				logError("Unknown mode for '%s = %s' in Layer %s!",
 					sPropertyPrintName.c_str(),
 					thePropVal.c_str(),
@@ -4051,6 +4059,7 @@ void loadProfile()
 
 	// Fill in the data
 	loadDataFromProfile(Profile::allSections(), true);
+	sHotspotArrayResized = false;
 }
 
 
@@ -4079,6 +4088,37 @@ void loadProfileChanges()
 	}
 
 	loadDataFromProfile(theProfileMap, false);
+
+	if( sHotspotArrayResized )
+	{// Reload all menu items for hotspot-using arrays
+		for(int aMenuID = 0; aMenuID < sMenus.size(); ++aMenuID)
+		{
+			if( sMenus.vals()[aMenuID].style != eMenuStyle_Hotspots &&
+				sMenus.vals()[aMenuID].style != eMenuStyle_Highlight )
+			{ continue; }
+
+			sMenus.vals()[aMenuID].items.clear();
+			Profile::PropertyMapPtr aPropMap = Profile::getSectionProperties(
+				sMenus.vals()[aMenuID].profileSectionID);
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
+			{
+				const std::string& aPropKey = aPropMap->keys()[aPropIdx];
+				const EPropertyType aPropType = propKeyToType(aPropKey);
+				if( aPropType != ePropType_Default &&
+					aPropType != ePropType_Num )
+				{ continue; }
+				
+				sPropertyPrintName = aPropKey;
+				applyMenuProperty(
+					aMenuID, false,
+					aPropKey,
+					aPropMap->vals()[aPropIdx].str);
+			}
+			sSectionPrintName = "[" + sMenus.keys()[aMenuID] + "]";
+			validateMenu(aMenuID);
+		}
+		sHotspotArrayResized = false;
+	}
 }
 
 
@@ -4204,13 +4244,6 @@ EMouseMode mouseMode(int theLayerID)
 }
 
 
-int mouseModeMenu(int theLayerID)
-{
-	DBG_ASSERT(mouseMode(theLayerID) == eMouseMode_Menu);
-	return sLayers.vals()[theLayerID].mouseModeMenu;
-}
-
-
 const BitVector<32>& overlaysToShow(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
@@ -4309,6 +4342,27 @@ EMenuStyle menuStyle(int theMenuID)
 		return menuStyle(sMenus.vals()[theMenuID].rootMenuID);
 	}
 	return result;
+}
+
+
+EMenuMouseMode menuMouseMode(int theMenuID)
+{
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	if( sMenus.vals()[theMenuID].mouseMode < 0 ||
+		sMenus.vals()[theMenuID].mouseMode >= eMenuMouseMode_Num )
+	{// Wasn't specified for this menu
+		if( sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
+			sMenus.vals()[theMenuID].rootMenuID < sMenus.size() )
+		{// Defer to root menu's version
+			return menuMouseMode(sMenus.vals()[theMenuID].rootMenuID);
+		}
+		else
+		{// Assume "None" if wasn't set
+			return eMenuMouseMode_None;
+		}
+	}
+
+	return sMenus.vals()[theMenuID].mouseMode;
 }
 
 

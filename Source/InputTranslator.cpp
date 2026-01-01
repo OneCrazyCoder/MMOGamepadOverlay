@@ -199,7 +199,6 @@ struct TranslatorState
 	std::vector<u16> layerOrder;
 	std::vector<ActiveSignal> signalCommands;
 	ButtonState* exclusiveAutoRepeatButton;
-	int mouseControllingRootMenu;
 	int layersAddedCount;
 	int exclusiveAutoRepeatDelay;
 	int syncAutoRepeatDelay;
@@ -218,7 +217,6 @@ struct TranslatorState
 		layers.clear();
 		layerOrder.clear();
 		signalCommands.clear();
-		mouseControllingRootMenu = -1;
 		layersAddedCount = 0;
 		exclusiveAutoRepeatButton = null;
 		exclusiveAutoRepeatDelay = 0;
@@ -1078,16 +1076,19 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 }
 
 
-static void updateMouseForMenu(int theRootMenuID, bool andClick = false)
+static void updateMouseForMenu(int theRootMenuID, bool canClick = false)
 {
-	if( andClick || theRootMenuID == sState.mouseControllingRootMenu )
+	const EMenuMouseMode aMenuMouseMode = Menus::menuMouseMode(theRootMenuID);
+	if( aMenuMouseMode != eMenuMouseMode_None )
 	{
 		Command aMoveCmd;
 		aMoveCmd.type = eCmdType_MoveMouseToMenuItem;
 		aMoveCmd.rootMenuID = dropTo<u16>(theRootMenuID);
 		aMoveCmd.menuItemID = dropTo<u16>(Menus::selectedItem(theRootMenuID));
-		aMoveCmd.andClick = andClick;
+		aMoveCmd.andClick = canClick && aMenuMouseMode == eMenuMouseMode_Click;
 		InputDispatcher::moveMouseTo(aMoveCmd);
+		// Update hotspot map in case another command wants to move
+		// directly from the menu to a different relative hotspot
 		HotspotMap::update();
 	}
 }
@@ -1325,12 +1326,12 @@ static void processCommand(
 		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuConfirm:
-		updateMouseForMenu(theCmd.rootMenuID, theCmd.andClick);
+		updateMouseForMenu(theCmd.rootMenuID, true);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_MenuConfirmAndClose:
-		updateMouseForMenu(theCmd.rootMenuID, theCmd.andClick);
+		updateMouseForMenu(theCmd.rootMenuID, true);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
 		if( aForwardCmd.type >= eCmdType_FirstValid )
 		{
@@ -1742,8 +1743,12 @@ static void processButtonHold(ButtonState& theBtnState)
 
 static void processButtonTap(ButtonState& theBtnState)
 {
-	// Should not even call this if button was used in a button combo
-	DBG_ASSERT(!theBtnState.usedInButtonCombo);
+	// If this button was used as a modifier to execute a button combination
+	// command (i.e. is L2 for the combo L2+X), then do not perform the "tap"
+	// action for this button, as it wasn't really tapped but just held briefly
+	// to activate a combo action.
+	if( theBtnState.usedInButtonCombo )
+		return;
 
 	// If has a hold command, then a "tap" is just releasing before said
 	// command had a chance to execute. Otherwise it is based on holding
@@ -1773,15 +1778,6 @@ static void processButtonReleased(ButtonState& theBtnState)
 	// Stop using this button for auto-repeat
 	if( sState.exclusiveAutoRepeatButton == &theBtnState )
 		sState.exclusiveAutoRepeatButton = null;
-
-	// If this button was used as a modifier to execute a button combination
-	// command (i.e. is L2 for the combo L2+X), then do not perform any other
-	// actions for this button besides releasing above and resetting state.
-	if( theBtnState.usedInButtonCombo )
-	{
-		theBtnState.resetWhenReleased();
-		return;
-	}
 
 	// If released quickly enough, process 'tap' event
 	processButtonTap(theBtnState);
@@ -2068,7 +2064,6 @@ static void updateMouseModeForCurrentLayers()
 {
 	DBG_ASSERT(!sState.layersNeedSorting);
 	EMouseMode aFinalMouseMode = eMouseMode_Cursor;
-	sState.mouseControllingRootMenu = -1;
 	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
 		const EMouseMode aLayerMouseMode =
@@ -2076,22 +2071,12 @@ static void updateMouseModeForCurrentLayers()
 		// _Default means just use lower layers' mode
 		if( aLayerMouseMode == eMouseMode_Default )
 			continue;
-		sState.mouseControllingRootMenu = -1;
 		if( aLayerMouseMode == eMouseMode_HideOrLook )
 		{
 			// Act like _Default unless currently set to show cursor,
 			// in which case act like _Hide
 			if( aFinalMouseMode == eMouseMode_Cursor )
 				aFinalMouseMode = eMouseMode_Hide;
-			continue;
-		}
-		if( aLayerMouseMode == eMouseMode_Menu )
-		{
-			// Act as cursor mode but will trail cursor to point at
-			// given menu ID's active selection whenever it changes
-			aFinalMouseMode = eMouseMode_Cursor;
-			sState.mouseControllingRootMenu =
-				InputMap::mouseModeMenu(sState.layerOrder[i]);
 			continue;
 		}
 		aFinalMouseMode = aLayerMouseMode;

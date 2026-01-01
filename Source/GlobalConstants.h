@@ -224,7 +224,6 @@ enum EMouseMode
 
 	// Below are not valid to send to InputDispatcher::setMouseMode()
 	eMouseMode_HideOrLook,	// _Default, unless it is _Cursor, then _Hide
-	eMouseMode_Menu,		// Cursor mode but set to auto-point at menu items
 	eMouseMode_PostJump,	// Cursor mode just after a jump
 	eMouseMode_JumpClicked,	// Cursor mode just after jump-then-click event
 	eMouseMode_SwapToLook,	// Transitioning to LookOnly from aonther Look mode
@@ -232,6 +231,15 @@ enum EMouseMode
 	eMouseMode_LookReady,	// Cursor in place but haven't clicked to start yet
 
 	eMouseMode_Num
+};
+
+enum EMenuMouseMode
+{
+	eMenuMouseMode_None,
+	eMenuMouseMode_Move,
+	eMenuMouseMode_Click,
+
+	eMenuMouseMode_Num
 };
 
 enum EMenuStyle
