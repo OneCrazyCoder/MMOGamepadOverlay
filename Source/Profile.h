@@ -49,9 +49,8 @@ void loadCore();
 // Load (and/or generate) .ini files for current profile
 void load();
 
-// Allow user to manually select which profile to load
-// Returns true if user loaded a profile, false if they cancelled
-bool queryUserForProfile();
+// Allow user to manually select which profile to load - returns 0 if cancel
+int queryUserForProfile();
 
 // Get rtf string describing known issues with current game
 const std::string& getKnownIssuesRTF();

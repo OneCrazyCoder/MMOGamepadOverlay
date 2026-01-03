@@ -258,7 +258,7 @@ static LRESULT CALLBACK mainWindowProc(
 			PostQuitMessage(0);
 			return 0;
 		case ID_FILE_PROFILE:
-			gLoadNewProfile = Profile::queryUserForProfile();
+			gProfileToLoad = Profile::queryUserForProfile();
 			return 0;
 		case ID_FILE_CHARACTERCONFIGFILE:
 			TargetConfigSync::promptUserForSyncFileToUse();
@@ -892,7 +892,7 @@ void loadProfileChanges()
 
 void update()
 {
-	if( sWindowInModalMode || gLoadNewProfile || gShutdown )
+	if( sWindowInModalMode || gProfileToLoad || gShutdown )
 		return;
 
 	sInDialogMode = false;
@@ -1190,7 +1190,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	aNewTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
 	if( aNewTargetSize.cx != sTargetSize.cx ||
 		aNewTargetSize.cy != sTargetSize.cy ||
-		gLoadNewProfile )
+		gProfileToLoad )
 	{
 		sTargetSize = aNewTargetSize;
 

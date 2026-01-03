@@ -119,7 +119,7 @@ void mainLoopUpdate(HWND theDialog)
 
 void mainModulesUpdate()
 {
-	if( gLoadNewProfile )
+	if( gProfileToLoad )
 		return;
 
 	Gamepad::update();
@@ -203,9 +203,9 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	timeBeginPeriod(gAppTargetFrameTime / 2);
 	sAppStartTime = sUpdateStartTime = getSystemTime();
 
-	while(gLoadNewProfile && !gShutdown && !hadFatalError())
+	while(gProfileToLoad && !gShutdown && !hadFatalError())
 	{
-		// Load current profile
+		// Load requested profile
 		Profile::load();
 
 		// Overwrite some profile properties with target app config
@@ -247,8 +247,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		}
 
 		// Main loop
-		gLoadNewProfile = false;
-		while(!gShutdown && !gLoadNewProfile && !hadFatalError())
+		while(!gShutdown && !gProfileToLoad && !hadFatalError())
 		{
 			// Check if need to react to changed Profile data
 			if( !Profile::changedSections().empty() )

@@ -1252,7 +1252,7 @@ static void processCommand(
 			sResults.charMoveLockMovement = true;
 		break;
 	case eCmdType_ChangeProfile:
-		gLoadNewProfile = Profile::queryUserForProfile();
+		gProfileToLoad = Profile::queryUserForProfile();
 		break;
 	case eCmdType_EditLayout:
 		LayoutEditor::init();

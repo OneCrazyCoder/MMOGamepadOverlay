@@ -34,7 +34,7 @@ const char* kVariablesSectionName = "Variables";
 const int kVarsSectionIdx = 0;
 const std::string kEndOfLine = "\r\n";
 
-struct ResourceProfile
+struct ResourceFile
 {
 	const char* dispName;
 	const char* fileName;
@@ -42,10 +42,10 @@ struct ResourceProfile
 	int version;
 };
 
-const ResourceProfile kResTemplateCore =
+const ResourceFile kResTemplateCore =
 	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		10	};
 
-const ResourceProfile kResTemplateBase[] =
+const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	10	},
 	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	9	},
@@ -54,7 +54,7 @@ const ResourceProfile kResTemplateBase[] =
 	{	"Pantheon Base",	"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	10	},
 };
 
-const ResourceProfile kResTemplateDefault[] =
+const ResourceFile kResTemplateDefault[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	10	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	9	},
@@ -63,7 +63,7 @@ const ResourceProfile kResTemplateDefault[] =
 	{	"Pantheon Default",	"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	10	},
 };
 
-const ResourceProfile kResTemplateCustom[] =
+const ResourceFile kResTemplateCustom[] =
 {//		dispName						fileName	resID					ver
 	{	"Adrullan Online Adventures",	"AOA",		IDR_TEXT_INI_CUST_AOA,	0 },
 	{	"EverQuest: Project 1999",		"P99",		IDR_TEXT_INI_CUST_P99,	0 },
@@ -76,12 +76,20 @@ enum EParseMode
 {
 	eParseMode_Header,
 	eParseMode_Sections,
+	eParseMode_Full,
 };
 
-struct ProfileEntry
+struct ProfileFile
 {
 	std::string name;
 	std::string path;
+};
+
+struct ProfileInfo
+{
+	std::string name;
+	std::vector<int> fileIDs;
+	bool valid() { return !fileIDs.empty(); }
 };
 
 typedef void (*ParseINICallback)(
@@ -117,6 +125,7 @@ struct BaseGameSettings
 		std::string path;
 		std::string params;
 	} autoLaunch;
+	std::string knownIssuesList;
 };
 
 
@@ -127,13 +136,13 @@ struct BaseGameSettings
 static SectionsMap sSectionsMap;
 static SectionsMap sChangedSectionsMap;
 static std::vector<UnsavedProperty> sUnsavedChangesList;
-static std::vector<ProfileEntry> sKnownProfiles;
-static std::vector< std::vector<int> > sProfilesCanLoad;
+static std::vector<ProfileFile> sKnownFiles;
+static std::vector<ProfileInfo> sProfiles; // index 0 is a dummy/reserved profile
 static std::vector<VarPropDependency> sVarPropDepList;
 static std::string sLoadedProfileName;
 static std::string sKnownIssuesRTF;
 static bool sNeedShowKnownIssues = false;
-static int sAutoProfileIdx = 0;
+static int sAutoLoadProfileID = 0;
 static int sNewBaseProfileIdx = -1;
 
 
@@ -217,40 +226,40 @@ static std::string profileNameToFilePath(const std::string& theName)
 }
 
 
-static bool profileExists(const std::string& theFilePath)
+static bool fileExists(const std::string& theFilePath)
 {
 	return isValidFilePath(theFilePath);
 }
 
 
-static bool profileExists(const ProfileEntry& theEntry)
+static bool fileExists(const ProfileFile& theFile)
 {
-	return profileExists(theEntry.path);
+	return fileExists(theFile.path);
 }
 
 
-static ProfileEntry profileNameToEntry(const std::string& theProfileName)
+static ProfileFile profileNameToFile(const std::string& theProfileName)
 {
-	ProfileEntry anEntry;
-	anEntry.name = extractProfileName(theProfileName);
-	anEntry.path = profileNameToFilePath(anEntry.name);
-	return anEntry;
+	ProfileFile aFileInfo;
+	aFileInfo.name = extractProfileName(theProfileName);
+	aFileInfo.path = profileNameToFilePath(aFileInfo.name);
+	return aFileInfo;
 }
 
 
-static int getOrAddProfileIdx(const ProfileEntry& theProfileEntry)
+static int getOrAddKnownFileID(const ProfileFile& theFileInfo)
 {
 	// A map would be faster, but requires a separate Map structure
 	// to ensure stable indexes (or using pointers instead), and
 	// there's unlikely to be a whole lot of these anyway.
-	for(int i = 0, end = intSize(sKnownProfiles.size()); i < end; ++i)
+	for(int i = 0, end = intSize(sKnownFiles.size()); i < end; ++i)
 	{
-		if( isSamePath(sKnownProfiles[i].path, theProfileEntry.path) )
+		if( isSamePath(sKnownFiles[i].path, theFileInfo.path) )
 			return i;
 	}
 
-	sKnownProfiles.push_back(theProfileEntry);
-	return intSize(sKnownProfiles.size()) - 1;
+	sKnownFiles.push_back(theFileInfo);
+	return intSize(sKnownFiles.size()) - 1;
 }
 
 
@@ -681,12 +690,12 @@ static void setPropertyInINI(
 }
 
 
-static void generateResourceProfile(const ResourceProfile& theResProfile)
+static void generateResourceFile(const ResourceFile& theResFile)
 {
 	const std::string& aFilePath =
-		profileNameToFilePath(theResProfile.fileName);
+		profileNameToFilePath(theResFile.fileName);
 
-	if( !writeResourceToFile(theResProfile.resID,
+	if( !writeResourceToFile(theResFile.resID,
 			L"TEXT", widen(aFilePath).c_str()) )
 	{
 		logFatalError("Unable to write Profile data to file %s\n",
@@ -694,11 +703,11 @@ static void generateResourceProfile(const ResourceProfile& theResProfile)
 		return;
 	}
 
-	if( theResProfile.version )
+	if( theResFile.version )
 	{
 		setPropertyInINI(aFilePath,
 			"", kAutoGenVersionKey,
-			toString(theResProfile.version));
+			toString(theResFile.version));
 	}
 }
 
@@ -721,50 +730,27 @@ static void getProfileListCallback(
 			stringToInt(aProfileNameKey.substr(aProfileKeyPrefix.length()));
 		if( aProfileNum > 0 && !theValue.empty() )
 		{
-			const ProfileEntry& aProfileEntry = profileNameToEntry(theValue);
-			if( profileExists(aProfileEntry) )
+			const ProfileFile& aFile = profileNameToFile(theValue);
+			if( fileExists(aFile) )
 			{
-				if( aProfileNum >= intSize(sProfilesCanLoad.size()) )
-					sProfilesCanLoad.resize(aProfileNum + 1);
-				sProfilesCanLoad[aProfileNum].push_back(
-					getOrAddProfileIdx(aProfileEntry));
+				if( aProfileNum >= intSize(sProfiles.size()) )
+					sProfiles.resize(aProfileNum + 1);
+				sProfiles[aProfileNum].name = aFile.name;
+				sProfiles[aProfileNum].fileIDs.push_back(
+					getOrAddKnownFileID(aFile));
 			}
 			else
 			{
 				logError("Could not find/open profile '%s' (%s) listed in %s",
 					theValue.c_str(),
-					aProfileEntry.path.c_str(),
+					aFile.path.c_str(),
 					kCoreProfileName);
 			}
 		}
 	}
 	else if( aProfileNameKey == condense(kAutoLoadProfileKey) )
 	{// Auto-load profile entry
-		if( theValue.empty() )
-			return;
-
-		int anAutoProfileNum = stringToInt(theValue);
-		if( anAutoProfileNum > 0 &&
-			toString(anAutoProfileNum).length() == theValue.length() )
-		{// Specified by number
-			sAutoProfileIdx = anAutoProfileNum;
-			return;
-		}
-
-		// Specified by name
-		const ProfileEntry& aProfileEntry = profileNameToEntry(theValue);
-		if( profileExists(aProfileEntry) )
-		{
-			DBG_ASSERT(!sProfilesCanLoad.empty());
-			sProfilesCanLoad[0].push_back(
-				getOrAddProfileIdx(aProfileEntry));
-		}
-		else
-		{
-			logError("Could not find/open auto-load profile %s (%s)",
-				theValue.c_str(),
-				aProfileEntry.path.c_str());
-		}
+		sAutoLoadProfileID = stringToInt(theValue);
 	}
 }
 
@@ -784,67 +770,67 @@ static void addParentCallback(
 	if( condense(theName) == "PARENTPROFILE" || condense(theName) == "PARENT" )
 	{
 		const std::string& aProfileName = extractProfileName(theValue);
-		ProfileEntry aProfileEntry = profileNameToEntry(aProfileName);
-		if( !profileExists(aProfileEntry) )
+		ProfileFile aFile = profileNameToFile(aProfileName);
+		if( !fileExists(aFile) )
 		{// File not found - but maybe referencing a resource base file?
 			const std::string& aCmpName = condense(aProfileName);
 			for(int i = 0; i < ARRAYSIZE(kResTemplateBase); ++i)
 			{
 				if( condense(kResTemplateBase[i].fileName) == aCmpName )
 				{
-					generateResourceProfile(kResTemplateBase[i]);
-					aProfileEntry = profileNameToEntry(aProfileName);
-					sNewBaseProfileIdx = getOrAddProfileIdx(aProfileEntry);
+					generateResourceFile(kResTemplateBase[i]);
+					aFile = profileNameToFile(aProfileName);
+					sNewBaseProfileIdx = getOrAddKnownFileID(aFile);
 					break;
 				}
 			}
 		}
-		if( !profileExists(aProfileEntry) )
+		if( !fileExists(aFile) )
 		{// File still not found - maybe referencing a resource default file?
 			const std::string& aCmpName = condense(aProfileName);
 			for(int i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
 			{
 				if( condense(kResTemplateDefault[i].fileName) == aCmpName )
 				{
-					generateResourceProfile(kResTemplateDefault[i]);
-					aProfileEntry = profileNameToEntry(aProfileName);
-					sNewBaseProfileIdx = getOrAddProfileIdx(aProfileEntry);
+					generateResourceFile(kResTemplateDefault[i]);
+					aFile = profileNameToFile(aProfileName);
+					sNewBaseProfileIdx = getOrAddKnownFileID(aFile);
 					break;
 				}
 			}
 		}
-		if( profileExists(aProfileEntry) )
+		if( fileExists(aFile) )
 		{
-			const int aParentProfileIdx = getOrAddProfileIdx(aProfileEntry);
+			const int aParentFileIdx = getOrAddKnownFileID(aFile);
 			// Don't add Core as parent if specified (it's added automatically)
-			if( aParentProfileIdx == 0 )
+			if( aParentFileIdx == 0 )
 				return;
 			// Don't add entries already added (or can get infinite loop)!
 			if( std::find(aLoadPriorityList->begin(), aLoadPriorityList->end(),
-					aParentProfileIdx) != aLoadPriorityList->end() )
+					aParentFileIdx) != aLoadPriorityList->end() )
 				return;
-			aLoadPriorityList->push_back(aParentProfileIdx);
+			aLoadPriorityList->push_back(aParentFileIdx);
 		}
 		else
 		{
 			logError("Could not find/open '%s' Profile's parent: '%s' (%s)",
-				sKnownProfiles[*(aLoadPriorityList->begin())].name.c_str(),
-				theValue.c_str(), aProfileEntry.path.c_str());
+				sKnownFiles[*(aLoadPriorityList->begin())].name.c_str(),
+				theValue.c_str(), aFile.path.c_str());
 		}
 	}
 }
 
 
-static void generateProfileLoadPriorityList(int theProfileListIdx)
+static void generateProfileLoadPriorityList(int theProfileID)
 {
-	DBG_ASSERT(size_t(theProfileListIdx) < sProfilesCanLoad.size());
-	std::vector<int>& aList = sProfilesCanLoad[theProfileListIdx];
+	DBG_ASSERT(size_t(theProfileID) < sProfiles.size());
+	std::vector<int>& aList = sProfiles[theProfileID].fileIDs;
 	if( aList.empty() )
 		return;
 
 	// Should only have the main file as first priority at this point
 	DBG_ASSERT(aList.size() == 1);
-	DBG_ASSERT(size_t(aList[0]) < sKnownProfiles.size());
+	DBG_ASSERT(size_t(aList[0]) < sKnownFiles.size());
 
 	// Parse main profile and add parent, parent of parent, etc.
 	// NOTE: aList.size() can grow during this, so must be checked each loop
@@ -852,7 +838,7 @@ static void generateProfileLoadPriorityList(int theProfileListIdx)
 	{
 		parseINI(
 			addParentCallback,
-			sKnownProfiles[aList[i]].path,
+			sKnownFiles[aList[i]].path,
 			eParseMode_Header,
 			&aList);
 	}
@@ -864,30 +850,32 @@ static void generateProfileLoadPriorityList(int theProfileListIdx)
 
 static void parseProfilesCanLoad()
 {
-	sKnownProfiles.clear();
-	sProfilesCanLoad.clear();
-	sAutoProfileIdx = 0;
+	sKnownFiles.clear();
+	sProfiles.resize(1); // includes a dummy 0th entry
+	sAutoLoadProfileID = 0;
 
-	// Initially core .ini is only profile known, with others added
-	// via parsing core (and other profiles for checking for parents)
-	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
-	if( !profileExists(aCoreProfile) )
+	// Initially core .ini is only profile file known, with others added
+	// via parsing core (and other profiles when checking for parents)
+	ProfileFile aCoreFile = profileNameToFile(kCoreProfileName);
+	if( !fileExists(aCoreFile) )
 	{
 		logFatalError("Could not find %s (%s)",
-			kCoreProfileName, aCoreProfile.path.c_str());
+			kCoreProfileName, aCoreFile.path.c_str());
 		return;
 	}
 
-	// Add Core as first known profile (profile 0)
-	getOrAddProfileIdx(aCoreProfile);
+	// Make sure Core is first known file (index 0)
+	getOrAddKnownFileID(aCoreFile);
 
 	// Get list of load-able profiles and auto-load profile from core
-	// Profile '0' reserved for auto-load profile if specified by name
-	sProfilesCanLoad.resize(1);
 	parseINI(
 		getProfileListCallback,
-		aCoreProfile.path,
+		aCoreFile.path,
 		eParseMode_Header);
+
+	// Fill in the remaining files needed for each found profile
+	for(int i = 0, end = intSize(sProfiles.size()); i < end; ++i)
+		generateProfileLoadPriorityList(i);
 }
 
 
@@ -950,44 +938,35 @@ static void readBaseGameSettingsCallback(
 	if( !theAppInfo || theValue.empty() )
 		return;
 
-	BaseGameSettings* aSettings = (BaseGameSettings*)(theAppInfo);
+	BaseGameSettings* theSettings = (BaseGameSettings*)(theAppInfo);
 	if( condense(theSection) == condense(kBaseGameSettingsSection) )
 	{
 		if( condense(theName) == condense(kAutoLaunchAppKey) )
-			aSettings->autoLaunch.path = theValue;
+			theSettings->autoLaunch.path = theValue;
 		if( condense(theName) == condense(kAutoLaunchAppParamsKey) )
-			aSettings->autoLaunch.params = theValue;
-		if( sNeedShowKnownIssues &&
-			condense(theName) == condense(kKnownIssuesKey) )
-		{
-			generateKnownIssuesRTF(theValue);
-		}
+			theSettings->autoLaunch.params = theValue;
+		if( condense(theName) == condense(kKnownIssuesKey) )
+			theSettings->knownIssuesList = theValue;
 	}
 }
 
 
-static BaseGameSettings getBaseGameSettings(const ProfileEntry& theProfile)
+static BaseGameSettings getBaseGameSettings(const ProfileFile& theFile)
 {
-	const std::string aPrevKnownIssues = sKnownIssuesRTF;
-	if( sNeedShowKnownIssues )
-		sKnownIssuesRTF.clear();
-	BaseGameSettings aSettings;
+	BaseGameSettings result;
 
 	parseINI(
 		readBaseGameSettingsCallback,
-		theProfile.path,
+		theFile.path,
 		eParseMode_Sections,
-		&aSettings);
+		&result);
 
-	if( sKnownIssuesRTF.empty() )
-		sNeedShowKnownIssues = false;
-
-	return aSettings;
+	return result;
 }
 
 
 static void writeBaseGameSettingsChanges(
-	ProfileEntry& theProfile,
+	ProfileFile& theFile,
 	const BaseGameSettings& theDefaultSettings,
 	const BaseGameSettings& theCustomSettings)
 {
@@ -995,7 +974,7 @@ static void writeBaseGameSettingsChanges(
 		!theDefaultSettings.autoLaunch.path.empty() )
 	{
 		setPropertyInINI(
-			theProfile.path,
+			theFile.path,
 			kBaseGameSettingsSection, kAutoLaunchAppKey,
 			theCustomSettings.autoLaunch.path);
 	}
@@ -1003,33 +982,25 @@ static void writeBaseGameSettingsChanges(
 		!theDefaultSettings.autoLaunch.params.empty() )
 	{
 		setPropertyInINI(
-			theProfile.path,
+			theFile.path,
 			kBaseGameSettingsSection, kAutoLaunchAppParamsKey,
 			theCustomSettings.autoLaunch.params);
 	}
 }
 
 
-static void setAutoLoadProfile(int theProfilesCanLoadIdx)
+static void setAutoLoadProfile(int theProfileID)
 {
-	if( theProfilesCanLoadIdx == sAutoProfileIdx )
+	if( theProfileID == sAutoLoadProfileID )
 		return;
 
-	DBG_ASSERT(!sKnownProfiles.empty());
+	DBG_ASSERT(!sKnownFiles.empty());
+	sAutoLoadProfileID = theProfileID;
 
-	if( theProfilesCanLoadIdx > 0 )
-	{
-		setPropertyInINI(
-			sKnownProfiles[0].path,
-			"", kAutoLoadProfileKey,
-			toString(theProfilesCanLoadIdx));
-	}
-	else
-	{
-		setPropertyInINI(
-			sKnownProfiles[0].path,
-			"", kAutoLoadProfileKey, "");
-	}
+	setPropertyInINI(
+		sKnownFiles[0].path,
+		"", kAutoLoadProfileKey,
+		theProfileID ? toString(theProfileID) : std::string());
 }
 
 
@@ -1050,9 +1021,9 @@ static void readVersionCallback(
 #endif
 
 
-static void checkForOutdatedFileVersion(ProfileEntry& theFile)
+static void checkForOutdatedFileVersion(ProfileFile& theFile)
 {
-	const ResourceProfile* theMatchingResource = NULL;
+	const ResourceFile* theMatchingResource = NULL;
 	bool matchingResourceIsCore = false;
 	bool matchingResourceIsBase = false;
 	if( theFile.name == kResTemplateCore.fileName )
@@ -1133,29 +1104,25 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 		BaseGameSettings aCustomSettings;
 		if( matchingResourceIsBase )
 			aCustomSettings = getBaseGameSettings(theFile);
-		generateResourceProfile(*theMatchingResource);
+		generateResourceFile(*theMatchingResource);
 		if( matchingResourceIsCore )
 		{// Restore known profile list & auto-load setting to regenerated Core
-			int autoProfileIdxTmp = 0;
-			swap(autoProfileIdxTmp, sAutoProfileIdx);
-			setAutoLoadProfile(autoProfileIdxTmp);
-			swap(autoProfileIdxTmp, sAutoProfileIdx);
-			int aProfID = 1;
-			for(int i = 1, end = intSize(sProfilesCanLoad.size());
-				i < end; ++i)
+			setPropertyInINI(
+				sKnownFiles[0].path,
+				"", kAutoLoadProfileKey,
+				sAutoLoadProfileID > 0
+					? toString(sAutoLoadProfileID)
+					: std::string());
+			for(int i = 1, end = intSize(sProfiles.size()); i < end; ++i)
 			{
-				if( !sProfilesCanLoad[i].empty() )
-				{
-					setPropertyInINI(
-						theFile.path, "",
-						std::string(kProfileKeyPrefix) + toString(aProfID++),
-						sKnownProfiles[sProfilesCanLoad[i][0]].name);
-				}
+				setPropertyInINI(
+					theFile.path, "",
+					std::string(kProfileKeyPrefix) + toString(i),
+					sProfiles[i].name);
 			}
 		}
 		else if( matchingResourceIsBase )
 		{// Restore base game setting changes to regenerated Base file
-			//sNeedShowKnownIssues = true; // flag to also read known issues
 			const BaseGameSettings& aDefaultSettings =
 				getBaseGameSettings(theFile);
 
@@ -1163,9 +1130,14 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 				theFile, aDefaultSettings, aCustomSettings);
 
 			#ifndef _DEBUG
-			// Report any known issues (in case changed from last version)
+			// Generate known issues and, if there are any, display them now,
+			// in case they have changed since previous version of app
+			generateKnownIssuesRTF(aDefaultSettings.knownIssuesList);
 			if( sNeedShowKnownIssues )
+			{
 				Dialogs::showKnownIssues();
+				sNeedShowKnownIssues = false;
+			}
 			#endif
 		}
 	}
@@ -1181,20 +1153,20 @@ static void checkForOutdatedFileVersion(ProfileEntry& theFile)
 }
 
 
-static void userEditProfile(int theProfilesCanLoadIdx, bool firstProfile)
+static void userEditProfile(int theProfileID, bool firstProfile)
 {
 	// Generate list of files to possibly edit
-	DBG_ASSERT(size_t(theProfilesCanLoadIdx) < sProfilesCanLoad.size());
-	const std::vector<int>& aList = sProfilesCanLoad[theProfilesCanLoadIdx];
+	DBG_ASSERT(size_t(theProfileID) < sProfiles.size());
+	const std::vector<int>& aList = sProfiles[theProfileID].fileIDs;
 	DBG_ASSERT(!aList.empty());
 
 	std::vector<std::string> aFileList;
 	for(std::vector<int>::const_reverse_iterator itr = aList.rbegin();
 		itr != aList.rend(); ++itr)
 	{
-		DBG_ASSERT(size_t(*itr) < sKnownProfiles.size());
-		checkForOutdatedFileVersion(sKnownProfiles[*itr]);
-		aFileList.push_back(sKnownProfiles[*itr].path);
+		DBG_ASSERT(size_t(*itr) < sKnownFiles.size());
+		checkForOutdatedFileVersion(sKnownFiles[*itr]);
+		aFileList.push_back(sKnownFiles[*itr].path);
 	}
 
 	Dialogs::profileEdit(aFileList, firstProfile);
@@ -1507,64 +1479,6 @@ static void readProfileCallback(
 }
 
 
-static void loadProfile(int theProfilesCanLoadIdx)
-{
-	confirmSafeToWriteToMap();
-	sSectionsMap.clear();
-	// Make sure "variables" section is always section 0
-	sSectionsMap.setValue(kVariablesSectionName, PropertyMap());
-	sVarPropDepList.clear();
-	// Add built-in system variables to variables section
-	sSectionsMap.vals()[kVarsSectionIdx].setValue("W", Property());
-	sSectionsMap.vals()[kVarsSectionIdx].setValue("H", Property());
-	// Prepare for reading known issues
-	sNeedShowKnownIssues = false;
-	sKnownIssuesRTF.clear();
-
-	DBG_ASSERT(size_t(theProfilesCanLoadIdx) < sProfilesCanLoad.size());
-	const std::vector<int>& aList = sProfilesCanLoad[theProfilesCanLoadIdx];
-	if( aList.empty() )
-		return;
-
-	// Now load each .ini's values 1-by-1 in reverse order.
-	// Any setting in later files overrides previous setting,
-	// which is why we load them in reverse of priority order
-	for(std::vector<int>::const_reverse_iterator itr = aList.rbegin();
-		itr != aList.rend(); ++itr)
-	{
-		DBG_ASSERT(size_t(*itr) < sKnownProfiles.size());
-		checkForOutdatedFileVersion(sKnownProfiles[*itr]);
-		parseINI(
-			readProfileCallback,
-			sKnownProfiles[*itr].path,
-			eParseMode_Sections);
-	}
-	sSectionsMap.trim();
-
-	// Process variable expansion for all properties
-	for(int aSectionID = 0; aSectionID < sSectionsMap.size(); ++aSectionID)
-	{
-		PropertyMap& aSection = sSectionsMap.vals()[aSectionID];
-		for(int aPropID = 0; aPropID < aSection.size(); ++aPropID)
-			expandPropertyVars(aSectionID, aPropID, true);
-	}
-
-	// Sort and remove duplicate entries in variable dependency list
-	std::sort(sVarPropDepList.begin(), sVarPropDepList.end());
-	sVarPropDepList.erase(
-		std::unique(sVarPropDepList.begin(), sVarPropDepList.end()),
-		sVarPropDepList.end());
-
-	// Now that have loaded a profile, only need to remember the main
-	// profile's name and can forget gathered data about other profiles
-	sLoadedProfileName = sKnownProfiles[aList[0]].name;
-	sKnownProfiles.clear();
-	sProfilesCanLoad.clear();
-	sAutoProfileIdx = 0;
-	sNewBaseProfileIdx = -1;
-}
-
-
 static void propogatePropertyChange(int theSectionID, int thePropertyID)
 {
 	// Apply variable expansion to this property
@@ -1640,146 +1554,40 @@ static void setPropertyAfterLoad(
 }
 
 
-//------------------------------------------------------------------------------
-// Global Functions
-//------------------------------------------------------------------------------
-
-void loadCore()
+int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 {
-	// Should only be run once at app startup, otherwise core will be
-	// loaded alongside normal ::load()
-	DBG_ASSERT(sSectionsMap.empty());
-
-	ProfileEntry aCoreProfile = profileNameToEntry(kCoreProfileName);
-	if( !profileExists(aCoreProfile) )
-	{// Core .ini file not found!
-		// Assume this means first run, which means show license agreement
-		if( Dialogs::showLicenseAgreement() == eResult_Declined )
-		{// Declined license agreement - just exit
-			gShutdown = true;
-		}
-		else
-		{// Generate Core.ini which will prevent future license agreement
-			generateResourceProfile(kResTemplateCore);
-			if( !profileExists(aCoreProfile) )
-			{
-				logFatalError("Unable to find/write %s (%s)",
-					kCoreProfileName, aCoreProfile.path.c_str());
-			}
-		}
-	}
-	if( hadFatalError() || gShutdown )
-		return;
-
-	parseINI(
-		readProfileCallback,
-		aCoreProfile.path,
-		eParseMode_Sections);
-}
-
-
-void load()
-{
-	parseProfilesCanLoad();
-	if( hadFatalError() || gShutdown )
-		return;
-
-	// Make sure sAutoProfileIdx is a valid (even if empty) index
-	if( size_t(sAutoProfileIdx) >= sProfilesCanLoad.size() ||
-		sProfilesCanLoad[sAutoProfileIdx].empty() )
-	{
-		if( sAutoProfileIdx > 0 )
-		{
-			logError(
-				"AutoLoadProfile = %d but no profile #%d found!",
-				sAutoProfileIdx, sAutoProfileIdx);
-		}
-		sAutoProfileIdx = 0;
-	}
-
-	// If already loaded a profile, override sAutoProfileIdx with it
-	if( !sLoadedProfileName.empty() )
-	{
-		const int aProfileIdx =
-			getOrAddProfileIdx(profileNameToEntry(sLoadedProfileName));
-		if( aProfileIdx >= 0 )
-		{
-			sAutoProfileIdx = -1;
-			for(int i = 0, end = intSize(sProfilesCanLoad.size());
-				i < end; ++i)
-			{
-				if( !sProfilesCanLoad[i].empty() &&
-					sProfilesCanLoad[i][0] == aProfileIdx )
-				{
-					sAutoProfileIdx = i;
-					break;
-				}
-			}
-			if( sAutoProfileIdx == -1 )
-			{
-				sProfilesCanLoad.push_back(std::vector<int>());
-				sProfilesCanLoad.back().push_back(aProfileIdx);
-				sAutoProfileIdx = intSize(sProfilesCanLoad.size())-1;
-			}
-		}
-	}
-
-	// Fill out rest of the sProfilesCanLoad vectors
-	for(int i = 0, end = intSize(sProfilesCanLoad.size()); i < end; ++i)
-		generateProfileLoadPriorityList(i);
-
-	// See if need to query user for profile to load
-	if( sProfilesCanLoad[sAutoProfileIdx].empty() )
-		queryUserForProfile();
-	else
-		loadProfile(sAutoProfileIdx);
-}
-
-
-bool queryUserForProfile()
-{
-	saveChangesToFile();
-	int aLastCreatedProfileIdx = -1;
-retryQuery:
-
-	if( sKnownProfiles.empty() )
-	{
-		parseProfilesCanLoad();
-		for(int i = 0, end = intSize(sProfilesCanLoad.size()); i < end; ++i)
-			generateProfileLoadPriorityList(i);
-	}
+	int result = 0;
+	DBG_ASSERT(!sKnownFiles.empty());
 	if( hadFatalError() )
-		return false;
+		return result;
 
 	// Create lists needed for dialog
 	enum EType
 	{
-		eType_CopyFile,			// index into sKnownProfiles
+		eType_CopyFile,			// index into sKnownFiles
 		eType_CopyResCustom,	// index into kResTemplateCustom
 		eType_ParentResBase,	// index into kResTemplateBase
 		eType_ParentResDefault,	// index into kResTemplateDefault
-		eType_ParentFile,		// index into sKnownProfiles
+		eType_ParentFile,		// index into sKnownFiles
 	};
 	std::vector<std::string> aLoadableProfileNames;
 	std::vector<int> aLoadableProfileIndexes;
 	std::vector<std::string> aTemplateProfileNames;
-	std::vector<int> aTemplateProfileIndex;
+	std::vector<int> aTemplateSourceFileIndexes;
 	std::vector<EType> aTemplateProfileType;
 	const std::string kCopyFilePrefix = "Copy \"";
 	const std::string kParentPrefix = "Customize \"";
 
-	for(int i = 0, end = intSize(sProfilesCanLoad.size()); i < end; ++i)
+	for(int i = 1, end = intSize(sProfiles.size()); i < end; ++i)
 	{
-		if( !sProfilesCanLoad[i].empty() )
+		if( sProfiles[i].valid() )
 		{
-			const std::string& aName =
-				sKnownProfiles[sProfilesCanLoad[i][0]].name;
-			aLoadableProfileNames.push_back(aName);
+			aLoadableProfileNames.push_back(sProfiles[i].name);
 			aLoadableProfileIndexes.push_back(i);
 			aTemplateProfileNames.push_back(
-				kCopyFilePrefix + aName + '"');
-			aTemplateProfileIndex.push_back(
-				sProfilesCanLoad[i][0]);
+				kCopyFilePrefix + sProfiles[i].name + '"');
+			aTemplateSourceFileIndexes.push_back(
+				sProfiles[i].fileIDs[0]);
 			aTemplateProfileType.push_back(eType_CopyFile);
 		}
 	}
@@ -1794,29 +1602,29 @@ retryQuery:
 		}
 		aTemplateProfileNames.push_back(
 			kCopyFilePrefix + kResTemplateCustom[i].dispName + '"');
-		aTemplateProfileIndex.push_back(i);
+		aTemplateSourceFileIndexes.push_back(i);
 		aTemplateProfileType.push_back(eType_CopyResCustom);
 	}
 
-	for(int i = 0, end = intSize(sProfilesCanLoad.size()); i < end; ++i)
+	for(int i = 0, end = intSize(sKnownFiles.size()); i < end; ++i)
 	{
 		aTemplateProfileNames.push_back(
-			kParentPrefix + sKnownProfiles[i].name + '"');
-		aTemplateProfileIndex.push_back(i);
+			kParentPrefix + sKnownFiles[i].name + '"');
+		aTemplateSourceFileIndexes.push_back(i);
 		aTemplateProfileType.push_back(eType_ParentFile);
 	}
 
 	for(int i = 0; i < ARRAYSIZE(kResTemplateBase); ++i)
 	{
-		// Only add ones that don't already exist in sKnownProfiles
+		// Only add ones that don't already exist in sKnownFiles
 		bool alreadyExists = false;
-		const ProfileEntry& aTestEntry =
-			profileNameToEntry(kResTemplateBase[i].fileName);
-		if( profileExists(aTestEntry) )
+		const ProfileFile& aTestEntry =
+			profileNameToFile(kResTemplateBase[i].fileName);
+		if( fileExists(aTestEntry) )
 		{
-			for(int j = 0, end = intSize(sKnownProfiles.size()); j < end; ++j)
+			for(int j = 0, end = intSize(sKnownFiles.size()); j < end; ++j)
 			{
-				if( isSamePath(sKnownProfiles[j].path, aTestEntry.path) )
+				if( isSamePath(sKnownFiles[j].path, aTestEntry.path) )
 				{
 					alreadyExists = true;
 					break;
@@ -1827,20 +1635,20 @@ retryQuery:
 			continue;
 		aTemplateProfileNames.push_back(
 			kParentPrefix + kResTemplateBase[i].dispName + '"');
-		aTemplateProfileIndex.push_back(i);
+		aTemplateSourceFileIndexes.push_back(i);
 		aTemplateProfileType.push_back(eType_ParentResBase);
 	}
 
 	for(int i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
 	{
 		bool alreadyExists = false;
-		const ProfileEntry& aTestEntry =
-			profileNameToEntry(kResTemplateDefault[i].fileName);
-		if( profileExists(aTestEntry) )
+		const ProfileFile& aTestEntry =
+			profileNameToFile(kResTemplateDefault[i].fileName);
+		if( fileExists(aTestEntry) )
 		{
-			for(int j = 0, end = intSize(sKnownProfiles.size()); j < end; ++j)
+			for(int j = 0, end = intSize(sKnownFiles.size()); j < end; ++j)
 			{
-				if( isSamePath(sKnownProfiles[j].path, aTestEntry.path) )
+				if( isSamePath(sKnownFiles[j].path, aTestEntry.path) )
 				{
 					alreadyExists = true;
 					break;
@@ -1851,7 +1659,7 @@ retryQuery:
 			continue;
 		aTemplateProfileNames.push_back(
 			kParentPrefix + kResTemplateDefault[i].dispName + '"');
-		aTemplateProfileIndex.push_back(i);
+		aTemplateSourceFileIndexes.push_back(i);
 		aTemplateProfileType.push_back(eType_ParentResDefault);
 	}
 
@@ -1866,23 +1674,20 @@ retryQuery:
 				aDefaultSelectedIdx = i;
 		}
 	}
-	if( aLastCreatedProfileIdx >= 0 )
-		aDefaultSelectedIdx = aLastCreatedProfileIdx;
+	if( theLastCreatedProfileIdx >= 0 )
+		aDefaultSelectedIdx = theLastCreatedProfileIdx;
 	Dialogs::ProfileSelectResult aDialogResult = Dialogs::profileSelect(
 		aLoadableProfileNames,
 		aTemplateProfileNames,
 		aDefaultSelectedIdx,
-		sAutoProfileIdx >= 0 &&
-		size_t(sAutoProfileIdx) < sProfilesCanLoad.size() &&
-		!sProfilesCanLoad[sAutoProfileIdx].empty(),
+		sAutoLoadProfileID > 0 &&
+			size_t(sAutoLoadProfileID) < sProfiles.size() &&
+			sProfiles[sAutoLoadProfileID].valid(),
 		needFirstProfile);
 
 	if( aDialogResult.cancelled )
 	{// User declined to select anything
-		// If have no profile loaded already, quit app entirely
-		if( sLoadedProfileName.empty() )
-			gShutdown = true;
-		return false;
+		return result;
 	}
 
 	// For first profile, if no name given then use built-in name
@@ -1898,42 +1703,41 @@ retryQuery:
 	{// User must have requested to load or edit an existing profile
 		DBG_ASSERT(size_t(aDialogResult.selectedIndex) <
 			aLoadableProfileNames.size());
-		const int aProfileCanLoadIdx =
-			aLoadableProfileIndexes[aDialogResult.selectedIndex];
+		result = aLoadableProfileIndexes[aDialogResult.selectedIndex];
 		setAutoLoadProfile(
-			aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
-		if( aDialogResult.autoLoadRequested )
-			sAutoProfileIdx = aProfileCanLoadIdx;
+			aDialogResult.autoLoadRequested ? result : 0);
 		if( aDialogResult.editProfileRequested )
 		{
-			userEditProfile(aProfileCanLoadIdx, false);
-			goto retryQuery;
+			userEditProfile(result, false);
+			result = -1; // repeat query from the start
 		}
-		loadProfile(aProfileCanLoadIdx);
-		return true;
+		return result;
 	}
 
 	// User must have requested creating a new profile
 	const std::string& aNewName = extractProfileName(aDialogResult.newName);
-	ProfileEntry aNewEntry = profileNameToEntry(aNewName);
+	ProfileFile aNewEntry = profileNameToFile(aNewName);
 	int aSrcIdx = aDialogResult.selectedIndex;
-	DBG_ASSERT(size_t(aSrcIdx) < aTemplateProfileIndex.size());
+	DBG_ASSERT(size_t(aSrcIdx) < aTemplateSourceFileIndexes.size());
 
-	if( profileExists(aNewEntry) )
+	if( fileExists(aNewEntry) )
 	{// File already exists
-		if( isSamePath(aNewEntry.path, sKnownProfiles[0].path) )
+		if( isSamePath(aNewEntry.path, sKnownFiles[0].path) )
 		{
 			Dialogs::showError(NULL,
 				"Can not create custom Profile with the name 'Core'!");
-			goto retryQuery;
+			result = -1; // repeat query from the start
+			return result;
 		}
 		int duplicateLoadProfileIdx = -1;
-		for(int i = 0, end = intSize(sProfilesCanLoad.size()); i < end; ++i)
+		for(int i = 0, end = intSize(sProfiles.size()); i < end; ++i)
 		{
-			const ProfileEntry& aKnownProfile =
-				sKnownProfiles[sProfilesCanLoad[i][0]];
-			if( !sProfilesCanLoad[i].empty() &&
-				isSamePath(aKnownProfile.path, aNewEntry.path) )
+			if( !sProfiles[i].valid() )
+				continue;
+			const ProfileFile& aKnownFile =
+				sKnownFiles[sProfiles[i].fileIDs[0]];
+			if( sProfiles[i].valid() &&
+				isSamePath(aKnownFile.path, aNewEntry.path) )
 			{
 				duplicateLoadProfileIdx = i;
 				break;
@@ -1946,9 +1750,10 @@ retryQuery:
 						aNewName.c_str()),
 					"Overwrite existing Profile") != eResult_Yes )
 			{
-				goto retryQuery;
+				result = -1; // repeat query from the start
+				return result;
 			}
-			sProfilesCanLoad[duplicateLoadProfileIdx].clear();
+			sProfiles[duplicateLoadProfileIdx].fileIDs.clear();
 		}
 		else
 		{
@@ -1957,7 +1762,8 @@ retryQuery:
 				"because it is not listed in the profile list in '%s'. "
 				"This may indicate it is profile's parent file.",
 				getFileName(aNewEntry.path).c_str(), kCoreProfileName));
-			goto retryQuery;
+			result = -1; // repeat query from the start
+			return result;
 		}
 	}
 
@@ -1975,7 +1781,8 @@ retryQuery:
 			{
 				Dialogs::showError(NULL,
 					"Selected Profile name not valid (reserved)!");
-				goto retryQuery;
+				result = -1; // repeat query from the start
+				return result;
 			}
 		}
 	}
@@ -1990,36 +1797,38 @@ retryQuery:
 			{
 				Dialogs::showError(NULL,
 					"Selected Profile name not valid (reserved)!");
-				goto retryQuery;
+				result = -1; // repeat query from the start
+				return result;
 			}
 		}
 	}
 
-	// Find slot in sProfilesCanLoad to add profile to
-	int aProfileCanLoadIdx = intSize(sProfilesCanLoad.size());
-	for(int i = 1; i < aProfileCanLoadIdx; ++i)
+	// Find slot in sProfiles to add profile to
+	result = intSize(sProfiles.size());
+	for(int i = 1; i < result; ++i)
 	{
-		if( sProfilesCanLoad[i].empty() )
+		if( !sProfiles[i].valid() )
 		{
-			aProfileCanLoadIdx = i;
+			result = i;
 			break;
 		}
 	}
-	if( aProfileCanLoadIdx == intSize(sProfilesCanLoad.size()) )
-		sProfilesCanLoad.push_back(std::vector<int>());
+	if( result == intSize(sProfiles.size()) )
+		sProfiles.push_back(ProfileInfo());
+	DBG_ASSERT(result > 0);
 
 	switch(aProfileType)
 	{
 	case eType_CopyFile:
 		{// Create copy of source file
-			const int aKnownProfileIdx = aTemplateProfileIndex[aSrcIdx];
-			DBG_ASSERT(size_t(aKnownProfileIdx) < sKnownProfiles.size());
-			const ProfileEntry& aSrcEntry = sKnownProfiles[aKnownProfileIdx];
+			const int aKnownProfileIdx = aTemplateSourceFileIndexes[aSrcIdx];
+			DBG_ASSERT(size_t(aKnownProfileIdx) < sKnownFiles.size());
+			const ProfileFile& aSrcFile = sKnownFiles[aKnownProfileIdx];
 			// Don't actually do anything if source and dest are the same file
-			if( !isSamePath(aNewEntry.path, aSrcEntry.path) )
+			if( !isSamePath(aNewEntry.path, aSrcFile.path) )
 			{
 				CopyFile(
-					widen(aSrcEntry.path).c_str(),
+					widen(aSrcFile.path).c_str(),
 					widen(aNewEntry.path).c_str(),
 					FALSE);
 			}
@@ -2027,55 +1836,56 @@ retryQuery:
 		break;
 	case eType_CopyResCustom:
 		{// Generate resource profile but with new file name
-			const int aResTemplateIdx = aTemplateProfileIndex[aSrcIdx];
+			const int aResTemplateIdx = aTemplateSourceFileIndexes[aSrcIdx];
 			DBG_ASSERT(aResTemplateIdx >= 0);
 			DBG_ASSERT(aResTemplateIdx < ARRAYSIZE(kResTemplateCustom));
-			ResourceProfile aResProfile = kResTemplateCustom[aResTemplateIdx];
-			aResProfile.fileName = aNewName.c_str();
-			generateResourceProfile(aResProfile);
+			ResourceFile aResFile = kResTemplateCustom[aResTemplateIdx];
+			aResFile.fileName = aNewName.c_str();
+			generateResourceFile(aResFile);
 		}
 		break;
 	case eType_ParentResBase:
 	case eType_ParentResDefault:
 		{// Generate resource profile to act as parent
-			const int aResBaseIdx = aTemplateProfileIndex[aSrcIdx];
+			const int aResBaseIdx = aTemplateSourceFileIndexes[aSrcIdx];
 			const char* aProfileName = null;
 			if( aProfileType == eType_ParentResDefault )
 			{
 				DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateDefault));
-				generateResourceProfile(kResTemplateDefault[aResBaseIdx]);
+				generateResourceFile(kResTemplateDefault[aResBaseIdx]);
 				aProfileName = kResTemplateDefault[aResBaseIdx].fileName;
 			}
 			else
 			{
 				DBG_ASSERT(aResBaseIdx < ARRAYSIZE(kResTemplateBase));
-				generateResourceProfile(kResTemplateBase[aResBaseIdx]);
+				generateResourceFile(kResTemplateBase[aResBaseIdx]);
 				aProfileName = kResTemplateBase[aResBaseIdx].fileName;
 			}
 			sNewBaseProfileIdx = -1;
-			sNewBaseProfileIdx = getOrAddProfileIdx(
-				profileNameToEntry(aProfileName));
+			sNewBaseProfileIdx = getOrAddKnownFileID(
+				profileNameToFile(aProfileName));
 			if( sNewBaseProfileIdx < 0 )
 				break;
 			// Treat as _ParentFile type now that resource exists as a file
 			aTemplateProfileNames.push_back("");
-			aTemplateProfileIndex.push_back(sNewBaseProfileIdx);
+			aTemplateSourceFileIndexes.push_back(sNewBaseProfileIdx);
 			aTemplateProfileType.push_back(eType_ParentFile);
 			aSrcIdx = intSize(aTemplateProfileType.size()) - 1;
-			aNewEntry = profileNameToEntry(aNewName);
+			aNewEntry = profileNameToFile(aNewName);
 		}
 		// fall through
 	case eType_ParentFile:
 		{// Create new file that sets source file as its parent profile
-			const int aKnownProfileIdx = aTemplateProfileIndex[aSrcIdx];
-			DBG_ASSERT(size_t(aKnownProfileIdx) < sKnownProfiles.size());
-			const ProfileEntry& aSrcEntry = sKnownProfiles[aKnownProfileIdx];
+			const int aKnownProfileIdx = aTemplateSourceFileIndexes[aSrcIdx];
+			DBG_ASSERT(size_t(aKnownProfileIdx) < sKnownFiles.size());
+			const ProfileFile& aSrcFile = sKnownFiles[aKnownProfileIdx];
 			// Make sure parent and new file are not the same file
-			if( isSamePath(aSrcEntry.path, aNewEntry.path) )
+			if( isSamePath(aSrcFile.path, aNewEntry.path) )
 			{
 				Dialogs::showError(NULL,
 					"Selected Profile name matches parent profile name!");
-				goto retryQuery;
+				result = -1; // repeat query from the start
+				return result;
 			}
 			std::ofstream aFile(
 				widen(aNewEntry.path).c_str(),
@@ -2085,7 +1895,7 @@ retryQuery:
 				if( aKnownProfileIdx > 0 )
 				{// Don't need to specify if Core is the parent
 					aFile << "ParentProfile = ";
-					aFile << aSrcEntry.name << std::endl << std::endl;
+					aFile << aSrcFile.name << std::endl << std::endl;
 				}
 				aFile.close();
 			}
@@ -2094,33 +1904,31 @@ retryQuery:
 				Dialogs::showError(NULL,
 					strFormat("Unable to write Profile data to file %s\n",
 						aNewEntry.path.c_str()));
-				goto retryQuery;
+				result = -1; // repeat query from the start
+				return result;
 			}
 		}
 		break;
 	}
 
-	if( !profileExists(aNewEntry) )
+	if( !fileExists(aNewEntry) )
 	{
 		Dialogs::showError(NULL, strFormat(
 			"Failure creating new Profile '%s' (%s)!",
 			aNewEntry.name.c_str(), aNewEntry.path.c_str()));
-		goto retryQuery;
+		result = -1; // repeat query from the start
+		return result;
 	}
 
 	setPropertyInINI(
-		sKnownProfiles[0].path, "",
-		std::string(kProfileKeyPrefix) + toString(aProfileCanLoadIdx),
+		sKnownFiles[0].path, "",
+		std::string(kProfileKeyPrefix) + toString(result),
 		aNewEntry.name);
-	sProfilesCanLoad[aProfileCanLoadIdx].push_back(
-		getOrAddProfileIdx(aNewEntry));
-	generateProfileLoadPriorityList(aProfileCanLoadIdx);
-	sAutoProfileIdx = -1;
-	setAutoLoadProfile(
-		aDialogResult.autoLoadRequested ? aProfileCanLoadIdx : 0);
-	if( aDialogResult.autoLoadRequested )
-		sAutoProfileIdx = aProfileCanLoadIdx;
-	aLastCreatedProfileIdx = aProfileCanLoadIdx;
+	sProfiles[result].fileIDs.push_back(getOrAddKnownFileID(aNewEntry));
+	sProfiles[result].name = aNewEntry.name;
+	generateProfileLoadPriorityList(result);
+	setAutoLoadProfile(aDialogResult.autoLoadRequested ? result : 0);
+	theLastCreatedProfileIdx = result;
 
 	// Extra prompts for first time create a "base" profile, which represents
 	// the shared default values for all profiles for a particular game, and
@@ -2128,9 +1936,8 @@ retryQuery:
 	if( sNewBaseProfileIdx >= 0 )
 	{
 		// Load defaults values from generated file
-		sNeedShowKnownIssues = true; // flag to also read known issues
 		const BaseGameSettings& aDefaultSettings =
-			getBaseGameSettings(sKnownProfiles[sNewBaseProfileIdx]);
+			getBaseGameSettings(sKnownFiles[sNewBaseProfileIdx]);
 		BaseGameSettings aSettings = aDefaultSettings;
 
 		// Prompt user for auto-launch configuration
@@ -2139,13 +1946,18 @@ retryQuery:
 			aSettings.autoLaunch.params);
 
 		writeBaseGameSettingsChanges(
-			sKnownProfiles[sNewBaseProfileIdx],
+			sKnownFiles[sNewBaseProfileIdx],
 			aDefaultSettings,
 			aSettings);
 
-		// Display known issues list for related game
+		// Load read-in known issues key now, before rest of profile,
+		// so can generate it and display it immediately
+		generateKnownIssuesRTF(aDefaultSettings.knownIssuesList);
 		if( sNeedShowKnownIssues )
+		{
 			Dialogs::showKnownIssues();
+			sNeedShowKnownIssues = false;
+		}
 	}
 	sNewBaseProfileIdx = -1;
 
@@ -2156,17 +1968,157 @@ retryQuery:
 				"Key Binds and other settings?",
 				"Edit new profile") == eResult_Yes )
 		{
-			userEditProfile(aLastCreatedProfileIdx, true);
+			userEditProfile(result, true);
 		}
 		else
 		{
-			loadProfile(aProfileCanLoadIdx);
-			return true;
+			return result;
 		}
 	}
 
-	// loop and query again to actually load the new profile
-	goto retryQuery;
+	// Query again to actually load the new profile
+	result = -1;
+	return result;
+}
+
+
+//------------------------------------------------------------------------------
+// Global Functions
+//------------------------------------------------------------------------------
+
+void loadCore()
+{
+	// Should only be run once at app startup, otherwise core will be
+	// loaded alongside normal ::load()
+	DBG_ASSERT(sSectionsMap.empty());
+
+	ProfileFile aCoreFile = profileNameToFile(kCoreProfileName);
+	if( !fileExists(aCoreFile) )
+	{// Core .ini file not found!
+		// Assume this means first run, which means show license agreement
+		if( Dialogs::showLicenseAgreement() == eResult_Declined )
+		{// Declined license agreement - just exit
+			gShutdown = true;
+		}
+		else
+		{// Generate Core.ini which will prevent future license agreement
+			generateResourceFile(kResTemplateCore);
+			if( !fileExists(aCoreFile) )
+			{
+				logFatalError("Unable to find/write %s (%s)",
+					kCoreProfileName, aCoreFile.path.c_str());
+			}
+		}
+	}
+	if( hadFatalError() || gShutdown )
+		return;
+
+	parseINI(
+		readProfileCallback,
+		aCoreFile.path,
+		eParseMode_Sections);
+}
+
+
+void load()
+{
+	parseProfilesCanLoad();
+	if( hadFatalError() || gShutdown )
+		return;
+
+	if( gProfileToLoad <= 0 )
+	{// Use auto-load or query for initial profile to load
+		if( sAutoLoadProfileID )
+		{
+			if( size_t(sAutoLoadProfileID) >= sProfiles.size() ||
+				!sProfiles[sAutoLoadProfileID].valid() )
+			{
+				logError(
+					"AutoLoadProfile = %d but no profile #%d found!",
+					sAutoLoadProfileID, sAutoLoadProfileID);
+				sAutoLoadProfileID = 0;
+			}
+			else
+			{
+				gProfileToLoad = sAutoLoadProfileID;
+			}
+		}
+		if( !sAutoLoadProfileID )
+			gProfileToLoad = queryUserForProfile();
+	}
+
+	if( gProfileToLoad <= 0 )
+	{// Nothing was selected to load - exit app entirely
+		gShutdown = true;
+		return;
+	}
+
+	confirmSafeToWriteToMap();
+	sSectionsMap.clear();
+	// Make sure "variables" section is always section 0
+	sSectionsMap.setValue(kVariablesSectionName, PropertyMap());
+	sVarPropDepList.clear();
+	// Add built-in system variables to variables section
+	sSectionsMap.vals()[kVarsSectionIdx].setValue("W", Property());
+	sSectionsMap.vals()[kVarsSectionIdx].setValue("H", Property());
+	// Prepare for reading known issues
+	sNeedShowKnownIssues = false;
+	sKnownIssuesRTF.clear();
+
+	DBG_ASSERT(size_t(gProfileToLoad) < sProfiles.size());
+	const std::vector<int>& aList = sProfiles[gProfileToLoad].fileIDs;
+	DBG_ASSERT(!aList.empty());
+
+	// Now load each .ini's values 1-by-1 in reverse order.
+	// Any setting in later files overrides previous setting,
+	// which is why we load them in reverse of priority order
+	for(std::vector<int>::const_reverse_iterator itr = aList.rbegin();
+		itr != aList.rend(); ++itr)
+	{
+		DBG_ASSERT(size_t(*itr) < sKnownFiles.size());
+		checkForOutdatedFileVersion(sKnownFiles[*itr]);
+		parseINI(
+			readProfileCallback,
+			sKnownFiles[*itr].path,
+			eParseMode_Sections);
+	}
+	sSectionsMap.trim();
+
+	// Process variable expansion for all properties
+	for(int aSectionID = 0; aSectionID < sSectionsMap.size(); ++aSectionID)
+	{
+		PropertyMap& aSection = sSectionsMap.vals()[aSectionID];
+		for(int aPropID = 0; aPropID < aSection.size(); ++aPropID)
+			expandPropertyVars(aSectionID, aPropID, true);
+	}
+
+	// Sort and remove duplicate entries in variable dependency list
+	std::sort(sVarPropDepList.begin(), sVarPropDepList.end());
+	sVarPropDepList.erase(
+		std::unique(sVarPropDepList.begin(), sVarPropDepList.end()),
+		sVarPropDepList.end());
+
+	// Now that have loaded a profile, only need to remember the loaded
+	// profile's name and can forget gathered data about other profiles
+	sLoadedProfileName = sProfiles[gProfileToLoad].name;
+	sKnownFiles.clear();
+	sProfiles.clear();
+	sAutoLoadProfileID = 0;
+	sNewBaseProfileIdx = -1;
+	gProfileToLoad = 0;
+}
+
+
+int queryUserForProfile()
+{
+	saveChangesToFile();
+	if( sKnownFiles.empty() )
+		parseProfilesCanLoad();
+	int aLastCreatedProfileIdx = -1;
+	int result = -1;
+	while(result < 0)
+		result = queryUserForProfileImpl(aLastCreatedProfileIdx);
+	return result;
 }
 
 

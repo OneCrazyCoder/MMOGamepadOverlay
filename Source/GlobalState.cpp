@@ -9,7 +9,7 @@
 //------------------------------------------------------------------------------
 
 bool gShutdown = false;
-bool gLoadNewProfile = true;
+int gProfileToLoad = -1;
 int gAppRunTime = 0;
 int gAppFrameTime = 0;
 int gAppTargetFrameTime = 14; // allows >= 60 fps without taxing CPU

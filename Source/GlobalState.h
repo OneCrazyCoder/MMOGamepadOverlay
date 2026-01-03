@@ -12,8 +12,8 @@
 // App shutdown has been requested
 extern bool gShutdown;
 
-// Loading a different profile has been requested
-extern bool gLoadNewProfile;
+// Which profile to load (0 = already loaded, -1 = auto-load / user-select)
+extern int gProfileToLoad;
 
 // Milliseconds since app started main loop
 extern int gAppRunTime;
