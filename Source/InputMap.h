@@ -92,6 +92,7 @@ Command menuBackCommand(int theMenuID);
 EMenuStyle menuStyle(int theMenuID);
 EMenuMouseMode menuMouseMode(int theMenuID);
 int rootMenuOfMenu(int theMenuID);
+int parentMenuOfMenu(int theMenuID);
 int menuOverlayID(int theMenuID);
 int overlayRootMenuID(int theOverlayID);
 int menuDefaultItemIdx(int theMenuID);

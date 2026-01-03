@@ -259,7 +259,7 @@ struct Menu
 	u16 overlayID;
 	u16 keyBindCycleID;
 	u16 profileSectionID;
-	u8 defaultMenuItemIdx; // 1-based, 0 = unspecified
+	u8 defaultMenuItemIdx;
 	u8 gridWidth;
 	// Visual details will be parsed by the WindowPainter module
 
@@ -1483,7 +1483,7 @@ static bool setMenuAsChildOf(
 
 static void linkMenuToSubMenus(int theMenuID)
 {
-	// Find all menus whose key starts with this menu's key (and . at end)
+	// Find all menus whose key starts with this menu's key + kSubMenuDelimiter
 	const std::string& aPrefix =
 		sMenus.keys()[theMenuID] + kSubMenuDelimiter;
 	sMenus.findAllWithPrefix(aPrefix, setMenuAsChildOf, &theMenuID);
@@ -1530,19 +1530,17 @@ static int getMenuID(std::string theMenuName, int theParentMenuID)
 	DBG_ASSERT(!theMenuName.empty());
 	DBG_ASSERT(theParentMenuID < sMenus.size());
 
-	std::string aParentPath = sMenus.keys()[theParentMenuID];
 	if( theMenuName[0] == '.' )
-	{// Starting with '.' signals want to treat "grandparent" as the parent
-		theParentMenuID = sMenus.vals()[theParentMenuID].parentMenuID;
-		if( theParentMenuID >= sMenus.size() )
-			return kInvalidID;
-		aParentPath = sMenus.keys()[theParentMenuID];
+	{// Starting with '.' indicates a full menu path starting with root menu
 		DBG_ASSERT(theMenuName != ".."); // should have caught before this
-		// Remove leading '.'
-		theMenuName = theMenuName.substr(1);
+		const int theRootMenuID = sMenus.vals()[theParentMenuID].rootMenuID;
+		DBG_ASSERT(theRootMenuID >= 0 && theRootMenuID < sMenus.size());
+		if( theMenuName.size() == 1 ) // i.e. == "."
+			return theRootMenuID;
+		return sMenus.findIndex(sMenus.keys()[theRootMenuID] + theMenuName);
 	}
 
-	return sMenus.findIndex(aParentPath + "." + theMenuName);
+	return sMenus.findIndex(sMenus.keys()[theParentMenuID] + "." + theMenuName);
 }
 
 
@@ -2137,19 +2135,16 @@ static Command wordsToSpecialCommand(
 
 	if( aRootMenuID < sMenus.size() )
 	{
-		// "= Reset <aMenuName> [Menu] [to Default] [to #]"
+		// "= Reset <aMenuName> [Menu] [to Default]"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Reset);
 		allowedKeyWords.set(eCmdWord_Menu);
 		allowedKeyWords.set(eCmdWord_Default);
-		allowedKeyWords.set(eCmdWord_Integer);
 		if( keyWordsFound.test(eCmdWord_Reset) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuReset;
 			result.rootMenuID = aRootMenuID;
-			if( anIntegerWord )
-				result.menuItemID = result.count;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
@@ -2636,6 +2631,48 @@ static Command stringToCommand(
 }
 
 
+static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
+{
+	Menu& theMenu = sMenus.vals()[theMenuID];
+
+	int result = theString.empty() ? 1 : stringToInt(theString);
+	if( result > 0 )
+	{// Assume indicating a menu item number (starting with 1)
+		if( result > intSize(theMenu.items.size()) )
+		{
+			theMenu.items.resize(result);
+			gReshapeOverlays.set(theMenu.overlayID);
+		}
+		--result;
+	}
+	else if( int aHotspotID = getHotspotID(theString) )
+	{// Find or add a menu item for this hotspot ID
+		const int aMenuLen = intSize(theMenu.items.size());
+		result = aMenuLen;
+		for(int i = 0; i < aMenuLen; ++i)
+		{
+			if( theMenu.items[i].hotspotID == aHotspotID )
+			{
+				result = i;
+				break;
+			}
+		}
+		if( result >= aMenuLen )
+		{
+			theMenu.items.resize(result+1);
+			theMenu.items.back().hotspotID = dropTo<u16>(aHotspotID);
+			gReshapeOverlays.set(theMenu.overlayID);
+		}
+	}
+	else
+	{// Couldn't find a hotspot or menu item number from this
+		result = -1;
+	}
+
+	return result;
+}
+
+
 static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 {
 	MenuItem aMenuItem;
@@ -2645,40 +2682,16 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 		return aMenuItem;
 	}
 
-	if( theString == ".." )
-	{
-		aMenuItem.cmd.type = eCmdType_MenuBack;
-		aMenuItem.cmd.rootMenuID = sMenus.vals()[theMenuID].rootMenuID;
-		return aMenuItem;
-	}
-
+	// Check for label
+	bool hasLabelOnly = false;
 	std::string aLabel = breakOffItemBeforeChar(theString, ':');
-	if( aLabel.empty() && !theString.empty() && theString[0] != ':' )
-	{// Having no : character means this points to a sub-menu
-		aMenuItem.cmd.subMenuID = dropTo<u16>(getMenuID(theString, theMenuID));
-		if( aMenuItem.cmd.subMenuID >= sMenus.size() )
-		{
-			logError("'%s / %s = %s' should be a sub-menu "
-				"(no ':' character to separate label and command), "
-				"but no sub-menu by that name was found! "
-				"Changing to '= %s : Do Nothing'!",
-				sSectionPrintName.c_str(),
-				sPropertyPrintName.c_str(),
-				theString.c_str(), theString.c_str());
-			aMenuItem.cmd.type = eCmdType_Unassigned;
-			aMenuItem.label = theString;
-			return aMenuItem;
-		}
-		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
-		aMenuItem.cmd.rootMenuID =
-			sMenus.vals()[aMenuItem.cmd.subMenuID].rootMenuID;
-		aMenuItem.label = theString;
-		return aMenuItem;
-	}
-
-	if( aLabel.empty() && !theString.empty() && theString[0] == ':' )
-	{// Possibly valid command with just an empty label
-		theString = trim(&theString[1]);
+	if( aLabel.empty() && !theString.empty() )
+	{// No label specified
+		// If have no ':' at all, treat as entirely a label (sub-menu)
+		if( theString[0] != ':' )
+			hasLabelOnly = true;
+		else
+			theString = trim(&theString[1]);
 	}
 	else
 	{// Has a label, but may actually be 2 labels separated by '|'
@@ -2696,6 +2709,51 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 	{// Go back one sub-menu
 		aMenuItem.cmd.type = eCmdType_MenuBack;
 		aMenuItem.cmd.rootMenuID = sMenus.vals()[theMenuID].rootMenuID;
+		return aMenuItem;
+	}
+
+	if( hasLabelOnly || theString[0] == '.' )
+	{// Requesting a transfer to a sub-menu
+		int aSubMenuID = getMenuID(theString, theMenuID);
+		if( aSubMenuID >= sMenus.size() )
+		{// Might be a sub-menu name and item index (or hotspot name) combo
+			const size_t aMenuItemParamPos = theString.find_last_of(",");
+			if( aMenuItemParamPos != std::string::npos )
+			{
+				const std::string& aParamStr =
+					trim(theString.substr(aMenuItemParamPos+1));
+				theString = trim(theString.substr(0, aMenuItemParamPos));
+				aSubMenuID = getMenuID(theString, theMenuID);
+				if( aSubMenuID < sMenus.size() )
+				{
+					const int aMenuItemIdx =
+						stringToMenuItemIdx(aSubMenuID, aParamStr);
+					if( aMenuItemIdx >= 0 )
+						aMenuItem.cmd.menuItemID = dropTo<u16>(aMenuItemIdx);
+					else
+						aSubMenuID = sMenus.size();
+				}
+			}
+		}
+		if( aSubMenuID >= sMenus.size() )
+		{
+			logError("'%s / %s = %s' should be a sub-menu "
+				"but no sub-menu found that propertly matches that name! "
+				"Changing to '= %s : Do Nothing'!",
+				sSectionPrintName.c_str(),
+				sPropertyPrintName.c_str(),
+				theString.c_str(), theString.c_str());
+			aMenuItem.cmd.type = eCmdType_Unassigned;
+			aMenuItem.label = theString;
+			return aMenuItem;
+		}
+		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
+		aMenuItem.cmd.subMenuID = dropTo<u16>(aSubMenuID);
+		aMenuItem.cmd.rootMenuID = sMenus.vals()[aSubMenuID].rootMenuID;
+		if( aMenuItem.label.empty() && theString[0] != '.' )
+			aMenuItem.label = theString;
+		DBG_ASSERT(
+			sMenus.vals()[theMenuID].rootMenuID == aMenuItem.cmd.rootMenuID);
 		return aMenuItem;
 	}
 
@@ -2827,54 +2885,22 @@ static void applyMenuProperty(
 		break;
 
 	case ePropType_Default:
-		if( thePropVal.empty() )
 		{
-			theMenu.defaultMenuItemIdx = 0;
-		}
-		else
-		{
-			int aMenuItemID = stringToInt(thePropVal);
-			if( aMenuItemID > 0 )
+			const int aMenuItemIdx = stringToMenuItemIdx(theMenuID, thePropVal);
+			if( aMenuItemIdx < 0 )
 			{
-				if( --aMenuItemID > intSize(theMenu.items.size()) )
-				{
-					theMenu.items.resize(aMenuItemID);
-					gReshapeOverlays.set(theMenu.overlayID);
-				}
-				theMenu.defaultMenuItemIdx = dropTo<u8>(aMenuItemID+1);
-				mapDebugPrint("%s: Default menu item set to %d\n",
-					sSectionPrintName.c_str(),
-					aMenuItemID+1);
-				return;
-			}
-
-			if( int aHotspotID = getHotspotID(thePropVal) )
-			{// Find or add a menu item for this hotspot ID
-				const int aMenuLen = intSize(theMenu.items.size());
-				int aMenuItemID = aMenuLen;
-				for(int i = 0; i < aMenuLen; ++i)
-				{
-					if( theMenu.items[i].hotspotID == aHotspotID )
-					{
-						aMenuItemID = i;
-						break;
-					}
-				}
-				if( aMenuItemID >= aMenuLen )
-				{
-					theMenu.items.resize(aMenuItemID+1);
-					theMenu.items.back().hotspotID = dropTo<u16>(aHotspotID);
-					gReshapeOverlays.set(theMenu.overlayID);
-				}
-				theMenu.defaultMenuItemIdx = dropTo<u8>(aMenuItemID+1);
-				mapDebugPrint("%s: Default menu item set to %s",
+				logError(
+					"%s: Not sure how to assign default menu item to '%s'!",
 					sSectionPrintName.c_str(),
 					thePropVal.c_str());
-				return;
 			}
-			logError("%s: Not sure how to assign default menu item to '%s'!",
-				sSectionPrintName.c_str(),
-				thePropVal.c_str());
+			else
+			{
+				theMenu.defaultMenuItemIdx = u8(min(aMenuItemIdx, 255));
+				mapDebugPrint("%s: Default menu item set to %d\n",
+					sSectionPrintName.c_str(),
+					aMenuItemIdx+1);
+			}
 		}
 		break;
 
@@ -3075,7 +3101,7 @@ static void validateMenu(int theMenuID)
 		gReshapeOverlays.set(theMenu.overlayID);
 	}
 	theMenu.defaultMenuItemIdx = dropTo<u8>(min<size_t>(
-		theMenu.items.size(), theMenu.defaultMenuItemIdx));
+		theMenu.items.size()-1, theMenu.defaultMenuItemIdx));
 	// Any empty items between first and last must be a missing gap
 	for(int i = 1, end = intSize(theMenu.items.size()) - 1; i < end; ++i)
 	{
@@ -3109,11 +3135,14 @@ static bool createEmptyLayer(
 
 static void linkComboLayers(int theLayerID)
 {
-	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
-	if( !theLayer.comboParentLayer )
+	DBG_ASSERT(theLayerID < sLayers.size());
+	if( !sLayers.vals()[theLayerID].comboParentLayer )
 		return;
 
-	theLayer.comboParentLayer = 0; // if malformed treat as normal layer
+	// NOTE: Since this function can add new layers and thus reallocate memory
+	// it is not safe to use direct pointers/refs to .vals/keys()[theLayerID],
+	// and hence why keep using [theLayerID] instead throughout.
+	sLayers.vals()[theLayerID].comboParentLayer = 0; 
 	std::string aSecondLayerName = sLayers.keys()[theLayerID];
 	std::string aFirstLayerName = breakOffItemBeforeChar(
 		aSecondLayerName, kComboLayerDelimiter);
@@ -3160,8 +3189,8 @@ static void linkComboLayers(int theLayerID)
 	}
 
 	// Link combo layer to its base layers
-	theLayer.parentLayer = dropTo<u16>(aFirstLayerID);
-	theLayer.comboParentLayer = dropTo<u16>(aSecondLayerID);
+	sLayers.vals()[theLayerID].parentLayer = dropTo<u16>(aFirstLayerID);
+	sLayers.vals()[theLayerID].comboParentLayer = dropTo<u16>(aSecondLayerID);
 	std::pair<u16, u16> aComboLayerKey(
 		dropTo<u16>(aFirstLayerID),
 		dropTo<u16>(aSecondLayerID));
@@ -4090,7 +4119,7 @@ void loadProfileChanges()
 	loadDataFromProfile(theProfileMap, false);
 
 	if( sHotspotArrayResized )
-	{// Reload all menu items for hotspot-using arrays
+	{// Reload all menu items for hotspot-using menu styles
 		for(int aMenuID = 0; aMenuID < sMenus.size(); ++aMenuID)
 		{
 			if( sMenus.vals()[aMenuID].style != eMenuStyle_Hotspots &&
@@ -4373,6 +4402,14 @@ int rootMenuOfMenu(int theMenuID)
 }
 
 
+int parentMenuOfMenu(int theMenuID)
+{
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	if( sMenus.vals()[theMenuID].parentMenuID >= sMenus.size() )
+		return theMenuID;
+	return sMenus.vals()[theMenuID].parentMenuID;
+}
+
 int menuOverlayID(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
@@ -4390,7 +4427,7 @@ int overlayRootMenuID(int theOverlayID)
 int menuDefaultItemIdx(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
-	return max(int(sMenus.vals()[theMenuID].defaultMenuItemIdx)-1, 0);
+	return sMenus.vals()[theMenuID].defaultMenuItemIdx;
 }
 
 

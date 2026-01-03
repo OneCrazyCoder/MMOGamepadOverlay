@@ -12,8 +12,7 @@
 	commands are interpreted) and its visual layout (used by WindowPainter).
 
 	Commands only reference the root menu ID's directly, so this module uses
-	root menu ID's externally and tracks the currently active sub-menu for
-	each root menu's stack stored internally.
+	root menu ID's externally but applies them to the active sub-menu for each.
 */
 
 #include "Common.h"
@@ -40,25 +39,23 @@ Command selectMenuItem(int theRootMenuID, ECommandDir, bool wrap, bool repeat);
 
 // Opens a sub-menu, meaning all references to the menu ID will actually refer
 // to the sub-menu's data instead untli it is closed. Returns its Auto command.
-Command openSubMenu(int theRootMenuID, int theSubMenuID);
+// If theMenuItem > 0, selects that item (1-based index) instead of default.
+Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem = 0);
 
-// Similar result to openSubMenu but replaces current menu entirely instead
-// of adding it to menu stack, changing how closeLastSubMenu() below behaves.
-// Note that this does NOT trigger the "Back" command of replaced menu!
-Command swapMenu(int theRootMenuID, int theAltMenuID, ECommandDir theDir);
+// Similar result to openSubMenu but sets the new menu's default selected item
+// based on what direction input was used to request the side menu.
+Command openSideMenu(int theRootMenuID, int theSideMenuID, ECommandDir theDir);
 
-// Removes the most recently-added sub-menu (via openSubMenu), returning to
-// whichever sub-menu (or the root menu) was active before then.
+// Sets the active sub-menu for a menu stack to the parent of current sub-menu.
 // Returned command will be _Empty if were already at the root menu and thus
 // did nothing, otherwise will be the Auto command of the now-active parent
 // menu (which will at least be of type _Unassigned rather than _Empty)
-Command closeLastSubMenu(int theRootMenuID);
+Command closeActiveSubMenu(int theRootMenuID);
 
-// Resets menu to its default state (closes all sub-menus & resets selection),
+// Resets menu to its default state (root menu with its default selected item),
 // but does NOT trigger this as "activating" the menu in terms of alpha fade.
-// Return value works like closeLastSubMenu (returns _Empty if did nothing).
-// If toItemNo > 0, selects that item (1-based index) instead of default.
-Command reset(int theRootMenuID, int toItemNo = 0);
+// Return value works like closeActiveSubMenu (returns _Empty if did nothing).
+Command reset(int theRootMenuID);
 
 // Returns Auto command of menu's currently-active sub-menu
 Command autoCommand(int theRootMenuID);

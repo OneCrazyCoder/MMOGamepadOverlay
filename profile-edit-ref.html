@@ -345,7 +345,7 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>You can even assign commands to <code>Press Auto=</code>, <code>Release Auto=</code>,  <code>Tap Auto =</code> and so on, like any real button. Even <code>Hold Auto =</code> triggers once the layer has been active long enough.</p>
 <h3 id="layer-mouse-property">Layer Mouse= property</h3>
 <p>Layers (and the root [Scheme]) can change how the mouse is treated by using <code>Mouse=Cursor</code> (normal), <code>Mouse=LookTurn</code> (holding the right-mouse button down to keep standard MouseLook mode active), <code>Mouse=LookOnly</code> (holding the left-mouse button down for alternate MouseLook in games that support it), or <code>Mouse=Hide</code> (“hide” the cursor by jumping it to the corner of the screen). The top-most layer with a <code>Mouse=</code> property specified dictates the mouse mode used, with the special exception of <code>Mouse=HideOrLook</code> which changes what it does based on the layers beneath it.</p>
-<p>There are also some more advanced/experimental Mouse modes, plus the ability to make the mouse cursor auto-point to selected items in overlay menus. These are covered in the <em>Menus</em> and <em>Other Commands and Features</em> sections.</p>
+<p>There are also some more advanced/experimental Mouse modes covered in the <em>Other Commands and Features</em> sections.</p>
 <h3 id="layer-showmenus-property">Layer ShowMenus= property</h3>
 <p>Each layer (including [Scheme]) specifies which <strong>Menus</strong> should be visible while that Layer in active. Layers can also specifically <em>hide</em> menus that were requested to be shown by lower layers, stopping them from being shown (unless yet another, higher layer overrides it back to being shown). This is done via the <code>ShowMenus=</code> (or just <code>Menus=</code>) property including a list of (root) Menus to show (and optionally the ‘Show’ and ‘Hide’ key words), such as:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.MainMenu]</span>
@@ -513,7 +513,31 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Confirm Quit: Quit App</span>
 </code></pre>
 <p>Sub-menus can have their own Style, Position, and other visual properties, or just contain nothing but the menu items as shown above. Besides menu items, any properties that aren’t specified will use the properties of their “root” menu (<code>[Menu.MainMenu]</code> in this example).</p>
-<p>Note the special <code>..</code> command, which, when selected, just backs out of the sub-menu, returning to the previous menu.</p>
+<p>Note the special <code>..</code> command, which just backs out of the sub-menu to one less “menu depth”.</p>
+<p>You can also set up a jump directly to any other sub-menu that shares the same root menu by specifying the path to that sub-menu starting with the <code>.</code> right after the root menu’s name (or just <code>.</code> by itself for the root menu itself). A separate label must be manually set in this case (if desire one). Example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Root]</span>
+<span class="token comment">; Goes to Root.SubA (label is "SubA")</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> SubA</span>
+<span class="token comment">; Goes to Root.SubA.SubB (no label!)</span>
+<span class="token constant">2</span> <span class="token attr-value"><span class="token punctuation">=</span> .SubA.SubB</span>
+
+<span class="token selector">[Menu.Root.SubA]</span>
+<span class="token comment">; Goes to Root.SubA.SubB1 (label is "SubB1")</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> SubB1</span>
+<span class="token comment">; Goes to Root.SubA.SubB2 (label is "SubB2")</span>
+<span class="token constant">2</span> <span class="token attr-value"><span class="token punctuation">=</span> SubB2</span>
+
+<span class="token selector">[Menu.Root.SubA.SubB1]</span>
+<span class="token comment">; Always goes to Root.SubA regardless of how got here (label is "Back")</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> Back: ..</span>
+<span class="token comment">; Goes to Root.SubA.SubB2 (label is "Switch to SubB2")</span>
+<span class="token constant">2</span> <span class="token attr-value"><span class="token punctuation">=</span> Switch to SubB2: .SubA.SubB2</span>
+
+<span class="token selector">[Menu.Root.SubA.SubB2]</span>
+<span class="token comment">; Goes back to Root (label is "Start Over")</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> Start Over: .</span>
+</code></pre>
+<p><em>Pro tip - you can also use this second method to jump directly to a specific menu item being selected in the requested menu by adding a comma and the menu item number (or hotspot name for menu styles that use those) after, such as <code>Label: .SubA.SubB2, 3</code>.</em></p>
 <h3 id="controlling-menus">Controlling menus</h3>
 <p>To actually use a menu, you will need to assign menu-controlling commands to gamepad buttons in <code>[Scheme]</code> or a <code>[Layer.LayerName]</code> section.  These commands must specify the name of the <em>root</em> menu they are referring to (you can not directly assign controls to a specific sub-menu). Below is an example of controlling the MainMenu example from earlier, including showing/hiding it with the Start button.</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>
@@ -527,19 +551,6 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">PS_X</span> <span class="token attr-value"><span class="token punctuation">=</span> Confirm MainMenu</span>
 <span class="token constant">Circle</span> <span class="token attr-value"><span class="token punctuation">=</span> Back MainMenu</span>
 </code></pre>
-<p><em>Pro tip - you can also reset to a specific menu item being selected in the root menu by using something like <code>=Reset MainMenu 3</code>, though this only works for menu styles that use numbered menu items.</em></p>
-<h3 id="mouse-based-interaction">Mouse-based interaction</h3>
-<p>If the target game has a UI window with clickable options you want to activate via controller, you can align an overlay menu with it and the have the mouse click on the screen position of the center of each menu item in the overlay. Since overlay menus don’t respond to mouse clicks themselves, the click will pass through to the aligned in-game UI. This is a particularly good use of the “Highlight” Menu Style, explained in more detail later.</p>
-<p>To have the mouse cursor always point to the currently-selected item in a menu, set a layer’s <code>Mouse=</code> property to the name of the root menu. To have the mouse click at a menu item’s position when confirming a selection, just add <code>with mouse click</code> to the confirm command. Example:</p>
-<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.MainMenu]</span>
-<span class="token constant">Mouse</span> <span class="token attr-value"><span class="token punctuation">=</span> MainMenu</span>
-<span class="token constant">ShowMenus</span> <span class="token attr-value"><span class="token punctuation">=</span> MainMenu</span>
-<span class="token constant">Auto</span> <span class="token attr-value"><span class="token punctuation">=</span> Reset MainMenu</span>
-<span class="token constant">DPad</span> <span class="token attr-value"><span class="token punctuation">=</span> Select MainMenu using wrapping</span>
-<span class="token constant">PS_X</span> <span class="token attr-value"><span class="token punctuation">=</span> Confirm selection in MainMenu w/ Mouse Click</span>
-<span class="token constant">Circle</span> <span class="token attr-value"><span class="token punctuation">=</span> Go back in MainMenu</span>
-</code></pre>
-<p>When a menu item is confirmed with this setup, any command assigned to that menu item will still occur alongside the mouse click.</p>
 <h3 id="closing-a-menu-and-the-back-command">Closing a menu and the Back= command</h3>
 <p>Technically, menus are never actually opened, closed, or disabled. They are always there, it is just a matter of whether or not they are visible (via the <code>ShowMneus=</code> property on an active layer) and whether any buttons currently are assigned to control them. This is why when you want to “open” a menu, it makes sense to use <code>=Reset &lt;MenuName&gt;</code> as the first command on it, as it will otherwise still be in whatever state it was last left in.</p>
 <p>You can give the appearance of a menu being closed or disabled by hiding the menu and/or making sure no buttons are assigned to control it (in fact, a menu will automatically fade to its <code>InactiveAlpha=</code> transparency level if it is visible yet detects no buttons are currently assigned to control it, to help indicate it is effectively disabled).</p>
@@ -559,11 +570,11 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>In addition to the normal, numbered menu items, each menu can have 4 directional menu items specified, labeled as <code>L=, R=, U=</code>, and <code>D=</code> and tied to using <code>=Select &lt;MenuName&gt; Left, Right, Up,</code> and <code>Down</code> respectively. These special menu items have their commands run directly via the <code>=Select &lt;MenuName&gt;</code> command rather than the <code>=Confirm &lt;MenuName&gt;</code> command, but <em>only when there is no menu item in the direction pressed!</em></p>
 <p>For example, in a basic list-style menu, normally <code>=Select Left</code> and <code>=Select Right</code> doesn’t do anything since all of the menu items are in a single vertical list, but if a <code>L=</code> and/or <code>R=</code> property is included, then <code>=Select Left</code> and/or <code>=Select Right</code>will immediately execute the <code>L/R=</code> commands.</p>
 <p>Even in a list-style menu, the <code>U=</code> and <code>D=</code> menu items can also still be used, but only if use Up while the first menu item is currently selected, or Down when the last item is currently selected. Similar logic applies to other menu styles, but may be slightly different for each one. <em>Note that these will still run from pushing up from the top item or down from the bottom item when using wrapping with the Select command!, even though the selection will also wrap around to the other end of the menu at the same time!</em></p>
-<p>One key use of these is allowing for <em>side menus</em> such as in a List or Slots style menu, by using<code>L=</code> and <code>R=</code> to instantly swap to a different selection of menu items without needing to add visible sub-menu items. These are still technically a sub-menu, but accessed in a different way. Here is an example of how to use these in an EQOA-like abilities menu:</p>
+<p>One key use of these is allowing for <em>side menus</em> such as in a List or Slots style menu, by using<code>L=</code> and <code>R=</code> to instantly swap to a different selection of menu items without needing to add visible sub-menu items. Here is an example of how to use these in an EQOA-like abilities menu:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Abilities]</span>
 <span class="token constant">Style</span> <span class="token attr-value"><span class="token punctuation">=</span> Slots</span>
-<span class="token constant">L</span><span class="token attr-value"><span class="token punctuation">=</span>Hotbar</span>
-<span class="token constant">R</span><span class="token attr-value"><span class="token punctuation">=</span>Spells</span>
+<span class="token constant">L</span><span class="token attr-value"><span class="token punctuation">=</span>.Hotbar</span>
+<span class="token constant">R</span><span class="token attr-value"><span class="token punctuation">=</span>.Spells</span>
 <span class="token constant">1</span><span class="token attr-value"><span class="token punctuation">=</span>Abil1: Ability1</span>
 <span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>Abil2: Ability2</span>
 ...
@@ -582,7 +593,6 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">2</span><span class="token attr-value"><span class="token punctuation">=</span>HB2: Hotbar2</span>
 ...
 </code></pre>
-<p>Notice how the sub-menus use <code>..</code> to specify returning to the the base “Abilities” menu. There is also a single <code>.</code> in front of another sub-menu’s name to specify it is actually a “sibling” menu. For example, if <code>[Menu.Abilities.Spells]</code> had the property <code>R=Hotbar</code>, then that would reference a “child” sub-menu <code>[Menu.Abilities.Spells.Hotbar]</code> which doesn’t exist. Using <code>R=.Hotbar</code> instead indicates it wants to open the side-menu <code>[Menu.Abilities.Hotbar]</code>.</p>
 <h3 id="slots-menu-style">Slots Menu Style</h3>
 <p>This menu style is designed to emulate EQOA’s “Ability List” and “Tool Bar” and is a great candidate for “side menus” as explained above. It is basically a list-style menu, but the current selection is always listed first and the entire menu “rotates” as you select Up or Down, like the reels in old slot machines (hence the name).</p>
 <p>In order to help better keep track of what item is actually selected when the entire menu is moving, this style of menu allows for an alternate, second label for each item. This alternate label is only displayed for the currently-selected item and is drawn off to one side of the rest of the menu. You can control the size of this alternate label area by adding the property <code>AltLabelWidth=</code> to this menu’s section.</p>
@@ -650,6 +660,20 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p><em>NOTE: Even though the label is not drawn anyway, the <code>:</code> is still required to differentiate between a command and a sub-menu.</em></p>
 <p>As you navigate the menu using a controller, all that will be shown is a border box around the currently-selected hotbar button in the in-game UI, which you could then activate the selected hotbar button (via the UseHotbar# Key Binds) by using the <code>= Confirm Hotbar menu</code> command assigned to a gamepad button.</p>
 <p>This style also pairs well with setting <code>Mouse=&lt;MenuName&gt;</code> as well if want to actually show the cursor pointing at each item as navigate (or if you want the cursor to be the ONLY thing shown then set <code>SelectedBorderSize=0</code>). If you want to just have the mouse click at the game’s UI, set a gamepad button to the command <code>= Confirm with Click</code> and simply set each menu item to just <code>:</code> by itself if don’t want it to do anything else besides the click.</p>
+<h3 id="menu-mouse-control-mode">Menu mouse-control mode</h3>
+<p>If the target game has a UI window with clickable options you want to activate via controller, you can align an overlay menu with it and then have the mouse click on the screen position of the center of each menu item in the overlay. Since overlay menus don’t respond to mouse clicks themselves, the click will pass through to the aligned in-game UI. This work especially well with the Highlight Menu Style above.</p>
+<p>Each menu can have 3 settings for affecting the mouse by setting a <code>Mouse=</code> property for that menu:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.MainMenu]</span>
+<span class="token comment">; Default if not specified - no effect on mouse</span>
+<span class="token constant">Mouse</span> <span class="token attr-value"><span class="token punctuation">=</span> Do nothing</span>
+<span class="token comment">; Move mouse cursor to center of selected item whenever selection changes</span>
+<span class="token comment">; NOTE: Ignored for any Mouse modes set by layers except Mouse=Cursor!</span>
+<span class="token constant">Mouse</span> <span class="token attr-value"><span class="token punctuation">=</span> Move</span>
+<span class="token comment">; Click mouse at center of selected item when confirm menu item</span>
+<span class="token comment">; Also acts like Mouse = Point, but click still happens regardless of mouse mode</span>
+<span class="token constant">Mouse</span> <span class="token attr-value"><span class="token punctuation">=</span> Click</span>
+</code></pre>
+<p>Note that when a menu item is confirmed with <code>Mouse = Click</code>, any command assigned to that menu item will still occur alongside the mouse click.</p>
 <h3 id="close-menu-on-confirm">Close menu on confirm</h3>
 <p>You may want to have a menu “close” immediately after an item is selected, instead of requiring additional button presses to get out of the menu. For most menu styles, this can be done by adding “and Close” to the Confirm command in the menu-controlling layer, i.e.  <code>=Confirm and Close &lt;MenuName&gt;</code> (for 4Dir style menus, which don’t use the Confirm command, you would instead add it to the selection command such as <code>=Select in &lt;MenuName&gt; then close it</code>).</p>
 <p>This auto-close only happens when selecting a menu item that does NOT open a sub-menu.</p>

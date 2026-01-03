@@ -42,7 +42,6 @@ struct ZERO_INIT(Command)
 				u16 vKeySeqID;
 				u16 stringID;
 				u16 subMenuID;
-				u16 menuItemID;
 				u16 arrayIdx;
 				u16 layerID;
 				u16 keyBindCycleID;
@@ -56,8 +55,11 @@ struct ZERO_INIT(Command)
 				u16 replacementLayer;
 				u16 mouseWheelMotionType;
 			};
-			s16 count;
-			u16 swapDir : 2;
+			union
+			{
+				s16 count;
+				u16 menuItemID;
+			};
 			u16 wrap : 1;
 			u16 andClick : 1;
 			u16 multiDirAutoRun : 1;
@@ -66,6 +68,7 @@ struct ZERO_INIT(Command)
 			u16 fromKeyBindCycle : 1;
 			u16 asHoldAction : 1;
 			u16 forced : 1;
+			u16 sideMenuDir : 2;
 			u16 __padding : 6;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;

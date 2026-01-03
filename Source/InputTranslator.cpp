@@ -1301,22 +1301,27 @@ static void processCommand(
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		break;
 	case eCmdType_OpenSubMenu:
-		aForwardCmd = Menus::openSubMenu(theCmd.rootMenuID, theCmd.subMenuID);
+		aForwardCmd = Menus::openSubMenu(
+			theCmd.rootMenuID,
+			theCmd.subMenuID,
+			theCmd.menuItemID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		sResults.menuStackAutoCommandRun.set(
 			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
 		break;
-	case eCmdType_SwapMenu:
-		aForwardCmd = Menus::swapMenu(
-			theCmd.rootMenuID, theCmd.subMenuID, ECommandDir(theCmd.swapDir));
+	case eCmdType_OpenSideMenu:
+		aForwardCmd = Menus::openSideMenu(
+			theCmd.rootMenuID,
+			theCmd.subMenuID,
+			ECommandDir(theCmd.sideMenuDir));
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		sResults.menuStackAutoCommandRun.set(
 			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuReset:
-		aForwardCmd = Menus::reset(theCmd.rootMenuID, theCmd.menuItemID);
+		aForwardCmd = Menus::reset(theCmd.rootMenuID);
 		if( aForwardCmd.type != eCmdType_Invalid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
@@ -1348,7 +1353,7 @@ static void processCommand(
 	case eCmdType_MenuBack:
 		processCommand(theBtnState,
 			Menus::backCommand(theCmd.rootMenuID), theLayerIdx);
-		aForwardCmd = Menus::closeLastSubMenu(theCmd.rootMenuID);
+		aForwardCmd = Menus::closeActiveSubMenu(theCmd.rootMenuID);
 		if( aForwardCmd.type != eCmdType_Invalid )
 		{
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
