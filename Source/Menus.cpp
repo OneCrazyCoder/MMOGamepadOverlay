@@ -457,6 +457,7 @@ Command openSideMenu(int theRootMenuID, int theSideMenuID, ECommandDir theDir)
 	int aNextSel = 0;
 	const EMenuStyle aNewMenuStyle = InputMap::menuStyle(theSideMenuID);
 	const int aNewItemCount = InputMap::menuItemCount(theSideMenuID);
+	const int anOldMenuID = activeSubMenu(theRootMenuID);
 	switch(aNewMenuStyle)
 	{
 	case eMenuStyle_Slots:
@@ -464,13 +465,19 @@ Command openSideMenu(int theRootMenuID, int theSideMenuID, ECommandDir theDir)
 		// rather than resetting to the menu's default when using left/right
 		if( theDir == eCmdDir_L || theDir == eCmdDir_R )
 			aNextSel = sSelectedItem[theSideMenuID] + 1;
-		// fall through
+		else if( theDir == eCmdDir_U )
+			aNextSel = aNewItemCount;
+		else if( theDir == eCmdDir_D )
+			aNextSel = 1;
+		break;
 	case eMenuStyle_List:
 		// Wrap to other side if changed menus with up/down
 		if( theDir == eCmdDir_U )
 			aNextSel = aNewItemCount;
 		else if( theDir == eCmdDir_D )
 			aNextSel = 1;
+		else
+			aNextSel = min(selectedYPos(anOldMenuID)+1, aNewItemCount);
 		break;
 	case eMenuStyle_Bar:
 		// Wrap to other side if changed menus with left/right
@@ -478,12 +485,12 @@ Command openSideMenu(int theRootMenuID, int theSideMenuID, ECommandDir theDir)
 			aNextSel = aNewItemCount;
 		else if( theDir == eCmdDir_R )
 			aNextSel = 1;
+		else
+			aNextSel = min(selectedXPos(anOldMenuID)+1, aNewItemCount);
 		break;
-
 	case eMenuStyle_Grid:
 	case eMenuStyle_Columns:
 		{
-			const int anOldMenuID = activeSubMenu(theRootMenuID);
 			int aNewX = selectedXPos(anOldMenuID);
 			int aNewY = selectedYPos(anOldMenuID);
 			switch(theDir)
