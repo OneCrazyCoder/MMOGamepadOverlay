@@ -64,6 +64,7 @@ bool getBool(const std::string&, const std::string&, bool = false);
 double getFloat(const std::string&, const std::string&, double = 0);
 int variableNameToID(const std::string& theVarName); // -1 if not found
 std::string variableIDToName(int theVariableID);
+std::string expandVars(std::string theString);
 const SectionsMap& allSections();
 int getSectionID(const std::string& theSectionName); // -1 if not found
 PropertyMapPtr getSectionProperties(const std::string& theSectionName);
@@ -82,6 +83,7 @@ void setStr(const std::string& theSection,
 			const std::string& thePropertyName,
 			const std::string& theValue,
 			bool saveToFile = true);
+void setStr(int theSectionID, const std::string&, const std::string&, bool);
 void setVariable(int theVarID, const std::string& theValue, bool temporary);
 void setVariable(const std::string& theVarName, const std::string&, bool);
 // Only sets the string if thePropertyName doesn't yet exist (or is empty val)

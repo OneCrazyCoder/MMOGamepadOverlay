@@ -2313,8 +2313,7 @@ static std::string getValueString(
 		}
 		break;
 	case eValueFunc_Scale:
-		result = toString(
-			getSubTypeValue(v, eValueSetSubType_Scale) * 100.0) + "%";
+		result = toString(getSubTypeValue(v, eValueSetSubType_Scale));
 		break;
 	default:
 		DBG_ASSERT(false && "Invalid EValueFunction");

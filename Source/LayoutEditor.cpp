@@ -4,7 +4,6 @@
 
 #include "LayoutEditor.h"
 #include "Dialogs.h"
-#include "HotspotMap.h"
 #include "InputMap.h"
 #include "Profile.h"
 #include "Resources/resource.h"
@@ -28,15 +27,16 @@ kMinOffsetScale = 25,
 kMaxOffsetScale = 400,
 };
 
-
-const char* kHotspotsPrefix = "Hotspots";
-const char* kIconsPrefix = "Icons";
-const char* kMenuPrefix = "Menu.";
-const char* kDefMenuSectName = "Appearance";
-const char* kPositionKey = "Position";
-const char* kSizeKey = "Size";
-const char* kItemSizeKey = "ItemSize";
-const char* kAlignmentKey = "Alignment";
+const char* kHotspotsSectionName = "Hotspots";
+const char* kMenuSectionPrefix = "Menu.";
+const char* kMenuDefaultSectionName = "Appearance";
+const char* kPositionPropName = "Position";
+const char* kItemSizePropName = "ItemSize";
+const char* kAlignmentPropName = "Alignment";
+const WCHAR* kAnchorOnlyLabel = L"Scaling:";
+const WCHAR* kOffsetOnlyLabel = L"Offset:";
+const WCHAR* kValueOnlyLabel = L"Value:";
+const WCHAR* kUseDefaultLabel = L"Default:";
 
 enum EAlignment
 {
@@ -77,12 +77,10 @@ struct ZERO_INIT(LayoutEntry)
 	{
 		eType_Root,
 		eType_HotspotCategory,
-		eType_CopyIconCategory,
 		eType_MenuCategory,
 
 		eType_Hotspot,
-		eType_CopyIcon,
-		eType_MenuOverlay,
+		eType_Menu,
 
 		eType_Num,
 		eType_CategoryNum = eType_Hotspot
@@ -91,30 +89,39 @@ struct ZERO_INIT(LayoutEntry)
 
 	struct Shape
 	{
-		std::string x, y, w, h;
-		std::string offsetScale;
+		struct Component
+		{
+			std::string base;
+			int offset;
+			Component() : offset() {}
+			bool operator==(const Component& rhs) const
+			{ return base == rhs.base && offset == rhs.offset; }
+			bool operator!=(const Component& rhs) const
+			{ return !(*this == rhs); }
+		};
+		Component x, y, w, h;
+		std::string scale;
 		EAlignment alignment;
 		Shape() : alignment(eAlignment_Num) {}
 		bool operator==(const Shape& rhs) const
 		{
 			return
-				x == rhs.x && y == rhs.y &&
-				w == rhs.w && h == rhs.h &&
-				offsetScale == rhs.offsetScale &&
-				alignment == rhs.alignment;
+				x == rhs.x && y == rhs.y && w == rhs.w && h == rhs.h &&
+				scale == rhs.scale && alignment == rhs.alignment;
 		}
 		bool operator!=(const Shape& rhs) const
 		{ return !(*this == rhs); }
 	} shape;
 
-	std::string posSect, sizeSect, alignSect, propName;
+	std::string posPropName, sizePropName;
+	int posSectID, sizeSectID;
 	std::vector<size_t> children;
 	RECT drawnRect;
-	Hotspot drawHotspot, drawSize;
+	Hotspot drawHotspot;
 	float drawOffScale;
 	int drawOffX, drawOffY;
-	int menuOverlayID;
 	int rangeCount; // -1 = anchor, 0 = single, 1+ = actual range
+	bool sizeIsARange;
 
 	LayoutEntry() : type(eType_Num), rangeCount(-1) {}
 };
@@ -147,57 +154,17 @@ static EditorState* sState = null;
 // Forward declares
 static void promptForEditEntry();
 
-static bool entryIncludesPosition(const LayoutEntry& theEntry)
+static inline bool entryHasParent(const LayoutEntry& theEntry)
 {
-	if( theEntry.type != LayoutEntry::eType_MenuOverlay )
-		return true;
-	const int aRootMenuID =
-		InputMap::overlayRootMenuID(theEntry.menuOverlayID);
-	switch(InputMap::menuStyle(aRootMenuID))
-	{
-	case eMenuStyle_Hotspots:
-		return false;
-	}
-	return true;
+	return theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum;
 }
 
-
-static bool entryIncludesSize(const LayoutEntry& theEntry)
-{
-	switch(theEntry.type)
-	{
-	case LayoutEntry::eType_Hotspot:
-		return false;
-	case LayoutEntry::eType_CopyIcon:
-		return theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum;
-	case LayoutEntry::eType_MenuOverlay:
-		return true;
-	}
-
-	return false;
-}
-
-
-static bool entryIncludesAlignment(const LayoutEntry& theEntry)
-{
-	return theEntry.type == LayoutEntry::eType_MenuOverlay;
-}
-
-
-static bool entryIncludesScale(const LayoutEntry& theEntry)
+static inline bool entryIsAnchorHotspot(const LayoutEntry& theEntry)
 {
 	return
 		theEntry.type == LayoutEntry::eType_Hotspot &&
-		theEntry.item.parentIndex < LayoutEntry::eType_CategoryNum &&
-		!theEntry.children.empty();
-}
-
-
-static bool entryIsAnOffset(const LayoutEntry& theEntry)
-{
-	if( theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum )
-		return true;
-	return false;
+		!entryHasParent(theEntry) &&
+		!theEntry.children.empty(); // no children == independent hotspot
 }
 
 
@@ -206,14 +173,15 @@ static double entryScaleFactor(const LayoutEntry& theEntry)
 	double result = 1.0;
 
 	if( theEntry.type == LayoutEntry::eType_Hotspot &&
-		entryIsAnOffset(theEntry) )
+		entryHasParent(theEntry) )
 	{
 		// Find anchor hotspot
 		LayoutEntry* anAnchorEntry =
 			&sState->entries[theEntry.item.parentIndex];
-		while(entryIsAnOffset(*anAnchorEntry))
+		while(entryHasParent(*anAnchorEntry))
 			anAnchorEntry = &sState->entries[anAnchorEntry->item.parentIndex];
-		result = stringToDouble(anAnchorEntry->shape.offsetScale);
+		result = stringToDouble(
+			Profile::expandVars(anAnchorEntry->shape.scale));
 		if( result == 0 )
 			result = 1.0;
 	}
@@ -222,8 +190,283 @@ static double entryScaleFactor(const LayoutEntry& theEntry)
 }
 
 
-static void applyNewPosition()
+static std::string fetchShapeScale(const std::string& theString, size_t thePos)
 {
+	std::string result;
+	if( thePos >= theString.size() )
+		return result;
+	result = trim(theString.substr(thePos));
+	// Verify result
+	std::string aCheckStr = Profile::expandVars(result);
+	char* end = null;
+	const char* aCStr = aCheckStr.c_str();
+	if( double aResultVal = strtod(aCStr, &end) )
+	{
+		// Allow for a % at end of the number
+		if( *end == '%' )
+		{
+			aResultVal /= 100.0;
+			++end;
+		}
+		// If haven't reached the end of the post-var-expanded string
+		// when read in as a float or percent, then generate an 
+		// appropriate string ourselves out of whatever we did get
+		if( *end != '\0' )
+			result = toString(aResultVal * 100.0) + '%';
+	}
+	else
+	{
+		// No valid numberals at all (or 0), treat as no scale specified
+		result.clear();
+	}
+
+	return result;
+}
+
+
+static LayoutEntry::Shape::Component fetchShapeComponent(
+	const std::string& theString, size_t& thePos, bool allowAnchor)
+{
+	LayoutEntry::Shape::Component result;
+	if( thePos >= theString.size() )
+		return result;
+
+	// First need to find the end of this component
+	const char* aCStr = theString.c_str();
+	int tagDepth = 0;
+	size_t anEndPos = thePos;
+	for(bool done = false; !done;)
+	{
+		switch(aCStr[anEndPos])
+		{
+		case '$':
+			if( aCStr[anEndPos+1] == '{' )
+			{
+				anEndPos += 2;
+				++tagDepth;
+			}
+			break;
+		case '}':
+			if( tagDepth )
+				--tagDepth;
+			++anEndPos;
+			break;
+		case 'x': case 'X':
+			// Try to differentiate between '5 x 7' and 'CX', for example
+			if( anEndPos > 0 && !tagDepth &&
+				(aCStr[anEndPos-1] <= ' ' ||
+				 (aCStr[anEndPos-1] >= '0' && aCStr[anEndPos-1] <= '9') ||
+				 aCStr[anEndPos-1] == '%' || aCStr[anEndPos-1] == '.' ||
+				 aCStr[anEndPos-1] == '}') )
+			{
+				done = true;
+			}
+			else
+			{
+				++anEndPos;
+			}
+			break;
+		case ',': case '*':
+			if( !tagDepth )
+				done = true;
+			else
+				++anEndPos;
+			break;
+		case '\0':
+			done = true;
+			break;
+		default:
+			++anEndPos;
+			break;
+		}
+	}
+
+	// Extract the section of the string representing this component
+	result.base = trim(theString.substr(thePos, anEndPos-thePos));
+
+	if( !result.base.empty() )
+	{// Check if base string is actually valid (after var expansion)
+		const std::string& aCheckStr = Profile::expandVars(result.base);
+		size_t aCheckPos = 0;
+		if( allowAnchor )
+			stringToCoord(aCheckStr, aCheckPos);
+		else
+			stringToDoubleSum(aCheckStr, aCheckPos);
+		// If didn't make it to end of component string, its invalid
+		// Directly use (post-var-expansion) whatever chars were valid
+		if( aCheckPos < aCheckStr.size() )
+			result.base = result.base.substr(0, aCheckPos);
+	}
+
+	// Advance thePos to end of component section for next component or end
+	// (done here because no longer need to know start point of component and
+	// anEndPos might be used as a dummy var after this)
+	thePos = anEndPos;
+
+	// See if component string ends in a non-variable non-decimal offset value,
+	// and if so bump that to the offset int and trim it off the base string
+	if( !result.base.empty() )
+	{
+		// Step back from end until encounter anything that isn't a numeral
+		// or a + or - operator.
+		int anOffStartPos = intSize(result.base.size()-1);
+		while(anOffStartPos >= 0 &&
+			  ((result.base[anOffStartPos] >= '0' &&
+				result.base[anOffStartPos] <= '9') ||
+			   result.base[anOffStartPos] == '-' ||
+			   result.base[anOffStartPos] == '+' ||
+			   result.base[anOffStartPos] <= ' '))
+		{ --anOffStartPos; }
+		// If reached a decimal point, step forward again to get
+		// past decimal number to next int
+		if( anOffStartPos >= 0 && result.base[anOffStartPos] == '.' )
+		{
+			while(++anOffStartPos < intSize(result.base.size()) &&
+				  (result.base[anOffStartPos] >= '0' &&
+				   result.base[anOffStartPos] <= '9'))
+			{ ++anOffStartPos; }
+		}
+		if( ++anOffStartPos < intSize(result.base.size()) )
+		{
+			anEndPos = 0;
+			result.offset = int(stringToDoubleSum(
+				result.base.substr(anOffStartPos), anEndPos));
+			result.base = result.base.substr(0, anOffStartPos);
+		}
+	}
+
+	return result;
+}
+
+
+static std::string shapeComponentToProfileString(
+	const LayoutEntry::Shape::Component& theComponent,
+	bool asOffset = false)
+{
+	std::string result = theComponent.base;
+	if( result.empty() )
+	{
+		if( asOffset && theComponent.offset > 0 )
+			result = "+";
+		result += toString(theComponent.offset);
+	}
+	else if( theComponent.offset )
+	{
+		if( theComponent.offset > 0 )
+			result += std::string(" + ") + toString(theComponent.offset);
+		else if( theComponent.offset < 0 )
+			result += std::string(" - ") + toString(-theComponent.offset);
+	}
+
+	return result;
+}
+
+
+static Hotspot shapeToHotspot(const LayoutEntry::Shape& theShape)
+{
+	Hotspot result;
+	size_t aStrPos = 0;
+	result.x = stringToCoord(Profile::expandVars(theShape.x.base), aStrPos);
+	result.x.offset = s16(clamp(
+		result.x.offset + theShape.x.offset,
+		-0x8000, 0x7FFF));
+
+	aStrPos = 0;
+	result.y = stringToCoord(Profile::expandVars(theShape.y.base), aStrPos);
+	result.y.offset = s16(clamp(
+		result.y.offset + theShape.y.offset,
+		-0x8000, 0x7FFF));
+
+	aStrPos = 0;
+	result.w = u16(clamp(
+		stringToDoubleSum(Profile::expandVars(theShape.w.base), aStrPos) +
+		theShape.w.offset,
+		0, 0xFFFF));
+
+	aStrPos = 0;
+	result.h = u16(clamp(
+		stringToDoubleSum(Profile::expandVars(theShape.h.base), aStrPos) +
+		theShape.h.offset,
+		0, 0xFFFF));
+
+	return result;
+}
+
+
+static void updateDrawHotspot(
+	LayoutEntry& theEntry,
+	const LayoutEntry::Shape& theShape,
+	bool updateParentIfNeeded = true,
+	bool updateChildren = true)
+{
+	theEntry.drawHotspot = shapeToHotspot(theShape);
+
+	theEntry.drawOffX = theEntry.drawOffY = 0;
+	theEntry.drawOffScale = 0;
+	if( entryIsAnchorHotspot(theEntry) )
+		theEntry.drawOffScale = stringToFloat(theShape.scale);
+	if( theEntry.drawOffScale == 0 )
+		theEntry.drawOffScale = 1.0f;
+	if( theEntry.rangeCount > 0 )
+	{
+		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
+		theEntry.drawOffY = theEntry.drawHotspot.y.offset;
+	}
+	if( entryHasParent(theEntry) )
+	{
+		LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
+		DBG_ASSERT(aParent.type == theEntry.type);
+		if( updateParentIfNeeded )
+			updateDrawHotspot(aParent, aParent.shape, true, false);
+		theEntry.drawOffScale = aParent.drawOffScale;
+		Hotspot anAnchor = aParent.drawHotspot;
+		if( aParent.rangeCount > 0 )
+		{// Rare case where the parent is itself a range of hotspots
+			anAnchor.x.offset = s16(clamp(int(
+				anAnchor.x.offset +
+				aParent.drawOffX *
+				(aParent.rangeCount-1) *
+				aParent.drawOffScale), -0x8000, 0x7FFF));
+			anAnchor.y.offset = s16(clamp(int(
+				anAnchor.y.offset +
+				aParent.drawOffY *
+				(aParent.rangeCount-1) *
+				aParent.drawOffScale), -0x8000, 0x7FFF));
+		}
+		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
+		{
+			theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
+			theEntry.drawHotspot.x.offset = s16(clamp(int(
+				theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
+				anAnchor.x.offset, -0x8000, 0x7FFF));
+		}
+		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
+		{
+			theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
+			theEntry.drawHotspot.y.offset = s16(clamp(int(
+				theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
+				anAnchor.y.offset, -0x8000, 0x7FFF));
+		}
+		if( theEntry.drawHotspot.w == 0 && theEntry.drawHotspot.h == 0 )
+		{
+			theEntry.drawHotspot.w = anAnchor.w;
+			theEntry.drawHotspot.h = anAnchor.h;
+		}
+	}
+	if( updateChildren )
+	{
+		for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
+		{
+			LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
+			updateDrawHotspot(aChildEntry, aChildEntry.shape, false, true);
+		}
+	}
+}
+
+
+static void applyNewLayoutProperties()
+{
+	/*
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry > 0);
 	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
@@ -231,7 +474,7 @@ static void applyNewPosition()
 	const bool needNewPos =
 		sState->entered.x != sState->applied.x ||
 		sState->entered.y != sState->applied.y ||
-		sState->entered.offsetScale != sState->applied.offsetScale;
+		sState->entered.scale != sState->applied.scale;
 	const bool needNewSize =
 		(sState->entered.w != sState->applied.w ||
 		 sState->entered.h != sState->applied.h);
@@ -240,48 +483,36 @@ static void applyNewPosition()
 	if( !needNewPos && !needNewSize && !needNewAlign )
 		return;
 
-	if( (needNewPos || needNewSize) &&
-		anEntry.type == LayoutEntry::eType_CopyIcon &&
-		entryIncludesSize(anEntry) )
+	if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot &&
+		!sState->entered.scale.empty() &&
+		stringToFloat(sState->entered.scale) >= 0 &&
+		stringToFloat(sState->entered.scale) != 1 )
 	{
-		Profile::setStr(kIconsPrefix, anEntry.propName,
-			sState->entered.x + ", " + sState->entered.y + ", " +
-			sState->entered.w + ", " + sState->entered.h);
-	}
-	else if( needNewPos && anEntry.type == LayoutEntry::eType_CopyIcon )
-	{
-		Profile::setStr(kIconsPrefix, anEntry.propName,
-			sState->entered.x + ", " + sState->entered.y);
-	}
-	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot &&
-			 !sState->entered.offsetScale.empty() &&
-			 stringToFloat(sState->entered.offsetScale) >= 0 &&
-			 stringToFloat(sState->entered.offsetScale) != 1 )
-	{
-		Profile::setStr(kHotspotsPrefix, anEntry.propName,
+		Profile::setStr(kHotspotsSectionName, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y +
-			" * " + sState->entered.offsetScale);
+			" * " + sState->entered.scale);
 	}
 	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot )
 	{
-		Profile::setStr(kHotspotsPrefix, anEntry.propName,
+		Profile::setStr(kHotspotsSectionName, anEntry.propName,
 			sState->entered.x + ", " + sState->entered.y);
 	}
 	else if( needNewPos && !anEntry.posSect.empty() )
 	{
-		Profile::setStr(anEntry.posSect, kPositionKey,
+		Profile::setStr(anEntry.posSect, kPositionPropName,
 			sState->entered.x + ", " + sState->entered.y);
 	}
 	if( needNewSize && !anEntry.sizeSect.empty() )
 	{
-		Profile::setStr(anEntry.sizeSect, anEntry.propName,
+		Profile::setStr(anEntry.sizeSect, kItemSizePropName,
 			sState->entered.w + ", " + sState->entered.h);
 	}
 	if( needNewAlign && !anEntry.alignSect.empty() )
 	{
-		Profile::setStr(anEntry.alignSect, kAlignmentKey,
+		Profile::setStr(anEntry.alignSect, kAlignmentPropName,
 			kAlignmentStr[sState->entered.alignment][1]);
 	}
+	*/
 	sState->applied = sState->entered;
 }
 
@@ -295,7 +526,7 @@ static void cancelRepositioning()
 	if( !gShutdown && sState->applied != anEntry.shape )
 	{
 		sState->entered = anEntry.shape;
-		applyNewPosition();
+		applyNewLayoutProperties();
 		Profile::saveChangesToFile();
 	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
@@ -309,7 +540,7 @@ static void saveNewPosition()
 	DBG_ASSERT(sState->activeEntry > 0);
 	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	applyNewPosition();
+	applyNewLayoutProperties();
 	if( anEntry.shape != sState->applied )
 	{
 		anEntry.shape = sState->applied;
@@ -317,29 +548,6 @@ static void saveNewPosition()
 	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
-}
-
-
-static HotspotMap::EHotspotNamingStyle formatForCoord(
-	const LayoutEntry& theEntry, int theEditControlID)
-{
-	switch(theEditControlID)
-	{
-	case IDC_EDIT_X:
-		return entryIsAnOffset(theEntry)
-			? HotspotMap::eHNS_X_Off
-			: HotspotMap::eHNS_X;
-	case IDC_EDIT_Y:
-		return entryIsAnOffset(theEntry)
-			? HotspotMap::eHNS_Y_Off
-			: HotspotMap::eHNS_Y;
-	case IDC_EDIT_W:
-		return HotspotMap::eHNS_W;
-	case IDC_EDIT_H:
-		return HotspotMap::eHNS_H;
-	}
-
-	return HotspotMap::eHNS_Num;
 }
 
 
@@ -359,7 +567,7 @@ static std::pair<POINT, SIZE> getControlPos(HWND theDialog, HWND theControl)
 }
 
 
-static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
+static void setInitialToolbarPos(HWND hDlg, LayoutEntry& theEntry)
 {
 	if( !sState || !sState->activeEntry )
 		return;
@@ -367,29 +575,17 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
 	POINT anEntryPos;
-	if( theEntry.type == LayoutEntry::eType_MenuOverlay )
+	//if( theEntry.type == LayoutEntry::eType_Menu )
+	//{
+	//	const RECT& anEntryRect =
+	//		WindowManager::overlayRect(theEntry.menuOverlayID);
+	//	anEntryPos.x = (anEntryRect.left + anEntryRect.right) / 2;
+	//	anEntryPos.y = (anEntryRect.top + anEntryRect.bottom) / 2;
+	//}
+	//else
 	{
-		const RECT& anEntryRect =
-			WindowManager::overlayRect(theEntry.menuOverlayID);
-		anEntryPos.x = (anEntryRect.left + anEntryRect.right) / 2;
-		anEntryPos.y = (anEntryRect.top + anEntryRect.bottom) / 2;
-	}
-	else
-	{
-		Hotspot anEntryHSPos, anEntryHSSize;
-		std::string aStr;
-		aStr = theEntry.shape.x;
-		HotspotMap::stringToCoord(aStr, anEntryHSPos.x);
-		aStr = theEntry.shape.y;
-		HotspotMap::stringToCoord(aStr, anEntryHSPos.y);
-		aStr = theEntry.shape.w;
-		HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
-		aStr = theEntry.shape.h;
-		HotspotMap::stringToCoord(aStr, anEntryHSSize.x);
-		anEntryPos = WindowManager::hotspotToOverlayPos(anEntryHSPos);
-		POINT anEntrySize = WindowManager::hotspotToOverlayPos(anEntryHSSize);
-		anEntryPos.x = anEntryPos.x + anEntrySize.x / 2;
-		anEntryPos.y = anEntryPos.y + anEntrySize.y / 2;
+		updateDrawHotspot(theEntry, theEntry.shape);
+		anEntryPos = WindowManager::hotspotToOverlayPos(theEntry.drawHotspot);
 	}
 	RECT anOverlayRect;
 	anOverlayRect = WindowManager::overlayClipRect();
@@ -416,48 +612,22 @@ static void setInitialToolbarPos(HWND hDlg, const LayoutEntry& theEntry)
 }
 
 
-static void autoSwapHotspotAnchor(Hotspot& theHotspot, bool forXAxis)
+static std::string getControlText(HWND theDialog, int theControlID)
 {
-	// This function changes a hotspot's anchor if it is very close to a
-	// different anchor point (considering min, max, or center points only).
-	Hotspot::Coord& out = forXAxis ? theHotspot.x : theHotspot.y;
-	if( out.anchor != 0x0000 && out.anchor != 0xFFFF && out.anchor != 0x8000 )
-		return;
-	const POINT& aWinPos = WindowManager::hotspotToOverlayPos(theHotspot);
-	const SIZE& aMaxWinPos = WindowManager::overlayTargetSize();
-	const LONG aMaxWinPosOnAxis = forXAxis ? aMaxWinPos.cx : aMaxWinPos.cy;
-	const LONG aWinPosOnAxis = forXAxis ? aWinPos.x : aWinPos.y;
-	if( out.anchor != 0 && aWinPosOnAxis <= aMaxWinPosOnAxis * 0.02 )
+	std::string result;
+	HWND hCntrl = GetDlgItem(theDialog, theControlID);
+	DBG_ASSERT(hCntrl);
+	if( int aStrLen = GetWindowTextLength(hCntrl) )
 	{
-		out.anchor = 0;
-		out.offset = dropTo<s16>(aWinPosOnAxis);
-		if( gUIScale != 1.0 ) out.offset = s16(out.offset / gUIScale);
-		return;
+		std::vector<WCHAR> aStrBuf(aStrLen+1);
+		GetDlgItemText(theDialog, theControlID, &aStrBuf[0], aStrLen+1);
+		result = narrow(&aStrBuf[0]);
 	}
-	if( out.anchor != 0xFFFF && aWinPosOnAxis >= aMaxWinPosOnAxis * 0.98 )
-	{
-		out.anchor = 0xFFFF;
-		out.offset = dropTo<s16>(aWinPosOnAxis - (aMaxWinPosOnAxis-1));
-		if( gUIScale != 1.0 ) out.offset = s16(out.offset / gUIScale);
-		return;
-	}
-	/* I'm not sure auto-swapping to center anchor is a good idea...
-	if( out.anchor != 0x8000 &&
-		aWinPos.x >= aMaxWinPos.cx * 0.47 &&
-		aWinPos.x <= aMaxWinPos.cx * 0.53 &&
-		aWinPos.y >= aMaxWinPos.cy * 0.47 &&
-		aWinPos.y <= aMaxWinPos.cy * 0.53 )
-	{
-		out.anchor = 0x8000;
-		out.offset = (aWinPosOnAxis - (aMaxWinPosOnAxis/2));
-		if( gUIScale != 1.0 ) out.offset /= gUIScale;
-		return;
-	}
-	*/
+	return result;
 }
 
 
-static void processCoordString(
+static void processCoordFieldChange(
 	HWND hDlg,
 	int theControlID,
 	int theDelta = 0,
@@ -465,157 +635,208 @@ static void processCoordString(
 {
 	if( !hDlg ) return;
 
-	std::string* aDestStr = null;
-	switch(theControlID)
-	{
-	case IDC_EDIT_X: aDestStr = &sState->entered.x; break;
-	case IDC_EDIT_Y: aDestStr = &sState->entered.y; break;
-	case IDC_EDIT_W: aDestStr = &sState->entered.w; break;
-	case IDC_EDIT_H: aDestStr = &sState->entered.h; break;
-	case IDC_EDIT_S: aDestStr = &sState->entered.offsetScale; break;
-	}
-	DBG_ASSERT(aDestStr);
+	const int theBaseControlID = IDC_COMBO_X_BASE + (theControlID - IDC_EDIT_X);
+	const std::string& aBaseControlStr = getControlText(hDlg, theBaseControlID);
+	const bool isAnchorOnly = aBaseControlStr == narrow(kAnchorOnlyLabel);
+	const bool isOffset = !isAnchorOnly &&
+		aBaseControlStr != narrow(kValueOnlyLabel) &&
+		aBaseControlStr != narrow(kUseDefaultLabel);
+	const std::string& aControlStr = getControlText(hDlg, theControlID);
+	size_t aStrPos = 0;
+	double aNewValue = stringToDoubleSum(aControlStr, aStrPos);
+	const bool isInPercent =
+		isAnchorOnly &&
+		aStrPos < aControlStr.size() &&
+		aControlStr[aStrPos] == '%';
+	if( isInPercent )
+		aNewValue /= 100.0;
 
-	HWND hEdit = GetDlgItem(hDlg, theControlID);
-	DBG_ASSERT(hEdit);
-	std::string aControlStr;
-	if( int aStrLen = GetWindowTextLength(hEdit) )
+	if( theDelta != 0 )
 	{
-		std::vector<WCHAR> aStrBuf(aStrLen+1);
-		GetDlgItemText(hDlg, theControlID, &aStrBuf[0], aStrLen+1);
-		aControlStr = narrow(&aStrBuf[0]);
-	}
-	if( !theDelta && aControlStr == *aDestStr )
-		return;
-
-	DBG_ASSERT(sState);
-	DBG_ASSERT(sState->activeEntry > 0);
-	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
-	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-
-	std::string result = aControlStr;
-	std::string aTempStr = aControlStr;
-	Hotspot::Coord aCoord = {};
-	if( theControlID != IDC_EDIT_S )
-		HotspotMap::stringToCoord(aTempStr, aCoord, &result);
-	else if( stringToFloat(aControlStr) <= 0 )
-		result = "100%";
-	if( result.empty() )
-	{
-		switch(theControlID)
-		{
-		case IDC_EDIT_X:
-			result = HotspotMap::coordToString(
-				Hotspot::Coord(), formatForCoord(anEntry, IDC_EDIT_X));
-			break;
-		case IDC_EDIT_Y:
-			result = HotspotMap::coordToString(
-				Hotspot::Coord(), formatForCoord(anEntry, IDC_EDIT_Y));
-			break;
-		case IDC_EDIT_W:
-		case IDC_EDIT_H:
-			result = "0";
-			break;
+		const bool isY = theControlID == IDC_EDIT_Y;
+		const double aWinMax = isY
+			? WindowManager::overlayTargetSize().cy
+			: WindowManager::overlayTargetSize().cx;
+		if( isAnchorOnly )
+		{// Have each point of delta count as 1 pixel of anchor
+			aNewValue = (aNewValue * aWinMax + theDelta) / aWinMax;
 		}
-	}
-	DBG_ASSERT(!result.empty());
-
-	if( theDelta )
-	{// Adjust the value while trying to maintain current formatting
-		// Check if only specifying a non-standard anchor, meaning not CX, etc,
-		// so must contain a decimal or a % symbol, and no offset specified
-		// (including no "+0" for offset), and not trying to push past edges.
-		// If it is a non-standard anchor, shift the anchor instead of offset.
-		if( aCoord.offset == 0 &&
-			(aCoord.anchor < 0xFFFF || theDelta <= 0 || theDeltaSetByMouse) &&
-			(aCoord.anchor > 0 || theDelta >= 0 || theDeltaSetByMouse) &&
-			result.find('+') == std::string::npos &&
-			(result[result.size()-1] == '%' ||
-			 result.find('.') != std::string::npos) )
-		{
-			Hotspot aHotspot; aHotspot.x = aHotspot.y = aCoord;
-			POINT aWinPos = WindowManager::hotspotToOverlayPos(aHotspot);
-			aWinPos.x += theDelta; aWinPos.y += theDelta;
-			aHotspot = WindowManager::overlayPosToHotspot(aWinPos);
-			switch(theControlID)
+		else if( theDeltaSetByMouse )
+		{// Adjust for scale and possibly auto-swap anchor type
+			if( gUIScale != 1.0 )
 			{
-			case IDC_EDIT_X: case IDC_EDIT_W:
-				if( aWinPos.x >= WindowManager::overlayTargetSize().cx-1 )
-					result = "100%";
-				else if( aWinPos.x <= 0 )
-					result = "0%";
-				else
-					result = HotspotMap::coordToString(
-						aHotspot.x, HotspotMap::eHNS_Num);
-				break;
-			case IDC_EDIT_Y: case IDC_EDIT_H:
-				if( aWinPos.y >= WindowManager::overlayTargetSize().cy-1 )
-					result = "100%";
-				else if( aWinPos.y <= 0 )
-					result = "0%";
-				else
-					result = HotspotMap::coordToString(
-						aHotspot.y, HotspotMap::eHNS_Num);
-				break;
+				double* aDeltaFP = isY
+					? &sState->unappliedDeltaY
+					: &sState->unappliedDeltaX;
+				*aDeltaFP += double(theDelta) / gUIScale;
+				theDelta = int(*aDeltaFP);
+				*aDeltaFP -= theDelta;
+			}
+			aNewValue += theDelta;
+			// Auto-swap basic basic named anchor type if new position is
+			// very clase to a different basic named anchor point (edge/center)
+			const double anAnchorPercent =
+				isY && aBaseControlStr == "T"	? 0.0 :
+				isY && aBaseControlStr == "CY"	? 0.5 :
+				isY && aBaseControlStr == "B"	? 1.0 :
+				!isY && aBaseControlStr == "L"	? 0.0 :
+				!isY && aBaseControlStr == "CX"	? 0.5 :
+				!isY && aBaseControlStr == "R"	? 1.0 :
+				/*otherwise*/					  -1.0;
+			if( anAnchorPercent >= 0.0 )
+			{// Must be one of the named anchor points, can auto-swap
+				const double aWinPos = clamp(
+					floor(aWinMax * anAnchorPercent + 0.5) + aNewValue,
+					0, aWinMax-1.0);
+				double aNewAnchorPercent = anAnchorPercent;
+				if( anAnchorPercent > 0.0 && aWinPos <= aWinMax * 0.02 )
+				{// Swap to left/top anchor
+					aNewAnchorPercent = 0;
+				}
+				else if( anAnchorPercent < 1.0 && aWinPos >= aWinMax * 0.98 )
+				{// Swap to right/bottom anchor
+					aNewAnchorPercent = 1.0;
+				}
+				// Could also swap to center anchor, but perhaps only if both
+				// X and Y are near center point, and past testing showed this
+				// to be more annoying than helpful, so left out for now.
+				if( aNewAnchorPercent != anAnchorPercent )
+				{
+					const int aNewAnchorType =
+						aNewAnchorPercent == 0.0 ? 0 :
+						aNewAnchorPercent == 0.5 ? 1 :
+						/*aNewAnchorPercent == 1.0*/2;		
+					HWND hComboBox = GetDlgItem(hDlg, theBaseControlID);
+					SendMessage(hComboBox, CB_SETCURSEL, aNewAnchorType, 0);
+					SendMessage(hDlg, WM_COMMAND,
+						MAKEWPARAM(theBaseControlID, CBN_SELCHANGE),
+						(LPARAM)hComboBox);
+					// Above will change offset, base string, etc, so need to
+					// restart processing of coordinate string from the top
+					// (treating theDelta as direct rather than mouse-based
+					// since have already adjusted it for that here).
+					processCoordFieldChange(hDlg, theControlID, theDelta);
+					return;
+				}
 			}
 		}
 		else
-		{
-			if( theDeltaSetByMouse )
-			{
-				if( gUIScale != 1.0 )
-				{
-					double* aDeltaFP =
-						theControlID == IDC_EDIT_X
-							? &sState->unappliedDeltaX
-							: &sState->unappliedDeltaY;
-					*aDeltaFP += double(theDelta) / gUIScale;
-					theDelta = int(*aDeltaFP);
-					*aDeltaFP -= theDelta;
-				}
-				if( theControlID == IDC_EDIT_X )
-				{
-					Hotspot aHotspot; aHotspot.x = aCoord;
-					aHotspot.x.offset =
-						dropTo<s16>(aHotspot.x.offset + theDelta);
-					aTempStr = sState->entered.y;
-					HotspotMap::stringToCoord(aTempStr, aHotspot.y);
-					autoSwapHotspotAnchor(aHotspot, true);
-					aCoord.anchor = aHotspot.x.anchor;
-					theDelta = aHotspot.x.offset - aCoord.offset;
-				}
-				if( theControlID == IDC_EDIT_Y )
-				{
-					Hotspot aHotspot; aHotspot.y = aCoord;
-					aHotspot.y.offset =
-						dropTo<s16>(aHotspot.y.offset + theDelta);
-					aTempStr = sState->entered.x;
-					HotspotMap::stringToCoord(aTempStr, aHotspot.x);
-					autoSwapHotspotAnchor(aHotspot, false);
-					aCoord.anchor = aHotspot.y.anchor;
-					theDelta = aHotspot.y.offset - aCoord.offset;
-				}
-			}
-			if( theDelta )
-			{
-				aCoord.offset = dropTo<s16>(aCoord.offset + theDelta);
-				result = HotspotMap::coordToString(
-					aCoord, formatForCoord(anEntry, theControlID));
-				if( result[result.size()-1] == '%' )
-					result += "+0";
-			}
+		{// Just directly shift the offset by requested amount (spinner)
+			aNewValue += theDelta;
 		}
 	}
 
-	if( aControlStr != result )
-		SetWindowText(hEdit, widen(result).c_str());
+	if( theControlID == IDC_EDIT_W || theControlID == IDC_EDIT_H )
+	{// Do not allow total value of the component to be < 1
+		aStrPos = 0;
+		const double aBaseValue = !isOffset ? 0.0 :
+			stringToDoubleSum(Profile::expandVars(aBaseControlStr), aStrPos);
+		if( floor(aBaseValue) + floor(aNewValue) < 1.0 )
+			aNewValue = ceil(1.0 - floor(aBaseValue));
+	}
 
-	if( *aDestStr != result )
+	std::string aFormattedString;
+	if( isAnchorOnly )
+	{// Allow decimals/percent in final string
+		DBG_ASSERT(theControlID == IDC_EDIT_X || theControlID == IDC_EDIT_Y);
+		aNewValue = clamp(aNewValue, 0.0, 1.0);
+		if( isInPercent )
+			aFormattedString = strFormat("%.4g%%", aNewValue * 100.0);
+		else
+			aFormattedString = strFormat("%.5g", aNewValue);
+	}
+	else
+	{// Only allow integer values in final string
+		aNewValue = clamp(floor(aNewValue + 0.5), -0x8000, 0x7FFF);
+		aFormattedString =
+			(aNewValue >= 0 && isOffset ? "+" : "") +
+			toString(int(aNewValue));
+	}
+	if( aFormattedString != aControlStr )
 	{
-		*aDestStr = result;
+		SetWindowText(
+			GetDlgItem(hDlg, theControlID),
+			widen(aFormattedString).c_str());
+	}
+
+	// Now actually apply the string to the component
+	LayoutEntry::Shape::Component& aComp =
+		theControlID == IDC_EDIT_X	? sState->entered.x :
+		theControlID == IDC_EDIT_Y	? sState->entered.y :
+		theControlID == IDC_EDIT_W	? sState->entered.w :
+		/*theControlID == IDC_EDIT_H*/sState->entered.h;
+
+	// For anchor-only apply to .base string, otherwise offset int
+	if( isAnchorOnly )
+	{
+		if( aComp.base != aFormattedString )
+		{
+			aComp.base = aFormattedString;
+			sState->needsDrawPosUpdate = true;
+			gRefreshOverlays.set(kSystemOverlayID);
+		}
+	}
+	else if( aComp.offset != int(aNewValue) )
+	{
+		aComp.offset = int(aNewValue);
 		sState->needsDrawPosUpdate = true;
 		gRefreshOverlays.set(kSystemOverlayID);
 	}
+}
+
+
+static void adjustComboBoxDroppedWidth(HWND hCombo)
+{
+	DBG_ASSERT(IsWindow(hCombo));
+
+	// Get current dropped width so we don't shrink it
+	const int aCurrWidth = SendMessage(hCombo, CB_GETDROPPEDWIDTH, 0, 0);
+
+	// Get number of items
+	const int anItemCount = SendMessage(hCombo, CB_GETCOUNT, 0, 0);
+	if( anItemCount <= 0 )
+		return;
+
+	HDC hdc = GetDC(hCombo);
+	if( !hdc )
+		return;
+
+	// Select combo box font into DC
+	HFONT hFont = (HFONT)SendMessage(hCombo, WM_GETFONT, 0, 0);
+	HFONT hOldFont = NULL;
+	if( hFont )
+		hOldFont = (HFONT)SelectObject(hdc, hFont);
+
+	LONG aMaxTextWidth = 0;
+
+	for(int i = 0; i < anItemCount; ++i)
+	{
+		int aTextLen = SendMessage(hCombo, CB_GETLBTEXTLEN, i, 0);
+		if( aTextLen <= 0 )
+			continue;
+
+		// +1 for null terminator
+		std::vector<WCHAR> aBuffer(aTextLen + 1);
+		aBuffer[0] = L'\0';
+
+		SendMessage(hCombo, CB_GETLBTEXT, i, (LPARAM)&aBuffer[0]);
+
+		SIZE aSize = { 0, 0 };
+		if( GetTextExtentPoint32(hdc, &aBuffer[0], aTextLen, &aSize) )
+			aMaxTextWidth = max(aMaxTextWidth, aSize.cx);
+	}
+
+	// Restore font and DC
+	if( hOldFont )
+		SelectObject(hdc, hOldFont);
+	ReleaseDC(hCombo, hdc);
+
+	// Add some padding
+	aMaxTextWidth += /*GetSystemMetrics(SM_CXVSCROLL) +*/ 8;
+
+	// Only expand, never shrink
+	if( aMaxTextWidth > aCurrWidth )
+		SendMessage(hCombo, CB_SETDROPPEDWIDTH, aMaxTextWidth, 0);
 }
 
 
@@ -633,103 +854,228 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			if( aScaling != 1 )
 			{
 				SetWindowText(theDialog,
-					(std::wstring(L"Repositioning: ") +
+					(L"Repositioning: " +
 					 widen(anEntry.item.name) +
-					 std::wstring(L" (at ") +
+					 L" (at " +
 					 widen(strFormat("%.4g", aScaling * 100.0) + "%") +
-					 std::wstring(L" scale)")).c_str());
+					 L" scale)").c_str());
 			}
 			else
 			{
 				SetWindowText(theDialog,
-					(std::wstring(L"Repositioning: ") +
+					(L"Repositioning: " +
 					 widen(anEntry.item.name)).c_str());
 			}
 		}
 		// Allow Esc to cancel even when not the active window
 		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
+		
 		// Populate controls with initial values from active entry
-		if( entryIncludesPosition(anEntry) )
-		{
-			SetWindowText(
-				GetDlgItem(theDialog, IDC_EDIT_X),
-				widen(anEntry.shape.x).c_str());
-			SetWindowText(
-				GetDlgItem(theDialog, IDC_EDIT_Y),
-				widen(anEntry.shape.y).c_str());
-			HWND hSpin = GetDlgItem(theDialog, IDC_SPIN_X);
-			std::pair<POINT, SIZE> aCtrlPos = getControlPos(theDialog, hSpin);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
-			hSpin = GetDlgItem(theDialog, IDC_SPIN_Y);
-			aCtrlPos = getControlPos(theDialog, hSpin);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
-		}
-		if( entryIncludesSize(anEntry) )
-		{
-			SetWindowText(
-				GetDlgItem(theDialog, IDC_EDIT_W),
-				widen(anEntry.shape.w).c_str());
-			SetWindowText(
-				GetDlgItem(theDialog, IDC_EDIT_H),
-				widen(anEntry.shape.h).c_str());
-			HWND hSpin = GetDlgItem(theDialog, IDC_SPIN_W);
-			std::pair<POINT, SIZE> aCtrlPos = getControlPos(theDialog, hSpin);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
-			hSpin = GetDlgItem(theDialog, IDC_SPIN_H);
-			aCtrlPos = getControlPos(theDialog, hSpin);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hSpin, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
-		}
-		if( entryIncludesAlignment(anEntry) )
-		{
-			HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
-			for(int i = 0; i < eAlignment_Num; ++i)
+		HWND hCntrl;
+		for(int isY = 0; isY < 2; ++isY)
+		{// X & Y
+			const LayoutEntry::Shape::Component& aComp =
+				isY ? anEntry.shape.y : anEntry.shape.x;
+			hCntrl = GetDlgItem(theDialog,
+				isY ? IDC_COMBO_Y_BASE : IDC_COMBO_X_BASE);
+			int aDropListSize = 0;
+			if( anEntry.rangeCount <= 0 )
 			{
-				SendMessage(hDropList, CB_ADDSTRING, 0,
-					(LPARAM)widen(kAlignmentStr[i][0]).c_str());
+				SendMessage(hCntrl,CB_ADDSTRING, 0,
+					(LPARAM)(isY ? L"T" : L"L"));
+				SendMessage(hCntrl, CB_ADDSTRING, 0,
+					(LPARAM)(isY ? L"CY" : L"CX"));
+				SendMessage(hCntrl, CB_ADDSTRING, 0,
+					(LPARAM)(isY ? L"B" : L"R"));
+				SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kAnchorOnlyLabel);
+				aDropListSize = 4;
 			}
-			if( anEntry.shape.alignment < eAlignment_Num )
+			const bool canBeOffsetOnly = entryHasParent(anEntry);
+			// Set initial selection to one of the above if appropriate
+			const double anAnchorVal = aComp.offset
+					? 0 : stringToDouble(aComp.base, true);
+			const bool isCustomAnchor = anEntry.rangeCount <= 0 &&
+				!_isnan(anAnchorVal) && anAnchorVal != 0 && anAnchorVal < 1.0;
+			if( canBeOffsetOnly )
 			{
-				SendMessage(hDropList, CB_SETCURSEL,
-					(WPARAM)anEntry.shape.alignment, 0);
+				SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kOffsetOnlyLabel);
+				++aDropListSize;
 			}
+			if( isCustomAnchor )
+			{
+				// Entry is anchor-only (percent of screen area)
+				SendMessage(hCntrl, CB_SETCURSEL, (WPARAM)3, 0);
+				SetWindowText(
+					GetDlgItem(theDialog, (isY ? IDC_EDIT_Y : IDC_EDIT_X)),
+					widen(aComp.base).c_str());
+			}
+			else if( canBeOffsetOnly && aComp.base.empty() )
+			{
+				SendMessage(hCntrl, CB_SETCURSEL, WPARAM(aDropListSize-1), 0);
+			}
+			else
+			{
+				// Check what hotspot coord would be if read ONLY base string
+				size_t aPos = 0;
+				const Hotspot::Coord& aCoord = stringToCoord(
+					Profile::expandVars(aComp.base), aPos);
+				// If string contained an offset or unkwnon characters
+				// (likely ${} variables), or has an anchor even though
+				// it is a range, then need to include custom string option
+				bool useStringBase = aCoord.offset != 0 ||
+					(!aComp.base.empty() && aPos < aComp.base.size()) ||
+					(anEntry.rangeCount > 0 && aCoord.anchor != 0);
+				if( !useStringBase )
+				{// Check if string is simply a known basic anchor type
+					switch(aCoord.anchor)
+					{
+					case 0:
+					case 0x0001: // L or T
+						SendMessage(hCntrl, CB_SETCURSEL, 0, 0);
+						break;
+					case 0x8000: // CX or CY
+						SendMessage(hCntrl, CB_SETCURSEL, 1, 0);
+						break;
+					case 0xFFFF: // R or B
+						SendMessage(hCntrl, CB_SETCURSEL, 2, 0);
+						break;
+					default: // non-standard anchor value
+						useStringBase = true;
+						break;
+					}
+				}
+				if( useStringBase )
+				{
+					SendMessage(hCntrl, CB_ADDSTRING, 0,
+						(LPARAM)widen(aComp.base).c_str());
+					SendMessage(hCntrl, CB_SETCURSEL, WPARAM(aDropListSize), 0);
+				}
+			}
+			if( !isCustomAnchor )
+			{// Set offset field
+				SetWindowText(
+					GetDlgItem(theDialog, (isY ? IDC_EDIT_Y : IDC_EDIT_X)),
+					((aComp.offset >= 0 ? L"+" : L"") +
+					 widen(toString(aComp.offset))).c_str());
+			}
+			adjustComboBoxDroppedWidth(hCntrl);
 		}
-		if( entryIncludesScale(anEntry) )
-		{
+
+		for(int isH = 0; isH < 2; ++isH)
+		{// W & H
+			const LayoutEntry::Shape::Component& aComp =
+				isH ? anEntry.shape.h : anEntry.shape.w;
+			hCntrl = GetDlgItem(theDialog,
+				isH ? IDC_COMBO_H_BASE : IDC_COMBO_W_BASE);
+			SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kUseDefaultLabel);
+			SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kValueOnlyLabel);
+			int aSelection = 0; // default/parent action
+			if( !aComp.base.empty() )
+			{// Use option of custom base string + offset
+				SendMessage(hCntrl, CB_ADDSTRING, 0,
+					(LPARAM)widen(aComp.base).c_str());
+				aSelection = 2;
+			}
+			else if( !anEntry.shape.w.base.empty() ||
+					 anEntry.shape.w.offset > 0 ||
+					 !anEntry.shape.h.base.empty() ||
+					 anEntry.shape.h.offset > 0 )
+			{// Use custom value option if either axis is non-default
+				aSelection = 1;
+			}
+			adjustComboBoxDroppedWidth(hCntrl);
+			SendMessage(hCntrl, CB_SETCURSEL, (WPARAM)aSelection, 0);
+		}
+		// Send selection changed message to W & H combo boxes to complete setup
+		SendMessage(theDialog, WM_COMMAND,
+			MAKEWPARAM(IDC_COMBO_W_BASE, CBN_SELCHANGE),
+			(LPARAM)(GetDlgItem(theDialog, IDC_COMBO_W_BASE)));
+		SendMessage(theDialog, WM_COMMAND,
+			MAKEWPARAM(IDC_COMBO_H_BASE, CBN_SELCHANGE),
+			(LPARAM)(GetDlgItem(theDialog, IDC_COMBO_H_BASE)));
+
+
+		//if( anEntry.type == LayoutEntry::eType_Menu )
+		//{// Alignment
+		//	HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
+		//	for(int i = 0; i < eAlignment_Num; ++i)
+		//	{
+		//		SendMessage(hDropList, CB_ADDSTRING, 0,
+		//			(LPARAM)widen(kAlignmentStr[i][0]).c_str());
+		//	}
+		//	if( anEntry.shape.alignment < eAlignment_Num )
+		//	{
+		//		SendMessage(hDropList, CB_SETCURSEL,
+		//			(WPARAM)anEntry.shape.alignment, 0);
+		//	}
+		//}
+
+		if( entryIsAnchorHotspot(anEntry) )
+		{// Scale
 			SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 				TBM_SETRANGE, TRUE,
 				MAKELPARAM(kMinOffsetScale, kMaxOffsetScale));
-			const float aScale = stringToFloat(sState->entered.offsetScale);
-			if( anEntry.shape.offsetScale.empty() ||
-				aScale <= 0 || aScale == 1 )
+			const std::string& aFinalScaleString =
+				anEntry.shape.scale.empty() ? "1" :
+				toString(stringToDouble(
+					Profile::expandVars(anEntry.shape.scale)));
+			if( aFinalScaleString != anEntry.shape.scale )
 			{
-				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S), L"100%");
-				EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
-				EnableWindow(GetDlgItem(theDialog, IDC_EDIT_S), false);
-				SendDlgItemMessage(theDialog, IDC_SLIDER_S,
-					TBM_SETPOS, TRUE, 100);
+				if( !anEntry.shape.scale.empty() )
+				{
+					SetWindowText(
+						GetDlgItem(theDialog, IDC_EDIT_S_VAR),
+						widen(anEntry.shape.scale).c_str());
+				}
+				CheckDlgButton(theDialog, IDC_CHECK_SCALE, false);
 			}
-			else
+			else if( !anEntry.shape.scale.empty() )
 			{
 				CheckDlgButton(theDialog, IDC_CHECK_SCALE, true);
 				SetWindowText(
 					GetDlgItem(theDialog, IDC_EDIT_S),
-					widen(anEntry.shape.offsetScale).c_str());
+					widen(aFinalScaleString).c_str());
 				SendDlgItemMessage(theDialog, IDC_SLIDER_S,
-					TBM_SETPOS, TRUE, LPARAM(aScale * 100));
+					TBM_SETPOS, TRUE,
+					LPARAM(stringToDouble(aFinalScaleString) * 100));
 			}
+			else
+			{
+				CheckDlgButton(theDialog, IDC_CHECK_SCALE, false);
+			}
+			// Send initial check/un-check message for rest of setup
+			SendMessage(theDialog, WM_COMMAND,
+				MAKEWPARAM(IDC_CHECK_SCALE, BN_CLICKED),
+				(LPARAM)GetDlgItem(theDialog, IDC_CHECK_SCALE));
 		}
+
+		{// Adjust spinner control positioning/size slightly
+			hCntrl = GetDlgItem(theDialog, IDC_SPIN_X);
+			std::pair<POINT, SIZE> aCtrlPos = getControlPos(theDialog, hCntrl);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+			hCntrl = GetDlgItem(theDialog, IDC_SPIN_Y);
+			aCtrlPos = getControlPos(theDialog, hCntrl);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+			hCntrl = GetDlgItem(theDialog, IDC_SPIN_W);
+			aCtrlPos = getControlPos(theDialog, hCntrl);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+			hCntrl = GetDlgItem(theDialog, IDC_SPIN_H);
+			aCtrlPos = getControlPos(theDialog, hCntrl);
+			aCtrlPos.first.y += 2;
+			aCtrlPos.second.cy -= 2;
+			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+		}
+
 		setInitialToolbarPos(theDialog, anEntry);
 		break;
 
@@ -744,8 +1090,9 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					switch(GetDlgCtrlID(hFocus))
 					{
 					case IDC_EDIT_X: case IDC_EDIT_Y:
-					case IDC_EDIT_W: case IDC_EDIT_H:
+					case IDC_EDIT_W: case IDC_EDIT_H: case IDC_EDIT_S:
 						// Set focus to OK button but don't click it yet
+						// (so EN_KILLFOCUS applies changes in the field)
 						PostMessage(theDialog, WM_NEXTDLGCTL,
 							(WPARAM)GetDlgItem(theDialog, IDOK), TRUE);
 						return (INT_PTR)TRUE;
@@ -769,17 +1116,45 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 
 		case IDC_EDIT_X: case IDC_EDIT_Y:
 		case IDC_EDIT_W: case IDC_EDIT_H:
-		case IDC_EDIT_S:
 			if( HIWORD(wParam) == EN_KILLFOCUS )
 			{
-				processCoordString(theDialog, LOWORD(wParam));
-				applyNewPosition();
-				if( LOWORD(wParam) == IDC_EDIT_S )
-				{// Update slider to match
-					const float aScale =
-						stringToFloat(sState->entered.offsetScale);
+				processCoordFieldChange(theDialog, LOWORD(wParam));
+				applyNewLayoutProperties();
+			}
+			break;
+
+		case IDC_EDIT_S:
+			if( HIWORD(wParam) == EN_KILLFOCUS &&
+				IsDlgButtonChecked(theDialog, IDC_CHECK_SCALE) == BST_CHECKED )
+			{
+				const std::string& aControlStr =
+					getControlText(theDialog, IDC_EDIT_S);
+				size_t aStrPos = 0;
+				double aNewValue = stringToDoubleSum(aControlStr, aStrPos);
+				const bool isInPercent =
+					aStrPos < aControlStr.size() && aControlStr[aStrPos] == '%';
+				if( isInPercent )
+					aNewValue /= 100.0;
+				if( aNewValue < 0.01 )
+					aNewValue = 0.01;
+				if( aControlStr != sState->entered.scale )
+				{
+					sState->entered.scale = isInPercent
+						? strFormat("%.4g%%", aNewValue * 100.0)
+						: strFormat("%.5g", aNewValue);
+					sState->needsDrawPosUpdate = true;
+					gRefreshOverlays.set(kSystemOverlayID);
+					applyNewLayoutProperties();
+					// Update slider to match
 					SendDlgItemMessage(theDialog, IDC_SLIDER_S,
-						TBM_SETPOS, TRUE, LPARAM(aScale * 100));
+						TBM_SETPOS, TRUE,
+						LPARAM(aNewValue * 100.0));
+					if( aControlStr != sState->entered.scale )
+					{
+						SetWindowText(
+							GetDlgItem(theDialog, IDC_EDIT_S),
+							widen(sState->entered.scale).c_str());
+					}
 				}
 			}
 			break;
@@ -787,23 +1162,48 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		case IDC_CHECK_SCALE:
 			if( HIWORD(wParam) == BN_CLICKED )
 			{
-				bool isChecked =
+				const bool isChecked =
 					IsDlgButtonChecked(theDialog, IDC_CHECK_SCALE)
 						== BST_CHECKED;
+				SendMessage(GetDlgItem(theDialog, IDC_EDIT_S),
+					EM_SETREADONLY, !isChecked, 0);
 				EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), isChecked);
-				EnableWindow(GetDlgItem(theDialog, IDC_EDIT_S), isChecked);
 				if( isChecked )
 				{
-					processCoordString(theDialog, IDC_EDIT_S);
-					applyNewPosition();
+					ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
+					ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), false);
+					sState->entered.scale =
+						getControlText(theDialog, IDC_EDIT_S);
+					applyNewLayoutProperties();
+					break;
 				}
-				else if( !sState->entered.offsetScale.empty() )
-				{
-					sState->entered.offsetScale.clear();
+				const std::string& aScaleVarStr =
+					getControlText(theDialog, IDC_EDIT_S_VAR);
+				if( aScaleVarStr.empty() )
+				{// Reset to default scale if have no default variables
+					sState->entered.scale = "1";
+					SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S), L"1");
+					SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+						TBM_SETPOS, TRUE, LPARAM(100));
 					sState->needsDrawPosUpdate = true;
 					gRefreshOverlays.set(kSystemOverlayID);
-					applyNewPosition();
+					applyNewLayoutProperties();
+					break;
 				}
+				// Use scale derived from variable string
+				ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
+				ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), true);
+				sState->entered.scale = aScaleVarStr;
+				const std::string& aCalculatedScaleString =
+					Profile::expandVars(aScaleVarStr);
+				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+					widen(aCalculatedScaleString).c_str());
+				SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+					TBM_SETPOS, TRUE,
+					LPARAM(stringToDouble(aCalculatedScaleString) * 100));
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
+				applyNewLayoutProperties();
 			}
 			break;
 
@@ -813,7 +1213,162 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				sState->entered.alignment = EAlignment(SendMessage(
 					GetDlgItem(theDialog, IDC_COMBO_ALIGN),
 					CB_GETCURSEL, 0, 0));
-				applyNewPosition();
+				applyNewLayoutProperties();
+			}
+			break;
+
+		case IDC_COMBO_X_BASE:
+		case IDC_COMBO_Y_BASE:
+			if( HIWORD(wParam) == CBN_SELCHANGE && sState )
+			{
+				const bool isY = LOWORD(wParam) == IDC_COMBO_Y_BASE;
+				LayoutEntry::Shape::Component& aComp =
+					isY ? sState->entered.y : sState->entered.x;
+				const std::string& aSelectedText =
+					getControlText(theDialog, LOWORD(wParam));
+				// Borrow the draw hotspot so actual on-screen position is
+				// maintained as swap to a different base (anchor) position
+				updateDrawHotspot(anEntry, sState->entered, false, false);
+				const int aWinMax = isY
+					? WindowManager::overlayTargetSize().cy
+					: WindowManager::overlayTargetSize().cx;
+				const int aDrawnPos = (isY
+					? u16ToRangeVal(anEntry.drawHotspot.y.anchor, aWinMax)
+					: u16ToRangeVal(anEntry.drawHotspot.x.anchor, aWinMax))
+					+ (isY	? int(anEntry.drawHotspot.y.offset * gUIScale)
+							: int(anEntry.drawHotspot.x.offset * gUIScale));
+				if( aSelectedText == narrow(kAnchorOnlyLabel) )
+				{
+					// Convert drawn pos to a percentage of window size
+					const double aPercent =
+						clamp(aDrawnPos * 100.0 / double(aWinMax), 0, 100.0);
+					aComp.base = strFormat("%.4g%%", aPercent);
+					aComp.offset = 0;
+					SetWindowText(
+						GetDlgItem(theDialog, isY ? IDC_EDIT_Y : IDC_EDIT_X),
+						widen(aComp.base).c_str());
+				}
+				else
+				{
+					if( aSelectedText == narrow(kOffsetOnlyLabel) )
+						aComp.base.clear();
+					else
+						aComp.base = aSelectedText;
+					aComp.offset = 0;
+					// Set offset to delta from old drawn pos to new base
+					updateDrawHotspot(anEntry, sState->entered, false, false);
+					const int aBaseDrawnPos = (isY
+						? u16ToRangeVal(anEntry.drawHotspot.y.anchor, aWinMax)
+						: u16ToRangeVal(anEntry.drawHotspot.x.anchor, aWinMax))
+						+ (isY	? int(anEntry.drawHotspot.y.offset * gUIScale)
+								: int(anEntry.drawHotspot.x.offset * gUIScale));
+					aComp.offset = aDrawnPos - aBaseDrawnPos;
+					if( gUIScale != 1.0 )
+					{
+						aComp.offset = aComp.offset >= 0
+							? int(ceil(aComp.offset / gUIScale))
+							: int(floor(aComp.offset / gUIScale));
+					}
+					SetWindowText(
+						GetDlgItem(theDialog, isY ? IDC_EDIT_Y : IDC_EDIT_X),
+						((aComp.offset >= 0 ? L"+" : L"") +
+						 widen(toString(aComp.offset))).c_str());
+				}
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
+				applyNewLayoutProperties();
+			}
+			break;
+
+		case IDC_COMBO_W_BASE:
+		case IDC_COMBO_H_BASE:
+			if( HIWORD(wParam) == CBN_SELCHANGE && sState )
+			{
+				const bool isH = LOWORD(wParam) == IDC_COMBO_H_BASE;
+				const int altAxisControlID =
+					isH ? IDC_COMBO_W_BASE : IDC_COMBO_H_BASE;
+				LayoutEntry::Shape::Component& aComp =
+					isH ? sState->entered.h : sState->entered.w;
+				const std::string& aSelectedText =
+					getControlText(theDialog, LOWORD(wParam));
+				const std::string& anAltAxisText =
+					getControlText(theDialog, altAxisControlID);
+				const std::string& anOffsetText =
+					getControlText(theDialog, isH ? IDC_EDIT_H : IDC_EDIT_W);
+				const bool useDefault =
+					aSelectedText == narrow(kUseDefaultLabel);
+				const bool useDirectValue = !useDefault &&
+					aSelectedText == narrow(kValueOnlyLabel);
+				const bool useStringBase = !useDefault && !useDirectValue;
+				const bool altAxisSetToDefault =
+					anAltAxisText == narrow(kUseDefaultLabel);
+
+				if( useDefault != altAxisSetToDefault )
+				{// Both axis must be default, or both NOT default
+					HWND hAltAxis =
+						GetDlgItem(theDialog, altAxisControlID);
+					int aNewSel = min(
+						SendMessage((HWND)lParam, CB_GETCURSEL, 0, 0),
+						SendMessage(hAltAxis, CB_GETCOUNT, 0, 0));
+					SendMessage(hAltAxis, CB_SETCURSEL, aNewSel, 0);
+					SendMessage(theDialog, WM_COMMAND,
+						MAKEWPARAM(altAxisControlID, CBN_SELCHANGE),
+						(LPARAM)hAltAxis);
+				}
+
+				// Disable/enable modification based on useDefault
+				SendMessage(
+					GetDlgItem(theDialog, isH ? IDC_EDIT_H : IDC_EDIT_W),
+					EM_SETREADONLY, useDefault, 0);
+				EnableWindow(
+					GetDlgItem(theDialog, isH ? IDC_SPIN_H : IDC_SPIN_W),
+					!useDefault);
+
+				if( useDefault )
+				{
+					sState->entered.w.base.clear();
+					sState->entered.w.offset = 0;
+					sState->entered.h.base.clear();
+					sState->entered.h.offset = 0;
+					// Borrow draw hotspot to display inherited value
+					updateDrawHotspot(anEntry, sState->entered, true, false);
+					if( anEntry.drawHotspot.w == 0 &&
+						anEntry.drawHotspot.h == 0 )
+					{
+						SetWindowText(GetDlgItem(theDialog,
+							isH ? IDC_EDIT_H : IDC_EDIT_W),
+							L"");
+					}
+					else
+					{
+						SetWindowText(GetDlgItem(theDialog,
+							isH ? IDC_EDIT_H : IDC_EDIT_W),
+							widen(isH
+								? toString(anEntry.drawHotspot.h)
+								: toString(anEntry.drawHotspot.w)).c_str());
+					}
+				}
+				else
+				{
+					const int aPrevOffset = anOffsetText.empty()
+						? aComp.offset : stringToInt(anOffsetText);
+					const int aPrevFullValue = max(1, aPrevOffset +
+						stringToInt(Profile::expandVars(aComp.base)));
+					const int aNewBaseValue = useStringBase
+						? stringToInt(Profile::expandVars(aSelectedText)) : 0;
+					if( useStringBase )
+						aComp.base = aSelectedText;
+					else
+						aComp.base.clear();
+					aComp.offset = aPrevFullValue - aNewBaseValue;
+					SetWindowText(
+						GetDlgItem(theDialog, isH ? IDC_EDIT_H : IDC_EDIT_W),
+						((useStringBase && aComp.offset >= 0 ? L"+" : L"") +
+						widen(toString(aComp.offset))).c_str());
+				}
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
+				applyNewLayoutProperties();
 			}
 			break;
 		}
@@ -824,39 +1379,42 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		{
 			const int aScaleVal = dropTo<int>(
 				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0));
-			if( !sState->entered.offsetScale.empty() &&
-				sState->entered.offsetScale
-					[sState->entered.offsetScale.size()-1] == '%' )
+			if( !sState->entered.scale.empty() &&
+				sState->entered.scale
+					[sState->entered.scale.size()-1] == '%' )
 			{
+				sState->entered.scale = strFormat("%d%%", aScaleVal);
 				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
-					widen(strFormat("%d%%", aScaleVal)).c_str());
+					widen(sState->entered.scale).c_str());
 			}
 			else
 			{
+				sState->entered.scale = strFormat("%.5g", aScaleVal / 100.0);
 				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
-					widen(strFormat("%.4g", aScaleVal / 100.0)).c_str());
+					widen(sState->entered.scale).c_str());
 			}
-			processCoordString(theDialog, IDC_EDIT_S);
-			applyNewPosition();
+			sState->needsDrawPosUpdate = true;
+			gRefreshOverlays.set(kSystemOverlayID);
+			applyNewLayoutProperties();
 		}
 		break;
 
 	case WM_NOTIFY:
 		switch(((LPNMHDR)lParam)->idFrom)
 		{
-		case IDC_SPIN_X: case IDC_SPIN_W:
-			processCoordString(theDialog,
+		case IDC_SPIN_X: case IDC_SPIN_W: case IDC_SPIN_H:
+			processCoordFieldChange(theDialog,
 				IDC_EDIT_X +
 				dropTo<int>(((LPNMHDR)lParam)->idFrom) - IDC_SPIN_X,
 				-((LPNMUPDOWN)lParam)->iDelta);
-			applyNewPosition();
+			applyNewLayoutProperties();
 			break;
-		case IDC_SPIN_Y: case IDC_SPIN_H:
-			processCoordString(theDialog,
+		case IDC_SPIN_Y:
+			processCoordFieldChange(theDialog,
 				IDC_EDIT_X +
 				dropTo<int>(((LPNMHDR)lParam)->idFrom) - IDC_SPIN_X,
 				((LPNMUPDOWN)lParam)->iDelta);
-			applyNewPosition();
+			applyNewLayoutProperties();
 			break;
 		}
 		break;
@@ -901,7 +1459,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 
 			if( aMousePos.x != sState->lastMouseDragPos.x )
 			{
-				processCoordString(
+				processCoordFieldChange(
 					WindowManager::toolbarHandle(),
 					IDC_EDIT_X,
 					aMousePos.x - sState->lastMouseDragPos.x,
@@ -909,7 +1467,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 			}
 			if( aMousePos.y != sState->lastMouseDragPos.y )
 			{
-				processCoordString(
+				processCoordFieldChange(
 					WindowManager::toolbarHandle(),
 					IDC_EDIT_Y,
 					aMousePos.y - sState->lastMouseDragPos.y,
@@ -923,7 +1481,7 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 				ReleaseCapture();
 				sState->draggingWithMouse = false;
 				sState->unappliedDeltaX = sState->unappliedDeltaY = 0;
-				applyNewPosition();
+				applyNewLayoutProperties();
 				sState->needsDrawPosUpdate = true;
 				gRefreshOverlays.set(kSystemOverlayID);
 			}
@@ -933,8 +1491,8 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 		if( !sState->draggingWithMouse )
 		{
 			SetCursor(LoadCursor(NULL, IDC_SIZEALL));
-			processCoordString(WindowManager::toolbarHandle(), IDC_EDIT_X);
-			processCoordString(WindowManager::toolbarHandle(), IDC_EDIT_Y);
+			processCoordFieldChange(WindowManager::toolbarHandle(), IDC_EDIT_X);
+			processCoordFieldChange(WindowManager::toolbarHandle(), IDC_EDIT_Y);
 		}
 		return 0;
 	}
@@ -943,141 +1501,65 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 }
 
 
-static void updateDrawHotspot(
-	LayoutEntry& theEntry,
-	const LayoutEntry::Shape& theShape,
-	bool updateParentIfNeeded = true,
-	bool updateChildren = true)
-{
-	DBG_ASSERT(entryIncludesPosition(theEntry));
-	std::string aHotspotStr = theShape.x + ", " + theShape.y;
-	HotspotMap::stringToHotspot(aHotspotStr, theEntry.drawHotspot);
-	theEntry.drawOffX = theEntry.drawOffY = 0;
-	theEntry.drawSize = Hotspot();
-	theEntry.drawOffScale = 0;
-	theEntry.drawOffScale = stringToFloat(theShape.offsetScale);
-	if( theEntry.drawOffScale == 0 )
-		theEntry.drawOffScale = 1.0f;
-	if( theEntry.rangeCount > 0 )
-	{
-		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
-		theEntry.drawOffY = theEntry.drawHotspot.y.offset;
-	}
-	if( theEntry.type == LayoutEntry::eType_CopyIcon &&
-		entryIncludesSize(theEntry) )
-	{
-		aHotspotStr = theShape.w + ", " + theShape.h;
-		HotspotMap::stringToHotspot(aHotspotStr, theEntry.drawSize);
-	}
-	if( entryIsAnOffset(theEntry) )
-	{
-		LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
-		DBG_ASSERT(aParent.type == theEntry.type);
-		if( updateParentIfNeeded )
-			updateDrawHotspot(aParent, aParent.shape, true, false);
-		theEntry.drawOffScale = aParent.drawOffScale;
-		Hotspot anAnchor = aParent.drawHotspot;
-		if( aParent.rangeCount > 0 )
-		{// Rare case where the parent is itself a range of hotspots
-			anAnchor.x.offset = s16(clamp(int(
-				anAnchor.x.offset +
-				aParent.drawOffX *
-				(aParent.rangeCount-1) *
-				aParent.drawOffScale), -0x8000, 0x7FFF));
-			anAnchor.y.offset = s16(clamp(int(
-				anAnchor.y.offset +
-				aParent.drawOffY *
-				(aParent.rangeCount-1) *
-				aParent.drawOffScale), -0x8000, 0x7FFF));
-		}
-		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
-		{
-			theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
-			theEntry.drawHotspot.x.offset = s16(clamp(int(
-				theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
-				anAnchor.x.offset, -0x8000, 0x7FFF));
-		}
-		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
-		{
-			theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
-			theEntry.drawHotspot.y.offset = s16(clamp(int(
-				theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
-				anAnchor.y.offset, -0x8000, 0x7FFF));
-		}
-		if( theEntry.type == LayoutEntry::eType_CopyIcon )
-			theEntry.drawSize = aParent.drawSize;
-	}
-	if( updateChildren )
-	{
-		for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
-		{
-			LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
-			updateDrawHotspot(aChildEntry, aChildEntry.shape, false, true);
-		}
-	}
-}
-
-
-static RECT drawBoundBox(
-	HDC hdc,
-	const POINT& theOrigin,
-	const SIZE& theBoxSize,
-	COLORREF theEraseColor,
-	bool isActiveBox)
-{
-	RECT aRect = {
-		theOrigin.x, theOrigin.y,
-		theOrigin.x + theBoxSize.cx, theOrigin.y + theBoxSize.cy };
-	RECT aFullDrawnRect = { 0 };
-
-	// Draw outer-most black border
-	COLORREF oldBrushColor = SetDCBrushColor(hdc, theEraseColor);
-	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
-	InflateRect(&aRect, 2, 2);
-	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
-	UnionRect(&aFullDrawnRect, &aFullDrawnRect, &aRect);
-
-	// For active box, draw anchor in top-left corner representing base pos
-	if( isActiveBox )
-	{
-		RECT anAnchorRect = { 0 };
-		anAnchorRect.left = theOrigin.x - kBoundBoxAnchorDrawSize;
-		anAnchorRect.top = theOrigin.y - kBoundBoxAnchorDrawSize;
-		anAnchorRect.right = theOrigin.x + 3;
-		anAnchorRect.bottom = theOrigin.y + 3;
-		SetDCBrushColor(hdc, oldBrushColor);
-		SelectObject(hdc, hOldBrush);
-		Rectangle(hdc,
-			anAnchorRect.left, anAnchorRect.top,
-			anAnchorRect.right, anAnchorRect.bottom);
-		UnionRect(&aFullDrawnRect, &aFullDrawnRect, &anAnchorRect);
-		SetDCBrushColor(hdc, theEraseColor);
-		SelectObject(hdc, GetStockObject(NULL_BRUSH));
-	}
-
-	// Draw white/grey border just outside of inner rect
-	InflateRect(&aRect, -1, -1);
-	HPEN hOldPen = (HPEN)SelectObject(hdc, GetStockObject(DC_PEN));
-	COLORREF oldPenColor = SetDCPenColor(hdc, oldBrushColor);
-	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
-	SetDCPenColor(hdc, oldPenColor);
-	SelectObject(hdc, hOldPen);
-	SelectObject(hdc, hOldBrush);
-	InflateRect(&aRect, -1, -1);
-
-	// Erase contents of inner rect if this is the active box
-	if( isActiveBox )
-		FillRect(hdc, &aRect, hOldBrush);
-
-	SetDCBrushColor(hdc, oldBrushColor);
-	return aFullDrawnRect;
-}
+//static RECT drawBoundBox(
+//	HDC hdc,
+//	const POINT& theOrigin,
+//	const SIZE& theBoxSize,
+//	COLORREF theEraseColor,
+//	bool isActiveBox)
+//{
+//	RECT aRect = {
+//		theOrigin.x, theOrigin.y,
+//		theOrigin.x + theBoxSize.cx, theOrigin.y + theBoxSize.cy };
+//	RECT aFullDrawnRect = { 0 };
+//
+//	// Draw outer-most black border
+//	COLORREF oldBrushColor = SetDCBrushColor(hdc, theEraseColor);
+//	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+//	InflateRect(&aRect, 2, 2);
+//	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
+//	UnionRect(&aFullDrawnRect, &aFullDrawnRect, &aRect);
+//
+//	// For active box, draw anchor in top-left corner representing base pos
+//	if( isActiveBox )
+//	{
+//		RECT anAnchorRect = { 0 };
+//		anAnchorRect.left = theOrigin.x - kBoundBoxAnchorDrawSize;
+//		anAnchorRect.top = theOrigin.y - kBoundBoxAnchorDrawSize;
+//		anAnchorRect.right = theOrigin.x + 3;
+//		anAnchorRect.bottom = theOrigin.y + 3;
+//		SetDCBrushColor(hdc, oldBrushColor);
+//		SelectObject(hdc, hOldBrush);
+//		Rectangle(hdc,
+//			anAnchorRect.left, anAnchorRect.top,
+//			anAnchorRect.right, anAnchorRect.bottom);
+//		UnionRect(&aFullDrawnRect, &aFullDrawnRect, &anAnchorRect);
+//		SetDCBrushColor(hdc, theEraseColor);
+//		SelectObject(hdc, GetStockObject(NULL_BRUSH));
+//	}
+//
+//	// Draw white/grey border just outside of inner rect
+//	InflateRect(&aRect, -1, -1);
+//	HPEN hOldPen = (HPEN)SelectObject(hdc, GetStockObject(DC_PEN));
+//	COLORREF oldPenColor = SetDCPenColor(hdc, oldBrushColor);
+//	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
+//	SetDCPenColor(hdc, oldPenColor);
+//	SelectObject(hdc, hOldPen);
+//	SelectObject(hdc, hOldBrush);
+//	InflateRect(&aRect, -1, -1);
+//
+//	// Erase contents of inner rect if this is the active box
+//	if( isActiveBox )
+//		FillRect(hdc, &aRect, hOldBrush);
+//
+//	SetDCBrushColor(hdc, oldBrushColor);
+//	return aFullDrawnRect;
+//}
 
 
 static RECT drawHotspot(
 	HDC hdc,
 	const Hotspot& theHotspot,
-	const Hotspot* theBoxSize,
 	int theExtents,
 	const RECT& theWindowRect,
 	COLORREF theEraseColor,
@@ -1090,16 +1572,11 @@ static RECT drawHotspot(
 		LONG(u16ToRangeVal(theHotspot.y.anchor, aTargetSize.cy)) +
 			LONG(theHotspot.y.offset * gUIScale) + theWindowRect.top };
 
-	if( theBoxSize )
-	{
-		const SIZE aBoxWH = {
-			max(1L, LONG(u16ToRangeVal(theBoxSize->x.anchor, aTargetSize.cx)) +
-				LONG(theBoxSize->x.offset * gUIScale)),
-			max(1L, LONG(u16ToRangeVal(theBoxSize->y.anchor, aTargetSize.cy)) +
-				LONG(theBoxSize->y.offset * gUIScale)) };
-		return drawBoundBox(
-			hdc, aCenterPoint, aBoxWH, theEraseColor, isActiveHotspot);
-	}
+	//if( theHotspot.w > 0 && theHotspot.w > 0 )
+	//{
+	//	return drawBoundBox(
+	//		hdc, aCenterPoint, theBoxSize, theEraseColor, isActiveHotspot);
+	//}
 
 	RECT aFullDrawnRect = { 0 };
 	aFullDrawnRect.left = aCenterPoint.x - theExtents;
@@ -1152,13 +1629,10 @@ static void drawEntry(
 	COLORREF theEraseColor,
 	bool isActiveHotspot)
 {
-	Hotspot* aDrawBoxSize =
-		theEntry.type == LayoutEntry::eType_CopyIcon
-			? &theEntry.drawSize : null;
 	Hotspot aHotspot = theEntry.drawHotspot;
 	if( !isActiveHotspot )
 	{// Draw basic hotspot
-		theEntry.drawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
+		theEntry.drawnRect = drawHotspot(hdc, aHotspot,
 			kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
 	}
 	for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
@@ -1179,7 +1653,7 @@ static void drawEntry(
 			aHotspot.y.offset = s16(clamp(int(
 				theEntry.drawOffY * (i-1) * theEntry.drawOffScale) +
 				aRangeAnchor.y.offset, -0x8000, 0x7FFF));
-			RECT aDrawnRect = drawHotspot(hdc, aHotspot, aDrawBoxSize,
+			RECT aDrawnRect = drawHotspot(hdc, aHotspot,
 				kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
 			UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
 		}
@@ -1188,8 +1662,7 @@ static void drawEntry(
 	{// Draw primary hotspot last so is over top of all children/range
 		COLORREF oldColor = SetDCBrushColor(hdc, RGB(255, 255, 255));
 		theEntry.drawnRect = drawHotspot(hdc, theEntry.drawHotspot,
-			aDrawBoxSize, kActiveHotspotDrawSize, theWindowRect,
-			theEraseColor, true);
+			kActiveHotspotDrawSize, theWindowRect, theEraseColor, true);
 		SetDCBrushColor(hdc, oldColor);
 	}
 	// Have final drawn rect include range
@@ -1249,24 +1722,16 @@ static void promptForEditEntry()
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 		sState->entered = sState->applied = anEntry.shape;
 		sState->needsDrawPosUpdate = true;
-		if( entryIncludesPosition(anEntry) )
-		{
-			WindowManager::setSystemOverlayCallbacks(
-				layoutEditorWindowProc, layoutEditorPaintFunc);
-		}
+		WindowManager::setSystemOverlayCallbacks(
+			layoutEditorWindowProc, layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
-			entryIncludesAlignment(anEntry)
-				? entryIncludesPosition(anEntry)
-					? IDD_DIALOG_LAYOUT_XYWHA_TOOLBAR
-					: IDD_DIALOG_LAYOUT_WHA_TOOLBAR
-				: entryIncludesSize(anEntry)
-					? IDD_DIALOG_LAYOUT_XYWH_TOOLBAR
-				: entryIncludesScale(anEntry)
-					? IDD_DIALOG_LAYOUT_XYS_TOOLBAR
-					: IDD_DIALOG_LAYOUT_XY_TOOLBAR,
+			anEntry.type == LayoutEntry::eType_Menu
+				? IDD_DIALOG_LAYOUT_MENU
+				: entryIsAnchorHotspot(anEntry)
+					? IDD_DIALOG_LAYOUT_ANCHOR
+					: IDD_DIALOG_LAYOUT_HOTSPOT,
 			editLayoutToolbarProc,
-			anEntry.type == LayoutEntry::eType_MenuOverlay
-				? anEntry.menuOverlayID : -1);
+			-1 /*TODO*/);
 	}
 	else
 	{
@@ -1280,10 +1745,10 @@ static bool setEntryParentFromMap(
 	int theIndex, const std::string& /*thePrefix*/, void* theEntryPtr)
 {
 	LayoutEntry& theEntry = *((LayoutEntry*)theEntryPtr);
-	std::string aHotspotName =
+	std::string aHotspotPropertyName =
 		theEntryNameMap.keys()[theIndex];
 	const int aHotspotEndIdx =
-		breakOffIntegerSuffix(aHotspotName);
+		breakOffIntegerSuffix(aHotspotPropertyName);
 	const int anArrayPrevIdx = -theEntry.item.parentIndex;
 	if( aHotspotEndIdx == anArrayPrevIdx )
 	{
@@ -1295,191 +1760,78 @@ static bool setEntryParentFromMap(
 }
 
 
-static void setEntryParent(
+static void setHotspotEntryParent(
 	LayoutEntry& theEntry,
 	const StringToValueMap<u32>& theEntryNameMap)
 {
-	if( theEntry.rangeCount < 0 )
+	// Check if might have a parent/anchor (ends in a number or range)
+	theEntry.rangeCount = -1;
+	int aRangeStartIdx, aRangeEndIdx;
+	std::string anArrayName;
+	const bool usePrevIndexAsParent = fetchRangeSuffix(
+		theEntry.item.name, anArrayName,
+		aRangeStartIdx, aRangeEndIdx);
+
+	// If didn't end in a number, must be an anchor or independent hotspot
+	// Leave rangeCount as -1 and exit now
+	if( aRangeEndIdx <= 0 )
 		return;
 
-	if( theEntry.rangeCount == 0 )
-	{// Search for an anchor to act as parent
-		std::string anArrayName = theEntry.item.name;
-		breakOffIntegerSuffix(anArrayName);
-		const u32* aParentIdx = theEntryNameMap.find(anArrayName);
+	// For "ArrayName#" entries (!usePrevIndexAsParent), set rangeCount = 0 and
+	// only let the overall array anchor hotspot be a parent, if there is one
+	const u32* aParentIdx;
+	if( !usePrevIndexAsParent )
+	{
+		theEntry.rangeCount = 0;
+		aParentIdx = theEntryNameMap.find(anArrayName);
 		if( aParentIdx )
 			theEntry.item.parentIndex = *aParentIdx;
 		return;
 	}
 
-	// Search for previous index in the array
-	int aRangeStartIdx, aRangeEndIdx;
-	std::string anArrayName;
-	fetchRangeSuffix(
-		theEntry.item.name, anArrayName,
-		aRangeStartIdx, aRangeEndIdx);
-	DBG_ASSERT(theEntry.rangeCount == 1 + aRangeEndIdx - aRangeStartIdx);
+	// Must be "ArrayName#-#" (though both #'s might be the same value),
+	// and thus usePrevIndexAsParent is true. Set .rangeCount appropriately.
+	theEntry.rangeCount = 1 + aRangeEndIdx - aRangeStartIdx;
+
+	// Need to find the hotspot in the array with starting index - 1
 	const int anArrayPrevIdx = aRangeStartIdx - 1;
-	const u32* aParentIdx = theEntryNameMap.find(
-		anArrayName + toString(anArrayPrevIdx));
+
+	// Directly check for an entry named "ArrayName#" (with # == prev index)
+	aParentIdx = theEntryNameMap.find(anArrayName + toString(anArrayPrevIdx));
 	if( aParentIdx )
 	{
 		theEntry.item.parentIndex = *aParentIdx;
 		return;
 	}
-	const int oldParentIndex = theEntry.item.parentIndex;
-	theEntry.item.parentIndex = -anArrayPrevIdx;
-	theEntryNameMap.findAllWithPrefix(anArrayName, setEntryParentFromMap);
-	if( theEntry.item.parentIndex < 0 )
+
+	// Previous index may be itself in a range like "ArrayName3-#", in which
+	// case need to search through all hotspots in the named array for any
+	// ranges that end in "-#" by using findAllWithPrefix
+	if( anArrayPrevIdx > 0 )
+	{
+		// Store the value we are looking for temporarily in theEntry
+		// for use in the setEntryParentFromMap function, and set it negative
+		// so can check if it was re-set to an actual parent (became positive).
+		const int oldParentIndex = theEntry.item.parentIndex;
+		theEntry.item.parentIndex = -anArrayPrevIdx;
+		theEntryNameMap.findAllWithPrefix(
+			anArrayName, setEntryParentFromMap, &theEntry);
+		if( theEntry.item.parentIndex >= 0 )
+			return;
 		theEntry.item.parentIndex = oldParentIndex;
-	else
-		return;
+	}
+
+	// All else failed, so try using the overall anchor hotspot for the array.
+	// One case where this might happen is if the first hotspot is a range,
+	// such as "ArrayName1-3", so previous index (0) is just "ArrayName".
 	aParentIdx = theEntryNameMap.find(anArrayName);
 	if( aParentIdx )
+	{
 		theEntry.item.parentIndex = *aParentIdx;
-	return;
-}
-
-
-static void addArrayEntries(
-	std::vector<LayoutEntry>& theEntryList,
-	LayoutEntry::EType theCategoryType,
-	LayoutEntry::EType theEntryType)
-{
-	const int aFirstNewEntryIdx = intSize(theEntryList.size());
-	LayoutEntry aNewEntry;
-	aNewEntry.type = theEntryType;
-	aNewEntry.item.parentIndex = theCategoryType;
-
-	Profile::PropertyMapPtr aPropMap =
-		Profile::getSectionProperties(theEntryList[theCategoryType].posSect);
-	StringToValueMap<u32> anEntryNameToIdxMap;
-	for(int i = 0, end = intSize(aPropMap->size()); i < end; ++i)
-	{
-		aNewEntry.rangeCount = -1;
-		aNewEntry.item.name = aPropMap->keys()[i];
-		aNewEntry.propName = aNewEntry.item.name;
-		std::string aKeyName = aNewEntry.item.name;
-		anEntryNameToIdxMap.setValue(
-			aKeyName, u32(theEntryList.size()));
-		std::string aDesc = aPropMap->vals()[i].str;
-		Hotspot aHotspot;
-		HotspotMap::stringToCoord(aDesc, aHotspot.x, &aNewEntry.shape.x);
-		HotspotMap::stringToCoord(aDesc, aHotspot.y, &aNewEntry.shape.y);
-		if( theEntryType == LayoutEntry::eType_CopyIcon )
-		{
-			Hotspot::Coord tmp;
-			HotspotMap::stringToCoord(aDesc, tmp, &aNewEntry.shape.w);
-			HotspotMap::stringToCoord(aDesc, tmp, &aNewEntry.shape.h);
-		}
-		if( aHotspot.x.anchor == 0 && aHotspot.y.anchor == 0 &&
-			aNewEntry.shape.h.empty() )
-		{// Possibly has a parent to offset from
-			aNewEntry.shape.w.clear();
-			// Check for a range of values, like Name2-8
-			int aRangeStartIdx, aRangeEndIdx;
-			std::string aRangeName;
-			const bool isRange = fetchRangeSuffix(
-				aKeyName, aRangeName,
-				aRangeStartIdx, aRangeEndIdx);
-			if( aRangeEndIdx > 0 )
-			{
-				// 0 = only single index specified (-1 = none/is anchor)
-				aNewEntry.rangeCount = 0;
-				// If range specified (even single-value like "12-12"), then
-				// rangeCount = at least 1, or number of entries in the range
-				if( isRange )
-					aNewEntry.rangeCount = 1 + aRangeEndIdx - aRangeStartIdx;
-			}
-		}
-		if( aNewEntry.rangeCount < 0 && !aDesc.empty() && aDesc[0] == '*' )
-			aNewEntry.shape.offsetScale = trim(aDesc.substr(1));
-		else
-			aNewEntry.shape.offsetScale.clear();
-		theEntryList.push_back(aNewEntry);
-	}
-
-	// Link items in arrays with their direct parents
-	for(int i = aFirstNewEntryIdx,
-		end = intSize(theEntryList.size()); i < end; ++i)
-	{
-		setEntryParent(theEntryList[i], anEntryNameToIdxMap);
-	}
-}
-
-
-static void tryFetchMenuHotspot(
-	LayoutEntry& theEntry,
-	const std::string& thePropName,
-	const std::string& theReadSect,
-	const std::string& theWriteSect)
-{
-	const bool isPosition = thePropName == kPositionKey;
-	const bool isAlignment = !isPosition && thePropName == kAlignmentKey;
-	const bool isSize = !isPosition && !isAlignment;
-
-	std::string* aDestSectStr =
-		isPosition ? &theEntry.posSect :
-		isSize ? &theEntry.sizeSect :
-		/*isAlignment ?*/ &theEntry.alignSect;
-	if( !aDestSectStr->empty() )
 		return;
-	if( theReadSect.empty() )
-	{
-		*aDestSectStr = theWriteSect;
-		if( isPosition )
-		{
-			theEntry.shape.x = HotspotMap::coordToString(
-				Hotspot::Coord(), formatForCoord(theEntry, IDC_EDIT_X));
-			theEntry.shape.y = HotspotMap::coordToString(
-				Hotspot::Coord(), formatForCoord(theEntry, IDC_EDIT_Y));
-		}
-		else if( isSize )
-		{
-			theEntry.shape.w = theEntry.shape.h = "0";
-			theEntry.propName = thePropName;
-		}
-		else// if( isAlignment )
-		{
-			theEntry.shape.alignment =
-				entryIncludesPosition(theEntry)
-					? eAlignment_L_T
-					: eAlignment_CX_CY;
-		}
 	}
-	else
-	{
-		std::string aValStr = Profile::getStr(theReadSect, thePropName);
-		if( !aValStr.empty() )
-		{
-			*aDestSectStr = theWriteSect;
-			Hotspot tmp;
-			if( isPosition )
-			{
-				HotspotMap::stringToCoord(aValStr, tmp.x, &theEntry.shape.x);
-				HotspotMap::stringToCoord(aValStr, tmp.y, &theEntry.shape.y);
-			}
-			else if( isSize )
-			{
-				HotspotMap::stringToCoord(aValStr, tmp.x, &theEntry.shape.w);
-				HotspotMap::stringToCoord(aValStr, tmp.y, &theEntry.shape.h);
-				theEntry.propName = thePropName;
-			}
-			else //if( isAlignment )
-			{
-				HotspotMap::stringToHotspot(aValStr, tmp);
-				int anAlignVal =
-					tmp.x.anchor < 0x4000	? eAlignment_L_T :
-					tmp.x.anchor > 0xC000	? eAlignment_R_T :
-					/*otherwise*/			  eAlignment_CX_T;
-				anAlignVal +=
-					tmp.y.anchor < 0x4000	? eAlignment_L_T :
-					tmp.y.anchor > 0xC000	? eAlignment_L_B :
-					/*otherwise*/			  eAlignment_L_CY;
-				theEntry.shape.alignment = EAlignment(anAlignVal);
-			}
-		}
-	}
+
+	// Very unlikely but possible to be a range with no parent (offset from 0x0)
 }
 
 
@@ -1509,15 +1861,9 @@ void init()
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_HotspotCategory;
 		aCatEntry.item.name = "Hotspots";
-		aCatEntry.posSect = kHotspotsPrefix;
-		sState->entries.push_back(aCatEntry);
-		aCatEntry.type = LayoutEntry::eType_CopyIconCategory;
-		aCatEntry.item.name = "Copy Icons";
-		aCatEntry.posSect = kIconsPrefix;
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_MenuCategory;
 		aCatEntry.item.name = "Menus";
-		aCatEntry.posSect = kMenuPrefix;
 		sState->entries.push_back(aCatEntry);
 		DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
 		#ifndef NDEBUG
@@ -1526,71 +1872,59 @@ void init()
 		#endif
 	}
 
-	// Collect the hotspots
-	addArrayEntries(
-		sState->entries,
-		LayoutEntry::eType_HotspotCategory,
-		LayoutEntry::eType_Hotspot);
-
-	// Collect the copy icon regions
-	addArrayEntries(
-		sState->entries,
-		LayoutEntry::eType_CopyIconCategory,
-		LayoutEntry::eType_CopyIcon);
-
-	// Collect menu position keys from InputMap
-	for(int i = 0, end = intSize(InputMap::menuOverlayCount()); i < end; ++i)
+	// Collect hotspot data entries
+	const int kHotspotsSectionID = Profile::getSectionID(kHotspotsSectionName);
+	if( kHotspotsSectionID >= 0 )
 	{
-		const int aRootMenuID = InputMap::overlayRootMenuID(i);
-		LayoutEntry aNewEntry;
-		aNewEntry.item.isRootCategory = false;
-		aNewEntry.menuOverlayID = i;
-		aNewEntry.item.name = InputMap::menuKeyName(aRootMenuID);
-		aNewEntry.type = LayoutEntry::eType_MenuOverlay;
-		aNewEntry.item.parentIndex = LayoutEntry::eType_MenuCategory;
-		if( aNewEntry.item.name.empty() )
-			continue;
+		int aFirstNewEntryIdx = intSize(sState->entries.size());
 
-		const std::string& aMenuSectName = kMenuPrefix + aNewEntry.item.name;
-		if( entryIncludesPosition(aNewEntry ) )
+		Profile::PropertyMapPtr aPropMap =
+			Profile::getSectionProperties(kHotspotsSectionID);
+		StringToValueMap<u32> anEntryNameToIdxMap;
+		for(int i = 0, end = intSize(aPropMap->size()); i < end; ++i)
 		{
-			// Try read/write [Menu.Name]/Position
-			tryFetchMenuHotspot(aNewEntry, kPositionKey,
-				aMenuSectName, aMenuSectName);
-			// Just write to [Menu.Name]/Position w/ default settings
-			tryFetchMenuHotspot(aNewEntry, kPositionKey, "", aMenuSectName);
+			LayoutEntry aNewEntry;
+			aNewEntry.type = LayoutEntry::eType_Hotspot;
+			aNewEntry.item.parentIndex = LayoutEntry::eType_HotspotCategory;
+			aNewEntry.item.name = aPropMap->keys()[i];
+			aNewEntry.posPropName = aNewEntry.item.name;
+			std::string aKeyName = aNewEntry.item.name;
+			anEntryNameToIdxMap.setValue(
+				aKeyName, u32(sState->entries.size()));
+			const std::string& aDesc =
+				aPropMap->vals()[i].pattern.empty()
+					? aPropMap->vals()[i].str
+					: aPropMap->vals()[i].pattern;
+			size_t aPos = 0;
+			aNewEntry.shape.x = fetchShapeComponent(aDesc, aPos, true);
+			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
+				aNewEntry.shape.y = fetchShapeComponent(aDesc, ++aPos, true);
+			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
+				aNewEntry.shape.w = fetchShapeComponent(aDesc, ++aPos, false);
+			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
+				aNewEntry.shape.h = fetchShapeComponent(aDesc, ++aPos, false);
+			// This might read in a scale for hotspots that aren't allowed to
+			// have one, but it will just be ignored in those cases.
+			if( aPos < aDesc.size() && aDesc[aPos] == '*' )
+				aNewEntry.shape.scale = fetchShapeScale(aDesc, ++aPos);
+			sState->entries.push_back(aNewEntry);
 		}
 
-		// Try read/write [Menu.Name]/ItemSize
-		tryFetchMenuHotspot(aNewEntry, kItemSizeKey,
-			aMenuSectName, aMenuSectName);
-		// Try read/write [Menu.Name]/Size
-		tryFetchMenuHotspot(aNewEntry, kSizeKey,
-			aMenuSectName, aMenuSectName);
-
-		// Try read [Appearance]/ItemSize and write to [Menu.Name]/ItemSize
-		tryFetchMenuHotspot(aNewEntry, kItemSizeKey, kDefMenuSectName,
-			aMenuSectName);
-		// Just write defaults to [Menu.Name]/ItemSize
-		tryFetchMenuHotspot(aNewEntry, kItemSizeKey, "", aMenuSectName);
-
-		// Try read/write [Menu.Name]/Alignment
-		tryFetchMenuHotspot(aNewEntry, kAlignmentKey,
-			aMenuSectName, aMenuSectName);
-		// Try read [Appearance]/Alignment and write to [enu.Name]/Alignment
-		tryFetchMenuHotspot(aNewEntry, kAlignmentKey, kDefMenuSectName,
-			aMenuSectName);
-		// Just write to [Menu.Name]/Alignment w/ default settings
-		tryFetchMenuHotspot(aNewEntry, kAlignmentKey, "",
-			aMenuSectName);
-
-		sState->entries.push_back(aNewEntry);
+		// Link hotspots in arrays with their direct parents
+		for(int i = aFirstNewEntryIdx,
+			end = intSize(sState->entries.size()); i < end; ++i)
+		{
+			setHotspotEntryParent(sState->entries[i], anEntryNameToIdxMap);
+		}
 	}
+
+	// TODO - Collect menu layouts
+
 
 	// Prepare for prompt dialog
 	if( sState->entries.size() <= LayoutEntry::eType_CategoryNum )
 	{
-		logError("Current profile has no positional items to edit!");
+		logError("Current profile has no edit-able layout items!");
 		return;
 	}
 
@@ -1598,8 +1932,7 @@ void init()
 	for(int i = LayoutEntry::eType_CategoryNum,
 		end = intSize(sState->entries.size()); i < end; ++i)
 	{
-		if( sState->entries[i].item.parentIndex >=
-				LayoutEntry::eType_CategoryNum )
+		if( entryHasParent(sState->entries[i]) )
 		{
 			sState->entries[sState->entries[i].item.parentIndex]
 				.children.push_back(i);

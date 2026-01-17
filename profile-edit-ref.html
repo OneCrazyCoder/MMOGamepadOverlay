@@ -252,16 +252,15 @@ Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> R-50, B-75</span>
 </code></pre>
 <p>In addition to direct named Hotspots in the <code>[Hotspots]</code> section, some other positions also use Hotspot formatting, such as the <code>Position=</code> property of <strong>Menus</strong>.</p>
-<h3 id="hotspot-sizes-regions">Hotspot sizes (regions)</h3>
-<p>Hotspots can be used as more than points, but represent a rectangular region, for certain specific menu styles and other advanced features. By default a hotspot is considered 0 width and 0 height. A separate <code>[HotspotSizes]</code> section is used to specify sizes for those hotspots that need to represent a region, which are defined as simply a pixel width then pixel height separated by a comma, such as:</p>
-<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[HotspotSizes]</span>
-<span class="token constant">HotBar</span> <span class="token attr-value"><span class="token punctuation">=</span> 49, 49</span>
-<span class="token constant">SpellBook</span> <span class="token attr-value"><span class="token punctuation">=</span> 64, 64</span>
-<span class="token constant">SpellBook17-21</span> <span class="token attr-value"><span class="token punctuation">=</span> 10, 20</span>
-<span class="token constant">SpellBook22-23</span> <span class="token attr-value"><span class="token punctuation">=</span> 20, 20</span>
+<h3 id="hotspot-regions">Hotspot regions</h3>
+<p>Hotspots can be used as more than points, but represent a rectangular region, for certain specific menu styles and other advanced features. To define a hotspot with a width and/or height greater than 0, add said width and height, separated by commas, after the x and y position:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
+<span class="token comment">; Width and height both 10</span>
+<span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> 200 x 100, 10, 10</span>
+<span class="token comment">; Width of 40 and height of 20</span>
+<span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> R - 10, 30.5% + 5, 40, 15+5</span>
 </code></pre>
-<p>The hotspot itself is considered at the center of the region, but the full width and height are specified in this section. So a width of 10 would mean the actual region would be the area between 5 pixels to the left and 5 pixels to the right of the hotspot.</p>
-<p><em>Shortcut tip - Note how each of the sizes in the above example apply to multiple hotspots. For example, if you have a set of hotspots named “Hotbar1”, “Hotbar2”, “Hotbar3” etc, then all of those would have their size set by above. Likewise, SpelllBook1, SpellBook2, etc would all be set to 64 x 64, though SpellBook17 through SpellBook21 would be set to 10 x 20, and SpellBook22 and SpellBook23 would be set to 20 x 20. But this only works for the exact name matching aside from a number at the end - so a Hotspot named “HotBarCorner3” would not be affected by just <code>HotBar=</code>!</em></p>
+<p>The hotspot itself is considered at the center of the region, but the full width and height are specified in this section. So a width of 10 would mean the actual region would be the area between 5 pixels to the left and 5 pixels to the right of the hotspot (195 to 205 in the first example above).</p>
 <h3 id="ui-scale">UI Scale</h3>
 <p>Hotspot offset values are not directly affected by the size of the target screen/window like the hotspot anchor is, but will instead be multiplied by a global UI Scale value. Size-related properties, such as ItemSize, BorderSize, FontSize, TitleHeight, and the above HotspotSizes, are also multiplied by this global UI Scale value. The initial value for this can be configured by setting the <code>[System]</code> property <code>UIScale=</code>, which defaults to 100% if undefined.</p>
 <p>For games that adjust their own UI scale automatically according to window size, such as <em>Pantheon</em>, set the <code>[System]</code> property <code>UIScaleBaseHeight=</code> to a default value like <code>=1080</code>. The app will then compare the actual window height to this value and multiply the UIScale property by the difference. For example, with this property set to 1080 but the game window being 4K (2,160 height), the specified UIScale will automatically be multiplied by 2.0 (2160 / 1080 = 2.0).</p>
@@ -500,7 +499,7 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>The <code>Default=</code> property determines which menu item will be initially selected when the menu is first activated (or reset with the <code>=Reset &lt;MenuName&gt;</code> command (with no menu item number specified). If unspecified then item # 1 is used as the default.</p>
 <p>Notice how Menu Item #3 in the above examlpe has no Command, but still contains <code>:</code>, so the label will be shown but nothing will happen if it is used (alternatively could set it to <code>TBD: Do nothing</code> to make this clearer).</p>
 <p>If you want a menu item that does do something but has no label, just start with <code>:</code> with nothing before it. You still need to include the <code>:</code> and not just a command by itself though, because the absense of <code>:</code> is used to indicate that menu item opens a <strong>Sub-Menu</strong>, as shown in Menu Item #4 above.</p>
-<p><em>NOTE: If you want to include a colon character in the actual label text, surround the label with double-quotes, i.e. <code>= "Label: MoreLabel" : Command</code></em></p>
+<p><em>Pro tip - f you want to include a colon character in the actual label text, surround the entire label with double-quotes, i.e. <code>1 = "Label: MoreLabel" : Command</code></em></p>
 <p><em>Shortcut tip - you can actually specify multiple menu items at once if they have commands and labels that only differ by a number value that matches the menu item number. For example, to have a menu with 10 items, each with a label that has the number 1 through 10 in it, and/or a command such as a numbered KeyBind numbered 1 through 10, you could specify all the menu items in a single line using something like <code>1-10 = Ability#: UseAbility#</code>. The <code>#</code> symbols are replaced by the menu item number in the property value as each individual number menu item is created.</em></p>
 <h3 id="sub-menus">Sub-Menus</h3>
 <p>A sub-menu is created by having a menu item <em>property value</em> without any <code>:</code> character, which then has the label double as the sub-menu’s name. The sub-menu is defined by the section name <code>[Menu.MenuName.SubMenuName]</code>.  In the earlier example, <code>4=Settings</code> specified a sub-menu named “Settings”. Here is an example setup for that sub-menu:</p>
@@ -798,7 +797,7 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <li><code>=Set &lt;VariableName&gt; to</code> - see <em>Variables</em> section below</li>
 </ul>
 <h3 id="hotspot-array-ranges">Hotspot Array ranges</h3>
-<p>When defining Hotspot Arrays, it can be a pain to change every individual hotspot associated with an in-game UI window when you want to move that UI window in the game, even with the help of the runtime UI Layout Editor. To assist with this, these elements can use a base <em>anchor</em> element with the other elements defined as just <em>offsets</em> to the anchor, meaning they can all be moved at once by only moving the anchor.</p>
+<p>When defining Hotspot Arrays, it can be a pain to change every individual hotspot associated with an in-game UI window when you want to move that UI window in the game, even with the help of the runtime UI Layout Editor. To assist with this, these elements can use a base <em>anchor</em> hotspots with the other hotspots defined as just <em>offsets</em> to the anchor, meaning they can all be moved at once by only moving the anchor.</p>
 <p>To create an anchor, define a hotspot with no number after its name. At that point, any hotspots with the same name but with a number at the end of the name will be treated as an offset. For example:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
 <span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240</span>
@@ -818,8 +817,25 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <span class="token constant">LootWindow10-16</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
 </code></pre>
 <p><em>Note that the + signs in front of each number for the offsets don’t do anything and are optional - it is just a handy way to make it clearer that these are offsets rather than direct positions. The offsets can be negative values as well.</em></p>
+<p>Hotspot width and height can be set for any offset hotspot or for all hotspots in a specific range (but act as a replacement value and not an additional offset like positions do). If they are not specified, single numbered hotspots will use the width and height set for the anchor hotspot, and for ranges, they will use the width and height of the previous hotspot in the array. Example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
+<span class="token comment">; Sets default size of each hotspot in the LootWindow array to 10x10</span>
+<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240, 10, 10</span>
+<span class="token comment">; Will have default 10x10 size from the anchor above</span>
+<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +0</span>
+<span class="token comment">; Will override default and have 16 w 8 h</span>
+<span class="token constant">LootWindow2-8</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41, 16, 4</span>
+<span class="token comment">; Will override anchor LootWindow and have 40 w 12 h</span>
+<span class="token constant">LootWindow9</span> <span class="token attr-value"><span class="token punctuation">=</span> +41, +0, 20, 10</span>
+<span class="token comment">; Will use LootWindow9's 40w 12h</span>
+<span class="token constant">LootWindow10-16</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
+<span class="token comment">; Overrides from above don't matter!</span>
+<span class="token comment">; Below will still have default 10 x 10 from anchor</span>
+<span class="token constant">LootWindow17</span> <span class="token attr-value"><span class="token punctuation">=</span> +82, +0</span>
+<span class="token constant">LootWindow18-24</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
+</code></pre>
 <h3 id="hotspot-array-scaling">Hotspot Array scaling</h3>
-<p>A Hotspot Array using an anchor + offsets (as described above) can also have all the offsets scaled by a single scale value. This works the same as the global UI Scale and is combined with it, but only applies to the hotspots in that specific array. The scale value will also apply to any associated entry in the <code>[HotspotSizes]</code> section as well for these hotspots.</p>
+<p>A Hotspot Array using an anchor + offsets (as described above) can also have all the offsets scaled by a single scale value. This works the same as the global UI Scale and is combined with it, but only applies to the hotspots in that specific array. <em>The scale value will also apply to any associated entry in the <code>[HotspotSizes]</code> section as well for these hotspots</em>.</p>
 <p>This is useful in games that allow scaling individual UI windows, by setting a Hotspot array associated with that window and than scaling all the offsets and sizes with a single change. Simply add <code>* scaleValue</code> to the end of the anchor hotspot’s property value to do this.</p>
 <p>To use the above example, let’s say the LootWindow is separately set to 1.5x scale. You could then set the <code>LootWindow=</code> entry as follows, without needing to make any other adjustments to the rest of the LootWindow hotspots:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>

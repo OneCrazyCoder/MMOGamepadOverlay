@@ -61,7 +61,6 @@ const char* kMenuDefaultSectionName = "Appearance";
 const char* kMenuSectionPrefix = "Menu.";
 const char* kBitmapsSectionName = "Bitmaps";
 const char* kIconsSectionName = "LabelIcons";
-const char* kHotspotSizesSectionName = "HotspotSizes";
 const char* kAppVersionString = "Version: " __DATE__;
 const char* kPositionPropName = "Position";
 const char* kItemTypePropName = "ItemType";
@@ -104,14 +103,6 @@ struct PropString
 	typedef void (PropString::*boolType)() const;
 	void btFunc() const {}
 	operator boolType() const { return valid ? &PropString::btFunc : 0; }
-};
-
-struct ZERO_INIT(HotspotSizesRange)
-{
-	u16 firstHotspotID;
-	u16 lastHotspotID;
-	u16 width;
-	u16 height;
 };
 
 struct ZERO_INIT(FontInfo)
@@ -172,7 +163,8 @@ struct ZERO_INIT(LabelIcon)
 
 struct ZERO_INIT(MenuPosition)
 {
-	Hotspot base;
+	Hotspot::Coord originX;
+	Hotspot::Coord originY;
 	u16 parentKBCycleID;
 	s8 drawPriority;
 
@@ -352,7 +344,6 @@ struct ZERO_INIT(DrawData)
 // Static Variables
 //------------------------------------------------------------------------------
 
-static std::vector<HotspotSizesRange> sHotspotSizes;
 static std::vector<FontInfo> sFonts;
 static std::vector<PenInfo> sPens;
 static std::vector<BitmapFileInfo> sBitmapFiles;
@@ -427,150 +418,6 @@ static SIZE stringToSize(const std::string& theString, size_t thePos = 0)
 	{// Garbage found after end of otherwise proper size string!
 		result.cx = result.cy = 0x10000; // invalid size
 	}
-	return result;
-}
-
-
-static void setHotspotSizes(
-   const std::string& theHotspotSizesKey,
-   const std::string& theSizeDesc)
-{
-	int aRangeStartIdx, aRangeEndIdx;
-	std::string aHotspotArrayName;
-	fetchRangeSuffix(
-		theHotspotSizesKey, aHotspotArrayName,
-		aRangeStartIdx, aRangeEndIdx);
-	const int aHotspotArrayID =
-		InputMap::hotspotArrayIDFromName(aHotspotArrayName);
-	if( size_t(aHotspotArrayID) > size_t(InputMap::hotspotArrayCount()) )
-	{
-		// TODO - error unrecognized hotspot name
-		return;
-	}
-	if( aRangeStartIdx <= 0 )
-	{// Use entire array (or single solo hotspot)
-		aRangeStartIdx = InputMap::firstHotspotInArray(aHotspotArrayID);
-		aRangeEndIdx = InputMap::sizeOfHotspotArray(aHotspotArrayID);
-		if( aRangeEndIdx && InputMap::hotspotArrayHasAnchor(aHotspotArrayID) )
-		{// Include anchor hotspot in the range
-			--aRangeStartIdx;
-			aRangeEndIdx += aRangeStartIdx;
-		}
-		else
-		{
-			aRangeEndIdx += aRangeStartIdx - 1;
-		}
-	}
-	else
-	{// Use portion of the array
-		const int anArrayFirstHotspotID =
-			InputMap::firstHotspotInArray(aHotspotArrayID);
-		const int anArrayLastHotspotID =
-			InputMap::lastHotspotInArray(aHotspotArrayID);
-		const int aRangeDelta = aRangeEndIdx - aRangeStartIdx;
-		aRangeStartIdx += anArrayFirstHotspotID - 1;
-		aRangeEndIdx = aRangeStartIdx + aRangeDelta;
-		if( aRangeStartIdx < anArrayFirstHotspotID ||
-			aRangeStartIdx > anArrayLastHotspotID ||
-			aRangeEndIdx < anArrayFirstHotspotID ||
-			aRangeEndIdx > anArrayLastHotspotID )
-		{
-			// TODO - Invalid range for hotspot array
-			return;
-		}
-	}
-	
-	// Insert into sorted vector, such that not only are earlier ranges
-	// before later ones, but sub-ranges are sorted before their containing
-	// larger ranges (like Name2-7 before just 'Name').
-	for(int aCheckPos = 0, aLastPos = intSize(sHotspotSizes.size());
-		aCheckPos <= aLastPos; ++aCheckPos)
-	{
-		const int aNextRangeEndIdx =
-			aCheckPos >= aLastPos ? 0x10000
-			: sHotspotSizes[aCheckPos].lastHotspotID;
-
-		// If our range starts past the next range entirely, just continue
-		if( aRangeStartIdx > aNextRangeEndIdx )
-			continue;
-		
-		const int aNextRangeStartIdx =
-			aCheckPos >= aLastPos ? 0x10000
-			: sHotspotSizes[aCheckPos].firstHotspotID;
-
-		// Check for being exact same range
-		if( aRangeStartIdx == aNextRangeStartIdx &&
-			aRangeEndIdx == aNextRangeEndIdx )
-		{// Just replace existing range with new values
-			const SIZE& aNewSize = stringToSize(theSizeDesc);
-			if( aNewSize.cx < 0 || aNewSize.cx > 0xFFFF ||
-				aNewSize.cy < 0 || aNewSize.cy > 0xFFFF )
-			{
-				// TODO - error invalid size
-
-			}
-			else
-			{
-				sHotspotSizes[aCheckPos].width = dropTo<u16>(aNewSize.cx);
-				sHotspotSizes[aCheckPos].height = dropTo<u16>(aNewSize.cy);
-			}
-			return;
-		}
-
-		// Check for range being entirely before next range, or contained
-		// entirely within it
-		if( aRangeEndIdx < aNextRangeStartIdx ||
-			(aRangeStartIdx >= aNextRangeStartIdx &&
-			 aRangeEndIdx <= aNextRangeEndIdx) )
-		{
-			HotspotSizesRange aNewRange;
-			aNewRange.firstHotspotID = dropTo<u16>(aRangeStartIdx);
-			aNewRange.lastHotspotID = dropTo<u16>(aRangeEndIdx);
-			const SIZE& aNewSize = stringToSize(theSizeDesc);
-			if( aNewSize.cx < 0 || aNewSize.cx > 0xFFFF ||
-				aNewSize.cy < 0 || aNewSize.cy > 0xFFFF )
-			{
-				// TODO - error invalid size
-
-			}
-			else
-			{
-				aNewRange.width = dropTo<u16>(aNewSize.cx);
-				aNewRange.height = dropTo<u16>(aNewSize.cy);
-			}
-			sHotspotSizes.insert(
-				sHotspotSizes.begin() + aCheckPos,
-				aNewRange);
-			return;
-		}
-
-		// Check for range entirely encompassing next range
-		if( aRangeStartIdx <= aNextRangeStartIdx &&
-			aRangeEndIdx >= aNextRangeEndIdx )
-		{
-			continue;
-		}
-	}
-
-	// Anything else is a weird overlap like 1-5 and 2-7...
-	// TODO - report invalid range overlap
-}
-
-
-static SIZE getHotspotUnscaledSize(int theHotspotID)
-{
-	SIZE result = {0, 0};
-	for(int i = 0, end = intSize(sHotspotSizes.size()); i < end; ++i)
-	{
-		if( theHotspotID >= sHotspotSizes[i].firstHotspotID &&
-			theHotspotID <= sHotspotSizes[i].lastHotspotID )
-		{
-			result.cx = sHotspotSizes[i].width;
-			result.cy = sHotspotSizes[i].height;
-			return result;
-		}
-	}
-
 	return result;
 }
 
@@ -888,7 +735,6 @@ static void setLabelIcon(
 		{
 			for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
 			{
-				// Need local var because sending toString(i).c_str() is unsafe
 				const std::string& anIntStr = toString(i);
 				const std::string& aNumberedDesc = replaceAllStr(
 					theIconDesc, "#", anIntStr.c_str());
@@ -935,7 +781,13 @@ static void fetchMenuPositionProperties(
 {
 	if( PropString p = getPropString(thePropMap, kPositionPropName) )
 	{
-		HotspotMap::stringToHotspot(p.str, theDestPosition.base);
+		size_t aPos = 0;
+		theDestPosition.originX = stringToCoord(p.str, aPos);
+		if( aPos < p.str.size() &&
+			(p.str[aPos] == ',' || p.str[aPos] == 'x' || p.str[aPos] == 'X') )
+		{
+			theDestPosition.originY = stringToCoord(p.str, ++aPos);
+		}
 		// TODO - error checking - or use old strToHotspot?
 	}
 
@@ -953,17 +805,20 @@ static void fetchMenuLayoutProperties(
 {
 	if( PropString p = getPropString(thePropMap, kAlignmentPropName) )
 	{
-		Hotspot aTempHotspot;
-		HotspotMap::stringToHotspot(p.str, aTempHotspot);
-		// TODO - error checking - or use old strToHotspot?
+		size_t aPos = 0;
+		Hotspot::Coord aCoord = stringToCoord(p.str, aPos);
+		// TODO - error check aPos character is valid and also that
+		// offset is 0 in this case
 		theDestLayout.alignmentX =
-			aTempHotspot.x.anchor < 0x4000	? eAlignment_Min :
-			aTempHotspot.x.anchor > 0xC000	? eAlignment_Max :
-			/*otherwise*/					  eAlignment_Center;
+			aCoord.anchor < 0x4000	? eAlignment_Min :
+			aCoord.anchor > 0xC000	? eAlignment_Max :
+			/*otherwise*/			  eAlignment_Center;
+		aCoord = stringToCoord(p.str, ++aPos);
+		// TODO - error check again
 		theDestLayout.alignmentY =
-			aTempHotspot.y.anchor < 0x4000	? eAlignment_Min :
-			aTempHotspot.y.anchor > 0xC000	? eAlignment_Max :
-			/*otherwise*/					  eAlignment_Center;
+			aCoord.anchor < 0x4000	? eAlignment_Min :
+			aCoord.anchor > 0xC000	? eAlignment_Max :
+			/*otherwise*/			  eAlignment_Center;
 	}
 
 	if( PropString p = getPropString(thePropMap, kItemSizePropName) )
@@ -1777,21 +1632,19 @@ static void drawMenuItemLabel(
 				InputMap::hotspotScale(aLabelIcon->hotspotID);
 			Hotspot aCopySrcHotspot =
 				InputMap::getHotspot(aLabelIcon->hotspotID);
-			const SIZE& aHotspotSize =
-				getHotspotUnscaledSize(aLabelIcon->hotspotID);
 			aCopySrcHotspot.x.offset =
-				aCopySrcHotspot.x.offset - dropTo<s16>(aHotspotSize.cx / 2);
+				aCopySrcHotspot.x.offset - aCopySrcHotspot.w / 2;
 			aCopySrcHotspot.y.offset =
-				aCopySrcHotspot.y.offset - dropTo<s16>(aHotspotSize.cy / 2);
+				aCopySrcHotspot.y.offset - aCopySrcHotspot.h / 2;
 			theCacheEntry.copyRect.fromPos =
 				hotspotToPoint(aCopySrcHotspot, dd.targetSize);
 			// TODO: Give warning that size 0x or 0y hotspot won't actually
 			// copy anything to screen, and maybe switch to string type
 			// of label instead in that case?
-			theCacheEntry.copyRect.fromSize.cx = LONG(
-				aHotspotSize.cx * aHotspotScale * gUIScale);
-			theCacheEntry.copyRect.fromSize.cy = LONG(
-				aHotspotSize.cy * aHotspotScale * gUIScale);
+			theCacheEntry.copyRect.fromSize.cx =
+				LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale);
+			theCacheEntry.copyRect.fromSize.cy =
+				LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale);
 		}
 		else if( aLabelIcon && !aLabelIcon->copyFromTarget )
 		{
@@ -2372,17 +2225,14 @@ static void updateHotspotsMenuLayout(
 	for(int i = 0; i < theMenuItemCount; ++i)
 	{
 		const int aHotspotID = InputMap::menuItemHotspotID(theMenuID, i);
-		const POINT& anItemPos = hotspotToPoint(
-			InputMap::getHotspot(aHotspotID), theTargetSize);
+		const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
+		const POINT& anItemPos = hotspotToPoint(aHotspot, theTargetSize);
 		SIZE anItemSize = { theLayout.sizeX, theLayout.sizeY };
-		const SIZE& aHotspotSize = getHotspotUnscaledSize(aHotspotID);
-		if( aHotspotSize.cx > 0 )
+		if( aHotspot.w > 0 && aHotspot.h > 0 )
 		{
 			const double aHotspotScale = InputMap::hotspotScale(aHotspotID);
-			anItemSize.cx = LONG(
-				aHotspotSize.cx * aHotspotScale * gUIScale);
-			anItemSize.cy = LONG(
-				aHotspotSize.cy * aHotspotScale * gUIScale);
+			anItemSize.cx = LONG(aHotspot.w * aHotspotScale * gUIScale);
+			anItemSize.cy = LONG(aHotspot.h * aHotspotScale * gUIScale);
 		}
 		RECT anItemRect;
 		anItemRect.left = anItemPos.x - anItemSize.cx / 2;
@@ -2444,18 +2294,6 @@ void init()
 	sMenuAppearances.resize(1);
 	sMenuAlphaInfo.resize(1);
 	sMenuItemAppearances.resize(eMenuItemDrawState_Num);
-
-	{// Get hotspot sizes
-		Profile::PropertyMapPtr aPropMap =
-			Profile::getSectionProperties(kHotspotSizesSectionName);
-		sHotspotSizes.reserve(aPropMap->size());
-		for(int i = 0; i < aPropMap->size(); ++i)
-		{
-			setHotspotSizes(
-				aPropMap->keys()[i],
-				aPropMap->vals()[i].str);
-		}
-	}
 
 	{// Get bitmaps Profile Section info
 		sBitmapsProfileSectionID = Profile::getSectionID(kBitmapsSectionName);
@@ -2635,7 +2473,6 @@ void cleanup()
 		DeleteObject(sBitmapIcons[i].mask);
 	}
 
-	sHotspotSizes.clear();
 	sFonts.clear();
 	sPens.clear();
 	sBitmapFiles.clear();
@@ -3107,8 +2944,7 @@ void updateWindowLayout(
 				aHotspot.y.anchor, theTargetSize.cy));
 			aWinScalingPosX += aHotspot.x.offset;
 			aWinScalingPosY += aHotspot.y.offset;
-			const SIZE& aHotspotSize = getHotspotUnscaledSize(aHotspotID);
-			if( aHotspotSize.cx != 0 || aHotspotSize.cy != 0 )
+			if( aHotspot.w != 0 || aHotspot.h != 0 )
 			{
 				// Border size is added to the hotspot size in this case,
 				// since hotspot size is potentially the size of an icon
@@ -3116,8 +2952,8 @@ void updateWindowLayout(
 				// around the icon rather than overlapping it
 				const int aSelectedBorderSize = getMenuItemAppearance(
 					theMenuID, eMenuItemDrawState_Selected).borderSize;
-				aWinScalingSizeX = aHotspotSize.cx + aSelectedBorderSize * 2;
-				aWinScalingSizeY = aHotspotSize.cy + aSelectedBorderSize * 2;
+				aWinScalingSizeX = aHotspot.w + aSelectedBorderSize * 2;
+				aWinScalingSizeY = aHotspot.h + aSelectedBorderSize * 2;
 				const double aHotspotScale = InputMap::hotspotScale(aHotspotID);
 				aWinScalingSizeX *= aHotspotScale;
 				aWinScalingSizeY *= aHotspotScale;
@@ -3159,11 +2995,11 @@ void updateWindowLayout(
 
 	// Get base window position (top-left corner) assuming top-left alignment
 	aWinBasePosX += LONG(u16ToRangeVal(
-		thePos.base.x.anchor, theTargetSize.cx));
+		thePos.originX.anchor, theTargetSize.cx));
 	aWinBasePosY += LONG(u16ToRangeVal(
-		thePos.base.y.anchor, theTargetSize.cy));
-	aWinScalingPosX += thePos.base.x.offset;
-	aWinScalingPosY += thePos.base.y.offset;
+		thePos.originY.anchor, theTargetSize.cy));
+	aWinScalingPosX += thePos.originX.offset;
+	aWinScalingPosY += thePos.originY.offset;
 
 	// Adjust position according to size and alignment settings
 	switch(theAlignmentX)

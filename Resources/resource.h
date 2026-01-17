@@ -31,11 +31,9 @@
 #define IDD_DIALOG_EDIT_COMMAND         127
 #define IDD_DIALOG_EDIT_MOVE_COMMAND    128
 #define IDD_DIALOG_LAYOUT_SELECT        129
-#define IDD_DIALOG_LAYOUT_XY_TOOLBAR    130
-#define IDD_DIALOG_LAYOUT_XYS_TOOLBAR   131
-#define IDD_DIALOG_LAYOUT_XYWH_TOOLBAR  132
-#define IDD_DIALOG_LAYOUT_XYWHA_TOOLBAR 133
-#define IDD_DIALOG_LAYOUT_WHA_TOOLBAR   134
+#define IDD_DIALOG_LAYOUT_ANCHOR        130
+#define IDD_DIALOG_LAYOUT_HOTSPOT       131
+#define IDD_DIALOG_LAYOUT_MENU          132
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_CHECK_SCALE                 1002
 #define IDC_LIST_ITEMS                  1003
@@ -56,14 +54,19 @@
 #define IDC_EDIT_Y                      1018
 #define IDC_EDIT_W                      1019
 #define IDC_EDIT_H                      1020
-#define IDC_BUTTON_EDIT                 1021
-#define IDC_COMBO_ALIGN                 1022
-#define IDC_SPIN_X                      1023
-#define IDC_SPIN_Y                      1024
-#define IDC_SPIN_W                      1025
-#define IDC_SPIN_H                      1026
-#define IDC_EDIT_S                      1027
-#define IDC_SLIDER_S                    1028
+#define IDC_EDIT_S                      1021
+#define IDC_EDIT_S_VAR                  1022
+#define IDC_BUTTON_EDIT                 1023
+#define IDC_COMBO_X_BASE                1024
+#define IDC_COMBO_Y_BASE                1025
+#define IDC_COMBO_W_BASE                1026
+#define IDC_COMBO_H_BASE                1027
+#define IDC_COMBO_ALIGN                 1028
+#define IDC_SPIN_X                      1029
+#define IDC_SPIN_Y                      1030
+#define IDC_SPIN_W                      1031
+#define IDC_SPIN_H                      1032
+#define IDC_SLIDER_S                    1033
 #define ID_FILE_PROFILE                 40001
 #define ID_FILE_EXIT                    40002
 #define ID_EDIT_UILAYOUT                40003
@@ -75,9 +78,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        135
+#define _APS_NEXT_RESOURCE_VALUE        133
 #define _APS_NEXT_COMMAND_VALUE         40007
-#define _APS_NEXT_CONTROL_VALUE         1029
+#define _APS_NEXT_CONTROL_VALUE         1034
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

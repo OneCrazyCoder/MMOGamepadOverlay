@@ -554,6 +554,15 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 				TreeView_SelectItem(hTreeView, hInitialItem);
 				TreeView_EnsureVisible(hTreeView, hInitialItem);
 			}
+			else
+			{
+				HTREEITEM hItem = TreeView_GetRoot(hTreeView);
+				while(hItem)
+				{
+					TreeView_Expand(hTreeView, hItem, TVE_EXPAND);
+					hItem = TreeView_GetNextSibling(hTreeView, hItem);
+				}
+			}
 		}
 		return (INT_PTR)TRUE;
 

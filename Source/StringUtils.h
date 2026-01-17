@@ -105,10 +105,9 @@ u32 stringToU32(const std::string& theString);
 u32 stringToU32(const char* theString);
 float stringToFloat(const std::string& theString);
 float stringToFloat(const char* theString);
-double stringToDouble(const std::string& theString);
-double stringToDouble(const char* theString);
-double stringToDoubleStrict(const std::string& theString); // returns NaN
-double stringToDoubleStrict(const char* str); // instead of 0 if not valid
+// If strict == true, return NaN if string isn't entirely a valid double
+double stringToDouble(const std::string& theString, bool strict = false);
+double stringToDouble(const char* theString, bool strict = false);
 // Converts a string (starting w/ offset) sum expression like "5 + -1.2 - 1",
 // and updates offset to first invalid character found (or theString.size())
 double stringToDoubleSum(const std::string&, std::string::size_type&);
@@ -117,5 +116,8 @@ bool stringToBool(const std::string& theString);
 bool stringToBool(const char* theString);
 FILETIME stringToFileTime(const std::string& theString);
 FILETIME stringToFileTime(const char* theString);
+// Converts a string starting at given offest to a Hotspot::Coord
+// and updates offset to first invalid character found (or theString.size())
+Hotspot::Coord stringToCoord(const std::string&, std::string::size_type&);
 
 #include "StringUtils.inc"

@@ -1269,7 +1269,7 @@ static std::string varTagToString(
 				theTagStr[aPos], theTagStr.c_str());
 		}
 		double aVarNum = stringToDouble(result);
-		double aParamNum = stringToDoubleStrict(aParam);
+		double aParamNum = stringToDouble(aParam, true);
 		if( _isnan(aParamNum) )
 		{
 			logError("Expected a number instead of '%s' for arithmetic "
@@ -1314,8 +1314,8 @@ static std::string varTagToString(
 		isTrue = stringToDouble(result) >= stringToDouble(aParam);
 	case '=': case '!':
 		{
-			const double da = stringToDoubleStrict(result);
-			const double db = stringToDoubleStrict(aParam);
+			const double da = stringToDouble(result, true);
+			const double db = stringToDouble(aParam, true);
 			if( !_isnan(da) && !_isnan(db) )
 				isTrue = da == db;
 			else
@@ -2205,6 +2205,40 @@ std::string variableIDToName(int theVariableID)
 }
 
 
+std::string expandVars(std::string theString)
+{
+	std::string result;
+	PropertyMap& theVarsMap = sSectionsMap.vals()[kVarsSectionIdx];
+	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
+		findStringTag(theString, 0, "${", '}');
+
+	while( aTagCoords.first != std::string::npos )
+	{
+		// Extract variable name from tag
+		size_t aVarOpPos = aTagCoords.first + 2;
+		const std::string& aVarName =
+			fetchNextItem(theString, aVarOpPos, "}+-*/?!~<>=");
+		const int aVarID = theVarsMap.findIndex(aVarName);
+		if( aVarOpPos < aTagCoords.first + aTagCoords.second &&
+			!aVarName.empty() && aVarID < theVarsMap.size() )
+		{
+			const std::string& aRepStr = varTagToString(
+				theVarsMap.vals()[aVarID].str,
+				theString, aVarOpPos);
+			theString = theString.replace(
+				aTagCoords.first, aTagCoords.second, aRepStr);
+			aTagCoords = findStringTag(theString, 0, "${", '}');
+		}
+		else
+		{
+			return theString;
+		}
+	}
+
+	return theString;
+}
+
+
 int getSectionID(const std::string& theSectionName)
 {
 	int result = sSectionsMap.findIndex(theSectionName);
@@ -2297,6 +2331,20 @@ void setStr(
 	PropertyMap& aSection = sSectionsMap.vals()[aSectionID];
 	const int aPropID = aSection.findOrAddIndex(thePropertyName);
 	setPropertyAfterLoad(aSectionID, aPropID, theValue, saveToFile);
+}
+
+
+void setStr(
+	int theSectionID,
+	const std::string& thePropertyName,
+	const std::string& theValue,
+	bool saveToFile)
+{
+	confirmSafeToWriteToMap();
+	DBG_ASSERT(theSectionID >= 0 && theSectionID < sSectionsMap.size());
+	PropertyMap& aSection = sSectionsMap.vals()[theSectionID];
+	const int aPropID = aSection.findOrAddIndex(thePropertyName);
+	setPropertyAfterLoad(theSectionID, aPropID, theValue, saveToFile);
 }
 
 

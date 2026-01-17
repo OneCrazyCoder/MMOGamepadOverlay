@@ -893,7 +893,140 @@ double stringToDoubleSum(
 	if( foundOperator )
 		end -= 2;
 
+	// Allow trailing spaces after last valid char to still be "valid" (skipped)
+	while(*end <= ' ' && *end != '\0')
+		++end;
+
 	// If no problems found this will set theOffset == len(theString)
 	theOffset = end - &theString[0];
+	return result;
+}
+
+
+Hotspot::Coord stringToCoord(
+	const std::string& theString,
+	std::string::size_type& thePos)
+{
+	Hotspot::Coord result = { 0, 0 };
+
+	while(thePos < theString.size() && u8(theString[thePos]) <= ' ')
+	{ ++thePos; }
+
+	if( thePos >= theString.size() )
+		return result;
+
+	u32 aNumerator = 0;
+	u32 aDenominator = 0;
+	switch(theString[thePos])
+	{
+	case 'l': case 'L':
+	case 't': case 'T':
+		// L(eft) or T(op)
+		// Actually sets to 0.00001 instead of 0 since 0 means
+		// "no anchor specified - act as offset" in some cases
+		aNumerator = 1;
+		aDenominator = 0x10000;
+		thePos = min(theString.size(),
+			theString.find_first_of(" +-*0123456789,", thePos+1));
+		break;
+	case 'r': case 'R': case 'w': case 'W':
+	case 'b': case 'B': case 'h': case 'H':
+		// R(ight) or B(ottom) or W(idth) or H(eight)
+		aNumerator = 1;
+		aDenominator = 1;
+		thePos = min(theString.size(),
+			theString.find_first_of(" +-*0123456789,", thePos+1));
+		break;
+	case 'c': case 'C':
+		// C(enter) or CX or CY
+		aNumerator = 1;
+		aDenominator = 2;
+		thePos = min(theString.size(),
+			theString.find_first_of(" +-*0123456789,", thePos+1));
+		break;
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9':
+		// Processed later
+		break;
+	case '+': case '-':
+		// Skip to processing offsets (anchor = 0)
+		aDenominator = 1;
+		break;
+	default:
+		// Invalid character or empty coordinate
+		return result;
+	}
+
+	if( !aDenominator )
+	{// Read in anchor as a ratio (possibly ending in %)
+		bool done = false;
+		while(!done)
+		{
+			switch(theString[thePos])
+			{
+			case '0': case '1': case '2': case '3': case '4':
+			case '5': case '6': case '7': case '8': case '9':
+				aDenominator *= 10;
+				aNumerator *= 10;
+				aNumerator += u32(theString[thePos]) - u32('0');
+				// Check for overflow / underflow
+				if( aNumerator > 0x7FFFFFFF )
+					return result;
+				else if( aDenominator > 0x7FFFFFFF )
+					return result;
+				break;
+			case '%':
+				if( !aDenominator )
+					aDenominator = 1;
+				aDenominator *= 100; // Convert 50% to 0.5, etc
+				if( aNumerator > aDenominator )
+					return result;
+				++thePos;
+				done = true;
+				break;
+			case '.': 
+				if( aDenominator != 0 )
+					return result;
+				aDenominator = 1;
+				break;
+			case ' ': case '-': case '+':
+			case ',': case '*': case 'x': case 'X':
+				done = true;
+				break;
+			}
+			if( !done && ++thePos >= theString.size() )
+				done = true;
+		}
+		if( !aDenominator )
+			aDenominator = 1;
+	}
+
+	// Was the value read above an offset or an anchor (0 - 1.0)?
+	double anOffsetVal = 0;
+	if( aNumerator > aDenominator )
+		anOffsetVal = aNumerator / double(aDenominator);
+	else if( aNumerator )
+		result.anchor = ratioToU16(aNumerator, aDenominator);
+
+	// Read remaining coord string as a sum of offsets
+	if( thePos < theString.size() )
+		anOffsetVal += stringToDoubleSum(theString, thePos);
+	if( anOffsetVal != 0 )
+	{
+		// This rounding method enables the following invariant:
+		//	round(val) - anInt == round(val - anInt)
+		// even in cases where val is positive but (val - anInt) would change
+		// it to be negative. This improves consistency in position offsets.
+		const bool isNegativeNum = anOffsetVal < 0;
+		if( isNegativeNum ) anOffsetVal = -anOffsetVal;
+		double anIntPart;
+		double aFracPart = std::modf(anOffsetVal, &anIntPart);
+		const int aRoundedOffset = isNegativeNum
+			? ((aFracPart > 0.5) ? -int(anIntPart + 1.0) : -int(anIntPart))
+			: ((aFracPart >= 0.5) ? int(anIntPart + 1.0) : int(anIntPart));
+
+		result.offset = s16(clamp(aRoundedOffset, -0x8000, 0x7FFF));
+	}
+
 	return result;
 }

@@ -20,9 +20,10 @@ struct ZERO_INIT(Hotspot)
 		bool operator!=(const Coord& rhs) const
 		{ return !(*this == rhs); }
 	} x, y;
+	u16 w, h;
 
 	bool operator==(const Hotspot& rhs) const
-	{ return x == rhs.x && y == rhs.y; }
+	{ return x == rhs.x && y == rhs.y && w == rhs.w && h == rhs.h; }
 	bool operator!=(const Hotspot& rhs) const
 	{ return !(*this == rhs); }
 };

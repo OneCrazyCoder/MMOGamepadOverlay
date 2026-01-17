@@ -154,44 +154,20 @@ inline u32 stringToU32(const char* theString)
 
 inline float stringToFloat(const std::string& theString)
 {
-	double result = stringToDoubleStrict(theString.c_str());
-	if( _isnan(result) )
-		result = 0;
-	return float(result);
+	return float(stringToDouble(theString));
 }
 
 
 inline float stringToFloat(const char* theString)
 {
-	double result = stringToDoubleStrict(theString);
-	if( _isnan(result) )
-		result = 0;
-	return float(result);
+	return float(stringToDouble(theString));
 }
 
 
-inline double stringToDouble(const std::string& theString)
-{
-	double result = stringToDoubleStrict(theString.c_str());
-	if( _isnan(result) )
-		result = 0;
-	return result;
-}
-
-
-inline double stringToDouble(const char* theString)
-{
-	double result = stringToDoubleStrict(theString);
-	if( _isnan(result) )
-		result = 0;
-	return result;
-}
-
-
-inline double stringToDoubleStrict(const char* theString)
+inline double stringToDouble(const char* theString, bool strict)
 {
 	if( !theString || *theString == '\0' )
-		return std::numeric_limits<double>::quiet_NaN();
+		return strict ? std::numeric_limits<double>::quiet_NaN() : 0;
 
 	char* endptr = null;
 	double result = strtod(theString, &endptr);
@@ -222,27 +198,30 @@ inline double stringToDoubleStrict(const char* theString)
 		break;
 	}
 
-	return std::numeric_limits<double>::quiet_NaN();
+	if( strict )
+		return std::numeric_limits<double>::quiet_NaN();
+
+	return result;
 }
 
 
-inline double stringToDoubleStrict(const std::string& theString)
+inline double stringToDouble(const std::string& theString, bool strict)
 {
-	return stringToDoubleStrict(theString.c_str());
+	return stringToDouble(theString.c_str(), strict);
 }
 
 
 inline bool stringToBool(const std::string& theString)
 {
 	return !theString.empty() &&
-		stringToDoubleStrict(theString) != 0.0;
+		stringToDouble(theString, true) != 0.0;
 }
 
 
 inline bool stringToBool(const char* theString)
 {
 	return theString != null && theString[0] != '\0' &&
-		stringToDoubleStrict(theString) != 0.0;
+		stringToDouble(theString, true) != 0.0;
 }
 
 

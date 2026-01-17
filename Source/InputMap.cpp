@@ -4,7 +4,6 @@
 
 #include "InputMap.h"
 
-#include "HotspotMap.h" // stringToHotspot()
 #include "Profile.h"
 
 namespace InputMap
@@ -296,6 +295,7 @@ struct ZERO_INIT(ControlsLayer)
 struct ZERO_INIT(HotspotRange)
 {
 	s16 xOffset, yOffset;
+	u16 width, height;
 	u16 firstIdx;
 	u16 count : 12;
 	u16 hasOwnXAnchor : 1;
@@ -498,22 +498,41 @@ static void applyHotspotProperty(
 	double anOffsetScale = 0;
 	if( !isEmptyHotspot )
 	{
-		std::string aHotspotDesc = theDesc;
-		EResult aResult = HotspotMap::stringToHotspot(aHotspotDesc, aHotspot);
-		if( aResult == eResult_Overflow )
+		// X
+		size_t aStrPos = 0;
+		aHotspot.x = stringToCoord(theDesc, aStrPos);
+		bool valid = aStrPos < theDesc.size() &&
+			(theDesc[aStrPos] == ',' ||
+			 theDesc[aStrPos] == 'x' ||
+			 theDesc[aStrPos] == 'X');
+		// Y
+		if( valid )
 		{
-			logError("Hotspot %s: Invalid coordinate in '%s' "
-				"(anchor must be in 0-100% range and limited decimal places)",
-				sPropertyPrintName.c_str(), theDesc.c_str());
-			aHotspot = Hotspot();
+			aHotspot.y = stringToCoord(theDesc, ++aStrPos);
+			valid = aStrPos == theDesc.size() ||
+				theDesc[aStrPos] == ',' ||
+				theDesc[aStrPos] == '*';
 		}
-		else if( aResult == eResult_Malformed )
+		// W
+		if( valid && aStrPos < theDesc.size() && theDesc[aStrPos] == ',' )
 		{
-			logError("Hotspot %s: Could not decipher hotspot position '%s'",
-				sPropertyPrintName.c_str(), theDesc.c_str());
-			aHotspot = Hotspot();
+			const double aWidth = stringToDoubleSum(theDesc, ++aStrPos);
+			aHotspot.w = u16(clamp(floor(aWidth + 0.5), 0, 0xFFFF));
+			valid = aStrPos < theDesc.size() &&
+				(theDesc[aStrPos] == ',' ||
+				 theDesc[aStrPos] == 'x' ||
+				 theDesc[aStrPos] == 'X');
+			// H
+			if( valid )
+			{
+				const double aHeight = stringToDoubleSum(theDesc, ++aStrPos);
+				aHotspot.h = u16(clamp(floor(aWidth + 0.5), 0, 0xFFFF));
+				valid = aStrPos == theDesc.size() ||
+					theDesc[aStrPos] == '*';
+			}
 		}
-		else if( !aHotspotDesc.empty() && aHotspotDesc[0] == '*' )
+		// Offset scaling
+		if( valid && aStrPos < theDesc.size() && theDesc[aStrPos] == '*' )
 		{
 			if( !isAnchorHotspot || anArray.ranges.empty() )
 			{
@@ -524,13 +543,20 @@ static void applyHotspotProperty(
 			}
 			else
 			{
-				anOffsetScale = stringToFloat(aHotspotDesc.substr(1));
+				anOffsetScale = stringToFloat(theDesc.substr(aStrPos+1));
 				if( anOffsetScale == 0 )
 				{
 					logError("Hotspot %s: Invalid offset scale factor '%s'",
-						sPropertyPrintName.c_str(), aHotspotDesc.c_str());
+						sPropertyPrintName.c_str(),
+						theDesc.substr(aStrPos+1).c_str());
 				}
 			}
+		}
+		if( !valid )
+		{
+			logError("Hotspot %s: Error parsing hotspot description '%s'",
+				sPropertyPrintName.c_str(), theDesc.c_str());
+			aHotspot = Hotspot();
 		}
 	}
 
@@ -565,6 +591,17 @@ static void applyHotspotProperty(
 			itr->firstIdx != aCmpRange.firstIdx ||
 			itr->lastIdx() != aCmpRange.lastIdx() )
 		{ return; }
+
+		// Set this range's width and height to what exactly was read in
+		// (so can know later it was specified or not) but prepare to set
+		// actual hotspot(s) to default to anchor's size if not specified
+		itr->width = aHotspot.w;
+		itr->height = aHotspot.h;
+		if( !aHotspot.w && !aHotspot.h )
+		{
+			aHotspot.w = sHotspots[anArray.anchorIdx].w;
+			aHotspot.h = sHotspots[anArray.anchorIdx].h;
+		}
 
 		if( itr->count == 1 && !itr->offsetFromPrev )
 		{// Might have own anchors - set hotspot directly for now
@@ -604,7 +641,7 @@ static void applyHotspotProperty(
 		}
 	}
 
-	// Update actual hotspots to reflect stored offsets in array data
+	// Update actual hotspots to reflect stored offsets & size in array data
 	for(bool rangeAffected = true;
 		aRange != anArray.ranges.end() && (rangeAffected || isAnchorHotspot);
 		++aRange)
@@ -617,8 +654,9 @@ static void applyHotspotProperty(
 		}
 
 		rangeAffected = false;
-		if( aRange->hasOwnXAnchor && aRange->hasOwnYAnchor )
-			continue;
+		if( aRange->hasOwnXAnchor && aRange->hasOwnYAnchor &&
+			aRange->width && aRange->height )
+		{ continue; }
 
 		for(int aHotspotID = aRange->firstIdx + anArray.anchorIdx;
 			aHotspotID <= aRange->lastIdx() + anArray.anchorIdx;
@@ -651,6 +689,10 @@ static void applyHotspotProperty(
 					aRange->yOffset * anArray.offsetScale,
 					-0x8000, 0x7FFF));
 			}
+			if( !aRange->width )
+				aHotspot.w = sHotspots[aBaseHotspotID].w;
+			if( !aRange->height )
+				aHotspot.h = sHotspots[aBaseHotspotID].h;
 			if( aHotspot != sHotspots[aHotspotID] )
 			{
 				rangeAffected = true;

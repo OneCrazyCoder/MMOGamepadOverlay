@@ -1013,8 +1013,10 @@ static void offsetMousePos()
 		aDestPos.y += sTracker.mouseVelY;
 		const Hotspot& aDestHotspot =
 			WindowManager::overlayPosToHotspot(aDestPos);
-		if( sTracker.mouseJumpDest ==
-			InputMap::getHotspot(eSpecialHotspot_LastCursorPos) )
+		const Hotspot& aLastCursorPos =
+			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
+		if( sTracker.mouseJumpDest.x == aLastCursorPos.x &&
+			sTracker.mouseJumpDest.y == aLastCursorPos.y )
 		{
 			InputMap::modifyHotspot(
 				eSpecialHotspot_LastCursorPos,
@@ -2293,7 +2295,8 @@ void update()
 					sTracker.mouseInterpolateRestart ||
 					!sTracker.mouseJumpInterpolate ||
 					!sTracker.mouseJumpToHotspot ||
-					sTracker.mouseJumpDest != aCmdHotspot;
+					sTracker.mouseJumpDest.x != aCmdHotspot.x ||
+					sTracker.mouseJumpDest.y != aCmdHotspot.y;
 				sTracker.mouseJumpDest = aCmdHotspot;
 				sTracker.mouseJumpToMode = eMouseMode_PostJump;
 				sTracker.mouseAllowMidJumpControl =
