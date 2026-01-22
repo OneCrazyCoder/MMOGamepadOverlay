@@ -783,6 +783,7 @@ static void fetchMenuPositionProperties(
 	{
 		size_t aPos = 0;
 		theDestPosition.originX = stringToCoord(p.str, aPos);
+		// If aPos >= p.str.size() then 'y' is missing, which is malformed!
 		if( aPos < p.str.size() &&
 			(p.str[aPos] == ',' || p.str[aPos] == 'x' || p.str[aPos] == 'X') )
 		{
@@ -808,7 +809,8 @@ static void fetchMenuLayoutProperties(
 		size_t aPos = 0;
 		Hotspot::Coord aCoord = stringToCoord(p.str, aPos);
 		// TODO - error check aPos character is valid and also that
-		// offset is 0 in this case
+		// offset is 0 in this case. aPos being >= p.str.size() is
+		// also an error because it means Y alignment is missing
 		theDestLayout.alignmentX =
 			aCoord.anchor < 0x4000	? eAlignment_Min :
 			aCoord.anchor > 0xC000	? eAlignment_Max :
@@ -824,10 +826,11 @@ static void fetchMenuLayoutProperties(
 	if( PropString p = getPropString(thePropMap, kItemSizePropName) )
 	{
 		const SIZE& aSize = stringToSize(p.str);
-		if( aSize.cx < 0 || aSize.cx > 0xFFFF ||
-			aSize.cy < 0 || aSize.cy > 0xFFFF )
+		if( aSize.cx <= 0 || aSize.cx > 0xFFFF ||
+			aSize.cy <= 0 || aSize.cy > 0xFFFF )
 		{
-			// TODO - error invalid size
+			// TODO - error invalid size - both W and H must be specified
+			// as values > 0
 		}
 		else
 		{

@@ -36,7 +36,6 @@ const char* kAlignmentPropName = "Alignment";
 const WCHAR* kAnchorOnlyLabel = L"Scaling:";
 const WCHAR* kOffsetOnlyLabel = L"Offset:";
 const WCHAR* kValueOnlyLabel = L"Value:";
-const WCHAR* kUseDefaultLabel = L"Default:";
 
 enum EAlignment
 {
@@ -50,7 +49,8 @@ enum EAlignment
 	eAlignment_CX_B,
 	eAlignment_R_B,
 
-	eAlignment_Num
+	eAlignment_Num,
+	eAlignment_UseDefault = eAlignment_Num,
 };
 
 const char* kAlignmentStr[][2] =
@@ -75,10 +75,13 @@ struct ZERO_INIT(LayoutEntry)
 {
 	enum EType
 	{
+		// These first type values are also the literal index of the
+		// only object of each of these types in the entries vector
 		eType_Root,
 		eType_HotspotCategory,
 		eType_MenuCategory,
 
+		// These types should not be used as indexes as count can vary
 		eType_Hotspot,
 		eType_Menu,
 
@@ -93,16 +96,22 @@ struct ZERO_INIT(LayoutEntry)
 		{
 			std::string base;
 			int offset;
-			Component() : offset() {}
+			bool useDefault;
+			Component() : offset(0), useDefault(true) {}
 			bool operator==(const Component& rhs) const
-			{ return base == rhs.base && offset == rhs.offset; }
+			{
+				return
+					(useDefault && rhs.useDefault) ||
+					(base == rhs.base && offset == rhs.offset &&
+					 !useDefault && !rhs.useDefault);
+			}
 			bool operator!=(const Component& rhs) const
 			{ return !(*this == rhs); }
 		};
 		Component x, y, w, h;
 		std::string scale;
 		EAlignment alignment;
-		Shape() : alignment(eAlignment_Num) {}
+		Shape() : alignment(eAlignment_UseDefault) {}
 		bool operator==(const Shape& rhs) const
 		{
 			return
@@ -120,7 +129,7 @@ struct ZERO_INIT(LayoutEntry)
 	Hotspot drawHotspot;
 	float drawOffScale;
 	int drawOffX, drawOffY;
-	int rangeCount; // -1 = anchor, 0 = single, 1+ = actual range
+	int rangeCount; // -1 = anchor/menu, 0 = single, 1+ = actual range
 	bool sizeIsARange;
 
 	LayoutEntry() : type(eType_Num), rangeCount(-1) {}
@@ -156,15 +165,54 @@ static void promptForEditEntry();
 
 static inline bool entryHasParent(const LayoutEntry& theEntry)
 {
-	return theEntry.item.parentIndex >= LayoutEntry::eType_CategoryNum;
+	// _MenuCategory acts as a "parent" (has default values),
+	// but _Root and _HotspotCategory do not
+	return
+		theEntry.item.parentIndex != LayoutEntry::eType_Root &&
+		theEntry.item.parentIndex != LayoutEntry::eType_HotspotCategory;
 }
+
 
 static inline bool entryIsAnchorHotspot(const LayoutEntry& theEntry)
 {
+	// Must be a hotspot with no parent AND have childern
+	// (no children just means independent hotspot, not an anchor, thus
+	// can't have an offset scale value)
 	return
 		theEntry.type == LayoutEntry::eType_Hotspot &&
 		!entryHasParent(theEntry) &&
-		!theEntry.children.empty(); // no children == independent hotspot
+		!theEntry.children.empty();
+}
+
+
+static const LayoutEntry* getPosSourceEntry(const LayoutEntry* theEntry)
+{
+	const LayoutEntry* result = theEntry;
+	while(result->shape.x.useDefault && entryHasParent(*result))
+		result = &sState->entries[result->item.parentIndex];
+	return result;
+}
+
+
+static const LayoutEntry* getSizeSourceEntry(const LayoutEntry* theEntry)
+{
+	const LayoutEntry* result = theEntry;
+	while(result->shape.w.useDefault && entryHasParent(*result))
+		result = &sState->entries[result->item.parentIndex];
+	return result;
+}
+
+
+static const LayoutEntry* getAlignmentSourceEntry(const LayoutEntry* theEntry)
+{
+	const LayoutEntry* result = theEntry;
+	while(
+		result->shape.alignment == eAlignment_UseDefault &&
+		entryHasParent(*result))
+	{
+		result = &sState->entries[result->item.parentIndex];
+	}
+	return result;
 }
 
 
@@ -180,8 +228,7 @@ static double entryScaleFactor(const LayoutEntry& theEntry)
 			&sState->entries[theEntry.item.parentIndex];
 		while(entryHasParent(*anAnchorEntry))
 			anAnchorEntry = &sState->entries[anAnchorEntry->item.parentIndex];
-		result = stringToDouble(
-			Profile::expandVars(anAnchorEntry->shape.scale));
+		result = stringToFloat(Profile::expandVars(anAnchorEntry->shape.scale));
 		if( result == 0 )
 			result = 1.0;
 	}
@@ -229,7 +276,7 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 {
 	LayoutEntry::Shape::Component result;
 	if( thePos >= theString.size() )
-		return result;
+		return result; // useDefault == true
 
 	// First need to find the end of this component
 	const char* aCStr = theString.c_str();
@@ -287,6 +334,8 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 	if( !result.base.empty() )
 	{// Check if base string is actually valid (after var expansion)
 		const std::string& aCheckStr = Profile::expandVars(result.base);
+		if( isEffectivelyEmptyString(aCheckStr) )
+			return result; // useDefault == true
 		size_t aCheckPos = 0;
 		if( allowAnchor )
 			stringToCoord(aCheckStr, aCheckPos);
@@ -307,6 +356,7 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 	// and if so bump that to the offset int and trim it off the base string
 	if( !result.base.empty() )
 	{
+		result.useDefault = false;
 		// Step back from end until encounter anything that isn't a numeral
 		// or a + or - operator.
 		int anOffStartPos = intSize(result.base.size()-1);
@@ -402,10 +452,10 @@ static void updateDrawHotspot(
 	theEntry.drawHotspot = shapeToHotspot(theShape);
 
 	theEntry.drawOffX = theEntry.drawOffY = 0;
-	theEntry.drawOffScale = 0;
-	if( entryIsAnchorHotspot(theEntry) )
-		theEntry.drawOffScale = stringToFloat(theShape.scale);
-	if( theEntry.drawOffScale == 0 )
+	theEntry.drawOffScale = entryIsAnchorHotspot(theEntry)
+		? stringToFloat(Profile::expandVars(theShape.scale))
+		: 1.0f;
+	if( theEntry.drawOffScale <= 0 )
 		theEntry.drawOffScale = 1.0f;
 	if( theEntry.rangeCount > 0 )
 	{
@@ -419,38 +469,47 @@ static void updateDrawHotspot(
 		if( updateParentIfNeeded )
 			updateDrawHotspot(aParent, aParent.shape, true, false);
 		theEntry.drawOffScale = aParent.drawOffScale;
-		Hotspot anAnchor = aParent.drawHotspot;
 		if( aParent.rangeCount > 0 )
 		{// Rare case where the parent is itself a range of hotspots
-			anAnchor.x.offset = s16(clamp(int(
-				anAnchor.x.offset +
+			aParent.drawHotspot.x.offset = s16(clamp(int(
+				aParent.drawHotspot.x.offset +
 				aParent.drawOffX *
 				(aParent.rangeCount-1) *
 				aParent.drawOffScale), -0x8000, 0x7FFF));
-			anAnchor.y.offset = s16(clamp(int(
-				anAnchor.y.offset +
+			aParent.drawHotspot.y.offset = s16(clamp(int(
+				aParent.drawHotspot.y.offset +
 				aParent.drawOffY *
 				(aParent.rangeCount-1) *
 				aParent.drawOffScale), -0x8000, 0x7FFF));
 		}
-		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
-		{
-			theEntry.drawHotspot.x.anchor = anAnchor.x.anchor;
-			theEntry.drawHotspot.x.offset = s16(clamp(int(
-				theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
-				anAnchor.x.offset, -0x8000, 0x7FFF));
+		if( theEntry.rangeCount >= 0 )
+		{// Offset from parent position
+			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
+			{
+				theEntry.drawHotspot.x.anchor = aParent.drawHotspot.x.anchor;
+				theEntry.drawHotspot.x.offset = s16(clamp(int(
+					theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
+					aParent.drawHotspot.x.offset, -0x8000, 0x7FFF));
+			}
+			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
+			{
+				theEntry.drawHotspot.y.anchor = aParent.drawHotspot.y.anchor;
+				theEntry.drawHotspot.y.offset = s16(clamp(int(
+					theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
+					aParent.drawHotspot.y.offset, -0x8000, 0x7FFF));
+			}
 		}
-		if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
-		{
-			theEntry.drawHotspot.y.anchor = anAnchor.y.anchor;
-			theEntry.drawHotspot.y.offset = s16(clamp(int(
-				theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
-				anAnchor.y.offset, -0x8000, 0x7FFF));
+		else
+		{// Inherit parent position
+			DBG_ASSERT(theEntry.type == LayoutEntry::eType_Menu);
+			theEntry.drawHotspot.x = aParent.drawHotspot.x;
+			theEntry.drawHotspot.y = aParent.drawHotspot.y;
 		}
-		if( theEntry.drawHotspot.w == 0 && theEntry.drawHotspot.h == 0 )
-		{
-			theEntry.drawHotspot.w = anAnchor.w;
-			theEntry.drawHotspot.h = anAnchor.h;
+		if( theEntry.shape.w.useDefault ||
+			theEntry.drawHotspot.w == 0 && theEntry.drawHotspot.h == 0 )
+		{// Inherit parent size
+			theEntry.drawHotspot.w = aParent.drawHotspot.w;
+			theEntry.drawHotspot.h = aParent.drawHotspot.h;
 		}
 	}
 	if( updateChildren )
@@ -551,23 +610,7 @@ static void saveNewPosition()
 }
 
 
-static std::pair<POINT, SIZE> getControlPos(HWND theDialog, HWND theControl)
-{
-	DBG_ASSERT(theDialog && theControl);
-	RECT aRect;
-	GetWindowRect(theControl, &aRect);
-	POINT aTopLeftPt = { aRect.left, aRect.top };
-	POINT aBottomRightPt = { aRect.right, aRect.bottom };
-	ScreenToClient(theDialog, &aTopLeftPt);
-	ScreenToClient(theDialog, &aBottomRightPt);
-	SIZE aControlSize = {
-		aBottomRightPt.x - aTopLeftPt.x,
-		aBottomRightPt.y - aTopLeftPt.y };
-	return std::make_pair(aTopLeftPt, aControlSize);
-}
-
-
-static void setInitialToolbarPos(HWND hDlg, LayoutEntry& theEntry)
+static void setInitialToolbarPos(HWND theDialog, LayoutEntry& theEntry)
 {
 	if( !sState || !sState->activeEntry )
 		return;
@@ -597,11 +640,11 @@ static void setInitialToolbarPos(HWND hDlg, LayoutEntry& theEntry)
 	const bool useBottomEdge = anEntryPos.y < anOverlayCenter.y;
 
 	RECT aDialogRect;
-	GetWindowRect(hDlg, &aDialogRect);
+	GetWindowRect(theDialog, &aDialogRect);
 	const int aDialogWidth = aDialogRect.right - aDialogRect.left;
 	const int aDialogHeight = aDialogRect.bottom - aDialogRect.top;
 
-	SetWindowPos(hDlg, NULL,
+	SetWindowPos(theDialog, NULL,
 		useRightEdge
 			? anOverlayRect.right - aDialogWidth
 			: anOverlayRect.left,
@@ -609,6 +652,22 @@ static void setInitialToolbarPos(HWND hDlg, LayoutEntry& theEntry)
 			? anOverlayRect.bottom - aDialogHeight
 			: anOverlayRect.top,
 		0, 0, SWP_NOZORDER | SWP_NOSIZE);
+}
+
+
+static std::pair<POINT, SIZE> getControlPos(HWND theDialog, HWND theControl)
+{
+	DBG_ASSERT(theDialog && theControl);
+	RECT aRect;
+	GetWindowRect(theControl, &aRect);
+	POINT aTopLeftPt = { aRect.left, aRect.top };
+	POINT aBottomRightPt = { aRect.right, aRect.bottom };
+	ScreenToClient(theDialog, &aTopLeftPt);
+	ScreenToClient(theDialog, &aBottomRightPt);
+	SIZE aControlSize = {
+		aBottomRightPt.x - aTopLeftPt.x,
+		aBottomRightPt.y - aTopLeftPt.y };
+	return std::make_pair(aTopLeftPt, aControlSize);
 }
 
 
@@ -627,21 +686,295 @@ static std::string getControlText(HWND theDialog, int theControlID)
 }
 
 
+static void adjustComboBoxDroppedWidth(HWND hCombo)
+{
+	DBG_ASSERT(IsWindow(hCombo));
+
+	// Get current dropped width so we don't shrink it
+	const int aCurrWidth = SendMessage(hCombo, CB_GETDROPPEDWIDTH, 0, 0);
+
+	// Get number of items
+	const int anItemCount = SendMessage(hCombo, CB_GETCOUNT, 0, 0);
+	if( anItemCount <= 0 )
+		return;
+
+	HDC hdc = GetDC(hCombo);
+	if( !hdc )
+		return;
+
+	// Select combo box font into DC
+	HFONT hFont = (HFONT)SendMessage(hCombo, WM_GETFONT, 0, 0);
+	HFONT hOldFont = NULL;
+	if( hFont )
+		hOldFont = (HFONT)SelectObject(hdc, hFont);
+
+	LONG aMaxTextWidth = 0;
+
+	for(int i = 0; i < anItemCount; ++i)
+	{
+		int aTextLen = SendMessage(hCombo, CB_GETLBTEXTLEN, i, 0);
+		if( aTextLen <= 0 )
+			continue;
+
+		// +1 for null terminator
+		std::vector<WCHAR> aBuffer(aTextLen + 1);
+		aBuffer[0] = L'\0';
+
+		SendMessage(hCombo, CB_GETLBTEXT, i, (LPARAM)&aBuffer[0]);
+
+		SIZE aSize = { 0, 0 };
+		if( GetTextExtentPoint32(hdc, &aBuffer[0], aTextLen, &aSize) )
+			aMaxTextWidth = max(aMaxTextWidth, aSize.cx);
+	}
+
+	// Restore font and DC
+	if( hOldFont )
+		SelectObject(hdc, hOldFont);
+	ReleaseDC(hCombo, hdc);
+
+	// Add some padding
+	aMaxTextWidth += 8;
+
+	// Only expand, never shrink
+	if( aMaxTextWidth > aCurrWidth )
+		SendMessage(hCombo, CB_SETDROPPEDWIDTH, aMaxTextWidth, 0);
+}
+
+
+static void setupPositionControls(
+	HWND theDialog,
+	const LayoutEntry& theEntry,
+	const LayoutEntry::Shape::Component& theComponent,
+	bool isY)
+{
+	HWND hComboBox = GetDlgItem(theDialog,
+		isY ? IDC_COMBO_Y_BASE : IDC_COMBO_X_BASE);
+	HWND hEditBox = GetDlgItem(theDialog, (isY ? IDC_EDIT_Y : IDC_EDIT_X));
+	SendMessage(hComboBox, CB_RESETCONTENT, 0, 0);
+	int aDropListSize = 0;
+	if( theEntry.rangeCount <= 0 )
+	{
+		SendMessage(hComboBox,CB_ADDSTRING, 0,
+			(LPARAM)(isY ? L"T" : L"L"));
+		SendMessage(hComboBox, CB_ADDSTRING, 0,
+			(LPARAM)(isY ? L"CY" : L"CX"));
+		SendMessage(hComboBox, CB_ADDSTRING, 0,
+			(LPARAM)(isY ? L"B" : L"R"));
+		SendMessage(hComboBox, CB_ADDSTRING, 0, (LPARAM)kAnchorOnlyLabel);
+		aDropListSize = 4;
+	}
+	const bool canBeOffsetOnly = entryHasParent(theEntry);
+	// Set initial selection to one of the above if appropriate
+	const double anAnchorVal = theComponent.offset
+			? 0 : stringToDouble(theComponent.base, true);
+	const bool isCustomAnchor = theEntry.rangeCount <= 0 &&
+		!_isnan(anAnchorVal) && anAnchorVal != 0 && anAnchorVal < 1.0;
+	if( canBeOffsetOnly )
+	{
+		SendMessage(hComboBox, CB_ADDSTRING, 0, (LPARAM)kOffsetOnlyLabel);
+		++aDropListSize;
+	}
+	if( isCustomAnchor )
+	{
+		// Entry is anchor-only (percent of screen area)
+		SendMessage(hComboBox, CB_SETCURSEL, (WPARAM)3, 0);
+		SetWindowText(hEditBox, widen(theComponent.base).c_str());
+	}
+	else if( canBeOffsetOnly && theComponent.base.empty() )
+	{
+		SendMessage(hComboBox, CB_SETCURSEL, WPARAM(aDropListSize-1), 0);
+	}
+	else
+	{
+		// Check what hotspot coord would be if read ONLY base string
+		size_t aPos = 0;
+		const Hotspot::Coord& aCoord = stringToCoord(
+			Profile::expandVars(theComponent.base), aPos);
+		// If string contained an offset or unkwnon characters
+		// (likely ${} variables), or has an anchor even though
+		// it is a range, then need to include custom string option
+		bool useStringBase = aCoord.offset != 0 ||
+			(!theComponent.base.empty() && aPos < theComponent.base.size()) ||
+			(theEntry.rangeCount > 0 && aCoord.anchor != 0);
+		if( !useStringBase )
+		{// Check if string is simply a known basic anchor type
+			switch(aCoord.anchor)
+			{
+			case 0:
+			case 0x0001: // L or T
+				SendMessage(hComboBox, CB_SETCURSEL, 0, 0);
+				break;
+			case 0x8000: // CX or CY
+				SendMessage(hComboBox, CB_SETCURSEL, 1, 0);
+				break;
+			case 0xFFFF: // R or B
+				SendMessage(hComboBox, CB_SETCURSEL, 2, 0);
+				break;
+			default: // non-standard anchor value
+				useStringBase = true;
+				break;
+			}
+		}
+		if( useStringBase )
+		{
+			SendMessage(hComboBox, CB_ADDSTRING, 0,
+				(LPARAM)widen(theComponent.base).c_str());
+			SendMessage(hComboBox, CB_SETCURSEL, WPARAM(aDropListSize), 0);
+		}
+	}
+	if( !isCustomAnchor )
+	{// Set offset field
+		SetWindowText(
+			hEditBox,
+			((theComponent.offset >= 0 ? L"+" : L"") +
+			 widen(toString(theComponent.offset))).c_str());
+	}
+	adjustComboBoxDroppedWidth(hComboBox);
+}
+
+
+static void setupSizeControls(
+	HWND theDialog,
+	const LayoutEntry& theEntry,
+	const LayoutEntry::Shape::Component& theComponent,
+	bool isH)
+{
+	HWND hComboBox = GetDlgItem(theDialog,
+		isH ? IDC_COMBO_H_BASE : IDC_COMBO_W_BASE);
+	HWND hEditBox = GetDlgItem(theDialog, (isH ? IDC_EDIT_H : IDC_EDIT_W));
+	SendMessage(hComboBox, CB_RESETCONTENT, 0, 0);
+	if( theComponent.useDefault )
+	{
+		SetWindowText(hEditBox, L"");
+		return;
+	}
+
+	const bool useStringBase = !theComponent.base.empty();
+	int aSelection = 0;
+	SendMessage(hComboBox, CB_ADDSTRING, 0, (LPARAM)kValueOnlyLabel);
+	if( useStringBase )
+	{// Use option of custom base string + offset
+		SendMessage(hComboBox, CB_ADDSTRING, 0,
+			(LPARAM)widen(theComponent.base).c_str());
+		aSelection = 1;
+	}
+	adjustComboBoxDroppedWidth(hComboBox);
+	SendMessage(hComboBox, CB_SETCURSEL, (WPARAM)aSelection, 0);
+
+	SetWindowText(hEditBox,
+		((useStringBase && theComponent.offset >= 0 ? L"+" : L"") +
+		 widen(toString(theComponent.offset))).c_str());
+}
+
+
+static bool setupScaleControls(
+	HWND theDialog, const std::string& theScaleString)
+{
+	enum EScaleType
+	{
+		eScaleType_None,
+		eScaleType_Number,
+		eScaleType_Var,
+	} aScaleType = eScaleType_None;
+
+	float aCalculatedScale = 0;
+	std::string aCalculatedScaleString;
+	if( !theScaleString.empty() )
+	{
+		const float aSimpleScale = stringToFloat(theScaleString);
+		aCalculatedScale = stringToFloat(Profile::expandVars(theScaleString));
+		aCalculatedScaleString = toString(aCalculatedScale);
+		if( !aCalculatedScale )
+			aScaleType = eScaleType_None;
+		else if( aCalculatedScale == aSimpleScale )
+			aScaleType = eScaleType_Number;
+		else
+			aScaleType = eScaleType_Var;
+	}
+
+	switch(aScaleType)
+	{
+	case eScaleType_None:
+		SendMessage(GetDlgItem(theDialog, IDC_EDIT_S),
+			EM_SETREADONLY, true, 0);
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S), L"");
+		ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
+		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), false);
+		EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
+		SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+			TBM_SETPOS, TRUE, LPARAM(100));
+		break;
+
+	case eScaleType_Number:
+		SendMessage(GetDlgItem(theDialog, IDC_EDIT_S),
+			EM_SETREADONLY, false, 0);
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+			widen(theScaleString).c_str());
+		ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
+		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), false);
+		EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
+		SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+			TBM_SETPOS, TRUE, LPARAM(100 * aCalculatedScale));
+		break;
+
+	case eScaleType_Var:
+		SendMessage(GetDlgItem(theDialog, IDC_EDIT_S),
+			EM_SETREADONLY, true, 0);
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+			widen(aCalculatedScaleString).c_str());
+		ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S_VAR),
+			widen(theScaleString).c_str());
+		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), true);
+		break;
+	}
+
+	return aScaleType == eScaleType_Number;
+}
+
+
+static void setupAlignmentControls(
+	HWND theDialog, LayoutEntry& theEntry)
+{
+	//HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
+	//for(int i = 0; i < eAlignment_Num; ++i)
+	//{
+	//	SendMessage(hDropList, CB_ADDSTRING, 0,
+	//		(LPARAM)widen(kAlignmentStr[i][0]).c_str());
+	//}
+	//if( anEntry.shape.alignment < eAlignment_Num )
+	//{
+	//	SendMessage(hDropList, CB_SETCURSEL,
+	//		(WPARAM)anEntry.shape.alignment, 0);
+	//}
+}
+
+
 static void processCoordFieldChange(
-	HWND hDlg,
+	HWND theDialog,
 	int theControlID,
 	int theDelta = 0,
 	bool theDeltaSetByMouse = false)
 {
-	if( !hDlg ) return;
+	if( !theDialog )
+		return;
+
+	LayoutEntry::Shape::Component& aComp =
+		theControlID == IDC_EDIT_X	? sState->entered.x :
+		theControlID == IDC_EDIT_Y	? sState->entered.y :
+		theControlID == IDC_EDIT_W	? sState->entered.w :
+		/*theControlID == IDC_EDIT_H*/sState->entered.h;
+
+	if( aComp.useDefault )
+		return;
 
 	const int theBaseControlID = IDC_COMBO_X_BASE + (theControlID - IDC_EDIT_X);
-	const std::string& aBaseControlStr = getControlText(hDlg, theBaseControlID);
+	const std::string& aBaseControlStr =
+		getControlText(theDialog, theBaseControlID);
 	const bool isAnchorOnly = aBaseControlStr == narrow(kAnchorOnlyLabel);
 	const bool isOffset = !isAnchorOnly &&
-		aBaseControlStr != narrow(kValueOnlyLabel) &&
-		aBaseControlStr != narrow(kUseDefaultLabel);
-	const std::string& aControlStr = getControlText(hDlg, theControlID);
+		aBaseControlStr != narrow(kValueOnlyLabel);
+	const std::string& aControlStr = getControlText(theDialog, theControlID);
 	size_t aStrPos = 0;
 	double aNewValue = stringToDoubleSum(aControlStr, aStrPos);
 	const bool isInPercent =
@@ -706,16 +1039,16 @@ static void processCoordFieldChange(
 						aNewAnchorPercent == 0.0 ? 0 :
 						aNewAnchorPercent == 0.5 ? 1 :
 						/*aNewAnchorPercent == 1.0*/2;		
-					HWND hComboBox = GetDlgItem(hDlg, theBaseControlID);
+					HWND hComboBox = GetDlgItem(theDialog, theBaseControlID);
 					SendMessage(hComboBox, CB_SETCURSEL, aNewAnchorType, 0);
-					SendMessage(hDlg, WM_COMMAND,
+					SendMessage(theDialog, WM_COMMAND,
 						MAKEWPARAM(theBaseControlID, CBN_SELCHANGE),
 						(LPARAM)hComboBox);
 					// Above will change offset, base string, etc, so need to
 					// restart processing of coordinate string from the top
 					// (treating theDelta as direct rather than mouse-based
 					// since have already adjusted it for that here).
-					processCoordFieldChange(hDlg, theControlID, theDelta);
+					processCoordFieldChange(theDialog, theControlID, theDelta);
 					return;
 				}
 			}
@@ -755,17 +1088,11 @@ static void processCoordFieldChange(
 	if( aFormattedString != aControlStr )
 	{
 		SetWindowText(
-			GetDlgItem(hDlg, theControlID),
+			GetDlgItem(theDialog, theControlID),
 			widen(aFormattedString).c_str());
 	}
 
 	// Now actually apply the string to the component
-	LayoutEntry::Shape::Component& aComp =
-		theControlID == IDC_EDIT_X	? sState->entered.x :
-		theControlID == IDC_EDIT_Y	? sState->entered.y :
-		theControlID == IDC_EDIT_W	? sState->entered.w :
-		/*theControlID == IDC_EDIT_H*/sState->entered.h;
-
 	// For anchor-only apply to .base string, otherwise offset int
 	if( isAnchorOnly )
 	{
@@ -785,65 +1112,11 @@ static void processCoordFieldChange(
 }
 
 
-static void adjustComboBoxDroppedWidth(HWND hCombo)
-{
-	DBG_ASSERT(IsWindow(hCombo));
-
-	// Get current dropped width so we don't shrink it
-	const int aCurrWidth = SendMessage(hCombo, CB_GETDROPPEDWIDTH, 0, 0);
-
-	// Get number of items
-	const int anItemCount = SendMessage(hCombo, CB_GETCOUNT, 0, 0);
-	if( anItemCount <= 0 )
-		return;
-
-	HDC hdc = GetDC(hCombo);
-	if( !hdc )
-		return;
-
-	// Select combo box font into DC
-	HFONT hFont = (HFONT)SendMessage(hCombo, WM_GETFONT, 0, 0);
-	HFONT hOldFont = NULL;
-	if( hFont )
-		hOldFont = (HFONT)SelectObject(hdc, hFont);
-
-	LONG aMaxTextWidth = 0;
-
-	for(int i = 0; i < anItemCount; ++i)
-	{
-		int aTextLen = SendMessage(hCombo, CB_GETLBTEXTLEN, i, 0);
-		if( aTextLen <= 0 )
-			continue;
-
-		// +1 for null terminator
-		std::vector<WCHAR> aBuffer(aTextLen + 1);
-		aBuffer[0] = L'\0';
-
-		SendMessage(hCombo, CB_GETLBTEXT, i, (LPARAM)&aBuffer[0]);
-
-		SIZE aSize = { 0, 0 };
-		if( GetTextExtentPoint32(hdc, &aBuffer[0], aTextLen, &aSize) )
-			aMaxTextWidth = max(aMaxTextWidth, aSize.cx);
-	}
-
-	// Restore font and DC
-	if( hOldFont )
-		SelectObject(hdc, hOldFont);
-	ReleaseDC(hCombo, hdc);
-
-	// Add some padding
-	aMaxTextWidth += /*GetSystemMetrics(SM_CXVSCROLL) +*/ 8;
-
-	// Only expand, never shrink
-	if( aMaxTextWidth > aCurrWidth )
-		SendMessage(hCombo, CB_SETDROPPEDWIDTH, aMaxTextWidth, 0);
-}
-
-
 static INT_PTR CALLBACK editLayoutToolbarProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
 	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	const LayoutEntry* aSrcEntry = null;
 
 	switch(theMessage)
 	{
@@ -871,186 +1144,63 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
 		
 		// Populate controls with initial values from active entry
-		HWND hCntrl;
-		for(int isY = 0; isY < 2; ++isY)
-		{// X & Y
-			const LayoutEntry::Shape::Component& aComp =
-				isY ? anEntry.shape.y : anEntry.shape.x;
-			hCntrl = GetDlgItem(theDialog,
-				isY ? IDC_COMBO_Y_BASE : IDC_COMBO_X_BASE);
-			int aDropListSize = 0;
-			if( anEntry.rangeCount <= 0 )
-			{
-				SendMessage(hCntrl,CB_ADDSTRING, 0,
-					(LPARAM)(isY ? L"T" : L"L"));
-				SendMessage(hCntrl, CB_ADDSTRING, 0,
-					(LPARAM)(isY ? L"CY" : L"CX"));
-				SendMessage(hCntrl, CB_ADDSTRING, 0,
-					(LPARAM)(isY ? L"B" : L"R"));
-				SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kAnchorOnlyLabel);
-				aDropListSize = 4;
-			}
-			const bool canBeOffsetOnly = entryHasParent(anEntry);
-			// Set initial selection to one of the above if appropriate
-			const double anAnchorVal = aComp.offset
-					? 0 : stringToDouble(aComp.base, true);
-			const bool isCustomAnchor = anEntry.rangeCount <= 0 &&
-				!_isnan(anAnchorVal) && anAnchorVal != 0 && anAnchorVal < 1.0;
-			if( canBeOffsetOnly )
-			{
-				SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kOffsetOnlyLabel);
-				++aDropListSize;
-			}
-			if( isCustomAnchor )
-			{
-				// Entry is anchor-only (percent of screen area)
-				SendMessage(hCntrl, CB_SETCURSEL, (WPARAM)3, 0);
-				SetWindowText(
-					GetDlgItem(theDialog, (isY ? IDC_EDIT_Y : IDC_EDIT_X)),
-					widen(aComp.base).c_str());
-			}
-			else if( canBeOffsetOnly && aComp.base.empty() )
-			{
-				SendMessage(hCntrl, CB_SETCURSEL, WPARAM(aDropListSize-1), 0);
-			}
-			else
-			{
-				// Check what hotspot coord would be if read ONLY base string
-				size_t aPos = 0;
-				const Hotspot::Coord& aCoord = stringToCoord(
-					Profile::expandVars(aComp.base), aPos);
-				// If string contained an offset or unkwnon characters
-				// (likely ${} variables), or has an anchor even though
-				// it is a range, then need to include custom string option
-				bool useStringBase = aCoord.offset != 0 ||
-					(!aComp.base.empty() && aPos < aComp.base.size()) ||
-					(anEntry.rangeCount > 0 && aCoord.anchor != 0);
-				if( !useStringBase )
-				{// Check if string is simply a known basic anchor type
-					switch(aCoord.anchor)
-					{
-					case 0:
-					case 0x0001: // L or T
-						SendMessage(hCntrl, CB_SETCURSEL, 0, 0);
-						break;
-					case 0x8000: // CX or CY
-						SendMessage(hCntrl, CB_SETCURSEL, 1, 0);
-						break;
-					case 0xFFFF: // R or B
-						SendMessage(hCntrl, CB_SETCURSEL, 2, 0);
-						break;
-					default: // non-standard anchor value
-						useStringBase = true;
-						break;
-					}
-				}
-				if( useStringBase )
-				{
-					SendMessage(hCntrl, CB_ADDSTRING, 0,
-						(LPARAM)widen(aComp.base).c_str());
-					SendMessage(hCntrl, CB_SETCURSEL, WPARAM(aDropListSize), 0);
-				}
-			}
-			if( !isCustomAnchor )
-			{// Set offset field
-				SetWindowText(
-					GetDlgItem(theDialog, (isY ? IDC_EDIT_Y : IDC_EDIT_X)),
-					((aComp.offset >= 0 ? L"+" : L"") +
-					 widen(toString(aComp.offset))).c_str());
-			}
-			adjustComboBoxDroppedWidth(hCntrl);
+		// Position (X & Y)
+		aSrcEntry = getPosSourceEntry(&anEntry);
+		setupPositionControls(theDialog, *aSrcEntry, aSrcEntry->shape.x, false);
+		setupPositionControls(theDialog, *aSrcEntry, aSrcEntry->shape.y, true);
+		if( aSrcEntry != &anEntry )
+		{
+			DBG_ASSERT(anEntry.type == LayoutEntry::eType_Menu);
+			SendMessage(GetDlgItem(theDialog, IDC_EDIT_X),
+				EM_SETREADONLY, true, 0);
+			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_X_BASE), false);
+			EnableWindow(GetDlgItem(theDialog, IDC_SPIN_X), false);
+			SendMessage(GetDlgItem(theDialog, IDC_EDIT_Y),
+				EM_SETREADONLY, true, 0);
+			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_Y_BASE), false);
+			EnableWindow(GetDlgItem(theDialog, IDC_SPIN_Y), false);
+		}
+		else if( anEntry.type == LayoutEntry::eType_Menu )
+		{
+			CheckDlgButton(theDialog, IDC_CHECK_POSITION, true);
+		}
+		
+		// Size (W & H)
+		aSrcEntry = getSizeSourceEntry(&anEntry);
+		setupSizeControls(theDialog, *aSrcEntry, aSrcEntry->shape.w, false);
+		setupSizeControls(theDialog, *aSrcEntry, aSrcEntry->shape.h, true);
+		if( aSrcEntry != &anEntry || aSrcEntry->shape.w.useDefault )
+		{
+			SendMessage(GetDlgItem(theDialog, IDC_EDIT_W),
+				EM_SETREADONLY, true, 0);
+			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_W_BASE), false);
+			EnableWindow(GetDlgItem(theDialog, IDC_SPIN_W), false);
+			SendMessage(GetDlgItem(theDialog, IDC_EDIT_H),
+				EM_SETREADONLY, true, 0);
+			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_H_BASE), false);
+			EnableWindow(GetDlgItem(theDialog, IDC_SPIN_H), false);
+		}
+		else
+		{
+			CheckDlgButton(theDialog, IDC_CHECK_SIZE, true);
 		}
 
-		for(int isH = 0; isH < 2; ++isH)
-		{// W & H
-			const LayoutEntry::Shape::Component& aComp =
-				isH ? anEntry.shape.h : anEntry.shape.w;
-			hCntrl = GetDlgItem(theDialog,
-				isH ? IDC_COMBO_H_BASE : IDC_COMBO_W_BASE);
-			SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kUseDefaultLabel);
-			SendMessage(hCntrl, CB_ADDSTRING, 0, (LPARAM)kValueOnlyLabel);
-			int aSelection = 0; // default/parent action
-			if( !aComp.base.empty() )
-			{// Use option of custom base string + offset
-				SendMessage(hCntrl, CB_ADDSTRING, 0,
-					(LPARAM)widen(aComp.base).c_str());
-				aSelection = 2;
-			}
-			else if( !anEntry.shape.w.base.empty() ||
-					 anEntry.shape.w.offset > 0 ||
-					 !anEntry.shape.h.base.empty() ||
-					 anEntry.shape.h.offset > 0 )
-			{// Use custom value option if either axis is non-default
-				aSelection = 1;
-			}
-			adjustComboBoxDroppedWidth(hCntrl);
-			SendMessage(hCntrl, CB_SETCURSEL, (WPARAM)aSelection, 0);
+		if( anEntry.type == LayoutEntry::eType_Menu )
+		{// Alignment
+			setupAlignmentControls(theDialog, anEntry);
 		}
-		// Send selection changed message to W & H combo boxes to complete setup
-		SendMessage(theDialog, WM_COMMAND,
-			MAKEWPARAM(IDC_COMBO_W_BASE, CBN_SELCHANGE),
-			(LPARAM)(GetDlgItem(theDialog, IDC_COMBO_W_BASE)));
-		SendMessage(theDialog, WM_COMMAND,
-			MAKEWPARAM(IDC_COMBO_H_BASE, CBN_SELCHANGE),
-			(LPARAM)(GetDlgItem(theDialog, IDC_COMBO_H_BASE)));
-
-
-		//if( anEntry.type == LayoutEntry::eType_Menu )
-		//{// Alignment
-		//	HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
-		//	for(int i = 0; i < eAlignment_Num; ++i)
-		//	{
-		//		SendMessage(hDropList, CB_ADDSTRING, 0,
-		//			(LPARAM)widen(kAlignmentStr[i][0]).c_str());
-		//	}
-		//	if( anEntry.shape.alignment < eAlignment_Num )
-		//	{
-		//		SendMessage(hDropList, CB_SETCURSEL,
-		//			(WPARAM)anEntry.shape.alignment, 0);
-		//	}
-		//}
 
 		if( entryIsAnchorHotspot(anEntry) )
 		{// Scale
 			SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 				TBM_SETRANGE, TRUE,
 				MAKELPARAM(kMinOffsetScale, kMaxOffsetScale));
-			const std::string& aFinalScaleString =
-				anEntry.shape.scale.empty() ? "1" :
-				toString(stringToDouble(
-					Profile::expandVars(anEntry.shape.scale)));
-			if( aFinalScaleString != anEntry.shape.scale )
-			{
-				if( !anEntry.shape.scale.empty() )
-				{
-					SetWindowText(
-						GetDlgItem(theDialog, IDC_EDIT_S_VAR),
-						widen(anEntry.shape.scale).c_str());
-				}
-				CheckDlgButton(theDialog, IDC_CHECK_SCALE, false);
-			}
-			else if( !anEntry.shape.scale.empty() )
-			{
+			if( setupScaleControls(theDialog, anEntry.shape.scale) )
 				CheckDlgButton(theDialog, IDC_CHECK_SCALE, true);
-				SetWindowText(
-					GetDlgItem(theDialog, IDC_EDIT_S),
-					widen(aFinalScaleString).c_str());
-				SendDlgItemMessage(theDialog, IDC_SLIDER_S,
-					TBM_SETPOS, TRUE,
-					LPARAM(stringToDouble(aFinalScaleString) * 100));
-			}
-			else
-			{
-				CheckDlgButton(theDialog, IDC_CHECK_SCALE, false);
-			}
-			// Send initial check/un-check message for rest of setup
-			SendMessage(theDialog, WM_COMMAND,
-				MAKEWPARAM(IDC_CHECK_SCALE, BN_CLICKED),
-				(LPARAM)GetDlgItem(theDialog, IDC_CHECK_SCALE));
 		}
 
 		{// Adjust spinner control positioning/size slightly
-			hCntrl = GetDlgItem(theDialog, IDC_SPIN_X);
+			HWND hCntrl = GetDlgItem(theDialog, IDC_SPIN_X);
 			std::pair<POINT, SIZE> aCtrlPos = getControlPos(theDialog, hCntrl);
 			aCtrlPos.first.y += 2;
 			aCtrlPos.second.cy -= 2;
@@ -1159,51 +1309,119 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			}
 			break;
 
+		case IDC_CHECK_POSITION:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				const bool isChecked =
+					IsDlgButtonChecked(theDialog, IDC_CHECK_SIZE)
+						== BST_CHECKED;
+				SendMessage(GetDlgItem(theDialog, IDC_EDIT_X),
+					EM_SETREADONLY, !isChecked, 0);
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_X_BASE),isChecked);
+				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_X), isChecked);
+				SendMessage(GetDlgItem(theDialog, IDC_EDIT_Y),
+					EM_SETREADONLY, !isChecked, 0);
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_Y_BASE),isChecked);
+				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_Y), isChecked);
+				const LayoutEntry* aSrcEntry = getSizeSourceEntry(&anEntry);
+				if( isChecked )
+				{// Set own values to duplicate of parent's
+					sState->entered.x = aSrcEntry->shape.x;
+					sState->entered.y = aSrcEntry->shape.y;
+					if( sState->entered.x.useDefault ||
+						sState->entered.y.useDefault )
+					{// Don't defer to defaults while this is checked!
+						sState->entered.x.useDefault = false;
+						sState->entered.y.useDefault = false;
+					}
+				}
+				else
+				{// Set to defer to default values
+					sState->entered.x = LayoutEntry::Shape::Component();
+					sState->entered.y = LayoutEntry::Shape::Component();
+				}
+				setupSizeControls(theDialog, *aSrcEntry,
+					sState->entered.x.useDefault && aSrcEntry != &anEntry
+						? aSrcEntry->shape.x : sState->entered.x,
+						false);
+				setupSizeControls(theDialog, *aSrcEntry,
+					sState->entered.y.useDefault && aSrcEntry != &anEntry
+						? aSrcEntry->shape.y : sState->entered.y,
+						true);
+				applyNewLayoutProperties();
+			}
+			break;
+
+		case IDC_CHECK_SIZE:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				const bool isChecked =
+					IsDlgButtonChecked(theDialog, IDC_CHECK_SIZE)
+						== BST_CHECKED;
+				SendMessage(GetDlgItem(theDialog, IDC_EDIT_W),
+					EM_SETREADONLY, !isChecked, 0);
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_W_BASE),isChecked);
+				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_W), isChecked);
+				SendMessage(GetDlgItem(theDialog, IDC_EDIT_H),
+					EM_SETREADONLY, !isChecked, 0);
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_H_BASE),isChecked);
+				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_H), isChecked);
+				const LayoutEntry* aSrcEntry = getSizeSourceEntry(&anEntry);
+				if( isChecked )
+				{// Set own values to duplicate of parent's
+					sState->entered.w = aSrcEntry->shape.w;
+					sState->entered.h = aSrcEntry->shape.h;
+					if( sState->entered.w.useDefault ||
+						sState->entered.h.useDefault )
+					{// Don't defer to defaults while this is checked!
+						sState->entered.w.useDefault = false;
+						sState->entered.h.useDefault = false;
+						sState->entered.w.offset = 1;
+						sState->entered.h.offset = 1;
+					}
+				}
+				else
+				{// Set to defer to default values
+					sState->entered.w = LayoutEntry::Shape::Component();
+					sState->entered.h = LayoutEntry::Shape::Component();
+				}
+				setupSizeControls(theDialog, *aSrcEntry,
+					sState->entered.w.useDefault && aSrcEntry != &anEntry
+						? aSrcEntry->shape.w : sState->entered.w,
+						false);
+				setupSizeControls(theDialog, *aSrcEntry,
+					sState->entered.h.useDefault && aSrcEntry != &anEntry
+						? aSrcEntry->shape.h : sState->entered.h,
+						true);
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
+				applyNewLayoutProperties();
+			}
+			break;
+
 		case IDC_CHECK_SCALE:
 			if( HIWORD(wParam) == BN_CLICKED )
 			{
 				const bool isChecked =
 					IsDlgButtonChecked(theDialog, IDC_CHECK_SCALE)
 						== BST_CHECKED;
-				SendMessage(GetDlgItem(theDialog, IDC_EDIT_S),
-					EM_SETREADONLY, !isChecked, 0);
-				EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), isChecked);
 				if( isChecked )
 				{
-					ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
-					ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), false);
 					sState->entered.scale =
-						getControlText(theDialog, IDC_EDIT_S);
-					applyNewLayoutProperties();
-					break;
+						Profile::expandVars(anEntry.shape.scale);
+					if( stringToFloat(sState->entered.scale) <= 0.0f )
+						sState->entered.scale = "1.0";
 				}
-				const std::string& aScaleVarStr =
-					getControlText(theDialog, IDC_EDIT_S_VAR);
-				if( aScaleVarStr.empty() )
-				{// Reset to default scale if have no default variables
-					sState->entered.scale = "1";
-					SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S), L"1");
-					SendDlgItemMessage(theDialog, IDC_SLIDER_S,
-						TBM_SETPOS, TRUE, LPARAM(100));
-					sState->needsDrawPosUpdate = true;
-					gRefreshOverlays.set(kSystemOverlayID);
-					applyNewLayoutProperties();
-					break;
+				else
+				{
+					sState->entered.scale =
+						getControlText(theDialog, IDC_EDIT_S_VAR);
 				}
-				// Use scale derived from variable string
-				ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
-				ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), true);
-				sState->entered.scale = aScaleVarStr;
-				const std::string& aCalculatedScaleString =
-					Profile::expandVars(aScaleVarStr);
-				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
-					widen(aCalculatedScaleString).c_str());
-				SendDlgItemMessage(theDialog, IDC_SLIDER_S,
-					TBM_SETPOS, TRUE,
-					LPARAM(stringToDouble(aCalculatedScaleString) * 100));
+				setupScaleControls(theDialog, sState->entered.scale);
 				sState->needsDrawPosUpdate = true;
 				gRefreshOverlays.set(kSystemOverlayID);
 				applyNewLayoutProperties();
+				break;
 			}
 			break;
 
@@ -1285,87 +1503,30 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			if( HIWORD(wParam) == CBN_SELCHANGE && sState )
 			{
 				const bool isH = LOWORD(wParam) == IDC_COMBO_H_BASE;
-				const int altAxisControlID =
-					isH ? IDC_COMBO_W_BASE : IDC_COMBO_H_BASE;
 				LayoutEntry::Shape::Component& aComp =
 					isH ? sState->entered.h : sState->entered.w;
 				const std::string& aSelectedText =
 					getControlText(theDialog, LOWORD(wParam));
-				const std::string& anAltAxisText =
-					getControlText(theDialog, altAxisControlID);
 				const std::string& anOffsetText =
 					getControlText(theDialog, isH ? IDC_EDIT_H : IDC_EDIT_W);
-				const bool useDefault =
-					aSelectedText == narrow(kUseDefaultLabel);
-				const bool useDirectValue = !useDefault &&
+				const bool useDirectValue =
 					aSelectedText == narrow(kValueOnlyLabel);
-				const bool useStringBase = !useDefault && !useDirectValue;
-				const bool altAxisSetToDefault =
-					anAltAxisText == narrow(kUseDefaultLabel);
-
-				if( useDefault != altAxisSetToDefault )
-				{// Both axis must be default, or both NOT default
-					HWND hAltAxis =
-						GetDlgItem(theDialog, altAxisControlID);
-					int aNewSel = min(
-						SendMessage((HWND)lParam, CB_GETCURSEL, 0, 0),
-						SendMessage(hAltAxis, CB_GETCOUNT, 0, 0));
-					SendMessage(hAltAxis, CB_SETCURSEL, aNewSel, 0);
-					SendMessage(theDialog, WM_COMMAND,
-						MAKEWPARAM(altAxisControlID, CBN_SELCHANGE),
-						(LPARAM)hAltAxis);
-				}
-
-				// Disable/enable modification based on useDefault
-				SendMessage(
-					GetDlgItem(theDialog, isH ? IDC_EDIT_H : IDC_EDIT_W),
-					EM_SETREADONLY, useDefault, 0);
-				EnableWindow(
-					GetDlgItem(theDialog, isH ? IDC_SPIN_H : IDC_SPIN_W),
-					!useDefault);
-
-				if( useDefault )
-				{
-					sState->entered.w.base.clear();
-					sState->entered.w.offset = 0;
-					sState->entered.h.base.clear();
-					sState->entered.h.offset = 0;
-					// Borrow draw hotspot to display inherited value
-					updateDrawHotspot(anEntry, sState->entered, true, false);
-					if( anEntry.drawHotspot.w == 0 &&
-						anEntry.drawHotspot.h == 0 )
-					{
-						SetWindowText(GetDlgItem(theDialog,
-							isH ? IDC_EDIT_H : IDC_EDIT_W),
-							L"");
-					}
-					else
-					{
-						SetWindowText(GetDlgItem(theDialog,
-							isH ? IDC_EDIT_H : IDC_EDIT_W),
-							widen(isH
-								? toString(anEntry.drawHotspot.h)
-								: toString(anEntry.drawHotspot.w)).c_str());
-					}
-				}
+				const bool useStringBase = !useDirectValue;
+				const int aPrevOffset = anOffsetText.empty()
+					? aComp.offset : stringToInt(anOffsetText);
+				const int aPrevFullValue = max(1, aPrevOffset +
+					stringToInt(Profile::expandVars(aComp.base)));
+				const int aNewBaseValue = useStringBase
+					? stringToInt(Profile::expandVars(aSelectedText)) : 0;
+				if( useStringBase )
+					aComp.base = aSelectedText;
 				else
-				{
-					const int aPrevOffset = anOffsetText.empty()
-						? aComp.offset : stringToInt(anOffsetText);
-					const int aPrevFullValue = max(1, aPrevOffset +
-						stringToInt(Profile::expandVars(aComp.base)));
-					const int aNewBaseValue = useStringBase
-						? stringToInt(Profile::expandVars(aSelectedText)) : 0;
-					if( useStringBase )
-						aComp.base = aSelectedText;
-					else
-						aComp.base.clear();
-					aComp.offset = aPrevFullValue - aNewBaseValue;
-					SetWindowText(
-						GetDlgItem(theDialog, isH ? IDC_EDIT_H : IDC_EDIT_W),
-						((useStringBase && aComp.offset >= 0 ? L"+" : L"") +
-						widen(toString(aComp.offset))).c_str());
-				}
+					aComp.base.clear();
+				aComp.offset = aPrevFullValue - aNewBaseValue;
+				SetWindowText(
+					GetDlgItem(theDialog, isH ? IDC_EDIT_H : IDC_EDIT_W),
+					((useStringBase && aComp.offset >= 0 ? L"+" : L"") +
+					widen(toString(aComp.offset))).c_str());
 				sState->needsDrawPosUpdate = true;
 				gRefreshOverlays.set(kSystemOverlayID);
 				applyNewLayoutProperties();
@@ -1903,6 +2064,24 @@ void init()
 				aNewEntry.shape.w = fetchShapeComponent(aDesc, ++aPos, false);
 			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
 				aNewEntry.shape.h = fetchShapeComponent(aDesc, ++aPos, false);
+			// useDefault flag must match on each component pair
+			aNewEntry.shape.x.useDefault = aNewEntry.shape.y.useDefault = false;
+			if( aNewEntry.shape.w.base.empty() && !aNewEntry.shape.w.offset &&
+				aNewEntry.shape.w.base.empty() && !aNewEntry.shape.w.offset )
+			{// Width & height being 0 is equivalent to useDefault for hotspots
+				aNewEntry.shape.w.useDefault = true;
+				aNewEntry.shape.h.useDefault = true;
+			}
+			else if( !aNewEntry.shape.w.useDefault ||
+					 !aNewEntry.shape.h.useDefault )
+			{// If either W or H was set, make sure both are set to >= 1
+				aNewEntry.shape.w.useDefault = false;
+				aNewEntry.shape.h.useDefault = false;
+				if( aNewEntry.shape.w.base.empty() )
+					aNewEntry.shape.w.offset = max(1, aNewEntry.shape.w.offset);
+				if( aNewEntry.shape.h.base.empty() )
+					aNewEntry.shape.h.offset = max(1, aNewEntry.shape.h.offset);
+			}
 			// This might read in a scale for hotspots that aren't allowed to
 			// have one, but it will just be ignored in those cases.
 			if( aPos < aDesc.size() && aDesc[aPos] == '*' )
