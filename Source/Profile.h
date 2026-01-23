@@ -67,6 +67,7 @@ std::string variableIDToName(int theVariableID);
 std::string expandVars(std::string theString);
 const SectionsMap& allSections();
 int getSectionID(const std::string& theSectionName); // -1 if not found
+// Returns a valid pointer to an empty map if section not found
 PropertyMapPtr getSectionProperties(const std::string& theSectionName);
 PropertyMapPtr getSectionProperties(int theSectionID);
 std::string getStr(// from section returned by getSectionProperties()

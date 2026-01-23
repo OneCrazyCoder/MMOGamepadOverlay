@@ -549,20 +549,21 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 			}
 			layoutItemSortTree(hTreeView, TVI_ROOT, theItems);
 			if( size_t anInitialSel = (*theItems)[0]->parentIndex )
-			{
+			{// Start with requested initial selection
 				HTREEITEM hInitialItem = aHandlesList[anInitialSel];
 				TreeView_SelectItem(hTreeView, hInitialItem);
 				TreeView_EnsureVisible(hTreeView, hInitialItem);
 			}
-			else
-			{
-				HTREEITEM hItem = TreeView_GetRoot(hTreeView);
-				while(hItem)
-				{
-					TreeView_Expand(hTreeView, hItem, TVE_EXPAND);
-					hItem = TreeView_GetNextSibling(hTreeView, hItem);
-				}
-			}
+			//else
+			//{// Start with all categories (1 level deep) opened
+			//	HTREEITEM hItem = TreeView_GetRoot(hTreeView);
+			//	while(hItem)
+			//	{
+			//		TreeView_Expand(hTreeView, hItem, TVE_EXPAND);
+			//		hItem = TreeView_GetNextSibling(hTreeView, hItem);
+			//	}
+			//	TreeView_SelectItem(hTreeView, aHandlesList[1]);
+			//}
 		}
 		return (INT_PTR)TRUE;
 

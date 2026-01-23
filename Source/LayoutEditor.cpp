@@ -29,7 +29,6 @@ kMaxOffsetScale = 400,
 
 const char* kHotspotsSectionName = "Hotspots";
 const char* kMenuSectionPrefix = "Menu.";
-const char* kMenuDefaultSectionName = "Appearance";
 const char* kPositionPropName = "Position";
 const char* kItemSizePropName = "ItemSize";
 const char* kAlignmentPropName = "Alignment";
@@ -50,7 +49,8 @@ enum EAlignment
 	eAlignment_R_B,
 
 	eAlignment_Num,
-	eAlignment_UseDefault = eAlignment_Num,
+	eAlignment_VarString = eAlignment_Num,
+	eAlignment_UseDefault,
 };
 
 const char* kAlignmentStr[][2] =
@@ -111,6 +111,7 @@ struct ZERO_INIT(LayoutEntry)
 		Component x, y, w, h;
 		std::string scale;
 		EAlignment alignment;
+		std::string alignVarString;
 		Shape() : alignment(eAlignment_UseDefault) {}
 		bool operator==(const Shape& rhs) const
 		{
@@ -122,12 +123,11 @@ struct ZERO_INIT(LayoutEntry)
 		{ return !(*this == rhs); }
 	} shape;
 
-	std::string posPropName, sizePropName;
-	int posSectID, sizeSectID;
 	std::vector<size_t> children;
 	RECT drawnRect;
 	Hotspot drawHotspot;
 	float drawOffScale;
+	int propSectID, menuID;
 	int drawOffX, drawOffY;
 	int rangeCount; // -1 = anchor/menu, 0 = single, 1+ = actual range
 	bool sizeIsARange;
@@ -185,32 +185,53 @@ static inline bool entryIsAnchorHotspot(const LayoutEntry& theEntry)
 }
 
 
+static inline LayoutEntry* getParentEntry(const LayoutEntry* theEntry)
+{
+	DBG_ASSERT(theEntry);
+	DBG_ASSERT(entryHasParent(*theEntry));
+	LayoutEntry* aParent = &sState->entries[theEntry->item.parentIndex];
+	if( theEntry->type == LayoutEntry::eType_Menu )
+	{
+		// In the context of inheritence, the "parent" menu is the root menu,
+		// not the actual immediate parent used for sorting the tree view
+		int aRootMenuID = InputMap::rootMenuOfMenu(theEntry->menuID);
+		while(aParent->menuID != aRootMenuID && entryHasParent(*aParent))
+			aParent = &sState->entries[aParent->item.parentIndex];
+		return aParent;
+	}
+	return aParent;
+}
+
+
 static const LayoutEntry* getPosSourceEntry(const LayoutEntry* theEntry)
 {
+	DBG_ASSERT(theEntry);
 	const LayoutEntry* result = theEntry;
 	while(result->shape.x.useDefault && entryHasParent(*result))
-		result = &sState->entries[result->item.parentIndex];
+		result = getParentEntry(result);
 	return result;
 }
 
 
 static const LayoutEntry* getSizeSourceEntry(const LayoutEntry* theEntry)
 {
+	DBG_ASSERT(theEntry);
 	const LayoutEntry* result = theEntry;
 	while(result->shape.w.useDefault && entryHasParent(*result))
-		result = &sState->entries[result->item.parentIndex];
+		result = getParentEntry(result);
 	return result;
 }
 
 
 static const LayoutEntry* getAlignmentSourceEntry(const LayoutEntry* theEntry)
 {
+	DBG_ASSERT(theEntry);
 	const LayoutEntry* result = theEntry;
 	while(
 		result->shape.alignment == eAlignment_UseDefault &&
 		entryHasParent(*result))
 	{
-		result = &sState->entries[result->item.parentIndex];
+		result = getParentEntry(result);
 	}
 	return result;
 }
@@ -227,7 +248,7 @@ static double entryScaleFactor(const LayoutEntry& theEntry)
 		LayoutEntry* anAnchorEntry =
 			&sState->entries[theEntry.item.parentIndex];
 		while(entryHasParent(*anAnchorEntry))
-			anAnchorEntry = &sState->entries[anAnchorEntry->item.parentIndex];
+			anAnchorEntry = getParentEntry(anAnchorEntry);
 		result = stringToFloat(Profile::expandVars(anAnchorEntry->shape.scale));
 		if( result == 0 )
 			result = 1.0;
@@ -464,52 +485,51 @@ static void updateDrawHotspot(
 	}
 	if( entryHasParent(theEntry) )
 	{
-		LayoutEntry& aParent = sState->entries[theEntry.item.parentIndex];
-		DBG_ASSERT(aParent.type == theEntry.type);
+		LayoutEntry* aParent = getParentEntry(&theEntry);
 		if( updateParentIfNeeded )
-			updateDrawHotspot(aParent, aParent.shape, true, false);
-		theEntry.drawOffScale = aParent.drawOffScale;
-		if( aParent.rangeCount > 0 )
+			updateDrawHotspot(*aParent, aParent->shape, true, false);
+		theEntry.drawOffScale = aParent->drawOffScale;
+		if( aParent->rangeCount > 0 )
 		{// Rare case where the parent is itself a range of hotspots
-			aParent.drawHotspot.x.offset = s16(clamp(int(
-				aParent.drawHotspot.x.offset +
-				aParent.drawOffX *
-				(aParent.rangeCount-1) *
-				aParent.drawOffScale), -0x8000, 0x7FFF));
-			aParent.drawHotspot.y.offset = s16(clamp(int(
-				aParent.drawHotspot.y.offset +
-				aParent.drawOffY *
-				(aParent.rangeCount-1) *
-				aParent.drawOffScale), -0x8000, 0x7FFF));
+			aParent->drawHotspot.x.offset = s16(clamp(int(
+				aParent->drawHotspot.x.offset +
+				aParent->drawOffX *
+				(aParent->rangeCount-1) *
+				aParent->drawOffScale), -0x8000, 0x7FFF));
+			aParent->drawHotspot.y.offset = s16(clamp(int(
+				aParent->drawHotspot.y.offset +
+				aParent->drawOffY *
+				(aParent->rangeCount-1) *
+				aParent->drawOffScale), -0x8000, 0x7FFF));
 		}
 		if( theEntry.rangeCount >= 0 )
 		{// Offset from parent position
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
 			{
-				theEntry.drawHotspot.x.anchor = aParent.drawHotspot.x.anchor;
+				theEntry.drawHotspot.x.anchor = aParent->drawHotspot.x.anchor;
 				theEntry.drawHotspot.x.offset = s16(clamp(int(
 					theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
-					aParent.drawHotspot.x.offset, -0x8000, 0x7FFF));
+					aParent->drawHotspot.x.offset, -0x8000, 0x7FFF));
 			}
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
 			{
-				theEntry.drawHotspot.y.anchor = aParent.drawHotspot.y.anchor;
+				theEntry.drawHotspot.y.anchor = aParent->drawHotspot.y.anchor;
 				theEntry.drawHotspot.y.offset = s16(clamp(int(
 					theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
-					aParent.drawHotspot.y.offset, -0x8000, 0x7FFF));
+					aParent->drawHotspot.y.offset, -0x8000, 0x7FFF));
 			}
 		}
-		else
+		else if( theShape.x.useDefault )
 		{// Inherit parent position
 			DBG_ASSERT(theEntry.type == LayoutEntry::eType_Menu);
-			theEntry.drawHotspot.x = aParent.drawHotspot.x;
-			theEntry.drawHotspot.y = aParent.drawHotspot.y;
+			theEntry.drawHotspot.x = aParent->drawHotspot.x;
+			theEntry.drawHotspot.y = aParent->drawHotspot.y;
 		}
-		if( theEntry.shape.w.useDefault ||
+		if( theShape.w.useDefault ||
 			theEntry.drawHotspot.w == 0 && theEntry.drawHotspot.h == 0 )
 		{// Inherit parent size
-			theEntry.drawHotspot.w = aParent.drawHotspot.w;
-			theEntry.drawHotspot.h = aParent.drawHotspot.h;
+			theEntry.drawHotspot.w = aParent->drawHotspot.w;
+			theEntry.drawHotspot.h = aParent->drawHotspot.h;
 		}
 	}
 	if( updateChildren )
@@ -618,14 +638,14 @@ static void setInitialToolbarPos(HWND theDialog, LayoutEntry& theEntry)
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
 	POINT anEntryPos;
-	//if( theEntry.type == LayoutEntry::eType_Menu )
-	//{
-	//	const RECT& anEntryRect =
-	//		WindowManager::overlayRect(theEntry.menuOverlayID);
-	//	anEntryPos.x = (anEntryRect.left + anEntryRect.right) / 2;
-	//	anEntryPos.y = (anEntryRect.top + anEntryRect.bottom) / 2;
-	//}
-	//else
+	if( theEntry.type == LayoutEntry::eType_Menu )
+	{
+		const RECT& anEntryRect = WindowManager::overlayRect(
+			InputMap::menuOverlayID(theEntry.menuID));
+		anEntryPos.x = (anEntryRect.left + anEntryRect.right) / 2;
+		anEntryPos.y = (anEntryRect.top + anEntryRect.bottom) / 2;
+	}
+	else
 	{
 		updateDrawHotspot(theEntry, theEntry.shape);
 		anEntryPos = WindowManager::hotspotToOverlayPos(theEntry.drawHotspot);
@@ -751,6 +771,12 @@ static void setupPositionControls(
 		isY ? IDC_COMBO_Y_BASE : IDC_COMBO_X_BASE);
 	HWND hEditBox = GetDlgItem(theDialog, (isY ? IDC_EDIT_Y : IDC_EDIT_X));
 	SendMessage(hComboBox, CB_RESETCONTENT, 0, 0);
+	if( theComponent.useDefault )
+	{
+		SetWindowText(hEditBox, L"");
+		return;
+	}
+
 	int aDropListSize = 0;
 	if( theEntry.rangeCount <= 0 )
 	{
@@ -763,7 +789,7 @@ static void setupPositionControls(
 		SendMessage(hComboBox, CB_ADDSTRING, 0, (LPARAM)kAnchorOnlyLabel);
 		aDropListSize = 4;
 	}
-	const bool canBeOffsetOnly = entryHasParent(theEntry);
+	const bool canBeOffsetOnly = theEntry.rangeCount >= 0;
 	// Set initial selection to one of the above if appropriate
 	const double anAnchorVal = theComponent.offset
 			? 0 : stringToDouble(theComponent.base, true);
@@ -822,6 +848,7 @@ static void setupPositionControls(
 			SendMessage(hComboBox, CB_SETCURSEL, WPARAM(aDropListSize), 0);
 		}
 	}
+	adjustComboBoxDroppedWidth(hComboBox);
 	if( !isCustomAnchor )
 	{// Set offset field
 		SetWindowText(
@@ -829,7 +856,6 @@ static void setupPositionControls(
 			((theComponent.offset >= 0 ? L"+" : L"") +
 			 widen(toString(theComponent.offset))).c_str());
 	}
-	adjustComboBoxDroppedWidth(hComboBox);
 }
 
 
@@ -934,19 +960,27 @@ static bool setupScaleControls(
 
 
 static void setupAlignmentControls(
-	HWND theDialog, LayoutEntry& theEntry)
+	HWND theDialog, const LayoutEntry::Shape& theShape)
 {
-	//HWND hDropList = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
-	//for(int i = 0; i < eAlignment_Num; ++i)
-	//{
-	//	SendMessage(hDropList, CB_ADDSTRING, 0,
-	//		(LPARAM)widen(kAlignmentStr[i][0]).c_str());
-	//}
-	//if( anEntry.shape.alignment < eAlignment_Num )
-	//{
-	//	SendMessage(hDropList, CB_SETCURSEL,
-	//		(WPARAM)anEntry.shape.alignment, 0);
-	//}
+	HWND hComboBox = GetDlgItem(theDialog, IDC_COMBO_ALIGN);
+	SendMessage(hComboBox, CB_RESETCONTENT, 0, 0);
+	if( theShape.alignment == eAlignment_UseDefault )
+		return;
+
+	for(int i = 0; i < eAlignment_Num; ++i)
+	{
+		SendMessage(hComboBox, CB_ADDSTRING, 0,
+			(LPARAM)widen(kAlignmentStr[i][0]).c_str());
+	}
+	if( theShape.alignment == eAlignment_VarString )
+	{
+		DBG_ASSERT(!theShape.alignVarString.empty());
+		SendMessage(hComboBox, CB_ADDSTRING, 0,
+			(LPARAM)widen(theShape.alignVarString).c_str());
+	}
+	adjustComboBoxDroppedWidth(hComboBox);
+	SendMessage(hComboBox, CB_SETCURSEL,
+		(WPARAM)theShape.alignment, 0);
 }
 
 
@@ -966,7 +1000,15 @@ static void processCoordFieldChange(
 		/*theControlID == IDC_EDIT_H*/sState->entered.h;
 
 	if( aComp.useDefault )
-		return;
+	{
+		if( !theDeltaSetByMouse )
+			return;
+		// Need to un-lock position fields so no longer using defaults
+		CheckDlgButton(theDialog, IDC_CHECK_POSITION, true);
+		SendMessage(theDialog, WM_COMMAND,
+			MAKEWPARAM(IDC_CHECK_POSITION, BN_CLICKED),
+			(LPARAM)GetDlgItem(theDialog, IDC_CHECK_POSITION));
+	}
 
 	const int theBaseControlID = IDC_COMBO_X_BASE + (theControlID - IDC_EDIT_X);
 	const std::string& aBaseControlStr =
@@ -1187,7 +1229,17 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 
 		if( anEntry.type == LayoutEntry::eType_Menu )
 		{// Alignment
-			setupAlignmentControls(theDialog, anEntry);
+			aSrcEntry = getAlignmentSourceEntry(&anEntry);
+			if( aSrcEntry != &anEntry ||
+				aSrcEntry->shape.alignment == eAlignment_UseDefault )
+			{
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_ALIGN), false);
+			}
+			else
+			{
+				CheckDlgButton(theDialog, IDC_CHECK_ALIGNMENT, true);
+			}
+			setupAlignmentControls(theDialog, aSrcEntry->shape);
 		}
 
 		if( entryIsAnchorHotspot(anEntry) )
@@ -1313,7 +1365,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			if( HIWORD(wParam) == BN_CLICKED )
 			{
 				const bool isChecked =
-					IsDlgButtonChecked(theDialog, IDC_CHECK_SIZE)
+					IsDlgButtonChecked(theDialog, IDC_CHECK_POSITION)
 						== BST_CHECKED;
 				SendMessage(GetDlgItem(theDialog, IDC_EDIT_X),
 					EM_SETREADONLY, !isChecked, 0);
@@ -1323,9 +1375,10 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					EM_SETREADONLY, !isChecked, 0);
 				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_Y_BASE),isChecked);
 				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_Y), isChecked);
-				const LayoutEntry* aSrcEntry = getSizeSourceEntry(&anEntry);
+				const LayoutEntry* aSrcEntry;
 				if( isChecked )
-				{// Set own values to duplicate of parent's
+				{// Begin using own custom values (or duplicate of parent's)
+					aSrcEntry = getPosSourceEntry(&anEntry);
 					sState->entered.x = aSrcEntry->shape.x;
 					sState->entered.y = aSrcEntry->shape.y;
 					if( sState->entered.x.useDefault ||
@@ -1339,15 +1392,22 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				{// Set to defer to default values
 					sState->entered.x = LayoutEntry::Shape::Component();
 					sState->entered.y = LayoutEntry::Shape::Component();
+					aSrcEntry = getPosSourceEntry(
+						entryHasParent(anEntry)
+							? getParentEntry(&anEntry)
+							: &anEntry);
 				}
-				setupSizeControls(theDialog, *aSrcEntry,
+				DBG_ASSERT(aSrcEntry);
+				setupPositionControls(theDialog, *aSrcEntry,
 					sState->entered.x.useDefault && aSrcEntry != &anEntry
 						? aSrcEntry->shape.x : sState->entered.x,
 						false);
-				setupSizeControls(theDialog, *aSrcEntry,
+				setupPositionControls(theDialog, *aSrcEntry,
 					sState->entered.y.useDefault && aSrcEntry != &anEntry
 						? aSrcEntry->shape.y : sState->entered.y,
 						true);
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
 				applyNewLayoutProperties();
 			}
 			break;
@@ -1366,9 +1426,10 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					EM_SETREADONLY, !isChecked, 0);
 				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_H_BASE),isChecked);
 				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_H), isChecked);
-				const LayoutEntry* aSrcEntry = getSizeSourceEntry(&anEntry);
+				const LayoutEntry* aSrcEntry;
 				if( isChecked )
-				{// Set own values to duplicate of parent's
+				{// Begin using own custom values (or duplicate of parent's)
+					aSrcEntry = getSizeSourceEntry(&anEntry);
 					sState->entered.w = aSrcEntry->shape.w;
 					sState->entered.h = aSrcEntry->shape.h;
 					if( sState->entered.w.useDefault ||
@@ -1384,7 +1445,12 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				{// Set to defer to default values
 					sState->entered.w = LayoutEntry::Shape::Component();
 					sState->entered.h = LayoutEntry::Shape::Component();
+					aSrcEntry = getSizeSourceEntry(
+						entryHasParent(anEntry)
+							? getParentEntry(&anEntry)
+							: &anEntry);
 				}
+				DBG_ASSERT(aSrcEntry);
 				setupSizeControls(theDialog, *aSrcEntry,
 					sState->entered.w.useDefault && aSrcEntry != &anEntry
 						? aSrcEntry->shape.w : sState->entered.w,
@@ -1393,6 +1459,44 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					sState->entered.h.useDefault && aSrcEntry != &anEntry
 						? aSrcEntry->shape.h : sState->entered.h,
 						true);
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
+				applyNewLayoutProperties();
+			}
+			break;
+
+		case IDC_CHECK_ALIGNMENT:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				const bool isChecked =
+					IsDlgButtonChecked(theDialog, IDC_CHECK_ALIGNMENT)
+						== BST_CHECKED;
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_ALIGN), isChecked);
+				const LayoutEntry* aSrcEntry;
+				if( isChecked )
+				{// Begin using own custom values (or duplicate of parent's)
+					aSrcEntry = getAlignmentSourceEntry(&anEntry);
+					sState->entered.alignment = aSrcEntry->shape.alignment;
+					sState->entered.alignVarString =
+						aSrcEntry->shape.alignVarString;
+					if( sState->entered.alignment == eAlignment_UseDefault )
+					{// Don't defer to defaults while this is checked!
+						sState->entered.alignment = eAlignment_L_T;
+					}
+				}
+				else
+				{// Set to defer to default values
+					sState->entered.alignment = eAlignment_UseDefault;
+					sState->entered.alignVarString.clear();
+					aSrcEntry = getAlignmentSourceEntry(
+						entryHasParent(anEntry)
+							? getParentEntry(&anEntry)
+							: &anEntry);
+				}
+				DBG_ASSERT(aSrcEntry);
+				setupAlignmentControls(theDialog,
+					sState->entered.alignment == eAlignment_UseDefault &&
+					aSrcEntry != &anEntry ? aSrcEntry->shape : sState->entered);
 				sState->needsDrawPosUpdate = true;
 				gRefreshOverlays.set(kSystemOverlayID);
 				applyNewLayoutProperties();
@@ -1446,7 +1550,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					getControlText(theDialog, LOWORD(wParam));
 				// Borrow the draw hotspot so actual on-screen position is
 				// maintained as swap to a different base (anchor) position
-				updateDrawHotspot(anEntry, sState->entered, false, false);
+ 				updateDrawHotspot(anEntry, sState->entered, false, false);
 				const int aWinMax = isY
 					? WindowManager::overlayTargetSize().cy
 					: WindowManager::overlayTargetSize().cx;
@@ -1468,10 +1572,18 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				}
 				else
 				{
-					if( aSelectedText == narrow(kOffsetOnlyLabel) )
+					aComp.base = aSelectedText;
+					// Treat as having no base if just acting as an offset, or
+					// for menus or no-parent hotspots, don't bother having a
+					// base string for L/T as those are implied (for hotspots
+					// with parents, L/T being included indicates parent should
+					// be ignored and to not act as an offset, so keep them).
+					if( aSelectedText == narrow(kOffsetOnlyLabel) ||
+						(anEntry.rangeCount < 0 &&
+						 (aSelectedText == "L" || aSelectedText == "T")) )
+					{
 						aComp.base.clear();
-					else
-						aComp.base = aSelectedText;
+					}
 					aComp.offset = 0;
 					// Set offset to delta from old drawn pos to new base
 					updateDrawHotspot(anEntry, sState->entered, false, false);
@@ -2037,8 +2149,6 @@ void init()
 	const int kHotspotsSectionID = Profile::getSectionID(kHotspotsSectionName);
 	if( kHotspotsSectionID >= 0 )
 	{
-		int aFirstNewEntryIdx = intSize(sState->entries.size());
-
 		Profile::PropertyMapPtr aPropMap =
 			Profile::getSectionProperties(kHotspotsSectionID);
 		StringToValueMap<u32> anEntryNameToIdxMap;
@@ -2048,10 +2158,9 @@ void init()
 			aNewEntry.type = LayoutEntry::eType_Hotspot;
 			aNewEntry.item.parentIndex = LayoutEntry::eType_HotspotCategory;
 			aNewEntry.item.name = aPropMap->keys()[i];
-			aNewEntry.posPropName = aNewEntry.item.name;
-			std::string aKeyName = aNewEntry.item.name;
+			aNewEntry.propSectID = kHotspotsSectionID;
 			anEntryNameToIdxMap.setValue(
-				aKeyName, u32(sState->entries.size()));
+				aNewEntry.item.name, u32(sState->entries.size()));
 			const std::string& aDesc =
 				aPropMap->vals()[i].pattern.empty()
 					? aPropMap->vals()[i].str
@@ -2090,32 +2199,158 @@ void init()
 		}
 
 		// Link hotspots in arrays with their direct parents
-		for(int i = aFirstNewEntryIdx,
+		for(int i = LayoutEntry::eType_CategoryNum,
 			end = intSize(sState->entries.size()); i < end; ++i)
 		{
 			setHotspotEntryParent(sState->entries[i], anEntryNameToIdxMap);
 		}
 	}
 
-	// TODO - Collect menu layouts
+	// Link parent hotspot entries to their children for drawing later
+	for(int i = LayoutEntry::eType_CategoryNum,
+		end = intSize(sState->entries.size()); i < end; ++i)
+	{
+		if( entryHasParent(sState->entries[i]) )
+			getParentEntry(&sState->entries[i])->children.push_back(i);
+	}
 
+	// Collect menu layout entries
+	int aFirstMenuEntryIdx = intSize(sState->entries.size());
+	for(int aMenuID = 0, aMenuCnt = InputMap::menuCount();
+		aMenuID < aMenuCnt; ++aMenuID)
+	{
+		bool isMenuDefaults = false;
+		switch(InputMap::menuStyle(aMenuID))
+		{
+		case eMenuStyle_Hotspots:
+		case eMenuStyle_Highlight:
+		case eMenuStyle_KBCycleLast:
+		case eMenuStyle_KBCycleDefault:
+		case eMenuStyle_HotspotGuide:
+			// These menus are not edit-able (use hotspot data instead)
+			continue; // to next menu from for loop above
+		case eMenuStyle_System:
+			// System menu acts as a stand-in for default menu values
+			isMenuDefaults = true;
+			break;
+		default:
+			// Add a new entry for this menu ID
+			sState->entries.push_back(LayoutEntry());
+			break;
+		}
+		Profile::PropertyMapPtr aPropMap = null;
+		LayoutEntry& aNewEntry = isMenuDefaults
+			? sState->entries[LayoutEntry::eType_MenuCategory]
+			: sState->entries.back();
+		aNewEntry.propSectID = InputMap::menuSectionID(aMenuID);
+		if( aNewEntry.propSectID == kInvalidID && isMenuDefaults )
+			continue;
+		if( !isMenuDefaults )
+		{
+			aNewEntry.type = LayoutEntry::eType_Menu;
+			aNewEntry.item.parentIndex = LayoutEntry::eType_MenuCategory;
+			aNewEntry.item.name = InputMap::menuLabel(aMenuID);
+		}
+		aNewEntry.menuID = aMenuID;
+		aPropMap = Profile::getSectionProperties(aNewEntry.propSectID);
+		if( const Profile::Property* aPosProp =
+				aPropMap->find(kPositionPropName) )
+		{
+			const std::string& aDesc = aPosProp->pattern.empty()
+				? aPosProp->str : aPosProp->pattern;
+			size_t aPos = 0;
+			aNewEntry.shape.x = fetchShapeComponent(aDesc, aPos, true);
+			if( aPos < aDesc.size() )
+				aNewEntry.shape.y = fetchShapeComponent(aDesc, ++aPos, true);
+		}
+		if( const Profile::Property* aSizeProp =
+				aPropMap->find(kItemSizePropName) )
+		{
+			const std::string& aDesc = aSizeProp->pattern.empty()
+				? aSizeProp->str : aSizeProp->pattern;
+			size_t aPos = 0;
+			aNewEntry.shape.w = fetchShapeComponent(aDesc, aPos, false);
+			if( aPos < aDesc.size() )
+				aNewEntry.shape.h = fetchShapeComponent(aDesc, ++aPos, false);
+		}
+		if( const Profile::Property* anAlignProp =
+				aPropMap->find(kAlignmentPropName) )
+		{
+			if( isEffectivelyEmptyString(anAlignProp->str) )
+			{// No alignment specified - use default
+				aNewEntry.shape.alignment = eAlignment_UseDefault;
+			}
+			else if( anAlignProp->pattern.empty() )
+			{// No pattern vars used - parse alignment string
+				size_t aPos = 0;
+				Hotspot::Coord aCoord = stringToCoord(anAlignProp->str, aPos);
+				int anAlignVal =
+					aCoord.anchor < 0x4000	? eAlignment_L_T :
+					aCoord.anchor > 0xC000	? eAlignment_R_T :
+					/*otherwise*/			  eAlignment_CX_T;
+				aCoord = stringToCoord(anAlignProp->str, ++aPos);
+				anAlignVal +=
+					aCoord.anchor < 0x4000	? eAlignment_L_T :
+					aCoord.anchor > 0xC000	? eAlignment_L_B :
+					/*otherwise*/			  eAlignment_L_CY;
+				aNewEntry.shape.alignment = EAlignment(anAlignVal);
+			}
+			else
+			{// Vars used - directly use pattern string
+				aNewEntry.shape.alignment = eAlignment_VarString;
+				aNewEntry.shape.alignVarString = anAlignProp->pattern;
+			}
+		}
+
+		if( !aNewEntry.shape.x.useDefault ||
+			!aNewEntry.shape.y.useDefault ||
+			isMenuDefaults )
+		{
+			aNewEntry.shape.x.useDefault = false;
+			aNewEntry.shape.y.useDefault = false;
+		}
+		if( !aNewEntry.shape.w.useDefault ||
+			!aNewEntry.shape.h.useDefault ||
+			isMenuDefaults )
+		{// If either W or H was set, make sure both are set to >= 1
+			aNewEntry.shape.w.useDefault = false;
+			aNewEntry.shape.h.useDefault = false;
+			if( aNewEntry.shape.w.base.empty() )
+				aNewEntry.shape.w.offset = max(1, aNewEntry.shape.w.offset);
+			if( aNewEntry.shape.h.base.empty() )
+				aNewEntry.shape.h.offset = max(1, aNewEntry.shape.h.offset);
+		}
+		if( aNewEntry.shape.alignment == eAlignment_UseDefault &&
+			isMenuDefaults )
+		{// Default alignment if unspecified at allshould be TL
+			aNewEntry.shape.alignment = eAlignment_L_T;
+		}
+	}
+
+	// Link menus with their parent menus
+	for(int i = aFirstMenuEntryIdx,
+		end = intSize(sState->entries.size()); i < end; ++i)
+	{
+		LayoutEntry& anEntry = sState->entries[i];
+		int aParentMenuID = InputMap::parentMenuOfMenu(anEntry.menuID);
+		if( aParentMenuID == anEntry.menuID )
+			continue;
+		for(int j = aFirstMenuEntryIdx,
+			end = intSize(sState->entries.size()); j < end; ++j)
+		{
+			if( sState->entries[j].menuID == aParentMenuID )
+			{
+				anEntry.item.parentIndex = j;
+				break;
+			}
+		}
+	}
 
 	// Prepare for prompt dialog
 	if( sState->entries.size() <= LayoutEntry::eType_CategoryNum )
 	{
 		logError("Current profile has no edit-able layout items!");
 		return;
-	}
-
-	// Link parent entries to their children for drawing later
-	for(int i = LayoutEntry::eType_CategoryNum,
-		end = intSize(sState->entries.size()); i < end; ++i)
-	{
-		if( entryHasParent(sState->entries[i]) )
-		{
-			sState->entries[sState->entries[i].item.parentIndex]
-				.children.push_back(i);
-		}
 	}
 
 	sState->dialogItems.reserve(sState->entries.size());
