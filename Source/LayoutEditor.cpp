@@ -163,6 +163,42 @@ static EditorState* sState = null;
 // Forward declares
 static void promptForEditEntry();
 
+static inline std::string numToStringDecimal(double theNum, bool asPercent)
+{
+	std::string result;
+	if( asPercent )
+	{
+		result = strFormat("%.4g%%", theNum * 100.0);
+		return result;
+	}
+
+	DBG_ASSERT(theNum >= 0.0);
+	result = strFormat("%.4f", theNum);
+	while(
+		(result.size() > 6 || result[result.size()-1] == '0') &&
+		result[result.size()-2] != '.')
+	{
+		result.resize(result.size()-1);
+	}
+
+	return result;
+}
+
+
+static inline std::string numToStringDecimal(float theNum, bool asPercent)
+{
+	return numToStringDecimal(double(theNum), asPercent);
+}
+
+
+static inline std::string numToStringDecimal(int theNum, bool asPercent)
+{
+	if( asPercent )
+		return strFormat("%d%%", theNum);
+	return numToStringDecimal(theNum / 100.0, false);
+}
+
+
 static inline bool entryHasParent(const LayoutEntry& theEntry)
 {
 	// _MenuCategory acts as a "parent" (has default values),
@@ -410,7 +446,7 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 }
 
 
-static std::string shapeComponentToProfileString(
+static std::string shapeCompToProfString(
 	const LayoutEntry::Shape::Component& theComponent,
 	bool asOffset = false)
 {
@@ -449,15 +485,15 @@ static Hotspot shapeToHotspot(const LayoutEntry::Shape& theShape)
 		-0x8000, 0x7FFF));
 
 	aStrPos = 0;
-	result.w = u16(clamp(
+	result.w = u16(clamp(floor(
 		stringToDoubleSum(Profile::expandVars(theShape.w.base), aStrPos) +
-		theShape.w.offset,
+		theShape.w.offset + 0.5),
 		0, 0xFFFF));
 
 	aStrPos = 0;
-	result.h = u16(clamp(
+	result.h = u16(clamp(floor(
 		stringToDoubleSum(Profile::expandVars(theShape.h.base), aStrPos) +
-		theShape.h.offset,
+		theShape.h.offset + 0.5),
 		0, 0xFFFF));
 
 	return result;
@@ -543,56 +579,98 @@ static void updateDrawHotspot(
 }
 
 
-static void applyNewLayoutProperties()
+static void applyNewLayoutProperties(bool toFile = false)
 {
-	/*
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry > 0);
 	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
-	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	LayoutEntry& theEntry = sState->entries[sState->activeEntry];
+	LayoutEntry::Shape* aNewShape = &sState->entered;
+	LayoutEntry::Shape* anOldShape1 = &sState->applied;
+	LayoutEntry::Shape* anOldShape2 =
+		toFile ? &theEntry.shape : &sState->applied;
 	const bool needNewPos =
-		sState->entered.x != sState->applied.x ||
-		sState->entered.y != sState->applied.y ||
-		sState->entered.scale != sState->applied.scale;
+		aNewShape->x != anOldShape1->x || aNewShape->x != anOldShape2->x ||
+		aNewShape->y != anOldShape1->y || aNewShape->y != anOldShape2->y;
+	const bool needNewScale =
+		aNewShape->scale != anOldShape1->scale ||
+		aNewShape->scale != anOldShape2->scale;
 	const bool needNewSize =
-		(sState->entered.w != sState->applied.w ||
-		 sState->entered.h != sState->applied.h);
+		aNewShape->w != anOldShape1->w || aNewShape->w != anOldShape2->w ||
+		aNewShape->h != anOldShape1->h || aNewShape->h != anOldShape2->h;
 	const bool needNewAlign =
-		sState->entered.alignment != sState->applied.alignment;
-	if( !needNewPos && !needNewSize && !needNewAlign )
+		aNewShape->alignment != anOldShape1->alignment ||
+		aNewShape->alignment != anOldShape2->alignment;
+	if( !needNewPos && !needNewSize && !needNewScale && !needNewAlign )
 		return;
 
-	if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot &&
-		!sState->entered.scale.empty() &&
-		stringToFloat(sState->entered.scale) >= 0 &&
-		stringToFloat(sState->entered.scale) != 1 )
+	const bool isHotspot = theEntry.type == LayoutEntry::eType_Hotspot;
+	std::string aPosStr;
+	if( isHotspot || (needNewPos && !aNewShape->x.useDefault) )
 	{
-		Profile::setStr(kHotspotsSectionName, anEntry.propName,
-			sState->entered.x + ", " + sState->entered.y +
-			" * " + sState->entered.scale);
+		const bool asOffset = theEntry.rangeCount >= 0;
+		aPosStr =
+			shapeCompToProfString(aNewShape->x, asOffset) + ", " +
+			shapeCompToProfString(aNewShape->y, asOffset);
 	}
-	else if( needNewPos && anEntry.type == LayoutEntry::eType_Hotspot )
+	std::string aSizeStr;
+	if( !aNewShape->w.useDefault && (needNewSize || isHotspot) )
 	{
-		Profile::setStr(kHotspotsSectionName, anEntry.propName,
-			sState->entered.x + ", " + sState->entered.y);
+		aSizeStr =
+			shapeCompToProfString(aNewShape->w) + ", " +
+			shapeCompToProfString(aNewShape->h);
 	}
-	else if( needNewPos && !anEntry.posSect.empty() )
-	{
-		Profile::setStr(anEntry.posSect, kPositionPropName,
-			sState->entered.x + ", " + sState->entered.y);
+
+	if( isHotspot )
+	{// Combine everything into a single property string for hotspot/range
+		std::string aScaleStr;
+		if( entryIsAnchorHotspot(theEntry) &&
+			stringToFloat(aNewShape->scale) >= 0 )
+		{
+			aScaleStr = aNewShape->scale;
+		}
+		std::string aProfileStr = aPosStr;
+		if( !aSizeStr.empty() )
+			aProfileStr += ", " + aSizeStr;
+		if( !aScaleStr.empty() )
+			aProfileStr += " * " + aScaleStr;
+		Profile::setStr(
+			kHotspotsSectionName, theEntry.item.name,
+			aProfileStr, toFile);
 	}
-	if( needNewSize && !anEntry.sizeSect.empty() )
-	{
-		Profile::setStr(anEntry.sizeSect, kItemSizePropName,
-			sState->entered.w + ", " + sState->entered.h);
+	else // if( theEntry.type == LayoutEntry::eType_Menu )
+	{// Each string is saved to a separate property string within menu section
+		const int aProfileSect = InputMap::menuSectionID(theEntry.menuID);
+		if( needNewPos )
+			Profile::setStr(aProfileSect, kPositionPropName, aPosStr, toFile);
+		if( needNewSize )
+			Profile::setStr(aProfileSect, kItemSizePropName, aSizeStr, toFile);
+		if( needNewAlign )
+		{
+			if( aNewShape->alignment == eAlignment_UseDefault )
+			{
+				Profile::setStr(aProfileSect, kAlignmentPropName,
+					"", toFile);
+			}
+			else if( aNewShape->alignment == eAlignment_VarString )
+			{
+				Profile::setStr(aProfileSect, kAlignmentPropName,
+					aNewShape->alignVarString, toFile);
+			}
+			else
+			{
+				Profile::setStr(aProfileSect, kAlignmentPropName,
+					kAlignmentStr[aNewShape->alignment][1], toFile);
+			}
+		}
 	}
-	if( needNewAlign && !anEntry.alignSect.empty() )
-	{
-		Profile::setStr(anEntry.alignSect, kAlignmentPropName,
-			kAlignmentStr[sState->entered.alignment][1]);
-	}
-	*/
+
 	sState->applied = sState->entered;
+	if( toFile )
+	{
+		theEntry.shape = sState->entered;
+		Profile::saveChangesToFile();
+	}
 }
 
 
@@ -606,7 +684,6 @@ static void cancelRepositioning()
 	{
 		sState->entered = anEntry.shape;
 		applyNewLayoutProperties();
-		Profile::saveChangesToFile();
 	}
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
@@ -618,13 +695,7 @@ static void saveNewPosition()
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry > 0);
 	DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
-	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	applyNewLayoutProperties();
-	if( anEntry.shape != sState->applied )
-	{
-		anEntry.shape = sState->applied;
-		Profile::saveChangesToFile();
-	}
+	applyNewLayoutProperties(true);
 	WindowManager::setSystemOverlayCallbacks(NULL, NULL);
 	WindowManager::destroyToolbarWindow();
 }
@@ -861,7 +932,6 @@ static void setupPositionControls(
 
 static void setupSizeControls(
 	HWND theDialog,
-	const LayoutEntry& theEntry,
 	const LayoutEntry::Shape::Component& theComponent,
 	bool isH)
 {
@@ -909,7 +979,7 @@ static bool setupScaleControls(
 	{
 		const float aSimpleScale = stringToFloat(theScaleString);
 		aCalculatedScale = stringToFloat(Profile::expandVars(theScaleString));
-		aCalculatedScaleString = toString(aCalculatedScale);
+		aCalculatedScaleString = numToStringDecimal(aCalculatedScale, false);
 		if( !aCalculatedScale )
 			aScaleType = eScaleType_None;
 		else if( aCalculatedScale == aSimpleScale )
@@ -1000,15 +1070,7 @@ static void processCoordFieldChange(
 		/*theControlID == IDC_EDIT_H*/sState->entered.h;
 
 	if( aComp.useDefault )
-	{
-		if( !theDeltaSetByMouse )
-			return;
-		// Need to un-lock position fields so no longer using defaults
-		CheckDlgButton(theDialog, IDC_CHECK_POSITION, true);
-		SendMessage(theDialog, WM_COMMAND,
-			MAKEWPARAM(IDC_CHECK_POSITION, BN_CLICKED),
-			(LPARAM)GetDlgItem(theDialog, IDC_CHECK_POSITION));
-	}
+		return;
 
 	const int theBaseControlID = IDC_COMBO_X_BASE + (theControlID - IDC_EDIT_X);
 	const std::string& aBaseControlStr =
@@ -1115,10 +1177,7 @@ static void processCoordFieldChange(
 	{// Allow decimals/percent in final string
 		DBG_ASSERT(theControlID == IDC_EDIT_X || theControlID == IDC_EDIT_Y);
 		aNewValue = clamp(aNewValue, 0.0, 1.0);
-		if( isInPercent )
-			aFormattedString = strFormat("%.4g%%", aNewValue * 100.0);
-		else
-			aFormattedString = strFormat("%.5g", aNewValue);
+		aFormattedString = numToStringDecimal(aNewValue, isInPercent);
 	}
 	else
 	{// Only allow integer values in final string
@@ -1172,7 +1231,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					(L"Repositioning: " +
 					 widen(anEntry.item.name) +
 					 L" (at " +
-					 widen(strFormat("%.4g", aScaling * 100.0) + "%") +
+					 widen(numToStringDecimal(aScaling, true)) +
 					 L" scale)").c_str());
 			}
 			else
@@ -1209,8 +1268,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		
 		// Size (W & H)
 		aSrcEntry = getSizeSourceEntry(&anEntry);
-		setupSizeControls(theDialog, *aSrcEntry, aSrcEntry->shape.w, false);
-		setupSizeControls(theDialog, *aSrcEntry, aSrcEntry->shape.h, true);
+		setupSizeControls(theDialog, aSrcEntry->shape.w, false);
+		setupSizeControls(theDialog, aSrcEntry->shape.h, true);
 		if( aSrcEntry != &anEntry || aSrcEntry->shape.w.useDefault )
 		{
 			SendMessage(GetDlgItem(theDialog, IDC_EDIT_W),
@@ -1341,9 +1400,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					aNewValue = 0.01;
 				if( aControlStr != sState->entered.scale )
 				{
-					sState->entered.scale = isInPercent
-						? strFormat("%.4g%%", aNewValue * 100.0)
-						: strFormat("%.5g", aNewValue);
+					sState->entered.scale =
+						numToStringDecimal(aNewValue, isInPercent);
 					sState->needsDrawPosUpdate = true;
 					gRefreshOverlays.set(kSystemOverlayID);
 					applyNewLayoutProperties();
@@ -1451,11 +1509,11 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 							: &anEntry);
 				}
 				DBG_ASSERT(aSrcEntry);
-				setupSizeControls(theDialog, *aSrcEntry,
+				setupSizeControls(theDialog,
 					sState->entered.w.useDefault && aSrcEntry != &anEntry
 						? aSrcEntry->shape.w : sState->entered.w,
 						false);
-				setupSizeControls(theDialog, *aSrcEntry,
+				setupSizeControls(theDialog,
 					sState->entered.h.useDefault && aSrcEntry != &anEntry
 						? aSrcEntry->shape.h : sState->entered.h,
 						true);
@@ -1511,10 +1569,16 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 						== BST_CHECKED;
 				if( isChecked )
 				{
+					const std::string& aSrcStr = anEntry.shape.scale;
+					const bool isInPercent =
+						!aSrcStr.empty() &&
+						aSrcStr[aSrcStr.size()-1] == '%';
+					float aNewScaleVal = stringToFloat(
+						Profile::expandVars(aSrcStr));
+					if( aNewScaleVal <= 0 )
+						aNewScaleVal = 1.0f;
 					sState->entered.scale =
-						Profile::expandVars(anEntry.shape.scale);
-					if( stringToFloat(sState->entered.scale) <= 0.0f )
-						sState->entered.scale = "1.0";
+						numToStringDecimal(aNewScaleVal, isInPercent);
 				}
 				else
 				{
@@ -1563,8 +1627,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				{
 					// Convert drawn pos to a percentage of window size
 					const double aPercent =
-						clamp(aDrawnPos * 100.0 / double(aWinMax), 0, 100.0);
-					aComp.base = strFormat("%.4g%%", aPercent);
+						clamp(aDrawnPos / double(aWinMax), 0, 1.0);
+					aComp.base = numToStringDecimal(aPercent, true);
 					aComp.offset = 0;
 					SetWindowText(
 						GetDlgItem(theDialog, isY ? IDC_EDIT_Y : IDC_EDIT_X),
@@ -1652,20 +1716,12 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		{
 			const int aScaleVal = dropTo<int>(
 				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0));
-			if( !sState->entered.scale.empty() &&
-				sState->entered.scale
-					[sState->entered.scale.size()-1] == '%' )
-			{
-				sState->entered.scale = strFormat("%d%%", aScaleVal);
-				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
-					widen(sState->entered.scale).c_str());
-			}
-			else
-			{
-				sState->entered.scale = strFormat("%.5g", aScaleVal / 100.0);
-				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
-					widen(sState->entered.scale).c_str());
-			}
+			const bool isInPercent =
+				!sState->entered.scale.empty() &&
+				sState->entered.scale[sState->entered.scale.size()-1] == '%';
+			sState->entered.scale = numToStringDecimal(aScaleVal, isInPercent);
+			SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+				widen(sState->entered.scale).c_str());
 			sState->needsDrawPosUpdate = true;
 			gRefreshOverlays.set(kSystemOverlayID);
 			applyNewLayoutProperties();
@@ -1719,6 +1775,33 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 		ShowCursor(FALSE);
 		sState->needsDrawPosUpdate = true;
 		gRefreshOverlays.set(kSystemOverlayID);
+		if( sState->entered.x.useDefault ||
+			sState->entered.y.useDefault )
+		{// Unlock position controls and set to match mouse pos
+			updateDrawHotspot(
+				sState->entries[sState->activeEntry],
+				sState->entered);
+			const POINT& aDesiredPos = WindowManager::hotspotToOverlayPos(
+				sState->entries[sState->activeEntry].drawHotspot);
+			CheckDlgButton(
+				WindowManager::toolbarHandle(), IDC_CHECK_POSITION, true);
+			SendMessage(WindowManager::toolbarHandle(), WM_COMMAND,
+				MAKEWPARAM(IDC_CHECK_POSITION, BN_CLICKED),
+				(LPARAM)GetDlgItem(
+					WindowManager::toolbarHandle(), IDC_CHECK_POSITION));
+			updateDrawHotspot(
+				sState->entries[sState->activeEntry],
+				sState->entered);
+			const POINT& aCurrPos = WindowManager::hotspotToOverlayPos(
+				sState->entries[sState->activeEntry].drawHotspot);
+			if( aCurrPos.x != aDesiredPos.x || aCurrPos.y != aDesiredPos.y )
+			{
+				processCoordFieldChange(WindowManager::toolbarHandle(),
+					IDC_EDIT_X, aDesiredPos.x - aCurrPos.x, true);
+				processCoordFieldChange(WindowManager::toolbarHandle(),
+					IDC_EDIT_Y, aDesiredPos.y - aCurrPos.y, true);
+			}
+		}
 		return 0;
 	case WM_LBUTTONUP:
 		stopDragging = true;
@@ -1732,19 +1815,13 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 
 			if( aMousePos.x != sState->lastMouseDragPos.x )
 			{
-				processCoordFieldChange(
-					WindowManager::toolbarHandle(),
-					IDC_EDIT_X,
-					aMousePos.x - sState->lastMouseDragPos.x,
-					true);
+				processCoordFieldChange( WindowManager::toolbarHandle(),
+					IDC_EDIT_X, aMousePos.x - sState->lastMouseDragPos.x, true);
 			}
 			if( aMousePos.y != sState->lastMouseDragPos.y )
 			{
-				processCoordFieldChange(
-					WindowManager::toolbarHandle(),
-					IDC_EDIT_Y,
-					aMousePos.y - sState->lastMouseDragPos.y,
-					true);
+				processCoordFieldChange(WindowManager::toolbarHandle(),
+					IDC_EDIT_Y, aMousePos.y - sState->lastMouseDragPos.y, true);
 			}
 
 			sState->lastMouseDragPos = aMousePos;

@@ -2401,9 +2401,17 @@ void init()
 void loadProfileChanges()
 {
 	// TEMP
+	const SystemPaintFunc aBackupPaintFunc = sSystemOverlayPaintFunc;
+	const bool sysOverlayFullRedrawNeeded =
+		gFullRedrawOverlays.test(kSystemOverlayID);
 	init();
 	updateScaling();
 	gFullRedrawOverlays.set();
+	if( aBackupPaintFunc )
+	{
+		sSystemOverlayPaintFunc = aBackupPaintFunc;
+		gFullRedrawOverlays.set(kSystemOverlayID, sysOverlayFullRedrawNeeded);
+	}
 	// TEMP
 
 #if 0

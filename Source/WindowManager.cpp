@@ -21,6 +21,12 @@ void mainModulesUpdate();
 namespace WindowManager
 {
 
+// Normally overlay treats desktop size as the "working" size, meaning it cuts
+// out the task bar, but when debugging using reference screenshots set as a
+// desktop background image, this can be used to have the full monitor size
+// be used for the overlay, even though part of it will be clipped by task bar.
+//#define FORCE_FULL_SIZE_FOR_DESKTOP_OVERLAY
+
 //------------------------------------------------------------------------------
 // Const Data
 //------------------------------------------------------------------------------
@@ -1159,11 +1165,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 						&theNewWindowRect,
 						&aMonitorInfo.rcWork) )
 				{
-					// In debug builds keep using the full screen even if it
-					// means overlays may be clipped by the task bar, to allow
-					// checking positions against a reference screenshot set
-					// as desktop background image.
-					#ifndef _DEBUG
+					#ifndef FORCE_FULL_SIZE_FOR_DESKTOP_OVERLAY
 					theNewWindowRect = sTargetClipRect;
 					#endif
 				}

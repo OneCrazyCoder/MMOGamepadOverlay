@@ -1388,7 +1388,7 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		findStringTag(theProp.pattern, 0, "${", '}');
 
 	if( aTagCoords.first == std::string::npos )
-	{// No variables referenced - set str and clear pattern
+	{// No variables referenced - set .str and clear .pattern via swap
 		swap(theProp.str, theProp.pattern);
 		return;
 	}
@@ -1520,19 +1520,38 @@ static void setPropertyAfterLoad(
 {
 	DBG_ASSERT(theSectionID >= 0 && theSectionID < sSectionsMap.size());
 
-	// Only apply if different than existing value in main property map
 	PropertyMap& aSection = sSectionsMap.vals()[theSectionID];
 	DBG_ASSERT(thePropertyID >= 0 && thePropertyID < aSection.size());
 	Property& aProp = aSection.vals()[thePropertyID];
-	if( (aProp.pattern.empty() && aProp.str == theValue) ||
-		(!aProp.pattern.empty() && aProp.pattern == theValue) )
-		return;
 
-	// Set pattern string (next call will update actual aProp.str)
-	aProp.pattern = theValue;
+	const bool saveToMap = aProp.pattern.empty()
+		? (aProp.str != theValue) : (aProp.pattern != theValue);
+	saveToFile = saveToFile &&
+		(aProp.file.empty() ? saveToMap : aProp.file != theValue);
 
-	// Apply variable expansion, spread to other properties, log in changes map
-	propogatePropertyChange(theSectionID, thePropertyID);
+	// If a temporary change, make a backup of original file string so that
+	// if try re-applying the same value later but with saveToFile as true,
+	// can detect need to save even though active map won't be updated.
+	// Alternatively, if have a backup and below will set active value back
+	// to matching what is saved to file, then no longer need the backup.
+	if( saveToMap && !saveToFile )
+	{
+		if( aProp.file.empty() )
+			swap(aProp.file, aProp.pattern.empty() ? aProp.str : aProp.pattern);
+		else if( aProp.file == theValue )
+			aProp.file.clear();
+	}
+
+	if( saveToMap )
+	{
+		// Set pattern string (at least temporarily - below may clear it)
+		aProp.pattern = theValue;
+
+		// Apply variable expansion (or just move from .pattern to .str),
+		// if a variable property propogate it to other properties,
+		// and log in changes map so outside modules are informed of change
+		propogatePropertyChange(theSectionID, thePropertyID);
+	}
 
 	if( saveToFile )
 	{// Log as change to save to file
@@ -1550,6 +1569,10 @@ static void setPropertyAfterLoad(
 		sUnsavedChangesList.back().sectionID = theSectionID;
 		sUnsavedChangesList.back().propertyID = thePropertyID;
 		sUnsavedChangesList.back().value = theValue;
+
+		// File data will now match active map data, so can set .file to be
+		// the same as .pattern or .str, but .file.empty() means the same thing
+		aProp.file.clear();
 	}
 }
 

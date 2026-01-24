@@ -20,8 +20,9 @@ namespace Profile
 
 struct Property
 {
-	std::string str;
-	std::string pattern;
+	std::string str;		// active value returned by getStr() etc
+	std::string pattern;	// pre-variable-expansion - if empty, same as .str
+	std::string file;		// value from file - if empty, same as .pattern/str
 };
 typedef StringToValueMap<Property> PropertyMap;
 typedef StringToValueMap<PropertyMap> SectionsMap;

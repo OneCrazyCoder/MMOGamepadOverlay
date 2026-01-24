@@ -526,7 +526,7 @@ static void applyHotspotProperty(
 			if( valid )
 			{
 				const double aHeight = stringToDoubleSum(theDesc, ++aStrPos);
-				aHotspot.h = u16(clamp(floor(aWidth + 0.5), 0, 0xFFFF));
+				aHotspot.h = u16(clamp(floor(aHeight + 0.5), 0, 0xFFFF));
 				valid = aStrPos == theDesc.size() ||
 					theDesc[aStrPos] == '*';
 			}
