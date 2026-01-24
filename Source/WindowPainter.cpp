@@ -1631,23 +1631,24 @@ static void drawMenuItemLabel(
 		if( aLabelIcon && aLabelIcon->copyFromTarget )
 		{
 			theCacheEntry.type = eMenuItemLabelType_CopyRect;
-			const double aHotspotScale =
-				InputMap::hotspotScale(aLabelIcon->hotspotID);
 			Hotspot aCopySrcHotspot =
 				InputMap::getHotspot(aLabelIcon->hotspotID);
-			aCopySrcHotspot.x.offset =
-				aCopySrcHotspot.x.offset - aCopySrcHotspot.w / 2;
-			aCopySrcHotspot.y.offset =
-				aCopySrcHotspot.y.offset - aCopySrcHotspot.h / 2;
 			theCacheEntry.copyRect.fromPos =
 				hotspotToPoint(aCopySrcHotspot, dd.targetSize);
 			// TODO: Give warning that size 0x or 0y hotspot won't actually
 			// copy anything to screen, and maybe switch to string type
 			// of label instead in that case?
+			const double aHotspotScale =
+				InputMap::hotspotScale(aLabelIcon->hotspotID);
 			theCacheEntry.copyRect.fromSize.cx =
-				LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale);
+				LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
 			theCacheEntry.copyRect.fromSize.cy =
-				LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale);
+				LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale + 0.5);
+			// Hotspot is centered, so offset left/top by half box size
+			theCacheEntry.copyRect.fromPos.x -=
+				theCacheEntry.copyRect.fromSize.cx / 2;
+			theCacheEntry.copyRect.fromPos.y -=
+				theCacheEntry.copyRect.fromSize.cy / 2;
 		}
 		else if( aLabelIcon && !aLabelIcon->copyFromTarget )
 		{
@@ -2234,8 +2235,8 @@ static void updateHotspotsMenuLayout(
 		if( aHotspot.w > 0 && aHotspot.h > 0 )
 		{
 			const double aHotspotScale = InputMap::hotspotScale(aHotspotID);
-			anItemSize.cx = LONG(aHotspot.w * aHotspotScale * gUIScale);
-			anItemSize.cy = LONG(aHotspot.h * aHotspotScale * gUIScale);
+			anItemSize.cx = LONG(aHotspot.w * aHotspotScale * gUIScale + 0.5);
+			anItemSize.cy = LONG(aHotspot.h * aHotspotScale * gUIScale + 0.5);
 		}
 		RECT anItemRect;
 		anItemRect.left = anItemPos.x - anItemSize.cx / 2;

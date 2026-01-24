@@ -221,12 +221,18 @@ static inline bool entryIsAnchorHotspot(const LayoutEntry& theEntry)
 }
 
 
+static inline bool entryIsMenu(const LayoutEntry& theEntry)
+{
+	return theEntry.type == LayoutEntry::eType_Menu;
+}
+
+
 static inline LayoutEntry* getParentEntry(const LayoutEntry* theEntry)
 {
 	DBG_ASSERT(theEntry);
 	DBG_ASSERT(entryHasParent(*theEntry));
 	LayoutEntry* aParent = &sState->entries[theEntry->item.parentIndex];
-	if( theEntry->type == LayoutEntry::eType_Menu )
+	if( entryIsMenu(*theEntry) )
 	{
 		// In the context of inheritence, the "parent" menu is the root menu,
 		// not the actual immediate parent used for sorting the tree view
@@ -277,20 +283,23 @@ static double entryScaleFactor(const LayoutEntry& theEntry)
 {
 	double result = 1.0;
 
-	if( theEntry.type == LayoutEntry::eType_Hotspot &&
-		entryHasParent(theEntry) )
+	if( !entryIsMenu(theEntry) && entryHasParent(theEntry) )
 	{
 		// Find anchor hotspot
 		LayoutEntry* anAnchorEntry =
 			&sState->entries[theEntry.item.parentIndex];
 		while(entryHasParent(*anAnchorEntry))
 			anAnchorEntry = getParentEntry(anAnchorEntry);
-		result = stringToFloat(Profile::expandVars(anAnchorEntry->shape.scale));
+		DBG_ASSERT(sState->activeEntry > 0);
+		DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
+		result = anAnchorEntry == &sState->entries[sState->activeEntry]
+			? stringToFloat(Profile::expandVars(sState->entered.scale))
+			: stringToFloat(Profile::expandVars(anAnchorEntry->shape.scale));
 		if( result == 0 )
 			result = 1.0;
 	}
 
-	return result * gUIScale;
+	return result;
 }
 
 
@@ -557,7 +566,7 @@ static void updateDrawHotspot(
 		}
 		else if( theShape.x.useDefault )
 		{// Inherit parent position
-			DBG_ASSERT(theEntry.type == LayoutEntry::eType_Menu);
+			DBG_ASSERT(entryIsMenu(theEntry));
 			theEntry.drawHotspot.x = aParent->drawHotspot.x;
 			theEntry.drawHotspot.y = aParent->drawHotspot.y;
 		}
@@ -638,7 +647,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 			kHotspotsSectionName, theEntry.item.name,
 			aProfileStr, toFile);
 	}
-	else // if( theEntry.type == LayoutEntry::eType_Menu )
+	else // if( entryIsMenu(theEntry) )
 	{// Each string is saved to a separate property string within menu section
 		const int aProfileSect = InputMap::menuSectionID(theEntry.menuID);
 		if( needNewPos )
@@ -709,7 +718,7 @@ static void setInitialToolbarPos(HWND theDialog, LayoutEntry& theEntry)
 	// Position the tool bar as far as possible from the object to be moved,
 	// so that it is less likely to end up overlapping the object
 	POINT anEntryPos;
-	if( theEntry.type == LayoutEntry::eType_Menu )
+	if( entryIsMenu(theEntry) )
 	{
 		const RECT& anEntryRect = WindowManager::overlayRect(
 			InputMap::menuOverlayID(theEntry.menuID));
@@ -1224,7 +1233,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	case WM_INITDIALOG:
 		// Set title to match the entry name and display scaling being applied
 		{
-			const double aScaling = entryScaleFactor(anEntry);
+			const double aScaling = entryScaleFactor(anEntry) * gUIScale;
 			if( aScaling != 1 )
 			{
 				SetWindowText(theDialog,
@@ -1251,7 +1260,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		setupPositionControls(theDialog, *aSrcEntry, aSrcEntry->shape.y, true);
 		if( aSrcEntry != &anEntry )
 		{
-			DBG_ASSERT(anEntry.type == LayoutEntry::eType_Menu);
+			DBG_ASSERT(entryIsMenu(anEntry));
 			SendMessage(GetDlgItem(theDialog, IDC_EDIT_X),
 				EM_SETREADONLY, true, 0);
 			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_X_BASE), false);
@@ -1261,7 +1270,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_Y_BASE), false);
 			EnableWindow(GetDlgItem(theDialog, IDC_SPIN_Y), false);
 		}
-		else if( anEntry.type == LayoutEntry::eType_Menu )
+		else if( entryIsMenu(anEntry) )
 		{
 			CheckDlgButton(theDialog, IDC_CHECK_POSITION, true);
 		}
@@ -1286,7 +1295,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			CheckDlgButton(theDialog, IDC_CHECK_SIZE, true);
 		}
 
-		if( anEntry.type == LayoutEntry::eType_Menu )
+		if( entryIsMenu(anEntry) )
 		{// Alignment
 			aSrcEntry = getAlignmentSourceEntry(&anEntry);
 			if( aSrcEntry != &anEntry ||
@@ -1851,89 +1860,69 @@ static LRESULT CALLBACK layoutEditorWindowProc(
 }
 
 
-//static RECT drawBoundBox(
-//	HDC hdc,
-//	const POINT& theOrigin,
-//	const SIZE& theBoxSize,
-//	COLORREF theEraseColor,
-//	bool isActiveBox)
-//{
-//	RECT aRect = {
-//		theOrigin.x, theOrigin.y,
-//		theOrigin.x + theBoxSize.cx, theOrigin.y + theBoxSize.cy };
-//	RECT aFullDrawnRect = { 0 };
-//
-//	// Draw outer-most black border
-//	COLORREF oldBrushColor = SetDCBrushColor(hdc, theEraseColor);
-//	HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
-//	InflateRect(&aRect, 2, 2);
-//	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
-//	UnionRect(&aFullDrawnRect, &aFullDrawnRect, &aRect);
-//
-//	// For active box, draw anchor in top-left corner representing base pos
-//	if( isActiveBox )
-//	{
-//		RECT anAnchorRect = { 0 };
-//		anAnchorRect.left = theOrigin.x - kBoundBoxAnchorDrawSize;
-//		anAnchorRect.top = theOrigin.y - kBoundBoxAnchorDrawSize;
-//		anAnchorRect.right = theOrigin.x + 3;
-//		anAnchorRect.bottom = theOrigin.y + 3;
-//		SetDCBrushColor(hdc, oldBrushColor);
-//		SelectObject(hdc, hOldBrush);
-//		Rectangle(hdc,
-//			anAnchorRect.left, anAnchorRect.top,
-//			anAnchorRect.right, anAnchorRect.bottom);
-//		UnionRect(&aFullDrawnRect, &aFullDrawnRect, &anAnchorRect);
-//		SetDCBrushColor(hdc, theEraseColor);
-//		SelectObject(hdc, GetStockObject(NULL_BRUSH));
-//	}
-//
-//	// Draw white/grey border just outside of inner rect
-//	InflateRect(&aRect, -1, -1);
-//	HPEN hOldPen = (HPEN)SelectObject(hdc, GetStockObject(DC_PEN));
-//	COLORREF oldPenColor = SetDCPenColor(hdc, oldBrushColor);
-//	Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
-//	SetDCPenColor(hdc, oldPenColor);
-//	SelectObject(hdc, hOldPen);
-//	SelectObject(hdc, hOldBrush);
-//	InflateRect(&aRect, -1, -1);
-//
-//	// Erase contents of inner rect if this is the active box
-//	if( isActiveBox )
-//		FillRect(hdc, &aRect, hOldBrush);
-//
-//	SetDCBrushColor(hdc, oldBrushColor);
-//	return aFullDrawnRect;
-//}
-
-
 static RECT drawHotspot(
 	HDC hdc,
 	const Hotspot& theHotspot,
 	int theExtents,
-	const RECT& theWindowRect,
+	double theHotspotSizeScale,
+	const POINT& theBaseOffset,
 	COLORREF theEraseColor,
-	bool isActiveHotspot)
+	bool asActiveHotspot,
+	bool includeSizeBox)
 {
 	const SIZE& aTargetSize = WindowManager::overlayTargetSize();
+	RECT aFullDrawnRect = { 0 };
+
+	if( includeSizeBox &&
+		(theHotspot.w > theExtents * 2 || theHotspot.h > theExtents * 2) )
+	{// Draw bounding box to show hotspot size
+		const SIZE aBoxSize = {
+			LONG(theHotspot.w * theHotspotSizeScale * gUIScale + 0.5),
+			LONG(theHotspot.h * theHotspotSizeScale * gUIScale + 0.5) };
+		RECT aRect;
+		aRect.left = LONG(u16ToRangeVal(theHotspot.x.anchor, aTargetSize.cx)) +
+			LONG(theHotspot.x.offset * gUIScale) +
+				theBaseOffset.x - aBoxSize.cx / 2;
+		aRect.right = aRect.left + aBoxSize.cx;
+		aRect.top = LONG(u16ToRangeVal(theHotspot.y.anchor, aTargetSize.cy)) +
+			LONG(theHotspot.y.offset * gUIScale) +
+				theBaseOffset.y - aBoxSize.cy / 2;
+		aRect.bottom = aRect.top + aBoxSize.cy;
+
+		// Draw outer-most black border
+		COLORREF oldBrushColor = SetDCBrushColor(hdc, theEraseColor);
+		HBRUSH hOldBrush = (HBRUSH)SelectObject(
+			hdc, GetStockObject(NULL_BRUSH));
+		InflateRect(&aRect, 2, 2);
+		Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
+		UnionRect(&aFullDrawnRect, &aFullDrawnRect, &aRect);
+		
+		// Draw white/grey border just outside of (undrawn) inner rect
+		InflateRect(&aRect, -1, -1);
+		HPEN hOldPen = (HPEN)SelectObject(hdc, GetStockObject(DC_PEN));
+		COLORREF oldPenColor = SetDCPenColor(hdc, oldBrushColor);
+		Rectangle(hdc, aRect.left, aRect.top, aRect.right, aRect.bottom);
+		SetDCPenColor(hdc, oldPenColor);
+		SelectObject(hdc, hOldPen);
+		SelectObject(hdc, hOldBrush);
+		InflateRect(&aRect, -1, -1);
+
+		// Erase contents of inner rect for active hotspot, for further clarity
+		if( asActiveHotspot )
+			FillRect(hdc, &aRect, hOldBrush);
+		SetDCBrushColor(hdc, oldBrushColor);
+
+		// For non-active hotspots, don't draw the point itself, just the box
+		if( !asActiveHotspot )
+			return aFullDrawnRect;
+	}
+
 	const POINT aCenterPoint = {
 		LONG(u16ToRangeVal(theHotspot.x.anchor, aTargetSize.cx)) +
-			LONG(theHotspot.x.offset * gUIScale) + theWindowRect.left,
+			LONG(theHotspot.x.offset * gUIScale) + theBaseOffset.x,
 		LONG(u16ToRangeVal(theHotspot.y.anchor, aTargetSize.cy)) +
-			LONG(theHotspot.y.offset * gUIScale) + theWindowRect.top };
-
-	//if( theHotspot.w > 0 && theHotspot.w > 0 )
-	//{
-	//	return drawBoundBox(
-	//		hdc, aCenterPoint, theBoxSize, theEraseColor, isActiveHotspot);
-	//}
-
-	RECT aFullDrawnRect = { 0 };
-	aFullDrawnRect.left = aCenterPoint.x - theExtents;
-	aFullDrawnRect.top = aCenterPoint.y - theExtents;
-	aFullDrawnRect.right = aCenterPoint.x + theExtents + 1;
-	aFullDrawnRect.bottom = aCenterPoint.y + theExtents + 1;
-	if( isActiveHotspot )
+			LONG(theHotspot.y.offset * gUIScale) + theBaseOffset.y };
+	if( asActiveHotspot )
 	{// Draw extended crosshair arms
 		Rectangle(hdc,
 			aCenterPoint.x - theExtents * 3,
@@ -1947,10 +1936,15 @@ static RECT drawHotspot(
 			aCenterPoint.y + theExtents * 3 + 1);
 	}
 	// Draw main rectangle
+	RECT aRect = {
+		aCenterPoint.x - theExtents,
+		aCenterPoint.y - theExtents,
+		aCenterPoint.x + theExtents + 1,
+		aCenterPoint.y + theExtents + 1 };
 	Rectangle(hdc,
-		aFullDrawnRect.left, aFullDrawnRect.top,
-		aFullDrawnRect.right, aFullDrawnRect.bottom);
-	if( isActiveHotspot )
+		aRect.left, aRect.top,
+		aRect.right, aRect.bottom);
+	if( asActiveHotspot )
 	{
 		if( sState && sState->draggingWithMouse )
 		{// Erase center dot for extra help with positioning
@@ -1965,9 +1959,11 @@ static RECT drawHotspot(
 			FillRect(hdc, &aCenterDot, hBrush);
 			SetDCBrushColor(hdc, oldColor);
 		}
-		// Extend returned rect by earlier crosshair size
-		InflateRect(&aFullDrawnRect, theExtents * 2, theExtents * 2);
+		// Extend known drawn rect by earlier crosshair size
+		InflateRect(&aRect, theExtents * 2, theExtents * 2);
 	}
+
+	UnionRect(&aFullDrawnRect, &aFullDrawnRect, &aRect);
 	return aFullDrawnRect;
 }
 
@@ -1975,7 +1971,7 @@ static RECT drawHotspot(
 static void drawEntry(
 	LayoutEntry& theEntry,
 	HDC hdc,
-	const RECT& theWindowRect,
+	const POINT& theBaseOffset,
 	COLORREF theEraseColor,
 	bool isActiveHotspot)
 {
@@ -1983,12 +1979,13 @@ static void drawEntry(
 	if( !isActiveHotspot )
 	{// Draw basic hotspot
 		theEntry.drawnRect = drawHotspot(hdc, aHotspot,
-			kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
+			kChildHotspotDrawSize, entryScaleFactor(theEntry),
+			theBaseOffset, theEraseColor, false, true);
 	}
 	for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
 	{// Draw child hotspots
 		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
-		drawEntry(aChildEntry, hdc, theWindowRect, theEraseColor, false);
+		drawEntry(aChildEntry, hdc, theBaseOffset, theEraseColor, false);
 	}
 	// Draw built-in range of hotspots and track their combined drawn rect
 	RECT aRangeDrawnRect = { 0 };
@@ -2004,15 +2001,22 @@ static void drawEntry(
 				theEntry.drawOffY * (i-1) * theEntry.drawOffScale) +
 				aRangeAnchor.y.offset, -0x8000, 0x7FFF));
 			RECT aDrawnRect = drawHotspot(hdc, aHotspot,
-				kChildHotspotDrawSize, theWindowRect, theEraseColor, false);
+				kChildHotspotDrawSize, entryScaleFactor(theEntry),
+				theBaseOffset, theEraseColor, false, true);
 			UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
 		}
 	}
 	if( isActiveHotspot )
 	{// Draw primary hotspot last so is over top of all children/range
+		// Only draw size box for active entry for normal hotspots, not
+		// anchor hotspots (size is only specified for those to pass on to
+		// the rest of the range really) or menus (size is displayed by menu
+		// itself being drawn).
 		COLORREF oldColor = SetDCBrushColor(hdc, RGB(255, 255, 255));
 		theEntry.drawnRect = drawHotspot(hdc, theEntry.drawHotspot,
-			kActiveHotspotDrawSize, theWindowRect, theEraseColor, true);
+			kActiveHotspotDrawSize, entryScaleFactor(theEntry),
+			theBaseOffset, theEraseColor, true,
+			!entryIsAnchorHotspot(theEntry) && !entryIsMenu(theEntry));
 		SetDCBrushColor(hdc, oldColor);
 	}
 	// Have final drawn rect include range
@@ -2048,9 +2052,10 @@ static void layoutEditorPaintFunc(
 		updateDrawHotspot(anEntry, sState->entered, firstDraw);
 	}
 
+	POINT aBaseOffset = { theWindowRect.left, theWindowRect.top };
 	COLORREF anEraseColor = SetDCBrushColor(hdc, RGB(128, 128, 128));
 	HPEN hOldPen = (HPEN)SelectObject(hdc, GetStockObject(BLACK_PEN));
-	drawEntry(anEntry, hdc, theWindowRect, anEraseColor, true);
+	drawEntry(anEntry, hdc, aBaseOffset, anEraseColor, true);
 	SelectObject(hdc, hOldPen);
 
 	// Cleanup
@@ -2075,7 +2080,7 @@ static void promptForEditEntry()
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
 		WindowManager::createToolbarWindow(
-			anEntry.type == LayoutEntry::eType_Menu
+			entryIsMenu(anEntry)
 				? IDD_DIALOG_LAYOUT_MENU
 				: entryIsAnchorHotspot(anEntry)
 					? IDD_DIALOG_LAYOUT_ANCHOR
