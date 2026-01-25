@@ -73,6 +73,9 @@ void editMenuItem(int theRootMenuID);
 // Prompts user for new label & command for directional menu item in theDir
 void editMenuItemDir(int theRootMenuID, ECommandDir theDir);
 
+// Temporarily forces specific sub-menu to be the active menu for its root
+void tempForceShowSubMenu(int theMenuID = -1); // -1 = stop force override
+
 // Returns current active (displayed) menuID for given overlay (window) ID
 int activeMenuForOverlayID(int theOverlayID);
 

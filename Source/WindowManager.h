@@ -78,9 +78,9 @@ RECT overlayClipRect();
 void showTargetWindowFound();
 
 // Creates a floating toolbar window placed on top of the overlays
-// Can also specify a specific overlay window to keep visible alognside it.
+// Can also specify a specific menu ID to keep visible alognside it.
 // Only one of these can be active at a time!
-HWND createToolbarWindow(int theResID, DLGPROC, int theOverlayID = -1);
+HWND createToolbarWindow(int theResID, DLGPROC, int theMenuID = -1);
 void destroyToolbarWindow();
 
 // Adds callback functions for drawing and getting messages for the System

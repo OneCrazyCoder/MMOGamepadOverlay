@@ -4452,6 +4452,7 @@ int parentMenuOfMenu(int theMenuID)
 	return sMenus.vals()[theMenuID].parentMenuID;
 }
 
+
 int menuOverlayID(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());

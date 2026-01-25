@@ -56,6 +56,7 @@ enum EFadeState
 	eFadeState_Inactive,
 	eFadeState_FadeOutDelay,
 	eFadeState_FadingOut,
+	eFadeState_PulseForever,
 };
 
 
@@ -617,19 +618,50 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 				break;
 			}
 			break;
+		case eFadeState_PulseForever:
+			{// Special locked-visible state for use by LayoutEditor
+				const double kHoldFullTime = 3000.0;
+				const double kFadeTime = 750.0;
+				const double kHoldMinTime = 1500.0;
+				const double kTotalTime =
+					kHoldFullTime + kFadeTime + kHoldMinTime + kFadeTime;
+				const u8 kMinAlpha = 80;
+				theWindow.fadeValue += gAppFrameTime;
+				while(theWindow.fadeValue >= kTotalTime)
+					theWindow.fadeValue -= kTotalTime;
+				double t = theWindow.fadeValue;
+				if( t < kHoldFullTime )
+				{
+					aNewAlpha = 255;
+					break;
+				}
+				t -= kHoldFullTime;
+				if( t < kFadeTime )
+				{
+					aNewAlpha = u8(clamp(
+						kMinAlpha +
+						(1.0 - (t / kFadeTime)) * (255 - kMinAlpha),
+						0.0, 255.0));
+					break;
+				}
+				t -= kFadeTime;
+				if( t < kHoldMinTime )
+				{
+					aNewAlpha = u8(kMinAlpha);
+					break;
+				}
+				t -= kHoldMinTime;
+				aNewAlpha = u8(clamp(
+					kMinAlpha + (t / kFadeTime) * (255 - kMinAlpha),
+					0.0, 255.0));
+			}
+			break;
 		default:
 			DBG_ASSERT(false && "Invalid WindowManager::EFadeState value");
 			theWindow.fadeState = eFadeState_Hidden;
 			break;
 		}
 	} while(oldState != theWindow.fadeState && allowReCheck);
-
-	if( sToolbarWindowOverlayID == id )
-	{
-		theWindow.fadeState = eFadeState_MaxAlpha;
-		theWindow.fadeValue = 0;
-		aNewAlpha = wai.maxAlpha;
-	}
 
 	if( aNewAlpha != theWindow.alpha )
 	{
@@ -1288,7 +1320,7 @@ void showTargetWindowFound()
 }
 
 
-HWND createToolbarWindow(int theResID, DLGPROC theProc, int theOverlayID)
+HWND createToolbarWindow(int theResID, DLGPROC theProc, int theMenuID)
 {
 	destroyToolbarWindow();
 	sToolbarDialogProc = theProc;
@@ -1296,7 +1328,20 @@ HWND createToolbarWindow(int theResID, DLGPROC theProc, int theOverlayID)
 		GetModuleHandle(NULL),
 		MAKEINTRESOURCE(theResID),
 		NULL, toolbarWindowProc, 0);
-	sToolbarWindowOverlayID = theOverlayID;
+	if( theMenuID >= 0 )
+	{
+		sToolbarWindowOverlayID = InputMap::menuOverlayID(theMenuID);
+		OverlayWindow& aWindow = sOverlayWindows[sToolbarWindowOverlayID];
+		// Below not only causes the window to pulse but "locks" the window to
+		// being visible (since turning window visibility off really just
+		// triggers an alpha-fade-out state, and this eFadeState never reaches
+		// 0 alpha, ignores visibility setting, and doesn't change to any other
+		// eFadeState - until it is aborted by destroyToolbarWindow() later).
+		aWindow.fadeState = eFadeState_PulseForever;
+		aWindow.alpha = 255;
+		aWindow.fadeValue = 0;
+		Menus::tempForceShowSubMenu(theMenuID);
+	}
 	setMainWindowEnabled(false);
 	return sToolbarWindow;
 }
@@ -1309,7 +1354,15 @@ void destroyToolbarWindow()
 	DestroyWindow(sToolbarWindow);
 	sToolbarWindow = NULL;
 	sToolbarDialogProc = NULL;
-	sToolbarWindowOverlayID = -1;
+	if( sToolbarWindowOverlayID >= 0 )
+	{
+		OverlayWindow& aWindow = sOverlayWindows[sToolbarWindowOverlayID];
+		aWindow.fadeState = eFadeState_FadingIn;
+		aWindow.fadeValue = 0;
+		aWindow.alpha = 0;
+		sToolbarWindowOverlayID = -1;
+	}
+	Menus::tempForceShowSubMenu(-1);
 }
 
 

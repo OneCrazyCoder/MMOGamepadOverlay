@@ -18,6 +18,7 @@ namespace Menus
 
 std::vector<s16> sSelectedItem;
 std::vector<u16> sActiveSubMenu;
+int sOverrideActiveMenuBackup = -1;
 
 
 //------------------------------------------------------------------------------
@@ -732,6 +733,51 @@ void editMenuItemDir(int theRootMenuID, ECommandDir theDir)
 		Profile::saveChangesToFile();
 	}
 	gActiveOverlays.set(theOverlayID);
+}
+
+
+void tempForceShowSubMenu(int theMenuID)
+{
+	if( theMenuID < 0 )
+	{
+		if( sOverrideActiveMenuBackup >= 0 )
+		{// Restore active menu/ from backup
+			const int aBackupOverlayID =
+				InputMap::menuOverlayID(sOverrideActiveMenuBackup);
+			if( sActiveSubMenu[aBackupOverlayID] != sOverrideActiveMenuBackup )
+			{
+				const int oldMenuItemCount =
+					InputMap::menuItemCount(sActiveSubMenu[aBackupOverlayID]);
+				sActiveSubMenu[aBackupOverlayID] =
+					dropTo<u16>(sOverrideActiveMenuBackup);
+				gFullRedrawOverlays.set(aBackupOverlayID);
+				const int newMenuItemCount =
+					InputMap::menuItemCount(sActiveSubMenu[aBackupOverlayID]);
+				if( oldMenuItemCount != newMenuItemCount )
+					gReshapeOverlays.set(aBackupOverlayID);
+			}
+			sOverrideActiveMenuBackup = -1;
+		}
+		return;
+	}
+
+	const int theOverlayID = InputMap::menuOverlayID(theMenuID);
+
+	if( sOverrideActiveMenuBackup >= 0 )
+		tempForceShowSubMenu(-1);
+
+	if( sActiveSubMenu[theOverlayID] == theMenuID )
+		return;
+
+	sOverrideActiveMenuBackup = sActiveSubMenu[theOverlayID];
+	const int oldMenuItemCount =
+		InputMap::menuItemCount(sActiveSubMenu[theOverlayID]);
+	sActiveSubMenu[theOverlayID] = dropTo<u16>(theMenuID);
+	gFullRedrawOverlays.set(theOverlayID);
+	const int newMenuItemCount =
+		InputMap::menuItemCount(sActiveSubMenu[theOverlayID]);
+	if( oldMenuItemCount != newMenuItemCount )
+		gReshapeOverlays.set(theOverlayID);
 }
 
 

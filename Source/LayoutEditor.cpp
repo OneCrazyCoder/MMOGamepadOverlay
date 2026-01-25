@@ -129,10 +129,11 @@ struct ZERO_INIT(LayoutEntry)
 	float drawOffScale;
 	int propSectID, menuID;
 	int drawOffX, drawOffY;
-	int rangeCount; // -1 = anchor/menu, 0 = single, 1+ = actual range
+	// -1 = independent/anchor/menu, 0 = range element, 1+ = full range
+	int rangeCount;
 	bool sizeIsARange;
 
-	LayoutEntry() : type(eType_Num), rangeCount(-1) {}
+	LayoutEntry() : type(eType_Num), menuID(-1), rangeCount(-1) {}
 };
 
 
@@ -2086,7 +2087,7 @@ static void promptForEditEntry()
 					? IDD_DIALOG_LAYOUT_ANCHOR
 					: IDD_DIALOG_LAYOUT_HOTSPOT,
 			editLayoutToolbarProc,
-			-1 /*TODO*/);
+			anEntry.menuID);
 	}
 	else
 	{
