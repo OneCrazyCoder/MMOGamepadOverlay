@@ -27,6 +27,7 @@ kNoticeStringDisplayTimePerChar = 50,
 kNoticeStringMinTime = 3000,
 kSystemOverlayFlashFreq = 125,
 kSystemOverlayFlashTime = kSystemOverlayFlashFreq * 8,
+kCacheIncreaseCountForFullReload = 64,
 };
 
 enum EAlignment
@@ -181,8 +182,8 @@ struct ZERO_INIT(MenuLayout)
 	u16 sizeY;
 	u16 titleHeight;
 	u16 altLabelWidth;
-	s8 gapSizeX;
-	s8 gapSizeY;
+	s16 gapSizeX;
+	s16 gapSizeY;
 
 	bool operator==(const MenuLayout& rhs) const
 	{ return std::memcmp(this, &rhs, sizeof(MenuLayout)) == 0; }
@@ -231,7 +232,7 @@ struct ZERO_INIT(MenuItemAppearance)
 	}
 };
 
-// Actual struct defined in WindowPainter.h
+// Actual struct declared in WindowPainter.h
 WindowAlphaInfo::WindowAlphaInfo() :
 	fadeInRate(255), fadeOutRate(255),
 	fadeInTime(1), fadeOutTime(1),
@@ -358,6 +359,7 @@ static std::vector<OverlayPaintState> sOverlayPaintStates;
 static std::vector<MenuCacheEntry> sMenuDrawCache;
 static std::vector<ResizedFontInfo> sAutoSizedFonts;
 static std::vector<CopyRectRefreshEntry> sAutoRefreshCopyRectQueue;
+static BitVector<512> sHotspotsUsedByCopyIcons;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
@@ -369,21 +371,53 @@ static int sNoticeMessageTimer = 0;
 static int sSystemBorderFlashTimer = 0;
 static int sCopyRectUpdateRate = 100;
 static int sAutoRefreshCopyRectTime = 0;
+static int sCacheIncreaseCount = 0;
+static std::string sParseSectName;
+static std::string sParsePropName;
 
 
 //------------------------------------------------------------------------------
 // Local Functions
 //------------------------------------------------------------------------------
 
-static COLORREF stringToRGB(const std::string& theString, size_t thePos = 0)
+static COLORREF stringToRGB(
+	const std::string& theString, const size_t theStartPos = 0)
 {
-	// TODO: Error checking?
-	const u32 r = clamp(stringToInt(
-		fetchNextItem(theString, thePos)), 0, 255);
-	const u32 g = clamp(stringToInt(
-		fetchNextItem(theString, ++thePos)), 0, 255);
-	const u32 b = clamp(stringToInt(
-		fetchNextItem(theString, ++thePos)), 0, 255);
+	DBG_ASSERT(theStartPos <= theString.size());
+	size_t aPos = theStartPos;
+	std::string aCompStr = fetchNextItem(theString, aPos);
+	u32 aCompInt = stringToInt(aCompStr);
+	bool encounteredError =
+		aCompStr.empty() ||
+		aPos >= theString.size() ||
+		theString[aPos] != ',' ||
+		!isAnInteger(aCompStr) ||
+		aCompInt < 0 || aCompInt > 255;
+	const u32 r = encounteredError ? 0 : u8(aCompInt);
+	aCompStr = fetchNextItem(theString, ++aPos);
+	aCompInt = stringToInt(aCompStr);
+	encounteredError = encounteredError ||
+		aCompStr.empty() ||
+		aPos >= theString.size() ||
+		theString[aPos] != ',' ||
+		!isAnInteger(aCompStr) ||
+		aCompInt < 0 || aCompInt > 255;
+	const u32 g = encounteredError ? 0 : u8(aCompInt);
+	aCompStr = fetchNextItem(theString, ++aPos);
+	aCompInt = stringToInt(aCompStr);
+	encounteredError = encounteredError ||
+		aCompStr.empty() ||
+		!isAnInteger(aCompStr) ||
+		aCompInt < 0 || aCompInt > 255;
+	const u32 b = encounteredError ? 0 : u8(aCompInt);
+	if( encounteredError )
+	{
+		logError("Failed to parse RGB value '%s' for '[%s]/%s='",
+			&theString.c_str()[theStartPos],
+			sParseSectName.c_str(),
+			sParsePropName.c_str());
+	}
+
 	return RGB(r, g, b);
 }
 
@@ -470,6 +504,7 @@ static HPEN getBorderPenHandle(int theBorderWidth, COLORREF theBorderColor)
 		if( sPens[i] == aPenInfo )
 			return sPens[i].handle;
 	}
+	++sCacheIncreaseCount;
 	aPenInfo.handle = CreatePen(
 		aPenInfo.width ? PS_INSIDEFRAME : PS_NULL,
 		aPenInfo.width,
@@ -515,6 +550,7 @@ static BitmapFileInfo loadBitmapFile(
 		return theSrcFileInfo;
 	}
 
+	++sCacheIncreaseCount;
 	BITMAP aBitmapStruct;
 	GetObject(theSrcFileInfo.handle, sizeof(aBitmapStruct), &aBitmapStruct);
 	theSrcFileInfo.size.cx = aBitmapStruct.bmWidth;
@@ -597,6 +633,8 @@ static int getOrCreateBitmapIconID(const std::string& theIconDesc)
 		return anID;
 
 	// Get/load source bitmap file
+	sParseSectName = kBitmapsSectionName;
+	sParsePropName = aBitmapFilesSection->keys()[aBitmapFileID];
 	const BitmapFileInfo& theSrcBitmapFileInfo =
 		loadBitmapFile(aBitmapFilesSection, aBitmapFileID);
 	if( !theSrcBitmapFileInfo.handle )
@@ -620,7 +658,17 @@ static int getOrCreateBitmapIconID(const std::string& theIconDesc)
 			fetchNextItem(theIconDesc, ++aStrPos)));
 		anIcon.size.cy = dropTo<LONG>(stringToInt(
 			fetchNextItem(theIconDesc, ++aStrPos)));
-		// TODO - report error if above numbers are invalid somehow
+		if( anIcon.size.cx <= 0 || anIcon.size.cy <= 0 ||
+			anIcon.fileTL.x < 0 || anIcon.fileTL.y < 0 ||
+			anIcon.fileTL.x + anIcon.size.cx >= theSrcBitmapFileInfo.size.cx ||
+			anIcon.fileTL.y + anIcon.size.cy >= theSrcBitmapFileInfo.size.cy)
+		{
+			logError("Invalid dimensions (%d, %d, %d, %d) for bitmap '%s'!",
+				anIcon.fileTL.x, anIcon.fileTL.y,
+				anIcon.size.cx, anIcon.size.cy,
+				theBitmapKey.c_str());
+			return anID;
+		}
 	}
 
 	// Check to see if already have created an icon with these parameters
@@ -630,6 +678,7 @@ static int getOrCreateBitmapIconID(const std::string& theIconDesc)
 			return anID;
 	}
 
+	++sCacheIncreaseCount;
 	sBitmapIcons.push_back(anIcon);
 	createBitmapIconImage(anID);
 	return anID;
@@ -644,6 +693,7 @@ static int getOrCreateFontID(const FontInfo& theFontInfo)
 		if( sFonts[anID] == theFontInfo )
 			return anID;
 	}
+	++sCacheIncreaseCount;
 	sFonts.push_back(theFontInfo);
 	createBaseFontHandle(sFonts.back());
 	return anID;
@@ -659,6 +709,7 @@ static int getOrCreateMenuPositionID(
 		if( sMenuPositions[anID] == theMenuPosInfo )
 			return anID;
 	}
+	++sCacheIncreaseCount;
 	sMenuPositions.push_back(theMenuPosInfo);
 	return anID;
 }
@@ -673,6 +724,7 @@ static int getOrCreateMenuLayoutID(
 		if( sMenuLayouts[anID] == theLayoutInfo )
 			return anID;
 	}
+	++sCacheIncreaseCount;
 	sMenuLayouts.push_back(theLayoutInfo);
 	return anID;
 }
@@ -687,6 +739,7 @@ static int getOrCreateBaseAppearanceID(
 		if( sMenuAppearances[anID] == theMenuAppInfo )
 			return anID;
 	}
+	++sCacheIncreaseCount;
 	sMenuAppearances.push_back(theMenuAppInfo);
 	return anID;
 }
@@ -701,6 +754,7 @@ static int getOrCreateItemAppearanceID(
 		if( sMenuItemAppearances[anID] == theItemAppInfo )
 			return anID;
 	}
+	++sCacheIncreaseCount;
 	sMenuItemAppearances.push_back(theItemAppInfo);
 	return anID;
 }
@@ -715,6 +769,7 @@ static int getOrCreateAlphaInfoID(
 		if( sMenuAlphaInfo[anID] == theAlphaInfo )
 			return anID;
 	}
+	++sCacheIncreaseCount;
 	sMenuAlphaInfo.push_back(theAlphaInfo);
 	return anID;
 }
@@ -754,7 +809,19 @@ static void setLabelIcon(
 			dropTo<u16>(InputMap::hotspotIDFromName(theIconDesc));
 		if( !aNewIcon.hotspotID )
 		{
-			// TODO - error, can't find bitmap or hotspot being referenced
+			logError("Could not identify '%s' as either a Bitmap or Hotspot "
+				"description for label icon \"%s\"!", 
+				theIconDesc.c_str(),
+				theTextLabel.c_str());
+			return;
+		}
+		const Hotspot& aNewHotspot = InputMap::getHotspot(aNewIcon.hotspotID);
+		if( aNewHotspot.w == 0 || aNewHotspot.h == 0 )
+		{
+			logError("Copy-from-screen label '%s' set to hotspot '%s' "
+				"which has 0 for width or height, so nothing to copy!",
+				theTextLabel.c_str(),
+				InputMap::hotspotLabel(aNewIcon.hotspotID).c_str());
 			return;
 		}
 		aNewIcon.copyFromTarget = true;
@@ -771,6 +838,7 @@ static inline PropString getPropString(
 	PropString result;
 	result.str = Profile::getStr(thePropMap, thePropName);
 	result.valid = !isEffectivelyEmptyString(result.str);
+	sParsePropName = thePropName;
 	return result;
 }
 
@@ -783,13 +851,18 @@ static void fetchMenuPositionProperties(
 	{
 		size_t aPos = 0;
 		theDestPosition.originX = stringToCoord(p.str, aPos);
-		// If aPos >= p.str.size() then 'y' is missing, which is malformed!
-		if( aPos < p.str.size() &&
-			(p.str[aPos] == ',' || p.str[aPos] == 'x' || p.str[aPos] == 'X') )
+		bool valid = aPos < p.str.size() &&
+			(p.str[aPos] == ',' || p.str[aPos] == 'x' || p.str[aPos] == 'X');
+		if( valid )
 		{
 			theDestPosition.originY = stringToCoord(p.str, ++aPos);
+			valid = aPos == p.str.size();
 		}
-		// TODO - error checking - or use old strToHotspot?
+		if( !valid )
+		{
+			logError("Error parsing Position '%s' for '[%s]!",
+				p.str.c_str(), sParseSectName.c_str());
+		}
 	}
 
 	if( PropString p = getPropString(thePropMap, kDrawPriorityPropName) )
@@ -808,19 +881,29 @@ static void fetchMenuLayoutProperties(
 	{
 		size_t aPos = 0;
 		Hotspot::Coord aCoord = stringToCoord(p.str, aPos);
-		// TODO - error check aPos character is valid and also that
-		// offset is 0 in this case. aPos being >= p.str.size() is
-		// also an error because it means Y alignment is missing
-		theDestLayout.alignmentX =
-			aCoord.anchor < 0x4000	? eAlignment_Min :
-			aCoord.anchor > 0xC000	? eAlignment_Max :
-			/*otherwise*/			  eAlignment_Center;
-		aCoord = stringToCoord(p.str, ++aPos);
-		// TODO - error check again
-		theDestLayout.alignmentY =
-			aCoord.anchor < 0x4000	? eAlignment_Min :
-			aCoord.anchor > 0xC000	? eAlignment_Max :
-			/*otherwise*/			  eAlignment_Center;
+		bool valid = aPos < p.str.size() && aCoord.offset == 0 &&
+			(p.str[aPos] == ',' || p.str[aPos] == 'x' || p.str[aPos] == 'X');
+		if( valid )
+		{
+			theDestLayout.alignmentX =
+				aCoord.anchor < 0x4000	? eAlignment_Min :
+				aCoord.anchor > 0xC000	? eAlignment_Max :
+				/*otherwise*/			  eAlignment_Center;
+			aCoord = stringToCoord(p.str, ++aPos);
+			valid = aPos == p.str.size() && aCoord.offset == 0;
+			if( valid )
+			{
+				theDestLayout.alignmentY =
+					aCoord.anchor < 0x4000	? eAlignment_Min :
+					aCoord.anchor > 0xC000	? eAlignment_Max :
+					/*otherwise*/			  eAlignment_Center;
+			}
+		}
+		if( !valid )
+		{
+			logError("Error parsing Alignment '%s' for [%s]!",
+				p.str.c_str(), sParseSectName.c_str());
+		}	
 	}
 
 	if( PropString p = getPropString(thePropMap, kItemSizePropName) )
@@ -829,8 +912,9 @@ static void fetchMenuLayoutProperties(
 		if( aSize.cx <= 0 || aSize.cx > 0xFFFF ||
 			aSize.cy <= 0 || aSize.cy > 0xFFFF )
 		{
-			// TODO - error invalid size - both W and H must be specified
-			// as values > 0
+			logError("Invalid size values (%d x %d) for '[%s]/%s='!",
+				aSize.cx, aSize.cy,
+				sParseSectName.c_str(), sParsePropName.c_str());
 		}
 		else
 		{
@@ -842,32 +926,48 @@ static void fetchMenuLayoutProperties(
 	if( PropString p = getPropString(thePropMap, kGapSizePropName) )
 	{
 		const SIZE& aSize = stringToSize(p.str);
-		if( aSize.cx < -127 || aSize.cx > 128 ||
-			aSize.cy < -127 || aSize.cy > 128 )
+		if( aSize.cx < -0x8000 || aSize.cx > 0x7FFF ||
+			aSize.cy < -0x8000 || aSize.cy > 0x7FFF )
 		{
-			// TODO - error invalid size
+			logError("Invalid size values (%d x %d) for '[%s]/%s='!",
+				aSize.cx, aSize.cy,
+				sParseSectName.c_str(), sParsePropName.c_str());
 		}
 		else
 		{
-			theDestLayout.gapSizeX = dropTo<s8>(aSize.cx);
-			theDestLayout.gapSizeY = dropTo<s8>(aSize.cy);
+			theDestLayout.gapSizeX = dropTo<s16>(aSize.cx);
+			theDestLayout.gapSizeY = dropTo<s16>(aSize.cy);
 		}
 	}
 
 	if( PropString p = getPropString(thePropMap, kTitleHeightPropName) )
 	{
 		size_t aPos = 0;
-		theDestLayout.titleHeight =
-			u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
-		// TODO - error if aPos != p.str.size() (and if size was < 0?)
+		const LONG aHeight = stringToWidth(p.str, aPos);
+		if( aHeight < 0 || aHeight > 0xFFFF || aPos != p.str.size() )
+		{
+			logError("Invalid height value '%s' for '[%s]/%s='!",
+				p.str.c_str(), sParseSectName.c_str(), sParsePropName.c_str());
+		}
+		else
+		{
+			theDestLayout.titleHeight = dropTo<u16>(aHeight);
+		}
 	}
 
 	if( PropString p = getPropString(thePropMap, kAltLabelWidthPropName) )
 	{
 		size_t aPos = 0;
-		theDestLayout.altLabelWidth =
-			u16(clamp(stringToWidth(p.str, aPos), 0, 0xFFFF));
-		// TODO - error if aPos != p.str.size() (and if size was < 0?)
+		const LONG aWidth = stringToWidth(p.str, aPos);
+		if( aWidth < 0 || aWidth > 0xFFFF || aPos != p.str.size() )
+		{
+			logError("Invalid width value '%s' for '[%s]/%s='!",
+				p.str.c_str(), sParseSectName.c_str(), sParsePropName.c_str());
+		}
+		else
+		{
+			theDestLayout.altLabelWidth = dropTo<u16>(aWidth);
+		}
 	}
 }
 
@@ -878,8 +978,16 @@ static void fetchBaseAppearanceProperties(
 {
 	if( PropString p = getPropString(thePropMap, kItemTypePropName) )
 	{
-		theDestAppearance.itemType = menuItemTypeNameToID(p.str);
-		// TODO: Error if itemType >= eMenuItemType_Num (unknown type)
+		const EMenuItemType anItemType = menuItemTypeNameToID(p.str);
+		if( anItemType >= eMenuItemType_Num )
+		{
+			logError("Unrecognized Menu Item Type '%s' for '[%s]!",
+				p.str.c_str(), sParseSectName.c_str());
+		}
+		else
+		{
+			theDestAppearance.itemType = anItemType;
+		}
 	}
 
 	if( PropString p = getPropString(thePropMap, kTransColorPropName) )
@@ -896,17 +1004,27 @@ static void fetchBaseAppearanceProperties(
 		if( PropString p = getPropString(thePropMap, kRadiusPropName) )
 		{
 			size_t aPos = 0;
-			theDestAppearance.baseRadius =
-				u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
-			// TODO - error if aPos != p.str.size() (and if size was < 0?)
-			theDestAppearance.radius = u8(clamp(int(
-				theDestAppearance.baseRadius * gUIScale), 0, 0xFF));
+			const LONG aRadius = stringToWidth(p.str, aPos);
+			if( aRadius < 0 || aRadius > 0xFF || aPos != p.str.size() )
+			{
+				logError("Invalid radius value '%s' for '[%s]/%s='! - "
+					"must be 0 to 255!",
+					p.str.c_str(),
+					sParseSectName.c_str(),
+					sParsePropName.c_str());
+			}
+			else
+			{
+				theDestAppearance.baseRadius = dropTo<u8>(aRadius);
+				theDestAppearance.radius =
+					u8(clamp(int(aRadius * gUIScale + 0.5), 0, 0xFF));
+			}
 		}
 	}
 	
 	PropString aFontNameProp = getPropString(thePropMap, kFontNamePropName);
-	PropString aFontSizeProp = getPropString(thePropMap, kFontSizePropName);
 	PropString aFontWeightProp = getPropString(thePropMap, kFontWeightPropName);
+	PropString aFontSizeProp = getPropString(thePropMap, kFontSizePropName);
 	if( aFontNameProp || aFontSizeProp || aFontWeightProp )
 	{
 		FontInfo aNewFont = sFonts[theDestAppearance.fontID];
@@ -917,8 +1035,14 @@ static void fetchBaseAppearanceProperties(
 		if( aFontSizeProp )
 		{
 			size_t aPos = 0;
-			aNewFont.size = max(0, int(stringToWidth(aFontSizeProp.str, aPos)));
-			// TODO - error if aPos != p.str.size() (and if size was < 0?)
+			aNewFont.size = int(stringToWidth(aFontSizeProp.str, aPos));
+			if( aNewFont.size < 4 || aPos != aFontSizeProp.str.size() )
+			{
+				logError("Invalid Font Size '%s' for '[%s]!",
+					aFontSizeProp.str.c_str(),
+					sParseSectName.c_str());
+				aNewFont.size = 8;
+			}
 		}
 		theDestAppearance.fontID = dropTo<u16>(getOrCreateFontID(aNewFont));
 	}
@@ -985,9 +1109,19 @@ static void fetchItemAppearanceProperties(
 			thePropMap, kBorderSizePropName, theDrawState) )
 	{
 		size_t aPos = 0;
-		theDestAppearance.baseBorderSize =
-			u8(clamp(stringToWidth(p.str, aPos), 0, 0xFF));
-		// TODO - error if aPos != p.str.size() (and if size was < 0?)
+		const LONG aSize = stringToWidth(p.str, aPos);
+		if( aSize < 0 || aSize > 0xFF || aPos != p.str.size() )
+		{
+			logError("Invalid size value '%s' for '[%s]/%s='! - "
+				"must be 0 to 255!",
+				p.str.c_str(),
+				sParseSectName.c_str(),
+				sParsePropName.c_str());
+		}
+		else
+		{
+			theDestAppearance.baseBorderSize = dropTo<u8>(aSize);
+		}
 		theDestAppearance.borderSize = 0;
 		theDestAppearance.borderPen = NULL;
 		if( theDestAppearance.baseBorderSize > 0 )
@@ -1001,7 +1135,11 @@ static void fetchItemAppearanceProperties(
 	{
 		theDestAppearance.bitmapIconID =
 			dropTo<u16>(getOrCreateBitmapIconID(p.str));
-		// TODO - report error if get 0 back from above
+		if( !theDestAppearance.bitmapIconID )
+		{
+			logError("Failed to parse Bitmap region '%s' for [%s]/%s='!",
+				p.str.c_str(), sParseSectName.c_str(), sParsePropName.c_str());
+		}
 	}
 
 	if( !theDestAppearance.borderPen )
@@ -1060,6 +1198,8 @@ static MenuPosition getMenuPosition(int theMenuID)
 		// Add overrides from this menu's profile data
 		aMenuPosition.parentKBCycleID =
 			dropTo<u16>(InputMap::menuKeyBindCycleID(theMenuID));
+		sParseSectName = Profile::allSections().keys()
+			[InputMap::menuSectionID(theMenuID)];
 		fetchMenuPositionProperties(
 			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			aMenuPosition);
@@ -1084,6 +1224,8 @@ static MenuLayout getMenuLayout(int theMenuID)
 				? getMenuLayout(theRootMenuID)
 				: sMenuLayouts[0];
 		aMenuLayout.style = InputMap::menuStyle(theMenuID);
+		sParseSectName = Profile::allSections().keys()
+			[InputMap::menuSectionID(theMenuID)];
 		fetchMenuLayoutProperties(
 			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			aMenuLayout);
@@ -1106,6 +1248,8 @@ static MenuAppearance getMenuAppearance(int theMenuID)
 			(theRootMenuID != theMenuID)
 				? getMenuAppearance(theRootMenuID)
 				: sMenuAppearances[0];
+		sParseSectName = Profile::allSections().keys()
+			[InputMap::menuSectionID(theMenuID)];
 		fetchBaseAppearanceProperties(
 			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			aMenuApp);
@@ -1131,6 +1275,8 @@ static MenuItemAppearance getMenuItemAppearance(
 			(theRootMenuID != theMenuID)
 				? getMenuItemAppearance(theRootMenuID, theDrawState)
 				: sMenuItemAppearances[theDrawState];
+		sParseSectName = Profile::allSections().keys()
+			[InputMap::menuSectionID(theMenuID)];
 		fetchItemAppearanceProperties(
 			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			anItemApp, theDrawState);
@@ -1154,6 +1300,8 @@ static WindowAlphaInfo getMenuAlphaInfo(int theMenuID)
 			(theRootMenuID != theMenuID)
 				? getMenuAlphaInfo(theRootMenuID)
 				: sMenuAlphaInfo[0];
+		sParseSectName = Profile::allSections().keys()
+			[InputMap::menuSectionID(theMenuID)];
 		fetchAlphaFadeProperties(
 			Profile::getSectionProperties(InputMap::menuSectionID(theMenuID)),
 			anAlphaInfo);
@@ -1547,6 +1695,7 @@ static void initStringCacheEntry(
 		// If no font chosen yet, create a new indirect resized font
 		if( !aChosenFontHandle )
 		{
+			++sCacheIncreaseCount;
 			sAutoSizedFonts.push_back(ResizedFontInfo());
 			sAutoSizedFonts.back().baseFontHandle = theBaseFontHandle;
 			sAutoSizedFonts.back().altSize = aFontHeight;
@@ -1635,9 +1784,6 @@ static void drawMenuItemLabel(
 				InputMap::getHotspot(aLabelIcon->hotspotID);
 			theCacheEntry.copyRect.fromPos =
 				hotspotToPoint(aCopySrcHotspot, dd.targetSize);
-			// TODO: Give warning that size 0x or 0y hotspot won't actually
-			// copy anything to screen, and maybe switch to string type
-			// of label instead in that case?
 			const double aHotspotScale =
 				InputMap::hotspotScale(aLabelIcon->hotspotID);
 			theCacheEntry.copyRect.fromSize.cx =
@@ -1649,6 +1795,7 @@ static void drawMenuItemLabel(
 				theCacheEntry.copyRect.fromSize.cx / 2;
 			theCacheEntry.copyRect.fromPos.y -=
 				theCacheEntry.copyRect.fromSize.cy / 2;
+			sHotspotsUsedByCopyIcons.set(aLabelIcon->hotspotID);
 		}
 		else if( aLabelIcon && !aLabelIcon->copyFromTarget )
 		{
@@ -2275,6 +2422,158 @@ static void updateHotspotsMenuLayout(
 }
 
 
+static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
+{
+	enum EPropChangeImpact
+	{
+		ePropChangeImpact_Labels,
+		ePropChangeImpact_Position,
+		ePropChangeImpact_Layout,
+		ePropChangeImpact_BaseApp,
+		ePropChangeImpact_ItemApp,
+		ePropChangeImpact_Alpha,
+		ePropChangeImpact_Reshape,
+		ePropChangeImpact_None,
+	};
+
+	struct NameToEnumMapper
+	{
+		typedef StringToValueMap<EPropChangeImpact, u8> NameToEnumMap;
+		NameToEnumMap map;
+		NameToEnumMapper()
+		{
+			struct { const char* str; EPropChangeImpact val; }
+			kEntries[] = {
+				{ "Label",						ePropChangeImpact_Labels	},
+				{ "Title",						ePropChangeImpact_Labels	},
+				{ "Name",						ePropChangeImpact_Labels	},
+				{ "String",						ePropChangeImpact_Labels	},
+				{ "Position",					ePropChangeImpact_Position	},
+				{ "Keybinds",					ePropChangeImpact_Position	},
+				{ "KeybindCycles",				ePropChangeImpact_Position	},
+				{ "Priority",					ePropChangeImpact_Position	},
+				{ "KeyBindCycle",				ePropChangeImpact_Position	},
+				{ "KBCycle",					ePropChangeImpact_Position	},
+				{ "Array",						ePropChangeImpact_Position	},
+				{ "Style",						ePropChangeImpact_Layout	},
+				{ "Type",						ePropChangeImpact_Layout	},
+				{ "ItemSize",					ePropChangeImpact_Layout	},
+				{ "Size",						ePropChangeImpact_Layout	},
+				{ "GapSize",					ePropChangeImpact_Layout	},
+				{ "Alignment",					ePropChangeImpact_Layout	},
+				{ "AltLabelWidth",				ePropChangeImpact_Layout	},
+				{ "ItemType",					ePropChangeImpact_BaseApp	},
+				{ "Font",						ePropChangeImpact_BaseApp	},
+				{ "FontSize",					ePropChangeImpact_BaseApp	},
+				{ "FontWeight",					ePropChangeImpact_BaseApp	},
+				{ "TitleRGB",					ePropChangeImpact_BaseApp	},
+				{ "TransRGB",					ePropChangeImpact_BaseApp	},
+				{ "Radius",						ePropChangeImpact_BaseApp	},
+				{ "TitleHeight",				ePropChangeImpact_BaseApp	},
+				{ "FlashTime",					ePropChangeImpact_BaseApp	},
+				{ "ItemRGB",					ePropChangeImpact_ItemApp	},
+				{ "LabelRGB",					ePropChangeImpact_ItemApp	},
+				{ "BorderRGB",					ePropChangeImpact_ItemApp	},
+				{ "BorderSize",					ePropChangeImpact_ItemApp	},
+				{ "Bitmap",						ePropChangeImpact_ItemApp	},
+				{ "SelectedItemRGB",			ePropChangeImpact_ItemApp	},
+				{ "SelectedLabelRGB",			ePropChangeImpact_ItemApp	},
+				{ "SelectedBorderRGB",			ePropChangeImpact_ItemApp	},
+				{ "SelectedBorderSize",			ePropChangeImpact_ItemApp	},
+				{ "SelectedBitmap",				ePropChangeImpact_ItemApp	},
+				{ "FlashItemRGB",				ePropChangeImpact_ItemApp	},
+				{ "FlashLabelRGB",				ePropChangeImpact_ItemApp	},
+				{ "FlashBorderRGB",				ePropChangeImpact_ItemApp	},
+				{ "FlashBorderSize",			ePropChangeImpact_ItemApp	},
+				{ "FlashBitmap",				ePropChangeImpact_ItemApp	},
+				{ "FlashSelectedItemRGB",		ePropChangeImpact_ItemApp	},
+				{ "FlashSelectedLabelRGB",		ePropChangeImpact_ItemApp	},
+				{ "FlashSelectedBorderRGB",		ePropChangeImpact_ItemApp	},
+				{ "FlashSelectedBorderSize",	ePropChangeImpact_ItemApp	},
+				{ "FlashSelectedBitmap",		ePropChangeImpact_ItemApp	},
+				{ "MaxAlpha",					ePropChangeImpact_Alpha		},
+				{ "FadeInDelay",				ePropChangeImpact_Alpha		},
+				{ "FadeInTime",					ePropChangeImpact_Alpha		},
+				{ "FadeOutDelay",				ePropChangeImpact_Alpha		},
+				{ "FadeOutTime",				ePropChangeImpact_Alpha		},
+				{ "InactiveDelay",				ePropChangeImpact_Alpha		},
+				{ "InactiveAlpha",				ePropChangeImpact_Alpha		},
+				{ "GridWidth",					ePropChangeImpact_Reshape	},
+				{ "ColumnHeight",				ePropChangeImpact_Reshape	},
+				{ "ColumnsHeight",				ePropChangeImpact_Reshape	},
+				{ "Default",					ePropChangeImpact_None		},
+				{ "Init",						ePropChangeImpact_None		},
+				{ "Initial",					ePropChangeImpact_None		},
+				{ "First",						ePropChangeImpact_None		},
+				{ "Start",						ePropChangeImpact_None		},
+				{ "L",							ePropChangeImpact_None		},
+				{ "R",							ePropChangeImpact_None		},
+				{ "U",							ePropChangeImpact_None		},
+				{ "D",							ePropChangeImpact_None		},
+				{ "Mouse",						ePropChangeImpact_None		},
+				{ "Cursor",						ePropChangeImpact_None		},
+				{ "Auto",						ePropChangeImpact_None		},
+				{ "Back",						ePropChangeImpact_None		},
+			};
+			map.reserve(ARRAYSIZE(kEntries));
+			for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
+		}
+	};
+	static NameToEnumMapper sNameToEnumMapper;
+
+	// If name not recognized, assume its a menu item (and hence its label)
+	EPropChangeImpact anImpact = ePropChangeImpact_Labels;
+	if( EPropChangeImpact* anEntry = sNameToEnumMapper.map.find(thePropName) )
+		anImpact = *anEntry;
+	MenuCacheEntry& aMenuCache = sMenuDrawCache[theMenuID];
+	const int anOverlayID = InputMap::menuOverlayID(theMenuID);
+	const bool menuIsActive =
+		Menus::activeMenuForOverlayID(anOverlayID) == theMenuID;
+
+	switch(anImpact)
+	{
+	case ePropChangeImpact_Labels:
+		aMenuCache.labelCache.clear();
+		if( menuIsActive)
+			gFullRedrawOverlays.set(anOverlayID);
+		break;
+	case ePropChangeImpact_Position:
+		aMenuCache.positionID = kInvalidID;
+		if( menuIsActive)
+			gReshapeOverlays.set(anOverlayID);
+		break;
+	case ePropChangeImpact_Layout:
+		aMenuCache.layoutID = kInvalidID;
+		if( menuIsActive)
+			gReshapeOverlays.set(anOverlayID);
+		break;
+	case ePropChangeImpact_BaseApp:
+		aMenuCache.appearanceID = kInvalidID;
+		if( menuIsActive)
+			gFullRedrawOverlays.set(anOverlayID);
+		break;
+	case ePropChangeImpact_ItemApp:
+		for(int i = 0; i < eMenuItemDrawState_Num; ++i)
+			aMenuCache.itemAppearanceID[i] = kInvalidID;
+		if( menuIsActive)
+			gFullRedrawOverlays.set(anOverlayID);
+		break;
+	case ePropChangeImpact_Alpha:
+		aMenuCache.alphaInfoID = kInvalidID;
+		break;
+	case ePropChangeImpact_Reshape:
+		if( menuIsActive)
+			gReshapeOverlays.set(anOverlayID);
+		break;
+	case ePropChangeImpact_None:
+	default:
+		// Don't care about this property - ignore it
+		break;
+	}
+}
+
+
 //------------------------------------------------------------------------------
 // Global Functions
 //------------------------------------------------------------------------------
@@ -2317,6 +2616,7 @@ void init()
 	}
 
 	// Add data from base [Appearance] section for default look
+	sParseSectName = kMenuDefaultSectionName;
 	Profile::PropertyMapPtr aDefaultProps =
 		Profile::getSectionProperties(kMenuDefaultSectionName);
 	fetchMenuLayoutProperties(aDefaultProps, sMenuLayouts[0]);
@@ -2386,6 +2686,26 @@ void init()
 			dropTo<u16>(getOrCreateMenuPositionID(aMenuPos));
 	}
 
+	// Load data for remaining menus
+	// Strictly speaking this isn't necessary, as they would be loaded when
+	// render the menu later anyway, but this forces any error messages for
+	// incorrect data in the profile to be reported immediately
+	for(int aMenuID = 0, end = InputMap::menuCount(); aMenuID < end; ++aMenuID)
+	{
+		if( aMenuID == kHotspotGuideMenuID || aMenuID == kSystemMenuID )
+			continue;
+		getMenuPosition(aMenuID);
+		getMenuLayout(aMenuID);
+		getMenuAppearance(aMenuID);
+		getMenuAlphaInfo(aMenuID);
+		for(EMenuItemDrawState aDrawState = EMenuItemDrawState(0);
+			aDrawState < eMenuItemDrawState_Num;
+			aDrawState = EMenuItemDrawState(aDrawState + 1))
+		{
+			getMenuItemAppearance(aMenuID, aDrawState);
+		}
+	}
+
 	// Bitmap source files are only needed temporarily to make
 	// BitmapIcons out of, so can be freed when done creating icons
 	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
@@ -2394,78 +2714,119 @@ void init()
 		sBitmapFiles[i].handle = NULL;
 	}
 
+	sCacheIncreaseCount = 0;
+	sHotspotsUsedByCopyIcons.clearAndResize(InputMap::hotspotCount());
+
 	// Make sure paint states rects get initialized via updateWindowLayout
 	gReshapeOverlays.set();
+
+	sParseSectName.clear();
+	sParsePropName.clear();
 }
 
 
 void loadProfileChanges()
 {
-	// TEMP
-	const SystemPaintFunc aBackupPaintFunc = sSystemOverlayPaintFunc;
-	const bool sysOverlayFullRedrawNeeded =
-		gFullRedrawOverlays.test(kSystemOverlayID);
-	init();
-	updateScaling();
-	gFullRedrawOverlays.set();
-	if( aBackupPaintFunc )
-	{
-		sSystemOverlayPaintFunc = aBackupPaintFunc;
-		gFullRedrawOverlays.set(kSystemOverlayID, sysOverlayFullRedrawNeeded);
-	}
-	// TEMP
-
-#if 0
+	// Certain sections are rarely changed yet would have a large ripple effect,
+	// so a full reload is easiest for them.
+	// Also, to clean up wasted memory and GDI objects from orphaned items in
+	// the draw cache (fonts, pens, menu draw cache sub-structs, etc) due to
+	// minor changes, an occassional full reload is used to flush the cache.
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	// TODO - invalidate (mark dirty) cache entries that might have changed
-	// Keep in mind that all menus can be affected by changes to anything in
-	// kMenuDefaultSectionName, sub-menus can be affected by changes to their
-	// root menu, and draw states like "flashing" within a particular menu
-	// can be affected by "parent" draw states like "normal".
-	// May also need some system to decide on complete reinitialization if there
-	// are enough "orphaned" info structs from too many changes (though old
-	// structs are re-used if the same settings are desired again, so it would
-	// need to be a lot of completely unique changes for this to be a problem).
-	// Make sure to inform WindowManager if any layout or position properties
-	// changed so it can re-do updateWindowLayout(), as well as account for any
-	// other changes that might affect WindowManager like sudden change in alpha
-	// setting, transparency color, etc (perhaps in its own version of this func?)
-
-	sCopyRectUpdateRate =
-		Profile::getInt("System", "CopyRectFrameTime", sCopyRectUpdateRate);
-
-	if( const Profile::PropertyMap* aPropMap =
-			theProfileMap.find(kHotspotSizesSectionName) )
+	if( sCacheIncreaseCount >= kCacheIncreaseCountForFullReload ||
+		theProfileMap.contains(kBitmapsSectionName) ||
+		theProfileMap.contains(kMenuDefaultSectionName) ||
+		theProfileMap.contains(kIconsSectionName) )
 	{
-		// TODO: mark dirty / update anything that uses these sizes as well!
-		for(int i = 0; i < aPropMap->size(); ++i)
+		const SystemPaintFunc aBackupPaintFunc = sSystemOverlayPaintFunc;
+		init();
+		gFullRedrawOverlays.set();
+		sSystemOverlayPaintFunc = aBackupPaintFunc;
+		return;
+	}
+
+	if( theProfileMap.contains("System") )
+	{
+		sCopyRectUpdateRate =
+			Profile::getInt("System", "CopyRectFrameTime", sCopyRectUpdateRate);
+	}
+
+	if( theProfileMap.contains("Hotspots") )
+	{
+		// Clear label cache if any copy icons are using a changed hotspot
+		if( (sHotspotsUsedByCopyIcons & InputMap::changedHotspots()).any() )
 		{
-			setHotspotSizes(
-				aPropMap->keys()[i],
-				aPropMap->vals()[i].str);
+			for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
+				sMenuDrawCache[i].labelCache.clear();
+			sHotspotsUsedByCopyIcons.reset();
+		}
+		// Trigger a reshape for any active menus that use changed hotspots
+		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
+		{
+			if( i == kSystemOverlayID || i == kHotspotGuideOverlayID )
+				continue;
+			const int aMenuID = Menus::activeMenuForOverlayID(i);
+			if( InputMap::menuHotspotsChanged(aMenuID) )
+				gReshapeOverlays.set(i);
 		}
 	}
 
-	// TODO: Also update hotspot size scaled value for any hotspots that might
-	// have had their scale value updated within InputMap
-
-	//if( const Profile::PropertyMap* aPropMap =
-	//	theProfileMap.find(kIconsSectionName) )
+	// Check for changes to any root menus
+	for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
 	{
-		//for(int i = 0; i < aPropMap.size(); ++i)
-		//{
-		//	setLabelIcon(
-		//		aPropMap.keys()[i],
-		//		aPropMap.vals()[i].str);
-		//}
+		if( i == kSystemOverlayID || i == kHotspotGuideOverlayID )
+			continue;
+		const int aMenuID = InputMap::overlayRootMenuID(i);
+		if( Profile::PropertyMapPtr aPropMap = theProfileMap.find(
+				InputMap::menuSectionName(aMenuID)) )
+		{
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
+				markMenuCacheDirtyFor(aMenuID, aPropMap->keys()[aPropIdx]);
+		}
 	}
 
+	// Check for changes to any sub-menus, as well as marking dirty any whose
+	// root menu was invalidated from the above loop
+	for(int aMenuID = 0, end = InputMap::menuCount(); aMenuID < end; ++aMenuID)
+	{
+		const int aRootMenuID = InputMap::rootMenuOfMenu(aMenuID);
+		if( aRootMenuID == aMenuID )
+			continue;
+
+		const MenuCacheEntry& aRootMenuCache = sMenuDrawCache[aRootMenuID];
+		MenuCacheEntry& aMenuCache = sMenuDrawCache[aMenuID];
+		if( aRootMenuCache.positionID == kInvalidID )
+			aMenuCache.positionID = kInvalidID;
+		if( aRootMenuCache.layoutID == kInvalidID )
+			aMenuCache.layoutID = kInvalidID;
+		if( aRootMenuCache.appearanceID == kInvalidID )
+			aMenuCache.appearanceID = kInvalidID;
+		if( aRootMenuCache.alphaInfoID == kInvalidID )
+			aMenuCache.alphaInfoID = kInvalidID;
+		for(int aDState = 0; aDState < eMenuItemDrawState_Num; ++aDState)
+		{
+			if( aRootMenuCache.itemAppearanceID[aDState] == kInvalidID )
+				aMenuCache.itemAppearanceID[aDState] = kInvalidID;
+		}
+		if( aRootMenuCache.maxBorderSize < 0 )
+			aMenuCache.maxBorderSize = aRootMenuCache.maxBorderSize;
+		
+		if( Profile::PropertyMapPtr aPropMap = theProfileMap.find(
+				InputMap::menuSectionName(aMenuID)) )
+		{
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
+				markMenuCacheDirtyFor(aMenuID, aPropMap->keys()[aPropIdx]);
+		}
+	}
+
+	// Cleanup
 	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
 	{
 		DeleteObject(sBitmapFiles[i].handle);
 		sBitmapFiles[i].handle = NULL;
 	}
-#endif
+	sParseSectName.clear();
+	sParsePropName.clear();
 }
 
 
@@ -2499,14 +2860,18 @@ void cleanup()
 	sMenuDrawCache.clear();
 	sAutoSizedFonts.clear();
 	sAutoRefreshCopyRectQueue.clear();
+	sHotspotsUsedByCopyIcons.clear();
 	sErrorMessage.clear();
 	sSystemOverlayPaintFunc = NULL;
 	sErrorMessageTimer = 0;
+	sParseSectName.clear();
+	sParsePropName.clear();
 
 	DeleteDC(sBitmapDrawSrc);
 	sBitmapDrawSrc = NULL;
 	DeleteObject(sClipRegion);
 	sClipRegion = NULL;
+	sCacheIncreaseCount = 0;
 }
 
 
@@ -2722,6 +3087,7 @@ void updateScaling()
 	// Clear auto-sized fonts and border pens so they'll regenerate at new scale
 	for(int i = 0, end = intSize(sAutoSizedFonts.size()); i < end; ++i)
 		DeleteObject(sAutoSizedFonts[i].handle);
+	sCacheIncreaseCount -= sAutoSizedFonts.size();
 	sAutoSizedFonts.clear();
 	for(int i = 0, end = intSize(sPens.size()); i < end; ++i)
 		DeleteObject(sPens[i].handle);
@@ -2734,8 +3100,7 @@ void updateScaling()
 		// Also reset max border size
 		sMenuDrawCache[i].maxBorderSize = -1;
 	}
-
-	// TODO: Update things affected by hotspot sizes
+	sHotspotsUsedByCopyIcons.reset();
 
 	// Update radius scaling for each MenuAppearance
 	for(int i = 0, end = intSize(sMenuAppearances.size()); i < end; ++i)
@@ -2943,12 +3308,21 @@ void updateWindowLayout(
 		ps.rects.reserve(1);
 		break;
 	case eMenuStyle_Highlight:
+	case eMenuStyle_KBCycleLast:
+	case eMenuStyle_KBCycleDefault:
 		ps.rects.reserve(1);
 		theAlignmentX = eAlignment_Center;
 		theAlignmentY = eAlignment_Center;
+		if( int aHotspotID = theLayout.style == eMenuStyle_Highlight
+				? InputMap::menuItemHotspotID(
+					theMenuID, Menus::selectedItem(theMenuID))
+				: InputMap::KeyBindCycleHotspotID(
+					thePos.parentKBCycleID,
+					theLayout.style == eMenuStyle_KBCycleLast &&
+					gKeyBindCycleLastIndex[thePos.parentKBCycleID] >= 0
+						? gKeyBindCycleLastIndex[thePos.parentKBCycleID]
+						: gKeyBindCycleDefaultIndex[thePos.parentKBCycleID]) )
 		{
-			const int aHotspotID = InputMap::menuItemHotspotID(
-					theMenuID, Menus::selectedItem(theMenuID));
 			const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
 			aWinBasePosX = LONG(u16ToRangeVal(
 				aHotspot.x.anchor, theTargetSize.cx));
@@ -2971,26 +3345,6 @@ void updateWindowLayout(
 				aWinScalingSizeY *= aHotspotScale;
 			}
 		}
-		break;
-	case eMenuStyle_KBCycleLast:
-	case eMenuStyle_KBCycleDefault:
-		ps.rects.reserve(1);
-		theAlignmentX = eAlignment_Center;
-		theAlignmentY = eAlignment_Center;
-		if( const Hotspot* aHotspot = InputMap::KeyBindCycleHotspot(
-				thePos.parentKBCycleID,
-				theLayout.style == eMenuStyle_KBCycleLast &&
-				gKeyBindCycleLastIndex[thePos.parentKBCycleID] >= 0
-					? gKeyBindCycleLastIndex[thePos.parentKBCycleID]
-					: gKeyBindCycleDefaultIndex[thePos.parentKBCycleID]) )
-		{
-			aWinBasePosX = LONG(u16ToRangeVal(
-				aHotspot->x.anchor, theTargetSize.cx));
-			aWinBasePosY = LONG(u16ToRangeVal(
-				aHotspot->y.anchor, theTargetSize.cy));
-			aWinScalingPosX += aHotspot->x.offset;
-			aWinScalingPosY += aHotspot->y.offset;
-		}		
 		break;
 	case eMenuStyle_HotspotGuide:
 	case eMenuStyle_System:

@@ -41,6 +41,7 @@ public:
 	PropertyMapPtr& operator=(const PropertyMapPtr&);
 	const PropertyMap* operator->() const;
 	const PropertyMap& operator*() const;
+	operator const PropertyMap*() const;
 };
 #endif
 

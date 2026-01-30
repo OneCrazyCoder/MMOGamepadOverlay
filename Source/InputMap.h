@@ -63,7 +63,7 @@ s8 layerPriority(int theLayerID);
 // Checks what EMouseMode given controls layer requests be used
 EMouseMode mouseMode(int theLayerID);
 
-// Gets what overlays (root menus) given layer specifically wants to show
+// Gets what menu overlays given layer specifically wants to show
 const BitVector<32>& overlaysToShow(int theLayerID);
 
 // Gets what menu overlays given layer specifically wants to hide
@@ -98,6 +98,7 @@ int overlayRootMenuID(int theOverlayID);
 int menuDefaultItemIdx(int theMenuID);
 int menuItemHotspotID(int theMenuID, int theMenuItemIdx); // or 0
 int menuKeyBindCycleID(int theMenuID); // for _KBCycle styles
+bool menuHotspotsChanged(int theMenuID); // in last loadProfileChanges() 
 int menuGridWidth(int theMenuID); // for _Grid style
 int menuGridHeight(int theMenuID); // for _Grid style
 int menuSectionID(int theMenuID);
@@ -118,8 +119,9 @@ int lastHotspotInArray(int theHotspotArrayID);
 int sizeOfHotspotArray(int theHotspotArrayID);
 bool hotspotArrayHasAnchor(int theHotspotArrayID);
 float hotspotScale(int theHotspotID);
-const Hotspot* KeyBindCycleHotspot(int theArrayID, int theIndex);
+int KeyBindCycleHotspotID(int theArrayID, int theIndex); // or 0
 void modifyHotspot(int theHotspotID, const Hotspot& theNewValues);
+const BitVector<512>& changedHotspots(); // in last loadProfileChanges()
 
 // SIZES
 int keyBindCount();

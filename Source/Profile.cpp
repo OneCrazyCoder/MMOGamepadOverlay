@@ -162,6 +162,7 @@ PropertyMapPtr& PropertyMapPtr::operator=(const PropertyMapPtr& rhs)
 { ptr = rhs.ptr; return *this; }
 const PropertyMap* PropertyMapPtr::operator->() const { return ptr; }
 const PropertyMap& PropertyMapPtr::operator*() const { return *ptr; }
+PropertyMapPtr::operator const PropertyMap*() const { return ptr; }
 inline static void confirmSafeToWriteToMap()
 { DBG_ASSERT(sPropertyMapPtrCount == 0); }
 #else

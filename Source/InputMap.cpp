@@ -340,6 +340,7 @@ static std::vector<ButtonRemap> sButtonRemaps;
 static std::vector<std::string> sParsedString(16);
 static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
+static BitVector<512> sChangedHotspots;
 static bool sHotspotArrayResized = false;
 
 
@@ -476,8 +477,7 @@ static int getHotspotID(const std::string& theName)
 static void applyHotspotProperty(
 	const std::string& theKey,
 	const std::string& theDesc,
-	BitVector<32>& theUpdatedHotspotArrays,
-	BitVector<512>& theUpdatedHotspots)
+	BitVector<32>& theUpdatedHotspotArrays)
 {
 	// Determine if this is a single hotspot or part of a range
 	int aRangeStartIdx, aRangeEndIdx;
@@ -570,7 +570,7 @@ static void applyHotspotProperty(
 
 		sHotspots[anArray.anchorIdx] = aHotspot;
 		theUpdatedHotspotArrays.set(aHotspotArrayID);
-		theUpdatedHotspots.set(anArray.anchorIdx);
+		sChangedHotspots.set(anArray.anchorIdx);
 		if( anOffsetScale )
 			anArray.offsetScale = float(anOffsetScale);
 
@@ -612,7 +612,7 @@ static void applyHotspotProperty(
 			{ return; } // skip scan for dependent changes
 			sHotspots[anArray.anchorIdx + itr->firstIdx] = aHotspot;
 			theUpdatedHotspotArrays.set(aHotspotArrayID);
-			theUpdatedHotspots.set(anArray.anchorIdx + itr->firstIdx);
+			sChangedHotspots.set(anArray.anchorIdx + itr->firstIdx);
 		}
 
 		itr->xOffset = itr->hasOwnXAnchor ? 0 : aHotspot.x.offset;
@@ -698,7 +698,7 @@ static void applyHotspotProperty(
 				rangeAffected = true;
 				sHotspots[aHotspotID] = aHotspot;
 				theUpdatedHotspotArrays.set(aHotspotArrayID);
-				theUpdatedHotspots.set(aHotspotID);
+				sChangedHotspots.set(aHotspotID);
 			}
 		}
 	}
@@ -2867,6 +2867,7 @@ static void applyMenuProperty(
 		return;
 
 	case ePropType_KeyBinds:
+	case ePropType_KeyBindCycles:
 	case ePropType_KBCycle:
 		theMenu.keyBindCycleID = dropTo<u16>(
 			sKeyBindCycles.findIndex(thePropVal));
@@ -3851,7 +3852,7 @@ static void loadDataFromProfile(
 	bool init)
 {
 	BitVector<32> loadedHotspotArrays(sHotspotArrays.size());
-	BitVector<512> loadedHotspots(sHotspots.size());
+	sChangedHotspots.clearAndResize(sHotspots.size());
 	BitVector<256> loadedKeyBinds(sKeyBinds.size());
 	BitVector<256> referencedKeyBinds(sKeyBinds.size());
 	BitVector<32> loadedLayers(sLayers.size());
@@ -3892,8 +3893,7 @@ static void loadDataFromProfile(
 				applyHotspotProperty(
 					aPropMap->keys()[aPropIdx],
 					aPropMap->vals()[aPropIdx].str,
-					loadedHotspotArrays,
-					loadedHotspots);
+					loadedHotspotArrays);
 			}
 			break;
 		case ePropType_KeyBinds:
@@ -3969,15 +3969,21 @@ static void loadDataFromProfile(
 	// Report changed hotspots (done after the fact since a single hotspot
 	// property can change multiple hotspots at once due to ranges.
 	#ifdef INPUT_MAP_DEBUG_PRINT
-	for(int aHotspotID = loadedHotspots.firstSetBit();
-		aHotspotID < loadedHotspots.size();
-		aHotspotID = loadedHotspots.nextSetBit(aHotspotID+1))
+	for(int aHotspotID = sChangedHotspots.firstSetBit();
+		aHotspotID < sChangedHotspots.size();
+		aHotspotID = sChangedHotspots.nextSetBit(aHotspotID+1))
 	{
-		mapDebugPrint("[%s]: Assigned '%s' to %s\n",
+		const Hotspot& aHotspot = sHotspots[aHotspotID];
+		mapDebugPrint("[%s]: Assigned '%s' to %d%s%dx, %d%s%dy, %dw, %dh\n",
 			kHotspotsSectionName,
 			hotspotLabel(aHotspotID).c_str(),
-			HotspotMap::hotspotToString(
-				sHotspots[aHotspotID]).c_str());
+			int(aHotspot.x.anchor / 655.36 + 0.5),
+			aHotspot.x.offset >= 0 ? "%+" : "%",
+			aHotspot.x.offset,
+			int(aHotspot.y.anchor / 655.36 + 0.5),
+			aHotspot.y.offset >= 0 ? "%+" : "%",
+			aHotspot.y.offset,
+			aHotspot.w, aHotspot.h);
 	}
 	#endif
 
@@ -4130,6 +4136,7 @@ void loadProfile()
 
 	// Fill in the data
 	loadDataFromProfile(Profile::allSections(), true);
+	sChangedHotspots.reset();
 	sHotspotArrayResized = false;
 }
 
@@ -4506,6 +4513,42 @@ int menuKeyBindCycleID(int theMenuID)
 }
 
 
+bool menuHotspotsChanged(int theMenuID)
+{
+	if( sChangedHotspots.none() )
+		return false;
+
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	switch(menuStyle(theMenuID))
+	{
+	case eMenuStyle_KBCycleLast:
+	case eMenuStyle_KBCycleDefault:
+		{
+			const int aCycleID = menuKeyBindCycleID(theMenuID);
+			if( aCycleID >= sKeyBindCycles.size() )
+				return false;
+			for(int i = 0, end = keyBindCycleSize(aCycleID); i < end; ++i)
+			{
+				const int aHotspotID = KeyBindCycleHotspotID(aCycleID, i);
+				if( sChangedHotspots.test(aHotspotID) )
+					return true;
+			}
+		}
+		break;
+	case eMenuStyle_Hotspots:
+	case eMenuStyle_Highlight:
+		for(int i = 0, end = menuItemCount(theMenuID); i < end; ++i)
+		{
+			if( sChangedHotspots.test(menuItemHotspotID(theMenuID, i)) )
+				return true;
+		}
+		break;
+	}
+
+	return false;
+}
+	
+
 int menuGridWidth(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
@@ -4676,16 +4719,12 @@ float hotspotScale(int theHotspotID)
 }
 
 
-const Hotspot* KeyBindCycleHotspot(int theCycleID, int theIndex)
+int KeyBindCycleHotspotID(int theCycleID, int theIndex)
 {
 	DBG_ASSERT(theCycleID >= 0 && theCycleID < sKeyBindCycles.size());
 	DBG_ASSERT(theIndex >= 0 && theIndex < keyBindCycleSize(theCycleID));
-	Hotspot* result = null;
-	const int aHotspotID =
-		sKeyBindCycles.vals()[theCycleID][theIndex].hotspotID;
-	DBG_ASSERT(size_t(aHotspotID) < sHotspots.size());
-	if( aHotspotID > 0 )
-		result = &sHotspots[aHotspotID];
+	const int result = sKeyBindCycles.vals()[theCycleID][theIndex].hotspotID;
+	DBG_ASSERT(size_t(result) < sHotspots.size());
 	return result;
 }
 
@@ -4694,6 +4733,12 @@ void modifyHotspot(int theHotspotID, const Hotspot& theNewValues)
 {
 	DBG_ASSERT(size_t(theHotspotID) < sHotspots.size());
 	sHotspots[theHotspotID] = theNewValues;
+}
+
+
+const BitVector<512>& changedHotspots()
+{
+	return sChangedHotspots;
 }
 
 
