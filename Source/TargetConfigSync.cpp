@@ -1146,8 +1146,8 @@ protected:
 
 			// Treat last selected candidate as having last mod time of
 			// at least sLastTimeWildcardFileSelected time, so it will
-			// be preferred over candidates that have newer modification
-			// time yet older than when this one was manually selected
+			// be preferred over candidates that may have been modified
+			// after it yet not modified since a selection was made.
 			if( aLastSelCandidateIdx >= 0 &&
 				CompareFileTime(
 					&mCandidates[aLastSelCandidateIdx].lastModTime,

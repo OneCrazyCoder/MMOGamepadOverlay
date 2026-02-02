@@ -150,6 +150,7 @@ static bool sWindowInModalMode = false;
 
 DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 {
+	debugPrint("Modal mode thread started!\n");
 	HANDLE hTimer = *(HANDLE*)lpParam;
 	HANDLE handles[] = { hTimer, sModalModeExit };
 
@@ -160,6 +161,7 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 		switch(WaitForMultipleObjects(2, handles, FALSE, INFINITE))
 		{
 		case WAIT_OBJECT_0:
+			debugPrint("Modal timer update!\n");
 			{// Timer update
 				bool lockEstablished = sModalUpdateLock.tryLock();
 				for(int i = 0; !lockEstablished && !isReadyToExit; ++i)
@@ -188,12 +190,14 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 			}
 			break;
 		case WAIT_OBJECT_0 + 1:
+			debugPrint("Modal timer exit requested!\n");
 			// Exit thread event
 			isReadyToExit = true;
 			break;
 		}
 	}
 
+	debugPrint("Modal mode thread ended!\n");
 	return 0;
 }
 
@@ -905,17 +909,6 @@ void loadProfileChanges()
 	if( !aPropMap )
 		return;
 
-	if( const Profile::Property* aFrameTimeProp = aPropMap->find("FrameTime") )
-	{
-		const int aFrameTime = stringToInt(aFrameTimeProp->str);
-		if( aFrameTime != gAppFrameTime )
-		{
-			timeEndPeriod(gAppTargetFrameTime / 2);
-			gAppTargetFrameTime = max(1, aFrameTime);
-			timeBeginPeriod(gAppTargetFrameTime / 2);
-		}
-	}
-
 	if( aPropMap->contains("IconCopyMethod") ||
 		aPropMap->contains("WindowName") ||
 		aPropMap->contains("WindowWidth") ||
@@ -1239,7 +1232,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	aNewTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
 	if( aNewTargetSize.cx != sTargetSize.cx ||
 		aNewTargetSize.cy != sTargetSize.cy ||
-		gProfileToLoad )
+		!isTargetAppWindow )
 	{
 		sTargetSize = aNewTargetSize;
 
@@ -1249,7 +1242,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		const int aUIScaleBaseHeight =
 			Profile::getInt("System", "UIScaleBaseHeight");
 		if( aUIScaleBaseHeight > 0 )
-			gWindowUIScale *= double(sTargetSize.cy) / aUIScaleBaseHeight;
+			gWindowUIScale = double(sTargetSize.cy) / aUIScaleBaseHeight;
 		else
 			gWindowUIScale = 1.0;
 		const double oldUIScale = gUIScale;

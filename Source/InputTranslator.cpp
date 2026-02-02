@@ -1404,10 +1404,10 @@ static void processCommand(
 		Menus::editMenuItemDir(theCmd.rootMenuID, ECommandDir(theCmd.dir));
 		break;
 	case eCmdType_HotspotSelect:
-		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
-			gHotspotsGuideMode = eHotspotGuideMode_Redisplay;
-		else
+		if( gHotspotsGuideMode == eHotspotGuideMode_Disabled )
 			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
+		else
+			gHotspotsGuideMode = eHotspotGuideMode_Redisplay;
 		DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 		sResults.selectHotspotDir = combined8Dir(
 			sResults.selectHotspotDir, ECommandDir(theCmd.dir));

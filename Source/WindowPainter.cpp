@@ -2444,6 +2444,10 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 		{
 			struct { const char* str; EPropChangeImpact val; }
 			kEntries[] = {
+				{ "L",							ePropChangeImpact_Labels	},
+				{ "R",							ePropChangeImpact_Labels	},
+				{ "U",							ePropChangeImpact_Labels	},
+				{ "D",							ePropChangeImpact_Labels	},
 				{ "Label",						ePropChangeImpact_Labels	},
 				{ "Title",						ePropChangeImpact_Labels	},
 				{ "Name",						ePropChangeImpact_Labels	},
@@ -2506,10 +2510,6 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 				{ "Initial",					ePropChangeImpact_None		},
 				{ "First",						ePropChangeImpact_None		},
 				{ "Start",						ePropChangeImpact_None		},
-				{ "L",							ePropChangeImpact_None		},
-				{ "R",							ePropChangeImpact_None		},
-				{ "U",							ePropChangeImpact_None		},
-				{ "D",							ePropChangeImpact_None		},
 				{ "Mouse",						ePropChangeImpact_None		},
 				{ "Cursor",						ePropChangeImpact_None		},
 				{ "Auto",						ePropChangeImpact_None		},
@@ -2763,8 +2763,13 @@ void loadProfileChanges()
 		// Trigger a reshape for any active menus that use changed hotspots
 		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
 		{
-			if( i == kSystemOverlayID || i == kHotspotGuideOverlayID )
+			if( i == kSystemOverlayID )
 				continue;
+			if( i == kHotspotGuideOverlayID )
+			{
+				gRefreshOverlays.set(i);
+				continue;
+			}
 			const int aMenuID = Menus::activeMenuForOverlayID(i);
 			if( InputMap::menuHotspotsChanged(aMenuID) )
 				gReshapeOverlays.set(i);

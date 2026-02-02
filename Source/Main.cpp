@@ -164,6 +164,19 @@ void mainLoopTimeSkip()
 }
 
 
+void updateFrameTiming()
+{
+	const int aFrameTime =
+		Profile::getInt("System", "FrameTime", gAppTargetFrameTime);
+	if( aFrameTime != gAppTargetFrameTime )
+	{
+		timeEndPeriod(gAppTargetFrameTime / 2);
+		gAppTargetFrameTime = max(1, aFrameTime);
+		timeBeginPeriod(gAppTargetFrameTime / 2);
+	}
+}
+
+
 //------------------------------------------------------------------------------
 // Application entry point - WinMain
 //------------------------------------------------------------------------------
@@ -195,9 +208,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 
 	// Load core profile to get system settings
 	Profile::loadCore();
-	gAppTargetFrameTime = max(1,
-		Profile::getInt("System", "FrameTime",
-		gAppTargetFrameTime));
 
 	// Initiate frame timing
 	timeBeginPeriod(gAppTargetFrameTime / 2);
@@ -218,14 +228,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 			WindowManager::createMain(hInstance);
 
 			// Load configuration settings for each module from profile
-			const int aFrameTime =
-				Profile::getInt("System", "FrameTime", gAppFrameTime);
-			if( aFrameTime != gAppFrameTime )
-			{
-				timeEndPeriod(gAppTargetFrameTime / 2);
-				gAppTargetFrameTime = max(1, aFrameTime);
-				timeBeginPeriod(gAppTargetFrameTime / 2);
-			}
 			InputMap::loadProfile();
 			HotspotMap::init();
 			Menus::init();
@@ -261,6 +263,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 				TargetApp::loadProfileChanges();
 				WindowPainter::loadProfileChanges();
 				WindowManager::loadProfileChanges();
+				updateFrameTiming();
 				Profile::clearChangedSections();
 			}
 
