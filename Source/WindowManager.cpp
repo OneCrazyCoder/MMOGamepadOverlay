@@ -79,7 +79,6 @@ struct ZERO_INIT(OverlayWindow)
 	bool layoutReady;
 };
 
-
 struct ZERO_INIT(OverlayWindowPriority)
 {
 	u16 id;
@@ -93,32 +92,26 @@ struct ZERO_INIT(OverlayWindowPriority)
 	}
 };
 
-
 class ModalUpdateLock
 {
 public:
-	ModalUpdateLock() { getLock().lock(); }
-	~ModalUpdateLock() { getLock().unlock(); }
-
+	ModalUpdateLock() { InitializeCriticalSection(&mCritSect); }
+	~ModalUpdateLock() { DeleteCriticalSection(&mCritSect); }
+	void lock() { EnterCriticalSection(&mCritSect); }
+	void unlock() { LeaveCriticalSection(&mCritSect); }
+	bool tryLock() { return TryEnterCriticalSection(&mCritSect) == TRUE; }
 private:
-	ModalUpdateLock(const ModalUpdateLock&); // no copying!
-	ModalUpdateLock& operator=(const ModalUpdateLock&); // no copying!
+	CRITICAL_SECTION mCritSect;
+} sModalUpdateLock;
 
-	class LockWrapper
-	{
-	public:
-		LockWrapper() { InitializeCriticalSection(&mCritSect); }
-		~LockWrapper() { DeleteCriticalSection(&mCritSect); }
-		void lock() { EnterCriticalSection(&mCritSect); }
-		void unlock() { LeaveCriticalSection(&mCritSect); }
-		CRITICAL_SECTION mCritSect;
-	};
-
-	static LockWrapper& getLock()
-	{
-		static LockWrapper lock;
-		return lock;
-	}
+class AutoModalUpdateLock
+{
+public:
+	AutoModalUpdateLock() { sModalUpdateLock.lock(); }
+	~AutoModalUpdateLock() { sModalUpdateLock.unlock(); }
+private:
+	AutoModalUpdateLock(const AutoModalUpdateLock&); // no copying!
+	AutoModalUpdateLock& operator=(const AutoModalUpdateLock&); // no copying!
 };
 
 
@@ -163,22 +156,41 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 	bool isReadyToExit = false;
 	while(!isReadyToExit)
 	{
-		// Wait for the timer to be signaled
+		// Wait for the timer (or exit) to be signaled
 		switch(WaitForMultipleObjects(2, handles, FALSE, INFINITE))
 		{
 		case WAIT_OBJECT_0:
 			{// Timer update
-				ModalUpdateLock autoLock;
-				if( sWindowInModalMode )
+				bool lockEstablished = sModalUpdateLock.tryLock();
+				for(int i = 0; !lockEstablished && !isReadyToExit; ++i)
+				{
+					if( i < 10 )
+						YieldProcessor();
+					else if( i < 50 )
+						SwitchToThread();
+					else if( i < 1000 )
+						Sleep(0);
+					else
+						return 0; // failsafe
+					lockEstablished = sModalUpdateLock.tryLock();
+					isReadyToExit =
+						WaitForSingleObject(sModalModeExit, 0)
+							== WAIT_OBJECT_0;
+				}
+
+				if( sWindowInModalMode && !isReadyToExit )
 				{
 					mainTimerUpdate();
 					mainModulesUpdate();
 				}
+				if( lockEstablished )
+					sModalUpdateLock.unlock();
 			}
 			break;
 		case WAIT_OBJECT_0 + 1:
 			// Exit thread event
 			isReadyToExit = true;
+			break;
 		}
 	}
 
@@ -223,7 +235,6 @@ static void startModalModeUpdates()
 static bool normalWindowsProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	ModalUpdateLock autoLock;
 	switch(theMessage)
 	{
  	case WM_SYSCOLORCHANGE:
@@ -234,12 +245,16 @@ static bool normalWindowsProc(
 	case WM_NCLBUTTONDOWN:
 	case WM_NCLBUTTONDBLCLK:
 	case WM_ENTERSIZEMOVE:
+	case WM_ENTERMENULOOP:
 		startModalModeUpdates();
-		break;
+		return true;
 
 	case WM_SYSCOMMAND:
-		if( wParam == SC_MOVE || wParam == SC_SIZE )
+		if( wParam == SC_MOVE || wParam == SC_SIZE || wParam == SC_KEYMENU )
+		{
 			startModalModeUpdates();
+			return true;
+		}
 		break;
 
 	case WM_DEVICECHANGE:
@@ -255,91 +270,92 @@ static bool normalWindowsProc(
 static LRESULT CALLBACK mainWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	ModalUpdateLock autoLock;
-	switch(theMessage)
+	if( normalWindowsProc(theWindow, theMessage, wParam, lParam) )
+		return DefWindowProc(theWindow, theMessage, wParam, lParam);
+
 	{
-	case WM_COMMAND:
-		switch(LOWORD(wParam))
+		AutoModalUpdateLock autoLock;
+		switch(theMessage)
 		{
-		case ID_FILE_EXIT:
+		case WM_COMMAND:
+			switch(LOWORD(wParam))
+			{
+			case ID_FILE_EXIT:
+				PostQuitMessage(0);
+				return 0;
+			case ID_FILE_PROFILE:
+				gProfileToLoad = Profile::queryUserForProfile();
+				return 0;
+			case ID_FILE_CHARACTERCONFIGFILE:
+				TargetConfigSync::promptUserForSyncFileToUse();
+				return 0;
+			case ID_EDIT_UILAYOUT:
+				LayoutEditor::init();
+				return 0;
+			case ID_HELP_LICENSE:
+				Dialogs::showLicenseAgreement(theWindow);
+				return 0;
+			case ID_HELP_KNOWN_ISSUES:
+				Dialogs::showKnownIssues(theWindow);
+				return 0;
+			}
+			break;
+
+		case WM_PAINT:
+			WindowPainter::paintMainWindowContents(theWindow,
+				sMainWindowDisabled || (GetActiveWindow() != theWindow));
+			break;
+
+		case WM_ACTIVATE:
+			InvalidateRect(theWindow, NULL, TRUE);
+			break;
+
+		case WM_CLOSE:
 			PostQuitMessage(0);
 			return 0;
-		case ID_FILE_PROFILE:
-			gProfileToLoad = Profile::queryUserForProfile();
-			return 0;
-		case ID_FILE_CHARACTERCONFIGFILE:
-			TargetConfigSync::promptUserForSyncFileToUse();
-			return 0;
-		case ID_EDIT_UILAYOUT:
-			LayoutEditor::init();
-			return 0;
-		case ID_HELP_LICENSE:
-			Dialogs::showLicenseAgreement(theWindow);
-			return 0;
-		case ID_HELP_KNOWN_ISSUES:
-			Dialogs::showKnownIssues(theWindow);
-			return 0;
-		}
-		break;
 
-	case WM_PAINT:
-		WindowPainter::paintMainWindowContents(theWindow,
-			sMainWindowDisabled || (GetActiveWindow() != theWindow));
-		break;
-
-	case WM_ACTIVATE:
-		InvalidateRect(theWindow, NULL, TRUE);
-		break;
-
-	case WM_CLOSE:
-		PostQuitMessage(0);
-		return 0;
-
-	case WM_DESTROY:
-		// Note position in case are re-created
-		{
-			RECT aWindowRect;
-			GetWindowRect(theWindow, &aWindowRect);
-			sMainWindowPos.x = aWindowRect.left;
-			sMainWindowPos.y = aWindowRect.top;
-		}
-		// Clean up modal mode handling
-		if( sModalModeExit )
-		{
-			SetEvent(sModalModeExit);
-			WaitForSingleObject(sModalModeThread, INFINITE);
-			CloseHandle(sModalModeExit);
-			sModalModeExit = NULL;
-		}
-		if( sModalModeTimer )
-		{
-			CloseHandle(sModalModeTimer);
-			sModalModeTimer = NULL;
-		}
-		if( sModalModeThread )
-		{
-			CloseHandle(sModalModeThread);
-			sModalModeThread = NULL;
-		}
-		sMainWindow = NULL;
-		return 0;
-
- 	case WM_SYSCOLORCHANGE:
-	case WM_DISPLAYCHANGE:
-		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
-		{
-			if( sOverlayWindows[i].bitmap )
-			{
-				DeleteObject(sOverlayWindows[i].bitmap);
-				sOverlayWindows[i].bitmap = NULL;
+		case WM_DESTROY:
+			{// Note position in case are re-created
+				RECT aWindowRect;
+				GetWindowRect(theWindow, &aWindowRect);
+				sMainWindowPos.x = aWindowRect.left;
+				sMainWindowPos.y = aWindowRect.top;
 			}
-		}
-		WindowPainter::init();
-		break;
-	}
+			// Clean up modal mode handling
+			if( sModalModeExit )
+			{
+				SetEvent(sModalModeExit);
+				WaitForSingleObject(sModalModeThread, INFINITE);
+				CloseHandle(sModalModeExit);
+				sModalModeExit = NULL;
+			}
+			if( sModalModeTimer )
+			{
+				CloseHandle(sModalModeTimer);
+				sModalModeTimer = NULL;
+			}
+			if( sModalModeThread )
+			{
+				CloseHandle(sModalModeThread);
+				sModalModeThread = NULL;
+			}
+			sMainWindow = NULL;
+			return 0;
 
-	if( normalWindowsProc(theWindow, theMessage, wParam, lParam) )
-		return 0;
+ 		case WM_SYSCOLORCHANGE:
+		case WM_DISPLAYCHANGE:
+			for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+			{
+				if( sOverlayWindows[i].bitmap )
+				{
+					DeleteObject(sOverlayWindows[i].bitmap);
+					sOverlayWindows[i].bitmap = NULL;
+				}
+			}
+			WindowPainter::init();
+			break;
+		}
+	}
 
 	return DefWindowProc(theWindow, theMessage, wParam, lParam);
 }
@@ -347,7 +363,7 @@ static LRESULT CALLBACK mainWindowProc(
 
 static void setMainWindowEnabled(bool enable = true)
 {
-	if( !sMainWindow || sMainWindowDisabled != enable )
+	if( !sMainWindow || sMainWindowDisabled != enable || sWindowInModalMode )
 		return;
 	if( enable && sToolbarWindow )
 		return;
@@ -370,11 +386,13 @@ static void setMainWindowEnabled(bool enable = true)
 static INT_PTR CALLBACK toolbarWindowProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	ModalUpdateLock autoLock;
 	if( normalWindowsProc(theDialog, theMessage, wParam, lParam) )
-		return (INT_PTR)TRUE;
+		return (INT_PTR)FALSE;
 	if( sToolbarDialogProc )
+	{
+		AutoModalUpdateLock autoLock;
 		return sToolbarDialogProc(theDialog, theMessage, wParam, lParam);
+	}
 	return (INT_PTR)FALSE;
 }
 
@@ -930,7 +948,7 @@ void loadProfileChanges()
 
 void update()
 {
-	if( sWindowInModalMode || gProfileToLoad || gShutdown )
+	if( gProfileToLoad || gShutdown )
 		return;
 
 	sInDialogMode = false;
@@ -1094,9 +1112,9 @@ void update()
 	}
 	ReleaseDC(NULL, aCaptureDC);
 	ReleaseDC(NULL, aScreenDC);
-
+	
 	// TODO
-	//if( windowReorderNeeded )
+	//if( windowReorderNeeded && !sWindowInModalMode )
 
 	if( sToolbarWindow && !sHidden && !IsWindowVisible(sToolbarWindow) )
 		ShowWindow(sToolbarWindow, SW_SHOW);
@@ -1135,12 +1153,9 @@ void stopModalModeUpdates()
 {
 	if( !sWindowInModalMode )
 		return;
-	{
-		ModalUpdateLock autoLock;
-		if( sModalModeTimer )
-			CancelWaitableTimer(sModalModeTimer);
-		sWindowInModalMode = false;
-	}
+	sWindowInModalMode = false;
+	if( sModalModeTimer )
+		CancelWaitableTimer(sModalModeTimer);
 }
 
 

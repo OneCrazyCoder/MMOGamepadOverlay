@@ -71,9 +71,6 @@ bool overlaysAreHidden();
 SIZE overlayTargetSize();
 RECT overlayClipRect();
 
-// Updates gUIScale read in from Profile and possibly window size
-//void updateUIScale();
-
 // Displays a visual indicater that are tracking a target window now
 void showTargetWindowFound();
 
