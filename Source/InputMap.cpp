@@ -4148,10 +4148,10 @@ void loadProfileChanges()
 	// Check for any newly-created sub-menus
 	for(int aSectID = 0; aSectID < theProfileMap.size(); ++aSectID)
 	{
-		const std::string& aSectName = theProfileMap.keys()[aSectID];
-		if( size_t aPrefixEnd = posAfterPrefix(aSectName, kMenuPrefix) )
+		const std::string& aSectionName = theProfileMap.keys()[aSectID];
+		if( size_t aPrefixEnd = posAfterPrefix(aSectionName, kMenuPrefix) )
 		{
-			const std::string& aMenuName = aSectName.substr(aPrefixEnd);
+			const std::string& aMenuName = aSectionName.substr(aPrefixEnd);
 			DBG_ASSERT(!aMenuName.empty());
 			const int aMenuCount = sMenus.size();
 			const int aMenuID = sMenus.findOrAddIndex(aMenuName);
@@ -4162,6 +4162,7 @@ void loadProfileChanges()
 			// Only valid to add sub-menus, not root menus / overlays!
 			DBG_ASSERT(sMenus.vals()[aMenuID].parentMenuID < kInvalidID);
 			setupRootMenu(aMenuID);
+			sMenus.vals()[aMenuID].profileSectionID = dropTo<u16>(aSectID);
 		}
 	}
 

@@ -2734,6 +2734,7 @@ void loadProfileChanges()
 	// minor changes, an occassional full reload is used to flush the cache.
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
 	if( sCacheIncreaseCount >= kCacheIncreaseCountForFullReload ||
+		size_t(InputMap::menuCount()) > sMenuDrawCache.size() ||
 		theProfileMap.contains(kBitmapsSectionName) ||
 		theProfileMap.contains(kMenuDefaultSectionName) ||
 		theProfileMap.contains(kIconsSectionName) )
@@ -3635,7 +3636,6 @@ void paintMainWindowContents(HWND theWindow, bool asDisabled)
 	// Draw version string centered
 	DrawText(hdc, aWStr.c_str(), -1, &aRect,
 		DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-
 
 	// Cleanup
 	if( asDisabled )
