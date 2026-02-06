@@ -2708,7 +2708,7 @@ void init()
 
 	// Bitmap source files are only needed temporarily to make
 	// BitmapIcons out of, so can be freed when done creating icons
-	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
+	for(int i = 0, end = intSize(sBitmapFiles.size()); i < end; ++i)
 	{
 		DeleteObject(sBitmapFiles[i].handle);
 		sBitmapFiles[i].handle = NULL;
@@ -2826,7 +2826,7 @@ void loadProfileChanges()
 	}
 
 	// Cleanup
-	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
+	for(int i = 0, end = intSize(sBitmapFiles.size()); i < end; ++i)
 	{
 		DeleteObject(sBitmapFiles[i].handle);
 		sBitmapFiles[i].handle = NULL;
@@ -2844,7 +2844,7 @@ void cleanup()
 		DeleteObject(sFonts[i].handle);
 	for(int i = 0, end = intSize(sPens.size()); i < end; ++i)
 		DeleteObject(sPens[i].handle);
-	for(int i = 0, end = sBitmapFiles.size(); i < end; ++i)
+	for(int i = 0, end = intSize(sBitmapFiles.size()); i < end; ++i)
 		DeleteObject(sBitmapFiles[i].handle);
 	for(int i = 0, end = intSize(sBitmapIcons.size()); i < end; ++i)
 	{
@@ -3093,7 +3093,7 @@ void updateScaling()
 	// Clear auto-sized fonts and border pens so they'll regenerate at new scale
 	for(int i = 0, end = intSize(sAutoSizedFonts.size()); i < end; ++i)
 		DeleteObject(sAutoSizedFonts[i].handle);
-	sCacheIncreaseCount -= sAutoSizedFonts.size();
+	sCacheIncreaseCount -= intSize(sAutoSizedFonts.size());
 	sAutoSizedFonts.clear();
 	for(int i = 0, end = intSize(sPens.size()); i < end; ++i)
 		DeleteObject(sPens[i].handle);

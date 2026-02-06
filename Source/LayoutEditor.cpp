@@ -792,10 +792,10 @@ static void adjustComboBoxDroppedWidth(HWND hCombo)
 	DBG_ASSERT(IsWindow(hCombo));
 
 	// Get current dropped width so we don't shrink it
-	const int aCurrWidth = SendMessage(hCombo, CB_GETDROPPEDWIDTH, 0, 0);
+	const int aCurrWidth = int(SendMessage(hCombo, CB_GETDROPPEDWIDTH, 0, 0));
 
 	// Get number of items
-	const int anItemCount = SendMessage(hCombo, CB_GETCOUNT, 0, 0);
+	const int anItemCount = int(SendMessage(hCombo, CB_GETCOUNT, 0, 0));
 	if( anItemCount <= 0 )
 		return;
 
@@ -813,7 +813,7 @@ static void adjustComboBoxDroppedWidth(HWND hCombo)
 
 	for(int i = 0; i < anItemCount; ++i)
 	{
-		int aTextLen = SendMessage(hCombo, CB_GETLBTEXTLEN, i, 0);
+		int aTextLen = int(SendMessage(hCombo, CB_GETLBTEXTLEN, i, 0));
 		if( aTextLen <= 0 )
 			continue;
 

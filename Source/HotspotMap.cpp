@@ -939,7 +939,7 @@ void loadProfileChanges()
 	if( theProfileMap.contains("Hotspots") || theProfileMap.contains("Mouse") )
 	{
 		sNewTasks.set();
-		for(int i = 0, end = sLinkMaps.size(); i < end; ++i)
+		for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
 		{
 			if( InputMap::menuHotspotsChanged(sLinkMaps[i].first) )
 				sLinkMaps[i].second.clear();
