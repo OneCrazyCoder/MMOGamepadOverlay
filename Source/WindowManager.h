@@ -40,9 +40,9 @@ void loadProfileChanges();
 // Update window contents as needed
 void update();
 
-// Disables main window and hides overlays until endDialogMode() or update()
-void prepareForDialog();
-void endDialogMode();
+// Disables main window and hides overlays until endDialog() or update()
+void beginDialog(HWND theDialog);
+void endDialog();
 
 // Stops main window manually updating modules in modal mode (resizing window)
 void stopModalModeUpdates();
@@ -55,6 +55,9 @@ HWND mainHandle();
 
 // Gets handle to active editor toolbar window (or NULL)
 HWND toolbarHandle();
+
+// Gets handle to use as parent window for other windows (or NULL)
+HWND parentWindowHandle();
 
 // Checks for situations where mouse must be visible and directly controlled
 // (not hidden in the corner or attempting to use mouse look mode) due to

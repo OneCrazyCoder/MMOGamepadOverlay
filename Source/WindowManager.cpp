@@ -17,6 +17,7 @@
 // Forward declares of functions defined in Main.cpp for updating in modal mode
 void mainTimerUpdate();
 void mainModulesUpdate();
+void mainWindowMessagePump(HWND);
 
 namespace WindowManager
 {
@@ -57,6 +58,7 @@ enum EFadeState
 	eFadeState_FadeOutDelay,
 	eFadeState_FadingOut,
 	eFadeState_PulseForever,
+	eFadeState_Minimized,
 };
 
 
@@ -92,28 +94,6 @@ struct ZERO_INIT(OverlayWindowPriority)
 	}
 };
 
-class ModalUpdateLock
-{
-public:
-	ModalUpdateLock() { InitializeCriticalSection(&mCritSect); }
-	~ModalUpdateLock() { DeleteCriticalSection(&mCritSect); }
-	void lock() { EnterCriticalSection(&mCritSect); }
-	void unlock() { LeaveCriticalSection(&mCritSect); }
-	bool tryLock() { return TryEnterCriticalSection(&mCritSect) == TRUE; }
-private:
-	CRITICAL_SECTION mCritSect;
-} sModalUpdateLock;
-
-class AutoModalUpdateLock
-{
-public:
-	AutoModalUpdateLock() { sModalUpdateLock.lock(); }
-	~AutoModalUpdateLock() { sModalUpdateLock.unlock(); }
-private:
-	AutoModalUpdateLock(const AutoModalUpdateLock&); // no copying!
-	AutoModalUpdateLock& operator=(const AutoModalUpdateLock&); // no copying!
-};
-
 
 //------------------------------------------------------------------------------
 // Static Variables
@@ -122,6 +102,8 @@ private:
 static HWND sMainWindow = NULL;
 static HWND sSystemOverlayWindow = NULL;
 static HWND sToolbarWindow = NULL;
+static HWND sDialogWindow = NULL;
+static HMENU sDetachedMenu = NULL;
 static DLGPROC sToolbarDialogProc = NULL;
 static HANDLE sModalModeTimer = NULL;
 static HANDLE sModalModeThread = NULL;
@@ -139,9 +121,9 @@ static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sMainWindowPosInit = false;
 static bool sUseChildWindows = false;
 static bool sHidden = false;
-static bool sInDialogMode = false;
 static bool sMainWindowDisabled = false;
-static bool sWindowInModalMode = false;
+static volatile bool sWindowInModalMode = false;
+static volatile bool sModalUpdateRunning = false;
 
 
 //------------------------------------------------------------------------------
@@ -150,7 +132,6 @@ static bool sWindowInModalMode = false;
 
 DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 {
-	debugPrint("Modal mode thread started!\n");
 	HANDLE hTimer = *(HANDLE*)lpParam;
 	HANDLE handles[] = { hTimer, sModalModeExit };
 
@@ -161,50 +142,30 @@ DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 		switch(WaitForMultipleObjects(2, handles, FALSE, INFINITE))
 		{
 		case WAIT_OBJECT_0:
-			debugPrint("Modal timer update!\n");
 			{// Timer update
-				bool lockEstablished = sModalUpdateLock.tryLock();
-				for(int i = 0; !lockEstablished && !isReadyToExit; ++i)
-				{
-					if( i < 10 )
-						YieldProcessor();
-					else if( i < 50 )
-						SwitchToThread();
-					else if( i < 1000 )
-						Sleep(0);
-					else
-						return 0; // failsafe
-					lockEstablished = sModalUpdateLock.tryLock();
-					isReadyToExit =
-						WaitForSingleObject(sModalModeExit, 0)
-							== WAIT_OBJECT_0;
-				}
-
-				if( sWindowInModalMode && !isReadyToExit )
+				sModalUpdateRunning = true;
+				if( sWindowInModalMode )
 				{
 					mainTimerUpdate();
 					mainModulesUpdate();
 				}
-				if( lockEstablished )
-					sModalUpdateLock.unlock();
+				sModalUpdateRunning = false;
 			}
 			break;
 		case WAIT_OBJECT_0 + 1:
-			debugPrint("Modal timer exit requested!\n");
 			// Exit thread event
 			isReadyToExit = true;
 			break;
 		}
 	}
 
-	debugPrint("Modal mode thread ended!\n");
 	return 0;
 }
 
 
 static void startModalModeUpdates()
 {
-	if( sWindowInModalMode )
+	if( sWindowInModalMode || sDialogWindow )
 		return;
 
 	// This is used to make sure gamepad input still has an effect when
@@ -236,11 +197,53 @@ static void startModalModeUpdates()
 }
 
 
-static bool normalWindowsProc(
+static void minimizeOverlays()
+{
+	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+		sOverlayWindows[i].fadeState = eFadeState_Minimized;
+}
+
+
+static void restoreMinimizedOverlays()
+{
+	for(int i = 0, end = intSize(sOverlayWindows.size());
+		i < end; ++i)
+	{
+		if( sOverlayWindows[i].fadeState == eFadeState_Minimized )
+			sOverlayWindows[i].fadeState = eFadeState_Hidden;
+	}
+}
+
+
+static int normalWindowsProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
 	switch(theMessage)
 	{
+	case WM_ACTIVATE:
+		if( LOWORD(wParam) != WA_INACTIVE && (sDialogWindow || sToolbarWindow) )
+		{
+			HWND aPopupWindow = sDialogWindow ? sDialogWindow : sToolbarWindow;
+			SetForegroundWindow(aPopupWindow);
+			FLASHWINFO aFlashInfo =
+				{ sizeof(FLASHWINFO), aPopupWindow, FLASHW_CAPTION, 5, 60 };
+			FlashWindowEx(&aFlashInfo);
+			return 0;
+		}
+		break;
+
+	case WM_MOUSEACTIVATE:
+		if( sDialogWindow || sToolbarWindow )
+		{
+			HWND aPopupWindow = sDialogWindow ? sDialogWindow : sToolbarWindow;
+			SetForegroundWindow(aPopupWindow);
+			FLASHWINFO aFlashInfo =
+				{ sizeof(FLASHWINFO), aPopupWindow, FLASHW_CAPTION, 5, 60 };
+			FlashWindowEx(&aFlashInfo);
+			return MA_NOACTIVATEANDEAT;
+		}
+		break;
+
  	case WM_SYSCOLORCHANGE:
 	case WM_DISPLAYCHANGE:
 		InvalidateRect(theWindow, NULL, false);
@@ -251,13 +254,13 @@ static bool normalWindowsProc(
 	case WM_ENTERSIZEMOVE:
 	case WM_ENTERMENULOOP:
 		startModalModeUpdates();
-		return true;
+		return -2;
 
 	case WM_SYSCOMMAND:
 		if( wParam == SC_MOVE || wParam == SC_SIZE || wParam == SC_KEYMENU )
 		{
 			startModalModeUpdates();
-			return true;
+			return -2;
 		}
 		break;
 
@@ -267,99 +270,149 @@ static bool normalWindowsProc(
 		break;
 	}
 
-	return false;
+	return -1;
 }
 
 
 static LRESULT CALLBACK mainWindowProc(
 	HWND theWindow, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	if( normalWindowsProc(theWindow, theMessage, wParam, lParam) )
-		return DefWindowProc(theWindow, theMessage, wParam, lParam);
-
+	switch(theMessage)
 	{
-		AutoModalUpdateLock autoLock;
-		switch(theMessage)
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
 		{
-		case WM_COMMAND:
-			switch(LOWORD(wParam))
-			{
-			case ID_FILE_EXIT:
-				PostQuitMessage(0);
-				return 0;
-			case ID_FILE_PROFILE:
-				gProfileToLoad = Profile::queryUserForProfile();
-				return 0;
-			case ID_FILE_CHARACTERCONFIGFILE:
-				TargetConfigSync::promptUserForSyncFileToUse();
-				return 0;
-			case ID_EDIT_UILAYOUT:
-				LayoutEditor::init();
-				return 0;
-			case ID_HELP_LICENSE:
-				Dialogs::showLicenseAgreement(theWindow);
-				return 0;
-			case ID_HELP_KNOWN_ISSUES:
-				Dialogs::showKnownIssues(theWindow);
-				return 0;
-			}
-			break;
-
-		case WM_PAINT:
-			WindowPainter::paintMainWindowContents(theWindow,
-				sMainWindowDisabled || (GetActiveWindow() != theWindow));
-			break;
-
-		case WM_ACTIVATE:
-			InvalidateRect(theWindow, NULL, TRUE);
-			break;
-
-		case WM_CLOSE:
+		case ID_FILE_EXIT:
 			PostQuitMessage(0);
 			return 0;
-
-		case WM_DESTROY:
-			{// Note position in case are re-created
-				RECT aWindowRect;
-				GetWindowRect(theWindow, &aWindowRect);
-				sMainWindowPos.x = aWindowRect.left;
-				sMainWindowPos.y = aWindowRect.top;
-			}
-			// Clean up modal mode handling
-			if( sModalModeExit )
-			{
-				SetEvent(sModalModeExit);
-				WaitForSingleObject(sModalModeThread, INFINITE);
-				CloseHandle(sModalModeExit);
-				sModalModeExit = NULL;
-			}
-			if( sModalModeTimer )
-			{
-				CloseHandle(sModalModeTimer);
-				sModalModeTimer = NULL;
-			}
-			if( sModalModeThread )
-			{
-				CloseHandle(sModalModeThread);
-				sModalModeThread = NULL;
-			}
-			sMainWindow = NULL;
+		case ID_FILE_PROFILE:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				gProfileToLoad = Profile::queryUserForProfile();
 			return 0;
+		case ID_FILE_CHARACTERCONFIGFILE:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				TargetConfigSync::promptUserForSyncFileToUse();
+			return 0;
+		case ID_EDIT_UILAYOUT:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				LayoutEditor::init();
+			return 0;
+		case ID_HELP_LICENSE:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				Dialogs::showLicenseAgreement();
+			return 0;
+		case ID_HELP_KNOWN_ISSUES:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				Dialogs::showKnownIssues();
+			return 0;
+		case ID_MINIMIZE:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				ShowWindow(theWindow, SW_MINIMIZE);
+			return 0;
+		}
+		break;
 
- 		case WM_SYSCOLORCHANGE:
-		case WM_DISPLAYCHANGE:
-			for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
-			{
-				if( sOverlayWindows[i].bitmap )
-				{
-					DeleteObject(sOverlayWindows[i].bitmap);
-					sOverlayWindows[i].bitmap = NULL;
-				}
-			}
-			WindowPainter::init();
+	case WM_PAINT:
+		WindowPainter::paintMainWindowContents(theWindow,
+			sMainWindowDisabled || (GetActiveWindow() != theWindow));
+		break;
+
+	case WM_SIZE:
+		switch(wParam)
+		{
+		case SIZE_MINIMIZED:
+			// Hide overlays as well when main app is minimized and are in
+			// "desktop mode" (no target app window found) with a special mode
+			// that makes each only stay hidden until the are interact with or
+			// made newly visible via controller input.
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				minimizeOverlays();
+			break;
+		case SIZE_RESTORED:
+			// Restore any "minimized" overlays to being just "hidden", which
+			// will make gVisibleOverlays control their visibility instead
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				restoreMinimizedOverlays();
 			break;
 		}
+		break;
+
+	case WM_ACTIVATE:
+		InvalidateRect(theWindow, NULL, TRUE);
+		break;
+
+	case WM_CLOSE:
+		PostQuitMessage(0);
+		return 0;
+
+	case WM_DESTROY:
+		{// Note position in case are re-created
+			RECT aWindowRect;
+			GetWindowRect(theWindow, &aWindowRect);
+			sMainWindowPos.x = aWindowRect.left;
+			sMainWindowPos.y = aWindowRect.top;
+		}
+		// Clean up modal mode handling
+		DBG_ASSERT(!sWindowInModalMode && !sModalUpdateRunning);
+		if( sModalModeExit )
+		{
+			SetEvent(sModalModeExit);
+			WaitForSingleObject(sModalModeThread, INFINITE);
+			CloseHandle(sModalModeExit);
+			sModalModeExit = NULL;
+		}
+		if( sModalModeTimer )
+		{
+			CloseHandle(sModalModeTimer);
+			sModalModeTimer = NULL;
+		}
+		if( sModalModeThread )
+		{
+			CloseHandle(sModalModeThread);
+			sModalModeThread = NULL;
+		}
+		if( sDetachedMenu )
+		{
+			DestroyMenu(sDetachedMenu);
+			sDetachedMenu = NULL;
+		}
+		sMainWindow = NULL;
+		return 0;
+
+	case WM_SYSCOLORCHANGE:
+	case WM_DISPLAYCHANGE:
+		stopModalModeUpdates();
+		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+		{
+			if( sOverlayWindows[i].bitmap )
+			{
+				DeleteObject(sOverlayWindows[i].bitmap);
+				sOverlayWindows[i].bitmap = NULL;
+			}
+		}
+		WindowPainter::init();
+		break;
 	}
+
+	int result = normalWindowsProc(theWindow, theMessage, wParam, lParam);
+	if( result >= 0 )
+		return (LRESULT)result;
 
 	return DefWindowProc(theWindow, theMessage, wParam, lParam);
 }
@@ -367,34 +420,39 @@ static LRESULT CALLBACK mainWindowProc(
 
 static void setMainWindowEnabled(bool enable = true)
 {
-	if( !sMainWindow || sMainWindowDisabled != enable || sWindowInModalMode )
-		return;
-	if( enable && sToolbarWindow )
+	if( !sMainWindow || sMainWindowDisabled != enable )
 		return;
 
+	// I do this instead of fully disabling the window so that the app
+	// can still be exited via closing the main window from the task bar
+	// The menu is removed because clicking directly on the disabled
+	// menu activates a modal mode that won't exit until click elsewhere!
 	sMainWindowDisabled = !enable;
-	if( HMENU hMenu = GetMenu(sMainWindow) )
+	if( enable && sDetachedMenu )
 	{
-		const int kMenuItemCount = GetMenuItemCount(hMenu);
-		for(int i = 0; i < kMenuItemCount; ++i)
-		{
-			EnableMenuItem(hMenu, i,
-				MF_BYPOSITION | (enable ? MF_ENABLED : MF_GRAYED));
-		}
+		SetMenu(sMainWindow, sDetachedMenu);
+		sDetachedMenu = NULL;
 		DrawMenuBar(sMainWindow);
-		InvalidateRect(sMainWindow, NULL, TRUE);
 	}
+	else if( !enable )
+	{
+		sDetachedMenu = GetMenu(sMainWindow);
+		SetMenu(sMainWindow, NULL);
+		DrawMenuBar(sMainWindow);
+	}
+	InvalidateRect(sMainWindow, NULL, TRUE);
 }
 
 
 static INT_PTR CALLBACK toolbarWindowProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	if( normalWindowsProc(theDialog, theMessage, wParam, lParam) )
-		return (INT_PTR)FALSE;
+	int result = normalWindowsProc(theDialog, theMessage, wParam, lParam);
+	if( result != -1 )
+		return (INT_PTR)max(result, 0);
 	if( sToolbarDialogProc )
 	{
-		AutoModalUpdateLock autoLock;
+		stopModalModeUpdates();
 		return sToolbarDialogProc(theDialog, theMessage, wParam, lParam);
 	}
 	return (INT_PTR)FALSE;
@@ -678,6 +736,17 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 					0.0, 255.0));
 			}
 			break;
+		case eFadeState_Minimized:
+			aNewAlpha = 0;
+			if( gActiveOverlays.test(id) ||
+				!gVisibleOverlays.test(id) )
+			{
+				// Restore to just normal hidden state once external
+				// code hides the overlay or it is directly activated,
+				// so it can show back up again.
+				theWindow.fadeState = eFadeState_Hidden;
+			}
+			break;
 		default:
 			DBG_ASSERT(false && "Invalid WindowManager::EFadeState value");
 			theWindow.fadeState = eFadeState_Hidden;
@@ -704,26 +773,19 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	sHidden = false;
 	const std::wstring& aMainWindowName = widen(
 		Profile::getStr("System", "WindowName", "MMO Gamepad Overlay"));
-	int aMainWindowWidth = Profile::getInt("System", "WindowWidth", 160);
-	int aMainWindowHeight = Profile::getInt("System", "WindowHeight", 80);
-	const bool isMainWindowHidden =
-		(aMainWindowWidth == 0 || aMainWindowHeight == 0);
+	const int aMainWindowWidth =
+		max(140, Profile::getInt("System", "WindowWidth", 160));
+	const int aMainWindowHeight =
+		max(64, Profile::getInt("System", "WindowHeight", 80));
+	const bool shouldStartMinimized =
+		Profile::getBool("System", "WindowStartMinimized", false);
 
-	if( isMainWindowHidden )
-	{
-		sUseChildWindows = false;
-		aMainWindowWidth = 10;
-		aMainWindowHeight = 10;
-	}
-	else
 	{// Determine if supports child layered windows or not (Win8 or higher)
 		OSVERSIONINFOW info;
 		info.dwOSVersionInfoSize = sizeof(OSVERSIONINFOW);
 		GetVersionEx(&info);
-		if( info.dwMajorVersion >= 6 && info.dwMinorVersion >= 2 )
-			sUseChildWindows = true;
-		else
-			sUseChildWindows = false;
+		sUseChildWindows =
+			info.dwMajorVersion >= 6 && info.dwMinorVersion >= 2;
 	}
 
 	// Register window classes
@@ -731,10 +793,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	aWindowClass.cbSize = sizeof(WNDCLASSEXW);
 	aWindowClass.style = CS_HREDRAW | CS_VREDRAW;
 	aWindowClass.lpfnWndProc = mainWindowProc;
-	aWindowClass.hbrBackground =
-		isMainWindowHidden
-			? (HBRUSH)GetStockObject(NULL_BRUSH)
-			: (HBRUSH)GetStockObject(WHITE_BRUSH);
+	aWindowClass.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
 	aWindowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 	aWindowClass.hIcon = LoadIcon(theAppInstanceHandle,
 		MAKEINTRESOURCE(IDI_ICON_MAIN));
@@ -770,15 +829,10 @@ void createMain(HINSTANCE theAppInstanceHandle)
 
 	// Create main app window
 	sMainWindow = CreateWindowExW(
-		isMainWindowHidden
-			? (WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_APPWINDOW)
-			: 0,
+		WS_EX_TOOLWINDOW | WS_EX_APPWINDOW,
 		kMainWindowClassName,
 		aMainWindowName.c_str(),
-		isMainWindowHidden
-			? WS_POPUP
-			: WS_SYSMENU | WS_OVERLAPPEDWINDOW
-				&~(WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX),
+		WS_MINIMIZEBOX | WS_SYSMENU,
 		sMainWindowPos.x, sMainWindowPos.y,
 		aMainWindowWidth, aMainWindowHeight,
 		NULL, NULL, theAppInstanceHandle, NULL);
@@ -789,7 +843,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		return;
 	}
 
-	ShowWindow(sMainWindow, SW_SHOW);
+	ShowWindow(sMainWindow, shouldStartMinimized ? SW_SHOWMINIMIZED : SW_SHOW);
 
 	// Set overlay client area to full main screen initially
 	RECT aScreenRect = { 0, 0,
@@ -944,8 +998,8 @@ void update()
 	if( gProfileToLoad || gShutdown )
 		return;
 
-	sInDialogMode = false;
-	setMainWindowEnabled(true);
+	endDialog();
+	setMainWindowEnabled(!sToolbarWindow);
 
 	// Update each overlay window as needed
 	HDC aScreenDC = GetDC(NULL);
@@ -1107,18 +1161,18 @@ void update()
 	ReleaseDC(NULL, aScreenDC);
 	
 	// TODO
-	//if( windowReorderNeeded && !sWindowInModalMode )
+	//if( windowReorderNeeded )
 
 	if( sToolbarWindow && !sHidden && !IsWindowVisible(sToolbarWindow) )
 		ShowWindow(sToolbarWindow, SW_SHOW);
 }
 
 
-void prepareForDialog()
+void beginDialog(HWND theDialog)
 {
 	stopModalModeUpdates();
 	setMainWindowEnabled(false);
-	sInDialogMode = true;
+	sDialogWindow = theDialog;
 	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
 		const int anOverlayID = sOverlayWindowOrder[i].id;
@@ -1132,13 +1186,13 @@ void prepareForDialog()
 }
 
 
-void endDialogMode()
+void endDialog()
 {
-	if( !sInDialogMode )
+	if( !sDialogWindow )
 		return;
 
-	setMainWindowEnabled(true);
-	sInDialogMode = false;
+	sDialogWindow = NULL;
+	setMainWindowEnabled(!sToolbarWindow);
 }
 
 
@@ -1149,6 +1203,12 @@ void stopModalModeUpdates()
 	sWindowInModalMode = false;
 	if( sModalModeTimer )
 		CancelWaitableTimer(sModalModeTimer);
+	while(sModalUpdateRunning)
+	{
+		// Handle any windows messages needed by timer thread while waiting
+		mainWindowMessagePump(NULL);
+		Sleep(0);
+	}
 }
 
 
@@ -1172,6 +1232,20 @@ HWND toolbarHandle()
 	return sToolbarWindow;
 }
 
+
+HWND parentWindowHandle()
+{
+	if( sMainWindow &&
+		IsWindowVisible(sMainWindow) &&
+		!TargetApp::targetWindowIsActive() &&
+		!TargetApp::targetWindowIsTopMost() &&
+		!TargetApp::targetWindowIsFullScreen() )
+	{
+		return sMainWindow;
+	}
+	
+	return NULL;
+}
 
 
 bool requiresNormalCursorControl()
@@ -1266,6 +1340,10 @@ void resetOverlays()
 		GetSystemMetrics(SM_CXSCREEN),
 		GetSystemMetrics(SM_CYSCREEN) };
 	resize(aScreenRect, false);
+	if( sMainWindow && IsWindowVisible(sMainWindow) && !IsIconic(sMainWindow) )
+		restoreMinimizedOverlays();
+	else
+		minimizeOverlays();
 }
 
 
@@ -1278,6 +1356,11 @@ void hideOverlays()
 void showOverlays()
 {
 	sHidden = false;
+	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+	{
+		if( sOverlayWindows[i].fadeState == eFadeState_Minimized )
+			sOverlayWindows[i].fadeState = eFadeState_Hidden;
+	}
 }
 
 
@@ -1335,7 +1418,8 @@ HWND createToolbarWindow(int theResID, DLGPROC theProc, int theMenuID)
 	sToolbarWindow = CreateDialogParam(
 		GetModuleHandle(NULL),
 		MAKEINTRESOURCE(theResID),
-		NULL, toolbarWindowProc, 0);
+		parentWindowHandle(),
+		toolbarWindowProc, 0);
 	if( theMenuID >= 0 )
 	{
 		sToolbarWindowOverlayID = InputMap::menuOverlayID(theMenuID);

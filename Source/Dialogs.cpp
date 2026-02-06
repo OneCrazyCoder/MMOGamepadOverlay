@@ -1163,9 +1163,8 @@ ProfileSelectResult profileSelect(
 		theTemplateProfiles,
 		result, firstRun, allowEditing);
 
-	// Hide main window and overlays until dialog is done
+	// If have target window active, prepare to switch back to it when done
 	TargetApp::prepareForDialog();
-	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1177,7 +1176,13 @@ ProfileSelectResult profileSelect(
 		NULL,
 		profileSelectProc,
 		reinterpret_cast<LPARAM>(&aDataStruct));
+
+	// Disable main window and hide overlays
+	WindowManager::beginDialog(hWnd);
+
+	// Display dialog window
 	ShowWindow(hWnd, SW_SHOW);
+
 	if( needsToBeTopMost )
 		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetForegroundWindow(hWnd);
@@ -1197,7 +1202,7 @@ ProfileSelectResult profileSelect(
 	}
 
 	// Cleanup
-	WindowManager::endDialogMode();
+	WindowManager::endDialog();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 
@@ -1212,9 +1217,8 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 	// Initialize data structures
 	ProfileSelectResult result;
 
-	// Hide main window and overlays until dialog is done
+	// If have target window active, prepare to switch back to it when done
 	TargetApp::prepareForDialog();
-	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1226,7 +1230,13 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 		NULL,
 		editProfileSelectProc,
 		reinterpret_cast<LPARAM>(&theFileList));
+
+	// Disable main window and hide overlays
+	WindowManager::beginDialog(hWnd);
+
+	// Display dialog window
 	ShowWindow(hWnd, SW_SHOW);
+
 	SetForegroundWindow(hWnd);
 
 	// Open main customize file automatically on first run
@@ -1252,7 +1262,7 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 	}
 
 	// Cleanup
-	WindowManager::endDialogMode();
+	WindowManager::endDialog();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 }
@@ -1276,9 +1286,8 @@ CharacterSelectResult characterSelect(
 		theFoundCharacters,
 		result);
 
-	// Hide main window and overlays until dialog is done
+	// If have target window active, prepare to switch back to it when done
 	TargetApp::prepareForDialog();
-	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1290,7 +1299,13 @@ CharacterSelectResult characterSelect(
 		NULL,
 		characterSelectProc,
 		reinterpret_cast<LPARAM>(&aDataStruct));
+
+	// Disable main window and hide overlays
+	WindowManager::beginDialog(hWnd);
+
+	// Display dialog window
 	ShowWindow(hWnd, SW_SHOW);
+
 	if( needsToBeTopMost )
 		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetForegroundWindow(hWnd);
@@ -1310,7 +1325,7 @@ CharacterSelectResult characterSelect(
 	}
 
 	// Cleanup
-	WindowManager::endDialogMode();
+	WindowManager::endDialog();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 
@@ -1326,9 +1341,8 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 	sDialogSelected = 0;
 	const bool needsToBeTopMost = TargetApp::targetWindowIsTopMost();
 
-	// Hide main window and overlays until dialog is done
+	// If have target window active, prepare to switch back to it when done
 	TargetApp::prepareForDialog();
-	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1340,7 +1354,13 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 		NULL,
 		layoutItemSelectProc,
 		reinterpret_cast<LPARAM>(&theList));
+
+	// Disable main window and hide overlays
+	WindowManager::beginDialog(hWnd);
+
+	// Display dialog window
 	ShowWindow(hWnd, SW_SHOW);
+
 	if( needsToBeTopMost )
 		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetForegroundWindow(hWnd);
@@ -1360,7 +1380,7 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 	}
 
 	// Cleanup
-	WindowManager::endDialogMode();
+	WindowManager::endDialog();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 
@@ -1505,9 +1525,8 @@ EResult editMenuCommand(std::string& theString, bool allowInsert)
 {
 	const std::string anOriginalString = theString;
 
-	// Hide main window and overlays until dialog is done
+	// If have target window active, prepare to switch back to it when done
 	TargetApp::prepareForDialog();
-	WindowManager::prepareForDialog();
 
 	// Release any keys held by InputDispatcher first
 	InputDispatcher::forceReleaseHeldKeys();
@@ -1522,7 +1541,13 @@ EResult editMenuCommand(std::string& theString, bool allowInsert)
 		NULL,
 		editMenuCommandProc,
 		reinterpret_cast<LPARAM>(&theString));
+
+	// Disable main window and hide overlays
+	WindowManager::beginDialog(hWnd);
+
+	// Display dialog window
 	ShowWindow(hWnd, SW_SHOW);
+
 	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	SetForegroundWindow(hWnd);
 
@@ -1541,7 +1566,7 @@ EResult editMenuCommand(std::string& theString, bool allowInsert)
 	}
 
 	// Cleanup
-	WindowManager::endDialogMode();
+	WindowManager::endDialog();
 	SetWindowLongPtr(hWnd, GWLP_USERDATA, NULL);
 	DestroyWindow(hWnd);
 

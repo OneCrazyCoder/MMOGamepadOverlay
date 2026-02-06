@@ -67,14 +67,8 @@ void mainTimerUpdate()
 }
 
 
-void mainLoopUpdate(HWND theDialog)
+void mainWindowMessagePump(HWND theDialog)
 {
-	// Don't process this again until mainLoopSleep() is called
-	if( sUpdateLoopStarted )
-		return;
-	sUpdateLoopStarted = true;
-	mainTimerUpdate();
-
 	MSG aWindowsMessage = MSG();
 	while(PeekMessage(&aWindowsMessage, NULL, 0, 0, PM_REMOVE))
 	{
@@ -114,6 +108,17 @@ void mainLoopUpdate(HWND theDialog)
 		}
 		WindowManager::stopModalModeUpdates();
 	}
+}
+
+
+void mainLoopUpdate(HWND theDialog)
+{
+	// Don't process this again until mainLoopSleep() is called
+	if( sUpdateLoopStarted )
+		return;
+	sUpdateLoopStarted = true;
+	mainTimerUpdate();
+	mainWindowMessagePump(theDialog);
 }
 
 

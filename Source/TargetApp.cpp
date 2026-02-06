@@ -307,7 +307,6 @@ static void checkWindowClosed()
 	else
 	{
 		InputDispatcher::forceReleaseHeldKeys();
-		WindowManager::resetOverlays();
 		targetDebugPrint("Target window closed! Resetting overlays!\n");
 	}
 	dropTargetWindow();
