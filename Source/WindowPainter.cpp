@@ -2100,7 +2100,7 @@ static void drawSlotsMenu(DrawData& dd)
 	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
 	const MenuLayout& layout = getMenuLayout(dd.menuID);
 	const MenuAppearance& menuApp = getMenuAppearance(dd.menuID);
-	int aPrevSelection = ps.selection;
+	const int aPrevSelection = ps.selection;
 	ps.selection = dropTo<u16>(Menus::selectedItem(dd.menuID));
 	const int anItemCount = intSize(ps.rects.size()) -
 		(layout.altLabelWidth ? 2 : 1);
@@ -2124,10 +2124,11 @@ static void drawSlotsMenu(DrawData& dd)
 		(selectionChanged || shouldRedrawAll ||
 		 ps.forcedRedrawItemID == ps.selection) )
 	{
-		std::string anAltLabel =
+		const std::string& anAltLabel =
 			InputMap::menuItemAltLabel(dd.menuID, ps.selection);
-		std::string aPrevAltLabel =
-			InputMap::menuItemAltLabel(dd.menuID, aPrevSelection);
+		const std::string& aPrevAltLabel = aPrevSelection < anItemCount
+			? InputMap::menuItemAltLabel(dd.menuID, aPrevSelection)
+			: std::string();
 		if( anAltLabel.empty() && !aPrevAltLabel.empty() )
 			eraseRect(dd, ps.rects.back());
 		if( !anAltLabel.empty() )
@@ -2160,27 +2161,23 @@ static void drawSlotsMenu(DrawData& dd)
 		compIdx = (compIdx + 1) % anItemCount)
 	{
 		const bool isSelection = itemIdx == ps.selection;
-		if( isSelection )
-		{
-			aPrevSelection = ps.selection;
-			if( gDisabledOverlays.test(dd.overlayID) )
-				ps.selection = kInvalidID;
-		}
 		if( shouldRedrawAll ||
 			ps.forcedRedrawItemID == itemIdx ||
 			(isSelection && flashingChanged) )
 		{
 			if( !dd.firstDraw && menuApp.itemType != eMenuItemType_Rect )
 				eraseRect(dd, ps.rects[compIdx+1]);
+			// While disabled draw selection as a non-selected item
+			const u16 aSelectionBackup = ps.selection;
+			if( isSelection && gDisabledOverlays.test(dd.overlayID) )
+				ps.selection = kInvalidID;
 			drawMenuItem(dd, ps.rects[compIdx+1], itemIdx,
 				InputMap::menuItemLabel(dd.menuID, itemIdx),
 				labelCache[itemIdx + hasTitle]);
+			ps.selection = aSelectionBackup;
 		}
 		if( isSelection )
-		{
-			ps.selection = dropTo<u16>(aPrevSelection);
 			break;
-		}
 	}
 
 	ps.prevFlashing = ps.flashing;

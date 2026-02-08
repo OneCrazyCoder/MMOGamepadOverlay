@@ -843,7 +843,25 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		return;
 	}
 
-	ShowWindow(sMainWindow, shouldStartMinimized ? SW_SHOWMINIMIZED : SW_SHOW);
+	if( shouldStartMinimized )
+	{
+		// While this will cause the window to flicker on-screen for a moment,
+		// it is necessary to ensure that both A) the window will actually show
+		// up in the task bar despite having WS_EX_TOOLWINDOW (which, even with
+		// WS_EX_APPWINDOW set will make the window never show in the task bar
+		// if initially show it with SW_SHOWNOACTIVATE) and B) that the task bar
+		// mouse hover "peek" feature actually looks like the real window.
+		SetWindowLongPtr(sMainWindow, GWL_EXSTYLE, WS_EX_APPWINDOW);
+		ShowWindow(sMainWindow, SW_SHOWNOACTIVATE);
+		SetWindowLongPtr(sMainWindow, GWL_EXSTYLE,
+			WS_EX_TOOLWINDOW | WS_EX_APPWINDOW);
+		UpdateWindow(sMainWindow);
+		PostMessage(sMainWindow, WM_COMMAND, ID_MINIMIZE, 0);
+	}
+	else
+	{
+		ShowWindow(sMainWindow, SW_SHOW);
+	}
 
 	// Set overlay client area to full main screen initially
 	RECT aScreenRect = { 0, 0,
