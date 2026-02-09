@@ -4162,7 +4162,8 @@ void loadProfileChanges()
 			// Only valid to add sub-menus, not root menus / overlays!
 			DBG_ASSERT(sMenus.vals()[aMenuID].parentMenuID < kInvalidID);
 			setupRootMenu(aMenuID);
-			sMenus.vals()[aMenuID].profileSectionID = dropTo<u16>(aSectID);
+			sMenus.vals()[aMenuID].profileSectionID =
+				dropTo<u16>(Profile::getSectionID(aSectionName));
 		}
 	}
 
