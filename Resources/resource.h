@@ -34,6 +34,7 @@
 #define IDD_DIALOG_LAYOUT_ANCHOR        130
 #define IDD_DIALOG_LAYOUT_HOTSPOT       131
 #define IDD_DIALOG_LAYOUT_MENU          132
+#define IDD_DIALOG_MSGBOX               133
 #define IDC_CHECK_AUTOLOAD              1001
 #define IDC_CHECK_POSITION              1002
 #define IDC_CHECK_SIZE                  1003
@@ -69,6 +70,7 @@
 #define IDC_SPIN_W                      1033
 #define IDC_SPIN_H                      1034
 #define IDC_SLIDER_S                    1035
+#define IDC_PROMPT_ICON                 1036
 #define ID_FILE_PROFILE                 40001
 #define ID_FILE_EXIT                    40002
 #define ID_EDIT_UILAYOUT                40003
@@ -81,9 +83,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        133
+#define _APS_NEXT_RESOURCE_VALUE        134
 #define _APS_NEXT_COMMAND_VALUE         40008
-#define _APS_NEXT_CONTROL_VALUE         1036
+#define _APS_NEXT_CONTROL_VALUE         1037
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

@@ -606,8 +606,10 @@ void editMenuItem(int theRootMenuID)
 
 	const std::string& aMenuProfileName =
 		InputMap::menuSectionName(theSubMenuID);
+	const std::string& aMenuItemProfileName =
+		InputMap::menuItemKeyName(theItemIdx);
 	std::string aMenuItemCmd = Profile::getStr(
-		aMenuProfileName, InputMap::menuItemKeyName(theItemIdx));
+		aMenuProfileName, aMenuItemProfileName);
 	bool allowInsert = true;
 	switch(InputMap::menuStyle(theSubMenuID))
 	{
@@ -620,7 +622,10 @@ void editMenuItem(int theRootMenuID)
 		allowInsert = false;
 		break;
 	}
-	if( Dialogs::editMenuCommand(aMenuItemCmd, true) == eResult_Ok )
+	const std::string& aMenuItemLabel = "Edit [" +
+		aMenuProfileName + "] item " + aMenuItemProfileName;
+	if( Dialogs::editMenuCommand(
+			aMenuItemLabel, aMenuItemCmd, true) == eResult_Ok )
 	{
 		if( allowInsert && aMenuItemCmd[0] == '+' )
 		{// Insert as new menu item after current
@@ -708,9 +713,14 @@ void editMenuItemDir(int theRootMenuID, ECommandDir theDir)
 
 	const std::string& aMenuProfileName =
 		InputMap::menuSectionName(theSubMenuID);
+	const std::string& aMenuItemProfileName =
+		InputMap::menuItemDirKeyName(theDir);
 	std::string aMenuItemCmd = Profile::getStr(
-		aMenuProfileName, InputMap::menuItemDirKeyName(theDir));
-	if( Dialogs::editMenuCommand(aMenuItemCmd, false) == eResult_Ok )
+		aMenuProfileName, aMenuItemProfileName);
+	const std::string& aMenuItemLabel = "Edit [" +
+		aMenuProfileName + "] item " + aMenuItemProfileName;
+	if( Dialogs::editMenuCommand(
+			aMenuItemLabel, aMenuItemCmd, false) == eResult_Ok )
 	{
 		if( !aMenuItemCmd.empty() &&
 			(aMenuItemCmd[0] == '+' || aMenuItemCmd[0] == '-') )

@@ -181,7 +181,9 @@ static void checkWindowExists()
 		return;
 	}
 
-	// Check if foreground window is a known system window
+	// Check if foreground window is a known system window class
+	// (to make sure it's not just a folder open in Windows Explorer that
+	// has the same name as the game window we are looking for)
 	wchar_t aWStr[256];
 	GetClassName(aForegroundWindow, aWStr, ARRAYSIZE(aWStr));
 	if( widen("CabinetWClass") == aWStr ||
@@ -198,8 +200,8 @@ static void checkWindowExists()
 	// Make sure the window is a normal window size (not minimized etc)
 	RECT aWRect;
 	GetClientRect(aForegroundWindow, &aWRect);
-	if( aWRect.right - aWRect.left < 640 ||
-		aWRect.bottom - aWRect.top < 480 )
+	if( aWRect.right - aWRect.left < 400 ||
+		aWRect.bottom - aWRect.top < 300 )
 		return;
 
 	// Target window found!
@@ -658,7 +660,7 @@ void autoLaunch()
 			FORMAT_MESSAGE_IGNORE_INSERTS,
 			NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 			(LPWSTR)&anErrorMessage, 0, NULL);
-		Dialogs::showError(NULL, strFormat(
+		Dialogs::showError(strFormat(
 			"Failed to auto-launch target application %ls: %ls",
 			&aFinalPath[0],
 			(LPWSTR)anErrorMessage));

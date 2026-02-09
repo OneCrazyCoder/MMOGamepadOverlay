@@ -374,6 +374,7 @@ static int sAutoRefreshCopyRectTime = 0;
 static int sCacheIncreaseCount = 0;
 static std::string sParseSectName;
 static std::string sParsePropName;
+static bool sNewProfileDataFetched = false;
 
 
 //------------------------------------------------------------------------------
@@ -551,6 +552,7 @@ static BitmapFileInfo loadBitmapFile(
 	}
 
 	++sCacheIncreaseCount;
+	sNewProfileDataFetched = true;
 	BITMAP aBitmapStruct;
 	GetObject(theSrcFileInfo.handle, sizeof(aBitmapStruct), &aBitmapStruct);
 	theSrcFileInfo.size.cx = aBitmapStruct.bmWidth;
@@ -847,6 +849,7 @@ static void fetchMenuPositionProperties(
 	Profile::PropertyMapPtr thePropMap,
 	MenuPosition& theDestPosition)
 {
+	sNewProfileDataFetched = true;
 	if( PropString p = getPropString(thePropMap, kPositionPropName) )
 	{
 		size_t aPos = 0;
@@ -877,6 +880,7 @@ static void fetchMenuLayoutProperties(
 	Profile::PropertyMapPtr thePropMap,
 	MenuLayout& theDestLayout)
 {
+	sNewProfileDataFetched = true;
 	if( PropString p = getPropString(thePropMap, kAlignmentPropName) )
 	{
 		size_t aPos = 0;
@@ -976,6 +980,7 @@ static void fetchBaseAppearanceProperties(
 	Profile::PropertyMapPtr thePropMap,
 	MenuAppearance& theDestAppearance)
 {
+	sNewProfileDataFetched = true;
 	if( PropString p = getPropString(thePropMap, kItemTypePropName) )
 	{
 		const EMenuItemType anItemType = menuItemTypeNameToID(p.str);
@@ -1089,6 +1094,7 @@ static void fetchItemAppearanceProperties(
 	MenuItemAppearance& theDestAppearance,
 	EMenuItemDrawState theDrawState)
 {
+	sNewProfileDataFetched = true;
 	if( PropString p = getPropStringForDrawState(
 			thePropMap, kItemColorPropName, theDrawState) )
 	{
@@ -2571,14 +2577,8 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 }
 
 
-//------------------------------------------------------------------------------
-// Global Functions
-//------------------------------------------------------------------------------
-
-void init()
+static void loadAllProfileData()
 {
-	cleanup();
-
 	sCopyRectUpdateRate =
 		Profile::getInt("System", "CopyRectFrameTime", sCopyRectUpdateRate);
 
@@ -2703,22 +2703,51 @@ void init()
 		}
 	}
 
-	// Bitmap source files are only needed temporarily to make
-	// BitmapIcons out of, so can be freed when done creating icons
+	sHotspotsUsedByCopyIcons.clearAndResize(InputMap::hotspotCount());
+	sCacheIncreaseCount = 0;
+}
+
+
+//------------------------------------------------------------------------------
+// Global Functions
+//------------------------------------------------------------------------------
+
+void init()
+{
+	DBG_ASSERT(sOverlayPaintStates.empty());
+	sSystemOverlayPaintFunc = NULL;
+	loadAllProfileData();
+
+	// Set data for remaining menus
+	// Strictly speaking this isn't necessary, as they would be loaded when
+	// render the menu later anyway, but this forces any error messages for
+	// incorrect data in the profile to be reported immediately
+	for(int aMenuID = 0, end = InputMap::menuCount(); aMenuID < end; ++aMenuID)
+	{
+		if( aMenuID == kHotspotGuideMenuID || aMenuID == kSystemMenuID )
+			continue;
+		getMenuPosition(aMenuID);
+		getMenuLayout(aMenuID);
+		getMenuAppearance(aMenuID);
+		getMenuAlphaInfo(aMenuID);
+		for(EMenuItemDrawState aDrawState = EMenuItemDrawState(0);
+			aDrawState < eMenuItemDrawState_Num;
+			aDrawState = EMenuItemDrawState(aDrawState + 1))
+		{
+			getMenuItemAppearance(aMenuID, aDrawState);
+		}
+	}
+	sParseSectName.clear();
+	sParsePropName.clear();
 	for(int i = 0, end = intSize(sBitmapFiles.size()); i < end; ++i)
 	{
 		DeleteObject(sBitmapFiles[i].handle);
 		sBitmapFiles[i].handle = NULL;
 	}
-
-	sCacheIncreaseCount = 0;
-	sHotspotsUsedByCopyIcons.clearAndResize(InputMap::hotspotCount());
+	sNewProfileDataFetched = false;
 
 	// Make sure paint states rects get initialized via updateWindowLayout
 	gReshapeOverlays.set();
-
-	sParseSectName.clear();
-	sParsePropName.clear();
 }
 
 
@@ -2736,10 +2765,10 @@ void loadProfileChanges()
 		theProfileMap.contains(kMenuDefaultSectionName) ||
 		theProfileMap.contains(kIconsSectionName) )
 	{
-		const SystemPaintFunc aBackupPaintFunc = sSystemOverlayPaintFunc;
-		init();
+		cleanup();
+		loadAllProfileData();
 		gFullRedrawOverlays.set();
-		sSystemOverlayPaintFunc = aBackupPaintFunc;
+		gReshapeOverlays.set();
 		return;
 	}
 
@@ -2821,15 +2850,6 @@ void loadProfileChanges()
 				markMenuCacheDirtyFor(aMenuID, aPropMap->keys()[aPropIdx]);
 		}
 	}
-
-	// Cleanup
-	for(int i = 0, end = intSize(sBitmapFiles.size()); i < end; ++i)
-	{
-		DeleteObject(sBitmapFiles[i].handle);
-		sBitmapFiles[i].handle = NULL;
-	}
-	sParseSectName.clear();
-	sParsePropName.clear();
 }
 
 
@@ -2865,7 +2885,6 @@ void cleanup()
 	sAutoRefreshCopyRectQueue.clear();
 	sHotspotsUsedByCopyIcons.clear();
 	sErrorMessage.clear();
-	sSystemOverlayPaintFunc = NULL;
 	sErrorMessageTimer = 0;
 	sParseSectName.clear();
 	sParsePropName.clear();
@@ -2875,6 +2894,9 @@ void cleanup()
 	DeleteObject(sClipRegion);
 	sClipRegion = NULL;
 	sCacheIncreaseCount = 0;
+
+	if( gShutdown )
+		sSystemOverlayPaintFunc = NULL;
 }
 
 
@@ -3079,6 +3101,19 @@ void update()
 
 	gKeyBindCycleLastIndexChanged.reset();
 	gKeyBindCycleDefaultIndexChanged.reset();
+
+	if( sNewProfileDataFetched )
+	{
+		sParseSectName.clear();
+		sParsePropName.clear();
+		// Bitmap files are aren't needed once icons have been created from them
+		for(int i = 0, end = intSize(sBitmapFiles.size()); i < end; ++i)
+		{
+			DeleteObject(sBitmapFiles[i].handle);
+			sBitmapFiles[i].handle = NULL;
+		}
+		sNewProfileDataFetched = false;
+	}
 }
 
 

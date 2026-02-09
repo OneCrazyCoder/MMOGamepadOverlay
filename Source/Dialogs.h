@@ -49,20 +49,20 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 
-EResult showLicenseAgreement(HWND theParentWindow = NULL);
-void showKnownIssues(HWND theParentWindow = NULL);
+EResult showLicenseAgreement();
+void showKnownIssues();
 
-EResult editMenuCommand(std::string& theString, bool allowInsert);
+EResult editMenuCommand(
+	const std::string& theLabel,
+	std::string& theString,
+	bool allowInsert);
 
 void showError(
-	HWND theParentWindow,
 	const std::string& theError);
 void showNotice(
-	HWND theParentWindow,
 	const std::string& theNotice,
 	const std::string& theTitle = "Notice");
 EResult yesNoPrompt(
-	HWND theParentWindow,
 	const std::string& thePrompt,
 	const std::string& theTitle,
 	bool skipIfTargetAppRunning = false);

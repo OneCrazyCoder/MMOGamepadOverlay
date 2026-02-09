@@ -2846,7 +2846,7 @@ void promptUserForSyncFileToUse()
 
 	if( sForcePromptForWildcardFiles )
 	{
-		Dialogs::showNotice(NULL,
+		Dialogs::showNotice(
 			"No selection necessary - all target config file path "
 			"patterns have one or less matching files anyway.",
 			"No action needed");
