@@ -50,6 +50,7 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
 
 EResult showLicenseAgreement();
+void showHelpDocuments();
 void showKnownIssues();
 
 EResult editMenuCommand(

@@ -143,7 +143,7 @@ static void dropTargetWindow()
 
 static void restoreTargetWindow()
 {
-	if( gShutdown || gProfileToLoad || WindowManager::toolbarHandle() )
+	if( gShutdown || !gProfileToLoad.empty() || WindowManager::toolbarHandle() )
 		return;
 	sRestoreTargetWindow = false;
 	if( !sTargetWindowHandle )

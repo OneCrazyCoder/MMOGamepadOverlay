@@ -124,7 +124,7 @@ void mainLoopUpdate(HWND theDialog)
 
 void mainModulesUpdate()
 {
-	if( gProfileToLoad )
+	if( !gProfileToLoad.empty() )
 		return;
 
 	Gamepad::update();
@@ -218,8 +218,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	timeBeginPeriod(gAppTargetFrameTime / 2);
 	sAppStartTime = sUpdateStartTime = getSystemTime();
 
-	while(gProfileToLoad && !gShutdown && !hadFatalError())
-	{
+	do {
 		// Load requested profile
 		Profile::load();
 
@@ -254,7 +253,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		}
 
 		// Main loop
-		while(!gShutdown && !gProfileToLoad && !hadFatalError())
+		while(!gShutdown && gProfileToLoad.empty() && !hadFatalError())
 		{
 			// Check if need to react to changed Profile data
 			if( !Profile::changedSections().empty() )
@@ -294,7 +293,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		LayoutEditor::cleanup();
 		if( !hadFatalError() )
 			WindowManager::destroyAll(hInstance);
-	}
+	} while(!gProfileToLoad.empty() && !gShutdown && !hadFatalError());
 	timeEndPeriod(gAppTargetFrameTime / 2);
 
 	// Report performance

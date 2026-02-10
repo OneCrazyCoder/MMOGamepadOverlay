@@ -12,8 +12,8 @@
 // App shutdown has been requested
 extern bool gShutdown;
 
-// Which profile to load (0 = already loaded, -1 = auto-load / user-select)
-extern int gProfileToLoad;
+// Which profile to manually load
+extern std::string gProfileToLoad;
 
 // Milliseconds since app started main loop
 extern int gAppRunTime;

@@ -303,11 +303,23 @@ static LRESULT CALLBACK mainWindowProc(
 			else
 				LayoutEditor::init();
 			return 0;
+		case ID_EDIT_TEXTFILES:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				gProfileToLoad = Profile::userEditCurrentProfile();
+			return 0;
 		case ID_HELP_LICENSE:
 			if( sWindowInModalMode || sModalUpdateRunning )
 				PostMessage(theWindow, theMessage, wParam, lParam);
 			else
 				Dialogs::showLicenseAgreement();
+			return 0;
+		case ID_HELP_DOCS:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				Dialogs::showHelpDocuments();
 			return 0;
 		case ID_HELP_KNOWN_ISSUES:
 			if( sWindowInModalMode || sModalUpdateRunning )
@@ -1013,7 +1025,7 @@ void loadProfileChanges()
 
 void update()
 {
-	if( gProfileToLoad || gShutdown )
+	if( !gProfileToLoad.empty() || gShutdown )
 		return;
 
 	endDialog();

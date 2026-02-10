@@ -52,7 +52,10 @@ void loadCore();
 void load();
 
 // Allow user to manually select which profile to load - returns 0 if cancel
-int queryUserForProfile();
+std::string queryUserForProfile();
+
+// Allow directly editing current profile's configuration (.ini) text files
+std::string userEditCurrentProfile();
 
 // Get rtf string describing known issues with current game
 const std::string& getKnownIssuesRTF();

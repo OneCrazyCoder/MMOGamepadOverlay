@@ -338,10 +338,13 @@ BEGIN
     POPUP "&Edit"
     BEGIN
         MENUITEM "UI &Layout",                  ID_EDIT_UILAYOUT
+        MENUITEM "&Text Files",                 ID_EDIT_TEXTFILES
     END
     POPUP "&Help"
     BEGIN
         MENUITEM "&License",                    ID_HELP_LICENSE
+        MENUITEM "&Documentation",              ID_HELP_DOCS
+        MENUITEM SEPARATOR
         MENUITEM "Known Game &Issues",          ID_HELP_KNOWN_ISSUES
     END
     MENUITEM "&-",                              ID_MINIMIZE, HELP

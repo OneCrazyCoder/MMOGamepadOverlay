@@ -137,7 +137,7 @@ static SectionsMap sSectionsMap;
 static SectionsMap sChangedSectionsMap;
 static std::vector<UnsavedProperty> sUnsavedChangesList;
 static std::vector<ProfileFile> sKnownFiles;
-static std::vector<ProfileInfo> sProfiles; // index 0 is a dummy/reserved profile
+static std::vector<ProfileInfo> sProfiles; // index 0 is a dummy/reserved entry
 static std::vector<VarPropDependency> sVarPropDepList;
 static std::string sLoadedProfileName;
 static std::string sKnownIssuesRTF;
@@ -425,7 +425,12 @@ static void setPropertyInINI(
 	std::ifstream aFile(aFilePathW.c_str(), std::ios::binary);
 	if( !aFile.is_open() )
 	{
-		logError("Could not open file %s", theFilePath.c_str());
+		const std::string anError =
+			strFormat("Could not open file %s", theFilePath.c_str());
+		if( sLoadedProfileName.empty() )
+			Dialogs::showError(anError);
+		else
+			logError(anError.c_str());
 		return;
 	}
 
@@ -436,7 +441,12 @@ static void setPropertyInINI(
 		std::ios::binary | std::ios::trunc);
 	if( !aTmpFile.is_open() )
 	{
-		logError("Could not create temp file %ls", aTmpPath.c_str());
+		const std::string anError =
+			strFormat("Could not create temp file %ls", aTmpPath.c_str());
+		if( sLoadedProfileName.empty() )
+			Dialogs::showError(anError);
+		else
+			logError(anError.c_str());
 		aFile.close();
 		return;
 	}
@@ -489,7 +499,12 @@ static void setPropertyInINI(
 		}
 		else if( aFile.bad() )
 		{
-			logError("Unknown error reading %s", theFilePath.c_str());
+			const std::string anError =
+				strFormat("Unknown error reading %s", theFilePath.c_str());
+			if( sLoadedProfileName.empty() )
+				Dialogs::showError(anError);
+			else
+				logError(anError.c_str());
 			aFile.close();
 			return;
 		}
@@ -686,7 +701,12 @@ static void setPropertyInINI(
 	if( !ReplaceFile(aFilePathW.c_str(), aTmpPath.c_str(),
 			NULL, REPLACEFILE_IGNORE_MERGE_ERRORS, NULL, NULL) )
 	{
-		logError("Failed to modify file %s!", theFilePath.c_str());
+		const std::string anError =
+			strFormat("Failed to modify file %s!", theFilePath.c_str());
+		if( sLoadedProfileName.empty() )
+			Dialogs::showError(anError);
+		else
+			logError(anError.c_str());
 	}
 }
 
@@ -742,10 +762,12 @@ static void getProfileListCallback(
 			}
 			else
 			{
-				logError("Could not find/open profile '%s' (%s) listed in %s",
+				Dialogs::showError(strFormat(
+					"Could not find/open profile '%s' (%s) listed in %s. "
+					"Edit the core .ini text file to remove this profile.", 
 					theValue.c_str(),
 					aFile.path.c_str(),
-					kCoreProfileName);
+					kCoreProfileName));
 			}
 		}
 	}
@@ -814,9 +836,10 @@ static void addParentCallback(
 		}
 		else
 		{
-			logError("Could not find/open '%s' Profile's parent: '%s' (%s)",
+			Dialogs::showError(strFormat(
+				"Could not find/open '%s' Profile's parent: '%s' (%s)",
 				sKnownFiles[*(aLoadPriorityList->begin())].name.c_str(),
-				theValue.c_str(), aFile.path.c_str());
+				theValue.c_str(), aFile.path.c_str()));
 		}
 	}
 }
@@ -1154,7 +1177,7 @@ static void checkForOutdatedFileVersion(ProfileFile& theFile)
 }
 
 
-static void userEditProfile(int theProfileID, bool firstProfile)
+static bool userEditProfile(int theProfileID, bool firstProfile)
 {
 	// Generate list of files to possibly edit
 	DBG_ASSERT(size_t(theProfileID) < sProfiles.size());
@@ -1170,7 +1193,26 @@ static void userEditProfile(int theProfileID, bool firstProfile)
 		aFileList.push_back(sKnownFiles[*itr].path);
 	}
 
+	// Note file modification times to check if any actual changes are made
+	static std::vector<FILETIME> sLastFileModTime;
+	sLastFileModTime.resize(aList.size());
+	for(size_t i = 0; i < aFileList.size(); ++i)
+		sLastFileModTime[i] = getFileLastModTime(sKnownFiles[aList[i]].path);
+
 	Dialogs::profileEdit(aFileList, firstProfile);
+
+	// Test if any actual changes were made to any of the profile's files
+	for(size_t i = 0; i < aFileList.size(); ++i)
+	{
+		const ProfileFile& aFile = sKnownFiles[aList[i]];
+		if( !fileExists(aFile) )
+			return true;
+		const FILETIME& aNewFileTime = getFileLastModTime(aFile.path);
+		if( CompareFileTime(&sLastFileModTime[i], &aNewFileTime) != 0 )
+			return true;
+	}
+
+	return false;
 }
 
 
@@ -1257,7 +1299,6 @@ static std::string varTagToString(
 
 	// Get first parameter for operator
 	const std::string& aParam = fetchNextItem(theTagStr, aPos, aNextDel);
-
 
 	// Have all we need for arithmetic operators now
 	if( anOpC == '+' || anOpC == '-' || anOpC == '*' || anOpC == '/' )
@@ -2006,6 +2047,20 @@ int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 }
 
 
+static int queryUserForProfileID()
+{
+	saveChangesToFile();
+	if( sKnownFiles.empty() )
+		parseProfilesCanLoad();
+	int aLastCreatedProfileIdx = -1;
+	int result = -1;
+	while(result < 0)
+		result = queryUserForProfileImpl(aLastCreatedProfileIdx);
+	return result;
+}
+
+
+
 //------------------------------------------------------------------------------
 // Global Functions
 //------------------------------------------------------------------------------
@@ -2050,28 +2105,40 @@ void load()
 	if( hadFatalError() || gShutdown )
 		return;
 
-	if( gProfileToLoad <= 0 )
+	int aProfileIDToLoad = -1;
+	if( gProfileToLoad.empty() )
 	{// Use auto-load or query for initial profile to load
 		if( sAutoLoadProfileID )
 		{
 			if( size_t(sAutoLoadProfileID) >= sProfiles.size() ||
 				!sProfiles[sAutoLoadProfileID].valid() )
 			{
-				logError(
+				Dialogs::showError(strFormat(
 					"AutoLoadProfile = %d but no profile #%d found!",
-					sAutoLoadProfileID, sAutoLoadProfileID);
+					sAutoLoadProfileID, sAutoLoadProfileID));
 				sAutoLoadProfileID = 0;
 			}
 			else
 			{
-				gProfileToLoad = sAutoLoadProfileID;
+				aProfileIDToLoad = sAutoLoadProfileID;
 			}
 		}
 		if( !sAutoLoadProfileID )
-			gProfileToLoad = queryUserForProfile();
+			aProfileIDToLoad = queryUserForProfileID();
+	}
+	else
+	{// Find the requested profile name and load it
+		for(int i = 0, end = intSize(sProfiles.size()); i < end; ++i)
+		{
+			if( sProfiles[i].name == gProfileToLoad )
+			{
+				aProfileIDToLoad = i;
+				break;
+			}
+		}
 	}
 
-	if( gProfileToLoad <= 0 )
+	if( aProfileIDToLoad <= 0 )
 	{// Nothing was selected to load - exit app entirely
 		gShutdown = true;
 		return;
@@ -2089,8 +2156,8 @@ void load()
 	sNeedShowKnownIssues = false;
 	sKnownIssuesRTF.clear();
 
-	DBG_ASSERT(size_t(gProfileToLoad) < sProfiles.size());
-	const std::vector<int>& aList = sProfiles[gProfileToLoad].fileIDs;
+	DBG_ASSERT(size_t(aProfileIDToLoad) < sProfiles.size());
+	const std::vector<int>& aList = sProfiles[aProfileIDToLoad].fileIDs;
 	DBG_ASSERT(!aList.empty());
 
 	// Now load each .ini's values 1-by-1 in reverse order.
@@ -2124,25 +2191,39 @@ void load()
 
 	// Now that have loaded a profile, only need to remember the loaded
 	// profile's name and can forget gathered data about other profiles
-	sLoadedProfileName = sProfiles[gProfileToLoad].name;
+	sLoadedProfileName = sProfiles[aProfileIDToLoad].name;
 	sKnownFiles.clear();
 	sProfiles.clear();
 	sAutoLoadProfileID = 0;
 	sNewBaseProfileIdx = -1;
-	gProfileToLoad = 0;
+	gProfileToLoad.clear();
 }
 
 
-int queryUserForProfile()
+std::string queryUserForProfile()
+{
+	int aProfileID = queryUserForProfileID();
+	if( size_t(aProfileID) < sProfiles.size() )
+		return sProfiles[aProfileID].name;
+	return std::string();
+}
+
+
+std::string userEditCurrentProfile()
 {
 	saveChangesToFile();
 	if( sKnownFiles.empty() )
 		parseProfilesCanLoad();
-	int aLastCreatedProfileIdx = -1;
-	int result = -1;
-	while(result < 0)
-		result = queryUserForProfileImpl(aLastCreatedProfileIdx);
-	return result;
+	for(int i = 0, end = intSize(sProfiles.size()); i < end; ++i)
+	{
+		if( sProfiles[i].name == sLoadedProfileName )
+		{
+			if( userEditProfile(1, false) )
+				return sLoadedProfileName;
+		}
+	}
+
+	return std::string();
 }
 
 

@@ -953,6 +953,35 @@ static INT_PTR CALLBACK msgBoxProc(
 						0, 0, SWP_NOSIZE | SWP_NOZORDER); 
 				}
 			}
+			// Can't shrink the width of the text TOO much or have no buttons!
+			const LONG aMinTextWidth = (aCtrlRect.right - aCtrlRect.left) / 2;
+			if( (aTextRect.right - aTextRect.left) < aMinTextWidth )
+				aTextRect.right = aTextRect.left + aMinTextWidth;
+			if( aTextRect.right != aCtrlRect.right )
+			{// Adjust width of the dialog to match needed width for text
+				const LONG aDelta = aTextRect.right - aCtrlRect.right;
+				aCtrlRect.right = aTextRect.right;
+				RECT aRect;
+				GetWindowRect(theDialog, &aRect);
+				SetWindowPos(theDialog, NULL, 0, 0,
+					aRect.right - aRect.left + aDelta,
+					aRect.bottom - aRect.top,
+					SWP_NOMOVE | SWP_NOZORDER);
+				if( HWND hBtn = GetDlgItem(theDialog, IDCANCEL) )
+				{
+					GetWindowRect(hBtn, &aRect);
+					ScreenToClient(theDialog, (LPPOINT)&aRect.left);
+					SetWindowPos(hBtn, NULL, aRect.left + aDelta, aRect.top,
+						0, 0, SWP_NOSIZE | SWP_NOZORDER); 
+				}
+				if( HWND hBtn = GetDlgItem(theDialog, IDOK) )
+				{
+					GetWindowRect(hBtn, &aRect);
+					ScreenToClient(theDialog, (LPPOINT)&aRect.left);
+					SetWindowPos(hBtn, NULL, aRect.left + aDelta, aRect.top,
+						0, 0, SWP_NOSIZE | SWP_NOZORDER); 
+				}				
+			}
 			SetWindowPos(hTextCtrl, NULL,
 				aCtrlRect.left, aCtrlRect.top,
 				aCtrlRect.right - aCtrlRect.left,
@@ -1545,6 +1574,21 @@ EResult showLicenseAgreement()
 		eDialogLayout_Basic);
 
 	return sDialogSelected ? eResult_Accepted : eResult_Declined;
+}
+
+
+void showHelpDocuments()
+{
+	if( yesNoPrompt(
+		"Documentation and source code for this app is hosted on GitHub. "
+		"Would you like to request your default browser open "
+		"https://onecrazycoder.github.io/MMOGamepadOverlay/ now?",
+		"Documentation") == eResult_Yes )
+	{
+		ShellExecute(NULL, TEXT("open"),
+			L"https://onecrazycoder.github.io/MMOGamepadOverlay/",
+			NULL, NULL, SW_SHOWNORMAL);
+	}
 }
 
 
