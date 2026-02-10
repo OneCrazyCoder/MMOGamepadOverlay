@@ -2949,10 +2949,10 @@ void update()
 	}
 
 	bool showSystemBorder = false;
-	if( sSystemBorderFlashTimer > 0 &&
-		sErrorMessage.empty() && sNoticeMessage.empty() )
+	if( sSystemBorderFlashTimer > 0 )
 	{
 		showSystemBorder =
+			sErrorMessage.empty() && sNoticeMessage.empty() &&
 			((sSystemBorderFlashTimer / kSystemOverlayFlashFreq) & 0x01) != 0;
 		sSystemBorderFlashTimer =
 			max(0, sSystemBorderFlashTimer - gAppFrameTime);

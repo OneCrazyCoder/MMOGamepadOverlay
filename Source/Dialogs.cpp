@@ -122,7 +122,7 @@ static void setDialogFocus(HWND hdlg, int theID)
 
 
 static INT_PTR CALLBACK defaultDialogProc(
-	HWND theDialog, UINT theMessage, WPARAM, LPARAM)
+	HWND, UINT theMessage, WPARAM, LPARAM)
 {
 	switch(theMessage)
 	{
