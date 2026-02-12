@@ -16,7 +16,7 @@ namespace Gamepad
 {
 
 // Uncomment this to print details about detecting gamepads to debug window
-//#define GAMEPAD_DEBUG_PRINT
+#define GAMEPAD_DEBUG_PRINT
 
 //------------------------------------------------------------------------------
 // Const Data
@@ -28,6 +28,18 @@ kDIGamepadDataBufferSize = 64,
 // If a gamepad receives new input and its been this long since any other
 // gamepad received new input, then that gamepad becomes auto-selected.
 kGamepadAutoSelectTimeout = 2000,	// 2 seconds (in milliseconds)
+// If device change message received, wait this long before attempting to
+// re-enumerate devices, since multiple messages may be received rapidly
+// before system is completely done setting up the device
+kDeviceChangeReactionTime = 500, // 0.5 seconds (in milliseconds)
+};
+
+enum ENextNotify
+{
+	eNextNotify_NoneFound,
+	eNextNotify_Connected,
+	eNextNotify_Disconnected,
+	eNextNotify_Used,
 };
 
 static const u16 kVendorID[] =
@@ -147,6 +159,7 @@ struct ZERO_INIT(GamepadData)
 	int deviceCountForDInput;
 	int deviceCountForXInput;
 	int selectedGamepadID;
+	int deviceChangedTimer;
 	DIDEVICEINSTANCE* gamepadGUID[kMaxGamepadsEnumerated];
 	struct Gamepad
 	{
@@ -170,6 +183,8 @@ struct ZERO_INIT(GamepadData)
 	bool disconnectDetected;
 	bool doNotAutoSelectDInputDevices;
 	bool initialized;
+
+	GamepadData() : selectedGamepadID(-1) {}
 };
 
 
@@ -178,7 +193,7 @@ struct ZERO_INIT(GamepadData)
 //------------------------------------------------------------------------------
 
 static GamepadData sGamepadData;
-static bool sNotifyWhenSelectGamepad = false;
+static ENextNotify sNextNotify = eNextNotify_NoneFound;
 
 
 //------------------------------------------------------------------------------
@@ -968,12 +983,11 @@ static BOOL CALLBACK enumDevicesCallback(LPCDIDEVICEINSTANCE lpddi, LPVOID)
 // Global Functions
 //------------------------------------------------------------------------------
 
-void init(bool restartAfterDisconnect)
+void init()
 {
 	DBG_ASSERT(!sGamepadData.initialized);
 
 	sGamepadData.initialized = true;
-	sGamepadData.selectedGamepadID = -1;
 
 	// Initialise DirectInput and enumerate gamepads
 	HRESULT hr = DirectInput8Create(
@@ -1024,21 +1038,25 @@ void init(bool restartAfterDisconnect)
 		}
 	}
 
-	// If only found 1 valid gamepad, select it automatically
-	if( sGamepadData.deviceCountForDInput == 1 )
+	if( sGamepadData.deviceCountForDInput == 0 )
 	{
-		sGamepadData.selectedGamepadID = 0;
-		if( sNotifyWhenSelectGamepad )
+		switch(sNextNotify)
 		{
-			logNotice("Gamepad Enabled: %s", gamepadName().c_str());
-			sNotifyWhenSelectGamepad = false;
+		case eNextNotify_NoneFound:
+			logNotice("PLEASE NOTE: No Gamepad found!");
+			break;
+		case eNextNotify_Disconnected:
+			logNotice("WARNING: All Gamepad connections lost!");
+			break;
 		}
+		sNextNotify = eNextNotify_Connected;
 	}
-	else if( !restartAfterDisconnect && sGamepadData.deviceCountForDInput == 0 )
-	{
-		logNotice("PLEASE NOTE: No Gamepad found!");
-		sNotifyWhenSelectGamepad = true;
-	}
+	else if( sGamepadData.deviceCountForDInput == 1 )
+		selectGamepad(0);
+	else if( sNextNotify == eNextNotify_NoneFound )
+		sNextNotify = eNextNotify_Disconnected;
+	else
+		sNextNotify = eNextNotify_Used;
 
 	// Set default thresholds for digital button presses
 	for(int i = 0; i < eAxis_Num; ++i)
@@ -1052,17 +1070,14 @@ void init(bool restartAfterDisconnect)
 
 void checkDeviceChange()
 {
-	// May have inserted a new controller
-	// Quick and dirty method of dealing with this is to just re-int
-	gamepadDebugPrint("Reinitializing to detect connected controller\n");
-	const bool wasActive = sGamepadData.selectedGamepadID >= 0;
-	cleanup();
-	init(true);
-	if( wasActive && sGamepadData.deviceCountForDInput == 0 )
-	{
-		logNotice("WARNING: Lost connection to Gamepad!");
-		sNotifyWhenSelectGamepad = true;
-	}
+	// If already started using a gamepad, the only change that matters is
+	// it being disconnected, which will be detected by polling later, so
+	// this message can be ignored
+	if( sGamepadData.selectedGamepadID >= 0 &&
+		sGamepadData.gamepad[sGamepadData.selectedGamepadID].hasReceivedInput )
+	{ return; }
+
+	sGamepadData.deviceChangedTimer = kDeviceChangeReactionTime;
 }
 
 
@@ -1080,15 +1095,13 @@ void cleanup()
 		}
 	}
 
-	sGamepadData.deviceCountForDInput = 0;
 	sGamepadData.hDirectInput8->Release();
 	sGamepadData.hDirectInput8 = NULL;
 
 	gamepadDebugPrint("DirectInput 8 released!\n");
 
 	// Reset data to default values
-	GamepadData aFreshData = GamepadData();
-	swap(sGamepadData, aFreshData);
+	sGamepadData = GamepadData();
 }
 
 
@@ -1096,24 +1109,39 @@ void update()
 {
 	DBG_ASSERT(sGamepadData.initialized);
 
+	bool needReInitialize = false;
 	if( sGamepadData.disconnectDetected )
-	{// Controller we were polling got disconnected - restart everything!
-		logNotice("WARNING: Lost connection to Gamepad!");
-		gamepadDebugPrint("Restarting DInput after controller disconnect!\n");
-		sNotifyWhenSelectGamepad = true;
+	{// Controller we were polling got disconnected
+		if( sNextNotify == eNextNotify_Disconnected )
+		{
+			logNotice("WARNING: Lost connection to Gamepad!");
+			sNextNotify = eNextNotify_Used;
+		}
+		needReInitialize = true;
+	}
+	else if( sGamepadData.deviceChangedTimer > 0 )
+	{// Device change Windows message recently received
+		sGamepadData.deviceChangedTimer -= gAppFrameTime;
+		if( sGamepadData.deviceChangedTimer <= 0 )
+			needReInitialize = true;
+	}
+
+	if( needReInitialize )
+	{
+		gamepadDebugPrint("Re-enumerating input devices\n");
 		cleanup();
-		init(true);
+		init();
 		return;
 	}
 
-	if( sGamepadData.selectedGamepadID < 0 ||
-		sGamepadData.selectedGamepadID >= sGamepadData.deviceCountForDInput ||
-		(sGamepadData.gamepad[sGamepadData.selectedGamepadID].device == NULL &&
-		 sGamepadData.gamepad[sGamepadData.selectedGamepadID].xInputID == 0) )
+	if( sGamepadData.deviceCountForDInput == 0 )
+		return;
+
+	if( sGamepadData.selectedGamepadID < 0 )
 	{
+		DBG_ASSERT(sGamepadData.deviceCountForDInput > 1);
 		// Haven't selected a gamepad yet
 		// Poll all of them to see which the user is actually using, if any
-		sGamepadData.selectedGamepadID = -1;
 		for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
 		{
 			pollGamepad(i);
@@ -1142,53 +1170,52 @@ void update()
 			}
 		}
 
-		if( sGamepadData.deviceCountForDInput == 1 )
+		// Attempt to auto-select a gamepad
+		// Do this by detecting if player pressed something on it
+		for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
 		{
-			sGamepadData.selectedGamepadID = 0;
-			if( sNotifyWhenSelectGamepad )
-			{
-				logNotice("Gamepad Enabled: %s", gamepadName().c_str());
-				sNotifyWhenSelectGamepad = false;
-			}
-		}
-		else
-		{
-			// Attempt to auto-select a gamepad
-			// Do this by detecting if player pressed something on it
-			for(int i = 0; i < sGamepadData.deviceCountForDInput; ++i )
-			{
-				if( sGamepadData.gamepad[i].buttonsHit.any() )
-				{// Gamepad received new input - should it be auto-selected?
-					bool autoSelect = true;
-					for(int j = 0; j < sGamepadData.deviceCountForDInput; ++j )
+			if( sGamepadData.gamepad[i].buttonsHit.any() )
+			{// Gamepad received new input - should it be auto-selected?
+				bool autoSelect = true;
+				// Don't auto-select if another recently received input
+				for(int j = 0; j < sGamepadData.deviceCountForDInput; ++j )
+				{
+					if( j != i &&
+						sGamepadData.gamepad[j].lastUpdateTime >
+							gAppRunTime - kGamepadAutoSelectTimeout )
 					{
-						if( j != i &&
-							sGamepadData.gamepad[j].lastUpdateTime >
-								gAppRunTime - kGamepadAutoSelectTimeout )
-						{
-							autoSelect = false;
-							break;
-						}
-					}
-					if( autoSelect )
-					{
-						gamepadDebugPrint(
-							"Auto-selecting %s as player controller!\n",
-							sGamepadData.gamepad[i].name.c_str());
-						selectGamepad(i);
+						autoSelect = false;
 						break;
 					}
+				}
+				if( autoSelect )
+				{
+					gamepadDebugPrint(
+						"Auto-selecting %s as player controller!\n",
+						sGamepadData.gamepad[i].name.c_str());
+					selectGamepad(i);
+					break;
 				}
 			}
 		}
 	}
 	else
 	{// Just poll the selected gamepad
-		pollGamepad(sGamepadData.selectedGamepadID);
+		DBG_ASSERT(
+			sGamepadData.selectedGamepadID < sGamepadData.deviceCountForDInput);
 		GamepadData::Gamepad& aGamepad =
 			sGamepadData.gamepad[sGamepadData.selectedGamepadID];
+		DBG_ASSERT(aGamepad.device != NULL || aGamepad.xInputID > 0);
+		pollGamepad(sGamepadData.selectedGamepadID);
 		if( !aGamepad.hasReceivedInput && aGamepad.buttonsHit.any() )
+		{
 			aGamepad.hasReceivedInput = true;
+			if( sNextNotify == eNextNotify_Used )
+			{
+				logNotice("Using Gamepad: %s", gamepadName().c_str());
+				sNextNotify = eNextNotify_Disconnected;
+			}
+		}
 	}
 }
 
@@ -1214,10 +1241,22 @@ EResult selectGamepad(int theGamepadID)
 	}
 
 	sGamepadData.selectedGamepadID = theGamepadID;
-	if( sNotifyWhenSelectGamepad )
+	switch(sNextNotify)
 	{
-		logNotice("Gamepad Enabled: %s", gamepadName().c_str());
-		sNotifyWhenSelectGamepad = false;
+	case eNextNotify_NoneFound:
+		sNextNotify = eNextNotify_Disconnected;
+		break;
+	case eNextNotify_Connected:
+		logNotice("Detected Gamepad: %s", gamepadName().c_str());
+		sNextNotify = eNextNotify_Disconnected;
+		break;
+	case eNextNotify_Used:
+		if( sGamepadData.gamepad[theGamepadID].hasReceivedInput )
+		{
+			logNotice("Using Gamepad: %s", gamepadName().c_str());
+			sNextNotify = eNextNotify_Disconnected;
+		}
+		break;
 	}
 
 	return eResult_Ok;

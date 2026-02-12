@@ -53,7 +53,7 @@ enum EVendorID
 
 
 // Initializes gamepad system
-void init(bool restartAfterDisconnect = false);
+void init();
 
 // Should be called when get a WM_DEVICECHANGE message to check if user
 // plugged in/turned on a gamepad or disconnected one.
