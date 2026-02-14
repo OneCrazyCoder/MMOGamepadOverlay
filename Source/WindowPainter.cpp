@@ -2547,16 +2547,19 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 			gReshapeOverlays.set(anOverlayID);
 		break;
 	case ePropChangeImpact_Layout:
+		aMenuCache.labelCache.clear();
 		aMenuCache.layoutID = kInvalidID;
 		if( menuIsActive)
 			gReshapeOverlays.set(anOverlayID);
 		break;
 	case ePropChangeImpact_BaseApp:
+		aMenuCache.labelCache.clear();
 		aMenuCache.appearanceID = kInvalidID;
 		if( menuIsActive)
 			gFullRedrawOverlays.set(anOverlayID);
 		break;
 	case ePropChangeImpact_ItemApp:
+		aMenuCache.labelCache.clear();
 		for(int i = 0; i < eMenuItemDrawState_Num; ++i)
 			aMenuCache.itemAppearanceID[i] = kInvalidID;
 		if( menuIsActive)
@@ -2842,6 +2845,8 @@ void loadProfileChanges()
 		}
 		if( aRootMenuCache.maxBorderSize < 0 )
 			aMenuCache.maxBorderSize = aRootMenuCache.maxBorderSize;
+		if( aRootMenuCache.labelCache.empty() )
+			aMenuCache.labelCache.clear();
 		
 		if( Profile::PropertyMapPtr aPropMap = theProfileMap.find(
 				InputMap::menuSectionName(aMenuID)) )

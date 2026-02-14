@@ -16,7 +16,7 @@ namespace Gamepad
 {
 
 // Uncomment this to print details about detecting gamepads to debug window
-#define GAMEPAD_DEBUG_PRINT
+//#define GAMEPAD_DEBUG_PRINT
 
 //------------------------------------------------------------------------------
 // Const Data
