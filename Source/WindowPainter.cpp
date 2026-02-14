@@ -369,7 +369,7 @@ static int sBitmapsProfileSectionID = 0;
 static int sErrorMessageTimer = 0;
 static int sNoticeMessageTimer = 0;
 static int sSystemBorderFlashTimer = 0;
-static int sCopyRectUpdateRate = 100;
+static int sCopyIconUpdateRate = 100;
 static int sAutoRefreshCopyRectTime = 0;
 static int sCacheIncreaseCount = 0;
 static std::string sParseSectName;
@@ -2582,8 +2582,8 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 
 static void loadAllProfileData()
 {
-	sCopyRectUpdateRate =
-		Profile::getInt("System", "CopyRectFrameTime", sCopyRectUpdateRate);
+	sCopyIconUpdateRate =
+		Profile::getInt("System", "CopyIconFrameTime", sCopyIconUpdateRate);
 
 	sMenuDrawCache.resize(InputMap::menuCount());
 	sOverlayPaintStates.reserve(InputMap::menuOverlayCount());
@@ -2777,8 +2777,8 @@ void loadProfileChanges()
 
 	if( theProfileMap.contains("System") )
 	{
-		sCopyRectUpdateRate =
-			Profile::getInt("System", "CopyRectFrameTime", sCopyRectUpdateRate);
+		sCopyIconUpdateRate =
+			Profile::getInt("System", "CopyIconFrameTime", sCopyIconUpdateRate);
 	}
 
 	if( theProfileMap.contains("Hotspots") )
@@ -3054,12 +3054,13 @@ void update()
 	// Update auto-refresh of idle copy-from-target icons
 	// This system is set up to only force-redraw one icon per update,
 	// but still have each icon individually only redraw at
-	// sCopyRectUpdateRate, to spread the copy-paste operations out over
+	// sCopyIconUpdateRate, to spread the copy-paste operations out over
 	// multiple frames and reduce chance of causing a framerate hitch.
 	if( gAppRunTime >= sAutoRefreshCopyRectTime )
 	{
-		sAutoRefreshCopyRectTime = gAppRunTime;
 		int validItemCount = 0;
+		OverlayPaintState* aPaintStateToRefresh = null;
+		u16 anItemIdxToRefresh = kInvalidID;
 		for(std::vector<CopyRectRefreshEntry>::iterator itr =
 			sAutoRefreshCopyRectQueue.begin(), next_itr = itr;
 			itr != sAutoRefreshCopyRectQueue.end(); itr = next_itr)
@@ -3077,11 +3078,19 @@ void update()
 				continue;
 			}
 			// If .forcedRedrawItemID is already set as a valid entry, it's
-			// still waiting for it to refresh (might be currently hidden), so
-			// don't count any of this menu's items as valid until then
+			// still waiting for it to refresh so is likely a hidden overlay.
+			// Abort any idle refresh for this overlay and have it do a full
+			// redraw next time it does draw to refresh all its icons to current
+			// actual state of the target window right away.
 			if( aPaintState.forcedRedrawItemID <= aMaxItemID )
 			{
-				gRefreshOverlays.set(itr->overlayID);
+				const int aHiddenOverlayID = itr->overlayID;
+				gFullRedrawOverlays.set(aHiddenOverlayID);
+				do {
+					next_itr = sAutoRefreshCopyRectQueue.erase(itr);
+					itr = next_itr;
+				} while(itr != sAutoRefreshCopyRectQueue.end() &&
+						itr->overlayID == aHiddenOverlayID);
 				continue;
 			}
 			// Only first valid item found actually refreshes, and only once
@@ -3089,19 +3098,28 @@ void update()
 			if( validItemCount++ == 0 && sAutoRefreshCopyRectTime > 0 )
 			{
 				gRefreshOverlays.set(itr->overlayID);
-				aPaintState.forcedRedrawItemID = itr->itemIdx;
+				aPaintStateToRefresh = &aPaintState;
+				anItemIdxToRefresh = itr->itemIdx;
 				// Still need to continue to count valid items for refresh
 				// timing, but this one no longer need be in the queue
 				next_itr = sAutoRefreshCopyRectQueue.erase(itr);
 			}
 		}
+		// Set the one (if any) icon found that should be auto-refreshed
+		if( aPaintStateToRefresh )
+			aPaintStateToRefresh->forcedRedrawItemID = anItemIdxToRefresh;
 		// Evenly space total refresh rate time by number of found items,
 		// or if none found then set to 0 to keep checking every update but
 		// also prevent instant-refresh of the first item that requests it
 		if( validItemCount )
-			sAutoRefreshCopyRectTime += sCopyRectUpdateRate / validItemCount;
+		{
+			sAutoRefreshCopyRectTime = gAppRunTime +
+				sCopyIconUpdateRate / validItemCount;
+		}
 		else
+		{
 			sAutoRefreshCopyRectTime = 0;
+		}
 	}
 
 	gKeyBindCycleLastIndexChanged.reset();
