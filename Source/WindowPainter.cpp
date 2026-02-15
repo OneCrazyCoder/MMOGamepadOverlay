@@ -3199,6 +3199,23 @@ void updateScaling()
 }
 
 
+void updateTargetRect()
+{
+	// Clear all copy-from-icon label cache data, since it is based on
+	// the size and position of the target being copied from
+	for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
+	{
+		std::vector<LabelDrawCacheEntry>& aLabelCache =
+			sMenuDrawCache[i].labelCache;
+		for(int i = 0, end = intSize(aLabelCache.size()); i < end; ++i)
+		{
+			if( aLabelCache[i].type == eMenuItemLabelType_CopyRect )
+				aLabelCache[i] = LabelDrawCacheEntry();
+		}
+	}
+}
+
+
 void paintWindowContents(
 	HDC hdc,
 	HDC hCaptureDC,

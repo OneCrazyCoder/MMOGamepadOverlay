@@ -1360,6 +1360,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	// Flag all overlay windows to update position & size accordingly
 	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 		sOverlayWindows[i].layoutReady = false;
+	WindowPainter::updateTargetRect();
 }
 
 

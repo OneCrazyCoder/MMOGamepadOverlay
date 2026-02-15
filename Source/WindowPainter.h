@@ -30,8 +30,9 @@ void cleanup();
 // Update visual element timers (animations etc)
 void update();
 
-// Refreshes cached drawing data related to target window size
+// Refreshes cached drawing data related to target window size & gUIScale
 void updateScaling();
+void updateTargetRect();
 
 // Draws given overlay to given Device Context (bitmap), starting at 0,0
 void paintWindowContents(
