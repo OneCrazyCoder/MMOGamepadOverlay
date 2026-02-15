@@ -630,7 +630,7 @@ static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 	{
 		if( theCommand.fromKeyBindCycle && theCommand.keyBindCycleID == i )
 			continue;
-		for(int j = 1, jend = InputMap::keyBindCycleSize(i); j < jend; ++j)
+		for(int j = 1, end = InputMap::keyBindCycleSize(i); j < end; ++j)
 		{
 			if( InputMap::keyBindCycleIndexToKeyBindID(i, j) == theKeyBindID )
 			{

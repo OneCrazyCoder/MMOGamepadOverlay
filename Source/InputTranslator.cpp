@@ -453,6 +453,11 @@ static void	loadCommandsForCurrentLayers()
 		{
 			ActiveSignal aSignalCmd;
 			aSignalCmd.signalID = aSignalsList[i].first;
+			if( aSignalCmd.signalID < eBtn_Num )
+			{// Take button remap into account for button-press signals
+				aSignalCmd.signalID =
+					dropTo<u16>(aBtnRemap[aSignalCmd.signalID]);
+			}
 			aSignalCmd.layerID = dropTo<u16>(aLayerID);
 			aSignalCmd.cmd = aSignalsList[i].second;
 			sState.signalCommands.push_back(aSignalCmd);

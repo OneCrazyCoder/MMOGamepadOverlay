@@ -4286,7 +4286,7 @@ const ButtonRemap& buttonRemap(int theLayerID)
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	const int aButtonRemapID = sLayers.vals()[theLayerID].buttonRemapID;
 	if( aButtonRemapID == 0 )
-	{// Use parent (or deafult in the case of base layer)
+	{// Use parent (or default in the case of base layer)
 		if( theLayerID == 0 )
 			return sButtonRemaps[0];
 		return buttonRemap(parentLayer(theLayerID));
