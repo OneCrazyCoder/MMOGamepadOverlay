@@ -397,6 +397,10 @@
 			>
 		</File>
 		<File
+			RelativePath=".\Resources\Custom-Blank.ini"
+			>
+		</File>
+		<File
 			RelativePath=".\Resources\Custom-MnM.ini"
 			>
 		</File>

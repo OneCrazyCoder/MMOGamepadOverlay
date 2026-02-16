@@ -72,6 +72,8 @@ const ResourceFile kResTemplateCustom[] =
 	{	"Pantheon: Rise of the Fallen",	"Pantheon",	IDR_TEXT_INI_CUST_PAN,	0 },
 };
 
+const ResourceFile kResTemplateBlank = { "", "", IDR_TEXT_INI_CUST_BLANK, 0 };
+
 enum EParseMode
 {
 	eParseMode_Header,
@@ -453,7 +455,7 @@ static void setPropertyInINI(
 
 	// Prepare buffer
 	// +1 on size is to accommodate an extra newline character when
-	// reach end of file
+	// reach end of file for simpler parsing code
 	char aBuffer[kINIFileBufferSize+1];
 	std::streamsize aBufferSize = kINIFileBufferSize;
 	std::string aCheckStr;
@@ -479,7 +481,7 @@ static void setPropertyInINI(
 	std::fstream::pos_type aReplaceEndPos = kInvalidFilePos;
 	std::fstream::pos_type anEndOfValidSection = kInvalidFilePos;
 	std::fstream::pos_type aCurrFilePos = aFile.tellg();
-	std::fstream::pos_type aLastNonWhitespace = aCurrFilePos;
+	std::fstream::pos_type aValidFileCharsEnd = kInvalidFilePos;
 
 	if( theSection.empty() )
 	{
@@ -512,8 +514,6 @@ static void setPropertyInINI(
 		for(int i = 0; i < aBufferSize && aState != eSKVState_Finished; ++i)
 		{// Step through buffer character-by-character
 			const char c = aBuffer[i];
-			if( u8(c) > ' ' )
-				aLastNonWhitespace = aCurrFilePos;
 			switch(aState)
 			{
 			case eSKVState_FindSection:
@@ -635,7 +635,21 @@ static void setPropertyInINI(
 		}
 	}
 
-	// Clear eof flag
+	// Find the last non-whitespace character of the file overall
+	aFile.clear();
+	aFile.seekg(0, std::ios::end);
+	while( aFile.tellg() != std::fstream::pos_type(0) )
+	{
+		aFile.seekg(-1, std::ios::cur);
+		if( u8(aFile.peek()) > ' ' )
+			break;
+	}
+	if( aFile.tellg() != std::fstream::pos_type(0) ||
+		(aFile.peek() != EOF && u8(aFile.peek()) > ' ') )
+	{
+		aFile.seekg(1, std::ios::cur);
+		aValidFileCharsEnd = aFile.tellg();
+	}
 	aFile.clear();
 
 	// Decide what to write and where exactly from info gathered above
@@ -651,7 +665,10 @@ static void setPropertyInINI(
 		// Write new entry right at start of the file
 		DBG_ASSERT(theSection.empty());
 		aReplaceStartPos = aReplaceEndPos = 0;
-		aWriteString = trim(theKey) + " = " + trim(theValue) + kEndOfLine;
+		aWriteString = trim(theKey) + " = " + trim(theValue);
+		if( aValidFileCharsEnd != kInvalidFilePos )
+			aWriteString += kEndOfLine + kEndOfLine;
+		
 	}
 	else if( anEndOfValidSection != kInvalidFilePos )
 	{
@@ -661,37 +678,54 @@ static void setPropertyInINI(
 	}
 	else
 	{
-		// Found nothing, write section, key, and value
-		aReplaceStartPos = aLastNonWhitespace;
-		aReplaceStartPos += std::fstream::off_type(1);
+		// Found nothing - write section, key, and value
+		aReplaceStartPos = aValidFileCharsEnd;
 		aFile.seekg(0, std::ios::end);
-		aReplaceEndPos = aFile.tellg();
-		aWriteString = kEndOfLine + kEndOfLine + "[";
-		aWriteString += trim(theSection) + "]" + kEndOfLine;
+		aReplaceEndPos = kInvalidFilePos;
+		if( aReplaceStartPos != kInvalidFilePos )
+			aWriteString = kEndOfLine + kEndOfLine;
+		aWriteString += "[" + trim(theSection) + "]" + kEndOfLine;
 		aWriteString += trim(theKey) + " = " + trim(theValue);
-		aWriteString += kEndOfLine;
 	}
 
 	// Write aFile 0->aReplaceStartPos to temp file
-	aFile.seekg(0, std::ios::beg);
-	aCurrFilePos = aFile.tellg();
-	while(aCurrFilePos < aReplaceStartPos && aFile.good())
+	if( aReplaceStartPos != kInvalidFilePos &&
+		aReplaceStartPos > std::fstream::pos_type(0) )
 	{
-		std::streamsize aBytesToRead = aReplaceStartPos - aCurrFilePos;
-		aBytesToRead = MIN(aBytesToRead, kINIFileBufferSize);
-		aFile.read(aBuffer, aBytesToRead);
-		aTmpFile.write(aBuffer, aFile.gcount());
-		aCurrFilePos += aFile.gcount();
+		aFile.seekg(0, std::ios::beg);
+		aCurrFilePos = aFile.tellg();
+		while(aCurrFilePos < aReplaceStartPos && aFile.good())
+		{
+			std::streamsize aBytesToRead = aReplaceStartPos - aCurrFilePos;
+			aBytesToRead = MIN(aBytesToRead, kINIFileBufferSize);
+			aFile.read(aBuffer, aBytesToRead);
+			aTmpFile.write(aBuffer, aFile.gcount());
+			aCurrFilePos += aFile.gcount();
+		}
 	}
 
 	// Write new data
 	aTmpFile << aWriteString;
 
-	// Write aReplaceEndPos->eof to temp file
-	aFile.seekg(aReplaceEndPos, std::ios::beg);
-	while(aFile.read(aBuffer, kINIFileBufferSize))
-		aTmpFile.write(aBuffer, aFile.gcount());
-	aTmpFile.write(aBuffer, aFile.gcount());
+	// Write aReplaceEndPos->aValidFileCharsEnd to temp file
+	if( aReplaceEndPos != kInvalidFilePos &&
+		aValidFileCharsEnd != kInvalidFilePos &&
+		aValidFileCharsEnd > aReplaceEndPos )
+	{
+		aFile.seekg(aReplaceEndPos, std::ios::beg);
+		aCurrFilePos = aFile.tellg();
+		while(aCurrFilePos < aValidFileCharsEnd && aFile.good())
+		{
+			std::streamsize aBytesToRead = aValidFileCharsEnd - aCurrFilePos;
+			aBytesToRead = MIN(aBytesToRead, kINIFileBufferSize);
+			aFile.read(aBuffer, aBytesToRead);
+			aTmpFile.write(aBuffer, aFile.gcount());
+			aCurrFilePos += aFile.gcount();
+		}
+	}
+
+	// Write a single blank line at end of file
+	aTmpFile.write(kEndOfLine.c_str(), kEndOfLine.size());
 
 	// Close both files
 	aFile.close();
@@ -1952,25 +1986,14 @@ int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 				result = -1; // repeat query from the start
 				return result;
 			}
-			std::ofstream aFile(
-				widen(aNewEntry.path).c_str(),
-				std::ios::out | std::ios::trunc);
-			if( aFile.is_open() )
-			{
-				if( aKnownProfileIdx > 0 )
-				{// Don't need to specify if Core is the parent
-					aFile << "ParentProfile = ";
-					aFile << aSrcFile.name << std::endl << std::endl;
-				}
-				aFile.close();
-			}
-			else
-			{
-				Dialogs::showError(
-					strFormat("Unable to write Profile data to file %s\n",
-						aNewEntry.path.c_str()));
-				result = -1; // repeat query from the start
-				return result;
+			ResourceFile aResFile = kResTemplateBlank;
+			aResFile.fileName = aNewEntry.name.c_str();
+			generateResourceFile(aResFile);
+			if( aKnownProfileIdx > 0 )
+			{// Don't need to specify a parent if Core is the parent
+				setPropertyInINI(
+					aNewEntry.path, "",
+					"ParentProfile", aSrcFile.name);
 			}
 		}
 		break;
