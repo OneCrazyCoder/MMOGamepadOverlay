@@ -37,15 +37,13 @@ enum ECommandType
 	eCmdType_Unassigned, // _Empty but overrides lower Layers' assignments
 	eCmdType_DoNothing, // _Unassigned but by specific request
 
-	// First group are valid for InputDispatcher::sendKeyCommand()
+	// First group are valid for InputDispatcher::sendCommand()
 	eCmdType_PressAndHoldKey,
 	eCmdType_ReleaseKey,
 	eCmdType_TapKey,
 	eCmdType_TriggerKeyBind,
 	eCmdType_VKeySequence,
 	eCmdType_ChatBoxString,
-
-	// Valid for InputDispatcher::moveMouseTo()
 	eCmdType_MoveMouseToHotspot,
 	eCmdType_MoveMouseToMenuItem,
 	eCmdType_MoveMouseToOffset,

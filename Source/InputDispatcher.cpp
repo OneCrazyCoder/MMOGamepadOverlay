@@ -4,6 +4,7 @@
 
 #include "InputDispatcher.h"
 
+#include "HotspotMap.h"
 #include "InputMap.h"
 #include "Profile.h"
 #include "WindowManager.h"
@@ -317,6 +318,9 @@ public:
 			aJumpDest.y = aFinalCmd.hotspot.y;
 			InputMap::modifyHotspot(
 				eSpecialHotspot_LastCursorPos, aJumpDest);
+			// Update hotspot map now in case another command wants to move
+			// directly from new _LastCursorPos to a different relative hotspot
+			HotspotMap::update();
 			break;
 		}
 		mTail = (mTail + 1) & dropTo<u32>(mBuffer.size() - 1);
@@ -1252,6 +1256,81 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 	anInput.mi.dy = aNewPos.y;
 	anInput.mi.dwFlags = MOUSEEVENTF_MOVEABSOLUTE;
 	sTracker.inputs.push_back(anInput);
+}
+
+
+static void queueMoveMouseTo(const Command& theCommand)
+{
+	ECommandType aCmdType = theCommand.type;
+	if( theCommand.andClick )
+		aCmdType = eCmdType_MouseClickAtHotspot;
+
+	Hotspot aDestHotspot;
+	switch(theCommand.type)
+	{
+	case eCmdType_MoveMouseToHotspot:
+	case eCmdType_MouseClickAtHotspot:
+		aDestHotspot = InputMap::getHotspot(theCommand.hotspotID);
+		break;
+	case eCmdType_MoveMouseToMenuItem:
+		gHotspotsGuideMode = eHotspotGuideMode_Disabled;
+		aDestHotspot = WindowManager::hotspotForMenuItem(
+			theCommand.rootMenuID, theCommand.menuItemID);
+		break;
+	case eCmdType_MoveMouseToOffset:
+		aDestHotspot =
+			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
+		{
+			// Counter effect of gWindowUIScale on base jump distance
+			const int anOffsetDist = int(
+				gWindowUIScale < 1.0
+					? ceil(kConfig.offsetHotspotDist / gWindowUIScale) :
+				gWindowUIScale > 1.0
+					? floor(kConfig.offsetHotspotDist / gWindowUIScale) :
+				kConfig.offsetHotspotDist);
+			int aDestHotspotXOffset = aDestHotspot.x.offset;
+			int aDestHotspotYOffset = aDestHotspot.y.offset;
+			switch(theCommand.dir)
+			{
+			case eCmd8Dir_L:
+			case eCmd8Dir_UL:
+			case eCmd8Dir_DL:
+				aDestHotspotXOffset -= anOffsetDist;
+				break;
+			case eCmd8Dir_R:
+			case eCmd8Dir_UR:
+			case eCmd8Dir_DR:
+				aDestHotspotXOffset += anOffsetDist;
+				break;
+			}
+			switch(theCommand.dir)
+			{
+			case eCmd8Dir_U:
+			case eCmd8Dir_UL:
+			case eCmd8Dir_UR:
+				aDestHotspotYOffset -= anOffsetDist;
+				break;
+			case eCmd8Dir_D:
+			case eCmd8Dir_DL:
+			case eCmd8Dir_DR:
+				aDestHotspotYOffset += anOffsetDist;
+				break;
+			}
+			aDestHotspot.x.offset = s16(clamp(
+				aDestHotspotXOffset, -0x8000, 0x7FFF));
+			aDestHotspot.y.offset = s16(clamp(
+				aDestHotspotYOffset, -0x8000, 0x7FFF));
+		}
+		break;
+	default:
+		DBG_ASSERT(false && "Invalid command type for queueMoveMouseTo()!");
+		return;
+	}
+
+	Command aCmd; aCmd.type = aCmdType;
+	aCmd.hotspot.x = aDestHotspot.x;
+	aCmd.hotspot.y = aDestHotspot.y;
+	sTracker.queue.push_back(aCmd);
 }
 
 
@@ -2660,12 +2739,24 @@ void update()
 }
 
 
-void sendKeyCommand(const Command& theCommand)
+void sendCommand(const Command& theCommand)
 {
-	// Try to execute command right now if possible,
-	// otherwise add it to the queue
-	if( !tryQuickSendKeyCommand(theCommand) )
-		sTracker.queue.push_back(theCommand);
+	switch(theCommand.type)
+	{
+	case eCmdType_MoveMouseToHotspot:
+	case eCmdType_MouseClickAtHotspot:
+	case eCmdType_MoveMouseToMenuItem:
+	case eCmdType_MoveMouseToOffset:
+		// Need to process hotpsot destination before queueing these
+		queueMoveMouseTo(theCommand);
+		break;
+	default:
+		// Try to execute command right now if possible,
+		// otherwise add it to the queue
+		if( !tryQuickSendKeyCommand(theCommand) )
+			sTracker.queue.push_back(theCommand);
+		break;
+	}
 }
 
 
@@ -2850,81 +2941,6 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 }
 
 
-void moveMouseTo(const Command& theCommand)
-{
-	ECommandType aCmdType = theCommand.type;
-	if( theCommand.andClick )
-		aCmdType = eCmdType_MouseClickAtHotspot;
-
-	Hotspot aDestHotspot;
-	switch(theCommand.type)
-	{
-	case eCmdType_MoveMouseToHotspot:
-	case eCmdType_MouseClickAtHotspot:
-		aDestHotspot = InputMap::getHotspot(theCommand.hotspotID);
-		break;
-	case eCmdType_MoveMouseToMenuItem:
-		gHotspotsGuideMode = eHotspotGuideMode_Disabled;
-		aDestHotspot = WindowManager::hotspotForMenuItem(
-			theCommand.rootMenuID, theCommand.menuItemID);
-		break;
-	case eCmdType_MoveMouseToOffset:
-		aDestHotspot =
-			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
-		{
-			// Counter effect of gWindowUIScale on base jump distance
-			const int anOffsetDist = int(
-				gWindowUIScale < 1.0
-					? ceil(kConfig.offsetHotspotDist / gWindowUIScale) :
-				gWindowUIScale > 1.0
-					? floor(kConfig.offsetHotspotDist / gWindowUIScale) :
-				kConfig.offsetHotspotDist);
-			int aDestHotspotXOffset = aDestHotspot.x.offset;
-			int aDestHotspotYOffset = aDestHotspot.y.offset;
-			switch(theCommand.dir)
-			{
-			case eCmd8Dir_L:
-			case eCmd8Dir_UL:
-			case eCmd8Dir_DL:
-				aDestHotspotXOffset -= anOffsetDist;
-				break;
-			case eCmd8Dir_R:
-			case eCmd8Dir_UR:
-			case eCmd8Dir_DR:
-				aDestHotspotXOffset += anOffsetDist;
-				break;
-			}
-			switch(theCommand.dir)
-			{
-			case eCmd8Dir_U:
-			case eCmd8Dir_UL:
-			case eCmd8Dir_UR:
-				aDestHotspotYOffset -= anOffsetDist;
-				break;
-			case eCmd8Dir_D:
-			case eCmd8Dir_DL:
-			case eCmd8Dir_DR:
-				aDestHotspotYOffset += anOffsetDist;
-				break;
-			}
-			aDestHotspot.x.offset = s16(clamp(
-				aDestHotspotXOffset, -0x8000, 0x7FFF));
-			aDestHotspot.y.offset = s16(clamp(
-				aDestHotspotYOffset, -0x8000, 0x7FFF));
-		}
-		break;
-	default:
-		DBG_ASSERT(false && "Invalid command type for moveMouseTo()!");
-		return;
-	}
-
-	Command aCmd; aCmd.type = aCmdType;
-	aCmd.hotspot.x = aDestHotspot.x;
-	aCmd.hotspot.y = aDestHotspot.y;
-	sTracker.queue.push_back(aCmd);
-}
-
-
 void scrollMouseWheel(int dy, bool digital, bool stepped)
 {
 	// Get magnitude of desired mouse motion in 0 to 1.0 range
@@ -2987,21 +3003,24 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 void jumpMouseWheel(ECommandDir theDir, int theCount)
 {
 	DBG_ASSERT(theCount > 0);
-	if( theDir == eCmdDir_Up )
+	for(int i = 0; i < theCount; ++i)
 	{
-		Input anInput;
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.mouseData = WHEEL_DELTA * theCount;
-		anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
-		sTracker.inputs.push_back(anInput);
-	}
-	else if( theDir == eCmdDir_Down )
-	{
-		Input anInput;
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.mouseData = -WHEEL_DELTA * theCount;
-		anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
-		sTracker.inputs.push_back(anInput);
+		if( theDir == eCmdDir_Up )
+		{
+			Input anInput;
+			anInput.type = INPUT_MOUSE;
+			anInput.mi.mouseData = WHEEL_DELTA;
+			anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
+			sTracker.inputs.push_back(anInput);
+		}
+		else if( theDir == eCmdDir_Down )
+		{
+			Input anInput;
+			anInput.type = INPUT_MOUSE;
+			anInput.mi.mouseData = DWORD(-WHEEL_DELTA);
+			anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
+			sTracker.inputs.push_back(anInput);
+		}
 	}
 }
 
@@ -3287,7 +3306,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			if( sTracker.moveKeysHeld.test(aMoveKey) )
 			{
 				aCmd.type = eCmdType_ReleaseKey;
-				sendKeyCommand(aCmd);
+				sendCommand(aCmd);
 				sTracker.moveKeysHeld.reset(aMoveKey);
 			}
 		}
@@ -3295,7 +3314,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		{
 			if( !sTracker.moveKeysHeld.test(aMoveKey) )
 			{// Press this movement key now
-				sendKeyCommand(aCmd);
+				sendCommand(aCmd);
 				sTracker.moveKeysHeld.set(aMoveKey);
 				// Re-pressing a movement key will un-sticky it
 				sTracker.stickyMoveKeys.reset(aMoveKey);
@@ -3306,7 +3325,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			if( sTracker.moveKeysHeld.test(aMoveKey) )
 			{// Release this movement key now that it is no longer wanted
 				aCmd.type = eCmdType_ReleaseKey;
-				sendKeyCommand(aCmd);
+				sendCommand(aCmd);
 				sTracker.moveKeysHeld.reset(aMoveKey);
 			}
 			if( sTracker.stickyMoveKeys.test(aMoveKey) &&
@@ -3316,7 +3335,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			{// Key may be stuck down by game client - tap it again to release
 				aCmd.type = eCmdType_TriggerKeyBind;
 				if( !isMouseButton(aCmd.vKey) )
-					sendKeyCommand(aCmd);
+					sendCommand(aCmd);
 				sTracker.stickyMoveKeys.reset(aMoveKey);
 			}
 		}
@@ -3348,7 +3367,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			aCmd.type = eCmdType_TriggerKeyBind;
 			aCmd.keyBindID =
 				InputMap::specialKeyToKeyBindID(eSpecialKey_AutoRun);
-			sendKeyCommand(aCmd);
+			sendCommand(aCmd);
 			sTracker.autoRunMode = eAutoRunMode_Started;
 		}
 		else

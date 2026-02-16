@@ -722,7 +722,7 @@ static Command parseChatBoxMacro(std::string theString)
 
 	// Handle multi-line macros such as ">Hello!\n /wave"
 	std::string aTmpStr;
-	for(int i = 1, end = intSize(theString.size()) - 1; i < end; ++i)
+	for(int i = 1; i < intSize(theString.size()) - 1; ++i)
 	{
 		// Only care about character sequence '\' followed by 'n'
 		if( theString[i] != '\\' || ::tolower(theString[i+1]) != 'n' )
@@ -1644,13 +1644,13 @@ static Command stringToSetVariableCommand(
 	const char aPattern[5] = " to ";
 	// Start search after "set" and <varname> in terms of character count
 	for(const char* c = &(theString.c_str()[4 + theWords[aVarNameIdx].size()]);
-		*c; ++c)
+		; ++c)
 	{
 		const u8 aTestChar(*c);
 		const u8 aPatternChar(aPattern[aPatternIdx]);
 		if( aPatternChar == '\0' )
-		{// Pattern matched, waiting for non-whitespace char
-			if( aTestChar > ' ' )
+		{// Pattern matched!
+			if( aTestChar > ' ' || aTestChar == '\0' )
 			{// Found start of string to store in the variable!
 				result.type = eCmdType_SetVariable;
 				result.variableID = dropTo<u16>(aVariableID);
@@ -1672,6 +1672,8 @@ static Command stringToSetVariableCommand(
 		{
 			aPatternIdx = 0;
 		}
+		if( *c == '\0' )
+			break;
 	}
 
 	return result;

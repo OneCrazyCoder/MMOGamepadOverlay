@@ -228,7 +228,7 @@ struct TranslatorState
 
 struct InputResults
 {
-	std::vector<Command> queuedKeys;
+	std::vector<Command> queuedCommands;
 	std::vector<int> changedLayers;
 	BitVector<32> menuStackAutoCommandRun;
 	BitArray<eBtn_Num> buttonPressProcessed;
@@ -250,7 +250,7 @@ struct InputResults
 
 	void clear()
 	{
-		queuedKeys.clear();
+		queuedCommands.clear();
 		changedLayers.clear();
 		menuStackAutoCommandRun.clearAndResize(InputMap::menuOverlayCount());
 		buttonPressProcessed.reset();
@@ -297,17 +297,13 @@ static InputResults sResults;
 // Local Functions
 //------------------------------------------------------------------------------
 
-static void loadLayerData()
+static void loadLayerAutoButtonCommands()
 {
-	DBG_ASSERT(sState.layers.empty());
-
-	sState.layers.reserve(InputMap::controlsLayerCount());
-	sState.layers.resize(InputMap::controlsLayerCount());
 	for(int aLayerID = 0, end = intSize(sState.layers.size());
 		aLayerID < end; ++aLayerID)
 	{
 		LayerState& aLayer = sState.layers[aLayerID];
-		aLayer.clear();
+		aLayer.autoButton.commands.clear();
 		const InputMap::ButtonActionsMap& aBtnCmdsMap =
 			InputMap::buttonCommandsForLayer(aLayerID);
 		if( !aBtnCmdsMap.empty() && aBtnCmdsMap[0].first == eBtn_None )
@@ -326,6 +322,22 @@ static void loadLayerData()
 					: kConfig.defaultHoldTimeForAction;
 		}
 	}
+}
+
+
+static void loadLayerData()
+{
+	DBG_ASSERT(sState.layers.empty());
+
+	sState.layers.reserve(InputMap::controlsLayerCount());
+	sState.layers.resize(InputMap::controlsLayerCount());
+	for(int aLayerID = 0, end = intSize(sState.layers.size());
+		aLayerID < end; ++aLayerID)
+	{
+		LayerState& aLayer = sState.layers[aLayerID];
+		aLayer.clear();
+	}
+	loadLayerAutoButtonCommands();
 }
 
 
@@ -1032,7 +1044,7 @@ static void releaseKeyHeldByButton(ButtonState& theBtnState)
 		Command aCmd;
 		aCmd.type = eCmdType_ReleaseKey;
 		aCmd.vKey = theBtnState.vKeyHeld;
-		InputDispatcher::sendKeyCommand(aCmd);
+		sResults.queuedCommands.push_back(aCmd);
 		theBtnState.vKeyHeld = 0;
 	}
 }
@@ -1060,7 +1072,7 @@ static bool tryPressAndHoldKey(
 	releaseKeyHeldByButton(*theBtnState);
 	// Send this right away since can often be instantly processed
 	// instead of needing to wait for input queue
-	InputDispatcher::sendKeyCommand(aHoldCmd);
+	sResults.queuedCommands.push_back(aHoldCmd);
 	// Make note that this button is now holding this key
 	theBtnState->vKeyHeld = aHoldCmd.vKey;
 	return true;
@@ -1091,10 +1103,7 @@ static void updateMouseForMenu(int theRootMenuID, bool canClick = false)
 		aMoveCmd.rootMenuID = dropTo<u16>(theRootMenuID);
 		aMoveCmd.menuItemID = dropTo<u16>(Menus::selectedItem(theRootMenuID));
 		aMoveCmd.andClick = canClick && aMenuMouseMode == eMenuMouseMode_Click;
-		InputDispatcher::moveMouseTo(aMoveCmd);
-		// Update hotspot map in case another command wants to move
-		// directly from the menu to a different relative hotspot
-		HotspotMap::update();
+		sResults.queuedCommands.push_back(aMoveCmd);
 	}
 }
 
@@ -1126,23 +1135,17 @@ static void processCommand(
 		break;
 	case eCmdType_TapKey:
 	case eCmdType_TriggerKeyBind:
-		// Send immediately if it can be a press-and-hold, otherwise queue
+		// If can be a press-and-hold key, need to track it
 		if( !tryPressAndHoldKey(theBtnState, theCmd) )
-			sResults.queuedKeys.push_back(theCmd);
+			sResults.queuedCommands.push_back(theCmd);
 		break;
 	case eCmdType_VKeySequence:
 	case eCmdType_ChatBoxString:
-		// Queue to send after any press-and-hold commands
-		sResults.queuedKeys.push_back(theCmd);
-		break;
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MoveMouseToMenuItem:
 	case eCmdType_MoveMouseToOffset:
-		// Send right away, to happen before a queued mouse click
-		InputDispatcher::moveMouseTo(theCmd);
-		// Update hotspot map in case another command wants to move
-		// directly from this spot to a different relative hotspot
-		HotspotMap::update();
+		// Queue to send after analog controls like movement & mouse
+		sResults.queuedCommands.push_back(theCmd);
 		break;
 	case eCmdType_KeyBindCycleReset:
 		DBG_ASSERT(theCmd.keyBindCycleID < gKeyBindCycleLastIndex.size());
@@ -2123,6 +2126,7 @@ void loadProfileChanges()
 	if( theProfileMap.contains("Scheme") ||
 		theProfileMap.containsPrefix("Layer.") )
 	{
+		loadLayerAutoButtonCommands();
 		loadCommandsForCurrentLayers();
 		updateMenusForCurrentLayers();
 		updateHotspotArraysForCurrentLayers();
@@ -2237,7 +2241,7 @@ void update()
 			aCmd.type = eCmdType_MoveMouseToOffset;
 			aCmd.dir = dropTo<u16>(sResults.selectHotspotDir);
 		}
-		InputDispatcher::moveMouseTo(aCmd);
+		InputDispatcher::sendCommand(aCmd);
 	}
 	InputDispatcher::moveMouse(
 		sResults.mouseMoveX,
@@ -2248,8 +2252,8 @@ void update()
 		sResults.mouseWheelY,
 		sResults.mouseWheelDigital,
 		sResults.mouseWheelStepped);
-	for(int i = 0, end = intSize(sResults.queuedKeys.size()); i < end; ++i)
-		InputDispatcher::sendKeyCommand(sResults.queuedKeys[i]);
+	for(int i = 0, end = intSize(sResults.queuedCommands.size()); i < end; ++i)
+		InputDispatcher::sendCommand(sResults.queuedCommands[i]);
 
 	// Update timing for held auto-repeat buttons
 	if( sResults.syncAutoRepeatNeeded )

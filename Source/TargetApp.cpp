@@ -453,7 +453,7 @@ static void checkWindowMode()
 			sSwapWindowModeHotkeyRegistered = false;
 		}
 		// Use InputDispatcher to send hotkey to the target app
-		InputDispatcher::sendKeyCommand(InputMap::keyBindCommand(
+		InputDispatcher::sendCommand(InputMap::keyBindCommand(
 			InputMap::specialKeyToKeyBindID(eSpecialKey_SwapWindowMode)));;
 		// Give some time for the target app to respond to the request
 		sNextCheckDelay = 1000;

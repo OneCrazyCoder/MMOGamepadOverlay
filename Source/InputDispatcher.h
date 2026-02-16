@@ -29,8 +29,8 @@ void forceReleaseHeldKeys();
 void update();
 
 // Sends the input for given command, for those that are valid
-// as key inputs (see GlobalConstants.h)
-void sendKeyCommand(const Command& theCommand);
+// as key inputs or mouse jumps/trails (see GlobalConstants.h)
+void sendCommand(const Command& theCommand);
 
 // Sets mouse mode, which affects things like mouse movement
 // speed in moveMouse (if allowed at all) and automatically
@@ -43,9 +43,6 @@ void setMouseMode(EMouseMode theMouseMode);
 // lookX is is used as dx only when in standard mouselook mode
 // and character movement is active via moveCharacter()
 void moveMouse(int dx, int dy, int lookX, bool digital);
-
-// Move mouse directly to specific location
-void moveMouseTo(const Command& theCommand);
 
 // Send mouse wheel up/down motion. Expected range of -255 to 255.
 // In cases where target app only responds to full "clicks" of the
