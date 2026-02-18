@@ -1004,26 +1004,23 @@ static void fetchBaseAppearanceProperties(
 		theDestAppearance.flashMaxTime = u16(clamp(
 			stringToInt(p.str), 0, 0xFFFF));
 	}
-	if( theDestAppearance.itemType == eMenuItemType_RndRect )
+	if( PropString p = getPropString(thePropMap, kRadiusPropName) )
 	{
-		if( PropString p = getPropString(thePropMap, kRadiusPropName) )
+		size_t aPos = 0;
+		const LONG aRadius = stringToWidth(p.str, aPos);
+		if( aRadius < 0 || aRadius > 0xFF || aPos != p.str.size() )
 		{
-			size_t aPos = 0;
-			const LONG aRadius = stringToWidth(p.str, aPos);
-			if( aRadius < 0 || aRadius > 0xFF || aPos != p.str.size() )
-			{
-				logError("Invalid radius value '%s' for '[%s]/%s='! - "
-					"must be 0 to 255!",
-					p.str.c_str(),
-					sParseSectName.c_str(),
-					sParsePropName.c_str());
-			}
-			else
-			{
-				theDestAppearance.baseRadius = dropTo<u8>(aRadius);
-				theDestAppearance.radius =
-					u8(clamp(int(aRadius * gUIScale + 0.5), 0, 0xFF));
-			}
+			logError("Invalid radius value '%s' for '[%s]/%s='! - "
+				"must be 0 to 255!",
+				p.str.c_str(),
+				sParseSectName.c_str(),
+				sParsePropName.c_str());
+		}
+		else
+		{
+			theDestAppearance.baseRadius = dropTo<u8>(aRadius);
+			theDestAppearance.radius =
+				u8(clamp(int(aRadius * gUIScale + 0.5), 0, 0xFF));
 		}
 	}
 	

@@ -58,5 +58,5 @@ extern BitVector<32> gKeyBindCycleLastIndexChanged;
 extern BitVector<32> gKeyBindCycleDefaultIndexChanged;
 
 // All Hotspots/Positions/Sizes will be scaled by gUIScale
-extern double gUIScale, gWindowUIScale;
+extern double gUIScale;
 

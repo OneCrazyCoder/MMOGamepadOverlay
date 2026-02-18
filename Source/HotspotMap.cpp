@@ -352,8 +352,8 @@ static void processTargetSizeTask()
 	{
 		// Calculate jump ranges
 		sBaseJumpDist = int(max(0.0,
-			Profile::getInt("Mouse", "DefaultHotspotDistance") *
-			sLastUIScale / gWindowUIScale * kNormalizedTargetSize));
+			Profile::getFloat("Mouse", "DefaultHotspotDistance") *
+			sLastUIScale * kNormalizedTargetSize));
 
 		int aMaxDeviationRadius = int(sBaseJumpDist * kDeviationRadiusMult);
 		sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;

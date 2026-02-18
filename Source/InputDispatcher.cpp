@@ -1281,13 +1281,6 @@ static void queueMoveMouseTo(const Command& theCommand)
 		aDestHotspot =
 			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
 		{
-			// Counter effect of gWindowUIScale on base jump distance
-			const int anOffsetDist = int(
-				gWindowUIScale < 1.0
-					? ceil(kConfig.offsetHotspotDist / gWindowUIScale) :
-				gWindowUIScale > 1.0
-					? floor(kConfig.offsetHotspotDist / gWindowUIScale) :
-				kConfig.offsetHotspotDist);
 			int aDestHotspotXOffset = aDestHotspot.x.offset;
 			int aDestHotspotYOffset = aDestHotspot.y.offset;
 			switch(theCommand.dir)
@@ -1295,12 +1288,12 @@ static void queueMoveMouseTo(const Command& theCommand)
 			case eCmd8Dir_L:
 			case eCmd8Dir_UL:
 			case eCmd8Dir_DL:
-				aDestHotspotXOffset -= anOffsetDist;
+				aDestHotspotXOffset -= kConfig.offsetHotspotDist;
 				break;
 			case eCmd8Dir_R:
 			case eCmd8Dir_UR:
 			case eCmd8Dir_DR:
-				aDestHotspotXOffset += anOffsetDist;
+				aDestHotspotXOffset += kConfig.offsetHotspotDist;
 				break;
 			}
 			switch(theCommand.dir)
@@ -1308,12 +1301,12 @@ static void queueMoveMouseTo(const Command& theCommand)
 			case eCmd8Dir_U:
 			case eCmd8Dir_UL:
 			case eCmd8Dir_UR:
-				aDestHotspotYOffset -= anOffsetDist;
+				aDestHotspotYOffset -= kConfig.offsetHotspotDist;
 				break;
 			case eCmd8Dir_D:
 			case eCmd8Dir_DL:
 			case eCmd8Dir_DR:
-				aDestHotspotYOffset += anOffsetDist;
+				aDestHotspotYOffset += kConfig.offsetHotspotDist;
 				break;
 			}
 			aDestHotspot.x.offset = s16(clamp(

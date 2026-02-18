@@ -27,4 +27,3 @@ std::vector<int> gKeyBindCycleDefaultIndex;
 BitVector<32> gKeyBindCycleLastIndexChanged;
 BitVector<32> gKeyBindCycleDefaultIndexChanged;
 double gUIScale = 1.0;
-double gWindowUIScale = 1.0;

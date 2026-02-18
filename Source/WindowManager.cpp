@@ -998,8 +998,7 @@ void loadProfileChanges()
 		aPropMap->contains("WindowWidth") ||
 		aPropMap->contains("WindowHeight") ||
 		aPropMap->contains("WindowXPos") ||
-		aPropMap->contains("WindowYPos") ||
-		aPropMap->contains("UIScaleBaseHeight") )
+		aPropMap->contains("WindowYPos") )
 	{// These properties can't be changed safely at runtime
 		logError(
 			"Attempted [System] property change that does not "
@@ -1010,9 +1009,8 @@ void loadProfileChanges()
 	{
 		const std::string& aUIScaleStr = aUIScalePtr->str;
 		const double oldUIScale = gUIScale;
-		double aUIScale = stringToDouble(aUIScaleStr);
-		if( aUIScale <= 0 ) aUIScale = 1.0;
-		gUIScale = aUIScale * gWindowUIScale;
+		gUIScale = stringToDouble(aUIScaleStr);
+		if( gUIScale <= 0 ) gUIScale = 1.0;
 		if( gUIScale != oldUIScale )
 		{
 			WindowPainter::updateScaling();
@@ -1343,16 +1341,9 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		Profile::setVariable("W", toString(sTargetSize.cx), true);
 		Profile::setVariable("H", toString(sTargetSize.cy), true);
 
-		const int aUIScaleBaseHeight =
-			Profile::getInt("System", "UIScaleBaseHeight");
-		if( aUIScaleBaseHeight > 0 )
-			gWindowUIScale = double(sTargetSize.cy) / aUIScaleBaseHeight;
-		else
-			gWindowUIScale = 1.0;
 		const double oldUIScale = gUIScale;
-		double aUIScale = Profile::getFloat("System", "UIScale", 1.0f);
-		if( aUIScale <= 0 ) aUIScale = 1.0;
-		gUIScale = aUIScale * gWindowUIScale;
+		gUIScale = Profile::getFloat("System", "UIScale", 1.0f);
+		if( gUIScale <= 0 ) gUIScale = 1.0;
 		if( gUIScale != oldUIScale )
 			WindowPainter::updateScaling();
 	}
