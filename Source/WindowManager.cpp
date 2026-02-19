@@ -1086,8 +1086,13 @@ void update()
 			continue;
 		}
 
+		// Don't update window contents while fading out
+		const bool allowRedraw =
+			aWindow.fadeState != eFadeState_FadeOutDelay &&
+			aWindow.fadeState != eFadeState_FadingOut;
+
 		// Check for possible update to window layout
-		if( !aWindow.layoutReady )
+		if( !aWindow.layoutReady && allowRedraw )
 		{
 			WindowPainter::updateWindowLayout(
 				anOverlayID, sTargetSize, sTargetClipRect,
@@ -1149,8 +1154,9 @@ void update()
 			continue;
 		}
 		SelectObject(aWindowDC, aWindow.bitmap);
-		if( gRefreshOverlays.test(anOverlayID) ||
-			gFullRedrawOverlays.test(anOverlayID) )
+		if( allowRedraw &&
+			(gRefreshOverlays.test(anOverlayID) ||
+			 gFullRedrawOverlays.test(anOverlayID)) )
 		{
 			WindowPainter::paintWindowContents(
 				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
