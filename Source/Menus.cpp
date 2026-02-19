@@ -393,7 +393,8 @@ Command selectMenuItem(
 		aMenuStyle != eMenuStyle_4Dir )
 	{
 		// Requests to open sub-menus with directionals in most menu styles
-		// any change to selected item.
+		// should keep previous selection in menu being left, and may change
+		// the initial selection of the new menu via openSideMenu().
 		aSelection = sSelectedItem[theSubMenuID];
 		aDirCmd.type = eCmdType_OpenSideMenu;
 		aDirCmd.sideMenuDir = theDir;

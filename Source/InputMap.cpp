@@ -312,9 +312,10 @@ struct ZERO_INIT(HotspotArray)
 {
 	std::vector<HotspotRange> ranges;
 	float offsetScale;
-	u16 anchorIdx; // set to first hotspot idx - 1 if !hasAnchor
-	u16 hasAnchor : 1;
-	u16 size : 15; // not including anchor
+	u32 anchorIdx : 16; // set to first hotspot idx - 1 if !hasAnchor
+	u32 hasAnchor : 1;
+	u32 size : 15; // not including anchor
+	u32 maxSize : 16; // includes invalidated/removed hotspots
 
 	HotspotArray() : offsetScale(1.0) {}
 	bool operator<(const HotspotArray& rhs) const
@@ -341,6 +342,7 @@ static std::vector<std::string> sParsedString(16);
 static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
 static BitVector<512> sChangedHotspots;
+static BitVector<512> sInvalidatedHotspots;
 static bool sHotspotArrayResized = false;
 
 
@@ -415,7 +417,7 @@ static void createEmptyHotspotArray(const std::string& theName)
 	anArray.ranges.insert(itr, aNewRange);
 
 	// Update total size (excluding anchor)
-	anArray.size = anArray.ranges.back().lastIdx();
+	anArray.maxSize = anArray.size = anArray.ranges.back().lastIdx();
 }
 
 
@@ -432,13 +434,13 @@ static void createEmptyHotspotsForArray(int theArrayID)
 			logError("Hotspot Array '%s' appears to be missing '%s%d'!",
 				sHotspotArrays.keys()[theArrayID].c_str(),
 				sHotspotArrays.keys()[theArrayID].c_str(), anExpectedIdx);
-			theArray.size = anExpectedIdx - 1;
+			theArray.maxSize = theArray.size = anExpectedIdx - 1;
 			theArray.ranges.resize(i);
 			break;
 		}
 		anExpectedIdx = theArray.ranges[i].lastIdx() + 1;
 	}
-	DBG_ASSERT(anExpectedIdx == theArray.size + 1);
+	DBG_ASSERT(anExpectedIdx == int(theArray.maxSize) + 1);
 
 	// Trim ranges vector
 	if( theArray.ranges.size() < theArray.ranges.capacity() )
@@ -451,8 +453,8 @@ static void createEmptyHotspotsForArray(int theArrayID)
 		sHotspots.push_back(Hotspot());
 	else
 		--theArray.anchorIdx;
-	if( theArray.size > 0 )
-		sHotspots.resize(sHotspots.size() + theArray.size);
+	if( theArray.maxSize > 0 )
+		sHotspots.resize(sHotspots.size() + theArray.maxSize);
 }
 
 
@@ -467,7 +469,7 @@ static int getHotspotID(const std::string& theName)
 	}
 	if( HotspotArray* aHotspotArray = sHotspotArrays.find(anArrayName) )
 	{
-		if( anArrayIdx <= aHotspotArray->size )
+		if( anArrayIdx <= int(aHotspotArray->maxSize) )
 			return aHotspotArray->anchorIdx + anArrayIdx;
 	}
 	return 0;
@@ -476,8 +478,7 @@ static int getHotspotID(const std::string& theName)
 
 static void applyHotspotProperty(
 	const std::string& theKey,
-	const std::string& theDesc,
-	BitVector<32>& theUpdatedHotspotArrays)
+	const std::string& theDesc)
 {
 	// Determine if this is a single hotspot or part of a range
 	int aRangeStartIdx, aRangeEndIdx;
@@ -563,13 +564,18 @@ static void applyHotspotProperty(
 	std::vector<HotspotRange>::iterator aRange;
 	if( isAnchorHotspot )
 	{
+		if( sInvalidatedHotspots.test(anArray.anchorIdx) != isEmptyHotspot )
+		{
+			sInvalidatedHotspots.set(anArray.anchorIdx, isEmptyHotspot);
+			sChangedHotspots.set(anArray.anchorIdx);
+		}
+
 		// Skip any further work if no different than previous setting
 		if( sHotspots[anArray.anchorIdx] == aHotspot &&
 			(anOffsetScale == 0 || anOffsetScale == anArray.offsetScale) )
 		{ return; }
 
 		sHotspots[anArray.anchorIdx] = aHotspot;
-		theUpdatedHotspotArrays.set(aHotspotArrayID);
 		sChangedHotspots.set(anArray.anchorIdx);
 		if( anOffsetScale )
 			anArray.offsetScale = float(anOffsetScale);
@@ -597,7 +603,7 @@ static void applyHotspotProperty(
 		// actual hotspot(s) to default to anchor's size if not specified
 		itr->width = aHotspot.w;
 		itr->height = aHotspot.h;
-		if( !aHotspot.w && !aHotspot.h )
+		if( !aHotspot.w && !aHotspot.h && !isEmptyHotspot )
 		{
 			aHotspot.w = sHotspots[anArray.anchorIdx].w;
 			aHotspot.h = sHotspots[anArray.anchorIdx].h;
@@ -605,13 +611,19 @@ static void applyHotspotProperty(
 
 		if( itr->count == 1 && !itr->offsetFromPrev )
 		{// Might have own anchors - set hotspot directly for now
+			if( sInvalidatedHotspots.test(
+					anArray.anchorIdx + itr->firstIdx) != isEmptyHotspot )
+			{
+				sInvalidatedHotspots.set(
+					anArray.anchorIdx + itr->firstIdx, isEmptyHotspot);
+				sChangedHotspots.set(anArray.anchorIdx + itr->firstIdx);
+			}
 			itr->hasOwnXAnchor = aHotspot.x.anchor != 0 || !anArray.hasAnchor;
 			itr->hasOwnYAnchor = aHotspot.y.anchor != 0 || !anArray.hasAnchor;
 			if( itr->hasOwnXAnchor && itr->hasOwnYAnchor &&
 				sHotspots[anArray.anchorIdx + itr->firstIdx] == aHotspot )
 			{ return; } // skip scan for dependent changes
 			sHotspots[anArray.anchorIdx + itr->firstIdx] = aHotspot;
-			theUpdatedHotspotArrays.set(aHotspotArrayID);
 			sChangedHotspots.set(anArray.anchorIdx + itr->firstIdx);
 		}
 
@@ -638,6 +650,28 @@ static void applyHotspotProperty(
 				itr != anArray.ranges.end() && !itr->removed; ++itr)
 			{ anArray.size = itr->lastIdx(); }
 			sHotspotArrayResized = true;
+			// Mark all hotspots in array (besides anchor) up to .size as valid
+			for(int aHotspotID = anArray.anchorIdx + 1,
+				end = anArray.anchorIdx + 1 + anArray.size;
+				aHotspotID < end; ++aHotspotID)
+			{
+				if( sInvalidatedHotspots.test(aHotspotID) )
+				{
+					sInvalidatedHotspots.reset(aHotspotID);
+					sChangedHotspots.set(aHotspotID);
+				}
+			}
+			// Mark remaining hotspots up to maxSize as no longer valid
+			for(int aHotspotID = anArray.anchorIdx + 1 + anArray.size,
+				end = anArray.anchorIdx + 1 + anArray.maxSize;
+				aHotspotID < end; ++aHotspotID)
+			{
+				if( !sInvalidatedHotspots.test(aHotspotID) )
+				{
+					sInvalidatedHotspots.set(aHotspotID);
+					sChangedHotspots.set(aHotspotID);
+				}
+			}
 		}
 	}
 
@@ -659,45 +693,51 @@ static void applyHotspotProperty(
 		{ continue; }
 
 		for(int aHotspotID = aRange->firstIdx + anArray.anchorIdx;
-			aHotspotID <= aRange->lastIdx() + anArray.anchorIdx;
+			aHotspotID <= aRange->lastIdx() + int(anArray.anchorIdx);
 			++aHotspotID)
 		{
-			const int aBaseHotspotID =
-				aRange->offsetFromPrev ? aHotspotID - 1 :
-				anArray.hasAnchor ? anArray.anchorIdx : 0;
-			if( aRange->hasOwnXAnchor )
+			if( sInvalidatedHotspots.test(aHotspotID) )
 			{
-				aHotspot.x = sHotspots[aHotspotID].x;
+				aHotspot = Hotspot();
 			}
 			else
 			{
-				aHotspot.x.anchor = sHotspots[aBaseHotspotID].x.anchor;
-				aHotspot.x.offset = s16(clamp(
-					sHotspots[aBaseHotspotID].x.offset +
-					aRange->xOffset * anArray.offsetScale,
-					-0x8000, 0x7FFF));
+				const int aBaseHotspotID =
+					aRange->offsetFromPrev ? aHotspotID - 1 :
+					anArray.hasAnchor ? anArray.anchorIdx : 0;
+				if( aRange->hasOwnXAnchor )
+				{
+					aHotspot.x = sHotspots[aHotspotID].x;
+				}
+				else
+				{
+					aHotspot.x.anchor = sHotspots[aBaseHotspotID].x.anchor;
+					aHotspot.x.offset = s16(clamp(
+						sHotspots[aBaseHotspotID].x.offset +
+						aRange->xOffset * anArray.offsetScale,
+						-0x8000, 0x7FFF));
+				}
+				if( aRange->hasOwnYAnchor )
+				{
+					aHotspot.y = sHotspots[aHotspotID].y;
+				}
+				else
+				{
+					aHotspot.y.anchor = sHotspots[aBaseHotspotID].y.anchor;
+					aHotspot.y.offset = s16(clamp(
+						sHotspots[aBaseHotspotID].y.offset +
+						aRange->yOffset * anArray.offsetScale,
+						-0x8000, 0x7FFF));
+				}
+				if( !aRange->width )
+					aHotspot.w = sHotspots[aBaseHotspotID].w;
+				if( !aRange->height )
+					aHotspot.h = sHotspots[aBaseHotspotID].h;
 			}
-			if( aRange->hasOwnYAnchor )
-			{
-				aHotspot.y = sHotspots[aHotspotID].y;
-			}
-			else
-			{
-				aHotspot.y.anchor = sHotspots[aBaseHotspotID].y.anchor;
-				aHotspot.y.offset = s16(clamp(
-					sHotspots[aBaseHotspotID].y.offset +
-					aRange->yOffset * anArray.offsetScale,
-					-0x8000, 0x7FFF));
-			}
-			if( !aRange->width )
-				aHotspot.w = sHotspots[aBaseHotspotID].w;
-			if( !aRange->height )
-				aHotspot.h = sHotspots[aBaseHotspotID].h;
 			if( aHotspot != sHotspots[aHotspotID] )
 			{
 				rangeAffected = true;
 				sHotspots[aHotspotID] = aHotspot;
-				theUpdatedHotspotArrays.set(aHotspotArrayID);
 				sChangedHotspots.set(aHotspotID);
 			}
 		}
@@ -2977,6 +3017,10 @@ static void applyMenuProperty(
 			// Possibly name of a hotspot for hotspot menu type
 			if( int aHotspotID = getHotspotID(thePropKey) )
 			{
+				// If not currently valid for a hotspot-based menu item,
+				// but might later with var changes, just ignore it for now
+				if( sInvalidatedHotspots.test(aHotspotID) )
+					break;
 				const int aMenuLen = intSize(theMenu.items.size());
 				int aMenuItemID = aMenuLen;
 				for(int i = 0; i < aMenuLen; ++i)
@@ -3000,7 +3044,11 @@ static void applyMenuProperty(
 				}
 				*aMenuItem = stringToMenuItem(theMenuID, thePropVal);
 				aMenuItem->hotspotID = dropTo<u16>(aHotspotID);
+				break;
 			}
+			logError("Could not identify menu property '%s' for menu '%s' "
+				"as a known property, menu item index, or hotspot name!",
+				thePropKey.c_str(), sSectionPrintName.c_str());
 		}
 		break;
 	}
@@ -3853,7 +3901,6 @@ static void loadDataFromProfile(
 	const Profile::SectionsMap& theProfileMap,
 	bool init)
 {
-	BitVector<32> loadedHotspotArrays(sHotspotArrays.size());
 	sChangedHotspots.clearAndResize(sHotspots.size());
 	BitVector<256> loadedKeyBinds(sKeyBinds.size());
 	BitVector<256> referencedKeyBinds(sKeyBinds.size());
@@ -3862,7 +3909,6 @@ static void loadDataFromProfile(
 	BitVector<256> loadedMenus(sMenus.size());
 	if( init )
 	{
-		loadedHotspotArrays.set();
 		loadedKeyBinds.set();
 		loadedMenus.set();
 	}
@@ -3894,8 +3940,7 @@ static void loadDataFromProfile(
 				sPropertyPrintName = aPropMap->keys()[aPropIdx];
 				applyHotspotProperty(
 					aPropMap->keys()[aPropIdx],
-					aPropMap->vals()[aPropIdx].str,
-					loadedHotspotArrays);
+					aPropMap->vals()[aPropIdx].str);
 			}
 			break;
 		case ePropType_KeyBinds:
@@ -3921,6 +3966,7 @@ static void loadDataFromProfile(
 					sKeyBinds.vals()[aKeyBindID],
 					aPropMap->vals()[aPropIdx].str,
 					keyBindSignalID(aKeyBindID));
+				loadedKeyBinds.set(aKeyBindID);
 			}
 			break;
 		case ePropType_KeyBindCycles:
@@ -4048,6 +4094,7 @@ void loadProfile()
 		sHotspots.push_back(Hotspot()); // un-named special hotspots
 	for(int i = 0; i < sHotspotArrays.size(); ++i)
 		createEmptyHotspotsForArray(i);
+		sInvalidatedHotspots.clearAndResize(sHotspots.size());
 	if( sHotspots.size() < sHotspots.capacity() )
 		std::vector<Hotspot>(sHotspots).swap(sHotspots);
 
@@ -4659,6 +4706,15 @@ int hotspotIDFromName(const std::string& theHotspotName)
 }
 
 
+bool isValidHotspotID(int theHotspotID)
+{
+	return
+		theHotspotID > 0 &&
+		theHotspotID < sInvalidatedHotspots.size() &&
+		!sInvalidatedHotspots.test(theHotspotID);
+}
+
+
 int hotspotArrayIDFromName(const std::string& theHotspotArrayName)
 {
 	return sHotspotArrays.findIndex(theHotspotArrayName);
@@ -4671,14 +4727,6 @@ int firstHotspotInArray(int theHotspotArrayID)
 	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
 	HotspotArray& aHotspotArray = sHotspotArrays.vals()[theHotspotArrayID];
 	return aHotspotArray.anchorIdx + 1;
-}
-
-
-int lastHotspotInArray(int theHotspotArrayID)
-{
-	return
-		firstHotspotInArray(theHotspotArrayID) +
-		sizeOfHotspotArray(theHotspotArrayID) - 1;
 }
 
 
@@ -4838,7 +4886,7 @@ std::string hotspotLabel(int theHotspotID)
 		DBG_ASSERT(itr > sHotspotArrays.vals().begin());
 		--itr;
 		result = sHotspotArrays.keys()[itr - sHotspotArrays.vals().begin()];
-		if( theHotspotID > itr->anchorIdx )
+		if( theHotspotID > int(itr->anchorIdx) )
 			result += toString(theHotspotID - itr->anchorIdx);
 	}
 

@@ -941,8 +941,13 @@ void loadProfileChanges()
 		sNewTasks.set();
 		for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
 		{
-			if( InputMap::menuHotspotsChanged(sLinkMaps[i].first) )
-				sLinkMaps[i].second.clear();
+			MenuLinks& aLinks = sLinkMaps[i].second;
+			const int aMenuID = sLinkMaps[i].first;
+			if( InputMap::menuItemCount(aMenuID) != intSize(aLinks.size()) ||
+				InputMap::menuHotspotsChanged(aMenuID) )
+			{
+				aLinks.clear();
+			}
 		}
 	}
 }

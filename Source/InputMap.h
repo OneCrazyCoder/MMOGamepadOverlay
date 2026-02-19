@@ -114,8 +114,8 @@ void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 const Hotspot& getHotspot(int theHotspotID);
 int hotspotIDFromName(const std::string& theHotspotName); // or 0
 int hotspotArrayIDFromName(const std::string& theHotspotArrayName); // or count
+bool isValidHotspotID(int theHotspotID);
 int firstHotspotInArray(int theHotspotArrayID);
-int lastHotspotInArray(int theHotspotArrayID);
 int sizeOfHotspotArray(int theHotspotArrayID);
 bool hotspotArrayHasAnchor(int theHotspotArrayID);
 float hotspotScale(int theHotspotID);

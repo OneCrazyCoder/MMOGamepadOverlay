@@ -818,7 +818,8 @@ static void setLabelIcon(
 			return;
 		}
 		const Hotspot& aNewHotspot = InputMap::getHotspot(aNewIcon.hotspotID);
-		if( aNewHotspot.w == 0 || aNewHotspot.h == 0 )
+		if( (aNewHotspot.w == 0 || aNewHotspot.h == 0) &&
+			InputMap::isValidHotspotID(aNewIcon.hotspotID) )
 		{
 			logError("Copy-from-screen label '%s' set to hotspot '%s' "
 				"which has 0 for width or height, so nothing to copy!",
@@ -1780,25 +1781,40 @@ static void drawMenuItemLabel(
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
 	{// Initialize cache entry
 		LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
-		if( aLabelIcon && aLabelIcon->copyFromTarget )
+		if( aLabelIcon &&
+			aLabelIcon->copyFromTarget &&
+			InputMap::isValidHotspotID(aLabelIcon->hotspotID) )
 		{
 			theCacheEntry.type = eMenuItemLabelType_CopyRect;
 			Hotspot aCopySrcHotspot =
 				InputMap::getHotspot(aLabelIcon->hotspotID);
-			theCacheEntry.copyRect.fromPos =
-				hotspotToPoint(aCopySrcHotspot, dd.targetSize);
-			const double aHotspotScale =
-				InputMap::hotspotScale(aLabelIcon->hotspotID);
-			theCacheEntry.copyRect.fromSize.cx =
-				LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
-			theCacheEntry.copyRect.fromSize.cy =
-				LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale + 0.5);
-			// Hotspot is centered, so offset left/top by half box size
-			theCacheEntry.copyRect.fromPos.x -=
-				theCacheEntry.copyRect.fromSize.cx / 2;
-			theCacheEntry.copyRect.fromPos.y -=
-				theCacheEntry.copyRect.fromSize.cy / 2;
-			sHotspotsUsedByCopyIcons.set(aLabelIcon->hotspotID);
+			if( aCopySrcHotspot.w == 0 || aCopySrcHotspot.h == 0 )
+			{
+				logError("Copy-from-screen label '%s' set to hotspot '%s' "
+					"which has 0 for width or height, so nothing to copy!",
+					theLabel.c_str(),
+					InputMap::hotspotLabel(aLabelIcon->hotspotID).c_str());
+				aLabelIcon->hotspotID = 0; // prevent repeat of this error
+				theCacheEntry.type = eMenuItemLabelType_String;
+				theCacheEntry.str = StringScaleCacheEntry();
+			}
+			else
+			{
+				theCacheEntry.copyRect.fromPos =
+					hotspotToPoint(aCopySrcHotspot, dd.targetSize);
+				const double aHotspotScale =
+					InputMap::hotspotScale(aLabelIcon->hotspotID);
+				theCacheEntry.copyRect.fromSize.cx =
+					LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
+				theCacheEntry.copyRect.fromSize.cy =
+					LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale + 0.5);
+				// Hotspot is centered, so offset left/top by half box size
+				theCacheEntry.copyRect.fromPos.x -=
+					theCacheEntry.copyRect.fromSize.cx / 2;
+				theCacheEntry.copyRect.fromPos.y -=
+					theCacheEntry.copyRect.fromSize.cy / 2;
+				sHotspotsUsedByCopyIcons.set(aLabelIcon->hotspotID);
+			}
 		}
 		else if( aLabelIcon && !aLabelIcon->copyFromTarget )
 		{
@@ -2803,50 +2819,27 @@ void loadProfileChanges()
 		}
 	}
 
-	// Check for changes to any root menus
-	for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
+	// Check for changes to any menus
+	for(int aMenuID = 0, end = InputMap::menuCount(); aMenuID < end; ++aMenuID)
 	{
-		if( i == kSystemOverlayID || i == kHotspotGuideOverlayID )
+		if( aMenuID == kSystemMenuID || aMenuID == kHotspotGuideMenuID )
 			continue;
-		const int aMenuID = InputMap::overlayRootMenuID(i);
+
 		if( Profile::PropertyMapPtr aPropMap = theProfileMap.find(
 				InputMap::menuSectionName(aMenuID)) )
 		{
 			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 				markMenuCacheDirtyFor(aMenuID, aPropMap->keys()[aPropIdx]);
 		}
-	}
 
-	// Check for changes to any sub-menus, as well as marking dirty any whose
-	// root menu was invalidated from the above loop
-	for(int aMenuID = 0, end = InputMap::menuCount(); aMenuID < end; ++aMenuID)
-	{
 		const int aRootMenuID = InputMap::rootMenuOfMenu(aMenuID);
 		if( aRootMenuID == aMenuID )
 			continue;
 
-		const MenuCacheEntry& aRootMenuCache = sMenuDrawCache[aRootMenuID];
-		MenuCacheEntry& aMenuCache = sMenuDrawCache[aMenuID];
-		if( aRootMenuCache.positionID == kInvalidID )
-			aMenuCache.positionID = kInvalidID;
-		if( aRootMenuCache.layoutID == kInvalidID )
-			aMenuCache.layoutID = kInvalidID;
-		if( aRootMenuCache.appearanceID == kInvalidID )
-			aMenuCache.appearanceID = kInvalidID;
-		if( aRootMenuCache.alphaInfoID == kInvalidID )
-			aMenuCache.alphaInfoID = kInvalidID;
-		for(int aDState = 0; aDState < eMenuItemDrawState_Num; ++aDState)
-		{
-			if( aRootMenuCache.itemAppearanceID[aDState] == kInvalidID )
-				aMenuCache.itemAppearanceID[aDState] = kInvalidID;
-		}
-		if( aRootMenuCache.maxBorderSize < 0 )
-			aMenuCache.maxBorderSize = aRootMenuCache.maxBorderSize;
-		if( aRootMenuCache.labelCache.empty() )
-			aMenuCache.labelCache.clear();
-		
+		// Also mark sub-menus dirty for any changes to their root menu,
+		// since sub-menus can inherit properties from the root menu
 		if( Profile::PropertyMapPtr aPropMap = theProfileMap.find(
-				InputMap::menuSectionName(aMenuID)) )
+				InputMap::menuSectionName(aRootMenuID)) )
 		{
 			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 				markMenuCacheDirtyFor(aMenuID, aPropMap->keys()[aPropIdx]);

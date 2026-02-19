@@ -43,11 +43,11 @@ struct ResourceFile
 };
 
 const ResourceFile kResTemplateCore =
-	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		10	};
+	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		11	};
 
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
-	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	10	},
+	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	11	},
 	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	9	},
 	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	9	},
 	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	11	},
@@ -56,7 +56,7 @@ const ResourceFile kResTemplateBase[] =
 
 const ResourceFile kResTemplateDefault[] =
 {//		dispName			fileName			resID					ver
-	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	10	},
+	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	11	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	9	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	9	},
 	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	11	},
@@ -1482,7 +1482,6 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		size_t aVarOpPos = aTagCoords.first + 2;
 		const std::string& aVarName =
 			fetchNextItem(aStr, aVarOpPos, "}+-*/?!~<>=");
-
 
 		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
 		std::string aRepStr;
