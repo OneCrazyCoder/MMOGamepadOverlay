@@ -988,35 +988,17 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void loadProfileChanges()
 {
-	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	const Profile::PropertyMap* aPropMap = theProfileMap.find("System");
-	if( !aPropMap )
-		return;
-
-	if( aPropMap->contains("IconCopyMethod") ||
-		aPropMap->contains("WindowName") ||
-		aPropMap->contains("WindowWidth") ||
-		aPropMap->contains("WindowHeight") ||
-		aPropMap->contains("WindowXPos") ||
-		aPropMap->contains("WindowYPos") )
-	{// These properties can't be changed safely at runtime
-		logError(
-			"Attempted [System] property change that does not "
-			"allow dynamic runtime changes!");
-	}
-
-	if( const Profile::Property* aUIScalePtr = aPropMap->find("UIScale") )
+	// Variables are not added to changedSections(), so just re-read UIScale
+	const std::string& aUIScaleStr = Profile::getVariable("UIScale");
+	const double oldUIScale = gUIScale;
+	gUIScale = stringToDouble(aUIScaleStr);
+	if( gUIScale <= 0 )
+		gUIScale = 1.0;
+	if( gUIScale != oldUIScale )
 	{
-		const std::string& aUIScaleStr = aUIScalePtr->str;
-		const double oldUIScale = gUIScale;
-		gUIScale = stringToDouble(aUIScaleStr);
-		if( gUIScale <= 0 ) gUIScale = 1.0;
-		if( gUIScale != oldUIScale )
-		{
-			WindowPainter::updateScaling();
-			for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
-				sOverlayWindows[i].layoutReady = false;
-		}
+		WindowPainter::updateScaling();
+		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+			sOverlayWindows[i].layoutReady = false;
 	}
 }
 

@@ -2204,11 +2204,8 @@ static std::string getValueString(
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
 				getSubTypeValue(v, eValueSetSubType_PivotX));
-			if( anOffset )
-			{
-				if( anOffset > 0 ) result += "+";
-				result += toString(anOffset);
-			}
+			if( anOffset >= 0 ) result += "+";
+			result += toString(anOffset);
 		}
 		break;
 	case eValueFunc_Top:
@@ -2217,11 +2214,8 @@ static std::string getValueString(
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
 				getSubTypeValue(v, eValueSetSubType_PivotY));
-			if( anOffset )
-			{
-				if( anOffset > 0 ) result += "+";
-				result += toString(anOffset);
-			}
+			if( anOffset >= 0 ) result += "+";
+			result += toString(anOffset);
 		}
 		break;
 	case eValueFunc_CX:
@@ -2231,11 +2225,8 @@ static std::string getValueString(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
 				getSubTypeValue(v, eValueSetSubType_PivotX) +
 				getSubTypeValue(v, eValueSetSubType_SizeX) * 0.5);
-			if( anOffset )
-			{
-				if( anOffset > 0 ) result += "+";
-				result += toString(anOffset);
-			}
+			if( anOffset >= 0 ) result += "+";
+			result += toString(anOffset);
 		}
 		break;
 	case eValueFunc_CY:
@@ -2245,11 +2236,8 @@ static std::string getValueString(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
 				getSubTypeValue(v, eValueSetSubType_PivotY) +
 				getSubTypeValue(v, eValueSetSubType_SizeY) * 0.5);
-			if( anOffset )
-			{
-				if( anOffset > 0 ) result += "+";
-				result += toString(anOffset);
-			}
+			if( anOffset >= 0 ) result += "+";
+			result += toString(anOffset);
 		}
 		break;
 	case eValueFunc_Right:
@@ -2259,11 +2247,8 @@ static std::string getValueString(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
 				getSubTypeValue(v, eValueSetSubType_PivotX) +
 				getSubTypeValue(v, eValueSetSubType_SizeX));
-			if( anOffset )
-			{
-				if( anOffset > 0 ) result += "+";
-				result += toString(anOffset);
-			}
+			if( anOffset >= 0 ) result += "+";
+			result += toString(anOffset);
 		}
 		break;
 	case eValueFunc_Bottom:
@@ -2273,11 +2258,8 @@ static std::string getValueString(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
 				getSubTypeValue(v, eValueSetSubType_PivotY) +
 				getSubTypeValue(v, eValueSetSubType_SizeY));
-			if( anOffset )
-			{
-				if( anOffset > 0 ) result += "+";
-				result += toString(anOffset);
-			}
+			if( anOffset >= 0 ) result += "+";
+			result += toString(anOffset);
 		}
 		break;
 	case eValueFunc_Width:

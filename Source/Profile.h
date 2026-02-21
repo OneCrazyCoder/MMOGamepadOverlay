@@ -69,6 +69,8 @@ bool getBool(const std::string&, const std::string&, bool = false);
 double getFloat(const std::string&, const std::string&, double = 0);
 int variableNameToID(const std::string& theVarName); // -1 if not found
 std::string variableIDToName(int theVariableID);
+std::string getVariable(int theVariableID);
+std::string getVariable(const std::string& theVarName);
 std::string expandVars(std::string theString);
 const SectionsMap& allSections();
 int getSectionID(const std::string& theSectionName); // -1 if not found
