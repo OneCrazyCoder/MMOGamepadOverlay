@@ -2077,8 +2077,10 @@ void update()
 
 		switch(sTracker.mouseMode)
 		{
+		case eMouseMode_Default:
 		case eMouseMode_Hide:
 		case eMouseMode_LookReady:
+		case eMouseMode_JumpClicked:
 			// Mouse is never considered actually moving
 			mouseMoving = false;
 			break;
@@ -2098,7 +2100,7 @@ void update()
 					sTracker.keysHeldDown.test(
 						InputMap::keyForSpecialAction(eSpecialKey_TurnR)) )
 				{
-					// If key is being held as part of auto-strafe-run in X axis,
+					// If key is being held as part of auto-strafe-run in X,
 					// abort that first so aren't stuck in LookTurn mode
 					if( sTracker.autoRunMode == eAutoRunMode_LockedX )
 						sTracker.autoRunMode = eAutoRunMode_Off;
@@ -2530,7 +2532,8 @@ void update()
 		if( sTracker.mouseJumpToMode == eMouseMode_PostJump &&
 			!readyForQueuedKey &&
 			!sTracker.queue.mouseJumpQueued() &&
-			hiddenCursorMode(sTracker.mouseMode) )
+			(hiddenCursorMode(sTracker.mouseMode) ||
+			 hiddenCursorMode(sTracker.mouseModeRequested)) )
 		{// Update default cursor pos rather than actually jumping
 			InputMap::modifyHotspot(
 				eSpecialHotspot_LastCursorPos,
