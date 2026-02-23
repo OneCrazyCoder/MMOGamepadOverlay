@@ -105,6 +105,7 @@ struct ZERO_INIT(Config)
 	int moveLookSpeed;
 	int mouseWheelSpeed;
 	int mouseLookAutoRestoreTime;
+	int mouseLookStartThrottle;
 	int offsetHotspotDist;
 	int baseKeyReleaseLockTime;
 	int mouseClickLockTime;
@@ -197,7 +198,9 @@ struct ZERO_INIT(Config)
 		cancelAutoRunDeadzone = clamp(int(Profile::getInt(
 			"Gamepad", "CancelAutoRunThreshold", 80) / 100.0 * 255.0), 0, 255);
 		mouseLookAutoRestoreTime = Profile::getInt(
-			"System", "MouseLookAutoRestoreTime");
+			"Mouse", "MouseLookAutoRestoreTime");
+		mouseLookStartThrottle = Profile::getInt(
+			"Mouse", "MouseLookStartThrottle");
 		offsetHotspotDist = max(0, Profile::getInt(
 			"Mouse", "DefaultHotspotDistance"));
 
@@ -564,6 +567,7 @@ struct ZERO_INIT(DispatchTracker)
 	bool mouseInterpolateUpdateDest;
 	bool mouseAllowMidJumpControl;
 	bool mouseLookNeededToStrafe;
+	bool mouseLookThrottleNeeded;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
@@ -1062,6 +1066,28 @@ static void offsetMousePos()
 
 	if( gAppRunTime < sTracker.mouseMoveAllowedTime )
 		return;
+
+	if( sTracker.mouseLookThrottleNeeded )
+	{
+		if( kConfig.mouseLookStartThrottle )
+		{
+			const LONG aMouseVelSq =
+				anInput.mi.dx * anInput.mi.dx +
+				anInput.mi.dy * anInput.mi.dy;
+			const LONG aThrottleSq =
+				kConfig.mouseLookStartThrottle *
+				kConfig.mouseLookStartThrottle;
+			if( aMouseVelSq > aThrottleSq )
+			{
+				const LONG aMouseVelMag = LONG(sqrt(double(aMouseVelSq)));
+				anInput.mi.dx = MulDiv(anInput.mi.dx,
+					kConfig.mouseLookStartThrottle, aMouseVelMag);
+				anInput.mi.dy = MulDiv(anInput.mi.dy,
+					kConfig.mouseLookStartThrottle, aMouseVelMag);
+			}
+		}
+		sTracker.mouseLookThrottleNeeded = false;
+	}
 
 	sTracker.inputs.push_back(anInput);
 
@@ -1643,7 +1669,11 @@ static EResult setKeyDown(int theKey, bool down)
 			// Don't allow movement immediately after start holding the
 			// mouse button for a mouse look mode, or it may actually move
 			// the cursor instead in some modes and cause the mouse look
-			// to not start properly by accidentally clicking on a UI window
+			// to not start properly by accidentally clicking on a UI window.
+			// Also possibly throttle initial movement to prevent mouse from
+			// zooming off to a UI element, possibly halting the transition,
+			// as can happen with games that wait for movement and not just
+			// the button being held before switching fully to mouse look.
 			if( (theKey == VK_LBUTTON &&
 				 sTracker.mouseMode == eMouseMode_LookOnly) ||
 				(theKey == VK_RBUTTON &&
@@ -1651,6 +1681,7 @@ static EResult setKeyDown(int theKey, bool down)
 			{
 				sTracker.mouseMoveAllowedTime =
 					gAppRunTime + kConfig.mouseLookMoveLockTime;
+				sTracker.mouseLookThrottleNeeded = true;
 			}
 		}
 		else
