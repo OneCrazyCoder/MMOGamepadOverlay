@@ -2317,6 +2317,9 @@ void init()
 			isMenuDefaults = true;
 			break;
 		default:
+			// Don't try editing menus that use a hotspot for their position
+			if( InputMap::menuOriginHotspotID(aMenuID) )
+				continue;
 			// Add a new entry for this menu ID
 			sState->entries.push_back(LayoutEntry());
 			break;

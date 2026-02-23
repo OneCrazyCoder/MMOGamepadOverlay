@@ -302,16 +302,12 @@ enum ESpecialKey
 
 enum ESpecialHotspot
 {
-	// Can't be defined in profile
-	eSpecialHotspot_None = 0,
+	eSpecialHotspot_None,
 	eSpecialHotspot_LastCursorPos,
-
-	// Can also be defined in profile
 	eSpecialHotspot_MouseLookStart,
 	eSpecialHotspot_MouseHidden,
 
 	eSpecialHotspot_Num,
-	eSpecialHotspot_FirstNamed = eSpecialHotspot_MouseLookStart,
 };
 
 enum EHotspotGuideMode

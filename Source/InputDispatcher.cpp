@@ -2622,12 +2622,16 @@ void update()
 	offsetMousePos();
 	if( !sTracker.queue.mouseJumpQueued() &&
 		!sTracker.mouseJumpToHotspot &&
-		sTracker.mouseMode == eMouseMode_Cursor )
+		sTracker.mouseMode == eMouseMode_Cursor &&
+		!sTracker.keysHeldDown.test(VK_LBUTTON) &&
+		!sTracker.keysHeldDown.test(VK_RBUTTON) )
 	{// Track cursor position changes in cursor mode when not jumping
+		#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 		InputMap::modifyHotspot(
 			eSpecialHotspot_LastCursorPos,
 			WindowManager::overlayPosToHotspot(
 				WindowManager::mouseToOverlayPos(true)));
+		#endif
 	}
 	// Return speed from digital mouse acceleration back to 0 over time
 	sTracker.mouseDigitalVel = max(0,

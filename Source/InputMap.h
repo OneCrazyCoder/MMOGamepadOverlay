@@ -97,8 +97,9 @@ int menuOverlayID(int theMenuID);
 int overlayRootMenuID(int theOverlayID);
 int menuDefaultItemIdx(int theMenuID);
 int menuItemHotspotID(int theMenuID, int theMenuItemIdx); // or 0
+int menuOriginHotspotID(int theMenuID); // usually 0
 int menuKeyBindCycleID(int theMenuID); // for _KBCycle styles
-bool menuHotspotsChanged(int theMenuID); // in last loadProfileChanges() 
+bool menuHotspotsChanged(int theMenuID);
 int menuGridWidth(int theMenuID); // for _Grid style
 int menuGridHeight(int theMenuID); // for _Grid style
 int menuSectionID(int theMenuID);
@@ -121,7 +122,8 @@ bool hotspotArrayHasAnchor(int theHotspotArrayID);
 float hotspotScale(int theHotspotID);
 int KeyBindCycleHotspotID(int theArrayID, int theIndex); // or 0
 void modifyHotspot(int theHotspotID, const Hotspot& theNewValues);
-const BitVector<512>& changedHotspots(); // in last loadProfileChanges()
+const BitVector<512>& changedHotspots();
+void resetChangedHotspots();
 
 // SIZES
 int keyBindCount();

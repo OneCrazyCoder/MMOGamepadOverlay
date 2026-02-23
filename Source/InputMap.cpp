@@ -27,13 +27,14 @@ const char* kKeyBindCyclesSectionName = "KeyBindCycles";
 const char* kHotspotsSectionName = "Hotspots";
 const std::string kSignalCommandPrefix = "When";
 
-const char* kSpecialNamedHotspots[] =
+const char* kSpecialHotspotNames[] =
 {
+	"<Unknown>",			// eSpecialHotspot_None
+	"LastCursorPos",		// eSpecialHotspot_LastCursorPos
 	"MouseLookStart",		// eSpecialHotspot_MouseLookStart
 	"MouseHidden",			// eSpecialHotspot_MouseHidden
 };
-DBG_CTASSERT(ARRAYSIZE(kSpecialNamedHotspots) ==
-			 eSpecialHotspot_Num - eSpecialHotspot_FirstNamed);
+DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
 const char* kButtonActionPrefx[] =
 {
@@ -79,6 +80,7 @@ enum EPropertyType
 	// Normal properties
 	ePropType_Mouse,
 	ePropType_Parent,
+	ePropType_Position,
 	ePropType_Priority,
 	ePropType_AutoLayers,
 	ePropType_ShowMenus,
@@ -122,6 +124,7 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "Mouse",						ePropType_Mouse			},
 				{ "Cursor",						ePropType_Mouse			},
 				{ "Parent",						ePropType_Parent		},
+				{ "Position",					ePropType_Position		},
 				{ "Priority",					ePropType_Priority		},
 				{ "Layers",						ePropType_AutoLayers	},
 				{ "AutoLayer",					ePropType_AutoLayers	},
@@ -157,7 +160,6 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "Initial",					ePropType_Default		},
 				{ "First",						ePropType_Default		},
 				{ "Start",						ePropType_Default		},
-				{ "Position",					ePropType_Appearance	},
 				{ "ItemType",					ePropType_Appearance	},
 				{ "ItemSize",					ePropType_Appearance	},
 				{ "Size",						ePropType_Appearance	},
@@ -257,6 +259,7 @@ struct Menu
 	u16 rootMenuID;
 	u16 overlayID;
 	u16 keyBindCycleID;
+	u16 posHotspotID;
 	u16 profileSectionID;
 	u8 defaultMenuItemIdx;
 	u8 gridWidth;
@@ -270,6 +273,7 @@ struct Menu
 		rootMenuID(),
 		overlayID(),
 		keyBindCycleID(kInvalidID),
+		posHotspotID(),
 		defaultMenuItemIdx(),
 		gridWidth(0)
 	{}
@@ -472,7 +476,8 @@ static int getHotspotID(const std::string& theName)
 		if( anArrayIdx <= int(aHotspotArray->maxSize) )
 			return aHotspotArray->anchorIdx + anArrayIdx;
 	}
-	return 0;
+
+	return eSpecialHotspot_None;
 }
 
 
@@ -2935,6 +2940,12 @@ static void applyMenuProperty(
 		}
 		return;
 
+	case ePropType_Position:
+		// Only interested in position property that is set to a hotspot name
+		// Direct position values are read in by WindowPainter instead
+		theMenu.posHotspotID = dropTo<u16>(getHotspotID(thePropVal));
+		return;
+
 	case ePropType_MenuItemLeft:
 	case ePropType_MenuItemRight:
 	case ePropType_MenuItemUp:
@@ -3901,7 +3912,6 @@ static void loadDataFromProfile(
 	const Profile::SectionsMap& theProfileMap,
 	bool init)
 {
-	sChangedHotspots.clearAndResize(sHotspots.size());
 	BitVector<256> loadedKeyBinds(sKeyBinds.size());
 	BitVector<256> referencedKeyBinds(sKeyBinds.size());
 	BitVector<32> loadedLayers(sLayers.size());
@@ -4080,9 +4090,9 @@ void loadProfile()
 	sParsedString.clear();
 
 	// Allocate hotspot arrays
-	// Start with the the special named hotspots so they get correct IDs
-	for(int i = 0; i < eSpecialHotspot_Num - eSpecialHotspot_FirstNamed; ++i)
-		createEmptyHotspotArray(kSpecialNamedHotspots[i]);
+	// Start with the the special hotspots so they get correct IDs
+	for(int i = 1; i < eSpecialHotspot_Num; ++i) // skip eSpecialHotspot_None
+		createEmptyHotspotArray(kSpecialHotspotNames[i]);
 	 Profile::PropertyMapPtr aPropMapPtr =
 		 Profile::getSectionProperties(kHotspotsSectionName);
 	for(int i = 0; i < aPropMapPtr->size(); ++i)
@@ -4090,11 +4100,11 @@ void loadProfile()
 	sHotspotArrays.trim();
 
 	// Allocate hotspots and link arrays to them
-	for(int i = 0; i < eSpecialHotspot_FirstNamed; ++i)
-		sHotspots.push_back(Hotspot()); // un-named special hotspots
+	sHotspots.resize(1); // for eSpecialHotspot_None
 	for(int i = 0; i < sHotspotArrays.size(); ++i)
 		createEmptyHotspotsForArray(i);
-		sInvalidatedHotspots.clearAndResize(sHotspots.size());
+	sInvalidatedHotspots.clearAndResize(sHotspots.size());
+	sChangedHotspots.clearAndResize(sHotspots.size());
 	if( sHotspots.size() < sHotspots.capacity() )
 		std::vector<Hotspot>(sHotspots).swap(sHotspots);
 
@@ -4185,7 +4195,7 @@ void loadProfile()
 
 	// Fill in the data
 	loadDataFromProfile(Profile::allSections(), true);
-	sChangedHotspots.reset();
+	resetChangedHotspots();
 	sHotspotArrayResized = false;
 }
 
@@ -4545,6 +4555,26 @@ int menuItemHotspotID(int theMenuID, int theMenuItemIdx)
 }
 
 
+int menuOriginHotspotID(int theMenuID)
+{
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	if( !sMenus.vals()[theMenuID].posHotspotID )
+	{// Wasn't specified for this menu
+		if( sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
+			sMenus.vals()[theMenuID].rootMenuID < sMenus.size() )
+		{// Defer to root menu's version
+			return menuOriginHotspotID(sMenus.vals()[theMenuID].rootMenuID);
+		}
+		else
+		{// Assume "None" if wasn't set
+			return eSpecialHotspot_None;
+		}
+	}
+
+	return sMenus.vals()[theMenuID].posHotspotID;
+}
+
+
 int menuKeyBindCycleID(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
@@ -4566,9 +4596,6 @@ int menuKeyBindCycleID(int theMenuID)
 
 bool menuHotspotsChanged(int theMenuID)
 {
-	if( sChangedHotspots.none() )
-		return false;
-
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	switch(menuStyle(theMenuID))
 	{
@@ -4593,6 +4620,10 @@ bool menuHotspotsChanged(int theMenuID)
 			if( sChangedHotspots.test(menuItemHotspotID(theMenuID, i)) )
 				return true;
 		}
+		break;
+	default:
+		if( sChangedHotspots.test(sMenus.vals()[theMenuID].posHotspotID) )
+			return true;
 		break;
 	}
 
@@ -4784,13 +4815,23 @@ int KeyBindCycleHotspotID(int theCycleID, int theIndex)
 void modifyHotspot(int theHotspotID, const Hotspot& theNewValues)
 {
 	DBG_ASSERT(size_t(theHotspotID) < sHotspots.size());
-	sHotspots[theHotspotID] = theNewValues;
+	if( sHotspots[theHotspotID] != theNewValues )
+	{
+		sHotspots[theHotspotID] = theNewValues;
+		sChangedHotspots.set(theHotspotID);
+	}
 }
 
 
 const BitVector<512>& changedHotspots()
 {
 	return sChangedHotspots;
+}
+
+
+void resetChangedHotspots()
+{
+	sChangedHotspots.reset();
 }
 
 
@@ -4861,14 +4902,9 @@ std::string hotspotLabel(int theHotspotID)
 {
 	std::string result;
 	DBG_ASSERT(size_t(theHotspotID) < sHotspots.size());
-	if( theHotspotID < eSpecialHotspot_FirstNamed )
-	{// Internal un-named hotspot
-		result = toString(theHotspotID); // internal un-named hotspot
-	}
-	else if( theHotspotID < eSpecialHotspot_Num )
+	if( theHotspotID < eSpecialHotspot_Num )
 	{// Special-use named hotspot
-		result = kSpecialNamedHotspots[
-			theHotspotID - eSpecialHotspot_FirstNamed];
+		result = kSpecialHotspotNames[theHotspotID];
 	}
 	else if( sHotspotArrays.empty() )
 	{// Shouldn't be possible...

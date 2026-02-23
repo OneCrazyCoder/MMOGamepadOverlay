@@ -252,6 +252,18 @@ Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> R-50, B-75</span>
 </code></pre>
 <p>In addition to direct named Hotspots in the <code>[Hotspots]</code> section, some other positions also use Hotspot formatting, such as the <code>Position=</code> property of <strong>Menus</strong>.</p>
+<h3 id="special-hotspots">Special Hotspots</h3>
+<p>As with Key Binds, a few Hotspot names are used by the program directly. These include (with examples of possible settings, but these will differ by game):</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token comment">; Mouse is jumped to this position before it is clicked to begin MouseLook.</span>
+<span class="token comment">; It should be set to a position that should never have in-game UI windows!</span>
+<span class="token constant">MouseLookStart</span> <span class="token attr-value"><span class="token punctuation">=</span> L, T</span>
+<span class="token comment">; The app can't truly force-hide the mouse cursor, so when cursor should appear</span>
+<span class="token comment">; inactive (such as in menus) it will be moved here to "hide" it</span>
+<span class="token constant">MouseHidden</span> <span class="token attr-value"><span class="token punctuation">=</span> R, B</span>
+<span class="token comment">; This shouldn't be set in your profile, but is updated automatically to</span>
+<span class="token comment">; mouse cursor position when not in MouseLook mode, and can be referenced</span>
+<span class="token constant">LastCursorPos</span> <span class="token attr-value"><span class="token punctuation">=</span></span>
+</code></pre>
 <h3 id="hotspot-regions">Hotspot regions</h3>
 <p>Hotspots can be used as more than points, but represent a rectangular region, for certain specific menu styles and other advanced features. To define a hotspot with a width and/or height greater than 0, add said width and height, separated by commas, after the x and y position:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
@@ -690,13 +702,13 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <p>Having menus be visible is of course the entire reason this app is referred to as an “overlay” and not just a remapper. Menus are drawn in transparent overlay windows on top of the target game’s window. There are various properties that can be set on each menu to change how it should look.</p>
 <p>Default properties used by all menus can be defined in the base <code>[Appearance]</code> section. For any property not defined for a sub-menu, the root menu’s property will be used, and for any not defined in a root menu, the property in <code>[Appearance]</code> will be used. The generated <em>MMOGO_Core.ini</em> file includes some basic defaults as a starting point with comments on what each property does.</p>
 <h3 id="location">Location</h3>
-<p>For most menu styles, where it is drawn is determined primarily by the <code>Position=</code> and <code>Priority=</code> properties. Position uses Hotspot formatting and defines an “origin point” of the menu - though certain menu styles like Hotspots and Highlight ignore this property. Priority determines draw order (higher priority are drawn on top of lower priority, allowed range is -100 to 100 and default is 0).</p>
+<p>For most menu styles, where it is drawn is determined primarily by the <code>Position=</code> and <code>Priority=</code> properties. Priority determines draw order (higher priority are drawn on top of lower priority, allowed range is -100 to 100 and default is 0). Position can either be the name of a Hotspot or, more commonly, just directly specified in the same format as a Hotpot, and defines an “origin point” of the menu.</p>
 <p>The actual region of the screen the menu will draw to is offset from this origin according to the <code>Alignment=</code> property, which uses the same relative position shortcuts - L/R/T/B/C - used for Hotspots. For example, if you specified <code>R-10</code> for a menu’s X Position, but the menu is 50 pixels wide, most of it would end up cut off by the right edge of the screen (only the left 10 pixels of the menu would be shown). Instead, you can use the following to make the <em>right</em> edge of the menu be 10 pixels to the left of the right edge of the screen, and exactly centered on the Y axis:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Macros]</span>
 <span class="token constant">Position</span> <span class="token attr-value"><span class="token punctuation">=</span> R-10, CY</span>
 <span class="token constant">Alignment</span> <span class="token attr-value"><span class="token punctuation">=</span> R, C</span>
 </code></pre>
-<p><em>Note that the alignment property is ignored for menus that use hotspots for positions, such as the Hotspot and Highlight styles, which always position each item with the given hotspot as the center point of the item.</em></p>
+<p><em>Note that the position and alignment properties are ignored for menus that use hotspots for menu item positions, which always position each item with the given hotspot as the center point of the item.</em></p>
 <h3 id="menu-item-shape">Menu Item shape</h3>
 <p>Each menu item’s shape is affected by an <code>ItemType=</code> property. Available types include: Rectangle (default), Rounded Rectangle (needs <code>Radius=</code> as well), Circle, Bitmap (needs <code>Bitmap=</code> as well), ArrowL/R/U/D, and Label (nothing drawn for background).</p>
 <p>Various properties can be defined that set the size and colors used, including  <code>ItemSize=, Font=, FontSize=, FontWeight=, BorderSize=, LabelRGB=, ItemRGB=, BorderRGB=</code>, and <code>TransRGB=</code> (which color is treated as a fully-transparent “mask” color). Menus can optionally include a title bar with the <code>TitleHeight=</code> property and a gap between menu items (or overlap by using a negative value) with the <code>GapSize=</code> property.</p>

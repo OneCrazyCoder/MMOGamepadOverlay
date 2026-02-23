@@ -168,6 +168,7 @@ struct ZERO_INIT(MenuPosition)
 	Hotspot::Coord originY;
 	u16 parentKBCycleID;
 	s8 drawPriority;
+	bool hotspotOrigin;
 
 	bool operator==(const MenuPosition& rhs) const
 	{ return std::memcmp(this, &rhs, sizeof(MenuPosition)) == 0; }
@@ -853,19 +854,31 @@ static void fetchMenuPositionProperties(
 	sNewProfileDataFetched = true;
 	if( PropString p = getPropString(thePropMap, kPositionPropName) )
 	{
-		size_t aPos = 0;
-		theDestPosition.originX = stringToCoord(p.str, aPos);
-		bool valid = aPos < p.str.size() &&
-			(p.str[aPos] == ',' || p.str[aPos] == 'x' || p.str[aPos] == 'X');
-		if( valid )
+		// Might be the name of a hotspot, or just in the format of one
+		if( InputMap::hotspotIDFromName(p.str) )
 		{
-			theDestPosition.originY = stringToCoord(p.str, ++aPos);
-			valid = aPos == p.str.size();
+			// Will get position from a hotspot via InputMap instead
+			theDestPosition.hotspotOrigin = true;
 		}
-		if( !valid )
+		else
 		{
-			logError("Error parsing Position '%s' for '[%s]!",
-				p.str.c_str(), sParseSectName.c_str());
+			theDestPosition.hotspotOrigin = false;
+			size_t aPos = 0;
+			theDestPosition.originX = stringToCoord(p.str, aPos);
+			bool valid = aPos < p.str.size() &&
+				(p.str[aPos] == ',' ||
+				 p.str[aPos] == 'x' ||
+				 p.str[aPos] == 'X');
+			if( valid )
+			{
+				theDestPosition.originY = stringToCoord(p.str, ++aPos);
+				valid = aPos == p.str.size();
+			}
+			if( !valid )
+			{
+				logError("Error parsing Position '%s' for '[%s]!",
+					p.str.c_str(), sParseSectName.c_str());
+			}
 		}
 	}
 
@@ -2593,6 +2606,29 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 }
 
 
+static void checkForHotspotChanges()
+{
+	if( InputMap::changedHotspots().any() )
+	{
+		gRefreshOverlays.set(kHotspotGuideOverlayID);
+		// Clear label cache if any copy icons are using a changed hotspot
+		if( (sHotspotsUsedByCopyIcons & InputMap::changedHotspots()).any() )
+		{
+			for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
+				sMenuDrawCache[i].labelCache.clear();
+			sHotspotsUsedByCopyIcons.reset();
+		}
+		// Trigger a reshape for any active menus that use changed hotspots
+		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
+		{
+			const int aMenuID = Menus::activeMenuForOverlayID(i);
+			if( InputMap::menuHotspotsChanged(aMenuID) )
+				gReshapeOverlays.set(i);
+		}
+	}
+}
+
+
 static void loadAllProfileData()
 {
 	sCopyIconUpdateRate =
@@ -2794,30 +2830,8 @@ void loadProfileChanges()
 			Profile::getInt("System", "CopyIconFrameTime", sCopyIconUpdateRate);
 	}
 
-	if( theProfileMap.contains("Hotspots") )
-	{
-		// Clear label cache if any copy icons are using a changed hotspot
-		if( (sHotspotsUsedByCopyIcons & InputMap::changedHotspots()).any() )
-		{
-			for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
-				sMenuDrawCache[i].labelCache.clear();
-			sHotspotsUsedByCopyIcons.reset();
-		}
-		// Trigger a reshape for any active menus that use changed hotspots
-		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
-		{
-			if( i == kSystemOverlayID )
-				continue;
-			if( i == kHotspotGuideOverlayID )
-			{
-				gRefreshOverlays.set(i);
-				continue;
-			}
-			const int aMenuID = Menus::activeMenuForOverlayID(i);
-			if( InputMap::menuHotspotsChanged(aMenuID) )
-				gReshapeOverlays.set(i);
-		}
-	}
+	// Check for changes to any hotspots
+	checkForHotspotChanges();
 
 	// Check for changes to any menus
 	for(int aMenuID = 0, end = InputMap::menuCount(); aMenuID < end; ++aMenuID)
@@ -3112,8 +3126,12 @@ void update()
 		}
 	}
 
+	// Check for hotspot changes from modifyHotspot()
+	checkForHotspotChanges();
+
 	gKeyBindCycleLastIndexChanged.reset();
 	gKeyBindCycleDefaultIndexChanged.reset();
+	InputMap::resetChangedHotspots();
 
 	if( sNewProfileDataFetched )
 	{
@@ -3427,13 +3445,28 @@ void updateWindowLayout(
 		break;
 	}
 
-	// Get base window position (top-left corner) assuming top-left alignment
-	aWinBasePosX += LONG(u16ToRangeVal(
-		thePos.originX.anchor, theTargetSize.cx));
-	aWinBasePosY += LONG(u16ToRangeVal(
-		thePos.originY.anchor, theTargetSize.cy));
-	aWinScalingPosX += thePos.originX.offset;
-	aWinScalingPosY += thePos.originY.offset;
+	{// Get base window position (top-left corner) assuming top-left alignment
+		const Hotspot::Coord* anOriginX;
+		const Hotspot::Coord* anOriginY;
+		if( thePos.hotspotOrigin )
+		{
+			const int aHotspotID = InputMap::menuOriginHotspotID(theMenuID);
+			anOriginX = &InputMap::getHotspot(aHotspotID).x;
+			anOriginY = &InputMap::getHotspot(aHotspotID).y;
+		}
+		else
+		{
+			anOriginX = &thePos.originX;
+			anOriginY = &thePos.originY;
+		}
+
+		aWinBasePosX += LONG(u16ToRangeVal(
+			anOriginX->anchor, theTargetSize.cx));
+		aWinBasePosY += LONG(u16ToRangeVal(
+			anOriginY->anchor, theTargetSize.cy));
+		aWinScalingPosX += anOriginX->offset;
+		aWinScalingPosY += anOriginY->offset;
+	}
 
 	// Adjust position according to size and alignment settings
 	switch(theAlignmentX)

@@ -220,30 +220,6 @@ static int normalWindowsProc(
 {
 	switch(theMessage)
 	{
-	case WM_ACTIVATE:
-		if( LOWORD(wParam) != WA_INACTIVE && (sDialogWindow || sToolbarWindow) )
-		{
-			HWND aPopupWindow = sDialogWindow ? sDialogWindow : sToolbarWindow;
-			SetForegroundWindow(aPopupWindow);
-			FLASHWINFO aFlashInfo =
-				{ sizeof(FLASHWINFO), aPopupWindow, FLASHW_CAPTION, 5, 60 };
-			FlashWindowEx(&aFlashInfo);
-			return 0;
-		}
-		break;
-
-	case WM_MOUSEACTIVATE:
-		if( sDialogWindow || sToolbarWindow )
-		{
-			HWND aPopupWindow = sDialogWindow ? sDialogWindow : sToolbarWindow;
-			SetForegroundWindow(aPopupWindow);
-			FLASHWINFO aFlashInfo =
-				{ sizeof(FLASHWINFO), aPopupWindow, FLASHW_CAPTION, 5, 60 };
-			FlashWindowEx(&aFlashInfo);
-			return MA_NOACTIVATEANDEAT;
-		}
-		break;
-
  	case WM_SYSCOLORCHANGE:
 	case WM_DISPLAYCHANGE:
 		InvalidateRect(theWindow, NULL, false);
@@ -366,7 +342,28 @@ static LRESULT CALLBACK mainWindowProc(
 		break;
 
 	case WM_ACTIVATE:
+		if( LOWORD(wParam) != WA_INACTIVE && (sDialogWindow || sToolbarWindow) )
+		{
+			HWND aPopupWindow = sDialogWindow ? sDialogWindow : sToolbarWindow;
+			SetForegroundWindow(aPopupWindow);
+			FLASHWINFO aFlashInfo =
+				{ sizeof(FLASHWINFO), aPopupWindow, FLASHW_CAPTION, 5, 60 };
+			FlashWindowEx(&aFlashInfo);
+			return 0;
+		}
 		InvalidateRect(theWindow, NULL, TRUE);
+		break;
+
+	case WM_MOUSEACTIVATE:
+		if( sDialogWindow || sToolbarWindow )
+		{
+			HWND aPopupWindow = sDialogWindow ? sDialogWindow : sToolbarWindow;
+			SetForegroundWindow(aPopupWindow);
+			FLASHWINFO aFlashInfo =
+				{ sizeof(FLASHWINFO), aPopupWindow, FLASHW_CAPTION, 5, 60 };
+			FlashWindowEx(&aFlashInfo);
+			return MA_NOACTIVATEANDEAT;
+		}
 		break;
 
 	case WM_CLOSE:
@@ -880,6 +877,9 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		GetSystemMetrics(SM_CXSCREEN),
 		GetSystemMetrics(SM_CYSCREEN) };
 	resize(aScreenRect, false);
+
+	// Load initial UIScale
+	loadProfileChanges();
 }
 
 
@@ -1316,7 +1316,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	OffsetRect(&sTargetClipRect,
 		-sScreenTargetRect.left, -sScreenTargetRect.top);
 
-	// Update sTargetSize and gUIScale
+	// Update sTargetSize
 	SIZE aNewTargetSize;
 	aNewTargetSize.cx = theNewWindowRect.right - theNewWindowRect.left;
 	aNewTargetSize.cy = theNewWindowRect.bottom - theNewWindowRect.top;
@@ -1328,12 +1328,6 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 
 		Profile::setVariable("W", toString(sTargetSize.cx), true);
 		Profile::setVariable("H", toString(sTargetSize.cy), true);
-
-		const double oldUIScale = gUIScale;
-		gUIScale = Profile::getFloat("System", "UIScale", 1.0f);
-		if( gUIScale <= 0 ) gUIScale = 1.0;
-		if( gUIScale != oldUIScale )
-			WindowPainter::updateScaling();
 	}
 
 	// Flag all overlay windows to update position & size accordingly
@@ -1489,7 +1483,7 @@ void setSystemOverlayCallbacks(WNDPROC theProc, SystemPaintFunc thePaintFunc)
 POINT mouseToOverlayPos(bool clamped)
 {
 	POINT result;
-	//  Get current screen-relative mouse position
+	// Get current screen-relative mouse position
 	GetCursorPos(&result);
 	// Offset to client relative position
 	result.x -= sScreenTargetRect.left;
