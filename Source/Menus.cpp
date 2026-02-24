@@ -463,14 +463,11 @@ Command openSideMenu(int theRootMenuID, int theSideMenuID, ECommandDir theDir)
 	switch(aNewMenuStyle)
 	{
 	case eMenuStyle_Slots:
+	case eMenuStyle_Hotspots:
+	case eMenuStyle_Highlight:
 		// Retain whatever selection the side menu had previously
-		// rather than resetting to the menu's default when using left/right
-		if( theDir == eCmdDir_L || theDir == eCmdDir_R )
-			aNextSel = sSelectedItem[theSideMenuID] + 1;
-		else if( theDir == eCmdDir_U )
-			aNextSel = aNewItemCount;
-		else if( theDir == eCmdDir_D )
-			aNextSel = 1;
+		// rather than resetting to the menu's default
+		aNextSel = sSelectedItem[theSideMenuID] + 1;
 		break;
 	case eMenuStyle_List:
 		// Wrap to other side if changed menus with up/down

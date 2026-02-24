@@ -2817,10 +2817,18 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 				{
 					const int aMenuItemIdx =
 						stringToMenuItemIdx(aSubMenuID, aParamStr);
-					if( aMenuItemIdx >= 0 )
-						aMenuItem.cmd.menuItemID = dropTo<u16>(aMenuItemIdx);
+					if( aMenuItemIdx < 0 )
+					{
+						logError("'%s / %s' redirecting to sub-menu with item "
+							"'%s' which is not a valid number or hotspot name!",
+							sSectionPrintName.c_str(),
+							sPropertyPrintName.c_str(),
+							aParamStr.c_str());
+					}
 					else
-						aSubMenuID = sMenus.size();
+					{
+						aMenuItem.cmd.menuItemID = dropTo<u16>(aMenuItemIdx+1);
+					}
 				}
 			}
 		}
