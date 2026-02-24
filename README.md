@@ -37,9 +37,7 @@ That said, it is fully customizable and can be used with *any* game if you're lo
 3. Follow the prompts for options like auto-launching the game
 4. Launch your game and play it using a gamepad!
 
-For more details on setup and a walkthrough of playing a game with the default control scheme (i.e. what all the buttons do), check out this video (click the image to play):
-
-[![MMOGO Video User Guide](http://img.youtube.com/vi/dGfhbFy53Rk/0.jpg)](http://www.youtube.com/watch?v=dGfhbFy53Rk "MMO Gamepad Overlay User Guide")
+For basic control scheme when using an example profile, select Edit->Text Files and open the _Default.ini file listed. At the top of the file should be a large block comment explaining the controls for that game. More comments and details for the default control scheme are included throughout this file.
 
 ## Customization
 
@@ -48,3 +46,4 @@ Want to tweak a default control scheme or even build your own? See the [Custom P
 ## Contact
 
 Questions? Comments? Concerns? Try the [Discord server](https://discord.gg/btRzWQ4N3N) or post on GitHub Discussions.
+
