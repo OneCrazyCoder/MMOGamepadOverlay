@@ -415,6 +415,7 @@ static LRESULT CALLBACK mainWindowProc(
 				sOverlayWindows[i].bitmap = NULL;
 			}
 		}
+		WindowPainter::cleanup();
 		WindowPainter::init();
 		break;
 	}

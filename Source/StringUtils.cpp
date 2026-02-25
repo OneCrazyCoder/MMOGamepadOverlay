@@ -847,8 +847,8 @@ double stringToDoubleSum(
 	if( *end == '\0' )
 		return result;
 
-	bool foundOperator = false;
 	bool subtract = false;
+	int foundOperatorCharCount = 0;
 	while(*end != '\0')
 	{
 		const char* start = end;
@@ -862,7 +862,7 @@ double stringToDoubleSum(
 		{// Add result to sum and continue to rest of the string
 			result += subtract ? -num : num;
 			subtract = false;
-			foundOperator = false;
+			foundOperatorCharCount = 0;
 			continue;
 		}
 
@@ -872,12 +872,22 @@ double stringToDoubleSum(
 		while(*end <= ' ' && *end != '\0')
 			++end;
 
+		// Check if invalid character was possibly "+-#" (but not "+- ")
+		if( *end == '+' && *(end+1) == '-' )
+		{
+			if( foundOperatorCharCount )
+				break;
+			foundOperatorCharCount = 1;
+			++end;
+			continue;
+		}
+
 		// Check if invalid character was possibly "+ " or "- " (operator)
 		if( (*end == '+' || *end == '-') && *(end+1) == ' ' )
 		{// Fine to have a lone operator as long as not two in a row
-			if( foundOperator )
+			if( foundOperatorCharCount )
 				break;
-			foundOperator = true;
+			foundOperatorCharCount = 2;
 			if( *end == '-' )
 				subtract = true;
 			end += 2;
@@ -890,8 +900,7 @@ double stringToDoubleSum(
 
 	// If last operator found didn't have a valid number after it,
 	// set the operator itself as the first invalid character
-	if( foundOperator )
-		end -= 2;
+	end -= foundOperatorCharCount;
 
 	// Allow trailing spaces after last valid char to still be "valid" (skipped)
 	while(*end <= ' ' && *end != '\0')
