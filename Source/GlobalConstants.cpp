@@ -753,7 +753,7 @@ bool isEffectivelyEmptyString(const std::string& theString)
 }
 
 
-ECommandDir opposite8Dir(ECommandDir theDir)
+ECommandDir oppositeDir(ECommandDir theDir)
 {
 	switch(theDir)
 	{

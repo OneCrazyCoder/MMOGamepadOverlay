@@ -27,8 +27,6 @@ kNormalizedToGridShift = 12, // 0x7FFF >> 12 = 7 = 8x8 grid
 kGridSize = (kNormalizedTargetSize >> kNormalizedToGridShift) + 1,
 // Size of each grid cell
 kGridCellSize = (kNormalizedTargetSize + 1) / kGridSize,
-// Maximum (normalized) distance cursor can jump from current position
-//kDefaultMaxJumpDist = 0x0200,//0x1400,
 // If point is too close, jump FROM it rather than to it
 kDefaultMinJumpDist = 0x0100,
 // Max leeway in perpindicular direction to still count as "straight"
@@ -55,6 +53,7 @@ const int /*double*/ kColumnXDistPenaltyMult = 2;
 enum ETask
 {
 	eTask_TargetSize,
+	eTask_Normalize,
 	eTask_ActiveArrays,
 	eTask_AddToGrid,
 	eTask_BeginSearch,
@@ -94,6 +93,14 @@ struct ZERO_INIT(GridPos)
 	int x, y;
 };
 
+typedef std::pair<u16, u16> MenuEdgeNode;
+typedef std::vector<MenuEdgeNode> MenuEdge;
+struct ZERO_INIT(MenuEdgeMap)
+{
+	MenuEdge edge[eCmdDir_Num];
+	int itemCount;
+};
+
 typedef std::vector<HotspotLinkNode> MenuLinks;
 
 
@@ -103,11 +110,13 @@ typedef std::vector<HotspotLinkNode> MenuLinks;
 
 static BitVector<32> sRequestedArrays;
 static BitVector<32> sActiveArrays;
+static BitVector<512> sPointsToNormalize;
 static std::vector<TrackedPoint> sPoints;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<GridPos> sFetchGrid;
 static std::vector<int> sCandidates;
 static VectorMap<u16, MenuLinks> sLinkMaps;
+static VectorMap<u16, MenuEdgeMap> sEdgeMaps;
 static int sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
 static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
@@ -326,8 +335,33 @@ private:
 
 static void processTargetSizeTask()
 {
-	const int kPointsCount = intSize(sPoints.size());
-	if( sTaskProgress < kPointsCount )
+	// Calculate jump ranges
+	int aMaxDeviationRadius = int(sBaseJumpDist * kDeviationRadiusMult);
+	sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;
+
+	const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
+	sBaseJumpDist /= aScaleFactor;
+	sMaxJumpDist /= aScaleFactor;
+	aMaxDeviationRadius /= aScaleFactor;
+	sMaxDeviationRadiusSquared =
+		u32(min<s64>(0xFFFFFFFF,
+		s64(aMaxDeviationRadius) * aMaxDeviationRadius));
+	sMaxJumpDistSquared =
+		u32(min<s64>(0xFFFFFFFF, s64(sMaxJumpDist) * sMaxJumpDist));
+
+	// Re-normalize ALL hotspots
+	sPointsToNormalize.set();
+	sPointsToNormalize.reset(eSpecialHotspot_None);
+	sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
+
+	sCurrentTask = eTask_None;
+}
+
+
+static void processNormalizeTask()
+{
+	sTaskProgress = sPointsToNormalize.firstSetBit();
+	if( sTaskProgress < intSize(sPoints.size()) )
 	{
 		const int aHotspotID = sTaskProgress;
 		const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
@@ -342,35 +376,17 @@ static void processTargetSizeTask()
 				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor));
 			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
 		}
+		sPointsToNormalize.reset(sTaskProgress);
 		mapDebugPrint(
 			"Normalizing Hotspot '%s' (%d x %d) position to %d x %d \n",
 			InputMap::hotspotLabel(aHotspotID).c_str(),
 			anOverlayPos.x, anOverlayPos.y,
 			sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
 	}
-	else if( sTaskProgress == kPointsCount )
+	else
 	{
-		// Calculate jump ranges
-		sBaseJumpDist = int(max(0.0,
-			Profile::getFloat("Mouse", "DefaultHotspotDistance") *
-			sLastUIScale * kNormalizedTargetSize));
-
-		int aMaxDeviationRadius = int(sBaseJumpDist * kDeviationRadiusMult);
-		sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;
-
-		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
-		sBaseJumpDist /= aScaleFactor;
-		sMaxJumpDist /= aScaleFactor;
-		aMaxDeviationRadius /= aScaleFactor;
-		sMaxDeviationRadiusSquared =
-			u32(min<s64>(0xFFFFFFFF,
-			s64(aMaxDeviationRadius) * aMaxDeviationRadius));
-		sMaxJumpDistSquared =
-			u32(min<s64>(0xFFFFFFFF, s64(sMaxJumpDist) * sMaxJumpDist));
-	}
-
-	if( ++sTaskProgress > kPointsCount )
 		sCurrentTask = eTask_None;
+	}
 }
 
 
@@ -651,6 +667,7 @@ static void processTasks()
 	{
 	case eTask_None:			break;
 	case eTask_TargetSize:		processTargetSizeTask();	break;
+	case eTask_Normalize:		processNormalizeTask();		break;
 	case eTask_ActiveArrays:	processActiveArraysTask();	break;
 	case eTask_AddToGrid:		processAddToGridTask();		break;
 	case eTask_BeginSearch:		processBeginSearchTask();	break;
@@ -924,9 +941,11 @@ void init()
 	sFetchGrid.reserve(kGridSize * kGridSize);
 	sPoints.reserve(aHotspotsCount);
 	sPoints.resize(aHotspotsCount);
+	sPointsToNormalize.clearAndResize(aHotspotsCount);
 	sRequestedArrays.clearAndResize(aHotspotArraysCount);
 	sActiveArrays.clearAndResize(aHotspotArraysCount);
 	sLinkMaps.clear();
+	sEdgeMaps.clear();
 	sLastTargetSize = WindowManager::overlayTargetSize();
 	sLastUIScale = gUIScale;
 	sNewTasks.set();
@@ -935,20 +954,57 @@ void init()
 
 void loadProfileChanges()
 {
-	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	if( theProfileMap.contains("Hotspots") || theProfileMap.contains("Mouse") )
+	const int aNewJumpDist = int(max(0.0,
+		Profile::getFloat("Mouse", "DefaultHotspotDistance") *
+		gUIScale * kNormalizedTargetSize));
+	if( aNewJumpDist != sBaseJumpDist )
 	{
-		sNewTasks.set();
-		for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
+		sBaseJumpDist = aNewJumpDist;
+		sNewTasks.set(eTask_TargetSize);
+		sNewTasks.set(eTask_Normalize);
+		sNewTasks.set(eTask_AddToGrid);
+		sNewTasks.set(eTask_BeginSearch);
+		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+			sNewTasks.set(eTask_NextInDir + aDir);
+	}
+
+	for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
+	{
+		MenuLinks& aLinks = sLinkMaps[i].second;
+		const int aMenuID = sLinkMaps[i].first;
+		if( InputMap::menuItemCount(aMenuID) != intSize(aLinks.size()) ||
+			InputMap::menuHotspotsChanged(aMenuID) )
 		{
-			MenuLinks& aLinks = sLinkMaps[i].second;
-			const int aMenuID = sLinkMaps[i].first;
-			if( InputMap::menuItemCount(aMenuID) != intSize(aLinks.size()) ||
-				InputMap::menuHotspotsChanged(aMenuID) )
-			{
-				aLinks.clear();
-			}
+			aLinks.clear();
 		}
+	}
+
+	for(int i = 0, end = intSize(sEdgeMaps.size()); i < end; ++i)
+	{
+		MenuEdgeMap& anEdgeMap = sEdgeMaps[i].second;
+		const int aMenuID = sEdgeMaps[i].first;
+		const int anItemCount = InputMap::menuItemCount(aMenuID);
+		if( anItemCount != anEdgeMap.itemCount ||
+			InputMap::menuHotspotsChanged(aMenuID) )
+		{
+			anEdgeMap.itemCount = anItemCount;
+			anEdgeMap.edge[eCmdDir_L].clear();
+			anEdgeMap.edge[eCmdDir_R].clear();
+			anEdgeMap.edge[eCmdDir_U].clear();
+			anEdgeMap.edge[eCmdDir_D].clear();
+		}
+	}
+
+	sPointsToNormalize |= InputMap::changedHotspots();
+	sPointsToNormalize.reset(eSpecialHotspot_None);
+	sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
+	if( sPointsToNormalize.any() )
+	{
+		sNewTasks.set(eTask_Normalize);
+		sNewTasks.set(eTask_AddToGrid);
+		sNewTasks.set(eTask_BeginSearch);
+		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+			sNewTasks.set(eTask_NextInDir + aDir);
 	}
 }
 
@@ -957,8 +1013,10 @@ void cleanup()
 {
 	sRequestedArrays.clear();
 	sActiveArrays.clear();
+	sPointsToNormalize.clear();
 	sPoints.clear();
 	sLinkMaps.clear();
+	sEdgeMaps.clear();
 	sCandidates.clear();
 	sNewTasks.reset();
 	sCurrentTask = eTask_None;
@@ -982,7 +1040,11 @@ void update()
 		sLastTargetSize.cx = aTargetSize.cx;
 		sLastTargetSize.cy = aTargetSize.cy;
 		sLastUIScale = gUIScale;
+		sBaseJumpDist = int(max(0.0,
+			Profile::getFloat("Mouse", "DefaultHotspotDistance") *
+			sLastUIScale * kNormalizedTargetSize));
 		sNewTasks.set(eTask_TargetSize);
+		sNewTasks.set(eTask_Normalize);
 		sNewTasks.set(eTask_AddToGrid);
 		sNewTasks.set(eTask_BeginSearch);
 		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
@@ -1078,8 +1140,8 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 		return aLinkVec[min(theMenuItemIdx, intSize(aLinkVec.size())-1)];
 
 	// Make sure hotspots' normalized positions have been assigned
-	while(sNewTasks.test(eTask_TargetSize) ||
-		  sCurrentTask == eTask_TargetSize)
+	while(sNewTasks.test(eTask_Normalize) ||
+		  sCurrentTask == eTask_Normalize)
 	{ processTasks(); }
 
 	// Assign the hotspots to "dots" in "rows" (nearly-matching Y values)
@@ -1220,7 +1282,7 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 		{
 			if( !aNode.edge[aDir] )
 				continue;
-			const ECommandDir anOppDir = opposite8Dir(ECommandDir(aDir));
+			const ECommandDir anOppDir = oppositeDir(ECommandDir(aDir));
 			u8 aWrapNode = aNode.next[anOppDir];
 			while(!aLinkVec[aWrapNode].edge[anOppDir])
 				aWrapNode = aLinkVec[aWrapNode].next[anOppDir];
@@ -1229,6 +1291,100 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 	}
 
 	return aLinkVec[min(theMenuItemIdx, intSize(aLinkVec.size())-1)];
+}
+
+
+int getEdgeMenuItem(int theMenuID, ECommandDir theDir, int theDefault)
+{
+	DBG_ASSERT(theDir < eCmdDir_Num);
+	const int aNodeCount = InputMap::menuItemCount(theMenuID);
+	if( aNodeCount <= 1 )
+		return 0;
+	MenuEdgeMap& anEdgeMap = sEdgeMaps.findOrAdd(dropTo<u16>(theMenuID));
+	MenuEdge& anEdge = anEdgeMap.edge[theDir];
+	if( anEdge.empty() )
+	{
+		// Generate sorted edge nodes list
+		mapDebugPrint("Generating hotspot edge %d for menu '%s'\n",
+			theDir, InputMap::menuLabel(theMenuID));
+
+		// Track total count so if it changes can clear and rebuild this data
+		anEdgeMap.itemCount = aNodeCount;
+
+		// Make sure hotspots' normalized positions have been assigned
+		while(sNewTasks.test(eTask_Normalize) ||
+			  sCurrentTask == eTask_Normalize)
+		{ processTasks(); }
+
+		int anEdgeAvgPos = -1;
+		int anEdgeTotalPos = 0;
+		for(int aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
+		{
+			const TrackedPoint& aNodePos =
+				sPoints[InputMap::menuItemHotspotID(theMenuID, aNodeIdx)];
+			int posInDir = -1, posInPerpDir = 0;
+			switch(theDir)
+			{
+			case eCmdDir_L:
+				posInDir = kNormalizedTargetSize - aNodePos.x;
+				posInPerpDir = aNodePos.y;
+				break;
+			case eCmdDir_R:
+				posInDir = aNodePos.x;
+				posInPerpDir = aNodePos.y;
+				break;
+			case eCmdDir_U:
+				posInDir = kNormalizedTargetSize - aNodePos.y;
+				posInPerpDir = aNodePos.x;
+				break;
+			case eCmdDir_D:
+				posInDir = aNodePos.y;
+				posInPerpDir = aNodePos.x;
+				break;
+			}
+			if( posInDir + kMaxPerpDistForStraightLine < anEdgeAvgPos )
+				continue;
+			if( anEdgeTotalPos == 0 ||
+				posInDir - kMaxPerpDistForStraightLine > anEdgeAvgPos )
+			{
+				anEdge.clear();
+				anEdgeTotalPos = 0;
+			}
+			anEdge.push_back(MenuEdgeNode(
+				dropTo<u16>(posInPerpDir),
+				dropTo<u16>(aNodeIdx)));
+			anEdgeTotalPos += posInDir;
+			anEdgeAvgPos = anEdgeTotalPos / intSize(anEdge.size());
+		}
+		std::sort(anEdge.begin(), anEdge.end());
+		if( anEdge.size() < anEdge.capacity() )
+			MenuEdge(anEdge).swap(anEdge);
+	}
+	DBG_ASSERT(!anEdge.empty());
+
+	if( anEdge.size() == 1 )
+		return anEdge[0].second;
+
+	const TrackedPoint& aDefaultPos =
+		sPoints[InputMap::menuItemHotspotID(theMenuID, theDefault)];
+
+	const MenuEdgeNode aSearchNode(
+		(theDir == eCmdDir_L || theDir == eCmdDir_R)
+			? aDefaultPos.y : aDefaultPos.x,
+		0);
+	MenuEdge::const_iterator aNextNode = std::lower_bound(
+		anEdge.begin(), anEdge.end(), aSearchNode);
+	if( aNextNode == anEdge.begin() )
+		return aNextNode->second;
+
+	MenuEdge::const_iterator aPrevNode = aNextNode - 1;
+	if( aNextNode == anEdge.end() )
+		return aPrevNode->second;
+
+	const int aPrevDist = aSearchNode.first - aPrevNode->first;
+	const int aNextDist = aNextNode->first - aSearchNode.first;
+
+	return (aPrevDist <= aNextDist) ? aPrevNode->second : aNextNode->second;
 }
 
 #undef mapDebugPrint

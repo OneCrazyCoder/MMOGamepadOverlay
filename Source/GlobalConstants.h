@@ -435,5 +435,5 @@ ECommandKeyWord commandWordToID(const std::string& theWord);
 bool isEffectivelyEmptyString(const std::string& theString);
 
 // Conversions between one constant value to another related one
-ECommandDir opposite8Dir(ECommandDir);
+ECommandDir oppositeDir(ECommandDir);
 ECommandDir combined8Dir(ECommandDir, ECommandDir);

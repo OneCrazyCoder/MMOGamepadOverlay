@@ -37,5 +37,8 @@ int getNextHotspotInDir(ECommandDir theDirection);
 struct ZERO_INIT(HotspotLinkNode)
 { u8 next[eCmdDir_Num]; bool edge[eCmdDir_Num]; };
 HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx);
+// Returns the edge-most hotspot menu item in desired cardinal direction
+// If edge has multiple hotspots in a row/column, returns closest to theDefault
+int getEdgeMenuItem(int theMenuID, ECommandDir theDir, int theDefault);
 
 } // HotspotMap
