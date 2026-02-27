@@ -421,7 +421,7 @@ enum EResult
 };
 
 // Generic button names used in Profile .ini files
-extern const char* kProfileButtonName[];
+extern const char* const kProfileButtonName[];
 
 // Conversions between constant values (enums) and strings
 // Strings must already be in all upper-case!

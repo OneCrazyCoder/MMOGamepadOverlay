@@ -10,7 +10,7 @@
 
 DBG_CTASSERT(eCmdType_Num <= 256);
 
-const char* kProfileButtonName[] =
+const char* const kProfileButtonName[] =
 {
 	"Auto",		// eBtn_None
 	"LSLeft",	// eBtn_LSLeft
@@ -62,7 +62,7 @@ int keyNameToVirtualKey(const std::string& theKeyName)
 		NameToVKeyMap map;
 		NameToVKeyMapper()
 		{
-			struct { const char* str; u8 val; } kEntries[] = {
+			struct { const char* str; u8 val; } const kEntries[] = {
 				{ "Click",			VK_LBUTTON			},
 				{ "LClick",			VK_LBUTTON			},
 				{ "LeftClick",		VK_LBUTTON			},
@@ -237,7 +237,7 @@ EButton buttonNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EButton val; } kEntries[] = {
+			struct { const char* str; EButton val; } const kEntries[] = {
 			// !!! These are in addition to kProfileButtonName above!!!
 				{ "LSL",			eBtn_LSLeft		},
 				{ "LStickLeft",		eBtn_LSLeft		},
@@ -330,7 +330,7 @@ EMouseMode mouseModeNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EMouseMode val; } kEntries[] = {
+			struct { const char* str; EMouseMode val; } const kEntries[] = {
 				{ "",						eMouseMode_Default		},
 				{ "Default",				eMouseMode_Default		},
 				{ "Cursor",					eMouseMode_Cursor		},
@@ -392,7 +392,7 @@ EMenuStyle menuStyleNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EMenuStyle val; } kEntries[] = {
+			struct { const char* str; EMenuStyle val; } const kEntries[] = {
 				{ "List",					eMenuStyle_List				},
 				{ "Basic",					eMenuStyle_List				},
 				{ "Default",				eMenuStyle_List				},
@@ -472,7 +472,7 @@ EMenuItemType menuItemTypeNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EMenuItemType val; } kEntries[] = {
+			struct { const char* str; EMenuItemType val; } const kEntries[] = {
 				{ "Rectangle",				eMenuItemType_Rect		},
 				{ "Rect",					eMenuItemType_Rect		},
 				{ "Block",					eMenuItemType_Rect		},
@@ -528,7 +528,8 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 		WordToEnumMap map;
 		WordToEnumMapper()
 		{
-			struct { const char* str; ECommandKeyWord val; } kEntries[] = {
+			struct { const char* str; ECommandKeyWord val; } const kEntries[] =
+			{
 				{ "Nothing",		eCmdWord_Nothing	},
 				{ "DoNothing",		eCmdWord_Nothing	},
 				{ "Reserved",		eCmdWord_Nothing	},

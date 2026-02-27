@@ -53,7 +53,7 @@ enum EAlignment
 	eAlignment_UseDefault,
 };
 
-const char* kAlignmentStr[][2] =
+const char* const kAlignmentStr[][2] =
 {//		Droplist			Profile
 	{	"Top Left",			"L, T"		}, // eAlignment_L_T
 	{	"Top Center",		"CX, T"		}, // eAlignment_CX_T
@@ -398,6 +398,11 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 	// Extract the section of the string representing this component
 	result.base = trim(theString.substr(thePos, anEndPos-thePos));
 
+	// Advance thePos to end of component section for next component or end
+	// (done here because no longer need to know start point of component and
+	// anEndPos might be used as a dummy var after this)
+	thePos = anEndPos;
+
 	if( !result.base.empty() )
 	{// Check if base string is actually valid (after var expansion)
 		const std::string& aCheckStr = Profile::expandVars(result.base);
@@ -413,11 +418,6 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 		if( aCheckPos < aCheckStr.size() )
 			result.base = result.base.substr(0, aCheckPos);
 	}
-
-	// Advance thePos to end of component section for next component or end
-	// (done here because no longer need to know start point of component and
-	// anEndPos might be used as a dummy var after this)
-	thePos = anEndPos;
 
 	// See if component string ends in a non-variable non-decimal offset value,
 	// and if so bump that to the offset int and trim it off the base string

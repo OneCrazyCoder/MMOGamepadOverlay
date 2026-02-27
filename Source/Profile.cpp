@@ -1739,8 +1739,11 @@ static void propogatePropertyChange(int theSectionID, int thePropertyID)
 	PropertyMap& aSection = sSectionsMap.vals()[theSectionID];
 	DBG_ASSERT(thePropertyID >= 0 && thePropertyID < aSection.size());
 	Property& aProp = aSection.vals()[thePropertyID];
-	aProp.str.clear();
-	expandPropertyVars(theSectionID, thePropertyID, false);
+	if( !aProp.pattern.empty() )
+	{
+		aProp.str.clear();
+		expandPropertyVars(theSectionID, thePropertyID, false);
+	}
 
 	if( theSectionID == kVarsSectionIdx )
 	{// Property is a variable - update other properties that depend on it

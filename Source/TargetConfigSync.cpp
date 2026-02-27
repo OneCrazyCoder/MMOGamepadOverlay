@@ -100,7 +100,7 @@ const char* kLastFileSelectedPropertyName =
 	"LastTargetConfigSyncFileSelected";
 const char* kLastTimeFileSelectedPropertyName =
 	"LastTimeTargetConfigSyncFileSelected";
-const char* kValueFormatStringKeys[] =
+const char* const kValueFormatStringKeys[] =
 {
 	"Value",		// eValueSetSubType_Base
 	"PositionX",	// eValueSetSubType_PosX
@@ -148,7 +148,8 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EValueFunction val; } kEntries[] = {
+			struct { const char* str; EValueFunction val; } const kEntries[] =
+			{
 				{ "",			eValueFunc_Base		},
 				{ "Base",		eValueFunc_Base		},
 				{ "Value",		eValueFunc_Base		},
