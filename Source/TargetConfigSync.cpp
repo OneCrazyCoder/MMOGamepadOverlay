@@ -307,6 +307,7 @@ static bool sInitialized = false;
 static bool sPaused = false;
 static bool sPromptForWildcardFiles = false;
 static bool sForcePromptForWildcardFiles = false;
+static bool sNeedFullReload = false;
 
 
 //------------------------------------------------------------------------------
@@ -1204,10 +1205,23 @@ protected:
 				}
 			}
 
-			sLastWildcardFileSelected = mCandidateNames[aBestIdx];
+			if( sLastWildcardFileSelected != mCandidateNames[aBestIdx] )
+			{
+				syncDebugPrint(
+					"Selected new source for multi-source wildcard match: %s\n",
+					narrow(mCandidateNames[aBestIdx]).c_str());
+				if( sInitialized && !sLastWildcardFileSelected.empty() )
+					sNeedFullReload = true;
+				sLastWildcardFileSelected = mCandidateNames[aBestIdx];
+			}
+		}
+		else
+		{
+			// Just log the file found in case new one created later at runtime
 			syncDebugPrint(
-				"Selected source for multi-source wildcard match: %s\n",
-				narrow(sLastWildcardFileSelected).c_str());
+				"Selected only source found for wildcard match: %s\n",
+				narrow(mCandidateNames[0]).c_str());
+			sLastWildcardFileSelected = mCandidateNames[0];
 		}
 
 		aDataSource.pathToRead = mCandidates[aBestIdx].pathToRead;
@@ -2306,26 +2320,21 @@ static std::string getValueString(
 }
 
 
-//------------------------------------------------------------------------------
-// Global Functions
-//------------------------------------------------------------------------------
-
-void load()
+static void reload()
 {
 	if( sInitialized || sPaused )
+	{
+		// Restore any sync variables to default Profile value first
+		for(int i = 0, end = intSize(sVariables.size()); i < end; ++i)
+			Profile::reloadVariable(sVariables[i].variableID);
 		cleanup();
+	}
 
 	GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
 	TargetConfigSyncBuilder aBuilder;
 	sPromptForWildcardFiles = Profile::getBool(
 		kTargetConfigSettingsSectionName,
 		kPromptForFilesPropertyName);
-	sLastWildcardFileSelected = widen(Profile::getStr(
-		kTargetConfigSettingsSectionName,
-		kLastFileSelectedPropertyName));
-	sLastTimeWildcardFileSelected = stringToFileTime(Profile::getStr(
-		kTargetConfigSettingsSectionName,
-		kLastTimeFileSelectedPropertyName));
 
 	{// Fetch target config paths potentially containing sync properties
 		Profile::PropertyMapPtr aPropMap =
@@ -2560,6 +2569,23 @@ void load()
 }
 
 
+//------------------------------------------------------------------------------
+// Global Functions
+//------------------------------------------------------------------------------
+
+void load()
+{
+	DBG_ASSERT(!sInitialized);
+	sLastWildcardFileSelected = widen(Profile::getStr(
+		kTargetConfigSettingsSectionName,
+		kLastFileSelectedPropertyName));
+	sLastTimeWildcardFileSelected = stringToFileTime(Profile::getStr(
+		kTargetConfigSettingsSectionName,
+		kLastTimeFileSelectedPropertyName));
+	reload();
+}
+
+
 void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
@@ -2568,7 +2594,7 @@ void loadProfileChanges()
 		theProfileMap.contains(kTargetConfigVarsSectionName) ||
 		theProfileMap.contains(kValueFormatStrSectionName) )
 	{
-		load();
+		reload();
 	}
 }
 
@@ -2610,6 +2636,17 @@ void update()
 		delete sReader; sReader = null;
 		delete sParser; sParser = null;
 		delete sFinder; sFinder = null;
+		return;
+	}
+
+	if( sNeedFullReload )
+	{
+		// This is set when switched to a new file (character) automatically at
+		// runtime, and a full reload is needed to reset any variables to their
+		// default values in case the new file doesn't mention that variable's
+		// properties at all, so assume that the default value is desired.
+		sNeedFullReload = false;
+		reload();
 		return;
 	}
 
@@ -2825,7 +2862,7 @@ void promptUserForSyncFileToUse()
 {
 	sForcePromptForWildcardFiles = true;
 
-	load();
+	reload();
 
 	if( sForcePromptForWildcardFiles )
 	{

@@ -2682,6 +2682,22 @@ void setVariable(
 }
 
 
+void reloadVariable(int theVarID)
+{
+	confirmSafeToWriteToMap();
+	PropertyMap& aSection = sSectionsMap.vals()[kVarsSectionIdx];
+	DBG_ASSERT(theVarID >= 0 && theVarID < aSection.size());
+	Property& aVarProp = aSection.vals()[theVarID];
+	if( !aVarProp.file.empty() )
+	{
+		// Need to send a copy of .file, not a reference to it, since .file
+		// will be cleared during the function before the reference is used!
+		const std::string anOldVal = aVarProp.file;
+		setPropertyAfterLoad(kVarsSectionIdx, theVarID, anOldVal, false);
+	}
+}
+
+
 void setNewStr(
 	const std::string& theSection,
 	const std::string& thePropertyName,
