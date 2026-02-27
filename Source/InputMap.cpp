@@ -27,7 +27,7 @@ const char* kKeyBindCyclesSectionName = "KeyBindCycles";
 const char* kHotspotsSectionName = "Hotspots";
 const std::string kSignalCommandPrefix = "When";
 
-const char* kSpecialHotspotNames[] =
+const char* const kSpecialHotspotNames[] =
 {
 	"<Unknown>",			// eSpecialHotspot_None
 	"LastCursorPos",		// eSpecialHotspot_LastCursorPos
@@ -36,7 +36,7 @@ const char* kSpecialHotspotNames[] =
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
-const char* kButtonActionPrefx[] =
+const char* const kButtonActionPrefx[] =
 {
 	"",						// eBtnAct_Down
 	"Press",				// eBtnAct_Press
@@ -46,7 +46,7 @@ const char* kButtonActionPrefx[] =
 };
 DBG_CTASSERT(ARRAYSIZE(kButtonActionPrefx) == eBtnAct_Num);
 
-const char* kSpecialKeyBindNames[] =
+const char* const kSpecialKeyBindNames[] =
 {
 	"",						// eSpecialKey_None
 	"SwapWindowMode",		// eSpecialKey_SwapWindowMode
@@ -110,7 +110,7 @@ EPropertyType propKeyToType(const std::string& theName)
 		NameToEnumMap map;
 		NameToEnumMapper()
 		{
-			struct { const char* str; EPropertyType val; } kEntries[] = {
+			struct { const char* str; EPropertyType val; } const kEntries[] = {
 				{ "L",							ePropType_MenuItemLeft	},
 				{ "R",							ePropType_MenuItemRight	},
 				{ "U",							ePropType_MenuItemUp	},
@@ -162,7 +162,6 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "Start",						ePropType_Default		},
 				{ "ItemType",					ePropType_Appearance	},
 				{ "ItemSize",					ePropType_Appearance	},
-				{ "Size",						ePropType_Appearance	},
 				{ "Alignment",					ePropType_Appearance	},
 				{ "Font",						ePropType_Appearance	},
 				{ "FontSize",					ePropType_Appearance	},
@@ -316,10 +315,9 @@ struct ZERO_INIT(HotspotArray)
 {
 	std::vector<HotspotRange> ranges;
 	float offsetScale;
-	u32 anchorIdx : 16; // set to first hotspot idx - 1 if !hasAnchor
-	u32 hasAnchor : 1;
-	u32 size : 15; // not including anchor
-	u32 maxSize : 16; // includes invalidated/removed hotspots
+	u16 anchorIdx; // set to first hotspot idx - 1 if !hasAnchor
+	u16 hasAnchor : 1;
+	u16 size : 15; // not including anchor
 
 	HotspotArray() : offsetScale(1.0) {}
 	bool operator<(const HotspotArray& rhs) const
@@ -421,7 +419,7 @@ static void createEmptyHotspotArray(const std::string& theName)
 	anArray.ranges.insert(itr, aNewRange);
 
 	// Update total size (excluding anchor)
-	anArray.maxSize = anArray.size = anArray.ranges.back().lastIdx();
+	anArray.size = anArray.ranges.back().lastIdx();
 }
 
 
@@ -438,13 +436,13 @@ static void createEmptyHotspotsForArray(int theArrayID)
 			logError("Hotspot Array '%s' appears to be missing '%s%d'!",
 				sHotspotArrays.keys()[theArrayID].c_str(),
 				sHotspotArrays.keys()[theArrayID].c_str(), anExpectedIdx);
-			theArray.maxSize = theArray.size = anExpectedIdx - 1;
+			theArray.size = anExpectedIdx - 1;
 			theArray.ranges.resize(i);
 			break;
 		}
 		anExpectedIdx = theArray.ranges[i].lastIdx() + 1;
 	}
-	DBG_ASSERT(anExpectedIdx == int(theArray.maxSize) + 1);
+	DBG_ASSERT(anExpectedIdx == int(theArray.size) + 1);
 
 	// Trim ranges vector
 	if( theArray.ranges.size() < theArray.ranges.capacity() )
@@ -457,8 +455,8 @@ static void createEmptyHotspotsForArray(int theArrayID)
 		sHotspots.push_back(Hotspot());
 	else
 		--theArray.anchorIdx;
-	if( theArray.maxSize > 0 )
-		sHotspots.resize(sHotspots.size() + theArray.maxSize);
+	if( theArray.size > 0 )
+		sHotspots.resize(sHotspots.size() + theArray.size);
 }
 
 
@@ -473,7 +471,7 @@ static int getHotspotID(const std::string& theName)
 	}
 	if( HotspotArray* aHotspotArray = sHotspotArrays.find(anArrayName) )
 	{
-		if( anArrayIdx <= int(aHotspotArray->maxSize) )
+		if( anArrayIdx <= int(aHotspotArray->size) )
 			return aHotspotArray->anchorIdx + anArrayIdx;
 	}
 
@@ -649,15 +647,15 @@ static void applyHotspotProperty(
 			// If removed in a previous call might be restored now
 			if( !isEmptyHotspot )
 				itr->removed = false;
-			// Recalculate array size to one less than first removed range
-			anArray.size = 0;
+			// Calculate remaining valid entry count
+			int aValidEntryCount = 0;
 			for(itr = anArray.ranges.begin();
 				itr != anArray.ranges.end() && !itr->removed; ++itr)
-			{ anArray.size = itr->lastIdx(); }
+			{ aValidEntryCount = itr->lastIdx(); }
 			sHotspotArrayResized = true;
-			// Mark all hotspots in array (besides anchor) up to .size as valid
+			// Mark all entries from first to count as valid
 			for(int aHotspotID = anArray.anchorIdx + 1,
-				end = anArray.anchorIdx + 1 + anArray.size;
+				end = anArray.anchorIdx + 1 + aValidEntryCount;
 				aHotspotID < end; ++aHotspotID)
 			{
 				if( sInvalidatedHotspots.test(aHotspotID) )
@@ -666,9 +664,9 @@ static void applyHotspotProperty(
 					sChangedHotspots.set(aHotspotID);
 				}
 			}
-			// Mark remaining hotspots up to maxSize as no longer valid
-			for(int aHotspotID = anArray.anchorIdx + 1 + anArray.size,
-				end = anArray.anchorIdx + 1 + anArray.maxSize;
+			// Mark remaining hotspots up to size as no longer valid
+			for(int aHotspotID = anArray.anchorIdx + 1 + aValidEntryCount,
+				end = anArray.anchorIdx + 1 + anArray.size;
 				aHotspotID < end; ++aHotspotID)
 			{
 				if( !sInvalidatedHotspots.test(aHotspotID) )
@@ -4203,7 +4201,7 @@ void loadProfile()
 
 	// Fill in the data
 	loadDataFromProfile(Profile::allSections(), true);
-	resetChangedHotspots();
+	sChangedHotspots.reset();
 	sHotspotArrayResized = false;
 }
 
@@ -4234,6 +4232,7 @@ void loadProfileChanges()
 		}
 	}
 
+	sChangedHotspots.reset();
 	loadDataFromProfile(theProfileMap, false);
 
 	if( sHotspotArrayResized )
@@ -4820,26 +4819,15 @@ int KeyBindCycleHotspotID(int theCycleID, int theIndex)
 }
 
 
-void modifyHotspot(int theHotspotID, const Hotspot& theNewValues)
+void setLastCursorPosHotspot(const Hotspot& theNewValues)
 {
-	DBG_ASSERT(size_t(theHotspotID) < sHotspots.size());
-	if( sHotspots[theHotspotID] != theNewValues )
-	{
-		sHotspots[theHotspotID] = theNewValues;
-		sChangedHotspots.set(theHotspotID);
-	}
+	sHotspots[eSpecialHotspot_LastCursorPos] = theNewValues;
 }
 
 
 const BitVector<512>& changedHotspots()
 {
 	return sChangedHotspots;
-}
-
-
-void resetChangedHotspots()
-{
-	sChangedHotspots.reset();
 }
 
 

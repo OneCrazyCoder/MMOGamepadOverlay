@@ -55,9 +55,6 @@ enum EMenuItemLabelType
 	eMenuItemLabelType_CopyRect,
 };
 
-const char* kDrawStatePrefix[] = { "", "Selected", "Flash", "FlashSelected" };
-DBG_CTASSERT(ARRAYSIZE(kDrawStatePrefix) == eMenuItemDrawState_Num);
-
 const char* kMenuDefaultSectionName = "Appearance";
 const char* kMenuSectionPrefix = "Menu.";
 const char* kBitmapsSectionName = "Bitmaps";
@@ -70,10 +67,6 @@ const char* kAlignmentPropName = "Alignment";
 const char* kFontNamePropName = "Font";
 const char* kFontSizePropName = "FontSize";
 const char* kFontWeightPropName = "FontWeight";
-const char* kFontColorPropName = "LabelRGB";
-const char* kItemColorPropName = "ItemRGB";
-const char* kBorderColorPropName = "BorderRGB";
-const char* kBorderSizePropName = "BorderSize";
 const char* kGapSizePropName = "GapSize";
 const char* kTitleColorPropName = "TitleRGB";
 const char* kTransColorPropName = "TransRGB";
@@ -84,12 +77,25 @@ const char* kFadeOutDelayPropName = "FadeOutDelay";
 const char* kFadeOutTimePropName = "FadeOutTime";
 const char* kInactiveDelayPropName = "InactiveDelay";
 const char* kInactiveAlphaPropName = "InactiveAlpha";
-const char* kBitmapPropName = "Bitmap";
 const char* kRadiusPropName = "Radius";
 const char* kTitleHeightPropName = "TitleHeight";
 const char* kAltLabelWidthPropName = "AltLabelWidth";
 const char* kFlashTimePropName = "FlashTime";
 const char* kDrawPriorityPropName = "Priority";
+const char* const kBorderSizePropName[] = {
+	"BorderSize",				// eMenuItemDrawState_Normal
+	"SelectedBorderSize",		// eMenuItemDrawState_Selected
+	"FlashBorderSize",			// eMenuItemDrawState_Flash
+	"FlashSelectedBorderSize"	// eMenuItemDrawState_FlashSelected
+};
+const char* const kBorderColorPropName[] =
+{"BorderRGB", "SelectedBorderRGB", "FlashBorderRGB", "FlashSelectedBorderRGB"};
+const char* const kFontColorPropName[] =
+{"LabelRGB", "SelectedLabelRGB", "FlashLabelRGB", "FlashSelectedLabelRGB"};
+const char* const kItemColorPropName[] =
+{"ItemRGB", "SelectedItemRGB", "FlashItemRGB", "FlashSelectedItemRGB"};
+const char* const kBitmapPropName[] =
+{"Bitmap", "SelectedBitmap", "FlashBitmap", "FlashSelectedBitmap"};
 
 
 //------------------------------------------------------------------------------
@@ -1067,11 +1073,11 @@ static void fetchBaseAppearanceProperties(
 
 static PropString getPropStringForDrawState(
 	Profile::PropertyMapPtr thePropMap,
-	const std::string& thePropName,
+	const char* const * thePropNameArray,
 	EMenuItemDrawState theDrawState)
 {
 	PropString result = getPropString(thePropMap,
-		kDrawStatePrefix[theDrawState] + thePropName);
+		thePropNameArray[theDrawState]);
 	if( !result.valid )
 	{
 		switch(theDrawState)
@@ -1079,19 +1085,20 @@ static PropString getPropStringForDrawState(
 		case eMenuItemDrawState_FlashSelected:
 			// Try getting "flash" appearance version of this property
 			result = getPropString(thePropMap,
-				kDrawStatePrefix[eMenuItemDrawState_Flash] + thePropName);
+				thePropNameArray[eMenuItemDrawState_Flash]);
 			if( result.valid )
 				break;
 			// If that didn't exist, try getting "selected" version
 			result = getPropString(thePropMap,
-				kDrawStatePrefix[eMenuItemDrawState_Selected] + thePropName);
+				thePropNameArray[eMenuItemDrawState_Selected]);
 			if( result.valid )
 				break;
 			// Fall through
 		case eMenuItemDrawState_Selected:
 		case eMenuItemDrawState_Flash:
 			// Try getting normal appearance version of this property
-			result = getPropString(thePropMap, thePropName);
+			result = getPropString(thePropMap,
+				thePropNameArray[eMenuItemDrawState_Normal]);
 			break;
 		}
 	}
@@ -2317,11 +2324,13 @@ static void drawHSGuide(DrawData& dd)
 		anArrayIdx < arraysToShow.size();
 		anArrayIdx = arraysToShow.nextSetBit(anArrayIdx+1))
 	{
-		const int aHotspotCount = InputMap::sizeOfHotspotArray(anArrayIdx);
 		const int aFirstHotspot = InputMap::firstHotspotInArray(anArrayIdx);
+		const int aHotspotCount = InputMap::sizeOfHotspotArray(anArrayIdx);
 		for(int i = aFirstHotspot, end = aFirstHotspot + aHotspotCount;
 			i < end; ++i)
 		{
+			if( !InputMap::isValidHotspotID(i) )
+				continue;
 			const POINT& aHotspotPos = hotspotToPoint(
 				InputMap::getHotspot(i), dd.targetSize);
 			const RECT aDrawRect = {
@@ -2481,56 +2490,55 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 				{ "Title",						ePropChangeImpact_Labels	},
 				{ "Name",						ePropChangeImpact_Labels	},
 				{ "String",						ePropChangeImpact_Labels	},
-				{ "Position",					ePropChangeImpact_Position	},
+				{ kPositionPropName,			ePropChangeImpact_Position	},
+				{ kDrawPriorityPropName,		ePropChangeImpact_Position	},
 				{ "Keybinds",					ePropChangeImpact_Position	},
-				{ "KeybindCycles",				ePropChangeImpact_Position	},
-				{ "Priority",					ePropChangeImpact_Position	},
 				{ "KeyBindCycle",				ePropChangeImpact_Position	},
+				{ "KeybindCycles",				ePropChangeImpact_Position	},
 				{ "KBCycle",					ePropChangeImpact_Position	},
 				{ "Array",						ePropChangeImpact_Position	},
 				{ "Style",						ePropChangeImpact_Layout	},
 				{ "Type",						ePropChangeImpact_Layout	},
-				{ "ItemSize",					ePropChangeImpact_Layout	},
-				{ "Size",						ePropChangeImpact_Layout	},
-				{ "GapSize",					ePropChangeImpact_Layout	},
-				{ "Alignment",					ePropChangeImpact_Layout	},
-				{ "AltLabelWidth",				ePropChangeImpact_Layout	},
-				{ "ItemType",					ePropChangeImpact_BaseApp	},
-				{ "Font",						ePropChangeImpact_BaseApp	},
-				{ "FontSize",					ePropChangeImpact_BaseApp	},
-				{ "FontWeight",					ePropChangeImpact_BaseApp	},
-				{ "TitleRGB",					ePropChangeImpact_BaseApp	},
-				{ "TransRGB",					ePropChangeImpact_BaseApp	},
-				{ "Radius",						ePropChangeImpact_BaseApp	},
-				{ "TitleHeight",				ePropChangeImpact_BaseApp	},
-				{ "FlashTime",					ePropChangeImpact_BaseApp	},
-				{ "ItemRGB",					ePropChangeImpact_ItemApp	},
-				{ "LabelRGB",					ePropChangeImpact_ItemApp	},
-				{ "BorderRGB",					ePropChangeImpact_ItemApp	},
-				{ "BorderSize",					ePropChangeImpact_ItemApp	},
-				{ "Bitmap",						ePropChangeImpact_ItemApp	},
-				{ "SelectedItemRGB",			ePropChangeImpact_ItemApp	},
-				{ "SelectedLabelRGB",			ePropChangeImpact_ItemApp	},
-				{ "SelectedBorderRGB",			ePropChangeImpact_ItemApp	},
-				{ "SelectedBorderSize",			ePropChangeImpact_ItemApp	},
-				{ "SelectedBitmap",				ePropChangeImpact_ItemApp	},
-				{ "FlashItemRGB",				ePropChangeImpact_ItemApp	},
-				{ "FlashLabelRGB",				ePropChangeImpact_ItemApp	},
-				{ "FlashBorderRGB",				ePropChangeImpact_ItemApp	},
-				{ "FlashBorderSize",			ePropChangeImpact_ItemApp	},
-				{ "FlashBitmap",				ePropChangeImpact_ItemApp	},
-				{ "FlashSelectedItemRGB",		ePropChangeImpact_ItemApp	},
-				{ "FlashSelectedLabelRGB",		ePropChangeImpact_ItemApp	},
-				{ "FlashSelectedBorderRGB",		ePropChangeImpact_ItemApp	},
-				{ "FlashSelectedBorderSize",	ePropChangeImpact_ItemApp	},
-				{ "FlashSelectedBitmap",		ePropChangeImpact_ItemApp	},
-				{ "MaxAlpha",					ePropChangeImpact_Alpha		},
-				{ "FadeInDelay",				ePropChangeImpact_Alpha		},
-				{ "FadeInTime",					ePropChangeImpact_Alpha		},
-				{ "FadeOutDelay",				ePropChangeImpact_Alpha		},
-				{ "FadeOutTime",				ePropChangeImpact_Alpha		},
-				{ "InactiveDelay",				ePropChangeImpact_Alpha		},
-				{ "InactiveAlpha",				ePropChangeImpact_Alpha		},
+				{ kTitleHeightPropName,			ePropChangeImpact_Layout	},
+				{ kItemSizePropName,			ePropChangeImpact_Layout	},
+				{ kGapSizePropName,				ePropChangeImpact_Layout	},
+				{ kAlignmentPropName,			ePropChangeImpact_Layout	},
+				{ kAltLabelWidthPropName,		ePropChangeImpact_Layout	},
+				{ kItemTypePropName,			ePropChangeImpact_BaseApp	},
+				{ kFontNamePropName,			ePropChangeImpact_BaseApp	},
+				{ kFontSizePropName,			ePropChangeImpact_BaseApp	},
+				{ kFontWeightPropName,			ePropChangeImpact_BaseApp	},
+				{ kTitleColorPropName,			ePropChangeImpact_BaseApp	},
+				{ kTransColorPropName,			ePropChangeImpact_BaseApp	},
+				{ kRadiusPropName,				ePropChangeImpact_BaseApp	},
+				{ kFlashTimePropName,			ePropChangeImpact_BaseApp	},
+				{ kBorderSizePropName[0],		ePropChangeImpact_ItemApp	},
+				{ kBorderColorPropName[0],		ePropChangeImpact_ItemApp	},
+				{ kFontColorPropName[0],		ePropChangeImpact_ItemApp	},
+				{ kItemColorPropName[0],		ePropChangeImpact_ItemApp	},
+				{ kBitmapPropName[0],			ePropChangeImpact_ItemApp	},
+				{ kBorderSizePropName[1],		ePropChangeImpact_ItemApp	},
+				{ kBorderColorPropName[1],		ePropChangeImpact_ItemApp	},
+				{ kFontColorPropName[1],		ePropChangeImpact_ItemApp	},
+				{ kItemColorPropName[1],		ePropChangeImpact_ItemApp	},
+				{ kBitmapPropName[1],			ePropChangeImpact_ItemApp	},
+				{ kBorderSizePropName[2],		ePropChangeImpact_ItemApp	},
+				{ kBorderColorPropName[2],		ePropChangeImpact_ItemApp	},
+				{ kFontColorPropName[2],		ePropChangeImpact_ItemApp	},
+				{ kItemColorPropName[2],		ePropChangeImpact_ItemApp	},
+				{ kBitmapPropName[2],			ePropChangeImpact_ItemApp	},
+				{ kBorderSizePropName[3],		ePropChangeImpact_ItemApp	},
+				{ kBorderColorPropName[3],		ePropChangeImpact_ItemApp	},
+				{ kFontColorPropName[3],		ePropChangeImpact_ItemApp	},
+				{ kItemColorPropName[3],		ePropChangeImpact_ItemApp	},
+				{ kBitmapPropName[3],			ePropChangeImpact_ItemApp	},
+				{ kMaxAlphaPropName,			ePropChangeImpact_Alpha		},
+				{ kFadeInDelayPropName,			ePropChangeImpact_Alpha		},
+				{ kFadeInTimePropName,			ePropChangeImpact_Alpha		},
+				{ kFadeOutDelayPropName,		ePropChangeImpact_Alpha		},
+				{ kFadeOutTimePropName,			ePropChangeImpact_Alpha		},
+				{ kInactiveDelayPropName,		ePropChangeImpact_Alpha		},
+				{ kInactiveAlphaPropName,		ePropChangeImpact_Alpha		},
 				{ "GridWidth",					ePropChangeImpact_Reshape	},
 				{ "ColumnHeight",				ePropChangeImpact_Reshape	},
 				{ "ColumnsHeight",				ePropChangeImpact_Reshape	},
@@ -2602,29 +2610,6 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 	default:
 		// Don't care about this property - ignore it
 		break;
-	}
-}
-
-
-static void checkForHotspotChanges()
-{
-	if( InputMap::changedHotspots().any() )
-	{
-		gRefreshOverlays.set(kHotspotGuideOverlayID);
-		// Clear label cache if any copy icons are using a changed hotspot
-		if( (sHotspotsUsedByCopyIcons & InputMap::changedHotspots()).any() )
-		{
-			for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
-				sMenuDrawCache[i].labelCache.clear();
-			sHotspotsUsedByCopyIcons.reset();
-		}
-		// Trigger a reshape for any active menus that use changed hotspots
-		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
-		{
-			const int aMenuID = Menus::activeMenuForOverlayID(i);
-			if( InputMap::menuHotspotsChanged(aMenuID) )
-				gReshapeOverlays.set(i);
-		}
 	}
 }
 
@@ -2831,7 +2816,24 @@ void loadProfileChanges()
 	}
 
 	// Check for changes to any hotspots
-	checkForHotspotChanges();
+	if( InputMap::changedHotspots().any() )
+	{
+		gRefreshOverlays.set(kHotspotGuideOverlayID);
+		// Clear label cache if any copy icons are using a changed hotspot
+		if( (sHotspotsUsedByCopyIcons & InputMap::changedHotspots()).any() )
+		{
+			for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
+				sMenuDrawCache[i].labelCache.clear();
+			sHotspotsUsedByCopyIcons.reset();
+		}
+		// Trigger a reshape for any active menus that use changed hotspots
+		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
+		{
+			const int aMenuID = Menus::activeMenuForOverlayID(i);
+			if( InputMap::menuHotspotsChanged(aMenuID) )
+				gReshapeOverlays.set(i);
+		}
+	}
 
 	// Check for changes to any menus
 	for(int aMenuID = 0, end = InputMap::menuCount(); aMenuID < end; ++aMenuID)
@@ -3126,12 +3128,8 @@ void update()
 		}
 	}
 
-	// Check for hotspot changes from modifyHotspot()
-	checkForHotspotChanges();
-
 	gKeyBindCycleLastIndexChanged.reset();
 	gKeyBindCycleDefaultIndexChanged.reset();
-	InputMap::resetChangedHotspots();
 
 	if( sNewProfileDataFetched )
 	{

@@ -35,6 +35,8 @@ kMaxPerpDistForStraightLine = 0x0088,
 kMaxLinkMapColumnXDist = 0x0500,
 };
 
+const char* kBaseJumpDistSectName = "Mouse";
+const char* kBaseJumpDistPropName = "DefaultHotspotDistance";
 // How much past base jump dest to search for a hotspot to jump to,
 // as a multiplier of Mouse/DefaultHotspotDistance property
 const double kDeviationRadiusMult = 0.75;
@@ -52,13 +54,13 @@ const int /*double*/ kColumnXDistPenaltyMult = 2;
 
 enum ETask
 {
-	eTask_TargetSize,
+	eTask_Init,
+	eTask_SetDistances,
 	eTask_Normalize,
-	eTask_ActiveArrays,
 	eTask_AddToGrid,
 	eTask_BeginSearch,
 	eTask_FetchFromGrid, // auto-set by _BeginSearch
-	eTask_NextInDir,
+	eTask_NextInDir, // auto-set (all 8 versions) by _BeginSearch
 	// Next 7 are remaining dirs in order from ECommandDir
 
 	eTask_Num = eTask_NextInDir + eCmd8Dir_Num,
@@ -85,7 +87,6 @@ struct ZERO_INIT(TrackedPoint)
 {
 	// 0-32767 so can convert to dist squared without overflowing a u32
 	u16 x, y;
-	bool enabled;
 };
 
 struct ZERO_INIT(GridPos)
@@ -108,7 +109,6 @@ typedef std::vector<HotspotLinkNode> MenuLinks;
 // Static Variables
 //------------------------------------------------------------------------------
 
-static BitVector<32> sRequestedArrays;
 static BitVector<32> sActiveArrays;
 static BitVector<512> sPointsToNormalize;
 static std::vector<TrackedPoint> sPoints;
@@ -333,9 +333,12 @@ private:
 // Local Functions
 //------------------------------------------------------------------------------
 
-static void processTargetSizeTask()
+static void processSetDistancesTask()
 {
-	// Calculate jump ranges
+	sBaseJumpDist = int(max(0.0,
+		Profile::getFloat(kBaseJumpDistSectName, kBaseJumpDistPropName) *
+		sLastUIScale * kNormalizedTargetSize));
+
 	int aMaxDeviationRadius = int(sBaseJumpDist * kDeviationRadiusMult);
 	sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;
 
@@ -349,22 +352,32 @@ static void processTargetSizeTask()
 	sMaxJumpDistSquared =
 		u32(min<s64>(0xFFFFFFFF, s64(sMaxJumpDist) * sMaxJumpDist));
 
-	// Re-normalize ALL hotspots
-	sPointsToNormalize.set();
-	sPointsToNormalize.reset(eSpecialHotspot_None);
-	sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
-
+	mapDebugPrint("Set base jump distance to %d (normalized)\n", sBaseJumpDist);
 	sCurrentTask = eTask_None;
 }
 
 
 static void processNormalizeTask()
 {
-	sTaskProgress = sPointsToNormalize.firstSetBit();
+	if( sTaskProgress == 0 )
+		sTaskProgress = sPointsToNormalize.firstSetBit();
+
+	while(sTaskProgress < sPointsToNormalize.size() &&
+		  !InputMap::isValidHotspotID(sTaskProgress) )
+	{
+		sPointsToNormalize.reset(sTaskProgress);
+		sTaskProgress = sPointsToNormalize.nextSetBit(sTaskProgress);
+		if( sTaskProgress >= sPointsToNormalize.size() )
+		{
+			sCurrentTask = eTask_None;
+			return;
+		}
+	}
+
 	if( sTaskProgress < intSize(sPoints.size()) )
 	{
-		const int aHotspotID = sTaskProgress;
-		const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
+		sPointsToNormalize.reset(sTaskProgress);
+		const Hotspot& aHotspot = InputMap::getHotspot(sTaskProgress);
 		const POINT& anOverlayPos =
 			WindowManager::hotspotToOverlayPos(aHotspot);
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
@@ -376,68 +389,21 @@ static void processNormalizeTask()
 				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor));
 			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
 		}
-		sPointsToNormalize.reset(sTaskProgress);
 		mapDebugPrint(
 			"Normalizing Hotspot '%s' (%d x %d) position to %d x %d \n",
-			InputMap::hotspotLabel(aHotspotID).c_str(),
+			InputMap::hotspotLabel(sTaskProgress).c_str(),
 			anOverlayPos.x, anOverlayPos.y,
 			sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
 	}
-	else
-	{
-		sCurrentTask = eTask_None;
-	}
-}
 
-
-static void processActiveArraysTask()
-{
-	const int kHotspotArrayCount = InputMap::hotspotArrayCount();
-	while(sTaskProgress < kHotspotArrayCount)
-	{
-		const int anArray = sTaskProgress++;
-		bool needChangeMade = false;
-		bool enableHotspots = false;
-		if( sRequestedArrays.test(anArray) && !sActiveArrays.test(anArray) )
-		{
-			mapDebugPrint(
-				"Enabling hotspots in Hotspot Array '%s'\n",
-				InputMap::hotspotArrayLabel(anArray));
-			needChangeMade = true;
-			enableHotspots = true;
-		}
-		else if( !sRequestedArrays.test(anArray) &&
-				 sActiveArrays.test(anArray) )
-		{
-			mapDebugPrint(
-				"Disabling hotspots in Hotspot Array '%s'\n",
-				InputMap::hotspotArrayLabel(anArray));
-			needChangeMade = true;
-			enableHotspots = false;
-		}
-		if( needChangeMade )
-		{
-			const int aFirstHotspot = InputMap::firstHotspotInArray(anArray);
-			const int aHotspotCount = InputMap::sizeOfHotspotArray(anArray);
-			for(int i = aFirstHotspot; i < aFirstHotspot + aHotspotCount; ++i)
-				sPoints[i].enabled = enableHotspots;
-			sActiveArrays.set(anArray, enableHotspots);
-			sNewTasks.set(eTask_AddToGrid);
-			sNewTasks.set(eTask_BeginSearch);
-			for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
-				sNewTasks.set(eTask_NextInDir + aDir);
-			break;
-		}
-	}
-
-	if( sTaskProgress >= kHotspotArrayCount )
+	sTaskProgress = sPointsToNormalize.nextSetBit(sTaskProgress);
+	if( sTaskProgress >= sPointsToNormalize.size() )
 		sCurrentTask = eTask_None;
 }
 
 
 static void processAddToGridTask()
 {
-	const int kPointsCount = intSize(sPoints.size());
 	if( sTaskProgress == 0 )
 	{
 		if( sActiveArrays.any() )
@@ -449,10 +415,23 @@ static void processAddToGridTask()
 		}
 	}
 
-	while(sTaskProgress < kPointsCount)
+	const int kArrayCount = InputMap::hotspotArrayCount();
+	int aTaskArrayID = sActiveArrays.nextSetBit(sTaskProgress >> 16);
+	if( aTaskArrayID >= kArrayCount )
 	{
-		const int aPointIdx = sTaskProgress++;
-		if( !sPoints[aPointIdx].enabled )
+		sCurrentTask = eTask_None;
+		return;
+	}
+
+	const int kArrayFirstIdx = InputMap::firstHotspotInArray(aTaskArrayID);
+	const int kCurrArraySize = InputMap::sizeOfHotspotArray(aTaskArrayID);
+	int aTaskHotspotID = sTaskProgress & 0xFFFF;
+
+	while(aTaskHotspotID < kCurrArraySize)
+	{
+		const int aPointIdx = kArrayFirstIdx + aTaskHotspotID;
+		++aTaskHotspotID;
+		if( !InputMap::isValidHotspotID(aPointIdx) )
 			continue;
 		const int aGridX = sPoints[aPointIdx].x >> kNormalizedToGridShift;
 		const int aGridY = sPoints[aPointIdx].y >> kNormalizedToGridShift;
@@ -466,8 +445,16 @@ static void processAddToGridTask()
 		break;
 	}
 
-	if( sTaskProgress >= kPointsCount )
+	if( aTaskHotspotID >= kCurrArraySize )
+	{
+		++aTaskArrayID;
+		aTaskHotspotID = 0;
+	}
+
+	if( aTaskArrayID >= kArrayCount )
 		sCurrentTask = eTask_None;
+	else
+		sTaskProgress = (aTaskArrayID << 16) | aTaskHotspotID;
 }
 
 
@@ -502,6 +489,9 @@ static void processBeginSearchTask()
 	}
 	sCurrentTask = eTask_None;
 	sNewTasks.set(eTask_FetchFromGrid);
+	for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+		sNewTasks.set(eTask_NextInDir + aDir);
+
 	mapDebugPrint(
 		"Beginning new search starting from %d x %d (normalized)\n",
 		sNormalizedCursorPos.x, sNormalizedCursorPos.y);
@@ -666,9 +656,9 @@ static void processTasks()
 	switch(sCurrentTask)
 	{
 	case eTask_None:			break;
-	case eTask_TargetSize:		processTargetSizeTask();	break;
+	case eTask_Init:			sCurrentTask = eTask_None;	break;		
+	case eTask_SetDistances:	processSetDistancesTask();	break;
 	case eTask_Normalize:		processNormalizeTask();		break;
-	case eTask_ActiveArrays:	processActiveArraysTask();	break;
 	case eTask_AddToGrid:		processAddToGridTask();		break;
 	case eTask_BeginSearch:		processBeginSearchTask();	break;
 	case eTask_FetchFromGrid:	processFetchFromGridTask();	break;
@@ -942,32 +932,27 @@ void init()
 	sPoints.reserve(aHotspotsCount);
 	sPoints.resize(aHotspotsCount);
 	sPointsToNormalize.clearAndResize(aHotspotsCount);
-	sRequestedArrays.clearAndResize(aHotspotArraysCount);
 	sActiveArrays.clearAndResize(aHotspotArraysCount);
-	sLinkMaps.clear();
-	sEdgeMaps.clear();
-	sLastTargetSize = WindowManager::overlayTargetSize();
-	sLastUIScale = gUIScale;
+
+	// Queue ALL tasks initially, including _Init for first update()
 	sNewTasks.set();
 }
 
 
 void loadProfileChanges()
 {
-	const int aNewJumpDist = int(max(0.0,
-		Profile::getFloat("Mouse", "DefaultHotspotDistance") *
-		gUIScale * kNormalizedTargetSize));
-	if( aNewJumpDist != sBaseJumpDist )
+	// Unlikely, but did base jump distance change?
+	if( Profile::PropertyMapPtr aPropMap =
+			Profile::changedSections().find(kBaseJumpDistSectName) )
 	{
-		sBaseJumpDist = aNewJumpDist;
-		sNewTasks.set(eTask_TargetSize);
-		sNewTasks.set(eTask_Normalize);
-		sNewTasks.set(eTask_AddToGrid);
-		sNewTasks.set(eTask_BeginSearch);
-		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
-			sNewTasks.set(eTask_NextInDir + aDir);
+		if( aPropMap->find(kBaseJumpDistPropName) )
+		{
+			sNewTasks.set(eTask_SetDistances);
+			sNewTasks.set(eTask_BeginSearch);
+		}
 	}
 
+	// Check for hotspot changes for any menu link maps
 	for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
 	{
 		MenuLinks& aLinks = sLinkMaps[i].second;
@@ -979,6 +964,7 @@ void loadProfileChanges()
 		}
 	}
 
+	// Check for hotspot changes in any menu edge maps
 	for(int i = 0, end = intSize(sEdgeMaps.size()); i < end; ++i)
 	{
 		MenuEdgeMap& anEdgeMap = sEdgeMaps[i].second;
@@ -995,6 +981,7 @@ void loadProfileChanges()
 		}
 	}
 
+	// Check for any hotspots need to re-normalize and thus re-process grid
 	sPointsToNormalize |= InputMap::changedHotspots();
 	sPointsToNormalize.reset(eSpecialHotspot_None);
 	sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
@@ -1003,15 +990,14 @@ void loadProfileChanges()
 		sNewTasks.set(eTask_Normalize);
 		sNewTasks.set(eTask_AddToGrid);
 		sNewTasks.set(eTask_BeginSearch);
-		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
-			sNewTasks.set(eTask_NextInDir + aDir);
+		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
+			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
 	}
 }
 
 
 void cleanup()
 {
-	sRequestedArrays.clear();
 	sActiveArrays.clear();
 	sPointsToNormalize.clear();
 	sPoints.clear();
@@ -1033,28 +1019,31 @@ void update()
 {
 	// Check for state changes that could trigger new tasks
 	const SIZE& aTargetSize = WindowManager::overlayTargetSize();
-	if( aTargetSize.cx != sLastTargetSize.cx ||
+	const bool aTargetSizeChanged =
+		aTargetSize.cx != sLastTargetSize.cx ||
 		aTargetSize.cy != sLastTargetSize.cy ||
-		gUIScale != sLastUIScale )
+		gUIScale != sLastUIScale;
+
+	if( aTargetSizeChanged || sNewTasks.test(eTask_Init) )
 	{
 		sLastTargetSize.cx = aTargetSize.cx;
 		sLastTargetSize.cy = aTargetSize.cy;
 		sLastUIScale = gUIScale;
-		sBaseJumpDist = int(max(0.0,
-			Profile::getFloat("Mouse", "DefaultHotspotDistance") *
-			sLastUIScale * kNormalizedTargetSize));
-		sNewTasks.set(eTask_TargetSize);
+		sPointsToNormalize.set();
+		sPointsToNormalize.reset(eSpecialHotspot_None);
+		sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
+		sNewTasks.set(eTask_SetDistances);
 		sNewTasks.set(eTask_Normalize);
 		sNewTasks.set(eTask_AddToGrid);
 		sNewTasks.set(eTask_BeginSearch);
-		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
-			sNewTasks.set(eTask_NextInDir + aDir);
 	}
+
 	const Hotspot& aCursorPos =
 		InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
-	if( sLastCursorPos.x != aCursorPos.x ||
-		sLastCursorPos.y != aCursorPos.y ||
-		sNewTasks.test(eTask_TargetSize) )
+	const bool aCursorPosChanged =
+		sLastCursorPos.x != aCursorPos.x || sLastCursorPos.y != aCursorPos.y;
+
+	if( aTargetSizeChanged || aCursorPosChanged || sNewTasks.test(eTask_Init) )
 	{
 		sLastCursorPos = aCursorPos;
 		sNormalizedCursorPos = WindowManager::hotspotToOverlayPos(aCursorPos);
@@ -1068,9 +1057,8 @@ void update()
 				(sNormalizedCursorPos.y + 1) *
 				kNormalizedTargetSize / aScaleFactor;
 		}
+		sNewTasks.reset(eTask_Init);
 		sNewTasks.set(eTask_BeginSearch);
-		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
-			sNewTasks.set(eTask_NextInDir + aDir);
 	}
 
 	// Continue progress on any current tasks
@@ -1080,10 +1068,28 @@ void update()
 
 void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays)
 {
-	if( sRequestedArrays != theHotspotArrays )
+	if( sActiveArrays != theHotspotArrays )
 	{
-		sRequestedArrays = theHotspotArrays;
-		sNewTasks.set(eTask_ActiveArrays);
+		#ifdef HOTSPOT_MAP_DEBUG_PRINT
+		for(int i = 0, end = sActiveArrays.size(); i < end; ++i)
+		{
+			if( theHotspotArrays.test(i) && !sActiveArrays.test(i) )
+			{
+				mapDebugPrint(
+					"Enabling hotspots in Hotspot Array '%s'\n",
+					InputMap::hotspotArrayLabel(i));
+			}
+			else if( !theHotspotArrays.test(i) && sActiveArrays.test(i) )
+			{
+				mapDebugPrint(
+					"Disabling hotspots in Hotspot Array '%s'\n",
+					InputMap::hotspotArrayLabel(i));
+			}
+		}
+		#endif
+		sActiveArrays = theHotspotArrays;
+		sNewTasks.set(eTask_AddToGrid);
+		sNewTasks.set(eTask_BeginSearch);
 		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
 			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
 	}
@@ -1092,13 +1098,13 @@ void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays)
 
 const BitVector<32>& getEnabledHotspotArrays()
 {
-	return sRequestedArrays;
+	return sActiveArrays;
 }
 
 
 int getNextHotspotInDir(ECommandDir theDirection)
 {
-	if( sPoints.empty() || sRequestedArrays.none() )
+	if( sPoints.empty() || sActiveArrays.none() )
 		return 0;
 
 	// Abort _nextInDir tasks in all directions besides requested

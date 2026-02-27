@@ -298,8 +298,7 @@ public:
 				++mMouseJumpQueueCount;
 				if( aFinalJumpHotspotID )
 				{// Assign _LastCursorPos now as source point for next jump
-					InputMap::modifyHotspot(
-						eSpecialHotspot_LastCursorPos,
+					InputMap::setLastCursorPosHotspot(
 						InputMap::getHotspot(aFinalJumpHotspotID));
 				}
 			}
@@ -319,8 +318,7 @@ public:
 			// Assign _LastCursorPos now as source point for next jump
 			aJumpDest.x = aFinalCmd.hotspot.x;
 			aJumpDest.y = aFinalCmd.hotspot.y;
-			InputMap::modifyHotspot(
-				eSpecialHotspot_LastCursorPos, aJumpDest);
+			InputMap::setLastCursorPosHotspot(aJumpDest);
 			// Update hotspot map now in case another command wants to move
 			// directly from new _LastCursorPos to a different relative hotspot
 			HotspotMap::update();
@@ -1026,9 +1024,7 @@ static void offsetMousePos()
 		if( sTracker.mouseJumpDest.x == aLastCursorPos.x &&
 			sTracker.mouseJumpDest.y == aLastCursorPos.y )
 		{
-			InputMap::modifyHotspot(
-				eSpecialHotspot_LastCursorPos,
-				aDestHotspot);
+			InputMap::setLastCursorPosHotspot(aDestHotspot);
 		}
 		sTracker.mouseJumpDest = aDestHotspot;
 		sTracker.mouseVelX = sTracker.mouseVelY = 0;
@@ -2566,9 +2562,7 @@ void update()
 			(hiddenCursorMode(sTracker.mouseMode) ||
 			 hiddenCursorMode(sTracker.mouseModeRequested)) )
 		{// Update default cursor pos rather than actually jumping
-			InputMap::modifyHotspot(
-				eSpecialHotspot_LastCursorPos,
-				sTracker.mouseJumpDest);
+			InputMap::setLastCursorPosHotspot(sTracker.mouseJumpDest);
 			readyForMouseJump = sTracker.mouseJumpToHotspot = false;
 		}
 		else if( !sTracker.mouseAllowMidJumpControl )
@@ -2661,8 +2655,7 @@ void update()
 		!sTracker.keysHeldDown.test(VK_RBUTTON) )
 	{// Track cursor position changes in cursor mode when not jumping
 		#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
-		InputMap::modifyHotspot(
-			eSpecialHotspot_LastCursorPos,
+		InputMap::setLastCursorPosHotspot(
 			WindowManager::overlayPosToHotspot(
 				WindowManager::mouseToOverlayPos(true)));
 		#endif
