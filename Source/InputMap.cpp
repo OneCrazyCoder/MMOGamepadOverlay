@@ -4819,9 +4819,14 @@ int KeyBindCycleHotspotID(int theCycleID, int theIndex)
 }
 
 
-void setLastCursorPosHotspot(const Hotspot& theNewValues)
+bool setLastCursorPosHotspot(const Hotspot& theNewValues)
 {
-	sHotspots[eSpecialHotspot_LastCursorPos] = theNewValues;
+	if( sHotspots[eSpecialHotspot_LastCursorPos] != theNewValues )
+	{
+		sHotspots[eSpecialHotspot_LastCursorPos] = theNewValues;
+		return true;
+	}
+	return false;
 }
 
 

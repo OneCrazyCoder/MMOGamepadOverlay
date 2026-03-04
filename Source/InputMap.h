@@ -121,7 +121,7 @@ int sizeOfHotspotArray(int theHotspotArrayID);
 bool hotspotArrayHasAnchor(int theHotspotArrayID);
 float hotspotScale(int theHotspotID);
 int KeyBindCycleHotspotID(int theArrayID, int theIndex); // or 0
-void setLastCursorPosHotspot(const Hotspot& theNewCursorPos);
+bool setLastCursorPosHotspot(const Hotspot& theNewCursorPos); // true if changed
 const BitVector<512>& changedHotspots(); // in last loadProfileChanges()
 
 // SIZES

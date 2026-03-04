@@ -2229,18 +2229,8 @@ void update()
 	if( sResults.selectHotspotDir != eCmd8Dir_None )
 	{
 		Command aCmd;
-		const int aNextHotspot = HotspotMap::getNextHotspotInDir(
-			sResults.selectHotspotDir);
-		if( aNextHotspot )
-		{
-			aCmd.type = eCmdType_MoveMouseToHotspot;
-			aCmd.hotspotID = dropTo<u16>(aNextHotspot);
-		}
-		else
-		{
-			aCmd.type = eCmdType_MoveMouseToOffset;
-			aCmd.dir = dropTo<u16>(sResults.selectHotspotDir);
-		}
+		aCmd.type = eCmdType_HotspotSelect;
+		aCmd.dir = dropTo<u16>(sResults.selectHotspotDir);
 		InputDispatcher::sendCommand(aCmd);
 	}
 	InputDispatcher::moveMouse(

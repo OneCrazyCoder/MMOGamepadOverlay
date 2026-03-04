@@ -1299,6 +1299,37 @@ static void queueMoveMouseTo(const Command& theCommand)
 		aDestHotspot = WindowManager::hotspotForMenuItem(
 			theCommand.rootMenuID, theCommand.menuItemID);
 		break;
+	case eCmdType_HotspotSelect:
+		if( !sTracker.queue.mouseJumpQueued() &&
+			!sTracker.mouseJumpToHotspot &&
+			sTracker.mouseModeRequested == eMouseMode_Cursor &&
+			sTracker.mouseMode == eMouseMode_Cursor )
+		{
+			// May not have been tracking mouse cursor despite being in
+			// cursor mode if also performing a mouse drag, since in some
+			// games holding a mouse button may jump the cursor to center-
+			// screen to prepare for mouse look and we have no way of
+			// knowing if it was that or a click-and-drag on UI. It is thus
+			// assumed to be the latter if requesting a hotspot select, so
+			// to be accurate need to update mouse pos for HotspotMap.
+			#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
+			if( InputMap::setLastCursorPosHotspot(
+					WindowManager::overlayPosToHotspot(
+						WindowManager::mouseToOverlayPos(true))) )
+			{
+				HotspotMap::update();
+			}
+			#endif
+		}
+		if( const int aNextHotspot =
+				HotspotMap::getNextHotspotInDir(ECommandDir(theCommand.dir)) )
+		{
+			aCmdType = eCmdType_MoveMouseToHotspot;
+			aDestHotspot = InputMap::getHotspot(aNextHotspot);
+			break;
+		}
+		aCmdType = eCmdType_MoveMouseToOffset;
+		// fall through
 	case eCmdType_MoveMouseToOffset:
 		aDestHotspot =
 			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
@@ -2651,9 +2682,13 @@ void update()
 	if( !sTracker.queue.mouseJumpQueued() &&
 		!sTracker.mouseJumpToHotspot &&
 		sTracker.mouseMode == eMouseMode_Cursor &&
+		sTracker.mouseModeRequested == eMouseMode_Cursor &&
 		!sTracker.keysHeldDown.test(VK_LBUTTON) &&
 		!sTracker.keysHeldDown.test(VK_RBUTTON) )
 	{// Track cursor position changes in cursor mode when not jumping
+		// Also avoid while holding down LMB or RMB because in some games that
+		// causes the cursor to automatically jump to center-screen briefly
+		// even for quick clicks (just in case user starts mouse-look mode)
 		#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 		InputMap::setLastCursorPosHotspot(
 			WindowManager::overlayPosToHotspot(
@@ -2771,6 +2806,7 @@ void sendCommand(const Command& theCommand)
 	case eCmdType_MouseClickAtHotspot:
 	case eCmdType_MoveMouseToMenuItem:
 	case eCmdType_MoveMouseToOffset:
+	case eCmdType_HotspotSelect:
 		// Need to process hotpsot destination before queueing these
 		queueMoveMouseTo(theCommand);
 		break;

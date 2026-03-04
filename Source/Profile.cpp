@@ -12,6 +12,12 @@
 namespace Profile
 {
 
+#if _DEBUG
+// Having this defined silently regenerate all generated INI files every time
+// so always reflect any changes made to resource versions.
+#define ALWAYS_REFRESH_DEFAULT_INI
+#endif
+
 //------------------------------------------------------------------------------
 // Const Data
 //------------------------------------------------------------------------------
@@ -1088,7 +1094,6 @@ static void setAutoLoadProfile(int theProfileID)
 }
 
 
-#ifndef _DEBUG
 static void readVersionCallback(
 	const std::string& /*theSection*/,
 	const std::string& theName,
@@ -1102,7 +1107,6 @@ static void readVersionCallback(
 	if( condense(theName) == condense(kAutoGenVersionKey) )
 		*aVersion = stringToInt(theValue);
 }
-#endif
 
 
 static void checkForOutdatedFileVersion(ProfileFile& theFile)
@@ -1138,8 +1142,8 @@ static void checkForOutdatedFileVersion(ProfileFile& theFile)
 			}
 		}
 	}
-	// Only replace custom files in Debug builds, and only for first loaded
-	#ifdef _DEBUG
+	// Only replace custom files when set to always refresh, and only for first
+	#ifdef ALWAYS_REFRESH_DEFAULT_INI
 	if( !theMatchingResource && sLoadedProfileName.empty() )
 	{
 		for(int i = 0; i < ARRAYSIZE(kResTemplateCustom); ++i)
@@ -1155,10 +1159,8 @@ static void checkForOutdatedFileVersion(ProfileFile& theFile)
 	if( !theMatchingResource )
 		return;
 
-	// In Debug builds, always (silently) regenerate all generated files
-	// every time so always reflect any changes made to resource versions.
 	EResult aResult = eResult_Yes;
-	#ifndef _DEBUG
+	#ifndef ALWAYS_REFRESH_DEFAULT_INI
 	// Check for version number stored in the file
 	int aFileVersion = 0;
 	parseINI(
@@ -1213,7 +1215,7 @@ static void checkForOutdatedFileVersion(ProfileFile& theFile)
 			writeBaseGameSettingsChanges(
 				theFile, aDefaultSettings, aCustomSettings);
 
-			#ifndef _DEBUG
+			#ifndef ALWAYS_REFRESH_DEFAULT_INI
 			// Generate known issues and, if there are any, display them now,
 			// in case they have changed since previous version of app
 			generateKnownIssuesRTF(aDefaultSettings.knownIssuesList);
