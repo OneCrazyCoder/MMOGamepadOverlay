@@ -732,9 +732,13 @@ static void applyHotspotProperty(
 						aRange->yOffset * anArray.offsetScale,
 						-0x8000, 0x7FFF));
 				}
-				if( !aRange->width )
+				if( aRange->width )
+					aHotspot.w = aRange->width;
+				else
 					aHotspot.w = sHotspots[aBaseHotspotID].w;
-				if( !aRange->height )
+				if( aRange->height )
+					aHotspot.h = aRange->height;
+				else
 					aHotspot.h = sHotspots[aBaseHotspotID].h;
 			}
 			if( aHotspot != sHotspots[aHotspotID] )
