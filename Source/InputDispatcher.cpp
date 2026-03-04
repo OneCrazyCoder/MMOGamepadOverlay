@@ -2546,10 +2546,12 @@ void update()
 			continue;
 		}
 
-		// Needs a change in mod keys or to be released from a tap first
-		// Take over queued key to do this, but only if another key isn't
-		// already doing this and only for initial first press.
-		if( sTracker.backupQueuedKey == 0 &&
+		// Needs a change in mod keys or to be released from a tap first.
+		// Take over queued key to do this, but only if not newly-pressing any
+		// other keys this frame that already have the mod keys they need ready,
+		// and only for the initial press.
+		if( !hasNonPressedKeyThatWantsHeldDown &&
+			sTracker.backupQueuedKey == 0 &&
 			(!sTracker.nextQueuedKey || !pressed) )
 		{
 			DBG_ASSERT(!sTracker.chatBoxActive);
