@@ -13,8 +13,8 @@ namespace Profile
 {
 
 #if _DEBUG
-// Having this defined silently regenerate all generated INI files every time
-// so always reflect any changes made to resource versions.
+// Having this defined silently re-creates all generated INI files every launch,
+// so they always reflect any changes made to resource versions.
 #define ALWAYS_REFRESH_DEFAULT_INI
 #endif
 

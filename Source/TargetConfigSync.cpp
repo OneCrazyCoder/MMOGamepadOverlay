@@ -2810,16 +2810,14 @@ void update()
 		return;
 	}
 
-	if( sDataSourcesToReCheck.any() )
+	// If have sources that need to be re-checked, set them to be checked next
+	// update and hold off on applying values until then.
+	// Can't do this during init loop though or would get an infinite loop,
+	// so instead will just apply whatever was read and worry about these later.
+	if( sDataSourcesToReCheck.any() && sInitialized )
 	{
-		// Need to attempt again to read these data sources
-		// Not during initialization though, or may get stuck
-		// in update loop waiting for them to become available
-		if( sInitialized )
-		{
-			sDataSourcesToCheck = sDataSourcesToReCheck;
-			sDataSourcesToReCheck.reset();
-		}
+		sDataSourcesToCheck = sDataSourcesToReCheck;
+		sDataSourcesToReCheck.reset();
 		return;
 	}
 

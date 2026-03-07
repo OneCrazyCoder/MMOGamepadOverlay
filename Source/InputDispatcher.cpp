@@ -2299,7 +2299,7 @@ void update()
 
 	// Update queue
 	// ------------
-	if( sTracker.backupQueuedKey )
+	if( sTracker.backupQueuedKey ) // if had backup, next was temp anyway
 		sTracker.nextQueuedKey = sTracker.backupQueuedKey;
 	sTracker.backupQueuedKey = 0;
 	while(sTracker.nextQueuedKey == 0 &&
@@ -2488,7 +2488,11 @@ void update()
 	{// Keep holding left mouse button while eMouseMode_LookOnly is active
 		aDesiredKeysDown.set(VK_LBUTTON);
 	}
-	bool hasNonPressedKeyThatWantsHeldDown = false;
+	bool desiredKeysDownContainsNewPress = false;
+	bool heldKeyUsingNextQueuedkey = false;
+	bool readyForIdleModKeys =
+		!sTracker.nextQueuedKey &&
+		sTracker.currTaskProgress == 0;
 	int aPressedKeysDesiredMods = 0;
 	for(KeysWantDownMap::iterator itr =
 		sTracker.keysWantDown.begin(), next_itr = itr;
@@ -2498,7 +2502,7 @@ void update()
 		const int aVKey = itr->first;
 		const int aBaseVKey = aVKey & kVKeyMask;
 		const int aVKeyModFlags = aVKey & kVKeyModsMask;
-		const bool pressed = itr->second.pressed;
+		const bool beenPressed = itr->second.pressed;
 
 		if( itr->second.depth <= 0 )
 		{// Doesn't want to be pressed any more
@@ -2515,12 +2519,13 @@ void update()
 			 sTracker.mouseMode == eMouseMode_JumpClicked ||
 			 sTracker.mouseJumpToHotspot) )
 		{// Mouse not in a state where can hold a mouse button
-			hasNonPressedKeyThatWantsHeldDown = true;
+			readyForIdleModKeys = false;
 			continue;
 		}
 
-		if( pressed && sTracker.keysHeldDown.test(aBaseVKey) )
-		{// Already been pressed and base key still held
+		const bool baseKeyHeld = sTracker.keysHeldDown.test(aBaseVKey);
+		if( beenPressed && baseKeyHeld )
+		{// Already been pressed and base key still held - just keep holding
 			aDesiredKeysDown.set(aBaseVKey);
 			aPressedKeysDesiredMods |= aVKeyModFlags;
 			if( aVKeyModFlags &&
@@ -2532,51 +2537,59 @@ void update()
 			continue;
 		}
 
-		if( requiredModKeysAreAlreadyHeld(aVKey) &&
-			!sTracker.keysHeldDown.test(aBaseVKey) &&
+		// Check if both mod keys needed are already held, and that any
+		// nextQueuedKey, if there is one, won't change them.
+		const bool correctModKeysHeld =
+			requiredModKeysAreAlreadyHeld(aVKey) &&
 			(sTracker.nextQueuedKey == 0 ||
-			 (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags) )
-		{// Doesn't need a change in mod keys and not held, so can press safely
+			 (sTracker.nextQueuedKey & kVKeyModsMask) == aVKeyModFlags);
+
+		if( correctModKeysHeld && !baseKeyHeld )
+		{// Conditions allow pressing (or re-pressing) this key
 			aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
 			aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
 			aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
 			aDesiredKeysDown.set(VK_LWIN, !!(aVKey & kVKeyWinFlag));
 			aDesiredKeysDown.set(aBaseVKey);
-			hasNonPressedKeyThatWantsHeldDown = true;
+			desiredKeysDownContainsNewPress = true;
+			readyForIdleModKeys = false;
 			continue;
 		}
 
-		// Needs a change in mod keys or to be released from a tap first.
-		// Take over queued key to do this, but only if not newly-pressing any
-		// other keys this frame that already have the mod keys they need ready,
-		// and only for the initial press.
-		if( !hasNonPressedKeyThatWantsHeldDown &&
-			sTracker.backupQueuedKey == 0 &&
-			(!sTracker.nextQueuedKey || !pressed) )
-		{
-			DBG_ASSERT(!sTracker.chatBoxActive);
-			sTracker.backupQueuedKey = sTracker.nextQueuedKey;
-			sTracker.nextQueuedKey = dropTo<u16>(aVKey | kVKeyHoldFlag);
-			hasNonPressedKeyThatWantsHeldDown = true;
-			continue;
-		}
+		// Needs a change in mod keys, or to be released from a tap first,
+		// which can be accomplished by taking over nextQueuedKey sometimes.
 
-		// If reached here, want to press the key but just can't right now!
-		// Will have to wait and try again next frame
+		// Only one held key should "borrow" nextQueuedKey per update
+		if( heldKeyUsingNextQueuedkey )
+			continue;
+
+		// Only do this for changing mode keys if no other held keys are being
+		// newly pressed, since they may need mod keys to be in current state.
+		if( !correctModKeysHeld && desiredKeysDownContainsNewPress )
+			continue;
+
+		// Only take over an active nextQueuedKey for initial press
+		if( beenPressed && sTracker.nextQueuedKey != 0 )
+			continue;
+
+		// Backup current nextQueuedKey (if any) and use it for this held key
+		DBG_ASSERT(!sTracker.chatBoxActive);
+		sTracker.backupQueuedKey = sTracker.nextQueuedKey;
+		sTracker.nextQueuedKey = dropTo<u16>(aVKey | kVKeyHoldFlag);
+		heldKeyUsingNextQueuedkey = true;
+		readyForIdleModKeys = false;
 	}
 
 	// If nothing queued or needs to be newly pressed, hold down any
 	// modifier keys that any combo-keys wanted held down, as well as
 	// any modifier keys assigned directly using kVKeyModKeyOnlyBase.
 	// Don't do this while in the middle of a key sequence or string though.
-	if( !sTracker.nextQueuedKey &&
-		!hasNonPressedKeyThatWantsHeldDown &&
-		sTracker.currTaskProgress == 0 )
+	if( readyForIdleModKeys )
 	{
 		aDesiredKeysDown.set(VK_SHIFT,
-			!!(aPressedKeysDesiredMods & kVKeyShiftFlag));
+			!!(aPressedKeysDesiredMods& kVKeyShiftFlag));
 		aDesiredKeysDown.set(VK_CONTROL,
-			!!(aPressedKeysDesiredMods & kVKeyCtrlFlag));
+			!!(aPressedKeysDesiredMods& kVKeyCtrlFlag));
 		aDesiredKeysDown.set(VK_MENU,
 			!!(aPressedKeysDesiredMods& kVKeyAltFlag));
 		// Not for Windows key though since that could bring up Start menu
