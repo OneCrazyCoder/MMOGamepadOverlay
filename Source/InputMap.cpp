@@ -4236,7 +4236,6 @@ void loadProfileChanges()
 		}
 	}
 
-	sChangedHotspots.reset();
 	loadDataFromProfile(theProfileMap, false);
 
 	if( sHotspotArrayResized )
@@ -4827,6 +4826,7 @@ bool setLastCursorPosHotspot(const Hotspot& theNewValues)
 {
 	if( sHotspots[eSpecialHotspot_LastCursorPos] != theNewValues )
 	{
+		sChangedHotspots.set(eSpecialHotspot_LastCursorPos);
 		sHotspots[eSpecialHotspot_LastCursorPos] = theNewValues;
 		return true;
 	}
@@ -4837,6 +4837,12 @@ bool setLastCursorPosHotspot(const Hotspot& theNewValues)
 const BitVector<512>& changedHotspots()
 {
 	return sChangedHotspots;
+}
+
+
+void resetChangedHotspots()
+{
+	sChangedHotspots.reset();
 }
 
 

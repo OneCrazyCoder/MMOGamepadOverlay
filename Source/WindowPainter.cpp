@@ -3128,6 +3128,19 @@ void update()
 		}
 	}
 
+	if( InputMap::changedHotspots().test(eSpecialHotspot_LastCursorPos) )
+	{// Move any overlays tied directly to cursor position
+		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
+		{
+			if( InputMap::menuOriginHotspotID(
+					Menus::activeMenuForOverlayID(i))
+						== eSpecialHotspot_LastCursorPos )
+			{
+				gReshapeOverlays.set(i);
+			}
+		}
+	}
+
 	gKeyBindCycleLastIndexChanged.reset();
 	gKeyBindCycleDefaultIndexChanged.reset();
 

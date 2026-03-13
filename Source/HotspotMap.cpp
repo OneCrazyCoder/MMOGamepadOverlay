@@ -120,7 +120,6 @@ static VectorMap<u16, MenuEdgeMap> sEdgeMaps;
 static int sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
 static double sLastUIScale = 1.0;
 static SIZE sLastTargetSize;
-static Hotspot sLastCursorPos;
 static POINT sNormalizedCursorPos;
 static BitArray<eTask_Num> sNewTasks;
 static ETask sCurrentTask = eTask_None;
@@ -1038,14 +1037,13 @@ void update()
 		sNewTasks.set(eTask_BeginSearch);
 	}
 
-	const Hotspot& aCursorPos =
-		InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
 	const bool aCursorPosChanged =
-		sLastCursorPos.x != aCursorPos.x || sLastCursorPos.y != aCursorPos.y;
+		InputMap::changedHotspots().test(eSpecialHotspot_LastCursorPos);
 
 	if( aTargetSizeChanged || aCursorPosChanged || sNewTasks.test(eTask_Init) )
 	{
-		sLastCursorPos = aCursorPos;
+		const Hotspot& aCursorPos =
+			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
 		sNormalizedCursorPos = WindowManager::hotspotToOverlayPos(aCursorPos);
 		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
 		if( aScaleFactor > 0 )

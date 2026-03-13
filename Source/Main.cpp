@@ -129,6 +129,7 @@ void mainModulesUpdate()
 
 	Gamepad::update();
 	HotspotMap::update();
+	InputMap::resetChangedHotspots();
 	InputTranslator::update();
 	InputDispatcher::update();
 	TargetApp::update();
@@ -269,6 +270,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 				WindowManager::loadProfileChanges();
 				updateFrameTiming();
 				Profile::clearChangedSections();
+				InputMap::resetChangedHotspots();
 			}
 
 			// Update frame timers and process windows messages
