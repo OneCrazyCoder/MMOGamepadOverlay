@@ -29,6 +29,9 @@ kMouseToPixelDivisor = 8192,
 kMouseMaxAccelVel = 32768,
 kMouseMaxClickMoveDistSq = 500,
 kMouseLookStartMaxThrottleSteps = 5,
+kMouseLookMaxCursorDeviation = 5,
+kMouseLookCursorLeeway = 150,
+kMouseLookCursorPosReCheckRate = 1000,
 kVKeyModsMask = 0x1F00,
 kVKeyForMouseLookFlag = 0x2000, // bit reserved by vkKeyScan() but ignored here
 kVKeyHoldFlag = 0x4000, // bit unused by VkKeyScan()
@@ -105,7 +108,7 @@ struct ZERO_INIT(Config)
 	int mouseLookYSpeed;
 	int moveLookSpeed;
 	int mouseWheelSpeed;
-	int mouseLookAutoRestoreTime;
+	int mouseLookIdleResetTime;
 	int mouseLookStartThrottleDistance;
 	int mouseTurnStartThrottleDistance;
 	int offsetHotspotDist;
@@ -117,6 +120,11 @@ struct ZERO_INIT(Config)
 	int mouseJumpDelayTime;
 	int cancelAutoRunDeadzone;
 	int mouseDPadAccel;
+	bool mouseLookVerifyCenterCursor;
+	bool mouseLookVerifyOriginCursor;
+	bool mouseLookResetOnChatBox;
+	bool mouseLookQuickTurnToLook;
+	bool mouseLookQuickLookToTurn;
 	bool useScanCodes;
 
 	void load()
@@ -196,8 +204,18 @@ struct ZERO_INIT(Config)
 			"Gamepad", "MoveStraightBias", 50), 0, 100) / 100.0;
 		cancelAutoRunDeadzone = clamp(int(Profile::getInt(
 			"Gamepad", "CancelAutoRunThreshold", 80) / 100.0 * 255.0), 0, 255);
-		mouseLookAutoRestoreTime = Profile::getInt(
-			"Mouse", "MouseLookAutoRestoreTime");
+		mouseLookIdleResetTime = Profile::getInt(
+			"Mouse", "CameraIdleResetTime");
+		mouseLookVerifyCenterCursor = Profile::getBool(
+			"Mouse", "CameraVerifyCenteredCursor");
+		mouseLookVerifyOriginCursor = Profile::getBool(
+			"Mouse", "CameraVerifyOriginCursor");
+		mouseLookResetOnChatBox = Profile::getBool(
+			"Mouse", "CameraRestartWhenUseChatBox");
+		mouseLookQuickTurnToLook = Profile::getBool(
+			"Mouse", "CameraQuickSwapTurnToLook");
+		mouseLookQuickLookToTurn = Profile::getBool(
+			"Mouse", "CameraQuickSwapLookToTurn");
 		mouseLookStartThrottleDistance = Profile::getInt(
 			"Mouse", "LookStartThrottleDistance");
 		mouseTurnStartThrottleDistance = Profile::getInt(
@@ -542,6 +560,7 @@ struct ZERO_INIT(DispatchTracker)
 	u16 backupQueuedKey;
 	bool typingChatBoxString;
 	bool chatBoxActive;
+	bool chatBoxWasUsed;
 	bool allowFastTasksDuringQueuePause;
 
 	Hotspot mouseJumpDest;
@@ -553,10 +572,11 @@ struct ZERO_INIT(DispatchTracker)
 	int mouseLDragX, mouseLDragY;
 	int mouseRDragX, mouseRDragY;
 	int mouseDigitalVel;
-	int mouseLookAutoRestoreTimer;
 	int mouseClickAllowedTime;
 	int mouseJumpAllowedTime;
 	int mouseJumpFinishedTime;
+	int mouseLookIdleResetTime;
+	int mouseLookPosVerifyTime;
 	int mouseLookStartThrottle;
 	bool mouseJumpToHotspot;
 	bool mouseJumpAttempted;
@@ -744,7 +764,11 @@ static EResult popNextStringChar(const char* theString)
 	{
 		// Paste the string from the clipboard instead of typing it key-by-key
 		sTracker.nextQueuedKey = kPasteKey;
-		sTracker.typingChatBoxString = true;
+		if( !sTracker.typingChatBoxString )
+		{
+			sTracker.typingChatBoxString = true;
+			sTracker.chatBoxWasUsed = true;
+		}
 	}
 	else
 	{
@@ -757,7 +781,11 @@ static EResult popNextStringChar(const char* theString)
 		// as a key sequence since target game likely uses keyboard events
 		// instead of direct keyboard polling for chat box typing).
 		// This is also checked for "sticky movement keys" while typing.
-		sTracker.typingChatBoxString = true;
+		if( !sTracker.typingChatBoxString )
+		{
+			sTracker.typingChatBoxString = true;
+			sTracker.chatBoxWasUsed = true;
+		}
 	}
 
 	return eResult_Incomplete;
@@ -1180,9 +1208,11 @@ static void offsetMousePos()
 				aNextVelY = abs(anInput.mi.dy) >= abs(anInput.mi.dx)
 					? (anInput.mi.dy < 0 ? -1 : 1) : 0;
 			}
-			// Store motion past the cap to be applied in a future update
+			// Store some motion past the cap to be applied in a future update
 			sTracker.mouseVelX = anInput.mi.dx - aNextVelX;
+			sTracker.mouseVelX -= sTracker.mouseVelX / 8;
 			sTracker.mouseVelY = anInput.mi.dy - aNextVelY;
+			sTracker.mouseVelY -= sTracker.mouseVelY / 8;
 			anInput.mi.dx = aNextVelX;
 			anInput.mi.dy = aNextVelY;
 		}
@@ -1202,7 +1232,6 @@ static void offsetMousePos()
 	}
 
 	sTracker.inputs.push_back(anInput);
-	sTracker.mouseLookAutoRestoreTimer = 0;
 }
 
 
@@ -1285,7 +1314,6 @@ static bool verifyCursorJumpedTo(const Hotspot& theDestHotspot)
 
 	// Reached jump destination and can update mouse mode accordingly
 	sTracker.mouseMode = sTracker.mouseJumpToMode;
-	sTracker.mouseLookAutoRestoreTimer = 0;
 	return true;
 }
 
@@ -1470,6 +1498,142 @@ static void queueMoveMouseTo(const Command& theCommand)
 }
 
 
+static void lockKeyDownFor(int theBaseVKey, int theLockTime)
+{
+	DBG_ASSERT(!(theBaseVKey & ~kVKeyMask));
+	int& aLockEndTime = sTracker.keysLockedDown.findOrAdd(u8(theBaseVKey), 0);
+	aLockEndTime = max(aLockEndTime, gAppRunTime + theLockTime);
+}
+
+
+static bool keyIsLockedDown(int theBaseVKey)
+{
+	VectorMap<u8, int>::iterator itr =
+		sTracker.keysLockedDown.find(dropTo<u8>(theBaseVKey));
+	if( itr == sTracker.keysLockedDown.end() )
+		return false;
+	if( gAppRunTime < itr->second )
+		return true;
+	sTracker.keysLockedDown.erase(itr);
+	return false;
+}
+
+
+static EResult setKeyDown(int theKey, bool down)
+{
+	// No flags should be set on key (break combo keys into individual keys!)
+	DBG_ASSERT(!(theKey & ~kVKeyMask));
+
+	if( theKey == 0 )
+		return eResult_InvalidParameter;
+
+	const bool wasDown = sTracker.keysHeldDown.test(theKey);
+	if( down == wasDown )
+		return eResult_Ok;
+
+	// May not be allowed to press non-mod keys yet
+	if( down && !sTracker.typingChatBoxString &&
+		!isModKey(theKey) &&
+		gAppRunTime < sTracker.nonModKeyPressAllowedTime )
+	{
+		return eResult_NotAllowed;
+	}
+
+	// May not be allowed to press or release any mod keys yet
+	if( isModKey(theKey) && !sTracker.typingChatBoxString &&
+		gAppRunTime < sTracker.modKeyChangeAllowedTime )
+	{
+		return eResult_NotAllowed;
+	}
+
+	// May not be allowed to click a mouse button yet
+	if( down && isMouseButton(theKey) &&
+		gAppRunTime < sTracker.mouseClickAllowedTime )
+ 		return eResult_NotAllowed;
+
+	// May not be allowed to release the given key yet
+	if( !down && keyIsLockedDown(theKey) )
+ 		return eResult_NotAllowed;
+
+	Input anInput;
+	int aLockDownTime = kConfig.baseKeyReleaseLockTime;
+	switch(theKey)
+	{
+	case kVKeyModKeyOnlyBase:
+		// Just a dummy base key used when want to press a mod key by itself
+		// Don't actually press it, but act like did
+		sTracker.keysHeldDown.set(theKey, down);
+		return eResult_Ok;
+	case VK_LBUTTON:
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.dwFlags = down
+			? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+		aLockDownTime = kConfig.mouseClickLockTime;
+		break;
+	case VK_RBUTTON:
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.dwFlags = down
+			? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+		aLockDownTime = kConfig.mouseClickLockTime;
+		break;
+	case VK_MBUTTON:
+		anInput.type = INPUT_MOUSE;
+		anInput.mi.dwFlags = down
+			? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+		aLockDownTime = kConfig.mouseClickLockTime;
+		break;
+	case VK_SHIFT:
+	case VK_CONTROL:
+	case VK_MENU:
+	case VK_LWIN:
+		if( !sTracker.typingChatBoxString )
+		{
+			aLockDownTime = kConfig.minModKeyChangeTime;
+			sTracker.nonModKeyPressAllowedTime =
+				gAppRunTime + kConfig.minModKeyChangeTime;
+		}
+		// fall through
+	default:
+		anInput.type = INPUT_KEYBOARD;
+		anInput.ki.wVk = dropTo<WORD>(theKey);
+		anInput.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
+		break;
+	}
+
+	sTracker.inputs.push_back(anInput);
+	sTracker.keysHeldDown.set(theKey, down);
+	if( down )
+	{
+		lockKeyDownFor(theKey, aLockDownTime);
+		if( !isModKey(theKey) && !sTracker.typingChatBoxString )
+		{
+			sTracker.modKeyChangeAllowedTime =
+				gAppRunTime + kConfig.minModKeyChangeTime;
+		}
+	}
+
+	if( anInput.type == INPUT_MOUSE )
+	{
+		if( !down )
+		{
+			// Lock cursor jump and mod key changes after release a mouse
+			// button, as well as re-clicking a mouse button immediately after.
+			// Mouse buttons are special because the "click" of a mouse is
+			// often on release, unlike a keyboard keys that "click" on initial
+			// press, which is why the release time matters for them
+			sTracker.mouseJumpAllowedTime =
+				gAppRunTime + kConfig.mouseJumpDelayTime;
+			sTracker.modKeyChangeAllowedTime =
+				gAppRunTime + kConfig.minModKeyChangeTime;
+			sTracker.mouseClickAllowedTime =
+				gAppRunTime + kConfig.mouseReClickLockTime;
+		}
+	}
+
+	return eResult_Ok;
+}
+
+
 static EMouseMode checkMouseLookModeTransitions()
 {
 	switch(sTracker.mouseModeExpected)
@@ -1609,41 +1773,136 @@ static EMouseMode checkMouseLookModeTransitions()
 
 static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 {
-	// In the EverQuest Titanium client, if you zone while holding RMB for
-	// Mouse Look mode and keep holding it throughout the zoning, there's
-	// a minor bug where the RMB is force-released and re-pressed once
-	// done zoning, causing a right-click at whatever location the cursor
-	// actually is (the cursor continues to move invisibly during Mouse Look
-	// and the game just restores it's old position once release RMB).
-	// This right-click is thus at an unpredictable location, potentially
-	// being on a UI element which will cause a drop out of Mouse Look mode
-	// as well as forcing the user to press Esc or left-click somewhere to
-	// close the contextual menu that pops up.
+	// This function's purpose is to work around various quirks and issues with
+	// MMO clients when you hold a mouse button down for an extended time in
+	// order to keep Mouse Look mode active for camera control. In normal KBM
+	// play the button would often be held only for short periods, but when
+	// using a gamepad you're likely to be in "camera mode" for much longer.
 
-	// There is also an issue with the Pantheon client where it drops mouse
-	// look mode whenever open the chat box while still holding the button.
+	// Examples of issues this may cause:
+	//
+	// - In EQ Titanium client for P99, when finish zoning if the mouse button
+	// is held down you will get a phantom click at whatever random position
+	// the cursor happened to be at, possibly clicking on a UI element.
+	//
+	// - In some clients, using the chat box will force-drop Mouse Look mode
+	// and not resume it even if the button is held down the entire time.
+	//
+	// - In many clients the cursor is invisible and centered on the screen,
+	// and any UI windows covering center-screen might cause quickly switching
+	// between Mouse Look modes (LMB vs RMB) to click center-screen on the
+	// UI Window and abort Mouse Look mode.
+	
+	// The solution here is at periodic times and under certain conditions the
+	// button will be released and the cursor returned to MouseLookStart to
+	// re-start Mouse Look mode.
 
-	// To fix these, if haven't moved the mouse for a while and are requesting
-	// a look mode, a mode is used that releases the mouse button and moves
-	// the cursor into the mouse look start position. Then, the next time any
-	// actual mouse (camera) movement is requested, the mode can start again
-	// immmediately by clicking the button again.
+	const bool wantMouseLookMode =
+		theWantedMode == eMouseMode_LookOnly ||
+		theWantedMode == eMouseMode_LookTurn;
+	const bool inMouseLookMode = wantMouseLookMode &&
+		(sTracker.mouseMode == eMouseMode_LookOnly ||
+		 sTracker.mouseMode == eMouseMode_LookTurn) &&
+		(sTracker.keysHeldDown.test(VK_LBUTTON) ||
+		 sTracker.keysHeldDown.test(VK_RBUTTON)) &&
+		!sTracker.mouseLookStartThrottle;
+	const bool cursorMotionWanted =
+		sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0;
 
-	if( kConfig.mouseLookAutoRestoreTime > 0 &&
-		!sTracker.mouseLookNeededToStrafe &&
-		(theWantedMode == eMouseMode_LookOnly ||
-		 theWantedMode == eMouseMode_LookTurn) &&
-		sTracker.mouseVelX == 0 && sTracker.mouseVelY == 0 &&
-		(sTracker.mouseMode == eMouseMode_LookReady ||
-		 sTracker.mouseLookAutoRestoreTimer >=
-			 kConfig.mouseLookAutoRestoreTime) )
+	if( sTracker.mouseMode == eMouseMode_LookReady &&
+		wantMouseLookMode && !cursorMotionWanted )
 	{
-		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-		if( sTracker.mouseMode != eMouseMode_LookReady )
-			debugPrint("InputDispatcher: Restoring Mouse Look mode\n");
-		#endif
-		return eMouseMode_LookReady;
+		// Already in LookReady mode and no motion requested yet - continue
+		theWantedMode = eMouseMode_LookReady;
 	}
+
+	if( sTracker.chatBoxWasUsed )
+	{
+		// Configured to immediately reset on chat box use?
+		if( kConfig.mouseLookResetOnChatBox && wantMouseLookMode )
+		{
+			// Force reset even if moving, but not by releasing and re-pressing
+			// the button or that might interfere with chat box input.
+			sTracker.mouseVelX = sTracker.mouseVelY = 0;
+			theWantedMode = eMouseMode_LookReady;
+		}
+		sTracker.chatBoxWasUsed = false;
+	}
+	
+	if( kConfig.mouseLookIdleResetTime > 0 )
+	{
+		// Configured to reset whenever hold still for long enough in Mouse Look
+		if( !inMouseLookMode ||
+			cursorMotionWanted ||
+			sTracker.mouseLookNeededToStrafe ||
+			theWantedMode == eMouseMode_LookReady )
+		{// Reset timer to check again after being idle in mouse look mode
+			sTracker.mouseLookIdleResetTime =
+				gAppRunTime + kConfig.mouseLookIdleResetTime; 
+		}
+		else if( gAppRunTime >= sTracker.mouseLookIdleResetTime )
+		{// Holding still a while in Mouse Look - time to reset MouseLook Mode
+			theWantedMode = eMouseMode_LookReady;
+		}
+		// else - just holding still letting time pass until hits flagged time
+	}
+
+	if( kConfig.mouseLookVerifyCenterCursor != // either set but not both
+			kConfig.mouseLookVerifyOriginCursor &&
+		inMouseLookMode &&
+		theWantedMode != eMouseMode_LookReady &&
+		gAppRunTime >= sTracker.mouseLookPosVerifyTime )
+	{
+		const POINT& aCursorPos =
+			WindowManager::mouseToOverlayPos(false);
+		POINT anExpectedPos = { 0, 0 };
+		if( kConfig.mouseLookVerifyCenterCursor )
+		{
+			anExpectedPos.x = WindowManager::overlayTargetSize().cx / 2;
+			anExpectedPos.y = WindowManager::overlayTargetSize().cy / 2;
+		}
+		else
+		{
+			anExpectedPos = WindowManager::hotspotToOverlayPos(
+				InputMap::getHotspot(eSpecialHotspot_MouseLookStart));
+		}
+		const LONG aDistX = abs(anExpectedPos.x - aCursorPos.x);
+		const LONG aDistY = abs(anExpectedPos.y - aCursorPos.y);
+
+		if( aDistX > kMouseLookMaxCursorDeviation ||
+			aDistY > kMouseLookMaxCursorDeviation )
+		{// Cursor is not where expected - but allow some leeway
+			sTracker.mouseLookPosVerifyTime = clamp(
+				sTracker.mouseLookPosVerifyTime - gAppFrameTime,
+				-kMouseLookCursorLeeway, -gAppFrameTime);
+			// If off for multiple checks in a row but now stationary
+			if( sTracker.mouseLookPosVerifyTime == -kMouseLookCursorLeeway )
+			{// Off for a while now - instant reset by releasing button
+				if( theWantedMode == eMouseMode_LookTurn )
+					setKeyDown(VK_RBUTTON, false);
+				else
+					setKeyDown(VK_LBUTTON, false);
+			}
+		}
+		else if( sTracker.mouseLookPosVerifyTime <= kMouseLookCursorLeeway )
+		{// Cursor is where expected, but make sure it has stabilized
+			sTracker.mouseLookPosVerifyTime = max(gAppFrameTime,
+				sTracker.mouseLookPosVerifyTime + gAppFrameTime);
+		}
+		else
+		{// Everything seems fine - can wait a while for next re-check
+			sTracker.mouseLookPosVerifyTime =
+				gAppRunTime + kMouseLookCursorPosReCheckRate;
+		}
+	}
+
+	#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+	if( theWantedMode == eMouseMode_LookReady &&
+		sTracker.mouseMode != eMouseMode_LookReady )
+	{
+		debugPrint("InputDispatcher: Resetting Mouse Look mode\n");
+	}
+	#endif
 
 	return theWantedMode;
 }
@@ -1666,142 +1925,6 @@ static EMouseMode getNextMouseMode()
 }
 
 
-static void lockKeyDownFor(int theBaseVKey, int theLockTime)
-{
-	DBG_ASSERT(!(theBaseVKey & ~kVKeyMask));
-	int& aLockEndTime = sTracker.keysLockedDown.findOrAdd(u8(theBaseVKey), 0);
-	aLockEndTime = max(aLockEndTime, gAppRunTime + theLockTime);
-}
-
-
-static bool keyIsLockedDown(int theBaseVKey)
-{
-	VectorMap<u8, int>::iterator itr =
-		sTracker.keysLockedDown.find(dropTo<u8>(theBaseVKey));
-	if( itr == sTracker.keysLockedDown.end() )
-		return false;
-	if( gAppRunTime < itr->second )
-		return true;
-	sTracker.keysLockedDown.erase(itr);
-	return false;
-}
-
-
-static EResult setKeyDown(int theKey, bool down)
-{
-	// No flags should be set on key (break combo keys into individual keys!)
-	DBG_ASSERT(!(theKey & ~kVKeyMask));
-
-	if( theKey == 0 )
-		return eResult_InvalidParameter;
-
-	const bool wasDown = sTracker.keysHeldDown.test(theKey);
-	if( down == wasDown )
-		return eResult_Ok;
-
-	// May not be allowed to press non-mod keys yet
-	if( down && !sTracker.typingChatBoxString &&
-		!isModKey(theKey) &&
-		gAppRunTime < sTracker.nonModKeyPressAllowedTime )
-	{
-		return eResult_NotAllowed;
-	}
-
-	// May not be allowed to press or release any mod keys yet
-	if( isModKey(theKey) && !sTracker.typingChatBoxString &&
-		gAppRunTime < sTracker.modKeyChangeAllowedTime )
-	{
-		return eResult_NotAllowed;
-	}
-
-	// May not be allowed to click a mouse button yet
-	if( down && isMouseButton(theKey) &&
-		gAppRunTime < sTracker.mouseClickAllowedTime )
- 		return eResult_NotAllowed;
-
-	// May not be allowed to release the given key yet
-	if( !down && keyIsLockedDown(theKey) )
- 		return eResult_NotAllowed;
-
-	Input anInput;
-	int aLockDownTime = kConfig.baseKeyReleaseLockTime;
-	switch(theKey)
-	{
-	case kVKeyModKeyOnlyBase:
-		// Just a dummy base key used when want to press a mod key by itself
-		// Don't actually press it, but act like did
-		sTracker.keysHeldDown.set(theKey, down);
-		return eResult_Ok;
-	case VK_LBUTTON:
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.dwFlags = down
-			? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
-		aLockDownTime = kConfig.mouseClickLockTime;
-		break;
-	case VK_RBUTTON:
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.dwFlags = down
-			? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
-		aLockDownTime = kConfig.mouseClickLockTime;
-		break;
-	case VK_MBUTTON:
-		anInput.type = INPUT_MOUSE;
-		anInput.mi.dwFlags = down
-			? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
-		aLockDownTime = kConfig.mouseClickLockTime;
-		break;
-	case VK_SHIFT:
-	case VK_CONTROL:
-	case VK_MENU:
-	case VK_LWIN:
-		if( !sTracker.typingChatBoxString )
-		{
-			aLockDownTime = kConfig.minModKeyChangeTime;
-			sTracker.nonModKeyPressAllowedTime =
-				gAppRunTime + kConfig.minModKeyChangeTime;
-		}
-		// fall through
-	default:
-		anInput.type = INPUT_KEYBOARD;
-		anInput.ki.wVk = dropTo<WORD>(theKey);
-		anInput.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
-		break;
-	}
-
-	sTracker.inputs.push_back(anInput);
-	sTracker.keysHeldDown.set(theKey, down);
-	if( down )
-	{
-		lockKeyDownFor(theKey, aLockDownTime);
-		if( !isModKey(theKey) && !sTracker.typingChatBoxString )
-		{
-			sTracker.modKeyChangeAllowedTime =
-				gAppRunTime + kConfig.minModKeyChangeTime;
-		}
-	}
-
-	if( anInput.type == INPUT_MOUSE )
-	{
-		if( !down )
-		{
-			// Lock cursor jump and mod key changes after release a mouse
-			// button, as well as re-clicking a mouse button immediately after.
-			// Mouse buttons are special because the "click" of a mouse is
-			// often on release, unlike a keyboard keys that "click" on initial
-			// press, which is why the release time matters for them
-			sTracker.mouseJumpAllowedTime =
-				gAppRunTime + kConfig.mouseJumpDelayTime;
-			sTracker.modKeyChangeAllowedTime =
-				gAppRunTime + kConfig.minModKeyChangeTime;
-			sTracker.mouseClickAllowedTime =
-				gAppRunTime + kConfig.mouseReClickLockTime;
-		}
-	}
-
-	return eResult_Ok;
-}
-
-
 static void startMouseLookMode(int theKey)
 {
 	switch(theKey)
@@ -1810,21 +1933,23 @@ static void startMouseLookMode(int theKey)
 		// Keep initial mouse movement throttled as a guard against cursor
 		// zooming off to UI before game registers it as mouse look starting
 		sTracker.mouseLookStartThrottle = 1;
+		// Verify mouse look mode started properly once done with throttle,
+		// for games where this is possible to do
+		sTracker.mouseLookPosVerifyTime = 0;
 		// Don't let mouse look register as just a click - even if in the
 		// mode for a very short time - by forcing a long hold time or a
 		// minimum movement amount first, so game registers it as a "drag"
 		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
 		sTracker.mouseLDragX = sTracker.mouseLDragY = 0;
-		sTracker.mouseLookAutoRestoreTimer = 0;
 		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 		debugPrint("InputDispatcher: Starting LMB (look only) Mouse Look\n");
 		#endif
 		break;
 	case VK_RBUTTON:
 		sTracker.mouseLookStartThrottle = 1;
+		sTracker.mouseLookPosVerifyTime = 0;
 		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
 		sTracker.mouseRDragX = sTracker.mouseRDragY = 0;
-		sTracker.mouseLookAutoRestoreTimer = 0;
 		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 		debugPrint("InputDispatcher: Starting RMB (look+turn) Mouse Look\n");
 		#endif
@@ -2179,9 +2304,6 @@ void update()
 	// -------------
 	if( sTracker.queuePauseTime > 0 )
 		sTracker.queuePauseTime -= gAppFrameTime;
-	if( kConfig.mouseLookAutoRestoreTime > 0 )
-		sTracker.mouseLookAutoRestoreTimer += gAppFrameTime;
-
 
 	// Update mouse mode
 	// -----------------
@@ -2314,10 +2436,11 @@ void update()
 					sTracker.mouseMode = aNextMouseMode;
 					sTracker.nextQueuedKey = aMouseLookStartKey;
 				}
-				else if( (sTracker.mouseMode == eMouseMode_LookTurn ||
-						  sTracker.mouseMode == eMouseMode_LookOnly) &&
-						  sTracker.mouseModeExpected == eMouseMode_LookAuto &&
-						  sTracker.keysHeldDown.test(anAltMouseLookKey) )
+				else if( ((sTracker.mouseMode == eMouseMode_LookTurn &&
+						   kConfig.mouseLookQuickTurnToLook) ||
+						  (sTracker.mouseMode == eMouseMode_LookOnly &&
+						   kConfig.mouseLookQuickLookToTurn)) &&
+						 sTracker.keysHeldDown.test(anAltMouseLookKey) )
 				{// Just swap which button is held as soon as are able
 					if( setKeyDown(anAltMouseLookKey, false) == eResult_Ok )
 					{
@@ -2325,6 +2448,7 @@ void update()
 						sTracker.mouseMode = aNextMouseMode;
 						setKeyDown(aMouseLookStartKey & kVKeyMask, true);
 						startMouseLookMode(aMouseLookStartKey & kVKeyMask);
+						sTracker.mouseLookStartThrottle = 0;
 					}
 				}
 				else if( !sTracker.queue.mouseJumpQueued() )
@@ -2534,7 +2658,7 @@ void update()
 			sTracker.queue.setCurrTaskProgress(sTracker.currTaskProgress);
 		}
 		// End "chat box active mode" only once finished task ends the loop,
-		// or a is pause requested that allows for other tasks to complete.
+		// or a pause was requested that allows for other tasks to complete.
 		if( sTracker.chatBoxActive &&
 			(aTaskResult == eResult_TaskCompleted &&
 			 (sTracker.nextQueuedKey || sTracker.queue.empty())) ||
@@ -2543,10 +2667,6 @@ void update()
 		{
 			sTracker.typingChatBoxString = false;
 			sTracker.chatBoxActive = false;
-			// Trigger restoring mouse look right away instead of waiting
-			// for timer for games like Pantheon that drop it when use chat box
-			sTracker.mouseLookAutoRestoreTimer =
-				kConfig.mouseLookAutoRestoreTime;
 		}
 	}
 
@@ -2915,10 +3035,7 @@ void setMouseMode(EMouseMode theMouseMode)
 {
 	DBG_ASSERT(theMouseMode <= eMouseMode_Hide);
 	if( theMouseMode != sTracker.mouseModeRequested )
-	{
 		sTracker.mouseModeRequested = theMouseMode;
-		sTracker.mouseLookAutoRestoreTimer = 0;
-	}
 	if( theMouseMode == eMouseMode_Default )
 	{
 		sTracker.mouseModeExpected = eMouseMode_Cursor;
@@ -3409,7 +3526,6 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		}
 		else
 		{
-			sTracker.mouseLookAutoRestoreTimer = 0;
 			if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
 			{// Don't turn or strafe until RMB held down to strafe with
 				moveKeysWantDown.reset(eMoveKey_TL);
@@ -3426,7 +3542,6 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		}
 		else
 		{
-			sTracker.mouseLookAutoRestoreTimer = 0;
 			if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
 			{// Don't turn or strafe until RMB held down to strafe with
 				moveKeysWantDown.reset(eMoveKey_TR);
