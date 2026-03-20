@@ -1024,23 +1024,6 @@ static bool hiddenCursorMode(EMouseMode theMode)
 }
 
 
-static bool mouseLookRelatedMode(EMouseMode theMode)
-{
-	switch(theMode)
-	{
-	case eMouseMode_LookTurn:
-	case eMouseMode_LookOnly:
-	case eMouseMode_LookAuto:
-	case eMouseMode_SwapToTurn:
-	case eMouseMode_SwapToLook:
-	case eMouseMode_LookReady:
-		return true;
-	}
-
-	return false;
-}
-
-
 static void offsetMousePos()
 {
 	if( !sTracker.mouseVelX && !sTracker.mouseVelY )
@@ -1669,8 +1652,7 @@ static EMouseMode checkMouseLookModeTransitions()
 		}
 
 		// Smoothly swap to desired mode if necessary
-		if( aDesiredMode != sTracker.mouseMode &&
-			 mouseLookRelatedMode(sTracker.mouseMode) )
+		if( aDesiredMode != sTracker.mouseMode )
 		{
 			sTracker.mouseModeExpected =
 				aDesiredMode == eMouseMode_LookOnly

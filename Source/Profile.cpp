@@ -55,15 +55,15 @@ struct ResourceFile
 };
 
 const ResourceFile kResTemplateCore =
-	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		11	};
+	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		14	};
 
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
-	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	11	},
-	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	9	},
-	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	9	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	12	},
-	{	"Pantheon Base",	"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	10	},
+	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	14	},
+	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	14	},
+	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	14	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	14	},
+	{	"Pantheon Base",	"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	14	},
 };
 
 const ResourceFile kResTemplateDefault[] =
