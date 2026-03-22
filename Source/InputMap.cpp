@@ -1268,19 +1268,36 @@ static void applyKeyBindCycleProperty(
 	KeyBindCycle aNewCycle;
 	int aMinCycleLength = 1;
 	int aMaxCycleLength = 0xFFFF;
-	{// Get optional maxLength: from beginning of the list
-		std::string aLenStr = breakOffItemBeforeChar(theList, ':');
-		if( !aLenStr.empty() )
+	int aDefaultIndex = 0;
+	{// Get optional extra data from beginning of the list, before ':'
+		std::string aPrefixStr = breakOffItemBeforeChar(theList, ':');
+		if( !aPrefixStr.empty() )
 		{
-			aMaxCycleLength = stringToInt(aLenStr);
-			if( aMaxCycleLength <= 0 )
+			std::string aLenStr = breakOffNextItem(aPrefixStr, ',');
+			if( !aLenStr.empty() )
 			{
-				logError("%s: Specified length (%d) must be >= 1",
-					theCycleName.c_str(),
-					aMaxCycleLength);
-				aMaxCycleLength = 1;
+				aMaxCycleLength = stringToInt(aLenStr);
+				if( aMaxCycleLength <= 0 )
+				{
+					logError("%s: Specified length (%d) must be >= 1",
+						theCycleName.c_str(),
+						aMaxCycleLength);
+					aMaxCycleLength = 1;
+				}
+				aMinCycleLength = aMaxCycleLength;
 			}
-			aMinCycleLength = aMaxCycleLength;
+			if( !aPrefixStr.empty() )
+			{
+				aDefaultIndex = stringToInt(aPrefixStr);
+				if( aDefaultIndex <= 0 )
+				{
+					logError("%s: Specified first key index (%d) must be >= 1",
+						theCycleName.c_str(),
+						aDefaultIndex);
+					aDefaultIndex = 1;
+				}
+				--aDefaultIndex;
+			}
 		}
 	}
 
@@ -1363,10 +1380,12 @@ static void applyKeyBindCycleProperty(
 	{
 		if( gKeyBindCycleLastIndex[aNewCycleID] >= intSize(aNewCycle.size()) )
 			gKeyBindCycleLastIndex[aNewCycleID] = -1;
-		gKeyBindCycleDefaultIndex[aNewCycleID] = min(
-			gKeyBindCycleDefaultIndex[aNewCycleID],
-			intSize(aNewCycle.size())-1);
 	}
+	if( aDefaultIndex > 0 && gKeyBindCycleDefaultIndex[aNewCycleID] == 0 )
+		gKeyBindCycleDefaultIndex[aNewCycleID] = aDefaultIndex;
+	gKeyBindCycleDefaultIndex[aNewCycleID] = min(
+		gKeyBindCycleDefaultIndex[aNewCycleID],
+		intSize(aNewCycle.size())-1);
 
 	#ifdef INPUT_MAP_DEBUG_PRINT
 	mapDebugPrint("%s: '%s' set to cycle ",
@@ -4816,7 +4835,8 @@ int KeyBindCycleHotspotID(int theCycleID, int theIndex)
 {
 	DBG_ASSERT(theCycleID >= 0 && theCycleID < sKeyBindCycles.size());
 	DBG_ASSERT(theIndex >= 0 && theIndex < keyBindCycleSize(theCycleID));
-	const int result = sKeyBindCycles.vals()[theCycleID][theIndex].hotspotID;
+	const int result =
+		sKeyBindCycles.vals()[theCycleID][theIndex].hotspotID;
 	DBG_ASSERT(size_t(result) < sHotspots.size());
 	return result;
 }
@@ -4861,7 +4881,7 @@ int keyBindCycleCount()
 int keyBindCycleSize(int theCycleID)
 {
 	DBG_ASSERT(theCycleID >= 0 && theCycleID < sKeyBindCycles.size());
-	return intSize(sKeyBindCycles.vals()[theCycleID].size());
+	return sKeyBindCycles.vals()[theCycleID].size();
 }
 
 
