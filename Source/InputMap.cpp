@@ -4881,7 +4881,7 @@ int keyBindCycleCount()
 int keyBindCycleSize(int theCycleID)
 {
 	DBG_ASSERT(theCycleID >= 0 && theCycleID < sKeyBindCycles.size());
-	return sKeyBindCycles.vals()[theCycleID].size();
+	return intSize(sKeyBindCycles.vals()[theCycleID].size());
 }
 
 

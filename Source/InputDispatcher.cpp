@@ -1233,7 +1233,7 @@ static void jumpMouseToHotspot(const Hotspot& theDestHotspot)
 
 	// If already at dest pos anyway, don't bother with the jump itself
 	POINT aDestPos = WindowManager::hotspotToOverlayPos(theDestHotspot);
-	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
+	const POINT& aCurrentPos = WindowManager::mouseToOverlayPos(false);
 	if( aCurrentPos.x == aDestPos.x && aCurrentPos.y == aDestPos.y )
 	{
 		sTracker.mouseJumpVerified = true;
@@ -1266,7 +1266,7 @@ static bool verifyCursorJumpedTo(const Hotspot& theDestHotspot)
 		static int sFailedJumpAttemptsInARow = 0;
 		const POINT& aDestPos =
 			WindowManager::hotspotToOverlayPos(theDestHotspot);
-		const POINT& aCurrentPos = WindowManager::mouseToOverlayPos();
+		const POINT& aCurrentPos = WindowManager::mouseToOverlayPos(false);
 		if( abs(aCurrentPos.x - aDestPos.x) >= 2 ||
 			abs(aCurrentPos.y - aDestPos.y) >= 2 )
 		{
@@ -1617,6 +1617,49 @@ static EResult setKeyDown(int theKey, bool down)
 }
 
 
+static bool isManuallyMovingCharacter()
+{
+	// Only considered moving if pressing a movement direction that is
+	// not the same as current auto-run locked axis
+	bool result;
+	switch(sTracker.autoRunMode)
+	{
+	case eAutoRunMode_Started:
+		result = true;
+		break;
+	case eAutoRunMode_LockedX:
+		result =
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_MoveB - eSpecialKey_FirstMove);
+		break;
+	case eAutoRunMode_LockedY:
+		result =
+			sTracker.mouseLookNeededToStrafe ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_TurnL - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_TurnR - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_StrafeL - eSpecialKey_FirstMove) ||
+			sTracker.moveKeysHeld.test(
+				eSpecialKey_StrafeR - eSpecialKey_FirstMove);
+		break;
+	case eAutoRunMode_LockedXY:
+		result = false;
+		break;
+	default:
+		result =
+			sTracker.moveKeysHeld.any() ||
+			sTracker.mouseLookNeededToStrafe;
+		break;
+	}
+
+	return result;
+}
+	
+
 static EMouseMode checkMouseLookModeTransitions()
 {
 	switch(sTracker.mouseModeExpected)
@@ -1665,49 +1708,12 @@ static EMouseMode checkMouseLookModeTransitions()
 		return aDesiredMode;
 	}
 
-	// Only considered moving if pressing a movement direction that is
-	// not the same as current auto-run locked axis
-	bool isConsideredMovingNow;
-	switch(sTracker.autoRunMode)
-	{
-	case eAutoRunMode_Started:
-		isConsideredMovingNow = true;
-		break;
-	case eAutoRunMode_LockedX:
-		isConsideredMovingNow =
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_MoveF - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_MoveB - eSpecialKey_FirstMove);
-		break;
-	case eAutoRunMode_LockedY:
-		isConsideredMovingNow =
-			sTracker.mouseLookNeededToStrafe ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_TurnL - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_TurnR - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_StrafeL - eSpecialKey_FirstMove) ||
-			sTracker.moveKeysHeld.test(
-				eSpecialKey_StrafeR - eSpecialKey_FirstMove);
-		break;
-	case eAutoRunMode_LockedXY:
-		isConsideredMovingNow = false;
-		break;
-	default:
-		isConsideredMovingNow =
-			sTracker.moveKeysHeld.any() ||
-			sTracker.mouseLookNeededToStrafe;
-		break;
-	}
-
 	if( sTracker.mouseModeExpected == eMouseMode_SwapToLook )
 	{
 		// Avoid leaving _LookTurn until character stops moving
 		// and are actively trying to pan camera in X axis
 		if( sTracker.mouseMode == eMouseMode_LookTurn &&
-			(isConsideredMovingNow || sTracker.mouseVelX == 0) )
+			(isManuallyMovingCharacter() || sTracker.mouseVelX == 0) )
 		{
 			return eMouseMode_LookTurn;
 		}
@@ -1720,7 +1726,7 @@ static EMouseMode checkMouseLookModeTransitions()
 	{
 		// Immediately swap if actively trying to move character
 		if( sTracker.mouseMode == eMouseMode_LookTurn ||
-			isConsideredMovingNow )
+			isManuallyMovingCharacter() )
 		{
 			sTracker.mouseModeExpected = eMouseMode_LookTurn;
 			return eMouseMode_LookTurn;
@@ -1792,7 +1798,8 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0;
 
 	if( sTracker.mouseMode == eMouseMode_LookReady &&
-		wantMouseLookMode && !cursorMotionWanted )
+		wantMouseLookMode && !cursorMotionWanted &&
+		!isManuallyMovingCharacter() )
 	{
 		// Already in LookReady mode and no motion requested yet - continue
 		theWantedMode = eMouseMode_LookReady;
@@ -1851,8 +1858,16 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		const LONG aDistX = abs(anExpectedPos.x - aCursorPos.x);
 		const LONG aDistY = abs(anExpectedPos.y - aCursorPos.y);
 
-		if( aDistX > kMouseLookMaxCursorDeviation ||
-			aDistY > kMouseLookMaxCursorDeviation )
+		if( aCursorPos.x < 0 ||
+			aCursorPos.x >= WindowManager::overlayTargetSize().cx ||
+			aCursorPos.y < 0 ||
+			aCursorPos.y >= WindowManager::overlayTargetSize().cy )
+		{// Cursor is outside window, hopefully temporarily - just watch for now
+			if( sTracker.mouseLookPosVerifyTime <= kMouseLookCursorLeeway )
+				sTracker.mouseLookPosVerifyTime = 0;
+		}
+		else if( aDistX > kMouseLookMaxCursorDeviation ||
+				 aDistY > kMouseLookMaxCursorDeviation )
 		{// Cursor is not where expected - but allow some leeway
 			sTracker.mouseLookPosVerifyTime = clamp(
 				sTracker.mouseLookPosVerifyTime - gAppFrameTime,
