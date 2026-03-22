@@ -1512,15 +1512,15 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 	result.x += LONG(theHotspot.x.offset * gUIScale);
 	result.y += LONG(theHotspot.y.offset * gUIScale);
 	// Clamp to within client rect range
-	// (move in 1 pixel on any edge that isn't a desktop edge)
+	// (move in a bit on any edge that isn't a desktop edge)
 	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-	const LONG kClientMinX = sDesktopTargetRect.left == 0 ? 0 : 1;
-	const LONG kClientMinY = sDesktopTargetRect.top == 0 ? 0 : 1;
+	const LONG kClientMinX = sDesktopTargetRect.left == 0 ? 0 : 2;
+	const LONG kClientMinY = sDesktopTargetRect.top == 0 ? 0 : 2;
 	const LONG kClientMaxX = sTargetSize.cx -
-		(sDesktopTargetRect.right == kDesktopWidth ? 1 : 2);
+		(sDesktopTargetRect.right == kDesktopWidth ? 1 : 3);
 	const LONG kClientMaxY = sTargetSize.cy -
-		(sDesktopTargetRect.bottom == kDesktopHeight ? 1 : 2);
+		(sDesktopTargetRect.bottom == kDesktopHeight ? 1 : 3);
 	result.x = clamp(result.x, kClientMinX, kClientMaxX);
 	result.y = clamp(result.y, kClientMinY, kClientMaxY);
 	return result;
@@ -1548,15 +1548,15 @@ POINT overlayPosToNormalizedMousePos(POINT theMousePos)
 	}
 
 	// Clamp to within client rect range
-	// (move in 1 pixel on any edge that isn't a desktop edge)
+	// (move in a bit on any edge that isn't a desktop edge)
 	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-	const LONG kClientMinX = sDesktopTargetRect.left == 0 ? 0 : 1;
-	const LONG kClientMinY = sDesktopTargetRect.top == 0 ? 0 : 1;
+	const LONG kClientMinX = sDesktopTargetRect.left == 0 ? 0 : 2;
+	const LONG kClientMinY = sDesktopTargetRect.top == 0 ? 0 : 2;
 	const LONG kClientMaxX = sTargetSize.cx -
-		(sDesktopTargetRect.right == kDesktopWidth ? 1 : 2);
+		(sDesktopTargetRect.right == kDesktopWidth ? 1 : 3);
 	const LONG kClientMaxY = sTargetSize.cy -
-		(sDesktopTargetRect.bottom == kDesktopHeight ? 1 : 2);
+		(sDesktopTargetRect.bottom == kDesktopHeight ? 1 : 3);
 	theMousePos.x = clamp(theMousePos.x, kClientMinX, kClientMaxX);
 	theMousePos.y = clamp(theMousePos.y, kClientMinY, kClientMaxY);	
 	// Convert to virtual desktop pixel coordinate

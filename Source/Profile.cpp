@@ -62,7 +62,7 @@ const ResourceFile kResTemplateBase[] =
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	14	},
 	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	14	},
 	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	14	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	14	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	15	},
 	{	"Pantheon Base",	"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	14	},
 };
 
@@ -71,7 +71,7 @@ const ResourceFile kResTemplateDefault[] =
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	12	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	10	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	10	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	12	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	15	},
 	{	"Pantheon Default",	"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	11	},
 };
 
