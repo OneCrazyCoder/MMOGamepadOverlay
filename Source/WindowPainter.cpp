@@ -1596,7 +1596,10 @@ static LONG getMaxBorderSize(int theMenuID)
 	int result = sMenuDrawCache[theMenuID].maxBorderSize;
 	if( result < 0 )
 	{
-		result = getMenuAppearance(theMenuID).radius / 4;
+		result = 0;
+		const MenuAppearance& menuApp = getMenuAppearance(theMenuID);
+		if( menuApp.itemType == eMenuItemType_RndRect )
+			result = menuApp.radius / 4;
 		for(int i = 0; i < eMenuItemDrawState_Num; ++i)
 		{
 			result = max<int>(result,
@@ -1965,7 +1968,7 @@ static void drawMenuTitle(
 {
 	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
 	RECT aRect = ps.rects[0];
-	if( theMenuApp.radius )
+	if( theMenuApp.itemType == eMenuItemType_RndRect && theMenuApp.radius )
 	{
 		aRect.left += LONG(theMenuApp.radius * 0.75);
 		aRect.right -= LONG(theMenuApp.radius * 0.75);
@@ -2054,12 +2057,15 @@ static void drawMenuItem(
 	if( !theLabel.empty() )
 	{
 		RECT aLabelRect = theRect;
+		int aBorderSize = itemApp.borderSize;
+		if( menuApp.itemType == eMenuItemType_RndRect )
+			aBorderSize = max(aBorderSize, menuApp.radius / 4);
 		drawMenuItemLabel(
 			dd, aLabelRect,
 			theItemIdx,
 			theLabel,
 			menuApp, itemApp,
-			max(menuApp.radius / 4, int(itemApp.borderSize)),
+			aBorderSize,
 			getMaxBorderSize(dd.menuID),
 			theLabelCacheEntry);
 	}
