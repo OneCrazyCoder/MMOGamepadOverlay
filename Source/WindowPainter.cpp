@@ -53,6 +53,7 @@ enum EMenuItemLabelType
 	eMenuItemLabelType_String,
 	eMenuItemLabelType_Bitmap,
 	eMenuItemLabelType_CopyRect,
+	eMenuItemLabelType_MultiIcon,
 };
 
 const char* kMenuDefaultSectionName = "Appearance";
@@ -286,7 +287,14 @@ struct ZERO_INIT(LabelDrawCacheEntry)
 		StringScaleCacheEntry str;
 		CopyRectCacheEntry copyRect;
 		u16 bitmapIconID;
+		u16 multiIconID;
 	};
+};
+
+struct ZERO_INIT(MultiIconDrawCacheEntry)
+{
+	std::vector<LabelDrawCacheEntry> iconList;
+	int totalWidth;
 };
 
 struct MenuCacheEntry
@@ -364,6 +372,7 @@ static std::vector<MenuItemAppearance> sMenuItemAppearances;
 static std::vector<WindowAlphaInfo> sMenuAlphaInfo;
 static std::vector<OverlayPaintState> sOverlayPaintStates;
 static std::vector<MenuCacheEntry> sMenuDrawCache;
+static StringToValueMap<MultiIconDrawCacheEntry> sMultiIconCache;
 static std::vector<ResizedFontInfo> sAutoSizedFonts;
 static std::vector<CopyRectRefreshEntry> sAutoRefreshCopyRectQueue;
 static BitVector<512> sHotspotsUsedByCopyIcons;
@@ -1791,9 +1800,120 @@ static void drawLabelString(
 }
 
 
+static void initializeLabelDrawCacheEntry(
+	DrawData& dd,
+	LabelDrawCacheEntry& theCacheEntry,
+	const std::string& theLabel,
+	bool ignoreRangeSuffix = false)
+{
+	DBG_ASSERT(theCacheEntry.type == eMenuItemLabelType_Unknown);
+	LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
+
+	if( aLabelIcon && aLabelIcon->copyFromTarget &&
+		InputMap::isValidHotspotID(aLabelIcon->hotspotID) )
+	{
+		// Copy-from-target rect icon
+		theCacheEntry.type = eMenuItemLabelType_CopyRect;
+		Hotspot aCopySrcHotspot =
+			InputMap::getHotspot(aLabelIcon->hotspotID);
+		if( aCopySrcHotspot.w == 0 || aCopySrcHotspot.h == 0 )
+		{
+			logError("Copy-from-screen label '%s' set to hotspot '%s' "
+				"which has 0 for width or height, so nothing to copy!",
+				theLabel.c_str(),
+				InputMap::hotspotLabel(aLabelIcon->hotspotID).c_str());
+			aLabelIcon->hotspotID = 0; // prevent repeat of this error
+		}
+		else
+		{
+			theCacheEntry.copyRect.fromPos =
+				hotspotToPoint(aCopySrcHotspot, dd.targetSize);
+			const double aHotspotScale =
+				InputMap::hotspotScale(aLabelIcon->hotspotID);
+			theCacheEntry.copyRect.fromSize.cx =
+				LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
+			theCacheEntry.copyRect.fromSize.cy =
+				LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale + 0.5);
+			// Hotspot is centered, so offset left/top by half box size
+			theCacheEntry.copyRect.fromPos.x -=
+				theCacheEntry.copyRect.fromSize.cx / 2;
+			theCacheEntry.copyRect.fromPos.y -=
+				theCacheEntry.copyRect.fromSize.cy / 2;
+			sHotspotsUsedByCopyIcons.set(aLabelIcon->hotspotID);
+		}
+		return;
+	}
+
+	if( aLabelIcon && !aLabelIcon->copyFromTarget )
+	{// Bitmap icon
+		theCacheEntry.type = eMenuItemLabelType_Bitmap;
+		theCacheEntry.bitmapIconID = aLabelIcon->bitmapIconID;
+	}
+
+	// Possibly a range of icons - check for existing ones first
+	if( !ignoreRangeSuffix )
+	{
+		const int aMultiIconID = sMultiIconCache.findIndex(theLabel);
+		if( aMultiIconID < sMultiIconCache.size() )
+		{
+			theCacheEntry.type = eMenuItemLabelType_MultiIcon;
+			theCacheEntry.multiIconID = dropTo<u16>(aMultiIconID);
+			return;
+		}
+
+		// Check if ends in range suffix representing multiple labels
+		int aRangeStartIdx, aRangeEndIdx;
+		std::string aLabelBaseName;
+		if( fetchRangeSuffix(
+				theLabel, aLabelBaseName,
+				aRangeStartIdx, aRangeEndIdx) &&
+			aRangeEndIdx > aRangeStartIdx )
+		{
+			MultiIconDrawCacheEntry aMultiIconEntry;
+			for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
+			{
+				const std::string& anIntStr = toString(i);
+				LabelDrawCacheEntry anIconEntry;
+				initializeLabelDrawCacheEntry(
+					dd, anIconEntry, aLabelBaseName + anIntStr, true);
+				switch(anIconEntry.type)
+				{
+				case eMenuItemLabelType_Bitmap:
+					aMultiIconEntry.iconList.push_back(anIconEntry);
+					aMultiIconEntry.totalWidth +=
+						sBitmapIcons[anIconEntry.bitmapIconID].size.cx;
+					break;
+				case eMenuItemLabelType_CopyRect:
+					aMultiIconEntry.iconList.push_back(anIconEntry);
+					aMultiIconEntry.totalWidth +=
+						anIconEntry.copyRect.fromSize.cx;
+					break;
+				default:
+					// ALL must be valid icons or multi-icon doesn't work
+					theCacheEntry.type = eMenuItemLabelType_String;
+					theCacheEntry.str = StringScaleCacheEntry();
+					return;
+				}
+			}
+			if( !aMultiIconEntry.iconList.empty() )
+			{
+				theCacheEntry.type = eMenuItemLabelType_MultiIcon;
+				theCacheEntry.multiIconID = dropTo<u16>(
+					sMultiIconCache.findOrAddIndex(theLabel, aMultiIconEntry));
+				return;
+			}
+		}
+	}
+
+	// Normal string label
+	theCacheEntry.type = eMenuItemLabelType_String;
+	theCacheEntry.str = StringScaleCacheEntry();
+}
+
+
 static void drawMenuItemLabel(
 	DrawData& dd,
-	RECT theRect,
+	const RECT& theRect,
 	int theItemIdx,
 	const std::string& theLabel,
 	const MenuAppearance& theMenuApp,
@@ -1802,62 +1922,17 @@ static void drawMenuItemLabel(
 	LabelDrawCacheEntry& theCacheEntry)
 {
 	if( theCacheEntry.type == eMenuItemLabelType_Unknown )
-	{// Initialize cache entry
-		LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
-		if( aLabelIcon &&
-			aLabelIcon->copyFromTarget &&
-			InputMap::isValidHotspotID(aLabelIcon->hotspotID) )
-		{
-			theCacheEntry.type = eMenuItemLabelType_CopyRect;
-			Hotspot aCopySrcHotspot =
-				InputMap::getHotspot(aLabelIcon->hotspotID);
-			if( aCopySrcHotspot.w == 0 || aCopySrcHotspot.h == 0 )
-			{
-				logError("Copy-from-screen label '%s' set to hotspot '%s' "
-					"which has 0 for width or height, so nothing to copy!",
-					theLabel.c_str(),
-					InputMap::hotspotLabel(aLabelIcon->hotspotID).c_str());
-				aLabelIcon->hotspotID = 0; // prevent repeat of this error
-				theCacheEntry.type = eMenuItemLabelType_String;
-				theCacheEntry.str = StringScaleCacheEntry();
-			}
-			else
-			{
-				theCacheEntry.copyRect.fromPos =
-					hotspotToPoint(aCopySrcHotspot, dd.targetSize);
-				const double aHotspotScale =
-					InputMap::hotspotScale(aLabelIcon->hotspotID);
-				theCacheEntry.copyRect.fromSize.cx =
-					LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
-				theCacheEntry.copyRect.fromSize.cy =
-					LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale + 0.5);
-				// Hotspot is centered, so offset left/top by half box size
-				theCacheEntry.copyRect.fromPos.x -=
-					theCacheEntry.copyRect.fromSize.cx / 2;
-				theCacheEntry.copyRect.fromPos.y -=
-					theCacheEntry.copyRect.fromSize.cy / 2;
-				sHotspotsUsedByCopyIcons.set(aLabelIcon->hotspotID);
-			}
-		}
-		else if( aLabelIcon && !aLabelIcon->copyFromTarget )
-		{
-			theCacheEntry.type = eMenuItemLabelType_Bitmap;
-			theCacheEntry.bitmapIconID = aLabelIcon->bitmapIconID;
-		}
-		else
-		{
-			theCacheEntry.type = eMenuItemLabelType_String;
-			theCacheEntry.str = StringScaleCacheEntry();
-		}
-	}
+		initializeLabelDrawCacheEntry(dd, theCacheEntry, theLabel);
+	DBG_ASSERT(theCacheEntry.type != eMenuItemLabelType_Unknown);
 
 	if( theCacheEntry.type == eMenuItemLabelType_String )
 	{
 		SetTextColor(dd.hdc, theItemApp.labelColor);
 		SetBkColor(dd.hdc, theItemApp.baseColor);
+		RECT aStrRect = theRect;
 		if( theMaxBorderSize > 0 )
-			InflateRect(&theRect, -theMaxBorderSize, -theMaxBorderSize);
-		drawLabelString(dd, theRect, widen(theLabel),
+			InflateRect(&aStrRect, -theMaxBorderSize, -theMaxBorderSize);
+		drawLabelString(dd, aStrRect, widen(theLabel),
 			sFonts[theMenuApp.fontID].handle,
 			DT_WORDBREAK | DT_CENTER | DT_VCENTER,
 			theCacheEntry.str);
@@ -1920,7 +1995,7 @@ static void drawMenuItemLabel(
 				dd.hCaptureDC, aSrcL, aSrcT, SRCCOPY);
 		}
 		else
-		{// Draw stretched, but maintain aspect ratio
+		{// Draw stretched (technically shrunk), but maintain aspect ratio
 			const double aSrcAspectRatio = double(aSrcW) / aSrcH;
 			const double aDstAspectRatio = double(aDstW) / aDstH;
 
@@ -1955,6 +2030,33 @@ static void drawMenuItemLabel(
 		// Reset clipping
 		if( theCurrBorderSize > 0 )
 			SelectClipRgn(dd.hdc, NULL);
+	}
+	else if( theCacheEntry.type == eMenuItemLabelType_MultiIcon )
+	{
+		DBG_ASSERT(theCacheEntry.multiIconID < sMultiIconCache.size());
+		MultiIconDrawCacheEntry& aMultiIconEntry =
+			sMultiIconCache.vals()[theCacheEntry.multiIconID];
+		DBG_ASSERT(!aMultiIconEntry.iconList.empty());
+		DBG_ASSERT(aMultiIconEntry.totalWidth > 0);
+		const int aDestWidth = min<int>(
+			aMultiIconEntry.totalWidth, theRect.right - theRect.left);
+		RECT aRect; aRect.top = theRect.top; aRect.bottom = theRect.bottom;
+		aRect.left = (theRect.left + theRect.right - aDestWidth) / 2;
+		aRect.right = aRect.left;
+		for(int i = 0, end = intSize(aMultiIconEntry.iconList.size());
+			i < end; ++i)
+		{
+			LabelDrawCacheEntry& anIconEntry =
+				aMultiIconEntry.iconList[i];
+			const int aSrcWidth = anIconEntry.type == eMenuItemLabelType_Bitmap
+				? sBitmapIcons[anIconEntry.bitmapIconID].size.cx
+				: anIconEntry.copyRect.fromSize.cx;
+			aRect.left = aRect.right;
+			aRect.right += aSrcWidth * aDestWidth / aMultiIconEntry.totalWidth;
+			drawMenuItemLabel(dd, aRect, theItemIdx, theLabel,
+				theMenuApp, theItemApp, theCurrBorderSize, theMaxBorderSize,
+				anIconEntry);
+		}
 	}
 }
 
@@ -2830,6 +2932,7 @@ void loadProfileChanges()
 		{
 			for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
 				sMenuDrawCache[i].labelCache.clear();
+			sMultiIconCache.clear();
 			sHotspotsUsedByCopyIcons.reset();
 		}
 		// Trigger a reshape for any active menus that use changed hotspots
@@ -2898,6 +3001,7 @@ void cleanup()
 	sMenuAlphaInfo.clear();
 	sOverlayPaintStates.clear();
 	sMenuDrawCache.clear();
+	sMultiIconCache.clear();
 	sAutoSizedFonts.clear();
 	sAutoRefreshCopyRectQueue.clear();
 	sHotspotsUsedByCopyIcons.clear();
@@ -3186,6 +3290,7 @@ void updateScaling()
 		// Also reset max border size
 		sMenuDrawCache[i].maxBorderSize = -1;
 	}
+	sMultiIconCache.clear();
 	sHotspotsUsedByCopyIcons.reset();
 
 	// Update radius scaling for each MenuAppearance
