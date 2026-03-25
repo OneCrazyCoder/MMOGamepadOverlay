@@ -1050,10 +1050,13 @@ void update()
 		}
 
 		// Update alpha fade effects based on gVisibleOverlay & gActiveOverlay
+		const u8 anOldWindowAlpha = aWindow.alpha;
 		updateAlphaFades(aWindow, anOverlayID);
 
 		// Check visibility status so can mostly ignore hidden windows
-		if( sHidden || aWindow.alpha == 0 ||
+		if( sHidden ||
+			(aWindow.alpha == 0 &&
+			 aWindow.fadeState != eFadeState_FadeInDelay) ||
 			(aWindow.layoutReady && aWindow.size.cx <= 0) ||
 			(aWindow.layoutReady && aWindow.size.cy <= 0) )
 		{
@@ -1141,17 +1144,31 @@ void update()
 			(gRefreshOverlays.test(anOverlayID) ||
 			 gFullRedrawOverlays.test(anOverlayID)) )
 		{
+			// Draw main bitmap contents
 			WindowPainter::paintWindowContents(
-				aWindowDC, aCaptureDC, aCaptureOffset, sTargetSize,
-				anOverlayID, gFullRedrawOverlays.test(anOverlayID));
+				aWindowDC, sTargetSize, anOverlayID,
+				gFullRedrawOverlays.test(anOverlayID));
 			aWindow.windowReady = false;
 			aWindow.lastDrawnSize = aWindow.size;
 			gRefreshOverlays.reset(anOverlayID);
 			gFullRedrawOverlays.reset(anOverlayID);
 		}
 
+		// Copy over extra contents from target window
+		const bool bitmapIsReadyToApply =
+			WindowPainter::copyContentsFromTarget(
+				aWindowDC, aCaptureDC, aCaptureOffset,
+				sTargetSize, anOverlayID, aWindow.windowReady);
+		if( !bitmapIsReadyToApply &&
+			aWindow.alpha > anOldWindowAlpha &&
+			(aWindow.fadeState == eFadeState_FadingIn ||
+			 aWindow.fadeState == eFadeState_MaxAlpha) )
+		{// Pause fade-in until copy to bitmap is complete
+			aWindow.alpha = anOldWindowAlpha;
+		}
+
 		// Update window
-		if( !aWindow.windowReady )
+		if( !aWindow.windowReady && bitmapIsReadyToApply && aWindow.alpha > 0 )
 		{
 			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
 			POINT aWindowScreenPos;
@@ -1167,7 +1184,7 @@ void update()
 		gActiveOverlays.reset(anOverlayID);
 
 		// Show window if it isn't visible yet
-		if( !IsWindowVisible(aWindow.handle) )
+		if( aWindow.windowReady && !IsWindowVisible(aWindow.handle) )
 			ShowWindow(aWindow.handle, SW_SHOWNOACTIVATE);
 
 		// Cleanup

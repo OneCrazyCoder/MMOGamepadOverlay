@@ -4906,9 +4906,7 @@ int menuOverlayCount()
 int menuItemCount(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
-	return
-		menuStyle(theMenuID) == eMenuStyle_4Dir ? 4 :
-		intSize(sMenus.vals()[theMenuID].items.size());
+	return intSize(sMenus.vals()[theMenuID].items.size());
 }
 
 

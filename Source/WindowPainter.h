@@ -37,11 +37,18 @@ void updateTargetRect();
 // Draws given overlay to given Device Context (bitmap), starting at 0,0
 void paintWindowContents(
 	HDC hdc,
+	const SIZE& theTargetSize,
+	int theOverlayID,
+	bool needsInitialErase);
+
+// Returns if all copy-from-target icons have been drawn (and may draw them)
+bool copyContentsFromTarget(
+	HDC hdc,
 	HDC hCaptureDC,
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
 	int theOverlayID,
-	bool needsInitialErase);
+	bool& windowReady /*is set to false if draw anything*/);
 
 // Updates layout properties needed for an overlay (menu) window
 void updateWindowLayout(
