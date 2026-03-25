@@ -469,7 +469,7 @@ static std::string shapeCompToProfString(
 	}
 	else if( theComponent.offset )
 	{
-		if( theComponent.offset > 0 )
+		if( theComponent.offset >= 0 )
 			result += std::string(" + ") + toString(theComponent.offset);
 		else if( theComponent.offset < 0 )
 			result += std::string(" - ") + toString(-theComponent.offset);
@@ -535,14 +535,15 @@ static void updateDrawHotspot(
 		if( updateParentIfNeeded )
 			updateDrawHotspot(*aParent, aParent->shape, true, false);
 		theEntry.drawOffScale = aParent->drawOffScale;
+		Hotspot aParentHotspot = aParent->drawHotspot;
 		if( aParent->rangeCount > 0 )
 		{// Rare case where the parent is itself a range of hotspots
-			aParent->drawHotspot.x.offset = s16(clamp(int(
+			aParentHotspot.x.offset = s16(clamp(int(
 				aParent->drawHotspot.x.offset +
 				aParent->drawOffX *
 				(aParent->rangeCount-1) *
 				aParent->drawOffScale), -0x8000, 0x7FFF));
-			aParent->drawHotspot.y.offset = s16(clamp(int(
+			aParentHotspot.y.offset = s16(clamp(int(
 				aParent->drawHotspot.y.offset +
 				aParent->drawOffY *
 				(aParent->rangeCount-1) *
@@ -552,30 +553,30 @@ static void updateDrawHotspot(
 		{// Offset from parent position
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
 			{
-				theEntry.drawHotspot.x.anchor = aParent->drawHotspot.x.anchor;
+				theEntry.drawHotspot.x.anchor = aParentHotspot.x.anchor;
 				theEntry.drawHotspot.x.offset = s16(clamp(int(
 					theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
-					aParent->drawHotspot.x.offset, -0x8000, 0x7FFF));
+					aParentHotspot.x.offset, -0x8000, 0x7FFF));
 			}
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
 			{
-				theEntry.drawHotspot.y.anchor = aParent->drawHotspot.y.anchor;
+				theEntry.drawHotspot.y.anchor = aParentHotspot.y.anchor;
 				theEntry.drawHotspot.y.offset = s16(clamp(int(
 					theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
-					aParent->drawHotspot.y.offset, -0x8000, 0x7FFF));
+					aParentHotspot.y.offset, -0x8000, 0x7FFF));
 			}
 		}
 		else if( theShape.x.useDefault )
 		{// Inherit parent position
 			DBG_ASSERT(entryIsMenu(theEntry));
-			theEntry.drawHotspot.x = aParent->drawHotspot.x;
-			theEntry.drawHotspot.y = aParent->drawHotspot.y;
+			theEntry.drawHotspot.x = aParentHotspot.x;
+			theEntry.drawHotspot.y = aParentHotspot.y;
 		}
 		if( theShape.w.useDefault ||
 			theEntry.drawHotspot.w == 0 && theEntry.drawHotspot.h == 0 )
 		{// Inherit parent size
-			theEntry.drawHotspot.w = aParent->drawHotspot.w;
-			theEntry.drawHotspot.h = aParent->drawHotspot.h;
+			theEntry.drawHotspot.w = aParentHotspot.w;
+			theEntry.drawHotspot.h = aParentHotspot.h;
 		}
 	}
 	if( updateChildren )
