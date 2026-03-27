@@ -1155,20 +1155,20 @@ void update()
 		}
 
 		// Copy over extra contents from target window
-		const bool bitmapIsReadyToApply =
+		const bool copyFromTargetDone =
 			WindowPainter::copyContentsFromTarget(
 				aWindowDC, aCaptureDC, aCaptureOffset,
 				sTargetSize, anOverlayID, aWindow.windowReady);
-		if( !bitmapIsReadyToApply &&
+		if( !copyFromTargetDone &&
 			aWindow.alpha > anOldWindowAlpha &&
 			(aWindow.fadeState == eFadeState_FadingIn ||
 			 aWindow.fadeState == eFadeState_MaxAlpha) )
-		{// Pause fade-in until copy to bitmap is complete
+		{// Pause fade-in until copy from target to bitmap is complete
 			aWindow.alpha = anOldWindowAlpha;
 		}
 
 		// Update window
-		if( !aWindow.windowReady && bitmapIsReadyToApply && aWindow.alpha > 0 )
+		if( !aWindow.windowReady && aWindow.alpha > 0 )
 		{
 			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
 			POINT aWindowScreenPos;
