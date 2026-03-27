@@ -1052,7 +1052,10 @@ void init()
 		sNextNotify = eNextNotify_Connected;
 	}
 	else if( sGamepadData.deviceCountForDInput == 1 )
-		selectGamepad(0);
+	{
+		if( selectGamepad(0) == eResult_Fail )
+			sGamepadData.disconnectDetected = true; // enumeration error
+	}
 	else if( sNextNotify == eNextNotify_NoneFound )
 		sNextNotify = eNextNotify_Disconnected;
 	else
@@ -1193,7 +1196,8 @@ void update()
 					gamepadDebugPrint(
 						"Auto-selecting %s as player controller!\n",
 						sGamepadData.gamepad[i].name.c_str());
-					selectGamepad(i);
+					if( selectGamepad(i) == eResult_Fail )
+						sGamepadData.disconnectDetected = true;
 					break;
 				}
 			}
