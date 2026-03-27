@@ -2151,6 +2151,9 @@ static void drawMenuItemLabel(
 			i < end; ++i)
 		{
 			LabelDrawCacheEntry& anIconEntry = theCacheEntry.subLabels[i];
+			DBG_ASSERT(
+				anIconEntry.type == eMenuItemLabelType_Bitmap ||
+				size_t(anIconEntry.copyRect.copyID) < sCopiedIcons.size());
 			const int aSrcWidth = anIconEntry.type == eMenuItemLabelType_Bitmap
 				? sBitmapIcons[anIconEntry.bitmapIconID].size.cx
 				: sCopiedIcons[anIconEntry.copyRect.copyID].size.cx;
@@ -3465,12 +3468,20 @@ void updateTargetRect()
 	sCopiedIcons.clear();
 	for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
 	{
+		const int anOverlayID = InputMap::menuOverlayID(i);
+		const bool menuIsActive =
+			Menus::activeMenuForOverlayID(anOverlayID) == i;
 		std::vector<LabelDrawCacheEntry>& aLabelCache =
 			sMenuDrawCache[i].labelCache;
 		for(int j = 0, end = intSize(aLabelCache.size()); j < end; ++j)
 		{
-			if( aLabelCache[j].type == eMenuItemLabelType_CopyRect )
+			if( aLabelCache[j].type == eMenuItemLabelType_CopyRect ||
+				aLabelCache[j].type == eMenuItemLabelType_MultiIcon )
+			{
 				aLabelCache[j] = LabelDrawCacheEntry();
+				if( menuIsActive )
+					gFullRedrawOverlays.set(anOverlayID);
+			}
 		}
 	}
 }
