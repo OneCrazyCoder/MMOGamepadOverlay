@@ -784,7 +784,17 @@ static Command parseChatBoxMacro(std::string theString)
 		if( aTmpStr.empty() )
 			break;
 
-		// Add '\r' to have macro send carriage return for this line
+		// Add needed ending characters for this line (explained more below)
+		for(int j = intSize(theString.size()-1); j >= 0; --j)
+		{
+			if( theString[j] == ' ' || theString[j] == '\r' )
+				break;
+			if( theString[j] == '/' )
+			{
+				theString.push_back(' ');
+				break;
+			}
+		}
 		theString.push_back('\r');
 		// If second segment is missing '>' (or '/'), add it now
 		if( aTmpStr[0] != '/' && aTmpStr[0] != '>' )
@@ -793,6 +803,19 @@ static Command parseChatBoxMacro(std::string theString)
 		i = intSize(theString.size());
 		// Join the two string segments back together
 		theString += aTmpStr;
+	}
+
+	// Add a space to end of single-word slash commands in case it is just
+	// trying to change chat channel for UI's that need "/say " etc.
+	for(int i = intSize(theString.size()-1); i >= 0; --i)
+	{
+		if( theString[i] == ' ' )
+			break;
+		if( theString[i] == '/' )
+		{
+			theString.push_back(' ');
+			break;
+		}
 	}
 
 	// Add final '\r' to send last line of chat box text
