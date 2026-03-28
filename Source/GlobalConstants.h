@@ -48,6 +48,7 @@ enum ECommandType
 	eCmdType_MoveMouseToMenuItem,
 	eCmdType_MoveMouseToOffset,
 	eCmdType_MouseClickAtHotspot,
+	eCmdType_RightClickAtHotspot,
 
 	// These active "keybind cycles" which allow a sequence of different keys
 	// to be pressed by a single buton that changes the key pressed each time.
@@ -235,7 +236,8 @@ enum EMenuMouseMode
 {
 	eMenuMouseMode_None,
 	eMenuMouseMode_Move,
-	eMenuMouseMode_Click,
+	eMenuMouseMode_LClick,
+	eMenuMouseMode_RClick,
 
 	eMenuMouseMode_Num
 };
@@ -336,7 +338,8 @@ enum ECommandKeyWord
 	eCmdWord_Defer,
 	eCmdWord_Lower,
 	eCmdWord_Mouse,
-	eCmdWord_Click,
+	eCmdWord_LClick,
+	eCmdWord_RClick,
 	eCmdWord_MouseWheel,
 	eCmdWord_Smooth,
 	eCmdWord_Stepped,

@@ -326,6 +326,7 @@ public:
 			mBuffer[mTail].slow = true;
 			break;
 		case eCmdType_MouseClickAtHotspot:
+		case eCmdType_RightClickAtHotspot:
 			mBuffer[mTail].hasMouseClick = true;
 			// fall through
 		case eCmdType_MoveMouseToHotspot:
@@ -1385,7 +1386,9 @@ static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 static void queueMoveMouseTo(const Command& theCommand)
 {
 	ECommandType aCmdType = theCommand.type;
-	if( theCommand.andClick )
+	if( theCommand.andRClick )
+		aCmdType = eCmdType_RightClickAtHotspot;
+	else if( theCommand.andLClick )
 		aCmdType = eCmdType_MouseClickAtHotspot;
 
 	Hotspot aDestHotspot;
@@ -1393,6 +1396,7 @@ static void queueMoveMouseTo(const Command& theCommand)
 	{
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MouseClickAtHotspot:
+	case eCmdType_RightClickAtHotspot:
 		aDestHotspot = InputMap::getHotspot(theCommand.hotspotID);
 		break;
 	case eCmdType_MoveMouseToMenuItem:
@@ -1525,14 +1529,13 @@ static EResult setKeyDown(int theKey, bool down)
 	// May not be allowed to press or release any mod keys yet
 	if( isModKey(theKey) && !sTracker.typingChatBoxString &&
 		gAppRunTime < sTracker.modKeyChangeAllowedTime )
-	{
-		return eResult_NotAllowed;
-	}
+	{ return eResult_NotAllowed; }
 
 	// May not be allowed to click a mouse button yet
 	if( down && isMouseButton(theKey) &&
-		gAppRunTime < sTracker.mouseClickAllowedTime )
- 		return eResult_NotAllowed;
+		(sTracker.mouseJumpToHotspot ||
+		 gAppRunTime < sTracker.mouseClickAllowedTime) )
+	{ return eResult_NotAllowed; }
 
 	// May not be allowed to release the given key yet
 	if( !down && keyIsLockedDown(theKey) )
@@ -2606,6 +2609,7 @@ void update()
 			break;
 		case eCmdType_MoveMouseToHotspot:
 		case eCmdType_MouseClickAtHotspot:
+		case eCmdType_RightClickAtHotspot:
 		case eCmdType_MoveMouseToMenuItem:
 		case eCmdType_MoveMouseToOffset:
 			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
@@ -2633,7 +2637,9 @@ void update()
 					 aCmd.type == eCmdType_MoveMouseToOffset) &&
 					(sTracker.mouseMode == eMouseMode_Cursor ||
 					 sTracker.mouseMode == eMouseMode_PostJump);
-				if( aCmd.type == eCmdType_MouseClickAtHotspot )
+				if( aCmd.type == eCmdType_RightClickAtHotspot )
+					sTracker.nextQueuedKey = VK_RBUTTON;
+				else if( aCmd.type == eCmdType_MouseClickAtHotspot )
 					sTracker.nextQueuedKey = VK_LBUTTON;
 				sTracker.mouseJumpToHotspot = true;
 				sTracker.mouseJumpAttempted = false;
@@ -3012,6 +3018,7 @@ void sendCommand(const Command& theCommand)
 	{
 	case eCmdType_MoveMouseToHotspot:
 	case eCmdType_MouseClickAtHotspot:
+	case eCmdType_RightClickAtHotspot:
 	case eCmdType_MoveMouseToMenuItem:
 	case eCmdType_MoveMouseToOffset:
 	case eCmdType_HotspotSelect:

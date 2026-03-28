@@ -1102,7 +1102,10 @@ static void updateMouseForMenu(int theRootMenuID, bool canClick = false)
 		aMoveCmd.type = eCmdType_MoveMouseToMenuItem;
 		aMoveCmd.rootMenuID = dropTo<u16>(theRootMenuID);
 		aMoveCmd.menuItemID = dropTo<u16>(Menus::selectedItem(theRootMenuID));
-		aMoveCmd.andClick = canClick && aMenuMouseMode == eMenuMouseMode_Click;
+		aMoveCmd.andLClick =
+			canClick && aMenuMouseMode == eMenuMouseMode_LClick;
+		aMoveCmd.andRClick =
+			canClick && aMenuMouseMode == eMenuMouseMode_RClick;
 		sResults.queuedCommands.push_back(aMoveCmd);
 	}
 }

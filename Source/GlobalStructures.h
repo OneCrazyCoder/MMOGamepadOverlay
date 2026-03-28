@@ -62,7 +62,8 @@ struct ZERO_INIT(Command)
 				u16 menuItemID;
 			};
 			u16 wrap : 1;
-			u16 andClick : 1;
+			u16 andLClick : 1;
+			u16 andRClick : 1;
 			u16 multiDirAutoRun : 1;
 			u16 temporary : 1;
 			u16 hasKeybindSignal : 1;
@@ -70,7 +71,7 @@ struct ZERO_INIT(Command)
 			u16 asHoldAction : 1;
 			u16 forced : 1;
 			u16 sideMenuDir : 2;
-			u16 __padding : 6;
+			u16 __padding : 5;
 		};
 		struct { Hotspot::Coord x, y; } hotspot;
 		u64 compare;

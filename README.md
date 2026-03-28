@@ -23,7 +23,7 @@ Get the latest release [here](https://github.com/OneCrazyCoder/MMOGamepadOverlay
 
 ## Why though?
 
-Although there are many options (like Steam Input) for mapping gamepad input to keyboard and mouse, this application was specifically designed for playing the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, as well as upcoming classic-style MMOs like *Monsters & Memories* and *Adrullan Online Adventures*, and is tuned with those in mind. It has specific features catered to them that would be difficult to replicate with other, more general-purpose options.
+Although there are many options (like Steam Input) for mapping gamepad input to keyboard and mouse, this application was specifically designed for playing upcoming classic-style MMOs *Monsters & Memories* and *Adrullan Online Adventures*, as well as the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and is tuned with those in mind. It has specific features catered to them that would be difficult to replicate with other, more general-purpose options.
 
 The default provided control schemes draw direct inspiration from the only MMORPG ever made exclusively for controller use — *EverQuest Online Adventures* for the PlayStation 2.
 

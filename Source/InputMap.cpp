@@ -2229,8 +2229,6 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Default);
 	allowedKeyWords.reset(eCmdWord_Integer);
 	allowedKeyWords.reset(eCmdWord_Back);
-	allowedKeyWords.reset(eCmdWord_Mouse);
-	allowedKeyWords.reset(eCmdWord_Click);
 	if( allowedKeyWords.count() == 1 && theWords.size() > 1 )
 	{
 		VectorMap<ECommandKeyWord, int>::const_iterator itr =
@@ -2931,8 +2929,11 @@ static void applyMenuProperty(
 		case eCmdWord_Move:
 			theMenu.mouseMode = eMenuMouseMode_Move;
 			break;
-		case eCmdWord_Click:
-			theMenu.mouseMode = eMenuMouseMode_Click;
+		case eCmdWord_LClick:
+			theMenu.mouseMode = eMenuMouseMode_LClick;
+			break;
+		case eCmdWord_RClick:
+			theMenu.mouseMode = eMenuMouseMode_RClick;
 			break;
 		default:
 			logError("%s: Invalid menu mouse mode '%s'!",
