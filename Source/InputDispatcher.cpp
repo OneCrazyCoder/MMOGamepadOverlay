@@ -2712,7 +2712,8 @@ void update()
 			continue;
 		}
 
-		if( isMouseButton(aVKey) && !sTracker.mouseAllowMidJumpControl &&
+		if( (aBaseVKey == VK_LBUTTON || aBaseVKey == VK_RBUTTON) &&
+			!sTracker.mouseAllowMidJumpControl &&
 			(sTracker.mouseMode == eMouseMode_Hide ||
 			 sTracker.mouseMode == eMouseMode_PostJump ||
 			 sTracker.mouseMode == eMouseMode_JumpClicked ||
@@ -2831,7 +2832,8 @@ void update()
 		const int aBaseVKey = aVKey & kVKeyMask;
 		DBG_ASSERT(aBaseVKey != 0); // otherwise somehow got flags but no key!
 		const bool press = !(aVKey & kVKeyReleaseFlag);
-		const bool forced = !press && (aVKey & kVKeyHoldFlag);
+		const bool hold = !!(aVKey & kVKeyHoldFlag);
+		const bool forced = !press && hold;
 		// Make sure desired modifier keys match those of the queued key
 		aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
 		aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
@@ -2849,9 +2851,9 @@ void update()
 				readyForQueuedKey = false;
 		}
 		// Extra rules may apply for mouse buttons being initially clicked
-		if( isMouseButton(aBaseVKey) && press )
+		if( (aBaseVKey == VK_LBUTTON || aBaseVKey == VK_RBUTTON) && press )
 		{
-			if( !sTracker.mouseJumpToHotspot &&
+			if( !hold && !sTracker.mouseJumpToHotspot &&
 				!(aVKey & kVKeyForMouseLookFlag) &&
 				hiddenCursorMode(sTracker.mouseMode) )
 			{// In hiding spot or hidden via mouselook

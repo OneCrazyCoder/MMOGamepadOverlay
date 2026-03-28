@@ -25,19 +25,6 @@ Use the in-game Keybinds menu and remap Hotbar Bank 0-9 to some other keys. Simp
 ----------------------------\par>
 
 
-<MouseLookUI,
-{\b\fs26 Mouse Look and UI Window issues\par}
-\fs22 This game features two "Mouse Look Modes" to adjust the camera using the mouse - via holding either the left or right mouse button. This app uses this method to control the camera.\par
-
-Changing between the left click and right click modes may not always work smoothly if a UI window is over the center of the screen. This is because the game secretly hides the cursor at the center of the screen during these modes, and may register the clicks as clicking on the UI window instead of the background. This may affect using "Mouse=AutoLook" in your control scheme, which swaps modes whenever you stop or start moving your character, potentially causing some erratic camera behavior.\par
-
-{\b Workarounds:}\line
-\bullet  Avoid moving around with a UI window overlapping center-screen\line
-\bullet  For default control scheme, change "Main Menu/Overlay/Settings/Free look" to a setting that does not change modes as often, such as "Sitting" - which only activates free look after use Sit - or "Holding L2" - which only allows holding the L2 button to activate the free-look (left mouse button) camera mode.\par
-
-----------------------------\par>
-
-
 <MnMServerScreen,
 {\b\fs26 Server and Character Select Screen\par}
 \fs22 {\i Monsters & Memories} responds to controller input in the server / character selection / character creation screens, even though it doesn't truly support gamepads. Specifically, pressing the bottom face button ({\b A} on XB or {\b X} on PS) can cause some UI buttons to activate twice - once from the gamepad-to-mouse click sent by this app, and once from the game itself detecting the button press directly. Fortunately, this only really causes problems during character creation.\par
@@ -61,18 +48,18 @@ Use {\b HidHide} to block the game from detecting your controller, so it only re
 ----------------------------\par>
 
 
-<AoAMouseLook,
-{\b\fs26 Mouse Look Mode Randomly Stops Working\par}
-\fs22 "Mouse Look Mode" is used to control the camera with the mouse, and is activated by holding the right mouse button. This is what the default example profile for {\i Adrullan Online Adventures} simulates to allow controlling the camera with the right analog stick.\par
+<MouseLookUI,
+{\b\fs26 Mouse Look and UI Window issues\par}
+\fs22 This game features two "Mouse Look Modes" to adjust the camera using the mouse - via holding either the left or right mouse button. This app uses this method to control the camera.\par
 
-Unfortunately, sometimes the game randomly stops responding to the right mouse button being held down, leaving the cursor moving around rather than the camera. This will continue to not work until a normal left click is used on a blank part of the screen, which seems to reset it.\par
+Changing between the left click and right click modes may not always work smoothly if a UI window is over the center of the screen. This is because the game secretly hides the cursor at the center of the screen during these modes, and may register the clicks as clicking on the UI window instead of the background. This may affect using "Mouse=AutoLook" in your control scheme, which swaps modes whenever you stop or start moving your character, potentially causing some erratic camera behavior.\par
 
-{\b Workaround:}\line
-When camera control stops working and just moves the mouse cursor around instead, switch to cursor control and tap the buttons assigned to {\b left-click} on an empty part of the screen. Then try switching to camera control again.\par
-
-In the default expample profile, left-click is mapped to the bottom face button ({\b A} on XB or {\b X} on PS), and that same button will return to cursor mode, so simply tap that button once, make sure cursor is pointing at a blank part of the screen, tap it again, and then camera control should work again.\par
+{\b Workarounds:}\line
+\bullet  Avoid moving around with a UI window overlapping center-screen\line
+\bullet  For default control scheme, change "Main Menu/Overlay/Settings/Free look" to a setting that does not change modes as often, such as "Sitting" - which only activates free look after use Sit - or "Holding L2" - which only allows holding the L2 button to activate the free-look (left mouse button) camera mode.\par
 
 ----------------------------\par>
+
 
 <NONE,
 {\b\fs26 No known issues found.\par}>
