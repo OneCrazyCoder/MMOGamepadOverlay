@@ -1452,7 +1452,9 @@ static void drawCopiedBitmapIcon(
 {
 	DBG_ASSERT(size_t(theCopyData.copyID) < sCopiedIcons.size());
 	const CopiedBitmapIcon& theIcon = sCopiedIcons[theCopyData.copyID];
-	DBG_ASSERT(theIcon.image && sBitmapDrawSrc);
+	if( !theIcon.image )
+		return;
+	DBG_ASSERT(sBitmapDrawSrc);
 
 	int aDstL = theCopyData.dstL;
 	int aDstT = theCopyData.dstT;
@@ -1518,6 +1520,9 @@ static void updateCopiedBitmapIcon(
 	const POINT& theCaptureOffset,	
 	int theCopyBitmapID)
 {
+	if( !hCaptureDC )
+		return;
+
 	DBG_ASSERT(size_t(theCopyBitmapID) < sCopiedIcons.size());
 	CopiedBitmapIcon& theIcon = sCopiedIcons[theCopyBitmapID];
 	DBG_ASSERT(sBitmapDrawSrc && theIcon.size.cx > 0 && theIcon.size.cy > 0);
