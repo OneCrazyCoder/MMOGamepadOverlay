@@ -73,7 +73,7 @@ struct ZERO_INIT(DispatchTask)
 	int progress;
 	int queuedTime;
 	bool hasMouseJump;
-	bool hasMouseClick;
+	bool hasMouseAction;
 	bool slow;
 };
 
@@ -308,7 +308,7 @@ public:
 				InputMap::cmdVKeySeq(aFinalCmd),
 				aCurrJumpHotspotID, aFinalJumpHotspotID,
 				mBuffer[mTail].hasMouseJump,
-				mBuffer[mTail].hasMouseClick,
+				mBuffer[mTail].hasMouseAction,
 				mBuffer[mTail].slow);
 			if( aCurrJumpHotspotID )
 				aFinalJumpHotspotID = aCurrJumpHotspotID;
@@ -327,7 +327,8 @@ public:
 			break;
 		case eCmdType_MouseClickAtHotspot:
 		case eCmdType_RightClickAtHotspot:
-			mBuffer[mTail].hasMouseClick = true;
+		case eCmdType_MouseWheel:
+			mBuffer[mTail].hasMouseAction = true;
 			// fall through
 		case eCmdType_MoveMouseToHotspot:
 		case eCmdType_MoveMouseToMenuItem:
@@ -355,14 +356,14 @@ public:
 		DBG_ASSERT(!empty());
 		confirmCanFitOneMore();
 		const bool flagAsSlow = mBuffer[mHead].slow;
-		const bool flagAsClicks = mBuffer[mHead].hasMouseClick;
+		const bool flagAsClicks = mBuffer[mHead].hasMouseAction;
 		mHead = (mHead - 1) & dropTo<u32>(mBuffer.size() - 1);
 		mBuffer[mHead].cmd = theCommand;
 		mBuffer[mHead].progress = 0;
 		mBuffer[mHead].queuedTime = 0x7FFFFFFF;
 		mBuffer[mHead].hasMouseJump = false;
 		mBuffer[mHead].slow = flagAsSlow;
-		mBuffer[mHead].hasMouseClick = flagAsClicks;
+		mBuffer[mHead].hasMouseAction = flagAsClicks;
 	}
 
 
@@ -391,11 +392,11 @@ public:
 	}
 
 
-	bool frontTaskHasMouseClick() const
+	bool frontTaskHasMouseAction() const
 	{
 		if( empty() )
 			return false;
-		return mBuffer[mHead].hasMouseClick;
+		return mBuffer[mHead].hasMouseAction;
 	}
 
 
@@ -587,6 +588,7 @@ struct ZERO_INIT(DispatchTracker)
 	bool mouseInterpolateUpdateDest;
 	bool mouseAllowMidJumpControl;
 	bool mouseLookNeededToStrafe;
+	bool mouseVelLockedThisFrame;
 
 	DispatchTracker() :
 		mouseMode(eMouseMode_Cursor),
@@ -1027,6 +1029,12 @@ static bool hiddenCursorMode(EMouseMode theMode)
 
 static void offsetMousePos()
 {
+	if( sTracker.mouseVelLockedThisFrame )
+	{
+		sTracker.mouseVelLockedThisFrame = false;
+		return;
+	}
+
 	if( !sTracker.mouseVelX && !sTracker.mouseVelY )
 		return;
 
@@ -2108,6 +2116,18 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 			}
 		}
 		break;
+	case eCmdType_MouseWheel:
+		if( theCommand.mouseWheelMotionType == eMouseWheelMotion_Jump )
+		{
+			if( theCommand.count >= 1 &&
+				(theCommand.dir == eCmdDir_Up ||
+				 theCommand.dir == eCmdDir_Down) )
+			{
+				return false;
+			}
+			break;
+		}
+		// fall through
 	default:
 		DBG_ASSERT(false && "Invalid command type for sendkeyCommand()!");
 		break;
@@ -2317,7 +2337,7 @@ void update()
 		!sTracker.mouseJumpToHotspot &&
 		(sTracker.currTaskProgress == 0 ||
 		 (sTracker.queuePauseTime > 0 &&
-		  !sTracker.queue.frontTaskHasMouseClick())) )
+		  !sTracker.queue.frontTaskHasMouseAction())) )
 	{// No tasks in progress that mouse mode change could interfere with
 
 		EMouseMode aNextMouseMode = getNextMouseMode();
@@ -2647,6 +2667,37 @@ void update()
 				sTracker.mouseJumpInterpolate = true;
 			}
 			break;
+		case eCmdType_MouseWheel:
+			if( aCmd.mouseWheelMotionType == eMouseWheelMotion_Jump &&
+				aCmd.count >= 1 &&
+				(aCmd.dir == eCmdDir_Up || aCmd.dir == eCmdDir_Down) )
+			{
+				if( sTracker.mouseJumpToHotspot )
+				{// Finish mouse jump first
+					sTracker.queuePauseTime =
+						max(sTracker.queuePauseTime, 1);
+					sTracker.allowFastTasksDuringQueuePause = false;
+					aTaskResult = eResult_Incomplete;
+				}
+				else if( !taskIsPastDue )
+				{
+					Input anInput;
+					anInput.type = INPUT_MOUSE;
+					anInput.mi.mouseData = aCmd.dir == eCmdDir_Down
+						? DWORD(-WHEEL_DELTA) : WHEEL_DELTA;
+					anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
+					sTracker.inputs.push_back(anInput);
+					if( ++sTracker.currTaskProgress < aCmd.count )
+						aTaskResult = eResult_Incomplete;
+					// Prevent any more keys or wheel movements this update
+					sTracker.queuePauseTime =
+						max(sTracker.queuePauseTime, 1);
+					// Lock mouse movement until next update as well
+					sTracker.mouseVelLockedThisFrame = true;
+				}
+				break;
+			}
+			// fall through
 		default:
 			DBG_ASSERT(false && "Command type should not have been queued!");
 			break;
@@ -3255,12 +3306,15 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 
 	if( stepped )
 	{
+		// Most apps won't allow any more than one mickey per frame if they
+		// don't work with smoothed wheel movement
+		dy = clamp(dy, -WHEEL_DELTA, WHEEL_DELTA);
 		static int sMouseWheelDeltaAcc = 0;
 		sMouseWheelDeltaAcc += dy;
-		dy = sMouseWheelDeltaAcc / WHEEL_DELTA;
-		if( !dy )
+		// If requested move less than one mickey, just store and apply later
+		if( abs(sMouseWheelDeltaAcc) < WHEEL_DELTA )
 			return;
-		dy *= WHEEL_DELTA;
+		dy = sMouseWheelDeltaAcc < 0 ? -WHEEL_DELTA : WHEEL_DELTA;
 		sMouseWheelDeltaAcc -= dy;
 	}
 
@@ -3271,31 +3325,6 @@ void scrollMouseWheel(int dy, bool digital, bool stepped)
 	anInput.mi.mouseData = DWORD(-dy);
 	anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
 	sTracker.inputs.push_back(anInput);
-}
-
-
-void jumpMouseWheel(ECommandDir theDir, int theCount)
-{
-	DBG_ASSERT(theCount > 0);
-	for(int i = 0; i < theCount; ++i)
-	{
-		if( theDir == eCmdDir_Up )
-		{
-			Input anInput;
-			anInput.type = INPUT_MOUSE;
-			anInput.mi.mouseData = WHEEL_DELTA;
-			anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
-			sTracker.inputs.push_back(anInput);
-		}
-		else if( theDir == eCmdDir_Down )
-		{
-			Input anInput;
-			anInput.type = INPUT_MOUSE;
-			anInput.mi.mouseData = DWORD(-WHEEL_DELTA);
-			anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
-			sTracker.inputs.push_back(anInput);
-		}
-	}
 }
 
 

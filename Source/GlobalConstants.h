@@ -97,7 +97,7 @@ enum ECommandType
 	eCmdType_MoveStrafe,
 	eCmdType_MoveLook,
 	eCmdType_MoveMouse,
-	eCmdType_MouseWheel,
+	eCmdType_MouseWheel, // only "jump" version is sent to sendCommand()
 
 	eCmdType_Num,
 

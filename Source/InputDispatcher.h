@@ -50,9 +50,6 @@ void moveMouse(int dx, int dy, int lookX, bool digital);
 // though it means the scroll motion will be much less smooth.
 void scrollMouseWheel(int dy, bool digital, bool stepped = false);
 
-// Instantly moves mouse wheel up/down theCount number of "clicks"
-void jumpMouseWheel(ECommandDir theDir, int theCount);
-
 // Move character forward, back, left, right, and turning.
 // Amount specified for each movement type is -255 to 255 range.
 void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock);

@@ -1433,10 +1433,7 @@ static void processCommand(
 	case eCmdType_MouseWheel:
 		if( theCmd.mouseWheelMotionType == eMouseWheelMotion_Jump )
 		{
-			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
-			InputDispatcher::jumpMouseWheel(
-				ECommandDir(theCmd.dir),
-				theCmd.count);
+			sResults.queuedCommands.push_back(theCmd);
 			break;
 		}
 		// fall through
