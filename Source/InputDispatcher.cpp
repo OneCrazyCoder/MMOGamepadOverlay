@@ -108,6 +108,7 @@ struct ZERO_INIT(Config)
 	int mouseLookYSpeed;
 	int moveLookSpeed;
 	int mouseWheelSpeed;
+	int mouseWheelJumpDelayTimePerStep;
 	int mouseLookIdleResetTime;
 	int mouseLookStartThrottleDistance;
 	int mouseTurnStartThrottleDistance;
@@ -198,6 +199,8 @@ struct ZERO_INIT(Config)
 		mouseWheelRange = max(0.0, mouseWheelRange - mouseWheelDeadzone);
 		mouseWheelSpeed = Profile::getInt(
 			"Mouse", "MouseWheelSpeed", 255);
+		mouseWheelJumpDelayTimePerStep = max(0, Profile::getInt(
+			"Mouse", "WheelJumpDelayTimePerStep", 1));
 		moveDeadzone = clamp(Profile::getInt(
 			"Gamepad", "MoveCharacterThreshold", 50), 0, 100) / 100.0;
 		moveStraightBias = clamp(Profile::getInt(
@@ -659,7 +662,7 @@ static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 	{
 		if( theCommand.fromKeyBindCycle && theCommand.keyBindCycleID == i )
 			continue;
-		for(int j = 1, end = InputMap::keyBindCycleSize(i); j < end; ++j)
+		for(int j = 0, end = InputMap::keyBindCycleSize(i); j < end; ++j)
 		{
 			if( InputMap::keyBindCycleIndexToKeyBindID(i, j) == theKeyBindID )
 			{
@@ -2689,9 +2692,8 @@ void update()
 					sTracker.inputs.push_back(anInput);
 					if( ++sTracker.currTaskProgress < aCmd.count )
 						aTaskResult = eResult_Incomplete;
-					// Prevent any more keys or wheel movements this update
-					sTracker.queuePauseTime =
-						max(sTracker.queuePauseTime, 1);
+					sTracker.queuePauseTime = max(sTracker.queuePauseTime,
+						kConfig.mouseWheelJumpDelayTimePerStep);
 					// Lock mouse movement until next update as well
 					sTracker.mouseVelLockedThisFrame = true;
 				}

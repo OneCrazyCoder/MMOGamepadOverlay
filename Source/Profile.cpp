@@ -55,24 +55,22 @@ struct ResourceFile
 };
 
 const ResourceFile kResTemplateCore =
-	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		16	};
+	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		17	};
 
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	17	},
-	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	16	},
+	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	17	},
 	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	16	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	16	},
-	{	"Pantheon Base",	"Pantheon Base",	IDR_TEXT_INI_BASE_PAN,	16	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	17	},
 };
 
 const ResourceFile kResTemplateDefault[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	17	},
-	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	10	},
+	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	17	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	10	},
 	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	17	},
-	{	"Pantheon Default",	"Pantheon Default",	IDR_TEXT_INI_DEF_PAN,	11	},
 };
 
 const ResourceFile kResTemplateCustom[] =
@@ -81,7 +79,6 @@ const ResourceFile kResTemplateCustom[] =
 	{	"EverQuest: Project 1999",		"P99",		IDR_TEXT_INI_CUST_P99,	0 },
 	{	"EverQuest: Project Quarm",		"PQ",		IDR_TEXT_INI_CUST_PQ,	0 },
 	{	"Monsters & Memories",			"MnM",		IDR_TEXT_INI_CUST_MNM,	0 },
-	{	"Pantheon: Rise of the Fallen",	"Pantheon",	IDR_TEXT_INI_CUST_PAN,	0 },
 };
 
 const ResourceFile kResTemplateBlank = { "", "", IDR_TEXT_INI_CUST_BLANK, 0 };
