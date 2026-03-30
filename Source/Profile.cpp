@@ -70,7 +70,7 @@ const ResourceFile kResTemplateDefault[] =
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	17	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	17	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	10	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	17	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	18	},
 };
 
 const ResourceFile kResTemplateCustom[] =
@@ -2413,7 +2413,7 @@ std::string userEditCurrentProfile()
 	{
 		if( sProfiles[i].name == sLoadedProfileName )
 		{
-			if( userEditProfile(1, false) )
+			if( userEditProfile(i, false) )
 				return sLoadedProfileName;
 		}
 	}
