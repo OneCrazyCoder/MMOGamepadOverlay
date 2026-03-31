@@ -1298,6 +1298,12 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		theNewWindowRect.bottom <= theNewWindowRect.top )
 		return;
 
+	// Ignore window sizes that are too small and can cause profile errors
+	// (likely temporary during mode transitions, minimizing, etc)
+	if( theNewWindowRect.right - theNewWindowRect.left < 400 ||
+		theNewWindowRect.bottom - theNewWindowRect.top < 300 )
+		return;
+
 	// Restrict to "work" area of active monitor when don't have a target app
 	sTargetClipRect = theNewWindowRect;
 	if( !isTargetAppWindow )
