@@ -19,15 +19,15 @@ This application does ***NOT***:
 
 Get the latest release [here](https://github.com/OneCrazyCoder/MMOGamepadOverlay/releases), including 32-bit (x86) and 64-bit (a64) versions.
 
-*Optional: You will also find there UI file packs for some games with the custom profile I personally use for them, made for even better integration between the game and the overlay.*
+*Optional: You will also find there custom UI file packs for some games with the custom profile I personally use for them, made for even better integration between the game and the overlay.*
 
 ## Why though?
 
-Although there are many options (like Steam Input) for mapping gamepad input to keyboard and mouse, this application was specifically designed for playing upcoming classic-style MMOs *Monsters & Memories* and *Adrullan Online Adventures*, as well as the *EverQuest* emulation servers *Project 1999* and *Project Quarm*, and is tuned with those in mind. It has specific features catered to them that would be difficult to replicate with other, more general-purpose options.
+Although there are many options for mapping gamepad input to keyboard and mouse, this application was specifically designed for playing ***Monsters & Memories***, ***Adrullan Online Adventures***, and the the *EverQuest* emulation servers ***Project 1999*** and ***Project Quarm***, and is tuned with those in mind. It has specific features catered to them that would be difficult to replicate with other, more general-purpose options.
 
-The default provided control schemes draw direct inspiration from the only MMORPG ever made exclusively for controller use — *EverQuest Online Adventures* for the PlayStation 2.
+The default provided control schemes draw direct inspiration from the only MMORPG ever made exclusively for controller use - ***EverQuest Online Adventures*** for the *PlayStation 2*.
 
-That said, it is fully customizable and can be used with *any* game if you're looking for a free, open-source, lightweight, portable, and versatile tool for using a gamepad with Windows games that don’t natively support one. Just be aware that creating a control scheme from scratch for a new game requires a bit of technical know-how, as it involves editing plain-text files.
+That said, it is fully customizable and can be used with *any* Windows game if you’re looking for a free, open-source, lightweight, portable, and versatile tool for using a gamepad with a game that doesn't natively support one. Just be aware that creating a control scheme from scratch for a new game requires a bit of technical know-how, as it involves editing plain-text files.
 
 ## Quick Start Guide
 
@@ -41,9 +41,8 @@ For basic control scheme when using an example profile, select Edit->Text Files 
 
 ## Customization
 
-Want to tweak a default control scheme or even build your own? See the [Custom Profile Editing Guide](https://onecrazycoder.github.io/MMOGamepadOverlay/profile-edit-ref.html).
+Want to tweak a default control scheme or even build your own? See the [Custom Profile Editing Guide](profile-edit-ref.html).
 
 ## Contact
 
 Questions? Comments? Concerns? Try the [Discord server](https://discord.gg/btRzWQ4N3N) or post on GitHub Discussions.
-
