@@ -985,7 +985,7 @@ static void generateKnownIssuesRTF(std::string theIssuesList)
 
 	// Find which issues to display and filter out the rest
 	std::pair<std::string::size_type, std::string::size_type> aTagCoords;
-	aTagCoords = findStringTag(sKnownIssuesRTF);
+	aTagCoords = findStringTag(sKnownIssuesRTF, 0, "|", '|');
 	std::string anIssueName;
 	std::string aTagContents;
 	while(aTagCoords.first != std::string::npos)
@@ -1011,7 +1011,7 @@ static void generateKnownIssuesRTF(std::string theIssuesList)
 			aTagCoords.first,
 			aTagCoords.second,
 			aTagContents);
-		aTagCoords = findStringTag(sKnownIssuesRTF);
+		aTagCoords = findStringTag(sKnownIssuesRTF, 0, "|", '|');
 	}
 }
 

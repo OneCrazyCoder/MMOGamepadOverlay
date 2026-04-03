@@ -3,54 +3,54 @@
 \viewkind4\uc1\pard\sa200\sl276\slmult1\f0\fs22\lang9
 
 {\b\fs30 Game-Specific Issues for Gamepad Use\par}
-\fs22 These are known issues in the game itself - {\b not this app!} - that can interfere with gamepad use. It's possible they may have been fixed by now.\par
+\fs22 These are known issues in the game itself - {\b not this app!} - that can interfere with gamepad use. It's possible they may have been fixed since the last time this list was updated.\par
 
 ----------------------------\par
 
 
-<MnMHotBanksKeybinds,
+|MnMHotBanksKeybinds,
 {\b\fs26 Hotbar Bank Keybinds Unresponsive\par}
-\fs22 {\i Monsters & Memories} is unresponsive to the default key binds for changing Hotbar Banks, set to Shift+NumPad0-9, on some machines. Often multiple presses are needed to actually change banks. This applies whether using an actual keyboard or this application. The game's developers are aware of this issue.\par
+\fs22 {\i\b Monsters & Memories} is unresponsive to the default key binds for changing Hotbar Banks, set to Shift+NumPad0-9, on some machines. Often multiple presses are needed to actually change banks. This applies whether using an actual keyboard or this application. The game's developers are aware of this issue.\par
 
 {\b Workaround:}\line
 Use the in-game Keybinds menu and remap Hotbar Bank 0-9 to some other keys. Simply NumPad0-9 works fine (without the Shift key) and nothing else uses those currently. Then be sure to edit your profile in the [KeyBinds] section so each HotBank0-9 entry = the new key you set it to in-game.\par
 
-----------------------------\par>
+----------------------------\par|
 
 
-<MnMDoubleEsc,
+|MnMDoubleEsc,
 {\b\fs26 Esc Presses Register Twice\par}
-\fs22 {\i Monsters & Memories} will act as if you pressed the Esc key twice whenever you press it. This means it will close 2 windows at once, for example. This applies when using any gamepad input mapped to the Esc key. There is really no workaround to this, though the game's developers are aware of this issue.\par
+\fs22 {\i\b Monsters & Memories} will act as if you pressed the Esc key twice whenever you press it. This means it will close 2 windows at once, for example. This applies when using any gamepad input mapped to the Esc key. There is really no workaround to this, though the game's developers are aware of this issue.\par
 
-----------------------------\par>
+----------------------------\par|
 
 
-<MnMServerScreen,
+|MnMServerScreen,
 {\b\fs26 Server and Character Select Screen\par}
-\fs22 {\i Monsters & Memories} responds to controller input in the server / character selection / character creation screens, even though it doesn't truly support gamepads. Specifically, pressing the bottom face button ({\b A} on XB or {\b X} on PS) can cause some UI buttons to activate twice - once from the gamepad-to-mouse click sent by this app, and once from the game itself detecting the button press directly. Fortunately, this only really causes problems during character creation.\par
+\fs22 {\i\b Monsters & Memories} responds to controller input in the server / character selection / character creation screens, even though it doesn't truly support gamepads. Specifically, pressing the bottom face button ({\b A} on XB or {\b X} on PS) can cause some UI buttons to activate twice - once from the gamepad-to-mouse click sent by this app, and once from the game itself detecting the button press directly. Fortunately, this only really causes problems during character creation.\par
 
 {\b Workarounds:}\line
 \bullet  Use the regular mouse and keyboard when creating a character.\line
 \bullet  Use {\b HidHide} to block {\i Monsters & Memories} from detecting controllers entirely. Learn more at: https://docs.nefarius.at/projects/HidHide/Simple-Setup-Guide/ \par
 
-----------------------------\par>
+----------------------------\par|
 
 
-<AoAMoveWithX,
-{\b\fs26 Gamepad Buttons Cause Unexpected Actions\par}
-\fs22 In {\i Adrullan Online Adventures}, the game reacts to gamepad input even though it doesn't truly support controller use. Specifically, pressing the bottom face button ({\b A} on XB or {\b X} on PS) can cause strange behavior like zooming the camera in or making your character move forward.\par
+|AoAMoveWithX,
+{\b\fs26 *** CRITICAL: Gamepad Buttons Cause Unexpected Actions ***\par}
+\fs22 The {\b\i Adrullan Online Adventures} client still reacts to gamepad input even though it doesn't properly support controller use. Specifically, pressing the bottom face button ({\b A} on XB or {\b X} on PS) can cause strange behavior like zooming the camera in or making your character move forward.\par
 
-Unfortunately, this app can't prevent the game from also responding to controller input directly.\par
+Unfortunately, this app can {\i not} prevent the game from {\i also} responding to controller input directly, causing unwanted responses to this button.\par
 
 {\b Workaround:}\line
 Use {\b HidHide} to block the game from detecting your controller, so it only responds to the keyboard and mouse input sent by this app. Learn more at: https://docs.nefarius.at/projects/HidHide/Simple-Setup-Guide/ \par
 
-----------------------------\par>
+----------------------------\par|
 
 
-<AoAMouseLookStops,
+|AoAMouseLookStops,
 {\b\fs26 Mouse Look Mode Randomly Stops Working\par}
-\fs22 "Mouse Look Mode" is used to control the camera with the mouse, and is activated by holding the right mouse button. This is what the default example profile for {\i Adrullan Online Adventures} simulates to allow controlling the camera with the right analog stick.\par
+\fs22 "Mouse Look Mode" is used to control the camera with the mouse, and is activated by holding the right mouse button. This is what the default example profile for {\i\b Adrullan Online Adventures} simulates to allow controlling the camera with the right analog stick.\par
 
 Unfortunately, sometimes the game randomly stops responding to the right mouse button being held down, leaving the cursor moving around rather than the camera. This will continue to not work until a normal left click is used on a blank part of the screen, which seems to reset it.\par
 
@@ -59,24 +59,24 @@ When camera control stops working and just moves the mouse cursor around instead
 
 In the default expample profile, left-click is mapped to the bottom face button ({\b A} on XB or {\b X} on PS), and that same button will return to cursor mode, so simply tap that button once, make sure cursor is pointing at a blank part of the screen, tap it again, and then camera control should work again.\par
 
-----------------------------\par>
+----------------------------\par|
 
 
-<MouseLookUI,
+|MouseLookUI,
 {\b\fs26 Mouse Look and UI Window issues\par}
-\fs22 This game features two "Mouse Look Modes" to adjust the camera using the mouse - via holding either the left or right mouse button. This app uses this method to control the camera.\par
+\fs22 This game features two "Mouse Look Modes" to adjust the camera using the mouse - via holding either the left or right mouse button.\par
 
-Changing between the left click and right click modes may not always work smoothly if a UI window is over the center of the screen. This is because the game secretly hides the cursor at the center of the screen during these modes, and may register the clicks as clicking on the UI window instead of the background. This may affect using "Mouse=AutoLook" in your control scheme, which swaps modes whenever you stop or start moving your character, potentially causing some erratic camera behavior.\par
+Changing between the left click and right click modes may not always work smoothly if a UI window is over the center of the screen. This is because the game secretly hides the cursor at the center of the screen during these modes, and may register the clicks as clicking on the UI window instead of the background. This may affect using "Mouse=AutoLook" in your control scheme, which swaps modes whenever you stop or start moving your character, potentially causing some erratic camera/cursor behavior.\par
 
 {\b Workarounds:}\line
 \bullet  Avoid moving around with a UI window overlapping center-screen\line
-\bullet  For default control scheme, change "Main Menu/Overlay/Settings/Free look" to a setting that does not change modes as often, such as "Sitting" - which only activates free look after use Sit - or "Holding L2" - which only allows holding the L2 button to activate the free-look (left mouse button) camera mode.\par
+\bullet  For default control scheme, change "Main Menu -> Overlay -> Settings -> Free look" to a setting that does not change modes as often, such as "Sitting" - which only activates free look after use Sit - or "Holding L2" - which only allows holding the L2 button to activate the free-look (left mouse button) camera mode.\par
 
-----------------------------\par>
+----------------------------\par|
 
 
-<NONE,
-{\b\fs26 No known issues found.\par}>
+|NONE,
+{\b\fs26 No known issues found.\par}|
 
 \fs22To view this information again later, go to {\b Help -> Known Game Issues} from the menu in the app window.\par
 

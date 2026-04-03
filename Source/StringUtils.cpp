@@ -792,11 +792,11 @@ findStringTag(
 	{
 		// Find the closing theTagEnd (or if none found, not valid tag!)
 		std::string::size_type aTagEndPos = theString.find(
-			theTagEnd, aTagStartPos);
+			theTagEnd, aTagStartPos+1);
 		if( aTagEndPos != std::string::npos )
 		{
 			// Only use the last theTagStart found before the closing theTagEnd
-			result.first = theString.rfind(theTagStart, aTagEndPos);
+			result.first = theString.rfind(theTagStart, aTagEndPos-1);
 			result.second = aTagEndPos - result.first + 1;
 		}
 	}
