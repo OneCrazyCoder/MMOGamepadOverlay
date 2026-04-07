@@ -165,9 +165,8 @@ struct ZERO_INIT(CopiedBitmapIcon)
 	POINT targetTL;
 	SIZE size;
 	u16 hotspotID;
-
-	bool operator==(const CopiedBitmapIcon& rhs) const
-	{ return hotspotID == rhs.hotspotID; }
+	bool initialized;
+	bool valid;
 };
 
 struct ZERO_INIT(LabelIcon)
@@ -393,7 +392,6 @@ static std::vector<MenuCacheEntry> sMenuDrawCache;
 static std::vector<ResizedFontInfo> sAutoSizedFonts;
 static std::vector<CopiedBitmapIcon> sCopiedIcons;
 static std::vector<CopyRectRequest> sAutoRefreshCopyRectQueue;
-static BitVector<512> sHotspotsUsedByCopyIcons;
 static std::wstring sErrorMessage;
 static std::wstring sNoticeMessage;
 static HDC sBitmapDrawSrc = NULL;
@@ -1447,14 +1445,84 @@ static void drawBitmapIcon(
 }
 
 
+static void initCopiedBitmapIcon(DrawData& dd, CopiedBitmapIcon& theIcon)
+{
+	DBG_ASSERT(theIcon.hotspotID);
+	theIcon.initialized = true;
+	theIcon.valid = false;
+	const Hotspot& aCopySrcHotspot =
+		InputMap::getHotspot(theIcon.hotspotID);
+	if( aCopySrcHotspot.w == 0 || aCopySrcHotspot.h == 0 )
+		return;
+	if( !InputMap::isValidHotspotID(theIcon.hotspotID) )
+		return;
+	const double aHotspotScale = InputMap::hotspotScale(theIcon.hotspotID);
+	const int anIconSizeX =
+		int(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
+	const int anIconSizeY =
+		int(aCopySrcHotspot.h * aHotspotScale * gUIScale + 0.5);
+	if( theIcon.image &&
+		(theIcon.size.cx != anIconSizeX || theIcon.size.cy != anIconSizeY) )
+	{
+		DeleteObject(theIcon.image);
+		theIcon.image = null;
+	}
+	theIcon.targetTL = hotspotToPoint(aCopySrcHotspot, dd.targetSize);
+	theIcon.size.cx = LONG(anIconSizeX);
+	theIcon.size.cy = LONG(anIconSizeY);
+	// Hotspot is centered, so offset left/top by half box size
+	theIcon.targetTL.x -= anIconSizeX / 2;
+	theIcon.targetTL.y -= anIconSizeY / 2;
+	theIcon.valid = true;
+}
+
+
+static void updateCopiedBitmapIcon(
+	DrawData& dd,
+	HDC hCaptureDC,
+	const POINT& theCaptureOffset,	
+	int theCopyBitmapID)
+{
+	if( !hCaptureDC )
+		return;
+
+	DBG_ASSERT(size_t(theCopyBitmapID) < sCopiedIcons.size());
+	CopiedBitmapIcon& theIcon = sCopiedIcons[theCopyBitmapID];
+	if( !theIcon.initialized )
+		initCopiedBitmapIcon(dd, theIcon);
+	if( !theIcon.valid )
+		return;
+	DBG_ASSERT(sBitmapDrawSrc);
+
+	if( !theIcon.image )
+	{
+		theIcon.image = CreateCompatibleBitmap(
+			hCaptureDC, theIcon.size.cx, theIcon.size.cy);
+	}
+
+	// Borrow sBitmapDrawSrc as a destination HDC in this case,
+	// with hCaptureDC as the source HDC
+	HBITMAP hOldBitmap = (HBITMAP)
+		SelectObject(sBitmapDrawSrc, theIcon.image);
+	BitBlt(
+		sBitmapDrawSrc, 0, 0, theIcon.size.cx, theIcon.size.cy,
+		hCaptureDC,
+		theIcon.targetTL.x + theCaptureOffset.x,
+		theIcon.targetTL.y + theCaptureOffset.y,
+		SRCCOPY);
+	SelectObject(sBitmapDrawSrc, hOldBitmap);
+	theIcon.valid = true;
+}
+
+
 static void drawCopiedBitmapIcon(
 	DrawData& dd, int theCopiedBitmapID, const CopyRectRequest& theCopyRequest)
 {
 	DBG_ASSERT(size_t(theCopiedBitmapID) < sCopiedIcons.size());
 	const CopiedBitmapIcon& theIcon = sCopiedIcons[theCopiedBitmapID];
-	if( !theIcon.image )
+	if( !theIcon.valid )
 		return;
-	DBG_ASSERT(sBitmapDrawSrc);
+	DBG_ASSERT(sBitmapDrawSrc && theIcon.image);
 
 	int aDstL = theCopyRequest.dstL;
 	int aDstT = theCopyRequest.dstT;
@@ -1512,38 +1580,6 @@ static void drawCopiedBitmapIcon(
 	// Reset clipping
 	if( theCopyRequest.useClipRect )
 		SelectClipRgn(dd.hdc, NULL);
-}
-
-
-static void updateCopiedBitmapIcon(
-	HDC hCaptureDC,
-	const POINT& theCaptureOffset,	
-	int theCopyBitmapID)
-{
-	if( !hCaptureDC )
-		return;
-
-	DBG_ASSERT(size_t(theCopyBitmapID) < sCopiedIcons.size());
-	CopiedBitmapIcon& theIcon = sCopiedIcons[theCopyBitmapID];
-	DBG_ASSERT(sBitmapDrawSrc && theIcon.size.cx > 0 && theIcon.size.cy > 0);
-
-	if( !theIcon.image )
-	{
-		theIcon.image = CreateCompatibleBitmap(
-			hCaptureDC, theIcon.size.cx, theIcon.size.cy);
-	}
-
-	// Borrow sBitmapDrawSrc as a destination HDC in this case,
-	// with hCaptureDC as the source HDC
-	HBITMAP hOldBitmap = (HBITMAP)
-		SelectObject(sBitmapDrawSrc, theIcon.image);
-	BitBlt(
-		sBitmapDrawSrc, 0, 0, theIcon.size.cx, theIcon.size.cy,
-		hCaptureDC,
-		theIcon.targetTL.x + theCaptureOffset.x,
-		theIcon.targetTL.y + theCaptureOffset.y,
-		SRCCOPY);
-	SelectObject(sBitmapDrawSrc, hOldBitmap);
 }
 
 
@@ -1932,8 +1968,7 @@ static void initializeLabelDrawCacheEntry(
 	DBG_ASSERT(theCacheEntry.type == eMenuItemLabelType_Unknown);
 	LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
 
-	if( aLabelIcon && aLabelIcon->copyFromTarget &&
-		InputMap::isValidHotspotID(aLabelIcon->hotspotID) )
+	if( aLabelIcon && aLabelIcon->copyFromTarget )
 	{
 		// Copy-from-target rect icon
 		int anID = 1;
@@ -1946,37 +1981,23 @@ static void initializeLabelDrawCacheEntry(
 				return;
 			}
 		}
-		Hotspot aCopySrcHotspot =
-			InputMap::getHotspot(aLabelIcon->hotspotID);
-		if( aCopySrcHotspot.w == 0 || aCopySrcHotspot.h == 0 )
+		sCopiedIcons.push_back(CopiedBitmapIcon());
+		sCopiedIcons.back().hotspotID = aLabelIcon->hotspotID;
+		initCopiedBitmapIcon(dd, sCopiedIcons.back());
+		if( sCopiedIcons.back().valid )
+		{
+			theCacheEntry.type = eMenuItemLabelType_CopyRect;
+			theCacheEntry.copyIconID = dropTo<u16>(anID);
+			return;
+		}
+		if( sCopiedIcons.back().size.cx == 0 ||
+			sCopiedIcons.back().size.cy == 0 )
 		{
 			logError("Copy-from-screen label '%s' set to hotspot '%s' "
 				"which has 0 for width or height, so nothing to copy!",
 				theLabel.c_str(),
 				InputMap::hotspotLabel(aLabelIcon->hotspotID).c_str());
 			aLabelIcon->hotspotID = 0; // prevent repeat of this error
-		}
-		else
-		{
-			theCacheEntry.type = eMenuItemLabelType_CopyRect;
-			theCacheEntry.copyIconID = dropTo<u16>(anID);
-			CopiedBitmapIcon aCopyIcon;
-			aCopyIcon.image = NULL;
-			aCopyIcon.hotspotID = aLabelIcon->hotspotID;
-			aCopyIcon.targetTL =
-				hotspotToPoint(aCopySrcHotspot, dd.targetSize);
-			const double aHotspotScale =
-				InputMap::hotspotScale(aLabelIcon->hotspotID);
-			aCopyIcon.size.cx =
-				LONG(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
-			aCopyIcon.size.cy =
-				LONG(aCopySrcHotspot.h * aHotspotScale * gUIScale + 0.5);
-			// Hotspot is centered, so offset left/top by half box size
-			aCopyIcon.targetTL.x -= aCopyIcon.size.cx / 2;
-			aCopyIcon.targetTL.y -= aCopyIcon.size.cy / 2;
-			sCopiedIcons.push_back(aCopyIcon);
-			sHotspotsUsedByCopyIcons.set(aLabelIcon->hotspotID);
-			return;
 		}
 	}
 
@@ -2990,7 +3011,6 @@ static void loadAllProfileData()
 		}
 	}
 
-	sHotspotsUsedByCopyIcons.clearAndResize(InputMap::hotspotCount());
 	sCacheIncreaseCount = 0;
 }
 
@@ -3066,15 +3086,15 @@ void loadProfileChanges()
 	}
 
 	// Check for changes to any hotspots
-	if( InputMap::changedHotspots().any() )
+	const BitVector<512>& aChangedHotspotSet = InputMap::changedHotspots();
+	if( aChangedHotspotSet.any() )
 	{
 		gRefreshOverlays.set(kHotspotGuideOverlayID);
-		// Clear label cache if any copy icons are using a changed hotspot
-		if( (sHotspotsUsedByCopyIcons & InputMap::changedHotspots()).any() )
+		// Set any copy icons using a changed hotspot to update their data
+		for(int i = 0, end = intSize(sCopiedIcons.size()); i < end; ++i)
 		{
-			for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
-				sMenuDrawCache[i].labelCache.clear();
-			sHotspotsUsedByCopyIcons.reset();
+			if( aChangedHotspotSet.test(sCopiedIcons[i].hotspotID) )
+				sCopiedIcons[i].initialized = false;
 		}
 		// Trigger a reshape for any active menus that use changed hotspots
 		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
@@ -3147,7 +3167,6 @@ void cleanup()
 	sAutoSizedFonts.clear();
 	sCopiedIcons.clear();
 	sAutoRefreshCopyRectQueue.clear();
-	sHotspotsUsedByCopyIcons.clear();
 	sErrorMessage.clear();
 	sErrorMessageTimer = 0;
 	sParseSectName.clear();
@@ -3429,7 +3448,6 @@ void updateScaling()
 		// Also reset max border size
 		sMenuDrawCache[i].maxBorderSize = -1;
 	}
-	sHotspotsUsedByCopyIcons.reset();
 
 	// Clear copy rect icon data since they are also affected by scale
 	// (and are only referenced by label cache which was just cleared above)
@@ -3620,7 +3638,7 @@ bool copyContentsFromTarget(
 			if( !aCopyRequest.lowPriority || sCopyIconPriorityLevel >= 2 )
 			{
 				updateCopiedBitmapIcon(
-					hCaptureDC, theCaptureOffset, aCopyIconID);
+					dd, hCaptureDC, theCaptureOffset, aCopyIconID);
 				drawCopiedBitmapIcon(dd, aCopyIconID, aCopyRequest);
 				--sTargetCopiesAllowedThisFrame;
 				// Flag a change has been made so window needs updating
@@ -3862,7 +3880,6 @@ void updateWindowLayout(
 
 	// Calculate component rects based on menu type
 	ps.rects.clear();
-	ps.rectDrawCount.clear();
 	POINT aCompTopLeft =
 		{ aWinPosX - theWinPos.x, aWinPosY - theWinPos.y };
 	POINT aCompBotRight =

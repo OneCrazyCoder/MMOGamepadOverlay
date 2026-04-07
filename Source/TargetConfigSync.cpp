@@ -307,6 +307,7 @@ static bool sInitialized = false;
 static bool sPaused = false;
 static bool sPromptForWildcardFiles = false;
 static bool sForcePromptForWildcardFiles = false;
+static bool sNeedVarChangeReload = false;
 static bool sNeedFullReload = false;
 
 
@@ -2323,12 +2324,9 @@ static std::string getValueString(
 static void reload()
 {
 	if( sInitialized || sPaused )
-	{
-		// Restore any sync variables to default Profile value first
-		for(int i = 0, end = intSize(sVariables.size()); i < end; ++i)
-			Profile::reloadVariable(sVariables[i].variableID);
 		cleanup();
-	}
+	sNeedFullReload = false;
+	sNeedVarChangeReload = false;
 
 	GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
 	TargetConfigSyncBuilder aBuilder;
@@ -2583,6 +2581,14 @@ void load()
 		kTargetConfigSettingsSectionName,
 		kLastTimeFileSelectedPropertyName));
 	reload();
+	// Catch cases where sync variable affects sync configurations themselves
+	loadProfileChanges();
+	while( sNeedVarChangeReload )
+	{
+		Profile::clearChangedSections();
+		reload();
+		loadProfileChanges();
+	}
 }
 
 
@@ -2594,7 +2600,7 @@ void loadProfileChanges()
 		theProfileMap.contains(kTargetConfigVarsSectionName) ||
 		theProfileMap.contains(kValueFormatStrSectionName) )
 	{
-		reload();
+		sNeedVarChangeReload = true;
 	}
 }
 
@@ -2645,7 +2651,16 @@ void update()
 		// runtime, and a full reload is needed to reset any variables to their
 		// default values in case the new file doesn't mention that variable's
 		// properties at all, so assume that the default value is desired.
-		sNeedFullReload = false;
+		for(int i = 0, end = intSize(sVariables.size()); i < end; ++i)
+			Profile::reloadVariable(sVariables[i].variableID);
+		reload();
+		return;
+	}
+
+	if( sNeedVarChangeReload )
+	{
+		// This is set when a variable was changed that is used by the
+		// Target Config Sync properties themselves
 		reload();
 		return;
 	}
@@ -2860,6 +2875,8 @@ void promptUserForSyncFileToUse()
 {
 	sForcePromptForWildcardFiles = true;
 
+	for(int i = 0, end = intSize(sVariables.size()); i < end; ++i)
+		Profile::reloadVariable(sVariables[i].variableID);
 	reload();
 
 	if( sForcePromptForWildcardFiles )
