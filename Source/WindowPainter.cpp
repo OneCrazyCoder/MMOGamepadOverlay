@@ -1511,7 +1511,6 @@ static void updateCopiedBitmapIcon(
 		theIcon.targetTL.y + theCaptureOffset.y,
 		SRCCOPY);
 	SelectObject(sBitmapDrawSrc, hOldBitmap);
-	theIcon.valid = true;
 }
 
 
@@ -1520,9 +1519,9 @@ static void drawCopiedBitmapIcon(
 {
 	DBG_ASSERT(size_t(theCopiedBitmapID) < sCopiedIcons.size());
 	const CopiedBitmapIcon& theIcon = sCopiedIcons[theCopiedBitmapID];
-	if( !theIcon.valid )
+	if( !theIcon.valid || !theIcon.image )
 		return;
-	DBG_ASSERT(sBitmapDrawSrc && theIcon.image);
+	DBG_ASSERT(sBitmapDrawSrc);
 
 	int aDstL = theCopyRequest.dstL;
 	int aDstT = theCopyRequest.dstT;
