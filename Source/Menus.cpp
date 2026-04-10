@@ -561,6 +561,10 @@ Command closeActiveSubMenu(int theRootMenuID)
 	if( result.type == eCmdType_Invalid && aNewSubMenuID != theOldSubMenuID )
 		result.type = eCmdType_Unassigned;
 
+	// Cancel any confirmation flashes when back out of a sub-menu
+	if( result.type != eCmdType_Invalid )
+		gConfirmedMenuItem[theOverlayID] = kInvalidID;
+
 	return result;
 }
 
@@ -598,9 +602,21 @@ Command backCommand(int theRootMenuID)
 }
 
 
-Command closeCommand(int theRootMenuID)
+Command confirmCommand(int theRootMenuID, bool fromSelectMenuItem)
 {
-	return InputMap::menuBackCommand(theRootMenuID);
+	Command result;
+
+	const int theOverlayID = getMenuOverlayID(theRootMenuID);
+	const int theSubMenuID = sActiveSubMenu[theOverlayID];
+	const EMenuStyle aMenuStyle = InputMap::menuStyle(theSubMenuID);
+	const bool usesConfirmFromDir = aMenuStyle == eMenuStyle_4Dir;
+	if( usesConfirmFromDir != fromSelectMenuItem )
+		return result;
+
+	result = InputMap::menuConfirmCommand(theSubMenuID);
+	if( theSubMenuID != theRootMenuID && result.type <= eCmdType_Empty )
+		result = InputMap::menuConfirmCommand(theRootMenuID);
+	return result;
 }
 
 

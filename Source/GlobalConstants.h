@@ -80,14 +80,11 @@ enum ECommandType
 	eCmdType_OpenSideMenu,
 	eCmdType_MenuReset,
 	eCmdType_MenuConfirm,
-	eCmdType_MenuConfirmAndClose,
 	eCmdType_MenuBack, // close last sub-menu
-	eCmdType_MenuClose,
 	eCmdType_MenuEdit,
 
 	// These should have 'dir' set to an ECommandDir
 	eCmdType_MenuSelect,
-	eCmdType_MenuSelectAndClose,
 	eCmdType_MenuEditDir,
 	eCmdType_HotspotSelect,
 

@@ -1345,20 +1345,11 @@ static void processCommand(
 		updateMouseForMenu(theCmd.rootMenuID, true);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
 		processCommand(theBtnState, aForwardCmd, theLayerIdx);
-		break;
-	case eCmdType_MenuConfirmAndClose:
-		updateMouseForMenu(theCmd.rootMenuID, true);
-		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
-		if( aForwardCmd.type >= eCmdType_FirstValid )
-		{
+		if( aForwardCmd.type < eCmdType_FirstMenuControl ||
+			aForwardCmd.type > eCmdType_LastMenuControl )
+		{// Run Confirm command as well if main command wasn't menu control
+			aForwardCmd = Menus::confirmCommand(theCmd.rootMenuID, false);
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			// Close menu if didn't just switch to a sub-menu
-			if( aForwardCmd.type < eCmdType_FirstMenuControl ||
-				aForwardCmd.type > eCmdType_LastMenuControl )
-			{
-				processCommand(theBtnState,
-					Menus::closeCommand(theCmd.rootMenuID), theLayerIdx);
-			}
 		}
 		break;
 	case eCmdType_MenuBack:
@@ -1370,10 +1361,6 @@ static void processCommand(
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 			updateMouseForMenu(theCmd.rootMenuID);
 		}
-		break;
-	case eCmdType_MenuClose:
-		processCommand(theBtnState,
-			Menus::closeCommand(theCmd.rootMenuID), theLayerIdx);
 		break;
 	case eCmdType_MenuEdit:
 		Menus::editMenuItem(theCmd.rootMenuID);
@@ -1388,27 +1375,20 @@ static void processCommand(
 			processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
 		updateMouseForMenu(theCmd.rootMenuID);
-		// Allow holding this button to auto-repeat after a delay
-		sState.exclusiveAutoRepeatButton = theBtnState;
-		break;
-	case eCmdType_MenuSelectAndClose:
-		for(int i = 0; i < theCmd.count; ++i)
 		{
-			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
-			aForwardCmd = Menus::selectMenuItem(
-				theCmd.rootMenuID, ECommandDir(theCmd.dir),
-				theCmd.wrap, repeated || i < theCmd.count-1);
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
-			// Close menu if didn't just switch to a sub-menu
-			if( aForwardCmd.type < eCmdType_FirstMenuControl ||
-				aForwardCmd.type > eCmdType_LastMenuControl )
-			{
-				processCommand(theBtnState,
-					Menus::closeCommand(theCmd.rootMenuID), theLayerIdx);
-				return;
-			}
+			const bool wasNotAMenuControlCmd =
+				aForwardCmd.type < eCmdType_FirstMenuControl ||
+				aForwardCmd.type > eCmdType_LastMenuControl;
+			aForwardCmd = Menus::confirmCommand(theCmd.rootMenuID, true);
+			// Allow holding this button to auto-repeat after a delay, OR
+			// use confirm command if menu has a valid one for selection dir
+			// and the selection command wasn't just a menu control command
+			// (just having a confirm command on selection dir blocks repeat)
+			if( aForwardCmd.type < eCmdType_FirstValid )
+				sState.exclusiveAutoRepeatButton = theBtnState;
+			else if( wasNotAMenuControlCmd )
+				processCommand(theBtnState, aForwardCmd, theLayerIdx);
 		}
-		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuEditDir:
 		DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
@@ -2016,11 +1996,9 @@ static void updateMenusForCurrentLayers()
 			{
 			case eCmdType_MenuReset:
 			case eCmdType_MenuConfirm:
-			case eCmdType_MenuConfirmAndClose:
 			case eCmdType_MenuBack:
 			case eCmdType_MenuEdit:
 			case eCmdType_MenuSelect:
-			case eCmdType_MenuSelectAndClose:
 			case eCmdType_MenuEditDir:
 				anOverlayIdx = InputMap::menuOverlayID(
 					aBtnState.commands.cmd[aBtnAct].rootMenuID);

@@ -63,9 +63,9 @@ Command autoCommand(int theRootMenuID);
 // Returns Back command of menu's currently-active sub-menu
 Command backCommand(int theRootMenuID);
 
-// Returns Back command of root menu, which should "close" the menu by
-// removing whatever layer controls it (that's the intent anyway)
-Command closeCommand(int theRootMenuID);
+// Returns Confirm command of of menu's currently-active sub-menu, or of the
+// root menu if the sub-menu has no confirm command assigned.
+Command confirmCommand(int theRootMenuID, bool fromSelectMenuItem = false);
 
 // Prompts user for new label & command for currently selected menu item
 void editMenuItem(int theRootMenuID);

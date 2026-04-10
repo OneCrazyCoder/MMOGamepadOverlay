@@ -660,7 +660,7 @@ std::string replaceAllCharWithInt(
 {
 	std::string result;
 
-	for(int i = 0, end = theString.size(); i < end; ++i)
+	for(int i = 0, end = intSize(theString.size()); i < end; ++i)
 	{
 		if( theString[i] != theChar )
 		{

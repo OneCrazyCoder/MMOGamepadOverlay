@@ -88,6 +88,7 @@ enum EPropertyType
 	ePropType_ButtonSwap,
 	ePropType_Auto,
 	ePropType_Back,
+	ePropType_Confirm,
 	ePropType_Style,
 	ePropType_KBCycle,
 	ePropType_GridWidth,
@@ -143,6 +144,7 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "ButtonRemap",				ePropType_ButtonSwap	},
 				{ "Auto",						ePropType_Auto			},
 				{ "Back",						ePropType_Back			},
+				{ "Confirm",					ePropType_Confirm		},
 				{ "Type",						ePropType_Style			},
 				{ "Style",						ePropType_Style			},
 				{ "KeyBindCycle",				ePropType_KBCycle		},
@@ -252,6 +254,7 @@ struct Menu
 	MenuItem dirItems[eCmdDir_Num];
 	Command autoCommand;
 	Command backCommand;
+	Command confirmCommand;
 	EMenuStyle style;
 	EMenuMouseMode mouseMode;
 	u16 parentMenuID;
@@ -1560,11 +1563,6 @@ static void reportCommandAssignment(
 			sSectionPrintName.c_str(),
 			sPropertyPrintName.c_str());
 		break;
-	case eCmdType_MenuClose:
-		mapDebugPrint("%s: Assigned '%s' to close menu\n",
-			sSectionPrintName.c_str(),
-			sPropertyPrintName.c_str());
-		break;
 	default:
 		mapDebugPrint("%s: Assigned '%s' to command: %s\n",
 			sSectionPrintName.c_str(),
@@ -2242,7 +2240,6 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Reset);
 	allowedKeyWords.reset(eCmdWord_Select);
 	allowedKeyWords.reset(eCmdWord_Confirm);
-	allowedKeyWords.reset(eCmdWord_Close);
 	allowedKeyWords.reset(eCmdWord_Edit);
 	allowedKeyWords.reset(eCmdWord_Left);
 	allowedKeyWords.reset(eCmdWord_Right);
@@ -2293,19 +2290,6 @@ static Command wordsToSpecialCommand(
 			result.rootMenuID = aRootMenuID;
 			return result;
 		}
-
-		// "= Confirm <aMenuName> [Menu] and Close"
-		// allowedKeyWords = Menu & Confirm & Mouse & Click
-		allowedKeyWords.set(eCmdWord_Close);
-		if( keyWordsFound.test(eCmdWord_Confirm) &&
-			keyWordsFound.test(eCmdWord_Close) &&
-			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-		{
-			result.type = eCmdType_MenuConfirmAndClose;
-			result.rootMenuID = aRootMenuID;
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Close);
 		allowedKeyWords.reset(eCmdWord_Confirm);
 
 		// "= Edit <aMenuName> [Menu]"
@@ -2456,22 +2440,7 @@ static Command wordsToSpecialCommand(
 			result.rootMenuID = aRootMenuID;
 			return result;
 		}
-
-		// "= 'Select'|'Menu'|'Select Menu' and Close
-		// <aMenuName> <aCmdDir> [No/Wrap] [#]"
-		// allowedKeyWords = Menu & Select
-		allowedKeyWords.set(eCmdWord_Close);
-		if( (keyWordsFound.test(eCmdWord_Select) ||
-			 keyWordsFound.test(eCmdWord_Menu)) &&
-			keyWordsFound.test(eCmdWord_Close) &&
-			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-		{
-			result.type = eCmdType_MenuSelectAndClose;
-			result.rootMenuID = aRootMenuID;
-			return result;
-		}
 		allowedKeyWords.reset(eCmdWord_Select);
-		allowedKeyWords.reset(eCmdWord_Close);
 
 		// "= Edit [Menu] <aMenuName> <aCmdDir>"
 		// allowedKeyWords = Menu
@@ -2896,13 +2865,6 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 		return aMenuItem;
 	}
 
-	if( commandWordToID(theString) == eCmdWord_Close )
-	{// Close menu
-		aMenuItem.cmd.type = eCmdType_MenuClose;
-		aMenuItem.cmd.rootMenuID = sMenus.vals()[theMenuID].rootMenuID;
-		return aMenuItem;
-	}
-
 	aMenuItem.cmd = stringToCommand(theString);
 	if( aMenuItem.cmd.type == eCmdType_Invalid )
 	{
@@ -3005,6 +2967,16 @@ static void applyMenuProperty(
 	case ePropType_MenuItemDown:
 		aMenuItem = &theMenu.dirItems[aPropType];
 		*aMenuItem = stringToMenuItem(theMenuID, thePropVal);
+		break;
+
+	case ePropType_Confirm:
+		{
+			// Acts like a menu item command without a label
+			// (so can support ".." etc)
+			MenuItem aTmpMenuItem = stringToMenuItem(theMenuID, ":"+thePropVal);
+			theMenu.confirmCommand = aTmpMenuItem.cmd;
+			reportCommandAssignment(theMenu.confirmCommand, thePropVal);
+		}
 		break;
 
 	case ePropType_MenuItemNumber:
@@ -4532,6 +4504,13 @@ Command menuBackCommand(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	return sMenus.vals()[theMenuID].backCommand;
+}
+
+
+Command menuConfirmCommand(int theMenuID)
+{
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	return sMenus.vals()[theMenuID].confirmCommand;
 }
 
 

@@ -89,6 +89,7 @@ Command commandForMenuItem(int theMenuID, int theMenuItemIdx);
 Command commandForMenuDir(int theMenuID, ECommandDir theDir);
 Command menuAutoCommand(int theMenuID);
 Command menuBackCommand(int theMenuID);
+Command menuConfirmCommand(int theMenuID);
 EMenuStyle menuStyle(int theMenuID);
 EMenuMouseMode menuMouseMode(int theMenuID);
 int rootMenuOfMenu(int theMenuID);

@@ -618,7 +618,6 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "Close",			eCmdWord_Close		},
 				{ "Quit",			eCmdWord_Close		},
 				{ "Exit",			eCmdWord_Close		},
-				{ "CloseMenu",		eCmdWord_Close		},
 				{ "Wrap",			eCmdWord_Wrap		},
 				{ "Wrapping",		eCmdWord_Wrap		},
 				{ "NoWrap",			eCmdWord_NoWrap		},
