@@ -68,6 +68,10 @@ int breakOffIntegerSuffix(std::string& theString, bool allowJustInt = false);
 // Returns true if was a valid range with 2 values (even for i.e. "Name12-12").
 bool fetchRangeSuffix(const std::string& theString, std::string& theRangeName,
 					  int& theStart, int& theEnd, bool allowJustInt = false);
+// Replace all instances in a string of given char with given int (as a string),
+// but also allow for "c+3" or "c-12" to adjust the replacement integer.
+std::string replaceAllCharWithInt(
+	const std::string& theString, char theChar, int theInt);
 // Breaks the string into individual sub-strings of ASCII alphanumeric chars,
 // and appends them to the passed-in vector of strings. All other characters are
 // stripped and act as separators for each "word" (except for hyphenated or

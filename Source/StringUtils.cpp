@@ -655,6 +655,52 @@ bool fetchRangeSuffix(
 }
 
 
+std::string replaceAllCharWithInt(
+	const std::string& theString, char theChar, int theInt)
+{
+	std::string result;
+
+	for(int i = 0, end = theString.size(); i < end; ++i)
+	{
+		if( theString[i] != theChar )
+		{
+			result += theString[i];
+			continue;
+		}
+
+		// Check for (+|-) followed by at least one digit
+		if( i+2 < end && (theString[i+1] == '+' || theString[i+1] == '-') )
+		{
+			int aDigitPos = i+2;
+			if( theString[aDigitPos] >= '0' && theString[aDigitPos] <= '9' )
+			{
+				int aValue = theString[aDigitPos++] - '0';
+
+				// Parse digits only; stop at first non-digit
+				while(aDigitPos < end && 
+					  theString[aDigitPos] >= '0' &&
+					  theString[aDigitPos] <= '9')
+				{ aValue = aValue * 10 + (theString[aDigitPos++] - '0'); }
+
+				if( theString[i+1] == '-' )
+					aValue = -aValue;
+
+				result += toString(theInt + aValue);
+
+				// Continue from first non-digit after number
+				i = aDigitPos - 1; // -1 to counter ++ in for()
+				continue;
+			}
+		}
+
+		// Just replace theChar
+		result += toString(theInt);
+	}
+
+	return result;
+}
+
+
 void sanitizeSentence(
 	const std::string& theString, std::vector<std::string>& out)
 {

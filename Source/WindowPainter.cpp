@@ -828,9 +828,9 @@ static void setLabelIcon(
 			for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
 			{
 				const std::string& anIntStr = toString(i);
-				const std::string& aNumberedDesc = replaceAllStr(
-					theIconDesc, "#", anIntStr.c_str());
-				setLabelIcon(aLabelBaseName + anIntStr, aNumberedDesc, true);
+				const std::string& aNumberedDesc =
+					replaceAllCharWithInt(theIconDesc, '#', i);
+				setLabelIcon(aLabelBaseName + toString(i), aNumberedDesc, true);
 			}
 			return;
 		}

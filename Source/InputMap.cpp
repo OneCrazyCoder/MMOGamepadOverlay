@@ -2807,7 +2807,7 @@ static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
 static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 {
 	MenuItem aMenuItem;
-	if( theString.empty() )
+	if( isEffectivelyEmptyString(theString) )
 	{
 		aMenuItem.cmd.type = eCmdType_Empty;
 		return aMenuItem;
@@ -3063,13 +3063,12 @@ static void applyMenuProperty(
 					thePropKey, aRangeBaseKey,
 					aRangeStartIdx, aRangeEndIdx, true) )
 			{
-				std::string anIntStr, aNumberedPropVal;
+				std::string aNumberedPropVal;
 				for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
 				{
-					anIntStr = toString(i);
-					sPropertyPrintName = aRangeBaseKey + anIntStr;
-					aNumberedPropVal = replaceAllStr(
-						thePropVal, "#", anIntStr.c_str());
+					sPropertyPrintName = aRangeBaseKey + toString(i);
+					aNumberedPropVal =
+						replaceAllCharWithInt(thePropVal, '#', i);
 					applyMenuProperty(
 						theMenuID, init,
 						sPropertyPrintName,
@@ -3245,10 +3244,23 @@ static void validateMenu(int theMenuID)
 		theMenu.items.push_back(MenuItem());
 	}
 
-	// Don't need to search for gaps in hotspot-using menus
+	// Silently remove any hotspot menu items set to empty
 	if( aMenuStyle == eMenuStyle_Hotspots ||
 		aMenuStyle == eMenuStyle_Highlight )
-	{ return; }
+	{
+		for(std::vector<MenuItem>::iterator itr = theMenu.items.begin(),
+			next_itr = itr; itr != theMenu.items.end(); itr = next_itr)
+		{
+			++next_itr;
+			if( itr->cmd.type <= eCmdType_Empty )
+			{
+				if( itr - theMenu.items.begin() < theMenu.defaultMenuItemIdx )
+					--theMenu.defaultMenuItemIdx;
+				next_itr = theMenu.items.erase(itr);
+			}
+		}
+		return;
+	}
 
 	// Silently trim off any empty items on the end of the menu
 	while(theMenu.items.size() > 1 &&
