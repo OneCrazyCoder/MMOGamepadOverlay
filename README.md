@@ -8,8 +8,6 @@ This application was specifically built to play the classic-style MMO's ***Monst
 
 The default provided control schemes draw direct inspiration from the only MMORPG ever made exclusively for controller use - ***EverQuest Online Adventures*** for the *PlayStation 2*.
 
-However, it is very highly customizable and can be used with *any* Windows game if you’re looking for a free, open-source, lightweight, portable, and versatile tool for using a gamepad with a game that doesn't natively support one. Just be aware that creating a control scheme from scratch for a new game requires a bit of technical know-how, as it involves editing plain-text files.
-
 This application does ***NOT***:
 - Require (or even include) an installation process  
 - Modify game files in any way  
@@ -18,6 +16,8 @@ This application does ***NOT***:
 - Use any libraries beyond the basic Windows API  
 - Expect or solicit payments or donations  
 - Use any proprietary or hidden source code
+
+Although built for the aforementioned MMO's to emulate EQOA's control scheme, it is very highly customizable and can make any control scheme you want and be used with any Windows game you want if you’re looking for a free, open-source, lightweight, portable, and versatile tool for using a gamepad with a game that doesn't natively support one. The downside is that setting up a control scheme yourself requires some technical know-how and editing text files.
 
 ## Download
 

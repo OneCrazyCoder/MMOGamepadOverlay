@@ -317,7 +317,7 @@ struct MenuCacheEntry
 
 struct ZERO_INIT(CopyRectRequest)
 {
-	int dstL, dstT, dstW, dstH;
+	int dstL, dstT, dstW, dstH, innerDstW, innerDstH;
 	RECT clipRect;
 	u16 overlayID;
 	u16 menuID;
@@ -333,6 +333,7 @@ struct ZERO_INIT(CopyRectRequest)
 		return
 			dstL == rhs.dstL && dstT == rhs.dstT &&
 			dstW == rhs.dstW && dstH == rhs.dstH &&
+			innerDstW == rhs.innerDstW && innerDstH == rhs.innerDstH &&
 			useClipRect == rhs.useClipRect &&
 			(!useClipRect ||
 			 EqualRect(&clipRect, &rhs.clipRect)) &&
@@ -1528,7 +1529,15 @@ static void drawCopiedBitmapIcon(
 	int aDstH = theCopyRequest.dstH;
 	int aSrcW = theIcon.size.cx;
 	int aSrcH = theIcon.size.cy;
-	if( theCopyRequest.useClipRect )
+
+	// Stretch (or shrink) but maintain aspect ratio as long as icon is larger
+	// than DstW/H or smaller than clipRectW/H (and expansion is allowed, i.e.
+	// destination is a rectangle). Otherwise just draw centered.
+	const bool needShrink = aSrcW > aDstW || aSrcH > aDstH;
+	const bool needExpand = !needShrink &&
+		 aSrcW < theCopyRequest.innerDstW && aSrcH < theCopyRequest.innerDstH;
+
+	if( theCopyRequest.useClipRect && !needExpand )
 	{
 		DBG_ASSERT(sClipRegion);
 		SetRectRgn(sClipRegion,
@@ -1537,8 +1546,8 @@ static void drawCopiedBitmapIcon(
 		SelectClipRgn(dd.hdc, sClipRegion);
 	}
 
-	if( aDstW >= aSrcW && aDstH >= aSrcH )
-	{// Just draw centered at destination
+	if( !needShrink && !needExpand )
+	{
 		HBITMAP hOldBitmap = (HBITMAP)
 			SelectObject(sBitmapDrawSrc, theIcon.image);
 		BitBlt(dd.hdc,
@@ -1549,7 +1558,15 @@ static void drawCopiedBitmapIcon(
 		SelectObject(sBitmapDrawSrc, hOldBitmap);
 	}
 	else
-	{// Draw stretched (technically shrunk), but maintain aspect ratio
+	{
+		if( needExpand )
+		{
+			aDstL += (aDstW - theCopyRequest.innerDstW) / 2;
+			aDstT += (aDstH - theCopyRequest.innerDstH) / 2;
+			aDstW = theCopyRequest.innerDstW;
+			aDstH = theCopyRequest.innerDstH;
+		}
+
 		const double aSrcAspectRatio = double(aSrcW) / aSrcH;
 		const double aDstAspectRatio = double(aDstW) / aDstH;
 
@@ -1576,7 +1593,7 @@ static void drawCopiedBitmapIcon(
 	}
 
 	// Reset clipping
-	if( theCopyRequest.useClipRect )
+	if( theCopyRequest.useClipRect && !needExpand )
 		SelectClipRgn(dd.hdc, NULL);
 }
 
@@ -2140,6 +2157,12 @@ static void drawMenuItemLabel(
 				sOverlayPaintStates[dd.overlayID].rects[theRectIdx];
 			InflateRect(&aCopyRequest.clipRect,
 				-theCurrBorderSize, -theCurrBorderSize);
+		}
+		if( theMenuApp.itemType == eMenuItemType_Rect ||
+			theMenuApp.itemType == eMenuItemType_Label )
+		{
+			aCopyRequest.innerDstW = aCopyRequest.dstW - theMaxBorderSize * 2;
+			aCopyRequest.innerDstH = aCopyRequest.dstH - theMaxBorderSize * 2;
 		}
 		aCopyRequest.overlayID = dropTo<u16>(dd.overlayID);
 		aCopyRequest.menuID = dropTo<u16>(dd.menuID);
