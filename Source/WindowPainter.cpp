@@ -283,6 +283,13 @@ struct StringScaleCacheEntry
 	u16 width, height;
 };
 
+struct MultiIconCacheEntry
+{
+	int dstWidth;
+	u16 srcWidth;
+	u16 srcHeight;
+};
+
 struct ZERO_INIT(LabelDrawCacheEntry)
 {
 	EMenuItemLabelType type;
@@ -290,9 +297,9 @@ struct ZERO_INIT(LabelDrawCacheEntry)
 	union
 	{
 		StringScaleCacheEntry str;
+		MultiIconCacheEntry multiIcon;
 		u16 copyIconID;
 		u16 bitmapIconID;
-		LONG multiIconWidth;
 	};
 };
 
@@ -411,6 +418,7 @@ static int sCacheIncreaseCount = 0;
 static std::string sParseSectName;
 static std::string sParsePropName;
 static bool sNewProfileDataFetched = false;
+static bool sCopiedIconResetNeeded = false;
 
 
 //------------------------------------------------------------------------------
@@ -1466,6 +1474,8 @@ static void initCopiedBitmapIcon(DrawData& dd, CopiedBitmapIcon& theIcon)
 	{
 		DeleteObject(theIcon.image);
 		theIcon.image = null;
+		// When an icon size has changed, need to reset cache data and redraw
+		sCopiedIconResetNeeded = true;
 	}
 	theIcon.targetTL = hotspotToPoint(aCopySrcHotspot, dd.targetSize);
 	theIcon.size.cx = LONG(anIconSizeX);
@@ -2033,7 +2043,9 @@ static void initializeLabelDrawCacheEntry(
 			aRangeEndIdx > aRangeStartIdx )
 		{
 			theCacheEntry.type = eMenuItemLabelType_MultiIcon;
-			theCacheEntry.multiIconWidth = 0;
+			LONG aSrcWidth = 0;
+			LONG aSrcHeight = 0;
+			theCacheEntry.multiIcon.dstWidth = 0;
 			theCacheEntry.subLabels.clear();
 			for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
 			{
@@ -2045,13 +2057,17 @@ static void initializeLabelDrawCacheEntry(
 				{
 				case eMenuItemLabelType_Bitmap:
 					theCacheEntry.subLabels.push_back(anIconEntry);
-					theCacheEntry.multiIconWidth +=
+					aSrcWidth +=
 						sBitmapIcons[anIconEntry.bitmapIconID].size.cx;
+					aSrcHeight = max(aSrcHeight,
+						sBitmapIcons[anIconEntry.bitmapIconID].size.cy);
 					break;
 				case eMenuItemLabelType_CopyRect:
 					theCacheEntry.subLabels.push_back(anIconEntry);
-					theCacheEntry.multiIconWidth +=
+					aSrcWidth +=
 						sCopiedIcons[anIconEntry.copyIconID].size.cx;
+					aSrcHeight = max(aSrcHeight,
+						sCopiedIcons[anIconEntry.copyIconID].size.cy);
 					break;
 				default:
 					// ALL must be valid icons or multi-icon doesn't work
@@ -2062,8 +2078,12 @@ static void initializeLabelDrawCacheEntry(
 					return;
 				}
 			}
-			if( !theCacheEntry.subLabels.empty() )
-				return;
+			theCacheEntry.multiIcon.srcWidth = dropTo<u16>(aSrcWidth);
+			theCacheEntry.multiIcon.srcHeight = dropTo<u16>(aSrcHeight);
+			if( !theCacheEntry.subLabels.empty() &&
+				theCacheEntry.multiIcon.srcWidth &&
+				theCacheEntry.multiIcon.srcHeight )
+			{ return; }
 		}
 	}
 
@@ -2194,13 +2214,41 @@ static void drawMenuItemLabel(
 	else if( theCacheEntry.type == eMenuItemLabelType_MultiIcon )
 	{
 		DBG_ASSERT(!theCacheEntry.subLabels.empty());
-		DBG_ASSERT(theCacheEntry.multiIconWidth > 0);
-		const int aDestWidth = min<int>(
-			theCacheEntry.multiIconWidth, theDrawRect.right - theDrawRect.left);
+		DBG_ASSERT(theCacheEntry.multiIcon.srcWidth > 0);
+		DBG_ASSERT(theCacheEntry.multiIcon.srcHeight > 0);
+		// Multi-icons always draw to the inner rect (at max border size) only
 		RECT aRect;
-		aRect.top = theDrawRect.top;
-		aRect.bottom = theDrawRect.bottom;
-		aRect.left = (theDrawRect.left + theDrawRect.right - aDestWidth) / 2;
+		aRect.left = theDrawRect.left + theMaxBorderSize;
+		aRect.top = theDrawRect.top + theMaxBorderSize;
+		aRect.right = theDrawRect.right - theMaxBorderSize;
+		aRect.bottom = theDrawRect.bottom - theMaxBorderSize;
+		if( aRect.right <= aRect.left ||
+			aRect.bottom <= aRect.top )
+		{ return; }
+
+		if( theCacheEntry.multiIcon.dstWidth == 0 )
+		{
+			// Calculate true dest width to get icons adjacent and centered
+			// Treat as a single wide bitmap and calculate where it would draw
+			const int aSrcW = theCacheEntry.multiIcon.srcWidth;
+			const int aSrcH = theCacheEntry.multiIcon.srcHeight;
+			int aDstW = aRect.right - aRect.left;
+			int aDstH = aRect.bottom - aRect.top;
+			if( theMenuApp.itemType != eMenuItemType_Rect &&
+				theMenuApp.itemType != eMenuItemType_Label )
+			{// Don't expand to fill inner rect for non-rect-shaped menu items
+				aDstW = min(aDstW, aSrcW);
+				aDstH = min(aDstH, aSrcH);
+			}
+			const double aSrcAspectRatio = double(aSrcW) / aSrcH;
+			const double aDstAspectRatio = double(aDstW) / aDstH;
+			if( aSrcAspectRatio < aDstAspectRatio )
+				aDstW = min(aDstW, int(aDstH * aSrcAspectRatio));
+			theCacheEntry.multiIcon.dstWidth = aDstW;
+		}
+		const LONG aTotalSrcWidth = theCacheEntry.multiIcon.srcWidth;
+		const LONG aDestWidth = theCacheEntry.multiIcon.dstWidth;
+		aRect.left = (aRect.left + aRect.right - aDestWidth) / 2;
 		aRect.right = aRect.left;
 		for(int i = 0, end = intSize(theCacheEntry.subLabels.size());
 			i < end; ++i)
@@ -2210,11 +2258,9 @@ static void drawMenuItemLabel(
 				? sBitmapIcons[anIconEntry.bitmapIconID].size.cx
 				: sCopiedIcons[anIconEntry.copyIconID].size.cx;
 			aRect.left = aRect.right;
-			aRect.right +=
-				aSrcWidth * aDestWidth / theCacheEntry.multiIconWidth;
+			aRect.right += aSrcWidth * aDestWidth / aTotalSrcWidth;
 			drawMenuItemLabel(dd, aRect, theRectIdx, theLabel,
-				theMenuApp, theItemApp, theCurrBorderSize, theMaxBorderSize,
-				theCacheEntryID, i);
+				theMenuApp, theItemApp, 0, 0, theCacheEntryID, i);
 		}
 	}
 }
@@ -2903,6 +2949,32 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 }
 
 
+static void resetCopiedIconSizes()
+{
+	for(int i = 0, end = intSize(sCopiedIcons.size()); i < end; ++i)
+		sCopiedIcons[i].initialized = false;
+	for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
+	{
+		const int anOverlayID = InputMap::menuOverlayID(i);
+		const bool menuIsActive =
+			Menus::activeMenuForOverlayID(anOverlayID) == i;
+		std::vector<LabelDrawCacheEntry>& aLabelCache =
+			sMenuDrawCache[i].labelCache;
+		for(int j = 0, end = intSize(aLabelCache.size()); j < end; ++j)
+		{
+			if( aLabelCache[j].type == eMenuItemLabelType_CopyRect ||
+				aLabelCache[j].type == eMenuItemLabelType_MultiIcon )
+			{
+				aLabelCache[j] = LabelDrawCacheEntry();
+				if( menuIsActive )
+					gFullRedrawOverlays.set(anOverlayID);
+			}
+		}
+	}
+	sCopiedIconResetNeeded = false;
+}
+
+
 static void loadAllProfileData()
 {
 	sCopyIconUpdateRate =
@@ -3350,6 +3422,9 @@ void update()
 		break;
 	}
 
+	if( sCopiedIconResetNeeded )
+		resetCopiedIconSizes();
+
 	// Update auto-refresh of idle copy-from-target icons
 	// This system is set up to only force-redraw one icon per update,
 	// but still have each icon individually only redraw at
@@ -3470,11 +3545,10 @@ void updateScaling()
 		sMenuDrawCache[i].maxBorderSize = -1;
 	}
 
-	// Clear copy rect icon data since they are also affected by scale
+	// Re-init copy rect icon data since they are also affected by scale
 	// (and are only referenced by label cache which was just cleared above)
 	for(int i = 0, end = intSize(sCopiedIcons.size()); i < end; ++i)
-		DeleteObject(sCopiedIcons[i].image);
-	sCopiedIcons.resize(1);
+		sCopiedIcons[i].initialized = false;
 
 	// Update radius scaling for each MenuAppearance
 	for(int i = 0, end = intSize(sMenuAppearances.size()); i < end; ++i)
@@ -3516,27 +3590,7 @@ void updateTargetRect()
 {
 	// Clear all copy-from-icon label cache data, since it is based on
 	// the size and position of the target being copied from
-	for(int i = 0, end = intSize(sCopiedIcons.size()); i < end; ++i)
-		DeleteObject(sCopiedIcons[i].image);
-	sCopiedIcons.resize(1);
-	for(int i = 0, end = intSize(sMenuDrawCache.size()); i < end; ++i)
-	{
-		const int anOverlayID = InputMap::menuOverlayID(i);
-		const bool menuIsActive =
-			Menus::activeMenuForOverlayID(anOverlayID) == i;
-		std::vector<LabelDrawCacheEntry>& aLabelCache =
-			sMenuDrawCache[i].labelCache;
-		for(int j = 0, end = intSize(aLabelCache.size()); j < end; ++j)
-		{
-			if( aLabelCache[j].type == eMenuItemLabelType_CopyRect ||
-				aLabelCache[j].type == eMenuItemLabelType_MultiIcon )
-			{
-				aLabelCache[j] = LabelDrawCacheEntry();
-				if( menuIsActive )
-					gFullRedrawOverlays.set(anOverlayID);
-			}
-		}
-	}
+	resetCopiedIconSizes();
 }
 
 
@@ -3638,9 +3692,14 @@ bool copyContentsFromTarget(
 	int theOverlayID,
 	bool& windowReady)
 {
+
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
 	OverlayPaintState& ps = sOverlayPaintStates[theOverlayID];
+
+	if( sCopiedIconResetNeeded )
+		return ps.copyRectQueue.empty();
+
 	DrawData dd;
 	dd.hdc = hdc;
 	dd.menuID = theMenuID;
@@ -3676,10 +3735,7 @@ bool copyContentsFromTarget(
 	}
 
 	// Delay fading in overlays until copies are complete
-	if( !ps.copyRectQueue.empty() )
-		return false;
-
-	return true;
+	return ps.copyRectQueue.empty();
 }
 
 
