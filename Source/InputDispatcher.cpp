@@ -9,6 +9,9 @@
 #include "Profile.h"
 #include "WindowManager.h"
 
+// Forward declares of functions defined in Main.cpp for main loop update
+void mainTimerUpdate();
+
 namespace InputDispatcher
 {
 
@@ -2278,46 +2281,55 @@ void loadProfileChanges()
 
 void cleanup()
 {
-	sTracker.keysLockedDown.clear();
-	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
-		aVKey < sTracker.keysHeldDown.size();
-		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
-	{
-		setKeyDown(aVKey, false);
-	}
-	sTracker.keysHeldDown.reset();
-	sTracker.keysWantDown.clear();
-	sTracker.moveKeysHeld.reset();
-	sTracker.stickyMoveKeys.reset();
-	sTracker.mouseModeExpected = eMouseMode_Cursor;
-	if( sTracker.mouseMode != eMouseMode_Cursor )
-	{
-		sTracker.mouseJumpToMode = eMouseMode_Cursor;
-		jumpMouseToHotspot(
-			InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
-	}
-	sTracker.typingChatBoxString = false;
-	sTracker.chatBoxActive = false;
-	flushInputVector();
+	forceReleaseHeldKeys();
+	sTracker = DispatchTracker();
 }
 
 
 void forceReleaseHeldKeys()
 {
-	sTracker.keysLockedDown.clear();
-	for(int aVKey = sTracker.keysHeldDown.firstSetBit();
-		aVKey < sTracker.keysHeldDown.size();
-		aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
+	// Need to release all keys and restore mouse cursor, but to prevent
+	// issues with active game running (like sudden camera jumps),
+	// must still respect all lockout timers via Sleep() if needed
+	sTracker.mouseJumpToHotspot = false;
+	for(;;)
 	{
-		setKeyDown(aVKey, false);
+		for(int aVKey = sTracker.keysHeldDown.firstSetBit();
+			aVKey < sTracker.keysHeldDown.size();
+			aVKey = sTracker.keysHeldDown.nextSetBit(aVKey+1))
+		{
+			setKeyDown(aVKey, false);
+		}
+		if( sTracker.mouseJumpToHotspot )
+		{
+			if( !verifyCursorJumpedTo(sTracker.mouseJumpDest) )
+			{
+				jumpMouseToHotspot(sTracker.mouseJumpDest);
+				sTracker.mouseJumpFinishedTime = 0;
+			}
+		}
+		else if( sTracker.mouseMode != eMouseMode_Cursor &&
+				 sTracker.keysHeldDown.none() &&
+				 !sTracker.mouseJumpToHotspot &&
+				 gAppRunTime >= sTracker.mouseJumpAllowedTime )
+		{
+			sTracker.mouseJumpDest =
+				InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
+			sTracker.mouseJumpToMode = eMouseMode_Cursor;
+			sTracker.mouseJumpToHotspot = true;
+			sTracker.mouseJumpInterpolate = false;
+			jumpMouseToHotspot(sTracker.mouseJumpDest);
+			sTracker.mouseJumpFinishedTime = 0;
+		}
+		flushInputVector();
+		if( sTracker.keysHeldDown.none() &&
+			sTracker.mouseMode == eMouseMode_Cursor )
+		{
+			return;
+		}
+		Sleep(DWORD(max(1, gAppTargetFrameTime / 2)));
+		mainTimerUpdate();
 	}
-	if( sTracker.mouseMode != eMouseMode_Cursor )
-	{
-		sTracker.mouseJumpToMode = eMouseMode_Cursor;
-		jumpMouseToHotspot(
-			InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
-	}
-	flushInputVector();
 }
 
 
