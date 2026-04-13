@@ -55,14 +55,14 @@ struct ResourceFile
 };
 
 const ResourceFile kResTemplateCore =
-	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		17	};
+	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		18	};
 
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	18	},
 	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	17	},
 	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	17	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	18	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	19	},
 };
 
 const ResourceFile kResTemplateDefault[] =
@@ -70,7 +70,7 @@ const ResourceFile kResTemplateDefault[] =
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	19	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	19	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	19	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	19	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	20	},
 };
 
 const ResourceFile kResTemplateCustom[] =
@@ -1567,20 +1567,20 @@ static std::string varTagToString(
 				}
 			}
 			logError("Expected a number instead of '%s' for "
-				"operator '%c' in '%s'!",
-				result.c_str(), anOpC, theTagStr.c_str());
+				"variable expansion operator in '%s'!",
+				result.c_str(), theTagStr.c_str());
 			aVarNum = stringToBool(aParam) ? 1.0 : 0;
 		}
 		aParamNum = stringToDouble(aParam, true);
 		if( _isnan(aParamNum) && anOpC != '!' && anOpC != '=' )
 		{
 			logError("Expected a number instead of '%s' for "
-				"operator '%c' in '%s'. "
+				"variable expansion operator in '%s'. "
 				"Note only one operator is allowed per ${} block!",
-				aParam.c_str(), anOpC, theTagStr.c_str());
+				aParam.c_str(), theTagStr.c_str());
 			aParamNum =
-				(anOpC == '+' || anOpC == '-' || anOpC == '%') ? 0 :
-				(anOpC == '*' || anOpC == '/') ? 1.0 :
+				(anOpC == '+' || anOpC == '-' ) ? 0 :
+				(anOpC == '*' || anOpC == '/' || anOpC == '%') ? 1.0 :
 				stringToBool(aParam) ? 1.0 : 0;
 		}
 	}
@@ -1668,8 +1668,8 @@ static std::string varTagToString(
 			result = isTrue ? aParam : "";
 			return result;
 		}
-		// ${Var !<=> value} (debugging? inner part of a more complex block?)
-		result = isTrue ? "true" : "";
+		// ${Var !<=> value}
+		result = isTrue ? "1" : "0";
 		return result;
 	}
 
@@ -1734,12 +1734,21 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		std::string aRepStr;
 		std::string aVarContents;
 		const std::string kVarOpChars = "}+-*/?!~<>=.";
-		size_t aVarOpPos = aTagCoords.first + 2;
-		const double aVarAsNum = stringToDoubleSum(aStr, aVarOpPos);
-		if( aVarOpPos > aTagCoords.first + 2 )
-		{// Variable seems like it is actually a constant number
-			if( kVarOpChars.find(aStr[aVarOpPos]) != std::string::npos )
+		size_t aVarNameStartPos = aTagCoords.first + 2;
+		while(aStr[aVarNameStartPos] <= ' ')
+			++aVarNameStartPos;
+		size_t aVarOpPos = aVarNameStartPos;
+		bool validVarFound = false;
+		if( aStr[aVarNameStartPos] == '-' || aStr[aVarNameStartPos] == '+' ||
+			(aStr[aVarNameStartPos] >= '0' && aStr[aVarNameStartPos] <= '9') )
+		{// Possibly a numeric constant in place of an actual variable name
+			const double aVarAsNum = stringToDoubleSum(aStr, aVarOpPos);
+			if( aVarOpPos > aVarNameStartPos &&
+				kVarOpChars.find(aStr[aVarOpPos]) != std::string::npos )
+			{
 				aVarContents = toString(aVarAsNum);
+				validVarFound = true;
+			}
 		}
 		else
 		{
@@ -1762,18 +1771,20 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 					if( aVarProp.str.empty() && !aVarProp.pattern.empty() )
 						expandPropertyVars(kVarsSectionIdx, aVarID, init);
 					aVarContents = aVarProp.str;
+					validVarFound = true;
 				}
 			}
 		}
 
 		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
-		if( aVarContents.empty() )
+		if( !validVarFound )
 		{
 			logError("Could not identify variable name from %s in property "
 				"[%s] / %s!",
 				aStr.substr(aTagCoords.first, aTagCoords.second).c_str(),
 				sSectionsMap.keys()[theSectionID].c_str(),
 				theSection.keys()[thePropID].c_str());
+			expandPropertyVars(theSectionID, thePropID, init);
 		}
 		else
 		{

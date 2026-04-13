@@ -894,7 +894,6 @@ double stringToDoubleSum(
 		return result;
 
 	bool subtract = false;
-	bool foundANumber = false;
 	int foundOperatorCharCount = 0;
 	while(*end != '\0')
 	{
@@ -909,10 +908,13 @@ double stringToDoubleSum(
 		{// Add result to sum and continue to rest of the string
 			result += subtract ? -num : num;
 			subtract = false;
-			foundANumber = true;
 			foundOperatorCharCount = 0;
 			continue;
 		}
+
+		// If already found an operator, nothing else but a number is valid
+		if( foundOperatorCharCount )
+			break;
 
 		// Skip any whitespace found before invalid character was hit
 		// (strtod skips leading whitespace but sets 'end' back to 'start'
@@ -920,35 +922,25 @@ double stringToDoubleSum(
 		while(*end <= ' ' && *end != '\0')
 			++end;
 
-		// Check if invalid character was possibly "+-#" (but not "+- ")
-		if( *end == '+' && *(end+1) == '-' )
-		{
-			if( foundOperatorCharCount )
-				break;
-			foundOperatorCharCount = 1;
-			++end;
-			continue;
-		}
+		// Only valid character at this point is the + or - operator
+		if( *end != '+' && *end != '-' )
+			break;
 
-		// Check if invalid character was possibly "+ " or "- " (operator)
-		if( (*end == '+' || *end == '-') && *(end+1) == ' ' )
-		{// Fine to have a lone operator as long as not two in a row
-			if( foundOperatorCharCount )
-				break;
-			foundOperatorCharCount = 2;
-			if( *end == '-' )
-				subtract = true;
-			end += 2;
-			continue;
-		}
+		// Check for leading '-' before a number directly after operator
+		// where space was missing - "+-#" or "--#" - or for standalone
+		// operator - "+ " or "- ". Everything else is invalid because
+		// "+#" and "-#" should have been valid for strtod.
+		if( *(end+1) == '-' )
+			foundOperatorCharCount = 1; // skip to the second '-'
+		else if( *(end+1) == ' ' )
+			foundOperatorCharCount = 2; // skip past '-/+' and space
+		else
+			break; // invalid char after +/-
 
-		// Unexpected/invalid character prevented full conversion - stop here
-		break;
+		if( *end == '-' )
+			subtract = true;
+		end += foundOperatorCharCount;
 	}
-
-	// Don't update offset at all if didn't find any numbers (leaves whitespace)
-	if( !foundANumber )
-		return result;
 
 	// If last operator found didn't have a valid number after it,
 	// set the operator itself as the first invalid character

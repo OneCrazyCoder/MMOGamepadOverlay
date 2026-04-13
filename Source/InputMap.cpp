@@ -302,12 +302,14 @@ struct ZERO_INIT(HotspotRange)
 {
 	s16 xOffset, yOffset;
 	u16 width, height;
-	u16 firstIdx;
-	u16 count : 12;
+	u16 firstIdx : 11;
 	u16 hasOwnXAnchor : 1;
 	u16 hasOwnYAnchor : 1;
 	u16 offsetFromPrev : 1;
 	u16 removed : 1;
+	u16 wrapOnY : 1;
+	u8 wrapPoint;
+	u8 count;
 
 	int lastIdx() const { return firstIdx + count - 1; }
 	bool operator<(const HotspotRange& rhs) const
@@ -372,6 +374,8 @@ static void createEmptyHotspotArray(const std::string& theName)
 	int aStartIdx, anEndIdx;
 	std::string anArrayKey;
 	bool isRange = fetchRangeSuffix(theName, anArrayKey, aStartIdx, anEndIdx);
+	if( anEndIdx - aStartIdx > 0xFF || anEndIdx > 0x7FF )
+		anEndIdx = aStartIdx;
 	bool isAnchorHotspot = anEndIdx <= 0;
 
 	// Create hotspot array object
@@ -386,7 +390,7 @@ static void createEmptyHotspotArray(const std::string& theName)
 	DBG_ASSERT(anEndIdx >= aStartIdx && aStartIdx > 0 && anEndIdx > 0);
 	HotspotRange aNewRange;
 	aNewRange.firstIdx = dropTo<u16>(aStartIdx);
-	aNewRange.count = anEndIdx - aStartIdx + 1;
+	aNewRange.count = dropTo<u8>(anEndIdx - aStartIdx + 1);
 	aNewRange.offsetFromPrev = isRange;
 	aNewRange.hasOwnXAnchor = !isRange;
 	aNewRange.hasOwnYAnchor = !isRange;
@@ -490,6 +494,8 @@ static void applyHotspotProperty(
 	int aRangeStartIdx, aRangeEndIdx;
 	std::string anArrayKey;
 	fetchRangeSuffix(theKey, anArrayKey, aRangeStartIdx, aRangeEndIdx);
+	if( aRangeEndIdx - aRangeStartIdx > 0xFF || aRangeEndIdx > 0x7FF )
+		aRangeEndIdx = aRangeStartIdx;
 	bool isAnchorHotspot = aRangeEndIdx <= 0;
 
 	// Look up hotspot metadata using array key
@@ -503,6 +509,8 @@ static void applyHotspotProperty(
 	const bool isEmptyHotspot = isEffectivelyEmptyString(theDesc);
 	Hotspot aHotspot;
 	double anOffsetScale = 0;
+	u8 aRangeWrapAtX = 0;
+	u8 aRangeWrapAtY = 0;
 	if( !isEmptyHotspot )
 	{
 		// X
@@ -512,6 +520,35 @@ static void applyHotspotProperty(
 			(theDesc[aStrPos] == ',' ||
 			 theDesc[aStrPos] == 'x' ||
 			 theDesc[aStrPos] == 'X');
+		// Check for wrap value for hotspot ranges
+		if( !valid && theDesc[aStrPos] == '@' )
+		{
+			if( aRangeEndIdx <= aRangeStartIdx )
+			{
+				logError(
+					"Hotspot %s: Only hotspot ranges can specify "
+					"an X or Y wrapping point (use '@' character)!",
+					sPropertyPrintName.c_str());
+			}
+			else
+			{
+				const std::string& aWrapPointStr =
+					fetchNextItem(theDesc, ++aStrPos, ",xX");
+				if( aWrapPointStr[0] == '-' || !isAnInteger(aWrapPointStr) )
+				{
+					logError(
+						"Hotspot %s: Value of wrap point (after @ symbol) "
+						"must be a positive integer value!",
+						sPropertyPrintName.c_str());
+				}
+				else
+				{
+					aRangeWrapAtX = dropTo<u8>(clamp(
+						stringToU32(aWrapPointStr), 0, 255));
+					valid = true;
+				}
+			}
+		}
 		// Y
 		if( valid )
 		{
@@ -519,6 +556,42 @@ static void applyHotspotProperty(
 			valid = aStrPos == theDesc.size() ||
 				theDesc[aStrPos] == ',' ||
 				theDesc[aStrPos] == '*';
+			// Check for wrap value for hotspot ranges
+			if( !valid && theDesc[aStrPos] == '@' )
+			{
+				if( aRangeWrapAtX )
+				{
+					logError(
+						"Hotspot %s: Only one axis (X or Y) can have a "
+						"wrapping point set (use '@' character)!",
+						sPropertyPrintName.c_str());
+				}
+				else if( aRangeEndIdx <= aRangeStartIdx )
+				{
+					logError(
+						"Hotspot %s: Only hotspot ranges can specify "
+						"an X or Y wrapping point (use '@' character)!",
+						sPropertyPrintName.c_str());
+				}
+				else
+				{
+					const std::string& aWrapPointStr =
+						fetchNextItem(theDesc, ++aStrPos, ",*");
+					if( aWrapPointStr[0] == '-' || !isAnInteger(aWrapPointStr) )
+					{
+						logError(
+							"Hotspot %s: Value of wrap point (after @ symbol) "
+							"must be a positive integer value!",
+							sPropertyPrintName.c_str());
+					}
+					else
+					{
+						aRangeWrapAtY = dropTo<u8>(clamp(
+							stringToU32(aWrapPointStr), 0, 255));
+						valid = true;
+					}
+				}
+			}
 		}
 		// W
 		if( valid && aStrPos < theDesc.size() && theDesc[aStrPos] == ',' )
@@ -594,7 +667,7 @@ static void applyHotspotProperty(
 		// Find matching range entry to apply the property to
 		HotspotRange aCmpRange;
 		aCmpRange.firstIdx = dropTo<u16>(aRangeStartIdx);
-		aCmpRange.count = aRangeEndIdx - aRangeStartIdx + 1;
+		aCmpRange.count = dropTo<u8>(aRangeEndIdx - aRangeStartIdx + 1);
 		std::vector<HotspotRange>::iterator itr = std::lower_bound(
 			anArray.ranges.begin(), anArray.ranges.end(), aCmpRange);
 
@@ -614,6 +687,10 @@ static void applyHotspotProperty(
 			aHotspot.w = sHotspots[anArray.anchorIdx].w;
 			aHotspot.h = sHotspots[anArray.anchorIdx].h;
 		}
+
+		// Set wrap point setting
+		itr->wrapPoint = max(aRangeWrapAtX, aRangeWrapAtY);
+		itr->wrapOnY = aRangeWrapAtY > 0 ? 1 : 0;
 
 		if( itr->count == 1 && !itr->offsetFromPrev )
 		{// Might have own anchors - set hotspot directly for now
@@ -640,9 +717,8 @@ static void applyHotspotProperty(
 		else
 			aRange = itr;
 
-		// Empty description removes range from array and shortens it
-		// This changes ->size but does not remove ranges/hotspots so they can
-		// be restored later by setting the hotspot back to a valid value
+		// Empty description removes range from array (and all ranges after it)
+		// by marking them invalid (until re-defined as valid via var change).
 		if( isEmptyHotspot )
 			itr->removed = true;
 		if( itr->removed )
@@ -708,19 +784,48 @@ static void applyHotspotProperty(
 			}
 			else
 			{
-				const int aBaseHotspotID =
+				int aBaseXHotspotID =
 					aRange->offsetFromPrev ? aHotspotID - 1 :
 					anArray.hasAnchor ? anArray.anchorIdx : 0;
+				int aBaseYHotspotID = aBaseXHotspotID;
+				int aRangeXOffset = aRange->xOffset;
+				int aRangeYOffset = aRange->yOffset;
+				if( aRange->wrapPoint )
+				{
+					DBG_ASSERT(aRange->offsetFromPrev);
+					const int aPosWithinRange =
+						aHotspotID - (aRange->firstIdx + anArray.anchorIdx) + 1;
+					if( aPosWithinRange % aRange->wrapPoint == 0 )
+					{// Appy wrap offset on ignored axis and reset main axis
+						if( aRange->wrapOnY )
+						{
+							aBaseXHotspotID = aHotspotID - aRange->wrapPoint;
+							aRangeXOffset = 0;
+						}
+						else
+						{
+							aBaseYHotspotID = aHotspotID - aRange->wrapPoint;
+							aRangeYOffset = 0;
+						}
+					}
+					else
+					{// Ignore the wrapping axis
+						if( aRange->wrapOnY )
+							aRangeYOffset = 0;
+						else
+							aRangeXOffset = 0;
+					}
+				}
 				if( aRange->hasOwnXAnchor )
 				{
 					aHotspot.x = sHotspots[aHotspotID].x;
 				}
 				else
 				{
-					aHotspot.x.anchor = sHotspots[aBaseHotspotID].x.anchor;
+					aHotspot.x.anchor = sHotspots[aBaseXHotspotID].x.anchor;
 					aHotspot.x.offset = s16(clamp(
-						sHotspots[aBaseHotspotID].x.offset +
-						aRange->xOffset * anArray.offsetScale,
+						sHotspots[aBaseXHotspotID].x.offset +
+						aRangeXOffset * anArray.offsetScale,
 						-0x8000, 0x7FFF));
 				}
 				if( aRange->hasOwnYAnchor )
@@ -729,20 +834,20 @@ static void applyHotspotProperty(
 				}
 				else
 				{
-					aHotspot.y.anchor = sHotspots[aBaseHotspotID].y.anchor;
+					aHotspot.y.anchor = sHotspots[aBaseYHotspotID].y.anchor;
 					aHotspot.y.offset = s16(clamp(
-						sHotspots[aBaseHotspotID].y.offset +
-						aRange->yOffset * anArray.offsetScale,
+						sHotspots[aBaseYHotspotID].y.offset +
+						aRangeYOffset * anArray.offsetScale,
 						-0x8000, 0x7FFF));
 				}
 				if( aRange->width )
 					aHotspot.w = aRange->width;
 				else
-					aHotspot.w = sHotspots[aBaseHotspotID].w;
+					aHotspot.w = sHotspots[aBaseXHotspotID].w;
 				if( aRange->height )
 					aHotspot.h = aRange->height;
 				else
-					aHotspot.h = sHotspots[aBaseHotspotID].h;
+					aHotspot.h = sHotspots[aBaseYHotspotID].h;
 			}
 			if( aHotspot != sHotspots[aHotspotID] )
 			{
@@ -751,6 +856,7 @@ static void applyHotspotProperty(
 				sChangedHotspots.set(aHotspotID);
 			}
 		}
+		aRangeWrapAtX = aRangeWrapAtY = 0;
 	}
 }
 

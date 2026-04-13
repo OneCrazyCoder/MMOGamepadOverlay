@@ -2160,7 +2160,6 @@ static double getSubTypeValue(
 	case eValueSetSubType_SizeX:
 	case eValueSetSubType_SizeY:
 		result *= getSubTypeValue(theValArray, eValueSetSubType_Scale);
-		result = floor(result + 0.5);
 		if( sInvertAxis[theSubType] )
 			result = -result;
 		result = max(0.0, result);
