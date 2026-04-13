@@ -214,9 +214,7 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
-
-	EValueFunction* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eValueFunc_Num;
+	return sNameToEnumMapper.map.valElse(theName, eValueFunc_Num);
 }
 
 

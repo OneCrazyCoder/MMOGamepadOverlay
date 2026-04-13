@@ -894,6 +894,7 @@ double stringToDoubleSum(
 		return result;
 
 	bool subtract = false;
+	bool foundANumber = false;
 	int foundOperatorCharCount = 0;
 	while(*end != '\0')
 	{
@@ -908,6 +909,7 @@ double stringToDoubleSum(
 		{// Add result to sum and continue to rest of the string
 			result += subtract ? -num : num;
 			subtract = false;
+			foundANumber = true;
 			foundOperatorCharCount = 0;
 			continue;
 		}
@@ -943,6 +945,10 @@ double stringToDoubleSum(
 		// Unexpected/invalid character prevented full conversion - stop here
 		break;
 	}
+
+	// Don't update offset at all if didn't find any numbers (leaves whitespace)
+	if( !foundANumber )
+		return result;
 
 	// If last operator found didn't have a valid number after it,
 	// set the operator itself as the first invalid character
@@ -1045,7 +1051,7 @@ Hotspot::Coord stringToCoord(
 				aDenominator = 1;
 				break;
 			case ' ': case '-': case '+':
-			case ',': case '*': case 'x': case 'X':
+			case ',': case '*': case '@': case 'x': case 'X':
 				done = true;
 				break;
 			}
@@ -1066,22 +1072,6 @@ Hotspot::Coord stringToCoord(
 	// Read remaining coord string as a sum of offsets
 	if( thePos < theString.size() )
 		anOffsetVal += stringToDoubleSum(theString, thePos);
-	if( anOffsetVal != 0 )
-	{
-		// This rounding method enables the following invariant:
-		//	round(val) - anInt == round(val - anInt)
-		// even in cases where val is positive but (val - anInt) would change
-		// it to be negative. This improves consistency in position offsets.
-		const bool isNegativeNum = anOffsetVal < 0;
-		if( isNegativeNum ) anOffsetVal = -anOffsetVal;
-		double anIntPart;
-		double aFracPart = std::modf(anOffsetVal, &anIntPart);
-		const int aRoundedOffset = isNegativeNum
-			? ((aFracPart > 0.5) ? -int(anIntPart + 1.0) : -int(anIntPart))
-			: ((aFracPart >= 0.5) ? int(anIntPart + 1.0) : int(anIntPart));
-
-		result.offset = s16(clamp(aRoundedOffset, -0x8000, 0x7FFF));
-	}
-
+	result.offset = s16(clamp(floor(anOffsetVal + 0.5), -0x8000, 0x7FFF));
 	return result;
 }

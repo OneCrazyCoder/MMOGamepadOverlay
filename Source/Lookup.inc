@@ -115,6 +115,17 @@ V& VectorMap<K, V, C>::findOrAdd(const K& theKey, const V& theDefault)
 
 
 template<class K, class V, class C> inline
+V VectorMap<K, V, C>::valElse(
+	const K& theKey, const V& theResultIfNotFound) const
+{
+	iterator itr = begin() + findInsertPos(theKey);
+	if( itr == end() || itr->first != theKey )
+		return theResultIfNotFound;
+
+	return itr->second;
+}
+
+template<class K, class V, class C> inline
 int VectorMap<K, V, C>::findInsertPos(const K& theKey) const
 {
 	C comp;
@@ -216,7 +227,7 @@ void StringToValueMap<V, I, S>::freeKeys()
 template<class V, class I, bool S> inline
 V* StringToValueMap<V, I, S>::find(const Key& theKey)
 {
-	int aFoundIdx = findIndex(theKey);
+	const int aFoundIdx = findIndex(theKey);
 	return reinterpret_cast<V*>(
 		aFoundIdx < size() ? &mValues[aFoundIdx] : null);
 }
@@ -225,7 +236,7 @@ V* StringToValueMap<V, I, S>::find(const Key& theKey)
 template<class V, class I, bool S> inline
 const V* StringToValueMap<V, I, S>::find(const Key& theKey) const
 {
-	int aFoundIdx = findIndex(theKey);
+	const int aFoundIdx = findIndex(theKey);
 	return reinterpret_cast<const V*>(
 		aFoundIdx < size() ? &mValues[aFoundIdx] : null);
 }
@@ -236,6 +247,18 @@ V& StringToValueMap<V, I, S>::findOrAdd(const Key& theKey, const V& theDefault)
 {
 	return reinterpret_cast<V&>(
 		mValues[findOrAddIndex(theKey, theDefault)]);
+}
+
+
+template<class V, class I, bool S> inline
+V StringToValueMap<V, I, S>::valElse(
+	const Key& theKey, const V& theResultIfNotFound) const
+{
+	const int aFoundIdx = findIndex(theKey);
+	if( aFoundIdx >= size() )
+		return theResultIfNotFound;
+	const V* result = reinterpret_cast<const V*>(&mValues[aFoundIdx]);
+	return *result;
 }
 
 

@@ -113,7 +113,8 @@ float stringToFloat(const char* theString);
 double stringToDouble(const std::string& theString, bool strict = false);
 double stringToDouble(const char* theString, bool strict = false);
 // Converts a string (starting w/ offset) sum expression like "5 + -1.2 - 1",
-// and updates offset to first invalid character found (or theString.size())
+// and updates offset to first invalid character found (or theString.size()),
+// or leaves it as-is if no numbers found at all
 double stringToDoubleSum(const std::string&, std::string::size_type&);
 double stringToDoubleSum(const char*, std::string::size_type&);
 bool stringToBool(const std::string& theString);

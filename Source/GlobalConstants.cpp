@@ -190,9 +190,7 @@ int keyNameToVirtualKey(const std::string& theKeyName)
 		}
 	};
 	static NameToVKeyMapper sKeyMapper;
-
-	u8* result = sKeyMapper.map.find(theKeyName);
-	return result ? *result : 0;
+	return sKeyMapper.map.valElse(theKeyName, 0);
 }
 
 
@@ -316,9 +314,7 @@ EButton buttonNameToID(const std::string& theName)
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
-
-	EButton* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eBtn_Num;
+	return sNameToEnumMapper.map.valElse(theName, eBtn_Num);
 }
 
 
@@ -378,9 +374,7 @@ EMouseMode mouseModeNameToID(const std::string& theName)
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
-
-	EMouseMode* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eMouseMode_Num;
+	return sNameToEnumMapper.map.valElse(theName, eMouseMode_Num);
 }
 
 
@@ -458,9 +452,7 @@ EMenuStyle menuStyleNameToID(const std::string& theName)
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
-
-	EMenuStyle* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eMenuStyle_Num;
+	return sNameToEnumMapper.map.valElse(theName, eMenuStyle_Num);
 }
 
 
@@ -514,9 +506,7 @@ EMenuItemType menuItemTypeNameToID(const std::string& theName)
 		}
 	};
 	static NameToEnumMapper sNameToEnumMapper;
-
-	EMenuItemType* result = sNameToEnumMapper.map.find(theName);
-	return result ? *result : eMenuItemType_Num;
+	return sNameToEnumMapper.map.valElse(theName, eMenuItemType_Num);
 }
 
 

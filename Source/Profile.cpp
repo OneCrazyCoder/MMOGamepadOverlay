@@ -1334,15 +1334,15 @@ static std::string varTagToString(
 			++aPos;
 		}
 		else if( theTagStr[aPos] == '=' )
-		{// Use '[' to mean less-than-or-equal (internally only)
-			anOpC = '[';
+		{// Use '(' to mean less-than-or-equal (internally only)
+			anOpC = '(';
 			++aPos;
 		}
 		break;
 	case '>':
 		if( theTagStr[aPos] == '=' )
-		{// Use ']' to mean less-than-or-equal (internally only)
-			anOpC = ']';
+		{// Use ')' to mean less-than-or-equal (internally only)
+			anOpC = ')';
 			++aPos;
 		}
 		break;
@@ -1351,7 +1351,14 @@ static std::string varTagToString(
 		if( theTagStr[aPos] == '=' )
 			++aPos;
 		break;
-	case '+': case '-': case '*': case '/':
+	case '/':
+		if( theTagStr[aPos] == '~' )
+		{// Use /~ to for mod operator
+			anOpC = '%';
+			++aPos;
+		}
+		// fall through
+	case '+': case '-': case '*':
 		aNextDel = "}+*/?!~<>="; // to warn of multi-operator use (except -)
 		break;
 	case '.':
@@ -1365,10 +1372,11 @@ static std::string varTagToString(
 	// Get first parameter for operator
 	const std::string& aParam = fetchNextItem(theTagStr, aPos, aNextDel);
 
-	// Check for special .anchor, .offset, .x/xs, and .y/ys for coord vars
+	// Check for special .anchor, .offset, .x/xs, and .y/ys for coord vars,
+	// as well as .sum, .int, .round, .floor, and .ceil for sum vars
 	if( anOpC == '.' )
 	{
-		enum {
+		enum EMemberType {
 			eMemberType_Unknown,
 			eMemberType_X,
 			eMemberType_Y,
@@ -1376,109 +1384,168 @@ static std::string varTagToString(
 			eMemberType_YScaled,
 			eMemberType_Offset,
 			eMemberType_Anchor,
-		} aMemberType = eMemberType_Unknown;
-		if( condense(aParam) == "X" )
-			aMemberType = eMemberType_X;
-		else if( condense(aParam) == "Y" )
-			aMemberType = eMemberType_Y;
-		if( condense(aParam) == "XS" )
-			aMemberType = eMemberType_XScaled;
-		else if( condense(aParam) == "YS" )
-			aMemberType = eMemberType_YScaled;
-		else if( condense(aParam) == "OFFSET" )
-			aMemberType = eMemberType_Offset;
-		else if( condense(aParam) == "ANCHOR" )
-			aMemberType = eMemberType_Anchor;
+			eMemberType_Sum,
+			eMemberType_Round,
+			eMemberType_Floor,
+			eMemberType_Ceil,
 
+			eMemberType_LastCoordType = eMemberType_Anchor
+		};
+		struct NameToEnumMapper
+		{
+			typedef StringToValueMap<EMemberType, u8> NameToEnumMap;
+			NameToEnumMap map;
+			NameToEnumMapper()
+			{
+				struct { const char* str; EMemberType val; }
+				kEntries[] = {
+					{ "x",			eMemberType_X		},
+					{ "y",			eMemberType_Y		},
+					{ "xs",			eMemberType_XScaled	},
+					{ "ys",			eMemberType_YScaled	},
+					{ "offset",		eMemberType_Offset	},
+					{ "anchor",		eMemberType_Anchor	},
+					{ "sum",		eMemberType_Sum		},
+					{ "int",		eMemberType_Round	},
+					{ "integer",	eMemberType_Round	},
+					{ "num",		eMemberType_Round	},
+					{ "round",		eMemberType_Round	},
+					{ "floor",		eMemberType_Floor	},
+					{ "ceil",		eMemberType_Ceil	},
+				};
+				map.reserve(ARRAYSIZE(kEntries));
+				for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
+					map.setValue(kEntries[i].str, kEntries[i].val);
+			}
+		};
+		static NameToEnumMapper sNameToEnumMapper;
+		const EMemberType aMemberType =
+			sNameToEnumMapper.map.valElse(aParam, eMemberType_Unknown);
 		if( aMemberType == eMemberType_Unknown )
 		{
-			logError("Uknown operator '%c%s' in '%s'!",
-				anOpC, aParam.c_str(), theTagStr.c_str());
+			logError("Uknown variable string conversion name '.%s' in '%s'!",
+				aParam.c_str(), theTagStr.c_str());
 			return varTagToString(result, theTagStr, aPos);
 		}
-		size_t aCoordStrPos = 0;
-		const Hotspot::Coord& aCoord = stringToCoord(result, aCoordStrPos);
-		if( aCoordStrPos != result.size() )
+		if( aMemberType < eMemberType_LastCoordType )
 		{
-			logError("Expected an anchor + offset coordinate string "
-				"instead of '%s' for operator '%c%s' in '%s'!",
-				result.c_str(), anOpC, aParam.c_str(), theTagStr.c_str());
+			size_t aCoordStrPos = 0;
+			const Hotspot::Coord& aCoord = stringToCoord(result, aCoordStrPos);
+			if( aCoordStrPos != result.size() )
+			{
+				logError("Expected an anchor + offset coordinate string "
+					"instead of '%s' for conversion type '.%s' in '%s'!",
+					result.c_str(), aParam.c_str(), theTagStr.c_str());
+				return varTagToString(result, theTagStr, aPos);
+			}
+			switch(aMemberType)
+			{
+			case eMemberType_X:
+				{
+					const u32 aMaxVal = stringToU32(sSectionsMap.vals()
+						[kVarsSectionIdx].vals()[kWidthVarID].str);
+					const int anAnchorVal =
+						u16ToRangeVal(aCoord.anchor, aMaxVal);
+					result = toString(clamp(
+						anAnchorVal + aCoord.offset, 0, aMaxVal));
+					if( theVarDep )
+					{// Make sure this recalculates when needed
+						theVarDep->varID = kWidthVarID;
+						logPropVarDependency(*theVarDep, init);
+					}
+				}
+				break;
+			case eMemberType_Y:
+				{
+					const u32 aMaxVal = stringToU32(sSectionsMap.vals()
+						[kVarsSectionIdx].vals()[kHeightVarID].str);
+					const int anAnchorVal =
+						u16ToRangeVal(aCoord.anchor, aMaxVal);
+					result = toString(clamp(
+						anAnchorVal + aCoord.offset, 0, aMaxVal));
+					if( theVarDep )
+					{// Make sure this recalculates when needed
+						theVarDep->varID = kHeightVarID;
+						logPropVarDependency(*theVarDep, init);
+					}
+				}
+				break;
+			case eMemberType_XScaled:
+				{
+					const u32 aMaxVal = stringToU32(sSectionsMap.vals()
+						[kVarsSectionIdx].vals()[kWidthVarID].str);
+					const int anAnchorVal =
+						u16ToRangeVal(aCoord.anchor, aMaxVal);
+					const double aScale = stringToDouble(sSectionsMap.vals()
+						[kVarsSectionIdx].vals()[kUIScaleVarID].str);
+					result = toString(clamp(
+						anAnchorVal + int(aCoord.offset * aScale), 0, aMaxVal));
+					if( theVarDep )
+					{// Make sure this recalculates when needed
+						theVarDep->varID = kWidthVarID;
+						logPropVarDependency(*theVarDep, init);
+						theVarDep->varID = kUIScaleVarID;
+						logPropVarDependency(*theVarDep, init);
+					}
+				}
+				break;
+			case eMemberType_YScaled:
+				{
+					const u32 aMaxVal = stringToU32(sSectionsMap.vals()
+						[kVarsSectionIdx].vals()[kHeightVarID].str);
+					const int anAnchorVal =
+						u16ToRangeVal(aCoord.anchor, aMaxVal);
+					const double aScale = stringToDouble(sSectionsMap.vals()
+						[kVarsSectionIdx].vals()[kUIScaleVarID].str);
+					result = toString(clamp(
+						anAnchorVal + int(aCoord.offset * aScale), 0, aMaxVal));
+					if( theVarDep )
+					{// Make sure this recalculates when needed
+						theVarDep->varID = kHeightVarID;
+						logPropVarDependency(*theVarDep, init);
+						theVarDep->varID = kUIScaleVarID;
+						logPropVarDependency(*theVarDep, init);
+					}
+				}
+				break;
+			case eMemberType_Offset:
+				result = toString(aCoord.offset);
+				break;
+			case eMemberType_Anchor:
+				result = toString(aCoord.anchor / double(0x10000U));
+				break;
+			}
 			return varTagToString(result, theTagStr, aPos);
 		}
-		switch(aMemberType)
+		else
 		{
-		case eMemberType_X:
+			size_t aSumStrPos = 0;
+			double aSum = stringToDoubleSum(result, aSumStrPos);
+			if( aSumStrPos != result.size() )
 			{
-				const u32 aMaxVal = stringToU32(sSectionsMap.vals()
-					[kVarsSectionIdx].vals()[kWidthVarID].str);
-				const int anAnchorVal = u16ToRangeVal(aCoord.anchor, aMaxVal);
-				result = toString(clamp(
-					anAnchorVal + aCoord.offset, 0, aMaxVal));
-				if( theVarDep )
-				{// Make sure this recalculates when needed
-					theVarDep->varID = kWidthVarID;
-					logPropVarDependency(*theVarDep, init);
-				}
+				logError("Expected string representing a sum of numbers "
+					"instead of '%s' for conversion type '.%s' in '%s'!",
+					result.c_str(), aParam.c_str(), theTagStr.c_str());
+				return varTagToString(result, theTagStr, aPos);
 			}
-			break;
-		case eMemberType_Y:
+
+			switch(aMemberType)
 			{
-				const u32 aMaxVal = stringToU32(sSectionsMap.vals()
-					[kVarsSectionIdx].vals()[kHeightVarID].str);
-				const int anAnchorVal = u16ToRangeVal(aCoord.anchor, aMaxVal);
-				result = toString(clamp(
-					anAnchorVal + aCoord.offset, 0, aMaxVal));
-				if( theVarDep )
-				{// Make sure this recalculates when needed
-					theVarDep->varID = kHeightVarID;
-					logPropVarDependency(*theVarDep, init);
-				}
+			case eMemberType_Sum:
+				result = toString(aSum);
+				break;
+			case eMemberType_Round:
+				result = toString(int(floor(aSum+0.5)));
+				break;
+			case eMemberType_Floor:
+				result = toString(int(floor(aSum)));
+				break;
+			case eMemberType_Ceil:
+				result = toString(int(ceil(aSum)));
+				break;
 			}
-			break;
-		case eMemberType_XScaled:
-			{
-				const u32 aMaxVal = stringToU32(sSectionsMap.vals()
-					[kVarsSectionIdx].vals()[kWidthVarID].str);
-				const int anAnchorVal = u16ToRangeVal(aCoord.anchor, aMaxVal);
-				const double aScale = stringToDouble(sSectionsMap.vals()
-					[kVarsSectionIdx].vals()[kUIScaleVarID].str);
-				result = toString(clamp(
-					anAnchorVal + int(aCoord.offset * aScale), 0, aMaxVal));
-				if( theVarDep )
-				{// Make sure this recalculates when needed
-					theVarDep->varID = kWidthVarID;
-					logPropVarDependency(*theVarDep, init);
-					theVarDep->varID = kUIScaleVarID;
-					logPropVarDependency(*theVarDep, init);
-				}
-			}
-			break;
-		case eMemberType_YScaled:
-			{
-				const u32 aMaxVal = stringToU32(sSectionsMap.vals()
-					[kVarsSectionIdx].vals()[kHeightVarID].str);
-				const int anAnchorVal = u16ToRangeVal(aCoord.anchor, aMaxVal);
-				const double aScale = stringToDouble(sSectionsMap.vals()
-					[kVarsSectionIdx].vals()[kUIScaleVarID].str);
-				result = toString(clamp(
-					anAnchorVal + int(aCoord.offset * aScale), 0, aMaxVal));
-				if( theVarDep )
-				{// Make sure this recalculates when needed
-					theVarDep->varID = kHeightVarID;
-					logPropVarDependency(*theVarDep, init);
-					theVarDep->varID = kUIScaleVarID;
-					logPropVarDependency(*theVarDep, init);
-				}
-			}
-			break;
-		case eMemberType_Offset:
-			result = toString(aCoord.offset);
-			break;
-		case eMemberType_Anchor:
-			result = toString(aCoord.anchor / double(0x10000U));
-			break;
+			return varTagToString(result, theTagStr, aPos);
 		}
-		return varTagToString(result, theTagStr, aPos);
 	}
 
 	// Check for valid values (i.e. numbers) for some operators
@@ -1512,14 +1579,15 @@ static std::string varTagToString(
 				"Note only one operator is allowed per ${} block!",
 				aParam.c_str(), anOpC, theTagStr.c_str());
 			aParamNum =
-				(anOpC == '+' || anOpC == '-') ? 0 :
+				(anOpC == '+' || anOpC == '-' || anOpC == '%') ? 0 :
 				(anOpC == '*' || anOpC == '/') ? 1.0 :
 				stringToBool(aParam) ? 1.0 : 0;
 		}
 	}
 
 	// Have all we need for arithmetic operators now
-	if( anOpC == '+' || anOpC == '-' || anOpC == '*' || anOpC == '/' )
+	if( anOpC == '+' || anOpC == '-' ||
+		anOpC == '*' || anOpC == '/' || anOpC == '%' )
 	{
 		if( theTagStr[aPos] != '}' )
 		{
@@ -1542,6 +1610,16 @@ static std::string varTagToString(
 			}
 			aVarNum /= aParamNum;
 			break;
+		case '%':
+			aParamNum = floor(aParamNum + 0.5);
+			if( aParamNum == 0 )
+			{
+				logError("Division by 0 detected in '%s'!",
+					theTagStr.c_str());
+				aParamNum = 1.0;
+			}
+			aVarNum = int(floor(aVarNum + 0.5)) % int(aParamNum);
+			break;
 		}
 		result = toString(aVarNum);
 		return result;
@@ -1554,13 +1632,13 @@ static std::string varTagToString(
 	case '<':
 		isTrue = aVarNum < aParamNum;
 		break;
-	case '[':
+	case '(':
 		isTrue = aVarNum <= aParamNum;
 		break;
 	case '>':
 		isTrue = aVarNum > aParamNum;
 		break;
-	case ']':
+	case ')':
 		isTrue = aVarNum >= aParamNum;
 		break;
 	case '=': case '!':
@@ -1642,6 +1720,7 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		return;
 	}
 
+	VarPropDependency* aDepPtr = null;
 	VarPropDependency aDep;
 	aDep.sectID = theSectionID;
 	aDep.propID = thePropID;
@@ -1651,34 +1730,23 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 	theProp.str = "\b"; // to detect circular reference from recursion
 	std::string aStr = theProp.pattern;
 	do {
-		// Extract variable name from tag
-		size_t aVarOpPos = aTagCoords.first + 2;
-		const std::string& aVarName =
-			fetchNextItem(aStr, aVarOpPos, "}+-*/?!~<>=.");
-
-		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
+		// Extract variable name (or a number as a const var) from tag
 		std::string aRepStr;
-		if( aVarName.empty() )
-		{
-			logError("Missing variable name in property "
-				"[%s] / %s = %s!",
-				sSectionsMap.keys()[theSectionID].c_str(),
-				theSection.keys()[thePropID].c_str(),
-				aStr.c_str());
+		std::string aVarContents;
+		const std::string kVarOpChars = "}+-*/?!~<>=.";
+		size_t aVarOpPos = aTagCoords.first + 2;
+		const double aVarAsNum = stringToDoubleSum(aStr, aVarOpPos);
+		if( aVarOpPos > aTagCoords.first + 2 )
+		{// Variable seems like it is actually a constant number
+			if( kVarOpChars.find(aStr[aVarOpPos]) != std::string::npos )
+				aVarContents = toString(aVarAsNum);
 		}
 		else
 		{
+			const std::string& aVarName =
+				fetchNextItem(aStr, aVarOpPos, kVarOpChars.c_str());
 			const int aVarID = theVarsMap.findIndex(aVarName);
-			if( aVarID >= theVarsMap.size() )
-			{
-				logError("Variable name '%s' not found in property "
-					"[%s] / %s = %s!",
-					aVarName.c_str(),
-					sSectionsMap.keys()[theSectionID].c_str(),
-					theSection.keys()[thePropID].c_str(),
-					aStr.c_str());
-			}
-			else
+			if( aVarID < theVarsMap.size() )
 			{
 				Property& aVarProp = theVarsMap.vals()[aVarID];
 				if( aVarProp.str == "\b" )
@@ -1688,15 +1756,29 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 				}
 				else
 				{
+					aDepPtr = &aDep;
 					aDep.varID = aVarID;
 					logPropVarDependency(aDep, init);
 					if( aVarProp.str.empty() && !aVarProp.pattern.empty() )
 						expandPropertyVars(kVarsSectionIdx, aVarID, init);
-
-					aRepStr = varTagToString(
-						aVarProp.str, aStr, aVarOpPos, &aDep, init);
+					aVarContents = aVarProp.str;
 				}
 			}
+		}
+
+		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
+		if( aVarContents.empty() )
+		{
+			logError("Could not identify variable name from %s in property "
+				"[%s] / %s!",
+				aStr.substr(aTagCoords.first, aTagCoords.second).c_str(),
+				sSectionsMap.keys()[theSectionID].c_str(),
+				theSection.keys()[thePropID].c_str());
+		}
+		else
+		{
+			aRepStr = varTagToString(
+				aVarContents, aStr, aVarOpPos, aDepPtr, init);
 		}
 		aStr = aStr.replace(aTagCoords.first, aTagCoords.second, aRepStr);
 		aTagCoords = findStringTag(aStr, 0, "${", '}');

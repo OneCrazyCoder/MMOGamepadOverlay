@@ -2895,9 +2895,8 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 	static NameToEnumMapper sNameToEnumMapper;
 
 	// If name not recognized, assume its a menu item (and hence its label)
-	EPropChangeImpact anImpact = ePropChangeImpact_Labels;
-	if( EPropChangeImpact* anEntry = sNameToEnumMapper.map.find(thePropName) )
-		anImpact = *anEntry;
+	EPropChangeImpact anImpact =
+		sNameToEnumMapper.map.valElse(thePropName, ePropChangeImpact_Labels);
 	MenuCacheEntry& aMenuCache = sMenuDrawCache[theMenuID];
 	const int anOverlayID = InputMap::menuOverlayID(theMenuID);
 	const bool menuIsActive =

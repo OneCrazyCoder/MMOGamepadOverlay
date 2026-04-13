@@ -276,7 +276,7 @@ Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>The hotspot itself is considered at the center of the region, but the full width and height are specified in this section. So a width of 10 would mean the actual region would be the area between 5 pixels to the left and 5 pixels to the right of the hotspot (195 to 205 in the first example above).</p>
 <h3 id="ui-scale">UI Scale</h3>
 <p>Hotspot offset values are not directly affected by the size of the target screen/window like the hotspot anchor is, but will instead be multiplied by a global UI Scale value. Size-related properties, such as ItemSize, BorderSize, FontSize, TitleHeight, and the above Hotspot region sizes, are also multiplied by this global UI Scale value. The initial value for this can be configured by setting the special <code>[Variables]</code> property <code>UIScale=</code>, which defaults to 100% if undefined.</p>
-<p>For games that allow setting a scale for individual windows, <strong>Hotspot Arrays</strong> (a group of hotspots sharing the same name but just ending in a different sequential numbers) can have their offsets and size further multiplied by these per-window scales. See <em>Hotspot Array scaling</em> under <em>Other Commands and Features</em> for more details.</p>
+<p>For games that allow setting a scale for individual windows, <strong>Hotspot Arrays</strong> (a group of hotspots sharing the same name but just ending in different sequential numbers) can have their offsets and size further multiplied by these per-window scales. See <em>Hotspot Array scaling</em> under <em>Other Commands and Features</em> for more details.</p>
 <h3 id="ui-layout-editor">UI Layout Editor</h3>
 <p>The UI Layout Editor can be accessed from the Edit menu of the main app window, or by adding a <code>=Edit UI Layout</code> command to a button or menu in your profile somewhere.</p>
 <p>This option will bring up a dialog listing all the Hotspots and Menus found in your profile that can be repositioned. Select one and click the Reposition button. You can then see a visual indicator of the position in question overlayed over the game (and any menus from this app), to see how they line up. A pop-up dialog will also appear showing the actual values from the .ini file. You can use the buttons and edit fields in that dialog to move the item, or just drag it around directly on the screen with a mouse. The game and app will continue running while you are doing this, to allow checking the position against different in-game menus and such. Simply click OK in the dialog box when done positioning the item to save the change to your profile .ini file automatically.</p>
@@ -898,30 +898,41 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <table>
 <thead>
 <tr>
+<th>Op</th>
 <th>Syntax</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
+<td>None</td>
 <td><code>${Var}</code></td>
 <td>Replaced with 10</td>
 </tr>
 <tr>
+<td>Add</td>
 <td><code>${Var + 1}</code></td>
 <td>Replaced with 11</td>
 </tr>
 <tr>
+<td>Sub</td>
 <td><code>${Var - 2}</code></td>
 <td>Replaced with 8</td>
 </tr>
 <tr>
+<td>Mult</td>
 <td><code>${Var * 7}</code></td>
 <td>Replaced with 70</td>
 </tr>
 <tr>
+<td>Div</td>
 <td><code>${Var / 2}</code></td>
 <td>Replaced with 5</td>
+</tr>
+<tr>
+<td>Mod</td>
+<td><code>${Var /~ 3}</code></td>
+<td>Replaced with 1</td>
 </tr>
 </tbody>
 </table><p>A ternary-style conditional operator <code>?:</code> is also supported to insert different values:</p>
@@ -934,14 +945,16 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <p>would substitute InnerVar’s value first. Therefore if InnerVar was set to 5, the text would temporarily become:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token attr-value"><span class="token punctuation">=</span> ${OuterVar = 5 ? Yes : No}</span>
 </code></pre>
-<p>The only operators that work properly on a variable whose value can not be interpreted as a number - in other words a text string - are <code>?:</code>, <code>==</code>, and <code>!=</code>.</p>
-<p><em>Pro tip - If a variable is in the coordinate format used by hotspots and menu positions that include both an anchor and an offset - such as <code>L+50</code> or <code>25% - 20</code> and so on - then the variable can be replaced with just one of the contained numbers instead. Use the format <code>${MyCoordVar.anchor}</code> and <code>${MyCoordVar.offset}</code> to do this (thus can use <code>${MyCoordVar.offset * 2}</code>, for example, which would expand to twice the offset and ignore the anchor value). You can also use <code>${MyCoordVar.x}</code> and <code>${MyCoordVar.y}</code>, which multiply the anchor by the target window width (for x) or height (for y), add the offset, and use the result as a numerical variable value. Use <code>.xs</code> and <code>.ys</code> to also have the offset multiplied by the UIScale variable.</em></p>
+<p>The only operators that work properly on a variable whose value can not be interpreted as a single number - in other words a text string - are <code>?:</code>, <code>==</code>, and <code>!=</code>. However, if a text string is actually multiple numbers separated by + and - signs to form a sum, it can be treated as a single number by appending <code>.sum</code> (or <code>.int</code>, <code>.ceil</code>, or <code>.floor</code> to convert it into a whole number) immediately after the variable name. For example a variable set to “5 + 0.5 - 2” would be replaced with “3.5” if you used <code>${VarName.sum}</code>, which does not count as an operator so can be combined with math operators (i.e.<code>${VarName.sum * 2}</code> would be replaced with “7”).</p>
+<p><em>Pro tip - If a variable is in the coordinate format used by hotspots and menu positions that include both an anchor and an offset - such as <code>L+50</code> or <code>25% - 20</code> and so on - then the variable can be replaced with just one of the contained numbers instead. Use the format <code>${MyCoordVar.anchor}</code> and <code>${MyCoordVar.offset}</code> to do this (thus can use <code>${MyCoordVar.offset * 2}</code>, for example, which would expand to twice the offset and ignore the anchor value). In place of <code>.offset</code> you can also use <code>.floor</code>, <code>.ceil</code>, <code>.int</code> and <code>.round</code> to specify how to round any decimal values to a whole number offset. You can also use <code>${MyCoordVar.x}</code> and <code>${MyCoordVar.y}</code>, which multiply the anchor by the target window width (for x) or height (for y), add the offset, and use the result as a numerical variable value. Use <code>.xs</code> and <code>.ys</code> to also have the offset multiplied by the UIScale variable.</em></p>
 <p>Variables can be changed at runtime using the command <code>=Set VarName to Value</code>, with “Value” being whatever you want (including another variable name). For example, you could have a settings menu item like so:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Menu.Settings]</span>
 <span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> "Cam Steer: ${CamSteer}": Set CamSteer to ${CamSteer ? Off : On}</span>
 </code></pre>
 <p>Which would make it so using this menu item would toggle CamSteer on or off, and change how the LStick behaves in the earlier example, as well as how the label appears for this menu item (saying either “Cam Steer: On” or “Cam Steer: Off”).</p>
 <p>Setting a variable with this command will save the variable’s new value to your profile’s .ini file, so it will still be in effect the next time this profile is loaded. This can be used to quickly change configuration settings without needing to edit the .ini file every time. If you do NOT want the new value to be saved to your profile, and only last until you exit the app or change profiles, use “Temp” or “Temporarily” as in <code>=Temporarily Set VarName to Value</code>.*</p>
+<p>A few special variable names are reserved and used by the application itself: <code>${W}</code> and <code>${H}</code> are updated to match the current target game window’s width and height respectively, and <code>${UIScale}</code>'s value as mentioned before is automatically multiplied by many position offsets and sizes.</p>
+<p>Additionally, all numbers are considered a “built-in variable” provided by the app and can be used in place of a variable name, allowing for expressions such as <code>${0 - ${Var}}</code> or <code>${1 / ${Var}}</code> and so on. This is why you can not start any of your own variable names with a number.</p>
 <h3 id="layer-buttonswap-property">Layer ButtonSwap= property</h3>
 <p>This property allows swapping your button assignments around without having to go through your entire profile and change every instance of one button to be another. For a global change, add this to <code>[Scheme]</code> like so:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Scheme]</span>

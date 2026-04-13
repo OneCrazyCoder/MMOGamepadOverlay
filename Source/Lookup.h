@@ -79,6 +79,9 @@ public:
 	// find() but if key not found, adds one with default value and returns it
 	// If adds the key, it is inserted in proper position so no need to sort()
 	V& findOrAdd(const K& theKey, const V& theDefault = V());
+	// Returns a copy of the value for given key if one is found, and if not
+	// found it returns the passed-in sentinel value variable
+	V valElse(const K& theKey, const V& theResultIfNotFound) const;
 	// Returns index to insert key and maintain sorted order (or the index of
 	// the key if it already exists - up to you to figure out which it is!)
 	int findInsertPos(const K& theKey) const;
@@ -209,6 +212,9 @@ public:
 	// Like find(), but if key not found, adds it (with default value) first.
 	// Returns a direct reference to the value, since can't return 'null'.
 	V& findOrAdd(const Key& theKey, const V& theDefault = V());
+	// Returns a copy of the value for given key if one is found, and if not
+	// found it returns the passed-in sentinel value variable
+	V valElse(const Key& theKey, const V& theResultIfNotFound) const;
 	// Returns index into values() (and keys() if it hasn't been freed), for
 	// even faster access from then on. Returns size() if key not found.
 	int findIndex(const Key& theKey) const;
