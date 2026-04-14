@@ -2204,6 +2204,9 @@ void init()
 		return;
 	}
 
+	Dialogs::showNotice(
+		"This feature is being updated and is currently partially broken!");
+
 	TargetConfigSync::pauseMonitoring();
 
 	// Gather information on elements that can be edited

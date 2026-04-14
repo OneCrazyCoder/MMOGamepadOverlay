@@ -59,9 +59,9 @@ const ResourceFile kResTemplateCore =
 
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
-	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	18	},
-	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	17	},
-	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	17	},
+	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	19	},
+	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	18	},
+	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	18	},
 	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	19	},
 };
 

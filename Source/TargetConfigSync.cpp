@@ -80,6 +80,8 @@ enum EValueFunction
 	eValueFunc_CY,
 	eValueFunc_Right,
 	eValueFunc_Bottom,
+	eValueFunc_BaseWidth,
+	eValueFunc_BaseHeight,
 	eValueFunc_Width,
 	eValueFunc_Height,
 	eValueFunc_AlignX,
@@ -150,63 +152,71 @@ static EValueFunction valueFuncNameToID(const std::string& theName)
 		{
 			struct { const char* str; EValueFunction val; } const kEntries[] =
 			{
-				{ "",			eValueFunc_Base		},
-				{ "Base",		eValueFunc_Base		},
-				{ "Value",		eValueFunc_Base		},
-				{ "X",			eValueFunc_PosX		},
-				{ "PosX",		eValueFunc_PosX		},
-				{ "PositionX",	eValueFunc_PosX		},
-				{ "XPos",		eValueFunc_PosX		},
-				{ "XPosition",	eValueFunc_PosX		},
-				{ "XOrigin",	eValueFunc_PosX		},
-				{ "OriginX",	eValueFunc_PosX		},
-				{ "Y",			eValueFunc_PosY		},
-				{ "PosY",		eValueFunc_PosY		},
-				{ "PositionY",	eValueFunc_PosY		},
-				{ "YPos",		eValueFunc_PosY		},
-				{ "YPosition",	eValueFunc_PosY		},
-				{ "YOrigin",	eValueFunc_PosY		},
-				{ "OriginY",	eValueFunc_PosY		},
-				{ "Left",		eValueFunc_Left		},
-				{ "L",			eValueFunc_Left		},
-				{ "Top",		eValueFunc_Top		},
-				{ "T",			eValueFunc_Top		},
-				{ "CX",			eValueFunc_CX		},
-				{ "CenterX",	eValueFunc_CX		},
-				{ "CentreX",	eValueFunc_CX		},
-				{ "XCenter",	eValueFunc_CX		},
-				{ "XCentre",	eValueFunc_CX		},
-				{ "CY",			eValueFunc_CY		},
-				{ "CenterY",	eValueFunc_CY		},
-				{ "CentreY",	eValueFunc_CY		},
-				{ "YCenter",	eValueFunc_CY		},
-				{ "YCentre",	eValueFunc_CY		},
-				{ "Right",		eValueFunc_Right	},
-				{ "R",			eValueFunc_Right	},
-				{ "Bottom",		eValueFunc_Bottom	},
-				{ "B",			eValueFunc_Bottom	},
-				{ "Width",		eValueFunc_Width	},
-				{ "W",			eValueFunc_Width	},
-				{ "XSize",		eValueFunc_Width	},
-				{ "SizeX",		eValueFunc_Width	},
-				{ "Height",		eValueFunc_Height	},
-				{ "H",			eValueFunc_Height	},
-				{ "YSize",		eValueFunc_Height	},
-				{ "SizeY",		eValueFunc_Height	},
-				{ "AlignX",		eValueFunc_AlignX	},
-				{ "AlignmentX",	eValueFunc_AlignX	},
-				{ "AnchorX",	eValueFunc_AlignX	},
-				{ "XAlignment",	eValueFunc_AlignX	},
-				{ "XAlign",		eValueFunc_AlignX	},
-				{ "XAnchor",	eValueFunc_AlignX	},
-				{ "AlignY",		eValueFunc_AlignY	},
-				{ "AlignmentY",	eValueFunc_AlignY	},
-				{ "AnchorY",	eValueFunc_AlignY	},
-				{ "YAlign",		eValueFunc_AlignY	},
-				{ "YAlignment",	eValueFunc_AlignY	},
-				{ "YAnchor",	eValueFunc_AlignY	},
-				{ "Scale",		eValueFunc_Scale	},
-				{ "Scaling",	eValueFunc_Scale	},
+				{ "",			eValueFunc_Base			},
+				{ "Base",		eValueFunc_Base			},
+				{ "Value",		eValueFunc_Base			},
+				{ "X",			eValueFunc_PosX			},
+				{ "PosX",		eValueFunc_PosX			},
+				{ "PositionX",	eValueFunc_PosX			},
+				{ "XPos",		eValueFunc_PosX			},
+				{ "XPosition",	eValueFunc_PosX			},
+				{ "XOrigin",	eValueFunc_PosX			},
+				{ "OriginX",	eValueFunc_PosX			},
+				{ "Y",			eValueFunc_PosY			},
+				{ "PosY",		eValueFunc_PosY			},
+				{ "PositionY",	eValueFunc_PosY			},
+				{ "YPos",		eValueFunc_PosY			},
+				{ "YPosition",	eValueFunc_PosY			},
+				{ "YOrigin",	eValueFunc_PosY			},
+				{ "OriginY",	eValueFunc_PosY			},
+				{ "Left",		eValueFunc_Left			},
+				{ "L",			eValueFunc_Left			},
+				{ "Top",		eValueFunc_Top			},
+				{ "T",			eValueFunc_Top			},
+				{ "CX",			eValueFunc_CX			},
+				{ "CenterX",	eValueFunc_CX			},
+				{ "CentreX",	eValueFunc_CX			},
+				{ "XCenter",	eValueFunc_CX			},
+				{ "XCentre",	eValueFunc_CX			},
+				{ "CY",			eValueFunc_CY			},
+				{ "CenterY",	eValueFunc_CY			},
+				{ "CentreY",	eValueFunc_CY			},
+				{ "YCenter",	eValueFunc_CY			},
+				{ "YCentre",	eValueFunc_CY			},
+				{ "Right",		eValueFunc_Right		},
+				{ "R",			eValueFunc_Right		},
+				{ "Bottom",		eValueFunc_Bottom		},
+				{ "B",			eValueFunc_Bottom		},
+				{ "BaseWidth",	eValueFunc_BaseWidth	},
+				{ "BaseW",		eValueFunc_BaseWidth	},
+				{ "BaseXSize",	eValueFunc_BaseWidth	},
+				{ "BaseSizeX",	eValueFunc_BaseWidth	},
+				{ "BaseHeight",	eValueFunc_BaseHeight	},
+				{ "BaseH",		eValueFunc_BaseHeight	},
+				{ "BaseYSize",	eValueFunc_BaseHeight	},
+				{ "BaseSizeY",	eValueFunc_BaseHeight	},
+				{ "Width",		eValueFunc_Width		},
+				{ "W",			eValueFunc_Width		},
+				{ "XSize",		eValueFunc_Width		},
+				{ "SizeX",		eValueFunc_Width		},
+				{ "Height",		eValueFunc_Height		},
+				{ "H",			eValueFunc_Height		},
+				{ "YSize",		eValueFunc_Height		},
+				{ "SizeY",		eValueFunc_Height		},
+				{ "AlignX",		eValueFunc_AlignX		},
+				{ "AlignmentX",	eValueFunc_AlignX		},
+				{ "AnchorX",	eValueFunc_AlignX		},
+				{ "XAlignment",	eValueFunc_AlignX		},
+				{ "XAlign",		eValueFunc_AlignX		},
+				{ "XAnchor",	eValueFunc_AlignX		},
+				{ "AlignY",		eValueFunc_AlignY		},
+				{ "AlignmentY",	eValueFunc_AlignY		},
+				{ "AnchorY",	eValueFunc_AlignY		},
+				{ "YAlign",		eValueFunc_AlignY		},
+				{ "YAlignment",	eValueFunc_AlignY		},
+				{ "YAnchor",	eValueFunc_AlignY		},
+				{ "Scale",		eValueFunc_Scale		},
+				{ "Scaling",	eValueFunc_Scale		},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
@@ -2010,6 +2020,7 @@ static bool setConfigValueLinks(
 		fetchVal(eValueSetSubType_AnchorTypeA);
 		fetchVal(eValueSetSubType_PivotX);
 		fetchVal(eValueSetSubType_SizeX);
+		fetchVal(eValueSetSubType_Scale);
 		break;
 	case eValueFunc_PosY:
 	case eValueFunc_Top:
@@ -2020,12 +2031,21 @@ static bool setConfigValueLinks(
 		fetchVal(eValueSetSubType_AnchorTypeA);
 		fetchVal(eValueSetSubType_PivotY);
 		fetchVal(eValueSetSubType_SizeY);
+		fetchVal(eValueSetSubType_Scale);
+		break;
+	case eValueFunc_BaseWidth:
+		fetchVal(eValueSetSubType_SizeX);
+		break;
+	case eValueFunc_BaseHeight:
+		fetchVal(eValueSetSubType_SizeY);
 		break;
 	case eValueFunc_Width:
 		fetchVal(eValueSetSubType_SizeX);
+		fetchVal(eValueSetSubType_Scale);
 		break;
 	case eValueFunc_Height:
 		fetchVal(eValueSetSubType_SizeY);
+		fetchVal(eValueSetSubType_Scale);
 		break;
 	case eValueFunc_AlignX:
 		fetchVal(eValueSetSubType_AlignX);
@@ -2154,12 +2174,12 @@ static double getSubTypeValue(
 					theValArray,
 					theSubType == eValueSetSubType_PivotX
 						? eValueSetSubType_SizeX
-						: eValueSetSubType_SizeY);
+						: eValueSetSubType_SizeY) *
+				getSubTypeValue(theValArray, eValueSetSubType_Scale);
 		}
 		break;
 	case eValueSetSubType_SizeX:
 	case eValueSetSubType_SizeY:
-		result *= getSubTypeValue(theValArray, eValueSetSubType_Scale);
 		if( sInvertAxis[theSubType] )
 			result = -result;
 		result = max(0.0, result);
@@ -2237,7 +2257,8 @@ static std::string getValueString(
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
 				getSubTypeValue(v, eValueSetSubType_PivotX) +
-				getSubTypeValue(v, eValueSetSubType_SizeX) * 0.5);
+				getSubTypeValue(v, eValueSetSubType_SizeX) * 0.5 *
+				getSubTypeValue(v, eValueSetSubType_Scale));
 			if( anOffset >= 0 ) result += "+";
 			result += toString(anOffset);
 		}
@@ -2248,7 +2269,8 @@ static std::string getValueString(
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
 				getSubTypeValue(v, eValueSetSubType_PivotY) +
-				getSubTypeValue(v, eValueSetSubType_SizeY) * 0.5);
+				getSubTypeValue(v, eValueSetSubType_SizeY) * 0.5 *
+				getSubTypeValue(v, eValueSetSubType_Scale));
 			if( anOffset >= 0 ) result += "+";
 			result += toString(anOffset);
 		}
@@ -2259,7 +2281,8 @@ static std::string getValueString(
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosX) -
 				getSubTypeValue(v, eValueSetSubType_PivotX) +
-				getSubTypeValue(v, eValueSetSubType_SizeX));
+				getSubTypeValue(v, eValueSetSubType_SizeX) *
+				getSubTypeValue(v, eValueSetSubType_Scale));
 			if( anOffset >= 0 ) result += "+";
 			result += toString(anOffset);
 		}
@@ -2270,16 +2293,27 @@ static std::string getValueString(
 			const int anOffset = static_cast<int>(
 				getSubTypeValue(v, eValueSetSubType_PosY) -
 				getSubTypeValue(v, eValueSetSubType_PivotY) +
-				getSubTypeValue(v, eValueSetSubType_SizeY));
+				getSubTypeValue(v, eValueSetSubType_SizeY) *
+				getSubTypeValue(v, eValueSetSubType_Scale));
 			if( anOffset >= 0 ) result += "+";
 			result += toString(anOffset);
 		}
 		break;
-	case eValueFunc_Width:
+	case eValueFunc_BaseWidth:
 		result = toString(getSubTypeValue(v, eValueSetSubType_SizeX));
 		break;
-	case eValueFunc_Height:
+	case eValueFunc_BaseHeight:
 		result = toString(getSubTypeValue(v, eValueSetSubType_SizeY));
+		break;
+	case eValueFunc_Width:
+		result = toString(
+			getSubTypeValue(v, eValueSetSubType_SizeX) *
+			getSubTypeValue(v, eValueSetSubType_Scale));
+		break;
+	case eValueFunc_Height:
+		result = toString(
+			getSubTypeValue(v, eValueSetSubType_SizeY) *
+			getSubTypeValue(v, eValueSetSubType_Scale));
 		break;
 	case eValueFunc_AlignX:
 		{
