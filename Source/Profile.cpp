@@ -62,7 +62,7 @@ const ResourceFile kResTemplateBase[] =
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	19	},
 	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	18	},
 	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	18	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	19	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	20	},
 };
 
 const ResourceFile kResTemplateDefault[] =
@@ -70,7 +70,7 @@ const ResourceFile kResTemplateDefault[] =
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	19	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	19	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	19	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	20	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	21	},
 };
 
 const ResourceFile kResTemplateCustom[] =
@@ -1291,6 +1291,130 @@ static void logPropVarDependency(VarPropDependency theDep, bool init)
 }
 
 
+static bool checkVarCompare(
+	const std::string& theVarStr,
+	const std::string& theParamStr,
+	double theVarNum, double theParamNum,
+	char theOperator)
+{
+	switch(theOperator)
+	{
+	case '<': return theVarNum < theParamNum;
+	case '(': return theVarNum <= theParamNum;
+	case '>': return theVarNum > theParamNum;
+	case ')': return theVarNum >= theParamNum;
+	case '?': return stringToBool(theVarStr);
+	case '=':
+		if( !_isnan(theVarNum) && !_isnan(theParamNum) )
+			return theVarNum == theParamNum;
+		return condense(theVarStr) == condense(theParamStr);
+	case '!':
+		if( !_isnan(theVarNum) && !_isnan(theParamNum) )
+			return theVarNum != theParamNum;
+		return condense(theVarStr) != condense(theParamStr);
+	default:
+		DBG_ASSERT(false && "Unhandled conditional operator");
+		return false;
+	}
+}
+
+
+static std::string varSelectString(
+	const std::string& theVarStr,
+	const std::string& theTagStr,
+	size_t thePos)
+{
+	const double theVarNum = stringToDouble(theVarStr, true);
+	std::string aCaseStr, aValStr, aStr;
+	double aCaseNum = -1.0;
+	while(thePos < theTagStr.size())
+	{
+		char anOpC = '=';
+		aStr = fetchNextItem(theTagStr, thePos, ":,]}");
+		if( theTagStr[thePos] == ':' )
+		{
+			// Check for an operator at start of case
+			int anOpCharCount = 0;
+			switch(aStr[0])
+			{
+			case '~': case '!':
+				anOpC = '!';
+				// Ignore extra '=' for '!=' or '~='
+				if( aStr[++anOpCharCount] == '=' )
+					++anOpCharCount;
+				break;
+			case '<':
+				if( aStr[++anOpCharCount] == '>' )
+				{// Treat <> as alternate form of '!'
+					anOpC = '!';
+					++anOpCharCount;
+				}
+				else if( aStr[anOpCharCount] == '=' )
+				{// Use '(' to mean less-than-or-equal (internally only)
+					anOpC = '(';
+					++anOpCharCount;
+				}
+				else
+				{
+					anOpC = '<';
+				}
+				break;
+			case '>':
+				if( aStr[++anOpCharCount] == '=' )
+				{// Use ')' to mean less-than-or-equal (internally only)
+					anOpC = ')';
+					++anOpCharCount;
+				}
+				else
+				{
+					anOpC = '>';
+				}
+				break;
+			case '=':
+				// Ignore extra '='
+				if( aStr[++anOpCharCount] == '=' )
+					++anOpCharCount;
+				break;
+			}
+			aCaseStr = aStr.substr(anOpCharCount);
+			aCaseNum = stringToDouble(aCaseStr, true);
+			aValStr = fetchNextItem(theTagStr, ++thePos, ",]}");
+			if( (_isnan(aCaseNum) || _isnan(theVarNum)) &&
+				anOpC != '!' && anOpC != '=' )
+			{
+				logError("Variable select case comparison of '%s %s' "
+					"expected numeric values for this operator type!",
+					theVarStr.c_str(), aStr.c_str());
+				// Skip this invalid case, or return it if last one anyway
+				if( theTagStr[thePos++] != ',' )
+					return aValStr;
+				continue;
+			}
+		}
+		else
+		{
+			// No case found - must be only value was specified
+			// Use previous case + 1 as assumed next case if using numbers
+			if( !_isnan(aCaseNum) )
+				aCaseNum = floor(aCaseNum) + 1.0;
+			// Assume this is instead the value string
+			aValStr = aStr;
+		}
+
+		// If reached end of [] block without returning anything yet, return
+		// last value found as the default (even if it wouldn't have matched)
+		if( theTagStr[thePos++] != ',' )
+			return aValStr;
+
+		// Check if case matches and if so return value found as replacement
+		if( checkVarCompare(theVarStr, aCaseStr, theVarNum, aCaseNum, anOpC) )
+			return aValStr;
+	}
+
+	return aValStr;
+}
+
+
 static std::string varTagToString(
 	const std::string& theVarContents,
 	const std::string& theTagStr,
@@ -1359,12 +1483,14 @@ static std::string varTagToString(
 		}
 		// fall through
 	case '+': case '-': case '*':
-		aNextDel = "}+*/?!~<>="; // to warn of multi-operator use (except -)
+		aNextDel = "}+*/?[!~<>="; // to warn of multi-operator use (except -)
 		break;
 	case '.':
 		// Not really an operator, so find the actual operator next (if any)
-		aNextDel = "}+-*/?!~<>=.";
+		aNextDel = "}+-*/?[!~<>=.";
 		break;
+	case '[':
+		return varSelectString(theVarContents, theTagStr, aPos);
 	default:
 		DBG_ASSERT(false && "Unhandled operator character");
 	}
@@ -1626,38 +1752,8 @@ static std::string varTagToString(
 	}
 
 	// Math done, should only be comparison or ? operator now
-	bool isTrue = false;
-	switch(anOpC)
-	{
-	case '<':
-		isTrue = aVarNum < aParamNum;
-		break;
-	case '(':
-		isTrue = aVarNum <= aParamNum;
-		break;
-	case '>':
-		isTrue = aVarNum > aParamNum;
-		break;
-	case ')':
-		isTrue = aVarNum >= aParamNum;
-		break;
-	case '=': case '!':
-		{
-			if( !_isnan(aVarNum) && !_isnan(aParamNum) )
-				isTrue = aVarNum == aParamNum;
-			else
-				isTrue = condense(result) == condense(aParam);
-			if( anOpC == '!' )
-				isTrue = !isTrue;
-		}
-		break;
-	case '?':
-		isTrue = stringToBool(result);
-		break;
-	default:
-		DBG_ASSERT(false && "Unhandled conditional operator");
-		break;
-	}
+	const bool isTrue = checkVarCompare(
+		result, aParam, aVarNum, aParamNum, anOpC);
 
 	// What to do with compare result depends on second operator
 	const char anOpC2 = theTagStr[aPos++];
@@ -1733,7 +1829,7 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		// Extract variable name (or a number as a const var) from tag
 		std::string aRepStr;
 		std::string aVarContents;
-		const std::string kVarOpChars = "}+-*/?!~<>=.";
+		const std::string kVarOpChars = "}+-*/?[!~<>=.";
 		size_t aVarNameStartPos = aTagCoords.first + 2;
 		while(aStr[aVarNameStartPos] <= ' ')
 			++aVarNameStartPos;
@@ -1810,7 +1906,7 @@ static void readProfileCallback(
 	if( aSectionID == kVarsSectionIdx &&
 		(((theName[0] < 'A' || theName[0] > 'Z') &&
 		  (theName[0] < 'a' || theName[0] > 'z')) ||
-		 (theName.find_first_of("{}+-*/?:!~<>=.") != std::string::npos)) )
+		 (theName.find_first_of("{}+-*/?[:!~<>=.") != std::string::npos)) )
 	{
 		logError(
 			"Variable names must only contain alphanumeric characters "
@@ -2624,7 +2720,7 @@ std::string expandVars(std::string theString)
 		// Extract variable name from tag
 		size_t aVarOpPos = aTagCoords.first + 2;
 		const std::string& aVarName =
-			fetchNextItem(theString, aVarOpPos, "}+-*/?!~<>=");
+			fetchNextItem(theString, aVarOpPos, "}+-*/?[!~<>=");
 		const int aVarID = theVarsMap.findIndex(aVarName);
 		if( aVarOpPos < aTagCoords.first + aTagCoords.second &&
 			!aVarName.empty() && aVarID < theVarsMap.size() )
