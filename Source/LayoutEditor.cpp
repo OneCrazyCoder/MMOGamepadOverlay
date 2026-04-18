@@ -51,6 +51,8 @@ enum EAlignment
 	eAlignment_Num,
 	eAlignment_VarString = eAlignment_Num,
 	eAlignment_UseDefault,
+	eAlignment_WrapX,
+	eAlignment_WrapY,
 };
 
 const char* const kAlignmentStr[][2] =
@@ -111,12 +113,14 @@ struct ZERO_INIT(LayoutEntry)
 		Component x, y, w, h;
 		std::string scale;
 		EAlignment alignment;
-		std::string alignVarString;
-		Shape() : alignment(eAlignment_UseDefault) {}
+		int wrap;
+		std::string extraVarString; // for alignment or wrap
+		Shape() : alignment(eAlignment_UseDefault), wrap() {}
 		bool operator==(const Shape& rhs) const
 		{
 			return
 				x == rhs.x && y == rhs.y && w == rhs.w && h == rhs.h &&
+				wrap == rhs.wrap && extraVarString == rhs.extraVarString &&
 				scale == rhs.scale && alignment == rhs.alignment;
 		}
 		bool operator!=(const Shape& rhs) const
@@ -131,7 +135,6 @@ struct ZERO_INIT(LayoutEntry)
 	int drawOffX, drawOffY;
 	// -1 = independent/anchor/menu, 0 = range element, 1+ = full range
 	int rangeCount;
-	bool sizeIsARange;
 
 	LayoutEntry() : type(eType_Num), menuID(-1), rangeCount(-1) {}
 };
@@ -338,6 +341,61 @@ static std::string fetchShapeScale(const std::string& theString, size_t thePos)
 }
 
 
+static size_t fetchComponentStringEnd(
+	const std::string& theString, size_t thePos)
+{
+	const char* aCStr = theString.c_str();
+	int aTagDepth = 0;
+	for(bool done = false; !done;)
+	{
+		switch(aCStr[thePos])
+		{
+		case '$':
+			if( aCStr[thePos+1] == '{' )
+			{
+				thePos += 2;
+				++aTagDepth;
+			}
+			break;
+		case '}':
+			if( aTagDepth )
+				--aTagDepth;
+			++thePos;
+			break;
+		case 'x': case 'X':
+			// Try to differentiate between '5 x 7' and 'CX', for example
+			if( thePos > 0 && !aTagDepth &&
+				(aCStr[thePos-1] <= ' ' ||
+				 (aCStr[thePos-1] >= '0' && aCStr[thePos-1] <= '9') ||
+				 aCStr[thePos-1] == '%' || aCStr[thePos-1] == '.' ||
+				 aCStr[thePos-1] == '}') )
+			{
+				done = true;
+			}
+			else
+			{
+				++thePos;
+			}
+			break;
+		case ',': case '*': case '@':
+			if( !aTagDepth )
+				done = true;
+			else
+				++thePos;
+			break;
+		case '\0':
+			done = true;
+			break;
+		default:
+			++thePos;
+			break;
+		}
+	}
+
+	return thePos;
+}
+
+
 static LayoutEntry::Shape::Component fetchShapeComponent(
 	const std::string& theString, size_t& thePos, bool allowAnchor)
 {
@@ -346,54 +404,7 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 		return result; // useDefault == true
 
 	// First need to find the end of this component
-	const char* aCStr = theString.c_str();
-	int tagDepth = 0;
-	size_t anEndPos = thePos;
-	for(bool done = false; !done;)
-	{
-		switch(aCStr[anEndPos])
-		{
-		case '$':
-			if( aCStr[anEndPos+1] == '{' )
-			{
-				anEndPos += 2;
-				++tagDepth;
-			}
-			break;
-		case '}':
-			if( tagDepth )
-				--tagDepth;
-			++anEndPos;
-			break;
-		case 'x': case 'X':
-			// Try to differentiate between '5 x 7' and 'CX', for example
-			if( anEndPos > 0 && !tagDepth &&
-				(aCStr[anEndPos-1] <= ' ' ||
-				 (aCStr[anEndPos-1] >= '0' && aCStr[anEndPos-1] <= '9') ||
-				 aCStr[anEndPos-1] == '%' || aCStr[anEndPos-1] == '.' ||
-				 aCStr[anEndPos-1] == '}') )
-			{
-				done = true;
-			}
-			else
-			{
-				++anEndPos;
-			}
-			break;
-		case ',': case '*':
-			if( !tagDepth )
-				done = true;
-			else
-				++anEndPos;
-			break;
-		case '\0':
-			done = true;
-			break;
-		default:
-			++anEndPos;
-			break;
-		}
-	}
+	size_t anEndPos = fetchComponentStringEnd(theString, thePos);
 
 	// Extract the section of the string representing this component
 	result.base = trim(theString.substr(thePos, anEndPos-thePos));
@@ -536,34 +547,74 @@ static void updateDrawHotspot(
 			updateDrawHotspot(*aParent, aParent->shape, true, false);
 		theEntry.drawOffScale = aParent->drawOffScale;
 		Hotspot aParentHotspot = aParent->drawHotspot;
-		if( aParent->rangeCount > 0 )
+		if( aParent->rangeCount > 1 )
 		{// Rare case where the parent is itself a range of hotspots
+			int anExtraXOffset = 0;
+			int anExtraYOffset = 0;
+			for(int i = 2; i <= aParent->rangeCount; ++i)
+			{
+				if( aParent->shape.alignment == eAlignment_WrapX &&
+					aParent->shape.wrap > 0 )
+				{// Only apply X at wrap point
+					anExtraYOffset += aParent->drawOffY;
+					if( i % aParent->shape.wrap == 0 )
+					{
+						anExtraYOffset = -aParent->drawOffY;
+						anExtraXOffset += aParent->drawOffX;
+					}
+				}
+				else if( aParent->shape.alignment == eAlignment_WrapY &&
+						 aParent->shape.wrap > 0 )
+				{// Only apply Y at wrap point
+					anExtraXOffset += aParent->drawOffX;
+					if( i % aParent->shape.wrap == 0 )
+					{
+						anExtraXOffset = -aParent->drawOffX;
+						anExtraYOffset += aParent->drawOffY;
+					}
+				}
+			}
+
 			aParentHotspot.x.offset = s16(clamp(int(
 				aParent->drawHotspot.x.offset +
-				aParent->drawOffX *
-				(aParent->rangeCount-1) *
-				aParent->drawOffScale), -0x8000, 0x7FFF));
+				anExtraXOffset * aParent->drawOffScale),
+				-0x8000, 0x7FFF));
 			aParentHotspot.y.offset = s16(clamp(int(
 				aParent->drawHotspot.y.offset +
-				aParent->drawOffY *
-				(aParent->rangeCount-1) *
-				aParent->drawOffScale), -0x8000, 0x7FFF));
+				anExtraYOffset * aParent->drawOffScale),
+				-0x8000, 0x7FFF));
 		}
 		if( theEntry.rangeCount >= 0 )
 		{// Offset from parent position
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
 			{
 				theEntry.drawHotspot.x.anchor = aParentHotspot.x.anchor;
-				theEntry.drawHotspot.x.offset = s16(clamp(int(
-					theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
-					aParentHotspot.x.offset, -0x8000, 0x7FFF));
+				if( theEntry.shape.alignment == eAlignment_WrapX &&
+					theEntry.shape.wrap > 0 )
+				{
+					theEntry.drawHotspot.x.offset = aParentHotspot.x.offset;
+				}
+				else
+				{
+					theEntry.drawHotspot.x.offset = s16(clamp(int(
+						theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
+						aParentHotspot.x.offset, -0x8000, 0x7FFF));
+				}
 			}
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
 			{
 				theEntry.drawHotspot.y.anchor = aParentHotspot.y.anchor;
-				theEntry.drawHotspot.y.offset = s16(clamp(int(
-					theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
-					aParentHotspot.y.offset, -0x8000, 0x7FFF));
+				if( theEntry.shape.alignment == eAlignment_WrapY &&
+					theEntry.shape.wrap > 0 )
+				{
+					theEntry.drawHotspot.y.offset = aParentHotspot.y.offset;
+				}
+				else
+				{
+					theEntry.drawHotspot.y.offset = s16(clamp(int(
+						theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
+						aParentHotspot.y.offset, -0x8000, 0x7FFF));
+				}
 			}
 		}
 		else if( theShape.x.useDefault )
@@ -611,7 +662,12 @@ static void applyNewLayoutProperties(bool toFile = false)
 		aNewShape->h != anOldShape1->h || aNewShape->h != anOldShape2->h;
 	const bool needNewAlign =
 		aNewShape->alignment != anOldShape1->alignment ||
-		aNewShape->alignment != anOldShape2->alignment;
+		aNewShape->alignment != anOldShape2->alignment ||
+		(theEntry.rangeCount > 1 &&
+		 (aNewShape->wrap != anOldShape1->wrap ||
+		  aNewShape->wrap != anOldShape2->wrap ||
+		  aNewShape->extraVarString != anOldShape1->extraVarString ||
+		  aNewShape->extraVarString != anOldShape2->extraVarString));
 	if( !needNewPos && !needNewSize && !needNewScale && !needNewAlign )
 		return;
 
@@ -620,9 +676,35 @@ static void applyNewLayoutProperties(bool toFile = false)
 	if( isHotspot || (needNewPos && !aNewShape->x.useDefault) )
 	{
 		const bool asOffset = theEntry.rangeCount >= 0;
-		aPosStr =
-			shapeCompToProfString(aNewShape->x, asOffset) + ", " +
-			shapeCompToProfString(aNewShape->y, asOffset);
+		aPosStr = shapeCompToProfString(aNewShape->x, asOffset);
+		if( aNewShape->alignment == eAlignment_WrapX )
+		{
+			if( !aNewShape->extraVarString.empty() )
+			{
+				aPosStr += " @ ";
+				aPosStr += aNewShape->extraVarString;
+			}
+			else if( aNewShape->wrap > 0 )
+			{
+				aPosStr += " @ ";
+				aPosStr += toString(aNewShape->wrap);
+			}
+		}
+		aPosStr += ", ";
+		aPosStr += shapeCompToProfString(aNewShape->y, asOffset);
+		if( aNewShape->alignment == eAlignment_WrapY )
+		{
+			if( !aNewShape->extraVarString.empty() )
+			{
+				aPosStr += " @ ";
+				aPosStr += aNewShape->extraVarString;
+			}
+			else if( aNewShape->wrap > 0 )
+			{
+				aPosStr += " @ ";
+				aPosStr += toString(aNewShape->wrap);
+			}
+		}
 	}
 	std::string aSizeStr;
 	if( !aNewShape->w.useDefault && (needNewSize || isHotspot) )
@@ -666,7 +748,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 			else if( aNewShape->alignment == eAlignment_VarString )
 			{
 				Profile::setStr(aProfileSect, kAlignmentPropName,
-					aNewShape->alignVarString, toFile);
+					aNewShape->extraVarString, toFile);
 			}
 			else
 			{
@@ -1055,9 +1137,9 @@ static void setupAlignmentControls(
 	}
 	if( theShape.alignment == eAlignment_VarString )
 	{
-		DBG_ASSERT(!theShape.alignVarString.empty());
+		DBG_ASSERT(!theShape.extraVarString.empty());
 		SendMessage(hComboBox, CB_ADDSTRING, 0,
-			(LPARAM)widen(theShape.alignVarString).c_str());
+			(LPARAM)widen(theShape.extraVarString).c_str());
 	}
 	adjustComboBoxDroppedWidth(hComboBox);
 	SendMessage(hComboBox, CB_SETCURSEL,
@@ -1546,8 +1628,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				{// Begin using own custom values (or duplicate of parent's)
 					aSrcEntry = getAlignmentSourceEntry(&anEntry);
 					sState->entered.alignment = aSrcEntry->shape.alignment;
-					sState->entered.alignVarString =
-						aSrcEntry->shape.alignVarString;
+					sState->entered.extraVarString =
+						aSrcEntry->shape.extraVarString;
 					if( sState->entered.alignment == eAlignment_UseDefault )
 					{// Don't defer to defaults while this is checked!
 						sState->entered.alignment = eAlignment_L_T;
@@ -1556,7 +1638,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				else
 				{// Set to defer to default values
 					sState->entered.alignment = eAlignment_UseDefault;
-					sState->entered.alignVarString.clear();
+					sState->entered.extraVarString.clear();
 					aSrcEntry = getAlignmentSourceEntry(
 						entryHasParent(anEntry)
 							? getParentEntry(&anEntry)
@@ -1994,13 +2076,40 @@ static void drawEntry(
 	if( theEntry.rangeCount > 1 )
 	{
 		const Hotspot aRangeAnchor = aHotspot;
+		int aDrawOffsetX = 0;
+		int aDrawOffsetY = 0;
 		for(int i = 2; i <= theEntry.rangeCount; ++i)
 		{
-			aHotspot.x.offset = s16(clamp(int(
-				theEntry.drawOffX * (i-1) * theEntry.drawOffScale) +
+			if( theEntry.shape.alignment == eAlignment_WrapX &&
+				theEntry.shape.wrap > 0 )
+			{// Only apply X at wrap point
+				aDrawOffsetY += theEntry.drawOffY;
+				if( i % theEntry.shape.wrap == 0 )
+				{
+					aDrawOffsetY = -theEntry.drawOffY;
+					aDrawOffsetX += theEntry.drawOffX;
+				}
+			}
+			else if( theEntry.shape.alignment == eAlignment_WrapY &&
+					 theEntry.shape.wrap > 0 )
+			{// Only apply Y at wrap point
+				aDrawOffsetX += theEntry.drawOffX;
+				if( i % theEntry.shape.wrap == 0 )
+				{
+					aDrawOffsetX = -theEntry.drawOffX;
+					aDrawOffsetY += theEntry.drawOffY;
+				}
+			}
+			else
+			{// Apply offsets normally
+				aDrawOffsetX += theEntry.drawOffX;
+				aDrawOffsetY += theEntry.drawOffY;
+			}
+			aHotspot.x.offset = s16(clamp(
+				int(aDrawOffsetX * theEntry.drawOffScale) +
 				aRangeAnchor.x.offset, -0x8000, 0x7FFF));
-			aHotspot.y.offset = s16(clamp(int(
-				theEntry.drawOffY * (i-1) * theEntry.drawOffScale) +
+			aHotspot.y.offset = s16(clamp(
+				int(aDrawOffsetY * theEntry.drawOffScale) +
 				aRangeAnchor.y.offset, -0x8000, 0x7FFF));
 			RECT aDrawnRect = drawHotspot(hdc, aHotspot,
 				kChildHotspotDrawSize, entryScaleFactor(theEntry),
@@ -2204,9 +2313,6 @@ void init()
 		return;
 	}
 
-	Dialogs::showNotice(
-		"This feature is being updated and is currently partially broken!");
-
 	TargetConfigSync::pauseMonitoring();
 
 	// Gather information on elements that can be edited
@@ -2246,6 +2352,8 @@ void init()
 			aNewEntry.item.parentIndex = LayoutEntry::eType_HotspotCategory;
 			aNewEntry.item.name = aPropMap->keys()[i];
 			aNewEntry.propSectID = kHotspotsSectionID;
+			if( isEffectivelyEmptyString(aPropMap->vals()[i].str) )
+				continue;
 			anEntryNameToIdxMap.setValue(
 				aNewEntry.item.name, u32(sState->entries.size()));
 			const std::string& aDesc =
@@ -2254,8 +2362,34 @@ void init()
 					: aPropMap->vals()[i].pattern;
 			size_t aPos = 0;
 			aNewEntry.shape.x = fetchShapeComponent(aDesc, aPos, true);
+			if( aDesc[aPos] == '@' )
+			{
+				const size_t aWrapStrEndPos =
+					fetchComponentStringEnd(aDesc, ++aPos);
+				aNewEntry.shape.extraVarString =
+					trim(aDesc.substr(aPos, aWrapStrEndPos - aPos));
+				aNewEntry.shape.wrap = clamp(stringToInt(
+					Profile::expandVars(aNewEntry.shape.extraVarString)),
+					0, 255);
+				aPos = aWrapStrEndPos;
+				aNewEntry.shape.alignment = eAlignment_WrapX;
+			}
 			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
+			{
 				aNewEntry.shape.y = fetchShapeComponent(aDesc, ++aPos, true);
+				if( aDesc[aPos] == '@' )
+				{
+					const size_t aWrapStrEndPos =
+						fetchComponentStringEnd(aDesc, ++aPos);
+					aNewEntry.shape.extraVarString =
+						trim(aDesc.substr(aPos, aWrapStrEndPos - aPos));
+					aNewEntry.shape.wrap = clamp(stringToInt(
+						Profile::expandVars(aNewEntry.shape.extraVarString)),
+						0, 255);
+					aPos = aWrapStrEndPos;
+					aNewEntry.shape.alignment = eAlignment_WrapY;
+				}
+			}
 			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
 				aNewEntry.shape.w = fetchShapeComponent(aDesc, ++aPos, false);
 			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
@@ -2388,7 +2522,7 @@ void init()
 			else
 			{// Vars used - directly use pattern string
 				aNewEntry.shape.alignment = eAlignment_VarString;
-				aNewEntry.shape.alignVarString = anAlignProp->pattern;
+				aNewEntry.shape.extraVarString = anAlignProp->pattern;
 			}
 		}
 

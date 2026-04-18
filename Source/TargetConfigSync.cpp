@@ -843,26 +843,28 @@ public:
 		// target app needs the file - without causing it any sharing errors
 		mLockOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 		DBG_ASSERT(mLockOverlapped.hEvent);
-		DeviceIoControl(mFileLockHandle, FSCTL_REQUEST_FILTER_OPLOCK,
-			NULL, 0, NULL, 0, NULL, &mLockOverlapped);
-		switch (GetLastError())
+		if( !DeviceIoControl(mFileLockHandle, FSCTL_REQUEST_FILTER_OPLOCK,
+				NULL, 0, NULL, 0, NULL, &mLockOverlapped) )
 		{
-		case ERROR_IO_PENDING:
-			// Expected result for successful lock
-			break;
-		case ERROR_OPLOCK_NOT_GRANTED:
-		case ERROR_CANNOT_GRANT_REQUESTED_OPLOCK:
-			// File in use - try again later
-			syncDebugPrint("File %s in use - trying again later!\n",
-				getFileName(narrow(aDataSource.pathToRead)).c_str());
-			mDoneReading = mSourceWasBusy = true;
-			return;
-		default:
-			logToFile(
-				"Failed to get oplock read access to target config file %ls",
-				aDataSource.pathToRead.c_str());
-			mErrorEncountered = true;
-			return;
+			switch(GetLastError())
+			{
+			case ERROR_IO_PENDING:
+				// Expected result for successful lock
+				break;
+			case ERROR_OPLOCK_NOT_GRANTED:
+			case ERROR_CANNOT_GRANT_REQUESTED_OPLOCK:
+				// File in use - try again later
+				syncDebugPrint("File %s in use - trying again later!\n",
+					getFileName(narrow(aDataSource.pathToRead)).c_str());
+				mDoneReading = mSourceWasBusy = true;
+				return;
+			default:
+				logToFile(
+					"Failed to get oplock read access to target config file %ls",
+					aDataSource.pathToRead.c_str());
+				mErrorEncountered = true;
+				return;
+			}
 		}
 
 		// Open the OpLock'd file for read
