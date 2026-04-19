@@ -378,6 +378,7 @@ struct ZERO_INIT(DrawData)
 	int menuID;
 	EMenuItemDrawState itemDrawState;
 	bool firstDraw;
+	bool useCopyIcons;
 };
 
 
@@ -1993,7 +1994,7 @@ static void initializeLabelDrawCacheEntry(
 	DBG_ASSERT(theCacheEntry.type == eMenuItemLabelType_Unknown);
 	LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
 
-	if( aLabelIcon && aLabelIcon->copyFromTarget )
+	if( aLabelIcon && aLabelIcon->copyFromTarget && dd.useCopyIcons )
 	{
 		// Copy-from-target rect icon
 		int anID = 1;
@@ -3597,7 +3598,8 @@ void paintWindowContents(
 	HDC hdc,
 	const SIZE& theTargetSize,
 	int theOverlayID,
-	bool needsInitialErase)
+	bool needsInitialErase,
+	bool allowCopyFromTarget)
 {
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
@@ -3614,6 +3616,7 @@ void paintWindowContents(
 	dd.targetSize = theTargetSize;
 	dd.itemDrawState = eMenuItemDrawState_Normal;
 	dd.firstDraw = needsInitialErase;
+	dd.useCopyIcons = allowCopyFromTarget;
 
 	const EMenuStyle aMenuStyle = getMenuLayout(theMenuID).style;
 	DBG_ASSERT(!ps.rects.empty());
@@ -3689,7 +3692,7 @@ bool copyContentsFromTarget(
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
 	int theOverlayID,
-	bool& windowReady)
+	bool& bitmapFinalized)
 {
 
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
@@ -3706,6 +3709,7 @@ bool copyContentsFromTarget(
 	dd.targetSize = theTargetSize;
 	dd.itemDrawState = eMenuItemDrawState_Normal;
 	dd.firstDraw = false;
+	dd.useCopyIcons = true;
 	
 	while(sTargetCopiesAllowedThisFrame > 0 && !ps.copyRectQueue.empty())
 	{
@@ -3720,8 +3724,8 @@ bool copyContentsFromTarget(
 					dd, hCaptureDC, theCaptureOffset, aCopyIconID);
 				drawCopiedBitmapIcon(dd, aCopyIconID, aCopyRequest);
 				--sTargetCopiesAllowedThisFrame;
-				// Flag a change has been made so window needs updating
-				windowReady = false;
+				// Flag a change has been made so bitmap needs re-processing
+				bitmapFinalized = false;
 				// Don't allow low-priority copies after a high-priority one
 				if( !aCopyRequest.lowPriority )
 					sCopyIconPriorityLevel = 0;

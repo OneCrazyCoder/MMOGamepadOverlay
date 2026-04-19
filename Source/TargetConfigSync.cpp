@@ -840,13 +840,18 @@ public:
 		}
 
 		// Request a filter OpLock to the file so can get out of the way if
-		// target app needs the file - without causing it any sharing errors
+		// target app needs the file - without causing it any sharing errors.
+		// FILE_SHARE_WRITE is intentionally left out so that a request to
+		// write will trigger the oplock event and allow us to get out of the
+		// way without the writer app getting any errors.
+		DWORD aShareMode = FILE_SHARE_READ | FILE_SHARE_DELETE;
 		mLockOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 		DBG_ASSERT(mLockOverlapped.hEvent);
 		if( !DeviceIoControl(mFileLockHandle, FSCTL_REQUEST_FILTER_OPLOCK,
 				NULL, 0, NULL, 0, NULL, &mLockOverlapped) )
 		{
-			switch(GetLastError())
+			const DWORD anErrorCode = GetLastError();
+			switch(anErrorCode)
 			{
 			case ERROR_IO_PENDING:
 				// Expected result for successful lock
@@ -859,23 +864,21 @@ public:
 				mDoneReading = mSourceWasBusy = true;
 				return;
 			default:
-				logToFile(
-					"Failed to get oplock read access to target config file %ls",
-					aDataSource.pathToRead.c_str());
-				mErrorEncountered = true;
-				return;
+				// Oplock not supported for some reason (Wine?)
+				aShareMode |= FILE_SHARE_WRITE;
+				CloseHandle(mFileLockHandle);
+				mFileLockHandle = NULL;
+				CloseHandle(mLockOverlapped.hEvent);
+				mLockOverlapped.hEvent = NULL;
+				break;
 			}
 		}
 
 		// Open the OpLock'd file for read
 		mFileHandle = CreateFile(
 			aDataSource.pathToRead.c_str(),
-			GENERIC_READ,
-			FILE_SHARE_READ | FILE_SHARE_DELETE,
-			NULL,
-			OPEN_EXISTING,
-			FILE_FLAG_OVERLAPPED,
-			NULL);
+			GENERIC_READ, aShareMode, NULL, OPEN_EXISTING,
+			FILE_FLAG_OVERLAPPED, NULL);
 		if( mFileHandle == INVALID_HANDLE_VALUE )
 		{
 			logToFile("Failed to open target config file %ls",
@@ -919,13 +922,15 @@ public:
 
 		const DataSource& aDataSource = sDataSources[mDataSourceID];
 
-		// If got OpLock break request abort and try again later
-		if( WaitForSingleObject(mLockOverlapped.hEvent, 0) == WAIT_OBJECT_0 )
-		{
-			syncDebugPrint("Another app needed file %ls - delaying read!\n",
-				aDataSource.pathToRead.c_str());
-			mDoneReading = mSourceWasBusy = true;
-			return result;
+		if( mLockOverlapped.hEvent != NULL )
+		{// If got OpLock break request abort and try again later
+			if(WaitForSingleObject(mLockOverlapped.hEvent, 0) == WAIT_OBJECT_0)
+			{
+				syncDebugPrint("Another app needed file %ls - delaying read!\n",
+					aDataSource.pathToRead.c_str());
+				mDoneReading = mSourceWasBusy = true;
+				return result;
+			}
 		}
 
 		// Wait for last async read request to complete

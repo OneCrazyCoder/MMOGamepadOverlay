@@ -38,6 +38,7 @@ const wchar_t* kSystemOverlayWindowClassName = L"MMOGO System Overlay";
 
 enum EIconCopyMethod
 {
+	eIconCopyMethod_Disabled,			// 0
 	eIconCopyMethod_OverlayBlocksCopy,	// 1
 	eIconCopyMethod_TargetWindow,		// 2
 	eIconCopyMethod_ExcludeFromCapture,	// 3
@@ -70,6 +71,9 @@ struct ZERO_INIT(OverlayWindow)
 {
 	HWND handle;
 	HBITMAP bitmap;
+	void* bits;
+	HBITMAP compositeBitmap;
+	void* compositeBits;
 	POINT position;
 	SIZE size;
 	SIZE lastDrawnSize;
@@ -77,8 +81,9 @@ struct ZERO_INIT(OverlayWindow)
 	double fadeValue;
 	EFadeState fadeState;
 	u8 alpha;
-	bool windowReady;
 	bool layoutReady;
+	bool bitmapReady;
+	bool windowReady;
 };
 
 struct ZERO_INIT(OverlayWindowPriority)
@@ -122,6 +127,7 @@ static bool sMainWindowPosInit = false;
 static bool sUseChildWindows = false;
 static bool sHidden = false;
 static bool sMainWindowDisabled = false;
+static bool sUsePerPixelAlpha = false;
 static volatile bool sWindowInModalMode = false;
 static volatile bool sModalUpdateRunning = false;
 
@@ -413,6 +419,10 @@ static LRESULT CALLBACK mainWindowProc(
 			{
 				DeleteObject(sOverlayWindows[i].bitmap);
 				sOverlayWindows[i].bitmap = NULL;
+				sOverlayWindows[i].bits = NULL;
+				DeleteObject(sOverlayWindows[i].compositeBitmap);
+				sOverlayWindows[i].compositeBitmap = NULL;
+				sOverlayWindows[i].compositeBits = NULL;
 			}
 		}
 		WindowPainter::cleanup();
@@ -888,7 +898,9 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 {
 	sIconCopyMethod = EIconCopyMethod(
 		clamp(Profile::getInt("System", "IconCopyMethod"),
-			1, eIconCopyMethod_Num)-1);
+			0, eIconCopyMethod_Num-1));
+	sUsePerPixelAlpha = Profile::getBool(
+		"System", "CompatibilityModeForOverlayAlpha");
 
 	#ifndef WDA_EXCLUDEFROMCAPTURE
 	#define WDA_EXCLUDEFROMCAPTURE 0x00000011
@@ -974,6 +986,8 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 	{
 		if( sOverlayWindows[i].bitmap )
 			DeleteObject(sOverlayWindows[i].bitmap);
+		if( sOverlayWindows[i].compositeBitmap )
+			DeleteObject(sOverlayWindows[i].compositeBitmap);
 		if( sOverlayWindows[i].handle )
 			DestroyWindow(sOverlayWindows[i].handle);
 	}
@@ -1068,6 +1082,10 @@ void update()
 			{// Large bitmap that's rarely needed, so free it from memory
 				DeleteObject(aWindow.bitmap);
 				aWindow.bitmap = null;
+				aWindow.bits = null;
+				DeleteObject(aWindow.compositeBitmap);
+				aWindow.compositeBitmap = null;
+				aWindow.compositeBits = null;
 			}
 			continue;
 		}
@@ -1105,6 +1123,10 @@ void update()
 			{
 				DeleteObject(aWindow.bitmap);
 				aWindow.bitmap = NULL;
+				aWindow.bits = NULL;
+				DeleteObject(aWindow.compositeBitmap);
+				aWindow.compositeBitmap = null;
+				aWindow.compositeBits = null;
 			}
 		}
 
@@ -1120,11 +1142,39 @@ void update()
 		// Create bitmap if doesn't exist by this point
 		if( !aWindow.bitmap )
 		{
+			DBG_ASSERT(!aWindow.compositeBitmap);
 			gFullRedrawOverlays.set(anOverlayID);
 			aWindow.bitmapSize = aWindow.size;
-			aWindow.bitmap = CreateCompatibleBitmap(
-				aScreenDC, aWindow.size.cx, aWindow.size.cy);
-			if( !aWindow.bitmap )
+			BITMAPINFO bmi = {};
+			bmi.bmiHeader.biSize		= sizeof(BITMAPINFOHEADER);
+			bmi.bmiHeader.biWidth	   = aWindow.bitmapSize.cx;
+			bmi.bmiHeader.biHeight	  = -aWindow.bitmapSize.cy;
+			bmi.bmiHeader.biPlanes	  = 1;
+			bmi.bmiHeader.biBitCount	= 32;   // BGRA
+			bmi.bmiHeader.biCompression = BI_RGB;
+
+			DBG_ASSERT(aWindow.bits == null);
+			aWindow.bitmap = CreateDIBSection(
+				aScreenDC, &bmi, DIB_RGB_COLORS,
+				&aWindow.bits, NULL, 0);
+			if( aWindow.bitmap && !aWindow.bits )
+			{
+				DeleteObject(aWindow.bitmap);
+				aWindow.bitmap = null;
+			}
+			if( sUsePerPixelAlpha )
+			{
+				aWindow.compositeBitmap = CreateDIBSection(
+					aScreenDC, &bmi, DIB_RGB_COLORS,
+					&aWindow.compositeBits, NULL, 0);
+				if( aWindow.compositeBitmap && !aWindow.compositeBits )
+				{
+					DeleteObject(aWindow.compositeBitmap);
+					aWindow.compositeBitmap = null;
+				}
+			}
+			if( !aWindow.bitmap ||
+				(sUsePerPixelAlpha && !aWindow.compositeBitmap) )
 			{
 				logFatalError("Could not create bitmap for overlay!");
 				continue;
@@ -1147,8 +1197,9 @@ void update()
 			// Draw main bitmap contents
 			WindowPainter::paintWindowContents(
 				aWindowDC, sTargetSize, anOverlayID,
-				gFullRedrawOverlays.test(anOverlayID));
-			aWindow.windowReady = false;
+				gFullRedrawOverlays.test(anOverlayID),
+				sIconCopyMethod != eIconCopyMethod_Disabled);
+			aWindow.bitmapReady = false;
 			aWindow.lastDrawnSize = aWindow.size;
 			gRefreshOverlays.reset(anOverlayID);
 			gFullRedrawOverlays.reset(anOverlayID);
@@ -1158,7 +1209,7 @@ void update()
 		const bool copyFromTargetDone =
 			WindowPainter::copyContentsFromTarget(
 				aWindowDC, aCaptureDC, aCaptureOffset,
-				sTargetSize, anOverlayID, aWindow.windowReady);
+				sTargetSize, anOverlayID, aWindow.bitmapReady);
 		if( !copyFromTargetDone &&
 			aWindow.alpha > anOldWindowAlpha &&
 			(aWindow.fadeState == eFadeState_FadingIn ||
@@ -1167,18 +1218,55 @@ void update()
 			aWindow.alpha = anOldWindowAlpha;
 		}
 
+		if( !aWindow.bitmapReady )
+			aWindow.windowReady = false;
+
 		// Update window
 		if( !aWindow.windowReady && aWindow.alpha > 0 )
 		{
-			BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, aWindow.alpha, 0};
+			const COLORREF aTransColor =
+				WindowPainter::transColor(anOverlayID);
+			if( !aWindow.bitmapReady && sUsePerPixelAlpha )
+			{
+				const u32 aTransR = GetRValue(aTransColor);
+				const u32 aTransG = GetGValue(aTransColor);
+				const u32 aTransB = GetBValue(aTransColor);
+
+				DBG_ASSERT(aWindow.bits);
+				for(int i = 0,
+					end = aWindow.bitmapSize.cx * aWindow.bitmapSize.cy;
+					i < end; ++i)
+				{
+					u32* src = &(((u32*)aWindow.bits)[i]);
+					u32* dst = &(((u32*)aWindow.compositeBits)[i]);
+					const u32 b = (*src) & 0xFF;
+					const u32 g = ((*src) >> 8) & 0xFF;
+					const u32 r = ((*src) >> 16) & 0xFF;
+					if( r == aTransR && g == aTransG && b == aTransB )
+						*dst = 0;
+					else
+						*dst = (0xFF << 24) | (r << 16) | (g << 8) | b;
+				}
+			}
+
+			BLENDFUNCTION aBlendFunction;
+			aBlendFunction.BlendOp = AC_SRC_OVER;
+			aBlendFunction.BlendFlags = 0;
+			aBlendFunction.SourceConstantAlpha = aWindow.alpha;
+			aBlendFunction.AlphaFormat =
+				sUsePerPixelAlpha ?  AC_SRC_ALPHA : AC_SRC_OVER;
+
 			POINT aWindowScreenPos;
 			aWindowScreenPos.x = sScreenTargetRect.left + aWindow.position.x;
 			aWindowScreenPos.y = sScreenTargetRect.top + aWindow.position.y;
+			if( sUsePerPixelAlpha )
+				SelectObject(aWindowDC, aWindow.compositeBitmap);
 			UpdateLayeredWindow(aWindow.handle, aScreenDC,
-				&aWindowScreenPos, &aWindow.size,
-				aWindowDC, &anOriginPoint,
-				WindowPainter::transColor(anOverlayID),
-				&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
+				&aWindowScreenPos, &aWindow.size, aWindowDC, 
+				&anOriginPoint, aTransColor, &aBlendFunction,
+				sUsePerPixelAlpha ? ULW_ALPHA : (ULW_ALPHA | ULW_COLORKEY));
+
+			aWindow.bitmapReady = true;
 			aWindow.windowReady = true;
 		}
 		gActiveOverlays.reset(anOverlayID);

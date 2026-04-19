@@ -2472,6 +2472,11 @@ void loadCore()
 		else
 		{// Generate Core.ini which will prevent future license agreement
 			generateResourceFile(kResTemplateCore);
+			if( kIsRunningWine )
+			{
+				setPropertyInINI(aCoreFile.path, "System",
+					"CompatibilityModeForOverlayAlpha", "Yes");
+			}
 			if( !fileExists(aCoreFile) )
 			{
 				logFatalError("Unable to find/write %s (%s)",

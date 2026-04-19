@@ -437,3 +437,5 @@ bool isEffectivelyEmptyString(const std::string& theString);
 // Conversions between one constant value to another related one
 ECommandDir oppositeDir(ECommandDir);
 ECommandDir combined8Dir(ECommandDir, ECommandDir);
+
+extern bool kIsRunningWine;

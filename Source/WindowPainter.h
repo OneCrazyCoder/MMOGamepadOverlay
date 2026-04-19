@@ -39,7 +39,8 @@ void paintWindowContents(
 	HDC hdc,
 	const SIZE& theTargetSize,
 	int theOverlayID,
-	bool needsInitialErase);
+	bool needsInitialErase,
+	bool allowCopyFromTarget);
 
 // Returns if all copy-from-target icons have been drawn (and may draw them)
 bool copyContentsFromTarget(
@@ -48,7 +49,7 @@ bool copyContentsFromTarget(
 	const POINT& theCaptureOffset,
 	const SIZE& theTargetSize,
 	int theOverlayID,
-	bool& windowReady /*is set to false if draw anything*/);
+	bool& bitmapFinalized /*is set to false if draw anything*/);
 
 // Updates layout properties needed for an overlay (menu) window
 void updateWindowLayout(
