@@ -1203,6 +1203,13 @@ static void checkForOutdatedFileVersion(ProfileFile& theFile)
 					std::string(kProfileKeyPrefix) + toString(i),
 					sProfiles[i].name);
 			}
+			HKEY hKey;
+			if( RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+					"Software\\Wine", 0, KEY_READ, &hKey) == ERROR_SUCCESS )
+			{
+				RegCloseKey(hKey);
+				setPropertyInINI(theFile.path, "Variables", "Linux", "true");
+			}
 		}
 		else if( matchingResourceIsBase )
 		{// Restore base game setting changes to regenerated Base file
@@ -2472,15 +2479,21 @@ void loadCore()
 		else
 		{// Generate Core.ini which will prevent future license agreement
 			generateResourceFile(kResTemplateCore);
-			if( kIsRunningWine )
-			{
-				setPropertyInINI(aCoreFile.path, "System",
-					"CompatibilityModeForOverlayAlpha", "Yes");
-			}
 			if( !fileExists(aCoreFile) )
 			{
 				logFatalError("Unable to find/write %s (%s)",
 					kCoreProfileName, aCoreFile.path.c_str());
+			}
+			else
+			{// Check for Wine (Linux) and set variable for it
+				HKEY hKey;
+				if( RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+						"Software\\Wine", 0, KEY_READ, &hKey) == ERROR_SUCCESS )
+				{
+					RegCloseKey(hKey);
+					setPropertyInINI(aCoreFile.path,
+						"Variables", "Linux", "true");
+				}
 			}
 		}
 	}

@@ -803,5 +803,3 @@ ECommandDir combined8Dir(ECommandDir theDir1, ECommandDir theDir2)
 	default: return eCmd8Dir_None;
 	}
 }
-
-bool kIsRunningWine = false;

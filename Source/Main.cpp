@@ -209,16 +209,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		return 0;
 	}
 
-	{// Check for OS factors
-		HKEY hKey;
-		if( RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-				"Software\\Wine", 0, KEY_READ, &hKey) == ERROR_SUCCESS )
-		{
-			RegCloseKey(hKey);
-			kIsRunningWine = true;
-		}
-	}
-
 	// Initialize gamepad module so can use it in initial dialogs
 	Gamepad::init();
 
