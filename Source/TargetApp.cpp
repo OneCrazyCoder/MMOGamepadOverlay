@@ -620,7 +620,6 @@ void autoLaunch()
 		return;
 
 	// Convert given path into a non-const wide string for CreateProcess
-	WCHAR aFinalPath[MAX_PATH] = { 0 };
 	std::string aPath = kConfig.targetAppPath;
 	std::string aParams = getPathParams(aPath);
 	if( !kConfig.targetAppParams.empty() )
@@ -632,16 +631,17 @@ void autoLaunch()
 	aPath = toAbsolutePath(aPath);
 	const std::string aDirPath = getFileDir(aPath);
 	aPath = "\"" + aPath + "\"";
-	if( !aParams.empty() )
-		aPath = aPath + " " + aParams;
-	wcsncpy(aFinalPath, widen(aPath).c_str(), MAX_PATH-1);
+	// Add extra null terminator so can use &aCmdLineStr[0] as non-const safely
+	std::wstring aCmdLineStr = aParams.empty()
+		? widen(aPath) + L'\0'
+		: widen(aPath) + L' ' + widen(aParams) + L'\0';
 
 	STARTUPINFO si;
 	PROCESS_INFORMATION pi;
 	ZeroMemory(&si, sizeof(STARTUPINFO));
 	ZeroMemory(&pi, sizeof(PROCESS_INFORMATION));
 	si.cb = sizeof(STARTUPINFO);
-	if( CreateProcess(NULL, aFinalPath,
+	if( CreateProcess(NULL, &aCmdLineStr[0],
 			NULL, NULL, FALSE, 0, NULL,
 			widen(aDirPath).c_str(),
 			&si, &pi))
@@ -662,7 +662,7 @@ void autoLaunch()
 			(LPWSTR)&anErrorMessage, 0, NULL);
 		Dialogs::showError(strFormat(
 			"Failed to auto-launch target application %ls: %ls",
-			&aFinalPath[0],
+			aCmdLineStr.c_str(),
 			(LPWSTR)anErrorMessage));
 		LocalFree(anErrorMessage);
 	}
