@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include <sstream>
-
 std::string narrow(const wchar_t *s); // to utf8
 std::wstring widen(const char *s); // from utf8
 std::string toRTF(const wchar_t *s);

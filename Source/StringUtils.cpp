@@ -4,6 +4,9 @@
 
 #include "Common.h"
 
+#include <sstream>
+
+
 //------------------------------------------------------------------------------
 // Global Functions
 //------------------------------------------------------------------------------
@@ -873,6 +876,38 @@ std::string commaSeparate(u32 theValue)
 	}
 
 	return aResult;
+}
+
+
+std::string toString(float theValue)
+{
+	std::ostringstream stream;
+	stream << std::fixed << theValue;
+	std::string result = stream.str();
+
+	// Trim trailing zeros
+	while (!result.empty() && result[result.size()-1] == '0')
+		result.resize(result.size()-1);
+	if( !result.empty() && result[result.size()-1] == '.' )
+		result.resize(result.size()-1);
+
+	return result;
+}
+
+
+std::string toString(double theValue)
+{
+	std::ostringstream stream;
+	stream << std::fixed << theValue;
+	std::string result = stream.str();
+
+	// Trim trailing zeros
+	while (!result.empty() && result[result.size()-1] == '0')
+		result.resize(result.size()-1);
+	if( !result.empty() && result[result.size()-1] == '.' )
+		result.resize(result.size()-1);
+
+	return result;
 }
 
 

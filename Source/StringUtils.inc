@@ -68,26 +68,6 @@ inline std::string toString(u8 theValue)
 }
 
 
-inline std::string toString(float theValue)
-{
-	// This is slower than sprintf but has nicer output because it cuts off
-	// trailing 0's and removes decimals entirely for integer values. Also
-	// easier since the string buffer size for floats is hard to nail down.
-	std::ostringstream stream;
-	stream << theValue;
-	return stream.str();
-}
-
-
-inline std::string toString(double theValue)
-{
-	// Same reasoning as for float version here
-	std::ostringstream stream;
-	stream << theValue;
-	return stream.str();
-}
-
-
 inline std::string toString(FILETIME theValue)
 {
 	char aBuf[24];
