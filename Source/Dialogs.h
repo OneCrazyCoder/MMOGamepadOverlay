@@ -47,7 +47,10 @@ struct ZERO_INIT(TreeViewDialogItem)
 };
 int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 
-void targetAppPath(std::string& thePath, std::string& theCommandLineParams);
+void targetAppPath(
+	std::string& thePath,
+	std::string& theCommandLineParams,
+	std::string& theAutoQuit);
 
 EResult showLicenseAgreement();
 void showHelpDocuments();

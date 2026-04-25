@@ -645,6 +645,8 @@ static UINT_PTR CALLBACK targetAppPathProc(
 				widen(*sDialogEditText).c_str());
 			return (UINT_PTR)TRUE;
 		}
+		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
+			sDialogSelected);
 		break;
 
 	case WM_NOTIFY:
@@ -660,6 +662,16 @@ static UINT_PTR CALLBACK targetAppPathProc(
 				*sDialogEditText = narrow(&aWStrBuffer[0]);
 				return (UINT_PTR)TRUE;
 			}
+		}
+		break;
+
+	case WM_COMMAND:
+		if( LOWORD(wParam) == IDC_CHECK_AUTOLOAD &&
+			HIWORD(wParam) == BN_CLICKED )
+		{
+			sDialogSelected =
+				(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
+					== BST_CHECKED) ? 1 : 0;
 		}
 		break;
 	}
@@ -1497,7 +1509,10 @@ int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList)
 }
 
 
-void targetAppPath(std::string& thePath, std::string& theCommandLineParams)
+void targetAppPath(
+	std::string& thePath,
+	std::string& theCommandLineParams,
+	std::string& theAutoQuit)
 {
 	// Don't ask about auto-launching an app when already have one active
 	if( TargetApp::targetAppActive() )
@@ -1545,10 +1560,12 @@ void targetAppPath(std::string& thePath, std::string& theCommandLineParams)
 		OFN_EXPLORER | OFN_ENABLEHOOK | OFN_ENABLETEMPLATE;
 	ofn.lpTemplateName = MAKEINTRESOURCE(IDD_DIALOG_TARGET_APP);
 	ofn.lpfnHook = targetAppPathProc;
+	sDialogSelected = stringToBool(theAutoQuit) ? 1 : 0;
 	if( GetOpenFileName(&ofn) )
 	{
 		mainLoopTimeSkip();
 		thePath = std::string("\"") + narrow(aWPath) + std::string("\"");
+		theAutoQuit = sDialogSelected ? "Yes" : "No";
 	}
 	else
 	{

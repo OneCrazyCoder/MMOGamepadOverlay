@@ -115,13 +115,15 @@ BEGIN
     LTEXT           "Which game config file path should overlay settings (like window layout) sync with?",IDC_STATIC_PROMPT,7,7,189,19
 END
 
-IDD_DIALOG_TARGET_APP DIALOGEX 0, 0, 300, 38
+IDD_DIALOG_TARGET_APP DIALOGEX 0, 0, 300, 48
 STYLE DS_SETFONT | DS_3DLOOK | DS_FIXEDSYS | DS_CONTROL | WS_CHILD | WS_CLIPSIBLINGS
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     EDITTEXT        IDC_EDIT_TARGET_PARAMS,130,0,164,12,ES_AUTOHSCROLL
     RTEXT           "Command-line Parameters:",IDC_STATIC_PROMPT,0,0,114,12
     LTEXT           "For a Steam game, select steam.exe for the application and add\n""-applaunch {GameIDNumber}"" (without braces or quotes) to above",IDC_STATIC_PROMPT2,29,12,264,19
+    CONTROL         "Auto-quit overlay app when above application exits",IDC_CHECK_AUTOLOAD,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,29,29,264,12
 END
 
 IDD_DIALOG_LICENSE DIALOGEX 0, 0, 300, 150
@@ -387,7 +389,7 @@ BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 293
         TOPMARGIN, 7
-        BOTTOMMARGIN, 31
+        BOTTOMMARGIN, 41
     END
 
     IDD_DIALOG_LICENSE, DIALOG

@@ -69,10 +69,12 @@ void resize(RECT theNewTargetRect, bool isTargetAppWindow);
 void resetOverlays();
 void hideOverlays();
 void showOverlays();
-void setOverlaysToTopZ();
+void setTargetWindowIsActive(bool);
+void restoreOverlayZPos();
 bool overlaysAreHidden();
+bool anyOverlaysVisible(); // even if not "hidden", possibly none requested
 SIZE overlayTargetSize();
-RECT overlayClipRect();
+RECT overlayClipRect(); // relative to main screen
 
 // Displays a visual indicater that are tracking a target window now
 void showTargetWindowFound();

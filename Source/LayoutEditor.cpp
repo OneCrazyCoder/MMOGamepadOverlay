@@ -817,8 +817,8 @@ static void setInitialToolbarPos(HWND theDialog, LayoutEntry& theEntry)
 	RECT anOverlayRect;
 	anOverlayRect = WindowManager::overlayClipRect();
 	POINT anOverlayCenter;
-	anOverlayCenter.x = (anOverlayRect.left + anOverlayRect.right) / 2;
-	anOverlayCenter.y = (anOverlayRect.top + anOverlayRect.bottom) / 2;
+	anOverlayCenter.x = (anOverlayRect.right - anOverlayRect.left) / 2;
+	anOverlayCenter.y = (anOverlayRect.bottom - anOverlayRect.top) / 2;
 
 	const bool useRightEdge = anEntryPos.x < anOverlayCenter.x;
 	const bool useBottomEdge = anEntryPos.y < anOverlayCenter.y;

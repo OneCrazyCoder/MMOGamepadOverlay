@@ -218,8 +218,10 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	// Initiate frame timing
 	timeBeginPeriod(gAppTargetFrameTime / 2);
 	sAppStartTime = sUpdateStartTime = getSystemTime();
+	bool wantLoadProfile = true;
 
-	do {
+	while(wantLoadProfile && !gShutdown && !hadFatalError())
+	{
 		// Load requested profile
 		Profile::load();
 
@@ -295,7 +297,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		LayoutEditor::cleanup();
 		if( !hadFatalError() )
 			WindowManager::destroyAll(hInstance);
-	} while(!gProfileToLoad.empty() && !gShutdown && !hadFatalError());
+		wantLoadProfile = !gProfileToLoad.empty();
+	}
 	timeEndPeriod(gAppTargetFrameTime / 2);
 
 	// Report performance

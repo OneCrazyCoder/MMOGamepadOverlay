@@ -72,8 +72,6 @@ struct ZERO_INIT(OverlayWindow)
 	HWND handle;
 	HBITMAP bitmap;
 	void* bits;
-	HBITMAP compositeBitmap;
-	void* compositeBits;
 	POINT position;
 	SIZE size;
 	SIZE lastDrawnSize;
@@ -82,8 +80,8 @@ struct ZERO_INIT(OverlayWindow)
 	EFadeState fadeState;
 	u8 alpha;
 	bool layoutReady;
-	bool bitmapReady;
 	bool windowReady;
+	bool visible;
 };
 
 struct ZERO_INIT(OverlayWindowPriority)
@@ -113,6 +111,9 @@ static DLGPROC sToolbarDialogProc = NULL;
 static HANDLE sModalModeTimer = NULL;
 static HANDLE sModalModeThread = NULL;
 static HANDLE sModalModeExit = NULL;
+static HBITMAP sCompositeBitmap = NULL;
+static void* sCompositeBits = NULL;
+static SIZE sCompositeBitmapSize;
 static POINT sMainWindowPos;
 static std::vector<OverlayWindow> sOverlayWindows;
 static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
@@ -121,13 +122,14 @@ static RECT sScreenTargetRect; // relative to main screen
 static RECT sTargetClipRect; // relative to sScreenTargetRect
 static SIZE sTargetSize = { 0 };
 static WNDPROC sSystemOverlayProc = NULL;
+static int sSystemOverlayPosIdx = -1;
 static int sToolbarWindowOverlayID = -1;
 static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sMainWindowPosInit = false;
-static bool sUseChildWindows = false;
 static bool sHidden = false;
 static bool sMainWindowDisabled = false;
-static bool sUsePerPixelAlpha = false;
+static bool sUseSingleOverlayWindow = false;
+static bool sNeedRecompositeOverlays = false;
 static volatile bool sWindowInModalMode = false;
 static volatile bool sModalUpdateRunning = false;
 
@@ -135,6 +137,12 @@ static volatile bool sModalUpdateRunning = false;
 //------------------------------------------------------------------------------
 // Local Functions
 //------------------------------------------------------------------------------
+
+static inline bool isATopMostWindow(HWND theWindow)
+{
+	return (GetWindowLongPtr(theWindow, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+}
+
 
 DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 {
@@ -420,9 +428,9 @@ static LRESULT CALLBACK mainWindowProc(
 				DeleteObject(sOverlayWindows[i].bitmap);
 				sOverlayWindows[i].bitmap = NULL;
 				sOverlayWindows[i].bits = NULL;
-				DeleteObject(sOverlayWindows[i].compositeBitmap);
-				sOverlayWindows[i].compositeBitmap = NULL;
-				sOverlayWindows[i].compositeBits = NULL;
+				DeleteObject(sCompositeBitmap);
+				sCompositeBitmap = NULL;
+				sCompositeBits = NULL;
 			}
 		}
 		WindowPainter::cleanup();
@@ -504,6 +512,8 @@ static LRESULT CALLBACK systemOverlayWindowProc(
 	{
 	case WM_PAINT:
 		gRefreshOverlays.set(anOverlayID);
+		if( sUseSingleOverlayWindow )
+			sNeedRecompositeOverlays = true;
 		break;
 	case WM_MOUSEACTIVATE:
 		return MA_NOACTIVATE;
@@ -782,6 +792,199 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 }
 
 
+static void drawCompositeOverlayWindow()
+{
+	DBG_ASSERT(sSystemOverlayWindow);
+	DBG_ASSERT(size_t(sSystemOverlayPosIdx) < sOverlayWindowOrder.size());
+
+	RECT aCompWinRect = { 0 };
+	// Calculate what rect we need based on all currently visible overlays
+	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+	{
+		const OverlayWindow& aWindow = sOverlayWindows[i];
+		if( !aWindow.windowReady || !aWindow.visible )
+			continue;
+		const RECT anOverlayRect = {
+			aWindow.position.x,
+			aWindow.position.y,
+			aWindow.position.x + aWindow.size.cx,
+			aWindow.position.y + aWindow.size.cy };
+		UnionRect(&aCompWinRect, &aCompWinRect, &anOverlayRect);
+	}
+
+	SIZE aCompWinSize = {
+		aCompWinRect.right - aCompWinRect.left,
+		aCompWinRect.bottom - aCompWinRect.top };
+	if( aCompWinSize.cx <= 0 || aCompWinSize.cy <= 0 )
+	{
+		if( IsWindowVisible(sSystemOverlayWindow) )
+			ShowWindow(sSystemOverlayWindow, SW_HIDE);
+		return;
+	}
+
+	// Do not allow composite window to be 100% the size of the target window,
+	// or may get Z-fighting on systems that need this rendering method where
+	// it thinks it is a game window or something (that's my guess why anyway).
+	if( aCompWinSize.cx >= sTargetSize.cx &&
+		aCompWinSize.cy >= sTargetSize.cy )
+	{
+		--aCompWinSize.cy;
+	}
+
+	// Delete bitmap if it is too small or much too big
+	if( sCompositeBitmapSize.cx < aCompWinSize.cx ||
+		sCompositeBitmapSize.cy < aCompWinSize.cy ||
+		sCompositeBitmapSize.cx >= aCompWinSize.cx * 3 / 2 ||
+		sCompositeBitmapSize.cy >= aCompWinSize.cy * 3 / 2 )
+	{
+		DeleteObject(sCompositeBitmap);
+		sCompositeBitmap = NULL;
+		sCompositeBits = NULL;
+	}
+
+	// Create bitmap if needed
+	HDC aScreenDC = GetDC(NULL);
+	if( !sCompositeBitmap )
+	{
+		sCompositeBitmapSize = aCompWinSize;
+		BITMAPINFO bmi = {};
+		bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		bmi.bmiHeader.biWidth = sCompositeBitmapSize.cx;
+		bmi.bmiHeader.biHeight = -sCompositeBitmapSize.cy;
+		bmi.bmiHeader.biPlanes = 1;
+		bmi.bmiHeader.biBitCount = 32;
+		bmi.bmiHeader.biCompression = BI_RGB;
+
+		DBG_ASSERT(sCompositeBits == null);
+		sCompositeBitmap = CreateDIBSection(
+			aScreenDC, &bmi, DIB_RGB_COLORS,
+			&sCompositeBits, NULL, 0);
+		if( sCompositeBitmap && !sCompositeBits )
+		{
+			DeleteObject(sCompositeBitmap);
+			sCompositeBitmap = null;
+		}
+		if( !sCompositeBitmap )
+		{
+			logFatalError("Could not create bitmap for composite overlay!");
+			return;
+		}
+	}
+
+	HDC aWindowDC = CreateCompatibleDC(aScreenDC);
+	const int aWindowDCInitialState = SaveDC(aWindowDC);
+	if( !aWindowDC )
+	{
+		logFatalError("Could not create device context for composite overlay!");
+		return;
+	}
+
+	DBG_ASSERT(sCompositeBitmap && sCompositeBits);
+	SelectObject(aWindowDC, sCompositeBitmap);
+
+	// Clear composite bits and copy visible overlays windows to composite
+	memset(sCompositeBits, 0,
+		sCompositeBitmapSize.cx * sCompositeBitmapSize.cy * 4);
+	const int aDstStride = sCompositeBitmapSize.cx;
+	for(int aLayerIdx = 0, aLayerEnd = intSize(sOverlayWindowOrder.size());
+		aLayerIdx < aLayerEnd; ++aLayerIdx)
+	{
+		const int anOverlayID = sOverlayWindowOrder[aLayerIdx].id;
+		const OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
+		if( !aWindow.windowReady || !aWindow.visible )
+			continue;
+		const COLORREF aTransColor = WindowPainter::transColor(anOverlayID);
+		const u32 aSrcAlpha = aWindow.alpha;
+		const u32 aSrcInvAlpha = 255 - aWindow.alpha;
+		// Source bitmap may actually be larger than source window size...
+		const int aSrcStride = aWindow.bitmapSize.cx;
+		void* aSrcBits = aWindow.bits;
+		void* aDstBits = sCompositeBits;
+		POINT aDstPos = {
+			aWindow.position.x - aCompWinRect.left,
+			aWindow.position.y - aCompWinRect.top };
+		DBG_ASSERT(aSrcBits != NULL);
+		DBG_ASSERT(aDstPos.x >= 0 && aDstPos.y >= 0);
+		SIZE aSrcSize = aWindow.size;
+		aSrcSize.cx = min(aSrcSize.cx,
+			sCompositeBitmapSize.cx - aDstPos.x);
+		aSrcSize.cy = min(aSrcSize.cy,
+			sCompositeBitmapSize.cy - aDstPos.y);
+		u32* aDstBase = (u32*)aDstBits;
+		u32* aSrcBase = (u32*)aSrcBits;
+		if( aSrcAlpha == 0xFF )
+		{
+			for(int y = 0; y < aSrcSize.cy; ++y)
+			{
+				u32* aSrcRow = (u32*)(aSrcBase + y * aSrcStride);
+				u32* aDstRow =
+					(u32*)(aDstBase + (aDstPos.y + y) * aDstStride) + aDstPos.x;
+
+				for(int x = 0; x < aSrcSize.cx; ++x)
+				{
+					const u32 aSrc = aSrcRow[x];
+					if( (aSrc & 0x00FFFFFF) == aTransColor )
+						continue;
+					aDstRow[x] = aSrc | 0xFF000000;
+				}
+			}
+		}
+		else
+		{
+			for(int y = 0; y < aSrcSize.cy; ++y)
+			{
+				u32* aSrcRow = (u32*)(aSrcBase + y * aSrcStride);
+				u32* aDstRow =
+					(u32*)(aDstBase + (aDstPos.y + y) * aDstStride) + aDstPos.x;
+
+				for(int x = 0; x < aSrcSize.cx; ++x)
+				{
+					const u32 aSrc = aSrcRow[x];
+					if( (aSrc & 0x00FFFFFF) == aTransColor )
+						continue;
+					u32 aDst = aDstRow[x];
+					u32 db = (aDst & 0xFF);
+					u32 dg = ((aDst >> 8) & 0xFF);
+					u32 dr = ((aDst >> 16) & 0xFF);
+					u32 da = ((aDst >> 24) & 0xFF);
+					u32 sb = (aSrc & 0xFF);
+					u32 sg = ((aSrc >> 8) & 0xFF);
+					u32 sr = ((aSrc >> 16) & 0xFF);
+					u32 sa = aSrcAlpha;
+					db = ((sb * sa) + (db * aSrcInvAlpha) + 127) >> 8;
+					dg = ((sg * sa) + (dg * aSrcInvAlpha) + 127) >> 8;
+					dr = ((sr * sa) + (dr * aSrcInvAlpha) + 127) >> 8;
+					da = sa + (((da * aSrcInvAlpha) + 127) >> 8);
+					aDstRow[x] = (da << 24) | (dr << 16) | (dg << 8) | db;
+				}
+			}
+		}
+	}
+
+	// Update window with composite bitmap
+	BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+	POINT aWindowScreenPos;
+	aWindowScreenPos.x = sScreenTargetRect.left + aCompWinRect.left;
+	aWindowScreenPos.y = sScreenTargetRect.top + aCompWinRect.top;
+	POINT anOriginPoint = { 0, 0 };
+	UpdateLayeredWindow(sSystemOverlayWindow,
+		aScreenDC, &aWindowScreenPos, &aCompWinSize,
+		aWindowDC, &anOriginPoint, 0,
+		&aBlendFunction, ULW_ALPHA);
+
+	// Cleanup
+	RestoreDC(aWindowDC, aWindowDCInitialState);
+	DeleteDC(aWindowDC);
+
+	// Show window if it isn't visible yet
+	if( !IsWindowVisible(sSystemOverlayWindow) )
+	{
+		ShowWindow(sSystemOverlayWindow, SW_SHOWNOACTIVATE);
+		restoreOverlayZPos();
+	}
+}
+
+
 //------------------------------------------------------------------------------
 // Global Functions
 //------------------------------------------------------------------------------
@@ -799,14 +1002,6 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		max(64, Profile::getInt("System", "WindowHeight", 80));
 	const bool shouldStartMinimized =
 		Profile::getBool("System", "WindowStartMinimized", false);
-
-	{// Determine if supports child layered windows or not (Win8 or higher)
-		OSVERSIONINFOW info;
-		info.dwOSVersionInfoSize = sizeof(OSVERSIONINFOW);
-		GetVersionEx(&info);
-		sUseChildWindows =
-			info.dwMajorVersion >= 6 && info.dwMinorVersion >= 2;
-	}
 
 	// Register window classes
 	WNDCLASSEXW aWindowClass = { 0 };
@@ -899,8 +1094,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 	sIconCopyMethod = EIconCopyMethod(
 		clamp(Profile::getInt("System", "IconCopyMethod"),
 			0, eIconCopyMethod_Num-1));
-	sUsePerPixelAlpha = Profile::getBool(
-		"System", "CompatibilityModeForOverlayAlpha");
+	sUseSingleOverlayWindow = Profile::getBool(
+		"System", "CompositeOverlayDraw");
 
 	#ifndef WDA_EXCLUDEFROMCAPTURE
 	#define WDA_EXCLUDEFROMCAPTURE 0x00000011
@@ -921,8 +1116,9 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 
 	DBG_ASSERT(sOverlayWindows.empty());
 	DBG_ASSERT(sOverlayWindowOrder.empty());
+	DBG_ASSERT(sSystemOverlayWindow == NULL);
 
-	// Create one transparent overlay window per root menu
+	// Create one transparent overlay object per root menu
 	sOverlayWindows.reserve(InputMap::menuOverlayCount());
 	sOverlayWindows.resize(InputMap::menuOverlayCount());
 	sOverlayWindowOrder.reserve(sOverlayWindows.size());
@@ -948,28 +1144,34 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		aWindow.windowReady = false;
 		gReshapeOverlays.reset(anOverlayID);
 
-		aWindow.handle = CreateWindowExW(
-			WS_EX_TOPMOST | WS_EX_NOACTIVATE |
-			WS_EX_TRANSPARENT | WS_EX_LAYERED,
-			isSystemOverlay
-				? kSystemOverlayWindowClassName : kOverlayWindowClassName,
-			widen(InputMap::menuLabel(aMenuID)).c_str(),
-			WS_POPUP | (sUseChildWindows ? WS_CHILD : 0),
-			aWindow.position.x,
-			aWindow.position.y,
-			aWindow.size.cx,
-			aWindow.size.cy,
-			sUseChildWindows ? sMainWindow : NULL,
-			NULL, theAppInstanceHandle, NULL);
-
-		SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, anOverlayID);
-		if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture &&
-			pSetWindowDisplayAffinity )
+		if( !sUseSingleOverlayWindow || isSystemOverlay )
 		{
-			pSetWindowDisplayAffinity(aWindow.handle, WDA_EXCLUDEFROMCAPTURE);
+			aWindow.handle = CreateWindowExW(
+				WS_EX_TOPMOST | WS_EX_NOACTIVATE |
+				WS_EX_TRANSPARENT | WS_EX_LAYERED,
+				isSystemOverlay
+					? kSystemOverlayWindowClassName : kOverlayWindowClassName,
+				widen(InputMap::menuLabel(aMenuID)).c_str(),
+				WS_POPUP,
+				aWindow.position.x,
+				aWindow.position.y,
+				aWindow.size.cx,
+				aWindow.size.cy,
+				NULL, NULL, theAppInstanceHandle, NULL);
+	
+			SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, anOverlayID);
+			if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture &&
+				pSetWindowDisplayAffinity )
+			{
+				pSetWindowDisplayAffinity(
+					aWindow.handle, WDA_EXCLUDEFROMCAPTURE);
+			}
+			if( isSystemOverlay )
+			{
+				sSystemOverlayPosIdx = i;
+				sSystemOverlayWindow = aWindow.handle;
+			}
 		}
-		if( isSystemOverlay )
-			sSystemOverlayWindow = aWindow.handle;
 	}
 }
 
@@ -986,11 +1188,13 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 	{
 		if( sOverlayWindows[i].bitmap )
 			DeleteObject(sOverlayWindows[i].bitmap);
-		if( sOverlayWindows[i].compositeBitmap )
-			DeleteObject(sOverlayWindows[i].compositeBitmap);
 		if( sOverlayWindows[i].handle )
 			DestroyWindow(sOverlayWindows[i].handle);
 	}
+	if( sCompositeBitmap )
+		DeleteObject(sCompositeBitmap);
+	sCompositeBitmap = NULL;
+	sCompositeBits = NULL;
 	sSystemOverlayProc = NULL;
 	sSystemOverlayWindow = NULL;
 	sOverlayWindows.clear();
@@ -1047,6 +1251,7 @@ void update()
 	{
 		const int anOverlayID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
+		const bool isSystemOverlay = i == sSystemOverlayPosIdx;
 
 		// Check if window priority changed
 		const int aDrawPriority = WindowPainter::drawPriority(anOverlayID);
@@ -1074,18 +1279,22 @@ void update()
 			(aWindow.layoutReady && aWindow.size.cx <= 0) ||
 			(aWindow.layoutReady && aWindow.size.cy <= 0) )
 		{
-			if( IsWindowVisible(aWindow.handle) )
+			if( aWindow.visible )
+			{
+				aWindow.visible = false;
+				sNeedRecompositeOverlays = true;
+			}
+			if( aWindow.handle && IsWindowVisible(aWindow.handle) &&
+				(!isSystemOverlay || !sUseSingleOverlayWindow) )
+			{
 				ShowWindow(aWindow.handle, SW_HIDE);
+			}
 			gActiveOverlays.reset(anOverlayID);
-			if( aWindow.bitmap &&
-				InputMap::menuStyle(anOverlayID) == eMenuStyle_System )
+			if( aWindow.bitmap && isSystemOverlay )
 			{// Large bitmap that's rarely needed, so free it from memory
 				DeleteObject(aWindow.bitmap);
 				aWindow.bitmap = null;
 				aWindow.bits = null;
-				DeleteObject(aWindow.compositeBitmap);
-				aWindow.compositeBitmap = null;
-				aWindow.compositeBits = null;
 			}
 			continue;
 		}
@@ -1124,9 +1333,6 @@ void update()
 				DeleteObject(aWindow.bitmap);
 				aWindow.bitmap = NULL;
 				aWindow.bits = NULL;
-				DeleteObject(aWindow.compositeBitmap);
-				aWindow.compositeBitmap = null;
-				aWindow.compositeBits = null;
 			}
 		}
 
@@ -1134,7 +1340,8 @@ void update()
 		if( aWindow.size.cx <= 0 || aWindow.size.cy <= 0 )
 		{
 			aWindow.size.cx = aWindow.size.cy = 0;
-			ShowWindow(aWindow.handle, SW_HIDE);
+			if( aWindow.handle && IsWindowVisible(aWindow.handle) )
+				ShowWindow(aWindow.handle, SW_HIDE);
 			gActiveOverlays.reset(anOverlayID);
 			continue;
 		}
@@ -1142,15 +1349,14 @@ void update()
 		// Create bitmap if doesn't exist by this point
 		if( !aWindow.bitmap )
 		{
-			DBG_ASSERT(!aWindow.compositeBitmap);
 			gFullRedrawOverlays.set(anOverlayID);
 			aWindow.bitmapSize = aWindow.size;
 			BITMAPINFO bmi = {};
-			bmi.bmiHeader.biSize		= sizeof(BITMAPINFOHEADER);
-			bmi.bmiHeader.biWidth	   = aWindow.bitmapSize.cx;
-			bmi.bmiHeader.biHeight	  = -aWindow.bitmapSize.cy;
-			bmi.bmiHeader.biPlanes	  = 1;
-			bmi.bmiHeader.biBitCount	= 32;   // BGRA
+			bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+			bmi.bmiHeader.biWidth = aWindow.bitmapSize.cx;
+			bmi.bmiHeader.biHeight = -aWindow.bitmapSize.cy;
+			bmi.bmiHeader.biPlanes = 1;
+			bmi.bmiHeader.biBitCount = 32;
 			bmi.bmiHeader.biCompression = BI_RGB;
 
 			DBG_ASSERT(aWindow.bits == null);
@@ -1162,19 +1368,7 @@ void update()
 				DeleteObject(aWindow.bitmap);
 				aWindow.bitmap = null;
 			}
-			if( sUsePerPixelAlpha )
-			{
-				aWindow.compositeBitmap = CreateDIBSection(
-					aScreenDC, &bmi, DIB_RGB_COLORS,
-					&aWindow.compositeBits, NULL, 0);
-				if( aWindow.compositeBitmap && !aWindow.compositeBits )
-				{
-					DeleteObject(aWindow.compositeBitmap);
-					aWindow.compositeBitmap = null;
-				}
-			}
-			if( !aWindow.bitmap ||
-				(sUsePerPixelAlpha && !aWindow.compositeBitmap) )
+			if( !aWindow.bitmap )
 			{
 				logFatalError("Could not create bitmap for overlay!");
 				continue;
@@ -1199,7 +1393,7 @@ void update()
 				aWindowDC, sTargetSize, anOverlayID,
 				gFullRedrawOverlays.test(anOverlayID),
 				sIconCopyMethod != eIconCopyMethod_Disabled);
-			aWindow.bitmapReady = false;
+			aWindow.windowReady = false;
 			aWindow.lastDrawnSize = aWindow.size;
 			gRefreshOverlays.reset(anOverlayID);
 			gFullRedrawOverlays.reset(anOverlayID);
@@ -1209,7 +1403,7 @@ void update()
 		const bool copyFromTargetDone =
 			WindowPainter::copyContentsFromTarget(
 				aWindowDC, aCaptureDC, aCaptureOffset,
-				sTargetSize, anOverlayID, aWindow.bitmapReady);
+				sTargetSize, anOverlayID, aWindow.windowReady);
 		if( !copyFromTargetDone &&
 			aWindow.alpha > anOldWindowAlpha &&
 			(aWindow.fadeState == eFadeState_FadingIn ||
@@ -1218,72 +1412,64 @@ void update()
 			aWindow.alpha = anOldWindowAlpha;
 		}
 
-		if( !aWindow.bitmapReady )
-			aWindow.windowReady = false;
-
 		// Update window
 		if( !aWindow.windowReady && aWindow.alpha > 0 )
 		{
-			const COLORREF aTransColor =
-				WindowPainter::transColor(anOverlayID);
-			if( !aWindow.bitmapReady && sUsePerPixelAlpha )
+			if( !sUseSingleOverlayWindow && aWindow.handle )
 			{
-				const u32 aTransR = GetRValue(aTransColor);
-				const u32 aTransG = GetGValue(aTransColor);
-				const u32 aTransB = GetBValue(aTransColor);
-
-				DBG_ASSERT(aWindow.bits);
-				for(int i = 0,
-					end = aWindow.bitmapSize.cx * aWindow.bitmapSize.cy;
-					i < end; ++i)
-				{
-					u32* src = &(((u32*)aWindow.bits)[i]);
-					u32* dst = &(((u32*)aWindow.compositeBits)[i]);
-					const u32 b = (*src) & 0xFF;
-					const u32 g = ((*src) >> 8) & 0xFF;
-					const u32 r = ((*src) >> 16) & 0xFF;
-					if( r == aTransR && g == aTransG && b == aTransB )
-						*dst = 0;
-					else
-						*dst = (0xFF << 24) | (r << 16) | (g << 8) | b;
-				}
+				BLENDFUNCTION aBlendFunction =
+					{AC_SRC_OVER, 0, aWindow.alpha, 0};
+				POINT aWindowScreenPos;
+				aWindowScreenPos.x =
+					sScreenTargetRect.left + aWindow.position.x;
+				aWindowScreenPos.y =
+					sScreenTargetRect.top + aWindow.position.y;
+				UpdateLayeredWindow(aWindow.handle, aScreenDC,
+					&aWindowScreenPos, &aWindow.size,
+					aWindowDC, &anOriginPoint,
+					WindowPainter::transColor(anOverlayID),
+					&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
 			}
-
-			BLENDFUNCTION aBlendFunction;
-			aBlendFunction.BlendOp = AC_SRC_OVER;
-			aBlendFunction.BlendFlags = 0;
-			aBlendFunction.SourceConstantAlpha = aWindow.alpha;
-			aBlendFunction.AlphaFormat =
-				sUsePerPixelAlpha ?  AC_SRC_ALPHA : AC_SRC_OVER;
-
-			POINT aWindowScreenPos;
-			aWindowScreenPos.x = sScreenTargetRect.left + aWindow.position.x;
-			aWindowScreenPos.y = sScreenTargetRect.top + aWindow.position.y;
-			if( sUsePerPixelAlpha )
-				SelectObject(aWindowDC, aWindow.compositeBitmap);
-			UpdateLayeredWindow(aWindow.handle, aScreenDC,
-				&aWindowScreenPos, &aWindow.size, aWindowDC, 
-				&anOriginPoint, aTransColor, &aBlendFunction,
-				sUsePerPixelAlpha ? ULW_ALPHA : (ULW_ALPHA | ULW_COLORKEY));
-
-			aWindow.bitmapReady = true;
+			sNeedRecompositeOverlays = true;
 			aWindow.windowReady = true;
 		}
 		gActiveOverlays.reset(anOverlayID);
 
-		// Show window if it isn't visible yet
-		if( aWindow.windowReady && !IsWindowVisible(aWindow.handle) )
-			ShowWindow(aWindow.handle, SW_SHOWNOACTIVATE);
+		// Check if window needs to be made visible
+		if( aWindow.alpha > 0 && aWindow.windowReady )
+		{
+			if( !aWindow.visible )
+			{
+				aWindow.visible = true;
+				sNeedRecompositeOverlays = true;
+			}
+			if( aWindow.handle && !IsWindowVisible(aWindow.handle) &&
+				(!isSystemOverlay || !sUseSingleOverlayWindow) )
+			{
+				ShowWindow(aWindow.handle, SW_SHOWNOACTIVATE);
+			}
+		}
 
 		// Cleanup
 		RestoreDC(aWindowDC, aWindowDCInitialState);
 		DeleteDC(aWindowDC);
 	}
+
 	ReleaseDC(NULL, aCaptureDC);
 	ReleaseDC(NULL, aScreenDC);
+
+	if( sUseSingleOverlayWindow && sNeedRecompositeOverlays )
+	{
+		drawCompositeOverlayWindow();
+		sNeedRecompositeOverlays = false;
+	}
+
 	
-	// TODO
-	//if( windowReorderNeeded )
+	if( windowReorderNeeded )
+	{
+		std::sort(sOverlayWindowOrder.begin(), sOverlayWindowOrder.end());
+		restoreOverlayZPos();
+	}
 
 	if( sToolbarWindow && !sHidden && !IsWindowVisible(sToolbarWindow) )
 		ShowWindow(sToolbarWindow, SW_SHOW);
@@ -1300,7 +1486,7 @@ void beginDialog(HWND theDialog)
 		const int anOverlayID = sOverlayWindowOrder[i].id;
 		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
 
-		if( IsWindowVisible(aWindow.handle) )
+		if( aWindow.handle && IsWindowVisible(aWindow.handle) )
 			ShowWindow(aWindow.handle, SW_HIDE);
 	}
 	if( sToolbarWindow && IsWindowVisible(sToolbarWindow) )
@@ -1315,6 +1501,10 @@ void endDialog()
 
 	sDialogWindow = NULL;
 	setMainWindowEnabled(!sToolbarWindow);
+	// Overlays may have changed sizes during dialog - re-confirm layouts
+	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+		sOverlayWindows[i].layoutReady = false;
+	sNeedRecompositeOverlays = true;
 }
 
 
@@ -1445,6 +1635,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	// Flag all overlay windows to update position & size accordingly
 	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 		sOverlayWindows[i].layoutReady = false;
+	sNeedRecompositeOverlays = true;
 	WindowPainter::updateTargetRect();
 }
 
@@ -1460,6 +1651,7 @@ void resetOverlays()
 		restoreMinimizedOverlays();
 	else
 		minimizeOverlays();
+	restoreOverlayZPos();
 }
 
 
@@ -1480,24 +1672,126 @@ void showOverlays()
 }
 
 
-void setOverlaysToTopZ()
+void setTargetWindowIsActive(bool isActive)
 {
-	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
+	if( isActive )
 	{
-		const int anOverlayID = sOverlayWindowOrder[i].id;
-		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
-
-		DBG_ASSERT(aWindow.handle);
-		SetWindowPos(
-			aWindow.handle, HWND_TOPMOST,
-			0, 0, 0, 0,
-			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
+		showOverlays();
+		restoreOverlayZPos();
 	}
-	if( sToolbarWindow )
+	else
 	{
-		SetWindowPos(
-			sToolbarWindow, HWND_TOPMOST,
-			0, 0, 0, 0,
+		if( sUseSingleOverlayWindow )
+			hideOverlays();
+	}
+}
+
+
+void restoreOverlayZPos()
+{
+	if( sUseSingleOverlayWindow && sSystemOverlayWindow )
+	{// Composite overlay mode - just keep single window as TOPMOST
+		SetWindowPos(sSystemOverlayWindow, HWND_TOPMOST, 0, 0, 0, 0,
+			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW);
+	}
+	else if( !sOverlayWindowOrder.empty() )
+	{
+		HWND hTopOverlay =
+			sOverlayWindows[sOverlayWindowOrder.back().id].handle;
+		HWND hTarget = TargetApp::targetWindowHandle();
+		UINT aFlags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+			(sOverlayWindows[sOverlayWindowOrder.back().id].visible
+				? SWP_SHOWWINDOW : SWP_HIDEWINDOW);
+		if( !hTarget )
+		{// Desktop mode - just set top overlay to TOPMOST
+			SetWindowPos(hTopOverlay, HWND_TOPMOST, 0, 0, 0, 0, aFlags);
+		}
+		else
+		{// Place in next spot just above target window (and lower overlays)
+			HWND hAboveTarget = GetWindow(hTarget, GW_HWNDPREV);
+			// If spot above target window is other overlays, in order, then
+			// find the next window above those to be hAboveTarget
+			for(int i = 0, end = intSize(sOverlayWindowOrder.size())-1;
+				i < end; ++i)
+			{
+				if( hAboveTarget ==
+						sOverlayWindows[sOverlayWindowOrder[i].id].handle )
+				{
+					hAboveTarget = GetWindow(hAboveTarget, GW_HWNDPREV);
+					continue;
+				}
+				break;
+			}
+
+			if( hAboveTarget != hTopOverlay )
+			{
+				// Get TOPMOST status of overlay and target window
+				const bool overlayIsTopMost = isATopMostWindow(hTopOverlay);
+				const bool targetIsTopMost = isATopMostWindow(hTarget);
+
+				if( hAboveTarget == NULL )
+				{
+					// hTarget must be the very top-most window
+					// Need hTopOverlay to become top window in same category
+					if( targetIsTopMost == overlayIsTopMost )
+					{
+						// Already in correct category, so just move to the top
+						SetWindowPos(hTopOverlay, HWND_TOP, 0, 0, 0, 0, aFlags);
+					}
+					else
+					{
+						// Force hTopOverlay's category to match hTarget's,
+						// and simultaneously move to top of that category
+						SetWindowPos(hTopOverlay,
+							targetIsTopMost ? HWND_TOPMOST : HWND_NOTOPMOST,
+							0, 0, 0, 0, aFlags);
+					}
+				}
+				else
+				{
+					// Place between hTarget and hAboveTarget
+					const bool aboveIsTopMost = isATopMostWindow(hAboveTarget);
+					if( targetIsTopMost != aboveIsTopMost )
+					{
+						// This must mean hTarget is normal and hAboveTarget is
+						// TOPMOST, and we could end up promoting hTopOverlay to
+						// TOPMOST unintentionally, so just make sure that
+						// hTopOverlay is above all non-topmost windows.
+						SetWindowPos(hTopOverlay,
+							overlayIsTopMost ? HWND_NOTOPMOST : HWND_TOP,
+							0, 0, 0, 0, aFlags);
+					}
+					else
+					{
+						// Both hTarget and hAboveTarget are in same category,
+						// so safe for overlay to be auto-promoted/demoted to
+						// match hAboveTarget's category and move below it
+						SetWindowPos(hTopOverlay, hAboveTarget,
+							0, 0, 0, 0, aFlags);
+					}
+				}
+			}
+		}
+
+		// Now set all other overlays to just below the top-most overlay,
+		// in order going back from toward bottom-most overlay just above taget
+		for(int i = intSize(sOverlayWindowOrder.size())-2; i >= 0; --i)
+		{
+			const int anOverlayID = sOverlayWindowOrder[i].id;
+			OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
+			if( GetWindow(hTopOverlay, GW_HWNDNEXT) != aWindow.handle )
+			{
+				SetWindowPos(aWindow.handle, hTopOverlay, 0, 0, 0, 0,
+					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+					(aWindow.visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+			}
+			hTopOverlay = aWindow.handle;
+		}
+	}
+
+	if( sToolbarWindow && IsWindowVisible(sToolbarWindow) )
+	{
+		SetWindowPos(sToolbarWindow, HWND_TOPMOST, 0, 0, 0, 0,
 			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
 	}
 }
@@ -1509,6 +1803,24 @@ bool overlaysAreHidden()
 }
 
 
+bool anyOverlaysVisible()
+{
+	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+	{
+		if( sOverlayWindows[i].visible )
+			return true;
+	}
+	if( sToolbarWindow &&
+		IsWindowVisible(sToolbarWindow) &&
+		!IsIconic(sToolbarWindow) )
+	{
+		return true;
+	}
+
+	return false;
+}
+
+
 SIZE overlayTargetSize()
 {
 	return sTargetSize;
@@ -1517,7 +1829,12 @@ SIZE overlayTargetSize()
 
 RECT overlayClipRect()
 {
-	return sTargetClipRect;
+	RECT result;
+	result.left = sScreenTargetRect.left + sTargetClipRect.left;
+	result.right = sScreenTargetRect.left + sTargetClipRect.right;
+	result.top = sScreenTargetRect.top + sTargetClipRect.top;
+	result.bottom = sScreenTargetRect.top + sTargetClipRect.bottom;
+	return result;
 }
 
 

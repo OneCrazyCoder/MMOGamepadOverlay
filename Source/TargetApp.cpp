@@ -24,8 +24,9 @@ enum ECheck
 {
 	eCheck_WindowExists,
 	eCheck_WindowActive,
-	eCheck_WindowZOrder,
+	eCheck_WindowMinimized,
 	eCheck_WindowClosed,
+	eCheck_WindowZOrder,
 	eCheck_WindowPosition,
 	eCheck_WindowMode,
 	eCheck_AppClosed,
@@ -40,6 +41,15 @@ enum EWindowMode
 	eWindowMode_FullScreenWindow,
 	eWindowMode_MaybeFullScreen,
 	eWindowMode_TrueFullScreen,
+};
+
+enum EWindowActiveStatus
+{
+	eWindowStatus_Closed,
+	eWindowStatus_Active,
+	eWindowStatus_Toolbar,
+	eWindowStatus_Background,
+	eWindowStatus_Minimized,
 };
 
 const LONG_PTR kFullScreenWindowStyle = WS_VISIBLE;
@@ -99,6 +109,7 @@ static int sNextCheckDelay = 0;
 static bool sHaveTriedAutoLaunch = false;
 static EWindowMode sDesiredTargetMode = eWindowMode_Unknown;
 static EWindowMode sLastKnownTargetMode = eWindowMode_Unknown;
+static EWindowActiveStatus sLastWindowStatus = eWindowStatus_Closed;
 static bool sSwapWindowModeHotkeyRegistered = false;
 static bool sRestoreTargetWindow = false;
 
@@ -132,6 +143,7 @@ static void dropTargetWindow()
 	sTargetWindowRestoreExStyle = 0;
 	sTargetWindowRestoreMenu = NULL;
 	sLastKnownTargetMode = eWindowMode_Unknown;
+	sLastWindowStatus = eWindowStatus_Closed;
 	WindowManager::resetOverlays();
 	if( sSwapWindowModeHotkeyRegistered )
 	{
@@ -161,6 +173,12 @@ static void restoreTargetWindow()
 	{
 		targetDebugPrint("Restoring target window to active window\n");
 		SetForegroundWindow(sTargetWindowHandle);
+		sLastWindowStatus = eWindowStatus_Active;
+		if( sTargetWindowRect.right > sTargetWindowRect.left &&
+			sTargetWindowRect.bottom > sTargetWindowRect.top )
+		{
+			WindowManager::resize(sTargetWindowRect, true);
+		}
 		sNextCheckDelay = 0;
 		sRepeatCheckTime = 500;
 		sNextCheck = eCheck_WindowZOrder;
@@ -208,8 +226,10 @@ static void checkWindowExists()
 	targetDebugPrint("Target window '%ls' found!\n",
 		kConfig.targetWindowName.c_str());
 	sTargetWindowHandle = aForegroundWindow;
+	sLastWindowStatus = eWindowStatus_Active;
 	sNextCheck = eCheck_WindowPosition;
 	sRepeatCheckTime = 0;
+	WindowManager::setTargetWindowIsActive(true);
 	WindowManager::showTargetWindowFound();
 }
 
@@ -221,9 +241,18 @@ static void checkWindowActive()
 
 	HWND aForegroundWindow = GetForegroundWindow();
 
-	if( sTargetWindowHandle == aForegroundWindow &&
-		!IsIconic(sTargetWindowHandle) )
+	if( sTargetWindowHandle == aForegroundWindow )
+	{// Target window is active!
+		if( sLastWindowStatus != eWindowStatus_Active )
+		{
+			targetDebugPrint("Target window became active - re-syncing!\n");
+			sLastWindowStatus = eWindowStatus_Active;
+			WindowManager::setTargetWindowIsActive(true);
+		}
 		return;
+	}
+
+	// Target window is not the active window any more!
 
 	if( aForegroundWindow == WindowManager::mainHandle() &&
 		targetWindowIsTopMost() )
@@ -232,63 +261,55 @@ static void checkWindowActive()
 		SetForegroundWindow(sTargetWindowHandle);
 	}
 
-	// Allow toolbar to be active over target, unless target is minimized
-	if( WindowManager::toolbarHandle() &&
-		aForegroundWindow == WindowManager::toolbarHandle() &&
-		!IsIconic(sTargetWindowHandle) )
-		return;
-
-	if( WindowManager::overlaysAreHidden() )
-		return;
-
-	// Target window is not the active foreground window
-	// Hide overlay windows until target window is active again
-	targetDebugPrint("Target window inactive! Hiding overlays!\n");
-	WindowManager::hideOverlays();
-	InputDispatcher::forceReleaseHeldKeys();
-	// Trigger checkWindowPosition() to show overlays later
-	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
-	// Don't interfere with other applications by keeping hotkey registered
-	if( sSwapWindowModeHotkeyRegistered )
+	// If already reacted to target window becoming inactive, no action needed
+	if( sLastWindowStatus == eWindowStatus_Active )
 	{
-		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
-		sSwapWindowModeHotkeyRegistered = false;
+		// Release held keys when target window deactivates
+		targetDebugPrint("Target window inactive! Halting sent input!\n");
+		InputDispatcher::forceReleaseHeldKeys();
+		// Don't interfere with other applications by keeping hotkey registered
+		if( sSwapWindowModeHotkeyRegistered )
+		{
+			UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
+			sSwapWindowModeHotkeyRegistered = false;
+		}
+	}
+
+	if( aForegroundWindow == WindowManager::toolbarHandle() &&
+		WindowManager::toolbarHandle() != NULL )
+	{// Don't completely deactivate if active window is the toolbar
+		if( sLastWindowStatus != eWindowStatus_Toolbar )
+		{
+			targetDebugPrint("Maintining overlays while using toolbar\n");
+			sLastWindowStatus = eWindowStatus_Toolbar;
+		}
+		return;
+	}
+
+	if( sLastWindowStatus != eWindowStatus_Background )
+	{// Fully switch to background window status (and move/hide overlays)
+		targetDebugPrint(
+			"Re-ordering/hiding overlays for background target window\n");
+		sLastWindowStatus = eWindowStatus_Background;
+		WindowManager::setTargetWindowIsActive(false);
 	}
 }
 
 
-static void checkWindowZOrder()
+static void checkWindowMinimized()
 {
-	if( !sTargetWindowHandle ||
-		sTargetWindowHandle != GetForegroundWindow() ||
-		IsIconic(sTargetWindowHandle) ||
-		WindowManager::overlaysAreHidden() )
+	if( !sTargetWindowHandle )
 		return;
 
-	// If Target isn't a TOPMOST, it must be beneath overlays
-	if( !(GetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST) )
+	if( sLastWindowStatus == eWindowStatus_Minimized )
 		return;
 
-	// Loop through windows above target and check for any overlay
-	// The overlays are all lumped together so if any are above, all should be
-	HWND aWindow = GetWindow(sTargetWindowHandle, GW_HWNDPREV);
-	// GetWindow can sometimes cause an infinite loop, so just assume
-	// no more than 10 windows need to be searched
-	for(int i = 0; i < 10; ++i)
-	{
-		if( aWindow == NULL )
-			break;
-		if( aWindow != WindowManager::mainHandle() &&
-			WindowManager::isOwnedByThisApp(aWindow) )
-		{// Overlay window found!
-			return;
-		}
-		aWindow = GetWindow(aWindow, GW_HWNDPREV);
+	if( IsIconic(sTargetWindowHandle) )
+	{// Target window is minimized! Hide overlays!
+		targetDebugPrint("Target window minimized! Hiding overlays!\n");
+		WindowManager::hideOverlays();
+		sLastWindowStatus = eWindowStatus_Minimized;
 	}
-
-	// Did not find any overlay windows above target!
-	targetDebugPrint("Moving overlays back over top of target window\n");
-	WindowManager::setOverlaysToTopZ();
 }
 
 
@@ -309,18 +330,47 @@ static void checkWindowClosed()
 	else
 	{
 		InputDispatcher::forceReleaseHeldKeys();
-		targetDebugPrint("Target window closed! Resetting overlays!\n");
+		targetDebugPrint("Target window closed!\n");
 	}
 	dropTargetWindow();
+}
+
+
+static void checkWindowZOrder()
+{
+	if( !sTargetWindowHandle ||
+		IsIconic(sTargetWindowHandle) ||
+		!WindowManager::anyOverlaysVisible() )
+	{ return; }
+
+	// Loop through windows above target and check for any overlay
+	// The overlays are all lumped together so if any are above, all should be
+	HWND aWindow = GetWindow(sTargetWindowHandle, GW_HWNDPREV);
+	// GetWindow can sometimes cause an infinite loop, so just assume
+	// no more than 10 windows need to be searched
+	for(int i = 0; i < 10; ++i)
+	{
+		if( aWindow == NULL )
+			break;
+		if( aWindow != WindowManager::mainHandle() &&
+			WindowManager::isOwnedByThisApp(aWindow) )
+		{// Overlay window found!
+			return;
+		}
+		aWindow = GetWindow(aWindow, GW_HWNDPREV);
+	}
+
+	// Did not find any overlay windows above target!
+	targetDebugPrint("Moving overlays back over top of target window\n");
+	WindowManager::restoreOverlayZPos();
 }
 
 
 static void checkWindowPosition()
 {
 	if( !sTargetWindowHandle ||
-		sTargetWindowHandle != GetForegroundWindow() ||
 		IsIconic(sTargetWindowHandle) )
-		return;
+	{ return; }
 
 	RECT aWRect;
 	GetClientRect(sTargetWindowHandle, &aWRect);
@@ -329,13 +379,14 @@ static void checkWindowPosition()
 	if( !EqualRect(&aWRect, &sTargetWindowRect) &&
 		aWRect.bottom > aWRect.top &&
 		aWRect.right > aWRect.left )
-	{// Target window has been moved/resized/activated
+	{// Target window has been moved/resized/restored
 		targetDebugPrint(
 			"Repositioning Overlay to Target (%d x %d -> %d x %d)\n",
 			aWRect.left, aWRect.top, aWRect.right, aWRect.bottom);
 		sTargetWindowRect = aWRect;
-		WindowManager::resize(aWRect, true);
-		WindowManager::showOverlays();
+		WindowManager::resize(sTargetWindowRect, true);
+		if( sLastWindowStatus != eWindowStatus_Active )
+			checkWindowActive();
 		// Check every update for a bit in case dragging window around
 		sRepeatCheckTime = 500;
 		sNextCheck = eCheck_WindowPosition;
@@ -345,6 +396,7 @@ static void checkWindowPosition()
 
 static void checkWindowMode()
 {
+	// This is entirely for use with forceFullScreenWindow feature
 	if( !kConfig.forceFullScreenWindow ||
 		!sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
@@ -712,8 +764,9 @@ void update()
 	{
 	case eCheck_WindowExists:	checkWindowExists();	break;
 	case eCheck_WindowActive:	checkWindowActive();	break;
-	case eCheck_WindowZOrder:	checkWindowZOrder();	break;
+	case eCheck_WindowMinimized:checkWindowMinimized();	break;
 	case eCheck_WindowClosed:	checkWindowClosed();	break;
+	case eCheck_WindowZOrder:	checkWindowZOrder();	break;
 	case eCheck_WindowPosition:	checkWindowPosition();	break;
 	case eCheck_WindowMode:		checkWindowMode();		break;
 	case eCheck_AppClosed:		checkAppClosed();		break;
@@ -750,7 +803,6 @@ void prepareForDialog()
 		(WindowManager::toolbarHandle() &&
 		 GetForegroundWindow() == sTargetWindowHandle);
 	// Overlays may get resized while in dialog, so prepare to restore them
-	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	targetDebugPrint("Preparing for dialog box - will%srestore target window\n",
 		sRestoreTargetWindow ? " " : " NOT ");
 	if( sSwapWindowModeHotkeyRegistered )
