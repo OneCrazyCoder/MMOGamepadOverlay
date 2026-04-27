@@ -813,13 +813,33 @@ static void safeLinkHotspotRows(
 				aRow.method[aVDir] != Row::eConnectMethod_SplitIn )
 			{ continue; }
 
+			const EVDir anOppVDir = oppositeDir(aVDir);
 			const int aNextRowIdx = aRowIdx + dirDelta(aVDir);
 			DBG_ASSERT(aNextRowIdx >= 0 && aNextRowIdx < aRowCount);
-			// If same method in both directions, only process closer in Y
+			// If same method in both v directions, can only process one of them
+			const bool aVDirMethodIsOutward =
+				aRow.method[aVDir] == Row::eConnectMethod_OffLeftEdge ||
+				aRow.method[aVDir] == Row::eConnectMethod_OffRightEdge ||
+				aRow.method[aVDir] == Row::eConnectMethod_SplitOut;
+			const bool anOppVDirMethodIsOutward =
+				aRow.method[anOppVDir] == Row::eConnectMethod_OffLeftEdge ||
+				aRow.method[anOppVDir] == Row::eConnectMethod_OffRightEdge ||
+				aRow.method[anOppVDir] == Row::eConnectMethod_SplitOut;
 			const bool isBidirectional =
-				aRow.method[aVDir] == aRow.method[oppositeDir(aVDir)];
+				aVDirMethodIsOutward == anOppVDirMethodIsOutward;
 			if( isBidirectional && aVDir == 0 )
 			{
+				const bool aVDirMethodIsOneWay =
+					aRow.method[aVDir] == Row::eConnectMethod_OffLeftEdge ||
+					aRow.method[aVDir] == Row::eConnectMethod_OffRightEdge;
+				const bool anOppVDirMethodIsOneWay =
+					aRow.method[anOppVDir] == Row::eConnectMethod_OffLeftEdge ||
+					aRow.method[anOppVDir] == Row::eConnectMethod_OffRightEdge;
+				// Split-out should take priority over off-edge
+				if( aVDirMethodIsOneWay &&
+					aVDirMethodIsOneWay != anOppVDirMethodIsOneWay )
+				{ continue; } // allow loop to process other dir instead
+					
 				const int aPrevRowIdx = aRowIdx - dirDelta(aVDir);
 				DBG_ASSERT(aPrevRowIdx >= 0 && aPrevRowIdx < aRowCount);
 				const int aNextYDist =
@@ -845,7 +865,7 @@ static void safeLinkHotspotRows(
 						aNextRow.edgeDot(oppositeDir(aHDir)).pointID;
 					aRow.edgeDot(aHDir).vertLink[aVDir] = 0;
 					if( isBidirectional )
-						aRow.edgeDot(aHDir).vertLink[oppositeDir(aVDir)] = 0;
+						aRow.edgeDot(aHDir).vertLink[anOppVDir] = 0;
 				}
 				break;
 			case Row::eConnectMethod_SplitOut:
@@ -862,8 +882,8 @@ static void safeLinkHotspotRows(
 				aRow.rightEdgeDot().vertLink[aVDir] = 0;
 				if( isBidirectional )
 				{
-					aRow.leftEdgeDot().vertLink[oppositeDir(aVDir)] = 0;
-					aRow.rightEdgeDot().vertLink[oppositeDir(aVDir)] = 0;
+					aRow.leftEdgeDot().vertLink[anOppVDir] = 0;
+					aRow.rightEdgeDot().vertLink[anOppVDir] = 0;
 				}
 				break;
 			case Row::eConnectMethod_SplitIn:
@@ -888,9 +908,9 @@ static void safeLinkHotspotRows(
 				if( isBidirectional )
 				{
 					aRow[aRow.insideLinkDotIdx[eHDir_L]]
-						.vertLink[oppositeDir(aVDir)] = 0;
+						.vertLink[anOppVDir] = 0;
 					aRow[aRow.insideLinkDotIdx[eHDir_R]]
-						.vertLink[oppositeDir(aVDir)] = 0;
+						.vertLink[anOppVDir] = 0;
 				}
 				break;
 			}
@@ -1226,6 +1246,126 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 						aFromDot.vertLink[aVDir] = aToDot.pointID;
 						aBestCandidateDistPenalty = aDistPenalty;
 					}
+				}
+			}
+		}
+	}
+
+	// Up to this point, have restricted some links that could logically be
+	// made in order to allow for wrapping to possibly be a better choice
+	// (cause a more straight line of position change) when wrapping is
+	// enabled. However, in cases where both directions in an axis have no
+	// link for a given dot, even with wrapping on those directions will do
+	// nothing. For those cases, enabled a "lenient" link to nearby dots.
+	for(int aRowIdx = 0; aRowIdx < aRowCount; ++aRowIdx)
+	{
+		Row& aRow = aRowVec[aRowIdx];
+		if( aRow.size() == 1 &&
+			aRow.outsideLink[eHDir_L] == 0 &&
+			aRow.outsideLink[eHDir_R] == 0 )
+		{// Row with 1 dot and no horizontal links - find some if can!
+			const Row::Dot& aRefDot = aRow[0];
+			// Find best candidates above and below to either side
+			Row::Dot* aBestAboveLeft = null;
+			Row::Dot* aBestAboveRight = null;
+			Row::Dot* aBestBelowLeft = null;
+			Row::Dot* aBestBelowRight = null;
+			for(int aNextRowIdx = aRowIdx - 1;
+				aNextRowIdx >= 0 && (!aBestAboveLeft || !aBestAboveRight);
+				--aNextRowIdx)
+			{
+				Row& aNextRow = aRowVec[aNextRowIdx];
+				int aClosestDotIdx = aNextRow.closestIdxTo(aRefDot.x);
+				if( !aBestAboveLeft )
+				{
+					int aDotIdx = aClosestDotIdx;
+					while(aDotIdx >= 0 &&
+						  aNextRow[aDotIdx].x >=
+							aRefDot.x - kMaxPerpDistForStraightLine)
+					{ --aDotIdx; }
+					if( aDotIdx >= 0 )
+						aBestAboveLeft = &aNextRow[aDotIdx];
+				}
+				if( !aBestAboveLeft )
+				{
+					int aDotIdx = aClosestDotIdx;
+					while(aDotIdx < aNextRow.size() &&
+						  aNextRow[aDotIdx].x <=
+							aRefDot.x + kMaxPerpDistForStraightLine)
+					{ ++aDotIdx; }
+					if( aDotIdx < aNextRow.size() )
+						aBestAboveRight = &aNextRow[aDotIdx];
+				}
+			}
+			for(int aNextRowIdx = aRowIdx + 1, end = intSize(aRowVec.size());
+				aNextRowIdx < end && (!aBestBelowLeft || !aBestBelowRight);
+				++aNextRowIdx)
+			{
+				Row& aNextRow = aRowVec[aNextRowIdx];
+				int aClosestDotIdx = aNextRow.closestIdxTo(aRefDot.x);
+				if( !aBestAboveLeft )
+				{
+					int aDotIdx = aClosestDotIdx;
+					while(aDotIdx >= 0 &&
+						  aNextRow[aDotIdx].x >=
+							aRefDot.x - kMaxPerpDistForStraightLine)
+					{ --aDotIdx; }
+					if( aDotIdx >= 0 )
+						aBestBelowLeft = &aNextRow[aDotIdx];
+				}
+				if( !aBestAboveLeft )
+				{
+					int aDotIdx = aClosestDotIdx;
+					while(aDotIdx < aNextRow.size() &&
+						  aNextRow[aDotIdx].x <=
+							aRefDot.x + kMaxPerpDistForStraightLine)
+					{ ++aDotIdx; }
+					if( aDotIdx < aNextRow.size() )
+						aBestBelowRight = &aNextRow[aDotIdx];
+				}
+			}
+			Row::Dot* aBestDot = aBestBelowLeft;
+			if( aBestAboveLeft )
+			{
+				if( !aBestDot ||
+					abs(aBestAboveLeft->y - aRefDot.y) <
+						abs(aBestDot->y - aRefDot.y) )
+				{
+					aBestDot = aBestAboveLeft;
+				}
+			}
+			if( aBestDot )
+				aRow.outsideLink[eHDir_L] = aBestDot->pointID;
+
+			aBestDot = aBestBelowRight;
+			if( aBestAboveRight )
+			{
+				if( !aBestDot ||
+					abs(aBestAboveRight->y - aRefDot.y) <
+						abs(aBestDot->y - aRefDot.y) )
+				{
+					aBestDot = aBestAboveRight;
+				}
+			}
+			if( aBestDot )
+				aRow.outsideLink[eHDir_R] = aBestDot->pointID;
+		}
+		for(int aDotIdx = 0, aDotsEnd = intSize(aRow.size());
+			aDotIdx < aDotsEnd; ++aDotIdx )
+		{
+			Row::Dot& aDot = aRow[aDotIdx];
+			if( aDot.vertLink[eVDir_U] == 0 &&
+				aDot.vertLink[eVDir_D] == 0 )
+			{
+				if( aRowIdx > 0 )
+				{
+					aDot.vertLink[eVDir_U] =
+						aRowVec[aRowIdx-1].closestTo(aDot.x).pointID;
+				}
+				if( aRowIdx < intSize(aRowVec.size())-1 )
+				{
+					aDot.vertLink[eVDir_D] =
+						aRowVec[aRowIdx+1].closestTo(aDot.x).pointID;
 				}
 			}
 		}
