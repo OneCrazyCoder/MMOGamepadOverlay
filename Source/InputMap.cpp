@@ -291,6 +291,7 @@ struct ZERO_INIT(ControlsLayer)
 	BitVector<32> disableHotspots;
 	BitVector<32> addLayers;
 	BitVector<32> removeLayers;
+	BitArray<eBtn_Num> buttonsUsed;
 	EMouseMode mouseMode;
 	u16 parentLayer;
 	u16 comboParentLayer;
@@ -1875,10 +1876,13 @@ static Command stringToSetVariableCommand(
 
 static Command wordsToSpecialCommand(
 	const std::vector<std::string>& theWords,
-	bool allowButtonActions,
+	int theButtonLayerIdx,
 	bool allowHoldActions,
 	bool allow4DirActions)
 {
+	// Don't allow actions assigned only to buttons if this isn't for a layer
+	const bool allowButtonActions = theButtonLayerIdx >= 0;
+
 	// Can't allow hold actions if don't also allow button actions
 	DBG_ASSERT(!allowHoldActions || allowButtonActions);
 	Command result;
@@ -1888,7 +1892,7 @@ static Command wordsToSpecialCommand(
 	// Most commands require more than one "word", even if only one of the
 	// words is actually a command key word. Single words are assumed to be
 	// a key bind name or literal key instead. Exceptions for commands that
-	// work with only a single word are "nothing" or "skip", and some
+	// work with only a single word are "nothing", "skip" or "defer", and some
 	// directional commands being assigned directly to a 4-directional input
 	// so are missing the word that indicates direction.
 	if( theWords.size() <= 1 )
@@ -1897,6 +1901,7 @@ static Command wordsToSpecialCommand(
 		{
 		case eCmdWord_Nothing:
 		case eCmdWord_Skip:
+		case eCmdWord_Defer:
 			// Always acceptable as single-word command
 			break;
 		case eCmdWord_Move:
@@ -2168,14 +2173,12 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Layer);
 	allowedKeyWords.set(eCmdWord_Remove);
 	allowedKeyWords.set(eCmdWord_Force);
-	if( allowButtonActions &&
+	if( theButtonLayerIdx >= 0 &&
 		keyWordsFound.test(eCmdWord_Remove) &&
 		(keyWordsFound & ~allowedKeyWords).none() )
 	{
 		result.type = eCmdType_RemoveControlsLayer;
-		// Since can't remove layer 0 (main scheme), 0 acts as a flag
-		// meaning to remove calling layer instead
-		result.layerID = 0;
+		result.layerID = dropTo<u16>(theButtonLayerIdx);
 		if( keyWordsFound.test(eCmdWord_Force) )
 			result.forced = true;
 		return result;
@@ -2294,14 +2297,12 @@ static Command wordsToSpecialCommand(
 		// "= Replace [this layer with] <aLayerName>"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Replace);
-		if( allowButtonActions &&
+		if( theButtonLayerIdx >= 0 &&
 			keyWordsFound.test(eCmdWord_Replace) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
-			// Since can't remove layer 0 (main scheme), 0 acts as a flag
-			// meaning to remove calling layer instead
-			result.layerID = 0;
+			result.layerID = dropTo<u16>(theButtonLayerIdx);
 			result.replacementLayer = aLayerID;
 			return result;
 		}
@@ -2737,7 +2738,7 @@ static Command* specialKeyBindNameToCommand(const std::string& theName)
 
 static Command stringToCommand(
 	const std::string& theString,
-	bool allowButtonActions = false,
+	int theButtonLayerIdx = -1,
 	bool allowHoldActions = false,
 	bool allow4DirActions = false)
 {
@@ -2790,7 +2791,7 @@ static Command stringToCommand(
 	// Check for other special commands
 	result = wordsToSpecialCommand(
 		sParsedString,
-		allowButtonActions,
+		theButtonLayerIdx,
 		allowHoldActions,
 		allow4DirActions);
 	if( result.type != eCmdType_Invalid )
@@ -3509,7 +3510,7 @@ static void addButtonAction(
 
 	// Parse command string into a Command struct
 	Command aCmd = stringToCommand(
-		theCmdStr, true, aBtnAct == eBtnAct_Down, isMultiDirButton);
+		theCmdStr, theLayerIdx, aBtnAct == eBtnAct_Down, isMultiDirButton);
 
 	// If the command is type _Empty, remove or don't create command set
 	// for this button - unless another action has set something for it
@@ -3580,7 +3581,7 @@ static void addWhenSignalCommand(
 	DBG_ASSERT(theLayerIdx < sLayers.size());
 	DBG_ASSERT(!theSignalKeyName.empty());
 
-	Command aCmd = stringToCommand(theCmdStr, true);
+	Command aCmd = stringToCommand(theCmdStr, theLayerIdx);
 	// Only report assignment when have an error parsing command
 	if( aCmd.type == eCmdType_Invalid )
 		reportCommandAssignment(aCmd, theCmdStr);
@@ -4011,6 +4012,54 @@ static void applyControlsLayerProperty(
 }
 
 
+static void finalizeLayer(int theLayerID)
+{
+	DBG_ASSERT(theLayerID < sLayers.size());
+	ControlsLayer& theLayer = sLayers.vals()[theLayerID];
+	theLayer.buttonsUsed.reset();
+	const ButtonRemap& aBtnRemap = buttonRemap(theLayerID);
+	for(ButtonActionsMap::iterator itr = theLayer.buttonCommands.begin();
+		itr != theLayer.buttonCommands.end(); ++itr)
+	{
+		const EButton aBtnID = aBtnRemap[itr->first];
+		theLayer.buttonsUsed.set(aBtnID);
+		switch(aBtnID)
+		{
+		case eBtn_LSAny:
+			theLayer.buttonsUsed.set(eBtn_LSLeft);
+			theLayer.buttonsUsed.set(eBtn_LSRight);
+			theLayer.buttonsUsed.set(eBtn_LSUp);
+			theLayer.buttonsUsed.set(eBtn_LSDown);
+			break;
+		case eBtn_RSAny:
+			theLayer.buttonsUsed.set(eBtn_RSLeft);
+			theLayer.buttonsUsed.set(eBtn_RSRight);
+			theLayer.buttonsUsed.set(eBtn_RSUp);
+			theLayer.buttonsUsed.set(eBtn_RSDown);
+			break;
+		case eBtn_DPadAny:
+			theLayer.buttonsUsed.set(eBtn_DLeft);
+			theLayer.buttonsUsed.set(eBtn_DRight);
+			theLayer.buttonsUsed.set(eBtn_DUp);
+			theLayer.buttonsUsed.set(eBtn_DDown);
+			break;
+		case eBtn_FPadAny:
+			theLayer.buttonsUsed.set(eBtn_FLeft);
+			theLayer.buttonsUsed.set(eBtn_FRight);
+			theLayer.buttonsUsed.set(eBtn_FUp);
+			theLayer.buttonsUsed.set(eBtn_FDown);
+			break;
+		}
+	}
+	// Should button-based signals also count as being used by the layer?
+	// This is used for detecting a held layer has been used in a button combo,
+	// like L2+X, and preventing "tap L2" or "hold L2" from triggering if it
+	// was actually just being used as part of L2+X. Should held L2 + a
+	// "When Press X" really count as L2+X combo though? Currently it does not.
+	theLayer.buttonsUsed.reset(eBtn_None);
+}
+
+
 static void validateLayer(
 	int theLayerID,
 	BitVector<32>& theReferencedLayers)
@@ -4207,6 +4256,7 @@ static void loadDataFromProfile(
 		aLayerID < loadedLayers.size();
 		aLayerID = loadedLayers.nextSetBit(aLayerID+1))
 	{
+		finalizeLayer(aLayerID);
 		referencedLayers.reset();
 		validateLayer(aLayerID, referencedLayers);
 	}
@@ -4495,6 +4545,13 @@ const ButtonRemap& buttonRemap(int theLayerID)
 	}
 
 	return sButtonRemaps[aButtonRemapID-1];
+}
+
+
+BitArray<eBtn_Num> buttonsUsed(int theLayerID)
+{
+	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
+	return sLayers.vals()[theLayerID].buttonsUsed;
 }
 
 

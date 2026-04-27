@@ -52,6 +52,7 @@ u16 keyBindCycleIndexToKeyBindID(int theCycleID, int theIndex);
 const ButtonActionsMap& buttonCommandsForLayer(int theLayerID);
 const SignalActionsMap& signalCommandsForLayer(int theLayerID);
 const ButtonRemap& buttonRemap(int theLayerID);
+BitArray<eBtn_Num> buttonsUsed(int theLayerID);
 // Returns how long given button needs to be held to trigger eBtnAct_Hold
 int commandHoldTime(int theLayerID, EButton theButton);
 int parentLayer(int theLayerID);

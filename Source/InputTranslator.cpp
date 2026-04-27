@@ -167,7 +167,7 @@ struct ZERO_INIT(LayerState)
 	s8 refCount;
 	bool autoButtonHit;
 	bool addedNormally;
-	bool buttonCommandUsed;
+	bool buttonUsed;
 
 	bool active() { return refCount > 0; }
 	bool autoButtonDown() { return active(); }
@@ -181,14 +181,13 @@ struct ZERO_INIT(LayerState)
 		refCount = 0;
 		autoButtonHit = false;
 		addedNormally = false;
-		buttonCommandUsed = false;
+		buttonUsed = false;
 	}
 };
 
 struct ZERO_INIT(ActiveSignal)
 {
 	u16 signalID;
-	u16 layerID;
 	Command cmd;
 };
 
@@ -373,6 +372,17 @@ static EButton multiDirParentButton(EButton theButtonID)
 }
 
 
+static bool hasDeferCommand(const InputMap::ButtonActions& theBtnActions)
+{
+	for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+	{
+		if( theBtnActions.cmd[aBtnAct].type == eCmdType_Defer )
+			return true;
+	}
+	return false;
+}
+
+
 static void	loadCommandsForCurrentLayers()
 {
 	DBG_ASSERT(!sState.layersNeedSorting);
@@ -402,13 +412,44 @@ static void	loadCommandsForCurrentLayers()
 			const InputMap::ButtonActions& aBtnActions = aBtnCmdsMap[i].second;
 			// See if contains any "defer" commands, which change any
 			// _Unassigned commands (but not _DoNothing) to not override
-			bool hasDeferCmd = false;
-			for(int aBtnAct = 0; aBtnAct < eBtnAct_Num; ++aBtnAct)
+			bool hasDeferCmd = hasDeferCommand(aBtnActions);
+			// Defer commands on multi-directionals - either the individual dirs
+			// or the _LSAny/etc commands - should prevent the below step of
+			// blocking lower-layer multi-directionals indirectly
+			bool blockLowerMultiDir = true;
 			{
-				if( aBtnActions.cmd[aBtnAct].type == eCmdType_Defer )
+				EButton aChildBtnID =
+					multiDirFirstChildButton(aBtnCmdsMap[i].first);
+				if( EButton aParentBtnID =
+								multiDirParentButton(aBtnCmdsMap[i].first) )
 				{
-					hasDeferCmd = true;
-					break;
+					if( const InputMap::ButtonActions* aMultDirBtnActions =
+							aBtnCmdsMap.findPtr(aParentBtnID) )
+					{
+						if( hasDeferCommand(*aMultDirBtnActions) )
+							blockLowerMultiDir = false;
+					}
+					// Check "sibling" directions as well in this case
+					aChildBtnID = multiDirFirstChildButton(aParentBtnID);
+				}
+				if( aChildBtnID && blockLowerMultiDir )
+				{
+					for(int aDir = 0; aDir < eCmdDir_Num;
+						++aDir, aChildBtnID = EButton(aChildBtnID+1))
+					{
+						if( aChildBtnID == aBtnCmdsMap[i].first )
+							continue;
+						if( const InputMap::ButtonActions*
+								aDirBtnActions =
+									aBtnCmdsMap.findPtr(aChildBtnID) )
+						{
+							if( hasDeferCommand(*aDirBtnActions) )
+							{
+								blockLowerMultiDir = false;
+								break;
+							}
+						}
+					}
 				}
 			}
 			ButtonState& aBtnState = sState.gamepadButtons[aBtnID];
@@ -423,28 +464,35 @@ static void	loadCommandsForCurrentLayers()
 				aBtnState.commands.layer[aBtnAct] = dropTo<u16>(aLayerID);
 				// For multi-directionals, the _LSAny/etc command should block
 				// single direction buttons from lower layers and vice versa.
-				if( EButton aChildBtnID = multiDirFirstChildButton(aBtnID) )
+				if( blockLowerMultiDir )
 				{
-					for(int aDir = 0; aDir < eCmdDir_Num; ++aDir,
-						aChildBtnID = EButton(aChildBtnID+1))
+					if( EButton aChildBtnID =
+							multiDirFirstChildButton(aBtnCmdsMap[i].first) )
 					{
-						ButtonCommandSet& aDirBtnSet =
-							sState.gamepadButtons[aChildBtnID].commands;
-						if( aDirBtnSet.layer[aBtnAct] != aLayerID )
+						for(int aDir = 0; aDir < eCmdDir_Num;
+							++aDir, aChildBtnID = EButton(aChildBtnID+1))
 						{
-							aDirBtnSet.cmd[aBtnAct].type = eCmdType_Unassigned;
-							aDirBtnSet.layer[aBtnAct] = u16(aLayerID);
+							ButtonCommandSet& aBtnSet =
+								sState.gamepadButtons[aChildBtnID].commands;
+							if( aBtnSet.layer[aBtnAct] != aLayerID )
+							{
+								aBtnSet.cmd[aBtnAct].type =
+									eCmdType_Unassigned;
+								aBtnSet.layer[aBtnAct] = u16(aLayerID);
+							}
 						}
 					}
-				}
-				else if( EButton aParentBtnID = multiDirParentButton(aBtnID) )
-				{
-					ButtonCommandSet& aMultDirCmdSet =
-						sState.gamepadButtons[aParentBtnID].commands;
-					if( aMultDirCmdSet.layer[aBtnAct] != aLayerID )
+					else if( EButton aParentBtnID =
+								multiDirParentButton(aBtnCmdsMap[i].first) )
 					{
-						aMultDirCmdSet.cmd[aBtnAct].type = eCmdType_Unassigned;
-						aMultDirCmdSet.layer[aBtnAct] = u16(aLayerID);
+						ButtonCommandSet& aBtnSet =
+							sState.gamepadButtons[aParentBtnID].commands;
+						if( aBtnSet.layer[aBtnAct] != aLayerID &&
+							aBtnSet.cmd[aBtnAct].type > eCmdType_Unassigned )
+						{
+							aBtnSet.cmd[aBtnAct].type = eCmdType_Unassigned;
+							aBtnSet.layer[aBtnAct] = u16(aLayerID);
+						}
 					}
 				}
 			}
@@ -470,7 +518,6 @@ static void	loadCommandsForCurrentLayers()
 				aSignalCmd.signalID =
 					dropTo<u16>(aBtnRemap[aSignalCmd.signalID]);
 			}
-			aSignalCmd.layerID = dropTo<u16>(aLayerID);
 			aSignalCmd.cmd = aSignalsList[i].second;
 			sState.signalCommands.push_back(aSignalCmd);
 		}
@@ -548,7 +595,7 @@ static bool removeControlsLayer(int theLayerID, bool force = false)
 			ButtonState& aBtnState = sState.gamepadButtons[i];
 			if( aBtnState.layerHeld == theLayerID )
 			{
-				if( sState.layers[theLayerID].buttonCommandUsed )
+				if( sState.layers[theLayerID].buttonUsed )
 					aBtnState.usedInButtonCombo = true;
 				aBtnState.layerHeld = 0;
 			}
@@ -559,7 +606,7 @@ static bool removeControlsLayer(int theLayerID, bool force = false)
 				sState.layers[sState.layerOrder[i]].autoButton;
 			if( aBtnState.layerHeld == theLayerID )
 			{
-				if( sState.layers[theLayerID].buttonCommandUsed )
+				if( sState.layers[theLayerID].buttonUsed )
 					aBtnState.usedInButtonCombo = true;
 				aBtnState.layerHeld = 0;
 			}
@@ -590,7 +637,7 @@ static bool removeControlsLayer(int theLayerID, bool force = false)
 				InputMap::layerLabel(*itr));
 
 			// Log layer change made
-			aLayer.buttonCommandUsed = false;
+			aLayer.buttonUsed = false;
 			sResults.changedLayers.push_back(theLayerID);
 
 			// Remove from the layer order and recover iterator to continue
@@ -720,7 +767,7 @@ static void addControlsLayer(int theLayerID, bool asHeldLayer)
 		if( asHeldLayer )
 		{
 			++sState.layers[theLayerID].refCount;
-			sState.layers[theLayerID].buttonCommandUsed = false;
+			sState.layers[theLayerID].buttonUsed = false;
 		}
 		else if( !sState.layers[theLayerID].addedNormally )
 		{
@@ -1026,14 +1073,14 @@ static void sortLayers()
 }
 
 
-static void flagLayerButtonCommandUsed(int theLayerID)
+static void flagLayerButtonUsed(int theLayerID)
 {
 	if( theLayerID == 0 )
 		return;
 
-	sState.layers[theLayerID].buttonCommandUsed = true;
-	flagLayerButtonCommandUsed(InputMap::parentLayer(theLayerID));
-	flagLayerButtonCommandUsed(InputMap::comboParentLayer(theLayerID));
+	sState.layers[theLayerID].buttonUsed = true;
+	flagLayerButtonUsed(InputMap::parentLayer(theLayerID));
+	flagLayerButtonUsed(InputMap::comboParentLayer(theLayerID));
 }
 
 
@@ -1084,7 +1131,7 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 	if( theBtnState.layerHeld )
 	{
 		// Flag if used in a button combo, like L2 in L2+X
-		if( sState.layers[theBtnState.layerHeld].buttonCommandUsed )
+		if( sState.layers[theBtnState.layerHeld].buttonUsed )
 			theBtnState.usedInButtonCombo = true;
 		if( --sState.layers[theBtnState.layerHeld].refCount <= 0 )
 			removeControlsLayer(theBtnState.layerHeld);
@@ -1114,13 +1161,8 @@ static void updateMouseForMenu(int theRootMenuID, bool canClick = false)
 static void processCommand(
 	ButtonState* theBtnState,
 	const Command& theCmd,
-	int theLayerIdx,
 	bool repeated = false)
 {
-	// Flag when used a command assigned to a layer button (besides Auto)
-	if( theBtnState && theLayerIdx && theBtnState->buttonID != eBtn_None )
-		flagLayerButtonCommandUsed(theLayerIdx);
-
 	Command aForwardCmd;
 	switch(theCmd.type)
 	{
@@ -1193,7 +1235,7 @@ static void processCommand(
 			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
 		aForwardCmd.fromKeyBindCycle = true;
 		aForwardCmd.keyBindCycleID = theCmd.keyBindCycleID;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
 		// Allow holding this button to auto-repeat after a delay
 		sState.exclusiveAutoRepeatButton = theBtnState;
@@ -1230,7 +1272,7 @@ static void processCommand(
 			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
 		aForwardCmd.fromKeyBindCycle = true;
 		aForwardCmd.keyBindCycleID = theCmd.keyBindCycleID;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
 		// Allow holding this button to auto-repeat after a delay
 		sState.exclusiveAutoRepeatButton = theBtnState;
@@ -1249,7 +1291,7 @@ static void processCommand(
 			theCmd.keyBindCycleID,
 			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
 		aForwardCmd.asHoldAction = theCmd.asHoldAction;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		break;
 	case eCmdType_SetVariable:
 		Profile::setVariable(
@@ -1278,11 +1320,7 @@ static void processCommand(
 		addControlsLayer(theCmd.layerID);
 		break;
 	case eCmdType_RemoveControlsLayer:
-		removeControlsLayer(
-			theCmd.layerID == 0
-				? dropTo<u16>(theLayerIdx)
-				: theCmd.layerID,
-			theCmd.forced);
+		removeControlsLayer(theCmd.layerID, theCmd.forced);
 		break;
 	case eCmdType_HoldControlsLayer:
 		DBG_ASSERT(theCmd.layerID > 0);
@@ -1297,10 +1335,10 @@ static void processCommand(
 		DBG_ASSERT(theCmd.replacementLayer > 0);
 		aForwardCmd = theCmd;
 		aForwardCmd.type = eCmdType_RemoveControlsLayer;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		aForwardCmd.type = eCmdType_AddControlsLayer;
 		aForwardCmd.layerID = theCmd.replacementLayer;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		break;
 	case eCmdType_ToggleControlsLayer:
 		aForwardCmd = theCmd;
@@ -1309,14 +1347,14 @@ static void processCommand(
 			aForwardCmd.type = eCmdType_RemoveControlsLayer;
 		else
 			aForwardCmd.type = eCmdType_AddControlsLayer;
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		break;
 	case eCmdType_OpenSubMenu:
 		aForwardCmd = Menus::openSubMenu(
 			theCmd.rootMenuID,
 			theCmd.subMenuID,
 			theCmd.menuItemID);
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		sResults.menuStackAutoCommandRun.set(
 			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
@@ -1326,7 +1364,7 @@ static void processCommand(
 			theCmd.rootMenuID,
 			theCmd.subMenuID,
 			ECommandDir(theCmd.sideMenuDir));
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		sResults.menuStackAutoCommandRun.set(
 			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
@@ -1335,7 +1373,7 @@ static void processCommand(
 		aForwardCmd = Menus::reset(theCmd.rootMenuID);
 		if( aForwardCmd.type != eCmdType_Invalid )
 		{
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+			processCommand(theBtnState, aForwardCmd);
 			sResults.menuStackAutoCommandRun.set(
 				InputMap::menuOverlayID(theCmd.rootMenuID));
 		}
@@ -1344,21 +1382,21 @@ static void processCommand(
 	case eCmdType_MenuConfirm:
 		updateMouseForMenu(theCmd.rootMenuID, true);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
-		processCommand(theBtnState, aForwardCmd, theLayerIdx);
+		processCommand(theBtnState, aForwardCmd);
 		if( aForwardCmd.type < eCmdType_FirstMenuControl ||
 			aForwardCmd.type > eCmdType_LastMenuControl )
 		{// Run Confirm command as well if main command wasn't menu control
 			aForwardCmd = Menus::confirmCommand(theCmd.rootMenuID, false);
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+			processCommand(theBtnState, aForwardCmd);
 		}
 		break;
 	case eCmdType_MenuBack:
 		processCommand(theBtnState,
-			Menus::backCommand(theCmd.rootMenuID), theLayerIdx);
+			Menus::backCommand(theCmd.rootMenuID));
 		aForwardCmd = Menus::closeActiveSubMenu(theCmd.rootMenuID);
 		if( aForwardCmd.type != eCmdType_Invalid )
 		{
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+			processCommand(theBtnState, aForwardCmd);
 			updateMouseForMenu(theCmd.rootMenuID);
 		}
 		break;
@@ -1372,7 +1410,7 @@ static void processCommand(
 			aForwardCmd = Menus::selectMenuItem(
 				theCmd.rootMenuID, ECommandDir(theCmd.dir),
 				theCmd.wrap, repeated || i < theCmd.count-1);
-			processCommand(theBtnState, aForwardCmd, theLayerIdx);
+			processCommand(theBtnState, aForwardCmd);
 		}
 		updateMouseForMenu(theCmd.rootMenuID);
 		{
@@ -1387,7 +1425,7 @@ static void processCommand(
 			if( aForwardCmd.type < eCmdType_FirstValid )
 				sState.exclusiveAutoRepeatButton = theBtnState;
 			else if( wasNotAMenuControlCmd )
-				processCommand(theBtnState, aForwardCmd, theLayerIdx);
+				processCommand(theBtnState, aForwardCmd);
 		}
 		break;
 	case eCmdType_MenuEditDir:
@@ -1465,8 +1503,21 @@ static void processButtonPress(ButtonState& theBtnState)
 	// which could happen from both update() and processLayerHoldButtons().
 	if( sResults.buttonPressProcessed.test(theBtnState.buttonID) )
 		return;
+
 	if( theBtnState.buttonID != eBtn_None )
+	{
 		sResults.buttonPressProcessed.set(theBtnState.buttonID);
+		// Any active layers that are assigned something related to this button
+		// should be flagged that it was pressed (for detecting button combos).
+		// Layer auto buttons and the Scheme layer are skipped
+		for(int i = 1, end = sState.layerOrder.size(); i < end; ++i)
+		{
+			const BitArray<eBtn_Num>& aUsedButtonsSet =
+				InputMap::buttonsUsed(sState.layerOrder[i]);
+			if( aUsedButtonsSet.test(theBtnState.buttonID) )
+				flagLayerButtonUsed(sState.layerOrder[i]);
+		}
+	}
 
 	// Pressing a button fires one of the first set of signal bits
 	gFiredSignals.set(theBtnState.buttonID);
@@ -1480,9 +1531,7 @@ static void processButtonPress(ButtonState& theBtnState)
 
 	// _Press is processed before _Down since it is specifically called out
 	// and the name implies it should be first action on button press.
-	processCommand(&theBtnState,
-		theBtnState.commands.cmd[eBtnAct_Press],
-		theBtnState.commands.layer[eBtnAct_Press]);
+	processCommand(&theBtnState, theBtnState.commands.cmd[eBtnAct_Press]);
 
 	// Get _Down command for this button (default when no action specified)
 	const Command& aCmd = theBtnState.commands.cmd[eBtnAct_Down];
@@ -1506,8 +1555,7 @@ static void processButtonPress(ButtonState& theBtnState)
 			return;
 		break;
 	}
-	processCommand(&theBtnState, aCmd,
-		theBtnState.commands.layer[eBtnAct_Down]);
+	processCommand(&theBtnState, aCmd);
 }
 
 
@@ -1678,11 +1726,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 
 			// Repeat command whenever hit 0 delay (subtracted in update())
 			if( sState.syncAutoRepeatDelay <= 0 )
-			{
-				processCommand(&theBtnState, aCmd,
-					theBtnState.commandsWhenPressed.layer[eBtnAct_Down],
-					true);
-			}
+				processCommand(&theBtnState, aCmd, true);
 		}
 		return;
 	}
@@ -1703,11 +1747,7 @@ static void processAutoRepeat(ButtonState& theBtnState)
 
 	// Repeat command whenever hit 0 delay (subtracted in update())
 	if( sState.exclusiveAutoRepeatDelay <= 0 )
-	{
-		processCommand(&theBtnState, aCmd,
-			theBtnState.commandsWhenPressed.layer[eBtnAct_Down],
-			true);
-	}
+		processCommand(&theBtnState, aCmd, true);
 }
 
 
@@ -1729,8 +1769,7 @@ static void processButtonHold(ButtonState& theBtnState)
 		return;
 
 	processCommand(&theBtnState,
-		theBtnState.commandsWhenPressed.cmd[eBtnAct_Hold],
-		theBtnState.commandsWhenPressed.layer[eBtnAct_Hold]);
+		theBtnState.commandsWhenPressed.cmd[eBtnAct_Hold]);
 }
 
 
@@ -1755,8 +1794,7 @@ static void processButtonTap(ButtonState& theBtnState)
 		(!hasHold && theBtnState.heldTime < kConfig.tapHoldTime) )
 	{
 		processCommand(&theBtnState,
-			theBtnState.commandsWhenPressed.cmd[eBtnAct_Tap],
-			theBtnState.commandsWhenPressed.layer[eBtnAct_Tap]);
+			theBtnState.commandsWhenPressed.cmd[eBtnAct_Tap]);
 	}
 }
 
@@ -1784,14 +1822,12 @@ static void processButtonReleased(ButtonState& theBtnState)
 	// standard _HoldControlsLayer method that does it automatically
 	// or just assign the _Release on the same layer that added it.
 	Command aCmd = theBtnState.commandsWhenPressed.cmd[eBtnAct_Release];
-	int aCmdLayer = theBtnState.commandsWhenPressed.layer[eBtnAct_Release];
 	if( aCmd.type < eCmdType_FirstValid &&
 		theBtnState.commands.cmd[eBtnAct_Press].type < eCmdType_FirstValid )
 	{
 		aCmd = theBtnState.commands.cmd[eBtnAct_Release];
-		aCmdLayer = theBtnState.commands.layer[eBtnAct_Release];
 	}
-	processCommand(&theBtnState, aCmd, aCmdLayer);
+	processCommand(&theBtnState, aCmd);
 
 	// Reset most of the button state when button is released
 	theBtnState.resetWhenReleased();
@@ -1833,7 +1869,7 @@ static void processButtonState(
 		// is assigned a command from that layer was pressed, then flag
 		// this button as being used as the modifier key in a button combo.
 		if( theBtnState.layerHeld &&
-			sState.layers[theBtnState.layerHeld].buttonCommandUsed )
+			sState.layers[theBtnState.layerHeld].buttonUsed )
 		{
 			theBtnState.usedInButtonCombo = true;
 		}
@@ -1905,7 +1941,7 @@ static void processFiredSignals()
 			ActiveSignal& aSignalCmd = sState.signalCommands[i];
 			DBG_ASSERT(aSignalCmd.signalID < lastFiredSignals.size());
 			if( lastFiredSignals.test(aSignalCmd.signalID) )
-				processCommand(null, aSignalCmd.cmd, aSignalCmd.layerID);
+				processCommand(null, aSignalCmd.cmd);
 		}
 	}
 }
@@ -2028,7 +2064,7 @@ static void updateMenusForCurrentLayers()
 			continue;
 		if( !aPrevVisibleOverlays.test(i) || (wasDisabled && !isDisabled) )
 		{
-			processCommand(null, Menus::autoCommand(aMenuID), 0);
+			processCommand(null, Menus::autoCommand(aMenuID));
 			sResults.menuStackAutoCommandRun.set(i);
 			updateMouseForMenu(aMenuID);
 		}

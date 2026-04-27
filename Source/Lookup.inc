@@ -104,6 +104,26 @@ VectorMap<K, V, C>::find(const K& theKey) const
 
 
 template<class K, class V, class C> inline
+V* VectorMap<K, V, C>::findPtr(const K& theKey)
+{
+	iterator itr = begin() + findInsertPos(theKey);
+	if( itr == end() || itr->first != theKey )
+		return null;
+	return &itr->second;
+}
+
+
+template<class K, class V, class C> inline
+const V* VectorMap<K, V, C>::findPtr(const K& theKey) const
+{
+	const_iterator itr = begin() + findInsertPos(theKey);
+	if( itr == end() || itr->first != theKey )
+		return null;
+	return &itr->second;
+}
+
+
+template<class K, class V, class C> inline
 V& VectorMap<K, V, C>::findOrAdd(const K& theKey, const V& theDefault)
 {
 	iterator itr = begin() + findInsertPos(theKey);

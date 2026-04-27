@@ -74,6 +74,8 @@ public:
 	// Returns end() if theKey is not found with a binary search
 	iterator find(const K& theKey);
 	const_iterator find(const K& theKey) const;
+	V* findPtr(const K& theKey);
+	const V* findPtr(const K& theKey) const;
 	// Just returns true if theKey is found, if that's all that's needed
 	bool contains(const K& theKey) const { return find(theKey) != end(); }
 	// find() but if key not found, adds one with default value and returns it
