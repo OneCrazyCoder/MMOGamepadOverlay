@@ -1510,7 +1510,7 @@ static void processButtonPress(ButtonState& theBtnState)
 		// Any active layers that are assigned something related to this button
 		// should be flagged that it was pressed (for detecting button combos).
 		// Layer auto buttons and the Scheme layer are skipped
-		for(int i = 1, end = sState.layerOrder.size(); i < end; ++i)
+		for(int i = 1, end = intSize(sState.layerOrder.size()); i < end; ++i)
 		{
 			const BitArray<eBtn_Num>& aUsedButtonsSet =
 				InputMap::buttonsUsed(sState.layerOrder[i]);
