@@ -67,15 +67,15 @@ const ResourceFile kResTemplateBase[] =
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	22	},
 	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	18	},
 	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	18	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	22	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	23	},
 };
 
 const ResourceFile kResTemplateDefault[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	20	},
-	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	19	},
-	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	19	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	23	},
+	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	20	},
+	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	20	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	24	},
 };
 
 const ResourceFile kResTemplateCustom[] =

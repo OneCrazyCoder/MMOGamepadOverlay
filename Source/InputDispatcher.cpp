@@ -3140,8 +3140,7 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 	const bool kForMouseLook =
 		sTracker.mouseMode == eMouseMode_LookOnly ||
 		sTracker.mouseMode == eMouseMode_LookTurn ||
-		sTracker.mouseMode == eMouseMode_LookReady ||
-		sTracker.keysHeldDown.test(VK_RBUTTON);
+		sTracker.mouseMode == eMouseMode_LookReady;
 
 	// Get magnitude of desired mouse motion in 0 to 1.0 range
 	double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
