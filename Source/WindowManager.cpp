@@ -794,11 +794,22 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 
 static void drawCompositeOverlayWindow()
 {
+	// This single overlay window is used in lieu of multiple overlay windows
+	// for systems (like Steam Deck) that don't perfectly emulate Windows.
+	// It is designed to solve 3 problems that have emerged from testing these
+	// platforms with the normal pipeline: 1) ULW_COLORKEY is ignored and all
+	// layered window are expected to use per-pixel alpha, causing transparent
+	// areas of the overlay to still be visible. 2) Window Z-order is generally
+	// ignored for overlay windows, causing backdrops to obscure menus.
+	// 3) "Gamescope" only displays 1 overlay window at a time, hiding menus.
+	// This combines all overlay bitmaps into 1 single overlay window with the
+	// Z-order enforced via draw order, and manually converts transparent color
+	// key pixels into 0-alpha pixels (and sets the window to per-pixel alpha).
 	DBG_ASSERT(sSystemOverlayWindow);
 	DBG_ASSERT(size_t(sSystemOverlayPosIdx) < sOverlayWindowOrder.size());
 
-	RECT aCompWinRect = { 0 };
 	// Calculate what rect we need based on all currently visible overlays
+	RECT aCompWinRect = { 0 };
 	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 	{
 		const OverlayWindow& aWindow = sOverlayWindows[i];
@@ -812,24 +823,33 @@ static void drawCompositeOverlayWindow()
 		UnionRect(&aCompWinRect, &aCompWinRect, &anOverlayRect);
 	}
 
-	SIZE aCompWinSize = {
-		aCompWinRect.right - aCompWinRect.left,
-		aCompWinRect.bottom - aCompWinRect.top };
-	if( aCompWinSize.cx <= 0 || aCompWinSize.cy <= 0 )
+	// If ended up with an empty rect, just hide the overlay for now
+	if( aCompWinRect.right <= aCompWinRect.left ||
+		aCompWinRect.bottom <= aCompWinRect.top )
 	{
 		if( IsWindowVisible(sSystemOverlayWindow) )
 			ShowWindow(sSystemOverlayWindow, SW_HIDE);
 		return;
 	}
 
-	// Do not allow composite window to be 100% the size of the target window,
-	// or may get Z-fighting on systems that need this rendering method where
-	// it thinks it is a game window or something (that's my guess why anyway).
-	if( aCompWinSize.cx >= sTargetSize.cx &&
-		aCompWinSize.cy >= sTargetSize.cy )
-	{
-		--aCompWinSize.cy;
-	}
+	// Two problems emerge here with using this for single-window solution.
+	// First, moving the window and re-drawing it may not be a single atomic
+	// operation, and cause a visible shift in the contents (not unlike screen
+	// tearing when VSync is turned off, in principle). Therefore the window
+	// should not actually change position at any point. Second, if the window
+	// matches the full size of the screen, on some setups this will bestow it
+	// a special status that might actually force it to be hidden beneath the
+	// game. Therefore, the top and left coordinates are each always set to 1,
+	// meaning the window should never be moved (only resized) and never be
+	// as large as the target window. Unfortunately, this means a single pixel
+	// line will always be missing for anything at 0x/y and that the window
+	// will usually be much larger than actually needed and slow performance.
+	aCompWinRect.left = aCompWinRect.top = 1;
+
+	// Adjust size of window and composite bitmap to meet needs
+	SIZE aCompWinSize = {
+		aCompWinRect.right - aCompWinRect.left,
+		aCompWinRect.bottom - aCompWinRect.top };
 
 	// Delete bitmap if it is too small or much too big
 	if( sCompositeBitmapSize.cx < aCompWinSize.cx ||
@@ -904,23 +924,23 @@ static void drawCompositeOverlayWindow()
 			aWindow.position.x - aCompWinRect.left,
 			aWindow.position.y - aCompWinRect.top };
 		DBG_ASSERT(aSrcBits != NULL);
-		DBG_ASSERT(aDstPos.x >= 0 && aDstPos.y >= 0);
-		SIZE aSrcSize = aWindow.size;
-		aSrcSize.cx = min(aSrcSize.cx,
-			sCompositeBitmapSize.cx - aDstPos.x);
-		aSrcSize.cy = min(aSrcSize.cy,
-			sCompositeBitmapSize.cy - aDstPos.y);
+		const POINT aSrcStartPos = {
+			aDstPos.x < 0 ? -aDstPos.x : 0,
+			aDstPos.y < 0 ? -aDstPos.y : 0 };
+		const SIZE aSrcSize = {
+			min(aWindow.size.cx, aCompWinSize.cx - aDstPos.x),
+			min(aWindow.size.cy, aCompWinSize.cy - aDstPos.y) };
 		u32* aDstBase = (u32*)aDstBits;
 		u32* aSrcBase = (u32*)aSrcBits;
 		if( aSrcAlpha == 0xFF )
 		{
-			for(int y = 0; y < aSrcSize.cy; ++y)
+			for(int y = aSrcStartPos.y; y < aSrcSize.cy; ++y)
 			{
 				u32* aSrcRow = (u32*)(aSrcBase + y * aSrcStride);
 				u32* aDstRow =
 					(u32*)(aDstBase + (aDstPos.y + y) * aDstStride) + aDstPos.x;
 
-				for(int x = 0; x < aSrcSize.cx; ++x)
+				for(int x = aSrcStartPos.x; x < aSrcSize.cx; ++x)
 				{
 					const u32 aSrc = aSrcRow[x];
 					if( (aSrc & 0x00FFFFFF) == aTransColor )
@@ -931,13 +951,13 @@ static void drawCompositeOverlayWindow()
 		}
 		else
 		{
-			for(int y = 0; y < aSrcSize.cy; ++y)
+			for(int y = aSrcStartPos.y; y < aSrcSize.cy; ++y)
 			{
 				u32* aSrcRow = (u32*)(aSrcBase + y * aSrcStride);
 				u32* aDstRow =
 					(u32*)(aDstBase + (aDstPos.y + y) * aDstStride) + aDstPos.x;
 
-				for(int x = 0; x < aSrcSize.cx; ++x)
+				for(int x = aSrcStartPos.x; x < aSrcSize.cx; ++x)
 				{
 					const u32 aSrc = aSrcRow[x];
 					if( (aSrc & 0x00FFFFFF) == aTransColor )
