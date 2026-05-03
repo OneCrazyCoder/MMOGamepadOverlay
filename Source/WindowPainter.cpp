@@ -8,6 +8,7 @@
 #include "InputMap.h"
 #include "Menus.h"
 #include "Profile.h"
+#include "WindowManager.h"
 
 namespace WindowPainter
 {
@@ -165,8 +166,10 @@ struct ZERO_INIT(CopiedBitmapIcon)
 	POINT targetTL;
 	SIZE size;
 	u16 hotspotID;
-	bool initialized;
-	bool valid;
+	u16 initialized : 1;
+	u16 valid : 1;
+	u16 updated : 1;
+	u16 _padding : 13;
 };
 
 struct ZERO_INIT(LabelIcon)
@@ -1459,6 +1462,7 @@ static void initCopiedBitmapIcon(DrawData& dd, CopiedBitmapIcon& theIcon)
 	DBG_ASSERT(theIcon.hotspotID);
 	theIcon.initialized = true;
 	theIcon.valid = false;
+	theIcon.updated = false;
 	const Hotspot& aCopySrcHotspot =
 		InputMap::getHotspot(theIcon.hotspotID);
 	if( aCopySrcHotspot.w == 0 || aCopySrcHotspot.h == 0 )
@@ -1492,13 +1496,12 @@ static void updateCopiedBitmapIcon(
 	DrawData& dd,
 	HDC hCaptureDC,
 	const POINT& theCaptureOffset,	
-	int theCopyBitmapID)
+	CopiedBitmapIcon& theIcon)
 {
 	if( !hCaptureDC )
 		return;
 
-	DBG_ASSERT(size_t(theCopyBitmapID) < sCopiedIcons.size());
-	CopiedBitmapIcon& theIcon = sCopiedIcons[theCopyBitmapID];
+	theIcon.updated = false;
 	if( !theIcon.initialized )
 		initCopiedBitmapIcon(dd, theIcon);
 	if( !theIcon.valid )
@@ -1511,6 +1514,9 @@ static void updateCopiedBitmapIcon(
 			hCaptureDC, theIcon.size.cx, theIcon.size.cy);
 	}
 
+	if( !WindowManager::targetReadyToCopy(theIcon.targetTL, theIcon.size) )
+		return;
+
 	// Borrow sBitmapDrawSrc as a destination HDC in this case,
 	// with hCaptureDC as the source HDC
 	HBITMAP hOldBitmap = (HBITMAP)
@@ -1522,16 +1528,16 @@ static void updateCopiedBitmapIcon(
 		theIcon.targetTL.y + theCaptureOffset.y,
 		SRCCOPY);
 	SelectObject(sBitmapDrawSrc, hOldBitmap);
+	theIcon.updated = true;
 }
 
 
 static void drawCopiedBitmapIcon(
-	DrawData& dd, int theCopiedBitmapID, const CopyRectRequest& theCopyRequest)
+	DrawData& dd,
+	const CopiedBitmapIcon& theIcon,
+	const CopyRectRequest& theCopyRequest)
 {
-	DBG_ASSERT(size_t(theCopiedBitmapID) < sCopiedIcons.size());
-	const CopiedBitmapIcon& theIcon = sCopiedIcons[theCopiedBitmapID];
-	if( !theIcon.valid || !theIcon.image )
-		return;
+	DBG_ASSERT(theIcon.updated);
 	DBG_ASSERT(sBitmapDrawSrc);
 
 	int aDstL = theCopyRequest.dstL;
@@ -1819,7 +1825,8 @@ static LONG getFontHeightToFit(
 	// DT_SINGLELINE prevents DT_CALCRECT from calculating height
 	theFormat &= ~DT_SINGLELINE;
 	aCalcRect.bottom = aCalcRect.top;
-	DrawText(hdc, theStr.c_str(), -1, &aCalcRect, theFormat | DT_CALCRECT);
+	DrawText(hdc, theStr.c_str(), -1, &aCalcRect,
+		theFormat | DT_CALCRECT | DT_NOPREFIX);
 	if(	aCalcRect.left >= theClipRect.left &&
 		aCalcRect.right <= theClipRect.right &&
 		aCalcRect.top >= theClipRect.top &&
@@ -1853,7 +1860,8 @@ static LONG getFontHeightToFit(
 		HFONT hOldFont = (HFONT)SelectObject(hdc, CreateFontIndirect(&aFont));
 		aCalcRect = theClipRect;
 		aCalcRect.bottom = aCalcRect.top;
-		DrawText(hdc, theStr.c_str(), -1, &aCalcRect, theFormat | DT_CALCRECT);
+		DrawText(hdc, theStr.c_str(), -1, &aCalcRect,
+			theFormat | DT_CALCRECT | DT_NOPREFIX);
 		DeleteObject(SelectObject(hdc, hOldFont));
 
 		// Update result (aka best fit size so far) and search range
@@ -2209,8 +2217,12 @@ static void drawMenuItemLabel(
 
 		// Draw now if already have an bitmap cached
 		DBG_ASSERT(size_t(theCacheEntry.copyIconID) < sCopiedIcons.size());
-		if( sCopiedIcons[theCacheEntry.copyIconID].image )
-			drawCopiedBitmapIcon(dd, theCacheEntry.copyIconID, aCopyRequest);
+		if( sCopiedIcons[theCacheEntry.copyIconID].updated )
+		{
+			drawCopiedBitmapIcon(dd,
+				sCopiedIcons[theCacheEntry.copyIconID],
+				aCopyRequest);
+		}
 	}
 	else if( theCacheEntry.type == eMenuItemLabelType_MultiIcon )
 	{
@@ -3586,7 +3598,7 @@ void updateScaling()
 }
 
 
-void updateTargetRect()
+void refreshCopyIconCache()
 {
 	// Clear all copy-from-icon label cache data, since it is based on
 	// the size and position of the target being copied from
@@ -3694,7 +3706,6 @@ bool copyContentsFromTarget(
 	int theOverlayID,
 	bool& bitmapFinalized)
 {
-
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
 	DBG_ASSERT(size_t(theOverlayID) < sOverlayPaintStates.size());
 	OverlayPaintState& ps = sOverlayPaintStates[theOverlayID];
@@ -3710,6 +3721,8 @@ bool copyContentsFromTarget(
 	dd.itemDrawState = eMenuItemDrawState_Normal;
 	dd.firstDraw = false;
 	dd.useCopyIcons = true;
+
+	static std::vector<CopyRectRequest> sQuickCopyRetryQueue;
 	
 	while(sTargetCopiesAllowedThisFrame > 0 && !ps.copyRectQueue.empty())
 	{
@@ -3717,24 +3730,40 @@ bool copyContentsFromTarget(
 		if( int aCopyIconID = getCopyRectRequestIconID(
 				theOverlayID, theMenuID, aCopyRequest) )
 		{
+			DBG_ASSERT(size_t(aCopyIconID) < sCopiedIcons.size());
+			CopiedBitmapIcon& theIcon = sCopiedIcons[aCopyIconID];
+
 			// Delay low-priority copies until all other requests completed
 			if( !aCopyRequest.lowPriority || sCopyIconPriorityLevel >= 2 )
 			{
 				updateCopiedBitmapIcon(
-					dd, hCaptureDC, theCaptureOffset, aCopyIconID);
-				drawCopiedBitmapIcon(dd, aCopyIconID, aCopyRequest);
-				--sTargetCopiesAllowedThisFrame;
-				// Flag a change has been made so bitmap needs re-processing
-				bitmapFinalized = false;
-				// Don't allow low-priority copies after a high-priority one
-				if( !aCopyRequest.lowPriority )
-					sCopyIconPriorityLevel = 0;
+					dd, hCaptureDC, theCaptureOffset, theIcon);
+				if( theIcon.updated )
+				{
+					drawCopiedBitmapIcon(dd, theIcon, aCopyRequest);
+					--sTargetCopiesAllowedThisFrame;
+					// Flag a change has been made so bitmap needs re-processing
+					bitmapFinalized = false;
+					// Don't allow low-priority copies after a high-priority one
+					if( !aCopyRequest.lowPriority )
+						sCopyIconPriorityLevel = 0;
+				}
 			}
 			// Set to re-copy the icon later
-			sAutoRefreshCopyRectQueue.push_back(aCopyRequest);
+			if( theIcon.updated || !hCaptureDC )
+				sAutoRefreshCopyRectQueue.push_back(aCopyRequest);
+			else if( theIcon.valid )
+				sQuickCopyRetryQueue.push_back(aCopyRequest);
 		}
 
 		ps.copyRectQueue.erase(ps.copyRectQueue.begin());
+	}
+
+	if( !sQuickCopyRetryQueue.empty() )
+	{
+		ps.copyRectQueue.insert(ps.copyRectQueue.end(),
+			sQuickCopyRetryQueue.begin(), sQuickCopyRetryQueue.end());
+		sQuickCopyRetryQueue.clear();
 	}
 
 	// Delay fading in overlays until copies are complete

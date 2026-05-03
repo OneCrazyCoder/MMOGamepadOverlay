@@ -32,7 +32,7 @@ void update();
 
 // Refreshes cached drawing data related to target window size & gUIScale
 void updateScaling();
-void updateTargetRect();
+void refreshCopyIconCache();
 
 // Draws given overlay to given Device Context (bitmap), starting at 0,0
 void paintWindowContents(

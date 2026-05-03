@@ -35,16 +35,7 @@ namespace WindowManager
 const wchar_t* kMainWindowClassName = L"MMOGO Main";
 const wchar_t* kOverlayWindowClassName = L"MMOGO Overlay";
 const wchar_t* kSystemOverlayWindowClassName = L"MMOGO System Overlay";
-
-enum EIconCopyMethod
-{
-	eIconCopyMethod_Disabled,			// 0
-	eIconCopyMethod_OverlayBlocksCopy,	// 1
-	eIconCopyMethod_TargetWindow,		// 2
-	eIconCopyMethod_ExcludeFromCapture,	// 3
-
-	eIconCopyMethod_Num
-};
+const char* kExcludeFromCopyVarName = "CopyOverlappedIcons";
 
 enum EFadeState
 {
@@ -82,6 +73,7 @@ struct ZERO_INIT(OverlayWindow)
 	bool layoutReady;
 	bool windowReady;
 	bool visible;
+	bool excludedFromCapture;
 };
 
 struct ZERO_INIT(OverlayWindowPriority)
@@ -124,14 +116,21 @@ static SIZE sTargetSize = { 0 };
 static WNDPROC sSystemOverlayProc = NULL;
 static int sSystemOverlayPosIdx = -1;
 static int sToolbarWindowOverlayID = -1;
-static EIconCopyMethod sIconCopyMethod = EIconCopyMethod(0);
 static bool sMainWindowPosInit = false;
 static bool sHidden = false;
 static bool sMainWindowDisabled = false;
 static bool sUseSingleOverlayWindow = false;
+static bool sUseCopyIcons = true;
+static bool sCopyFromTargetWindow = true;
+static bool sExcludeOverlaysFromCopy = false;
 static bool sNeedRecompositeOverlays = false;
 static volatile bool sWindowInModalMode = false;
 static volatile bool sModalUpdateRunning = false;
+
+typedef BOOL (WINAPI *PSetWindowDisplayAffinity)(HWND, DWORD);
+typedef BOOL (WINAPI *PGetWindowDisplayAffinity)(HWND, DWORD*);
+static PSetWindowDisplayAffinity sSetWindowDisplayAffinityFunc = NULL;
+static PGetWindowDisplayAffinity sGetWindowDisplayAffinityFunc = NULL;
 
 
 //------------------------------------------------------------------------------
@@ -1063,7 +1062,7 @@ void createMain(HINSTANCE theAppInstanceHandle)
 	}
 
 	// Create main app window
-	sMainWindow = CreateWindowExW(
+	sMainWindow = CreateWindowEx(
 		WS_EX_TOOLWINDOW | WS_EX_APPWINDOW,
 		kMainWindowClassName,
 		aMainWindowName.c_str(),
@@ -1104,39 +1103,33 @@ void createMain(HINSTANCE theAppInstanceHandle)
 		GetSystemMetrics(SM_CYSCREEN) };
 	resize(aScreenRect, false);
 
-	// Load initial UIScale
+	// Load initial UIScale and other profile properties
+	sUseSingleOverlayWindow = Profile::getBool(
+		"System", "CompositeOverlayDraw", sUseSingleOverlayWindow);
+	sCopyFromTargetWindow = Profile::getBool(
+		"System", "CopyDirectFromGameWindow", sCopyFromTargetWindow);
 	loadProfileChanges();
 }
 
 
 void createOverlays(HINSTANCE theAppInstanceHandle)
 {
-	sIconCopyMethod = EIconCopyMethod(
-		clamp(Profile::getInt("System", "IconCopyMethod"),
-			0, eIconCopyMethod_Num-1));
-	sUseSingleOverlayWindow = Profile::getBool(
-		"System", "CompositeOverlayDraw");
-
-	#ifndef WDA_EXCLUDEFROMCAPTURE
-	#define WDA_EXCLUDEFROMCAPTURE 0x00000011
-	#endif
-	typedef BOOL(WINAPI* PSetWindowDisplayAffinity)(HWND, DWORD);
-	PSetWindowDisplayAffinity pSetWindowDisplayAffinity = NULL;
-	if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture )
-	{
-		HMODULE hUser32 = LoadLibrary(TEXT("User32.dll"));
-		if( hUser32 )
-		{
-			pSetWindowDisplayAffinity =
-				(PSetWindowDisplayAffinity)GetProcAddress(
-					hUser32, "SetWindowDisplayAffinity");
-			FreeLibrary(hUser32);
-		}
-	}
-
 	DBG_ASSERT(sOverlayWindows.empty());
 	DBG_ASSERT(sOverlayWindowOrder.empty());
 	DBG_ASSERT(sSystemOverlayWindow == NULL);
+
+	if( !sSetWindowDisplayAffinityFunc )
+	{
+		HMODULE hUser32 = LoadLibrary(L"User32.dll");
+		if( hUser32 )
+		{
+			sSetWindowDisplayAffinityFunc = (PSetWindowDisplayAffinity)
+				GetProcAddress(hUser32, "SetWindowDisplayAffinity");
+			sGetWindowDisplayAffinityFunc = (PGetWindowDisplayAffinity)
+				GetProcAddress(hUser32, "GetWindowDisplayAffinity");
+			FreeLibrary(hUser32);
+		}
+	}
 
 	// Create one transparent overlay object per root menu
 	sOverlayWindows.reserve(InputMap::menuOverlayCount());
@@ -1164,9 +1157,10 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 		aWindow.windowReady = false;
 		gReshapeOverlays.reset(anOverlayID);
 
+		aWindow.excludedFromCapture = true;
 		if( !sUseSingleOverlayWindow || isSystemOverlay )
 		{
-			aWindow.handle = CreateWindowExW(
+			aWindow.handle = CreateWindowEx(
 				WS_EX_TOPMOST | WS_EX_NOACTIVATE |
 				WS_EX_TRANSPARENT | WS_EX_LAYERED,
 				isSystemOverlay
@@ -1178,14 +1172,8 @@ void createOverlays(HINSTANCE theAppInstanceHandle)
 				aWindow.size.cx,
 				aWindow.size.cy,
 				NULL, NULL, theAppInstanceHandle, NULL);
-	
 			SetWindowLongPtr(aWindow.handle, GWLP_USERDATA, anOverlayID);
-			if( sIconCopyMethod == eIconCopyMethod_ExcludeFromCapture &&
-				pSetWindowDisplayAffinity )
-			{
-				pSetWindowDisplayAffinity(
-					aWindow.handle, WDA_EXCLUDEFROMCAPTURE);
-			}
+			aWindow.excludedFromCapture = false;
 			if( isSystemOverlay )
 			{
 				sSystemOverlayPosIdx = i;
@@ -1227,10 +1215,10 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 
 void loadProfileChanges()
 {
-	// Variables are not added to changedSections(), so just re-read UIScale
-	const std::string& aUIScaleStr = Profile::getVariable("UIScale");
+	// Variables are not added to changedSections(), so just re-read them
+	std::string aVarStr = Profile::getVariable("UIScale");
 	const double oldUIScale = gUIScale;
-	gUIScale = stringToDouble(aUIScaleStr);
+	gUIScale = stringToDouble(aVarStr);
 	if( gUIScale <= 0 )
 		gUIScale = 1.0;
 	if( gUIScale != oldUIScale )
@@ -1238,6 +1226,46 @@ void loadProfileChanges()
 		WindowPainter::updateScaling();
 		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 			sOverlayWindows[i].layoutReady = false;
+	}
+	
+	bool shouldUnexcludeOverlayWindows = false;
+	aVarStr = Profile::getVariable("CopyIconsEnabled");
+	if( !aVarStr.empty() )
+	{
+		const bool oldCopyIconsSetting = sUseCopyIcons;
+		sUseCopyIcons = stringToBool(aVarStr);
+		if( oldCopyIconsSetting != sUseCopyIcons )
+		{// Need to force-redraw menus to switch between icons and text labels
+			gFullRedrawOverlays.set();
+			sNeedRecompositeOverlays = true;
+			WindowPainter::refreshCopyIconCache();
+			shouldUnexcludeOverlayWindows = !sUseCopyIcons;
+		}
+	}
+
+	aVarStr = Profile::getVariable(kExcludeFromCopyVarName);
+	if( !aVarStr.empty() )
+	{
+		const bool oldExcludeSetting = sExcludeOverlaysFromCopy;
+		sExcludeOverlaysFromCopy = stringToBool(aVarStr);
+		if( oldExcludeSetting != sExcludeOverlaysFromCopy )
+		{
+			if( !sExcludeOverlaysFromCopy )
+				shouldUnexcludeOverlayWindows = true;
+		}
+	}
+
+	if( shouldUnexcludeOverlayWindows && sSetWindowDisplayAffinityFunc )
+	{
+		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+		{
+			OverlayWindow& aWindow = sOverlayWindows[i];
+			if( aWindow.excludedFromCapture && aWindow.handle )
+			{
+				sSetWindowDisplayAffinityFunc(aWindow.handle, 0);
+				aWindow.excludedFromCapture = false;
+			}
+		}
 	}
 }
 
@@ -1254,12 +1282,12 @@ void update()
 	HDC aScreenDC = GetDC(NULL);
 	HDC aCaptureDC = NULL;
 	POINT aCaptureOffset = { 0 };
-	if( sIconCopyMethod == eIconCopyMethod_TargetWindow &&
+	if( sUseCopyIcons && sCopyFromTargetWindow &&
 		TargetApp::targetWindowHandle() )
 	{
 		aCaptureDC = GetDC(TargetApp::targetWindowHandle());
 	}
-	else if( sIconCopyMethod != eIconCopyMethod_TargetWindow )
+	else if( !sCopyFromTargetWindow )
 	{
 		aCaptureDC = GetDC(NULL);
 		aCaptureOffset.x = sScreenTargetRect.left;
@@ -1412,7 +1440,7 @@ void update()
 			WindowPainter::paintWindowContents(
 				aWindowDC, sTargetSize, anOverlayID,
 				gFullRedrawOverlays.test(anOverlayID),
-				sIconCopyMethod != eIconCopyMethod_Disabled);
+				sUseCopyIcons);
 			aWindow.windowReady = false;
 			aWindow.lastDrawnSize = aWindow.size;
 			gRefreshOverlays.reset(anOverlayID);
@@ -1483,7 +1511,6 @@ void update()
 		drawCompositeOverlayWindow();
 		sNeedRecompositeOverlays = false;
 	}
-
 	
 	if( windowReorderNeeded )
 	{
@@ -1493,6 +1520,74 @@ void update()
 
 	if( sToolbarWindow && !sHidden && !IsWindowVisible(sToolbarWindow) )
 		ShowWindow(sToolbarWindow, SW_SHOW);
+}
+
+
+bool targetReadyToCopy(const POINT& theRegionTL, const SIZE& theRegionSize)
+{
+	#ifndef WDA_EXCLUDEFROMCAPTURE
+	#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+	#endif
+
+	bool result = true;
+	if( sCopyFromTargetWindow || !sExcludeOverlaysFromCopy )
+		return result;
+
+	const RECT aRegionRect = {
+		theRegionTL.x, theRegionTL.y,
+		theRegionTL.x + theRegionSize.cx,
+		theRegionTL.y + theRegionSize.cy };
+	bool excludeAttemptFailed = false;
+	if( sSetWindowDisplayAffinityFunc && sGetWindowDisplayAffinityFunc )
+	{
+		// See if any overlays overlap the copy region that are not yet excluded
+		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
+		{
+			OverlayWindow& aWindow = sOverlayWindows[i];
+			if( aWindow.excludedFromCapture || !aWindow.handle )
+				continue;
+			if( !aWindow.visible && !sUseSingleOverlayWindow )
+				continue;
+			if( aRegionRect.right < aWindow.position.x )
+				continue;
+			if( aRegionRect.bottom < aWindow.position.y )
+				continue;
+			if( aRegionRect.left > aWindow.position.x + aWindow.size.cx )
+				continue;
+			if( aRegionRect.top > aWindow.position.y + aWindow.size.cy )
+				continue;
+			// Have a visible, not-yet-excluded, active window that overlaps
+			// the region we want to copy from. Attempt to exclude it now!
+			if( !sSetWindowDisplayAffinityFunc(
+					aWindow.handle, WDA_EXCLUDEFROMCAPTURE) )
+			{
+				excludeAttemptFailed = true;
+				break;
+			}
+			// Verify affinity was actually set properly
+			DWORD anAffinity = 0;
+			if( !sGetWindowDisplayAffinityFunc(aWindow.handle, &anAffinity) ||
+				anAffinity != WDA_EXCLUDEFROMCAPTURE )
+			{
+				excludeAttemptFailed = true;
+				break;
+			}
+			// Flag window has been excluded now
+			aWindow.excludedFromCapture = true;
+			// Block copy until next frame to be on the safe side though
+			result = false;
+		}
+	}
+	else
+	{
+		excludeAttemptFailed = true;
+	}
+	
+	// Don't try again next frame if attempted an exclude but it failed
+	if( excludeAttemptFailed )
+		Profile::setVariable(kExcludeFromCopyVarName, "Not supported", true);
+
+	return result;
 }
 
 
@@ -1656,7 +1751,7 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 		sOverlayWindows[i].layoutReady = false;
 	sNeedRecompositeOverlays = true;
-	WindowPainter::updateTargetRect();
+	WindowPainter::refreshCopyIconCache();
 }
 
 

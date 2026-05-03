@@ -40,6 +40,9 @@ void loadProfileChanges();
 // Update window contents as needed
 void update();
 
+// Adjust overlay window display affinity if needed to allow copy-from-target
+bool targetReadyToCopy(const POINT& theRegionTL, const SIZE& theRegionSize);
+
 // Disables main window and hides overlays until endDialog() or update()
 void beginDialog(HWND theDialog);
 void endDialog();

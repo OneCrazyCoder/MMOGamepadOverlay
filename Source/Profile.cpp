@@ -48,7 +48,8 @@ const char* kUIScaleVarName = "UIScale";
 const char* kWidthVarName = "W";
 const char* kHeightVarName = "H";
 const char* kLinuxVarName = "Linux";
-const char* kWaylandVarName = "Wayland";
+const char* kCopyIconsVarName = "CopyIconsEnabled";
+const char* kCopyExcludeOverlaysVarName = "CopyOverlappedIcons";
 const std::string kEndOfLine = "\r\n";
 
 struct ResourceFile
@@ -60,14 +61,14 @@ struct ResourceFile
 };
 
 const ResourceFile kResTemplateCore =
-	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		23	};
+	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		24	};
 
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
-	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	22	},
-	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	18	},
-	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	18	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	23	},
+	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	23	},
+	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	19	},
+	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	19	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	24	},
 };
 
 const ResourceFile kResTemplateDefault[] =
@@ -75,7 +76,7 @@ const ResourceFile kResTemplateDefault[] =
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	20	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	20	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	20	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	24	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	25	},
 };
 
 const ResourceFile kResTemplateCustom[] =
@@ -773,7 +774,8 @@ static void initSectionMap()
 	aProp.str = "1920"; aVarMap.setValue(kWidthVarName, aProp);
 	aProp.str = "1080"; aVarMap.setValue(kHeightVarName, aProp);
 	aProp.str = "false"; aVarMap.setValue(kLinuxVarName, aProp);
-	aProp.str = "false"; aVarMap.setValue(kWaylandVarName, aProp);
+	aProp.str = "Yes"; aVarMap.setValue(kCopyIconsVarName, aProp);
+	aProp.str = "Yes"; aVarMap.setValue(kCopyExcludeOverlaysVarName, aProp);
 	DBG_ASSERT(sSectionsMap.keys()[kVarsSectionIdx] == kVariablesSectionName);
 	DBG_ASSERT(aVarMap.keys()[kUIScaleVarID] == kUIScaleVarName);
 	DBG_ASSERT(aVarMap.keys()[kWidthVarID] == kWidthVarName);
@@ -1160,7 +1162,9 @@ static void addSystemCheckVarsToProfile(const std::string& theFilePath)
 		if( usingWayland > 0 )
 		{
 			setPropertyInINI(
-				theFilePath, "Variables", kWaylandVarName, "true");
+				theFilePath, "Variables", kCopyIconsVarName, "Not supported");
+			setPropertyInINI(
+				theFilePath, "Variables", kCopyExcludeOverlaysVarName, "No");
 		}
 	}
 }

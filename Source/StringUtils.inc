@@ -170,8 +170,12 @@ inline double stringToDouble(const char* theString, bool strict)
 				str == "enabled" || str == "ok" || str == "active" )
 			{ return 1.0; }
 
-			if( str == "false" || str == "no" || str == "off" ||
-				str == "nothing" || str == "null" || str == "nil" ||
+			// Check for just starting with 'n'->'o' covers no, none, nothing,
+			// not enabled, and so on, but this does mean it could possibly be
+			// an invalid string that should technically be a NaN result...
+			if( (str[0] == 'n' && str[1] == 'o') ||
+				str == "false" || str == "off" ||
+				str == "null" || str == "nil" ||
 				str == "disabled" || str == "empty" )
 			{ return 0; }
 		}
