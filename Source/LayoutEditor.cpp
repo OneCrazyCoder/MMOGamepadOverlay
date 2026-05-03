@@ -474,7 +474,7 @@ static std::string shapeCompToProfString(
 	std::string result = theComponent.base;
 	if( result.empty() )
 	{
-		if( asOffset && theComponent.offset > 0 )
+		if( asOffset && theComponent.offset >= 0 )
 			result = "+";
 		result += toString(theComponent.offset);
 	}

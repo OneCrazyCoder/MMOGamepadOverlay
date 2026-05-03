@@ -1798,6 +1798,8 @@ void setTargetWindowIsActive(bool isActive)
 	{
 		if( sUseSingleOverlayWindow )
 			hideOverlays();
+		else
+			restoreOverlayZPos();
 	}
 }
 
@@ -1824,6 +1826,20 @@ void restoreOverlayZPos()
 		else
 		{// Place in next spot just above target window (and lower overlays)
 			HWND hAboveTarget = GetWindow(hTarget, GW_HWNDPREV);
+
+			// Special case: A non-topmost FSW target will be drawn an top of
+			// all non-topmost windows, so it should be treated as if it is
+			// a TOPMOST window at the bottom of the actual TOPMOST windows,
+			// and any non-TOPMOSTs above it should be skipped over.
+			bool targetIsTopMost = isATopMostWindow(hTarget);
+			const bool targetIsFSW = TargetApp::targetWindowIsFullScreen();
+			if( targetIsFSW && !targetIsTopMost )
+			{
+				while(hAboveTarget && !isATopMostWindow(hAboveTarget))
+					hAboveTarget = GetWindow(hAboveTarget, GW_HWNDPREV);
+				targetIsTopMost = true;
+			}
+
 			// If spot above target window is other overlays, in order, then
 			// find the next window above those to be hAboveTarget
 			for(int i = 0, end = intSize(sOverlayWindowOrder.size())-1;
@@ -1837,54 +1853,12 @@ void restoreOverlayZPos()
 				}
 				break;
 			}
-
+			
 			if( hAboveTarget != hTopOverlay )
-			{
-				// Get TOPMOST status of overlay and target window
-				const bool overlayIsTopMost = isATopMostWindow(hTopOverlay);
-				const bool targetIsTopMost = isATopMostWindow(hTarget);
-
+			{// Move top overlay to just below the window above the target
 				if( hAboveTarget == NULL )
-				{
-					// hTarget must be the very top-most window
-					// Need hTopOverlay to become top window in same category
-					if( targetIsTopMost == overlayIsTopMost )
-					{
-						// Already in correct category, so just move to the top
-						SetWindowPos(hTopOverlay, HWND_TOP, 0, 0, 0, 0, aFlags);
-					}
-					else
-					{
-						// Force hTopOverlay's category to match hTarget's,
-						// and simultaneously move to top of that category
-						SetWindowPos(hTopOverlay,
-							targetIsTopMost ? HWND_TOPMOST : HWND_NOTOPMOST,
-							0, 0, 0, 0, aFlags);
-					}
-				}
-				else
-				{
-					// Place between hTarget and hAboveTarget
-					const bool aboveIsTopMost = isATopMostWindow(hAboveTarget);
-					if( targetIsTopMost != aboveIsTopMost )
-					{
-						// This must mean hTarget is normal and hAboveTarget is
-						// TOPMOST, and we could end up promoting hTopOverlay to
-						// TOPMOST unintentionally, so just make sure that
-						// hTopOverlay is above all non-topmost windows.
-						SetWindowPos(hTopOverlay,
-							overlayIsTopMost ? HWND_NOTOPMOST : HWND_TOP,
-							0, 0, 0, 0, aFlags);
-					}
-					else
-					{
-						// Both hTarget and hAboveTarget are in same category,
-						// so safe for overlay to be auto-promoted/demoted to
-						// match hAboveTarget's category and move below it
-						SetWindowPos(hTopOverlay, hAboveTarget,
-							0, 0, 0, 0, aFlags);
-					}
-				}
+					hAboveTarget = HWND_TOPMOST;
+				SetWindowPos(hTopOverlay, hAboveTarget, 0, 0, 0, 0, aFlags);
 			}
 		}
 

@@ -4324,6 +4324,7 @@ void loadProfile()
 	DBG_ASSERT(anIdx == kSystemMenuID);
 	DBG_ASSERT(sOverlayRootMenus.size() == kSystemOverlayID);
 	sOverlayRootMenus.push_back(kSystemMenuID);
+	sMenus.vals()[anIdx].label = "MMOGO System Overlay";
 	sMenus.vals()[anIdx].style = eMenuStyle_System;
 	sMenus.vals()[anIdx].overlayID = kSystemOverlayID;
 	sMenus.vals()[anIdx].profileSectionID = dropTo<u16>(
@@ -4333,6 +4334,7 @@ void loadProfile()
 	DBG_ASSERT(anIdx == kHotspotGuideMenuID);
 	DBG_ASSERT(sOverlayRootMenus.size() == kHotspotGuideOverlayID);
 	sOverlayRootMenus.push_back(kHotspotGuideMenuID);
+	sMenus.vals().back().label = "MMOGO Hotspot Guide";
 	sMenus.vals().back().style = eMenuStyle_HotspotGuide;
 	sMenus.vals().back().overlayID = kHotspotGuideOverlayID;
 	sMenus.vals().back().profileSectionID = dropTo<u16>(
