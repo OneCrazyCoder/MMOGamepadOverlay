@@ -129,9 +129,9 @@ struct ZERO_INIT(VarPropDependency)
 	u32 propID : 14;
 
 	u32 cmpVal() const { return (varID << 23) | (sectID << 14) | propID; }
-    bool operator<(const VarPropDependency& rhs) const
+	bool operator<(const VarPropDependency& rhs) const
 	{ return cmpVal() < rhs.cmpVal(); }
-    bool operator==(const VarPropDependency& rhs) const
+	bool operator==(const VarPropDependency& rhs) const
 	{ return cmpVal() == rhs.cmpVal(); }
 };
 
@@ -1147,25 +1147,77 @@ static void readVersionCallback(
 
 static void addSystemCheckVarsToProfile(const std::string& theFilePath)
 {
+	bool runningInLinux = false;
+
 	HKEY hKey;
-	if( RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-			"Software\\Wine", 0, KEY_READ, &hKey) == ERROR_SUCCESS )
+	WCHAR aWStr[256];
+	DWORD aType, aSize;
+
+	// Check for Wine
+	if( RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+			L"Software\\Wine", 0, KEY_READ, &hKey) == ERROR_SUCCESS )
 	{
+		runningInLinux = true;
 		RegCloseKey(hKey);
-		setPropertyInINI(
-			theFilePath, "Variables", kLinuxVarName, "true");
 	}
+	else if( RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+				L"Software\\Microsoft\\Windows NT\\CurrentVersion",
+				0, KEY_READ, &hKey) == ERROR_SUCCESS)
 	{
-		WCHAR aBuffer[2];
-		DWORD usingWayland = GetEnvironmentVariable(
-			L"WAYLAND_DISPLAY", aBuffer, sizeof(aBuffer));
-		if( usingWayland > 0 )
+		aSize = sizeof(aWStr);
+		if( RegQueryValueEx(hKey, L"Wine", NULL, &aType,
+				(LPBYTE)aWStr, &aSize) == ERROR_SUCCESS )
 		{
-			setPropertyInINI(
-				theFilePath, "Variables", kCopyIconsVarName, "Not supported");
-			setPropertyInINI(
-				theFilePath, "Variables", kCopyExcludeOverlaysVarName, "No");
+			runningInLinux = true;
 		}
+		RegCloseKey(hKey);
+	}
+
+	if( !runningInLinux )
+		return;
+
+	setPropertyInINI(
+		theFilePath, "Variables", kLinuxVarName, "true");
+
+	// Check for Wayland, which blocks icon copy feature
+	bool usingWayland = false;
+	aSize = sizeof(aWStr) / sizeof(WCHAR);
+	if( GetEnvironmentVariable(
+			L"WAYLAND_DISPLAY", aWStr, aSize) > 0 ||
+		GetEnvironmentVariable(
+			L"GAMESCOPE_WAYLAND_DISPLAY", aWStr, aSize) > 0 )
+	{
+		usingWayland = true;
+	}
+	else if( GetEnvironmentVariable(L"XDG_SESSION_TYPE", aWStr, aSize) > 0 )
+	{
+		const std::string& aStr = lower(narrow(aWStr));
+		if( aStr.find("wayland") != std::string::npos )
+			usingWayland = true;
+	}
+
+	if( !usingWayland &&
+		RegOpenKeyEx(HKEY_CURRENT_USER,
+			L"Software\\Wine\\Drivers",
+			0, KEY_READ, &hKey) == ERROR_SUCCESS )
+	{
+		aSize = sizeof(aWStr);
+		if( RegQueryValueEx(hKey, L"Graphics", NULL, &aType,
+				(LPBYTE)aWStr, &aSize) == ERROR_SUCCESS )
+		{
+			const std::string& aStr = lower(narrow(aWStr));
+			if( aStr.find("wayland") != std::string::npos )
+				usingWayland = true;
+		}
+		RegCloseKey(hKey);
+	}
+
+	if( usingWayland )
+	{
+		setPropertyInINI(
+			theFilePath, "Variables", kCopyIconsVarName, "Not supported");
+		setPropertyInINI(
+			theFilePath, "Variables", kCopyExcludeOverlaysVarName, "No");
 	}
 }
 
