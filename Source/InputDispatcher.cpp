@@ -669,7 +669,11 @@ static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 		{
 			if( InputMap::keyBindCycleIndexToKeyBindID(i, j) == theKeyBindID )
 			{
-				gKeyBindCycleLastIndex[i] = j;
+				if( gKeyBindCycleLastIndex[i] != j )
+				{
+					gKeyBindCycleLastIndex[i] = j;
+					gKeyBindCycleLastIndexChanged.set(i);
+				}
 				break;
 			}
 		}

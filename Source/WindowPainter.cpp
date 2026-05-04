@@ -1986,9 +1986,7 @@ static void drawLabelString(
 	if( theCacheEntry.width > 0 )
 	{
 		SelectObject(dd.hdc, theCacheEntry.fontHandle);
-		SetBkMode(dd.hdc, TRANSPARENT);
 		DrawText(dd.hdc, theStr.c_str(), -1, &theRect, theFormat);
-		SetBkMode(dd.hdc, OPAQUE);
 	}
 }
 

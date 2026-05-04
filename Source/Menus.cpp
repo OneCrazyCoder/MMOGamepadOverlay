@@ -154,7 +154,8 @@ void cleanup()
 void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	if( theProfileMap.containsPrefix("Menu.") )
+	if( theProfileMap.containsPrefix("Menu.") ||
+		InputMap::changedHotspots().any() )
 	{
 		const int oldMenuCount = intSize(sSelectedItem.size());
 		sSelectedItem.resize(InputMap::menuCount());
