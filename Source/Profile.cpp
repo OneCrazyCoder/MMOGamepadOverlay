@@ -777,6 +777,10 @@ static void initSectionMap()
 	aProp.str = "Yes"; aVarMap.setValue(kCopyIconsVarName, aProp);
 	aProp.str = "Yes"; aVarMap.setValue(kCopyExcludeOverlaysVarName, aProp);
 	aProp.str = ".\\"; aVarMap.setValue("TargetAppDir", aProp);
+	aProp.str = toString(GetSystemMetrics(SM_CXSCREEN));
+	aVarMap.setValue("LastGameWindowWidth", aProp);
+	aProp.str = toString(GetSystemMetrics(SM_CYSCREEN));
+	aVarMap.setValue("LastGameWindowHeight", aProp);
 	DBG_ASSERT(sSectionsMap.keys()[kVarsSectionIdx] == kVariablesSectionName);
 	DBG_ASSERT(aVarMap.keys()[kUIScaleVarID] == kUIScaleVarName);
 	DBG_ASSERT(aVarMap.keys()[kWidthVarID] == kWidthVarName);

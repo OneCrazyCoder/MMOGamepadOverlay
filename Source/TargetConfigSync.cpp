@@ -25,6 +25,7 @@ kConfigFileBufferSize = 4096 // How many chars to stream from file per read
 
 enum EConfigDataFormat
 {
+	eConfigDataFormat_Unknown,
 	eConfigDataFormat_JSON,
 	eConfigDataFormat_INI,
 
@@ -33,6 +34,7 @@ enum EConfigDataFormat
 
 enum EDataSourceType
 {
+	eDataSourceType_Unknown,
 	eDataSourceType_File,
 	eDataSourceType_RegVal,
 
@@ -754,16 +756,128 @@ class INIParser : public ConfigDataParser
 {
 public:
 	INIParser(int theDataSourceID) :
-		ConfigDataParser(theDataSourceID)
+		ConfigDataParser(theDataSourceID),
+		mState(eState_Whitespace)
 	{
 	}
 
-	virtual void parseNextChunk(const std::string& /*theReadChunk*/)
+	virtual void parseNextChunk(const std::string& theReadChunk)
 	{
-		// TODO
-		mDoneParsing = true;
-		return;
+		for(const char* c = theReadChunk.c_str(); *c; ++c)
+		{
+			const char ch = *c;
+			switch(mState)
+			{
+			case eState_Whitespace:
+				// Look for a section, key, or comment
+				if( ch == '[' )
+				{
+					mState = eState_Section;
+					mNewSection.clear();
+				}
+				else if( ch == '#' || ch == ';' )
+				{
+					mState = eState_Comment;
+				}
+				else if( u8(ch) > ' ' )
+				{
+					mState = eState_Key;
+					mKey.clear();
+					mKey.push_back(ch);
+				}
+				break;
+
+			case eState_Section:
+				// Look for end of line after ']' to end section
+				switch(ch)
+				{
+				case '\r': case '\n': case '\0':
+					mState = eState_Whitespace;
+					mNewSection = trim(mNewSection);
+					if( mNewSection.size() > 1 &&
+						mNewSection[mNewSection.size()-1] == ']' )
+					{
+						mNewSection.resize(mNewSection.size()-1);
+						mSection.swap(mNewSection);
+						// Skip directly to next section if nothing needed here
+						if( !anyPathsUsePrefix(mSection + ".") )
+							mState = eState_NextSection;
+					}
+					break;
+				default:
+					mNewSection.push_back(ch);
+				}
+				break;
+
+			case eState_Key:
+				// Look for '=' to end key
+				if( ch == '=' )
+				{// Switch from parsing key to value if this key matters
+					mKey = trim(mKey);
+					mState = eState_Value;
+					mValue.clear();
+				}
+				else if( ch == '\r' || ch == '\n' || ch == '\0' )
+				{// Abort - invalid key
+					mState = eState_Whitespace;
+				}
+				else
+				{
+					mKey.push_back(ch);
+				}
+				break;
+
+			case eState_Value:
+				// Look for eol to end value
+				if( ch == '\r' || ch == '\n' || ch == '\0' )
+				{// Value string complete, time to process it!
+					mValue = trim(mValue);
+					if( !mValue.empty() &&
+						checkForFoundValue(mSection + "." + mKey, mValue) )
+					{// All values found!
+						mDoneParsing = true;
+						return;
+					}
+					mState = eState_Whitespace;
+				}
+				else
+				{
+					mValue.push_back(ch);
+				}
+				break;
+
+			case eState_Comment:
+				// Look for eol to end comment
+				if( ch == '\r' || ch == '\n' || ch == '\0' )
+					mState = eState_Whitespace;
+				break;
+
+			case eState_NextSection:
+				if( ch == '[' && (*(c-1) == '\r' || *(c-1) == '\n') )
+				{
+					mState = eState_Section;
+					mNewSection.clear();
+				}
+				break;
+			}
+		}
 	}
+
+private:
+
+	enum EState
+	{
+		eState_Whitespace,
+		eState_Section,
+		eState_Key,
+		eState_Value,
+		eState_Comment,
+		eState_NextSection,
+	} mState;
+	std::string mNewSection;
+	std::string mSection;
+	std::string mKey;
+	std::string mValue;
 };
 
 
@@ -1079,7 +1193,25 @@ public:
 	bool searchTriggeredChange() const { return mSearchTriggeredChange; }
 	int dataSourceID() const { return mDataSourceID; }
 
+	void reportResults()
+	{
+		if( mDoneSearching && !mFoundSourceToRead )
+		{
+			logInfo("No target config file matching path '%s' found",
+				sDataSources[mDataSourceID].pathPattern.c_str());
+		}
+	}
+
 protected:
+
+	void setPathToRead(DataSource& theDataSource, const std::wstring& thePath)
+	{
+		theDataSource.pathToRead = thePath;
+		if( lower(getExtension(narrow(thePath))) == ".ini" )
+			theDataSource.format = eConfigDataFormat_INI;
+		else
+			theDataSource.format = eConfigDataFormat_JSON;
+	}
 
 	void compareBestSource(
 		const std::wstring& thePath,
@@ -1240,7 +1372,7 @@ protected:
 			sLastWildcardFileSelected = mCandidateNames[0];
 		}
 
-		aDataSource.pathToRead = mCandidates[aBestIdx].pathToRead;
+		setPathToRead(aDataSource, mCandidates[aBestIdx].pathToRead);
 		aDataSource.lastModTime = mCandidates[aBestIdx].lastModTime;
 		swap(aDataSource.dataCache, mCandidates[aBestIdx].dataCache);
 
@@ -1282,7 +1414,7 @@ public:
 		if( !aDataSource.usesWildcards )
 		{
 			if( aDataSource.pathToRead.empty() )
-				aDataSource.pathToRead = widen(aDataSource.pathPattern);
+				setPathToRead(aDataSource, widen(aDataSource.pathPattern));
 			if( !isValidFilePath(aDataSource.pathToRead) )
 			{
 				logInfo("Failed to find target config file '%s'",
@@ -1470,8 +1602,8 @@ public:
 		// Can check for the value right away if don't need wildcard search
 		if( !aDataSource.usesWildcards )
 		{
-			aDataSource.pathToRead =
-				widen(getFileName(aDataSource.pathPattern));
+			setPathToRead(
+				aDataSource, widen(getFileName(aDataSource.pathPattern)));
 			DWORD aDataSize = 0;
 			RegGetValue(aSearchStartHKey, NULL,
 				aDataSource.pathToRead.c_str(),
@@ -2456,7 +2588,6 @@ static void reload()
 			sDataSources.back().type = eDataSourceType_RegVal;
 		else
 			sDataSources.back().type = eDataSourceType_File;
-		sDataSources.back().format = eConfigDataFormat_JSON; // TODO properly
 		std::string::size_type aFirstWildcardPos =
 			aSourcePath.find('*');
 		sDataSources.back().usesWildcards =
@@ -2716,6 +2847,7 @@ void update()
 		}
 		else if( sFinder->done() )
 		{
+			sFinder->reportResults();
 			sDataSourcesToCheck.reset(sFinder->dataSourceID());
 			if( sFinder->foundSourceToRead() )
 				sDataSourcesToRead.set(sFinder->dataSourceID());

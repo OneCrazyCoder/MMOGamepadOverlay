@@ -229,12 +229,13 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		if( !gShutdown && !hadFatalError() )
 			TargetConfigSync::load();
 
+		// Create main application window
 		if( !gShutdown && !hadFatalError() )
-		{
-			// Create main application window
 			WindowManager::createMain(hInstance);
 
-			// Load configuration settings for each module from profile
+		// Load configuration settings for each module from profile
+		if( !gShutdown && !hadFatalError() )
+		{
 			InputMap::loadProfile();
 			HotspotMap::init();
 			Menus::init();
@@ -245,15 +246,16 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 			WindowManager::createOverlays(hInstance);
 		}
 
+		// Finalize profile load
 		if( !gShutdown && !hadFatalError() )
 		{
-			// Launch target app if requested and haven't already
-			TargetApp::autoLaunch();
-
-			// Finalize profile load
 			Profile::clearChangedSections();
 			Profile::saveChangesToFile();
 		}
+
+		// Launch target app if requested and haven't already
+		if( !gShutdown && !hadFatalError() )
+			TargetApp::autoLaunch();
 
 		// Main loop
 		while(!gShutdown && gProfileToLoad.empty() && !hadFatalError())

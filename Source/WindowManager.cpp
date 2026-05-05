@@ -1699,8 +1699,18 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 
 	// Restrict to "work" area of active monitor when don't have a target app
 	sTargetClipRect = theNewWindowRect;
-	if( !isTargetAppWindow )
+	if( isTargetAppWindow )
 	{
+		// Save out to profile last actual target window width/height
+		// (for use in syncing to game config files based on resolution)
+		Profile::setVariable("LastTargetWindowWidth",
+			toString(theNewWindowRect.right - theNewWindowRect.left), false);
+		Profile::setVariable("LastTargetWindowHeight",
+			toString(theNewWindowRect.bottom - theNewWindowRect.top), false);			
+	}
+	else
+	{
+		// Restrict to "work" area of active monitor in "desktop mode"
 		if( HMONITOR hMonitor =
 				MonitorFromRect(&theNewWindowRect, MONITOR_DEFAULTTONEAREST) )
 		{
