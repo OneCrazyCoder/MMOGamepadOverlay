@@ -776,6 +776,7 @@ static void initSectionMap()
 	aProp.str = "false"; aVarMap.setValue(kLinuxVarName, aProp);
 	aProp.str = "Yes"; aVarMap.setValue(kCopyIconsVarName, aProp);
 	aProp.str = "Yes"; aVarMap.setValue(kCopyExcludeOverlaysVarName, aProp);
+	aProp.str = ".\\"; aVarMap.setValue("TargetAppDir", aProp);
 	DBG_ASSERT(sSectionsMap.keys()[kVarsSectionIdx] == kVariablesSectionName);
 	DBG_ASSERT(aVarMap.keys()[kUIScaleVarID] == kUIScaleVarName);
 	DBG_ASSERT(aVarMap.keys()[kWidthVarID] == kWidthVarName);

@@ -112,6 +112,7 @@ static EWindowMode sLastKnownTargetMode = eWindowMode_Unknown;
 static EWindowActiveStatus sLastWindowStatus = eWindowStatus_Closed;
 static bool sSwapWindowModeHotkeyRegistered = false;
 static bool sRestoreTargetWindow = false;
+static bool sSetTargetAppDirToWindowOwner = false;
 
 
 //------------------------------------------------------------------------------
@@ -128,7 +129,6 @@ static bool sRestoreTargetWindow = false;
 //------------------------------------------------------------------------------
 // Local Functions
 //------------------------------------------------------------------------------
-
 
 static void dropTargetWindow()
 {
@@ -150,6 +150,39 @@ static void dropTargetWindow()
 		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
 		sSwapWindowModeHotkeyRegistered = false;
 	}
+}
+
+
+static void updateTargetAppDir()
+{
+	// Store the directory of the target's .exe (window's owner's path)
+	if( !sTargetWindowHandle )
+		return;
+	if( sSetTargetAppDirToWindowOwner )
+		return;
+	sSetTargetAppDirToWindowOwner = true;
+	
+	DWORD aProcessID = 0;
+	GetWindowThreadProcessId(sTargetWindowHandle, &aProcessID);
+	if( !aProcessID )
+		return;
+	HANDLE hProcess = OpenProcess(
+		PROCESS_QUERY_LIMITED_INFORMATION, FALSE, aProcessID);
+	if( !hProcess )
+		return;
+
+	DWORD aSize = MAX_PATH;
+	WCHAR aPathW[MAX_PATH];
+	if( !QueryFullProcessImageName(hProcess, 0, aPathW, &aSize) )
+	{
+		CloseHandle(hProcess);
+		return;
+	}
+	const std::string& aDirPath = getFileDir(narrow(aPathW), true);
+	const std::string oldTargetAppDir = Profile::getVariable("TargetAppDir");
+	if( !isSamePath(oldTargetAppDir, aDirPath) )
+		Profile::setVariable("TargetAppDir", aDirPath, false);
+	CloseHandle(hProcess);
 }
 
 
@@ -179,6 +212,7 @@ static void restoreTargetWindow()
 		{
 			WindowManager::resize(sTargetWindowRect, true);
 		}
+		updateTargetAppDir();
 		sNextCheckDelay = 0;
 		sRepeatCheckTime = 500;
 		sNextCheck = eCheck_WindowZOrder;
@@ -231,6 +265,8 @@ static void checkWindowExists()
 	sRepeatCheckTime = 0;
 	WindowManager::setTargetWindowIsActive(true);
 	WindowManager::showTargetWindowFound();
+	updateTargetAppDir();
+
 }
 
 
@@ -624,6 +660,7 @@ static void checkAppClosed()
 void loadProfile()
 {
 	targetDebugPrint("Loading new profile data\n");
+	sSetTargetAppDirToWindowOwner = false;
 	kConfig.load();
 	if( sTargetWindowHandle && !sRestoreTargetWindow )
 		dropTargetWindow();
@@ -681,7 +718,7 @@ void autoLaunch()
 		aParams += kConfig.targetAppParams;
 	}
 	aPath = toAbsolutePath(aPath);
-	const std::string aDirPath = getFileDir(aPath);
+	const std::wstring& aDirPath = widen(getFileDir(aPath, true));
 	aPath = "\"" + aPath + "\"";
 	// Add extra null terminator so can use &aCmdLineStr[0] as non-const safely
 	std::wstring aCmdLineStr = aParams.empty()
@@ -695,9 +732,16 @@ void autoLaunch()
 	si.cb = sizeof(STARTUPINFO);
 	if( CreateProcess(NULL, &aCmdLineStr[0],
 			NULL, NULL, FALSE, 0, NULL,
-			widen(aDirPath).c_str(),
+			aDirPath.c_str(),
 			&si, &pi))
 	{
+		const std::wstring& oldTargetAppDir =
+			widen(Profile::getVariable("TargetAppDir"));
+		if( oldTargetAppDir == L".\\" &&
+			!isSamePath(oldTargetAppDir, aDirPath) )
+		{
+			Profile::setVariable("TargetAppDir", narrow(aDirPath), false);
+		}
 		CloseHandle(pi.hThread);
 		if( kConfig.autoCloseWithTargetApp )
 			sTargetAppProcess = pi.hProcess;
