@@ -3304,7 +3304,7 @@ void update()
 		sErrorMessage =
 			widen("MMOGO ERROR: ") +
 			gErrorString +
-			widen("\nCheck MMOGO_ErrorLog.txt for other possible errors!");
+			widen("\nCheck MMOGO.log for other possible errors!");
 		sErrorMessageTimer = max<int>(
 			kNoticeStringMinTime,
 			int(kNoticeStringDisplayTimePerChar *

@@ -24,25 +24,34 @@ bool gHadFatalError = false;
 //------------------------------------------------------------------------------
 
 #ifdef NDEBUG
-void logToConsole(const std::string&, const std::string&) {}
+void logToConsole(const std::string&) {}
 #else
-void logToConsole(const std::string& thePrefix, const std::string& theMsg)
-{
-	const std::string& aStr = thePrefix + theMsg + "\n";
-	OutputDebugStringW(widen(aStr).c_str());
-}
+void logToConsole(const std::string& theMsg)
+{ OutputDebugString(widen(theMsg + "\n").c_str()); }
 #endif
 
 
-void logToErrorFile(const std::string& theErrorString)
+void logToFile(const std::string& theString)
 {
-	static std::wstring sErrorLogFilePath;
-	if( sErrorLogFilePath.empty() )
+	static std::wstring sLogFilePath;
+	if( sLogFilePath.empty() )
 	{
-		sErrorLogFilePath = getAppFolderW();
-		if( sErrorLogFilePath.empty() )
+		const std::wstring& aFolderPath = getAppFolderW();
+		if( aFolderPath.empty() )
 			return;
-		sErrorLogFilePath += L"MMOGO_ErrorLog.txt";
+		sLogFilePath = aFolderPath + L"MMOGO.log";
+		// Does this log file already exist?
+		if( isValidFilePath(sLogFilePath) )
+		{
+			// Change MMOGO.log with MMOGO-prev.log, overwriting any previous
+			// instance of MMOGO-prev.log
+			std::wstring aPrevLogFilePath = aFolderPath + L"MMOGO-prev.log";
+			MoveFileEx(
+				sLogFilePath.c_str(),
+				aPrevLogFilePath.c_str(),
+				MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED
+			);
+		}
 	}
 
 	time_t now = time(0);
@@ -50,11 +59,11 @@ void logToErrorFile(const std::string& theErrorString)
 	localtime_s(&timeinfo, &now);
 	char aTimeStamp[32];
 	strftime(aTimeStamp, sizeof(aTimeStamp), "<%Y-%m-%d %H:%M:%S> ", &timeinfo);
-	std::ofstream errorFile(sErrorLogFilePath.c_str(), std::ios_base::app);
-	if( errorFile.is_open() )
+	std::ofstream aSessionLogFile(sLogFilePath.c_str(), std::ios_base::app);
+	if( aSessionLogFile.is_open() )
 	{
-		errorFile << aTimeStamp << theErrorString << std::endl;
-		errorFile.close();
+		aSessionLogFile << aTimeStamp << theString << std::endl;
+		aSessionLogFile.close();
 	}
 }
 
@@ -70,19 +79,19 @@ void debugPrint(const char* fmt ...)
 	std::string result = vformat(fmt, argList);
 	va_end(argList);
 
-	OutputDebugStringW(widen(result).c_str());
+	OutputDebugString(widen(result).c_str());
 }
 
 
-void logToFile(const char* fmt ...)
+void logInfo(const char* fmt ...)
 {
 	va_list argList;
 	va_start(argList, fmt);
-	const std::string& anErrorString = vformat(fmt, argList);
+	const std::string& aString = vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole("Logged to error file: ", anErrorString);
-	logToErrorFile(anErrorString);
+	logToConsole("LOG: " + aString);
+	logToFile(aString);
 }
 
 
@@ -93,7 +102,8 @@ void logNotice(const char* fmt ...)
 	const std::string& aNoticeString = vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole("", aNoticeString);
+	logToConsole(aNoticeString);
+	logToFile(aNoticeString);
 	// Store most recent notice, as past ones may no longer matter
 	gNoticeString = widen(aNoticeString);
 }
@@ -103,11 +113,12 @@ void logError(const char* fmt ...)
 {
 	va_list argList;
 	va_start(argList, fmt);
-	const std::string& anErrorString = vformat(fmt, argList);
+	const std::string& anErrorString =
+		std::string("ERROR: ") + vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole("<< ERROR LOG >>: ", anErrorString);
-	logToErrorFile(anErrorString);
+	logToConsole(anErrorString);
+	logToFile(anErrorString);
 	// Store the *first* error logged, as later errors are likely
 	// to have stemmed from the first error anyway.
 	if( gErrorString.empty() )
@@ -123,11 +134,12 @@ void logFatalError(const char* fmt ...)
 
 	va_list argList;
 	va_start(argList, fmt);
-	const std::string& anErrorString = vformat(fmt, argList);
+	const std::string& anErrorString =
+		std::string("!!! FATAL ERROR !!!: ") + vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole("!!! FATAL ERROR !!!: ", anErrorString);
-	logToErrorFile(anErrorString);
+	logToConsole(anErrorString);
+	logToFile(anErrorString);
 	if( gErrorString.empty() )
 		gErrorString = widen(anErrorString);
 

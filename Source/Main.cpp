@@ -305,13 +305,13 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	if( !hadFatalError() && gAppRunTime > 0 )
 	{
 		const double averageFPS = sUpdateLoopCount / (gAppRunTime / 1000.0);
-		debugPrint("Average FPS: %.2f\n", averageFPS);
+		logInfo("Exiting application. Average FPS: %.2f", averageFPS);
 	}
 
 	// Note that MessageBox self-closes immediately if WM_QUIT has been
 	// posted, meaning this will fail to report any fatal errors that
 	// happen after user manually closes the main window. Will instead
-	// need to check errorlog.txt for those (if it matters by then).
+	// need to check MMOGO.log for those (if it matters by then).
 	if( hadFatalError() )
 	{
 		MessageBox(

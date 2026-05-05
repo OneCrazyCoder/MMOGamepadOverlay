@@ -2663,6 +2663,7 @@ void load()
 		return;
 	}
 
+	logInfo("Loading profile '%s'", sProfiles[aProfileIDToLoad].name.c_str());
 	sSectionsMap.clear();
 	initSectionMap();
 	// Prepare for reading known issues

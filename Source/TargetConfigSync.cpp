@@ -833,7 +833,7 @@ public:
 			NULL);
 		if( mFileLockHandle == INVALID_HANDLE_VALUE )
 		{
-			logToFile("Failed to find target config file %ls",
+			logInfo("Failed to find target config file %ls",
 				aDataSource.pathToRead.c_str());
 			mErrorEncountered = true;
 			return;
@@ -881,7 +881,7 @@ public:
 			FILE_FLAG_OVERLAPPED, NULL);
 		if( mFileHandle == INVALID_HANDLE_VALUE )
 		{
-			logToFile("Failed to open target config file %ls",
+			logInfo("Failed to open target config file %ls",
 				aDataSource.pathToRead.c_str());
 			mErrorEncountered = true;
 			return;
@@ -899,7 +899,7 @@ public:
 		{
 			if( GetLastError() != ERROR_IO_PENDING )
 			{
-				logToFile("Error reading target config file %ls",
+				logInfo("Error reading target config file %ls",
 					aDataSource.pathToRead.c_str());
 				mErrorEncountered = true;
 			}
@@ -964,7 +964,7 @@ public:
 			{
 				if( GetLastError() != ERROR_IO_PENDING )
 				{
-					logToFile("Error reading target config file %ls",
+					logInfo("Error reading target config file %ls",
 						aDataSource.pathToRead.c_str());
 					mErrorEncountered = true;
 					return result;
@@ -1285,7 +1285,7 @@ public:
 				aDataSource.pathToRead = widen(aDataSource.pathPattern);
 			if( !isValidFilePath(aDataSource.pathToRead) )
 			{
-				logToFile("Failed to find target config file '%s'",
+				logInfo("Failed to find target config file '%s'",
 					aDataSource.pathPattern.c_str());
 				mDoneSearching = true;
 				return;
@@ -1311,7 +1311,7 @@ public:
 				0, aDataSource.pathPattern.find('*')), true));
 		if( !isValidFolderPath(mRootPath) )
 		{
-			logToFile("Root folder '%ls\' missing for pattern '%s'",
+			logInfo("Root folder '%ls\' missing for pattern '%s'",
 				mRootPath.c_str(),
 				aDataSource.pathPattern.c_str());
 			mDoneSearching = true;
@@ -1458,7 +1458,7 @@ public:
 		if( RegOpenKeyEx(aRootKey, mRootPath.c_str(), 0,
 				KEY_READ | KEY_WRITE, &aSearchStartHKey) != ERROR_SUCCESS )
 		{
-			logToFile(
+			logInfo(
 				"Couldn't open System Registry key '%s\\%s'",
 				aRootKeyName.c_str(),
 				aSearchStartPath.c_str());
@@ -1478,7 +1478,7 @@ public:
 				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
 			if( aDataSize == 0 )
 			{
-				logToFile(
+				logInfo(
 					"Failed to read registry value '%ls' in '%s\\%s'",
 					aDataSource.pathToRead.c_str(),
 					aRootKeyName.c_str(),
@@ -1496,7 +1496,7 @@ public:
 					&mValueBuf[0], &aDataSize)
 						!= ERROR_SUCCESS)
 			{
-				logToFile(
+				logInfo(
 					"Failed to read registry value '%ls' in '%s\\%s' "
 					"(does not exist yet? wrong format?)",
 					aDataSource.pathToRead.c_str(),
@@ -1968,7 +1968,7 @@ static bool setFetchValueFromDataSource(
 	{
 		// It may be intentional that syncing was disabled by not defining the
 		// data path to sync from, so report this only in the log file
-		logToFile("Config file ID '%s' referenced in '%s' not found",
+		logInfo("Config file ID '%s' referenced in '%s' not found",
 			aDataSourceKey.c_str(), theBuilder.debugString.c_str());
 		return false;
 	}
@@ -2517,7 +2517,7 @@ static void reload()
 	{
 		if( !monitoredPathExists(aMonitoredFolderSet[i].path) )
 		{
-			logToFile("Config data base path '%ls' does not exist (yet?)",
+			logInfo("Config data base path '%ls' does not exist (yet?)",
 					aMonitoredFolderSet[i].path.c_str());
 			aMonitoredFolderSet.erase(aMonitoredFolderSet.begin() + i);
 			--i;

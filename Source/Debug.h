@@ -10,7 +10,7 @@ extern std::wstring gErrorString;
 extern std::wstring gNoticeString;
 extern bool gHadFatalError;
 void debugPrint(const char* fmt ...);
-void logToFile(const char* fmt ...);
+void logInfo(const char* fmt ...);
 void logNotice(const char* fmt ...);
 void logError(const char* fmt ...);
 void logFatalError(const char* fmt ...);

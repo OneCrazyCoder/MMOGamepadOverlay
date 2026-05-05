@@ -1643,7 +1643,7 @@ EResult editMenuCommand(
 
 void showError(const std::string& theError)
 {
-	logToFile(theError.c_str());
+	logInfo("Error displayed: %s", theError.c_str());
 
 	MsgBoxData data;
 	data.type = eMsgBoxType_Warning;
@@ -1662,6 +1662,8 @@ void showNotice(
 	const std::string& theNotice,
 	const std::string& theTitle)
 {
+	logInfo("Notice displayed: %s", theNotice.c_str());
+
 	MsgBoxData data;
 	data.type = eMsgBoxType_Notice;
 	data.title = widen(theTitle);

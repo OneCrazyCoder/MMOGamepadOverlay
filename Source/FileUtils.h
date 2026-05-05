@@ -37,6 +37,3 @@ bool writeResourceToFile(
 
 // Deletes given file
 bool deleteFile(const std::wstring& theFileToDelete);
-
-// Returns architecture of given .exe file (or returns false if fails)
-bool getExeArchitecture(const std::wstring& theExePath, bool& theBitWidthIs64);
