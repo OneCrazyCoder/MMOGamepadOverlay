@@ -1088,8 +1088,9 @@ public:
 
 		// Return the previously read-in data for parsing
 		syncDebugPrint(
-			"Read %d bytes from config file\n",
-			mBytesRead[mBufferIdx]);
+			"Read %d bytes from config file %ls\n",
+			mBytesRead[mBufferIdx],
+			aDataSource.pathToRead.c_str());
 		result.assign((char*)&mBuffer[mBufferIdx], mBytesRead[mBufferIdx]);
 
 		// Swap buffer to check for next read

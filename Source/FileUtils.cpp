@@ -5,6 +5,7 @@
 #include "Common.h"
 
 #include <fstream>
+#include <winternl.h>
 
 
 //------------------------------------------------------------------------------
@@ -230,6 +231,110 @@ std::wstring getTempFilePathFor(const std::wstring& theFileToReplace)
 
 	// Append temp file name to temp path
 	return aTargetDir + aTempFileName;
+}
+
+
+std::wstring nativeNTToWin32Path(const std::wstring& theNTPath)
+{
+	// Get all valid drive strings (e.g., "C:\\D:\\")
+	wchar_t aDriveStrings[256];
+	if( !GetLogicalDriveStrings(256, aDriveStrings) )
+		return theNTPath;
+
+	wchar_t* aDriveStr = aDriveStrings;
+	while(*aDriveStr)
+	{// QueryDosDevice requires the drive letter without a trailing backslash
+		wchar_t aDriveLetter[] = { aDriveStr[0], aDriveStr[1], L'\0' };
+		wchar_t aDevicePath[MAX_PATH];
+		
+		if( QueryDosDevice(aDriveLetter, aDevicePath, MAX_PATH) )
+		{
+			const size_t aDevicePathLen = wcslen(aDevicePath);
+			
+			// Check if the NT path starts with this device path, and if so
+			// replace it with the drive letter string
+			if( _wcsnicmp(theNTPath.c_str(), aDevicePath, aDevicePathLen) == 0 )
+			{
+				return std::wstring(aDriveLetter) +
+					theNTPath.substr(aDevicePathLen);
+			}
+		}
+		// Move to the next null-terminated string in the buffer
+		aDriveStr += wcslen(aDriveStr) + 1;
+	}
+
+	return L"";
+}
+
+
+std::wstring getProcessPath(DWORD theProcessID)
+{
+	typedef struct _SYSTEM_PROCESS_ID_INFORMATION
+	{
+		HANDLE ProcessId;
+		UNICODE_STRING ImageName;
+	} SYSTEM_PROCESS_ID_INFORMATION, *PSYSTEM_PROCESS_ID_INFORMATION;
+
+	typedef NTSTATUS (NTAPI *tNtQuerySystemInformation)
+	(
+		SYSTEM_INFORMATION_CLASS SystemInformationClass,
+		PVOID SystemInformation,
+		ULONG SystemInformationLength,
+		PULONG ReturnLength
+	);
+
+	std::wstring result;
+	HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+	if( !ntdll )
+		return result;
+
+	tNtQuerySystemInformation NtQuerySystemInformation =
+		(tNtQuerySystemInformation)
+			GetProcAddress(ntdll, "NtQuerySystemInformation");
+	if( !NtQuerySystemInformation )
+		return result;
+
+	// Start with a reasonable buffer for the path
+	USHORT aBufferSize = 512; 
+	SYSTEM_PROCESS_ID_INFORMATION spii = { 0 };
+	spii.ProcessId = (HANDLE)theProcessID;
+	spii.ImageName.MaximumLength = aBufferSize;
+	spii.ImageName.Buffer = (PWSTR)malloc(aBufferSize);
+
+	if( !spii.ImageName.Buffer )
+		return result;
+
+	// SystemProcessIdInformation is 0x58 (88)
+	const int SystemProcessIdInformation = 0x58;
+	NTSTATUS aStatus = NtQuerySystemInformation(
+		(SYSTEM_INFORMATION_CLASS)SystemProcessIdInformation, 
+		&spii, 
+		sizeof(spii), 
+		NULL);
+
+	// If the buffer was too small, reallocate and try once more
+	if( aStatus == 0xC0000004 )
+	{// STATUS_INFO_LENGTH_MISMATCH
+		free(spii.ImageName.Buffer);
+		aBufferSize = spii.ImageName.MaximumLength;
+		spii.ImageName.Buffer = (PWSTR)malloc(aBufferSize);
+		aStatus = NtQuerySystemInformation(
+			(SYSTEM_INFORMATION_CLASS)SystemProcessIdInformation, 
+			&spii, 
+			sizeof(spii), 
+			NULL
+		);
+	}
+
+	if( aStatus == 0 )
+	{// STATUS_SUCCESS
+		result = nativeNTToWin32Path(std::wstring(
+			spii.ImageName.Buffer,
+			spii.ImageName.Length / sizeof(WCHAR)));
+	}
+
+	free(spii.ImageName.Buffer);
+	return result;
 }
 
 

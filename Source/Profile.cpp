@@ -66,16 +66,16 @@ const ResourceFile kResTemplateCore =
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	23	},
-	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	20	},
-	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	20	},
+	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	21	},
+	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	21	},
 	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	24	},
 };
 
 const ResourceFile kResTemplateDefault[] =
 {//		dispName			fileName			resID					ver
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	20	},
-	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	20	},
-	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	20	},
+	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	21	},
+	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	21	},
 	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	25	},
 };
 
@@ -2855,7 +2855,7 @@ std::string expandVars(std::string theString)
 		// Extract variable name from tag
 		size_t aVarOpPos = aTagCoords.first + 2;
 		const std::string& aVarName =
-			fetchNextItem(theString, aVarOpPos, "}+-*/?[!~<>=");
+			fetchNextItem(theString, aVarOpPos, "}+-*/?[!~<>=.");
 		const int aVarID = theVarsMap.findIndex(aVarName);
 		if( aVarOpPos < aTagCoords.first + aTagCoords.second &&
 			!aVarName.empty() && aVarID < theVarsMap.size() )

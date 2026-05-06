@@ -25,6 +25,12 @@ bool isValidFolderPath(const std::wstring& thePath);
 // Gets a path to a temporary file that can work with ReplaceFile
 std::wstring getTempFilePathFor(const std::wstring& theFileToReplace);
 
+// Converts from an NT native path to a standard DOS style (C:\ etc) path
+std::wstring nativeNTToWin32Path(const std::wstring& theNTPath);
+
+// Gets process path from a process ID
+std::wstring getProcessPath(DWORD theProcessID);
+
 // Gets last modification time for file with given path
 FILETIME getFileLastModTime(const std::string& theFilePath);
 FILETIME getFileLastModTime(const std::wstring& theFilePath);

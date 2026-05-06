@@ -166,23 +166,15 @@ static void updateTargetAppDir()
 	GetWindowThreadProcessId(sTargetWindowHandle, &aProcessID);
 	if( !aProcessID )
 		return;
-	HANDLE hProcess = OpenProcess(
-		PROCESS_QUERY_LIMITED_INFORMATION, FALSE, aProcessID);
-	if( !hProcess )
+
+	const std::wstring& aProcessPath = getProcessPath(aProcessID);
+	if( aProcessPath.empty() )
 		return;
 
-	DWORD aSize = MAX_PATH;
-	WCHAR aPathW[MAX_PATH];
-	if( !QueryFullProcessImageName(hProcess, 0, aPathW, &aSize) )
-	{
-		CloseHandle(hProcess);
-		return;
-	}
-	const std::string& aDirPath = getFileDir(narrow(aPathW), true);
+	const std::string& aDirPath = getFileDir(narrow(aProcessPath), true);
 	const std::string oldTargetAppDir = Profile::getVariable("TargetAppDir");
-	if( !isSamePath(oldTargetAppDir, aDirPath) )
+	if( !aDirPath.empty() && !isSamePath(oldTargetAppDir, aDirPath) )
 		Profile::setVariable("TargetAppDir", aDirPath, false);
-	CloseHandle(hProcess);
 }
 
 
