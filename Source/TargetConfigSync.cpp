@@ -312,6 +312,7 @@ static ConfigDataParser* sParser;
 static std::wstring sLastWildcardFileSelected;
 static FILETIME sLastChangeDetectedTime;
 static FILETIME sLastTimeWildcardFileSelected;
+static u8 sLoadCount = 0;
 static bool sInvertAxis[eValueSetSubType_Num];
 static bool sInitialized = false;
 static bool sPaused = false;
@@ -330,6 +331,20 @@ static bool sNeedFullReload = false;
 #else
 #define syncDebugPrint(...) ((void)0)
 #endif
+
+// Prevents logging the same message more than once for the same profile, which
+// could cause a repeated endless update to the log if the log is in the same
+// folder as one being monitored for config file changes (i.e. root of game).
+#define logInfoOnce(...) \
+	do { \
+		static u8 sTimeStamp = 0; \
+		if( sTimeStamp != sLoadCount ) \
+		{ \
+			sTimeStamp = sLoadCount; \
+			logInfo(__VA_ARGS__); \
+		} \
+	} while(sAlwaysFalse) // used to "eat" the semicolon for "logInfoOnce();"
+static volatile bool sAlwaysFalse = false; // suppress warning C4127 for above
 
 
 //------------------------------------------------------------------------------
@@ -947,7 +962,7 @@ public:
 			NULL);
 		if( mFileLockHandle == INVALID_HANDLE_VALUE )
 		{
-			logInfo("Failed to find target config file %ls",
+			logInfoOnce("Failed to find target config file %ls",
 				aDataSource.pathToRead.c_str());
 			mErrorEncountered = true;
 			return;
@@ -995,7 +1010,7 @@ public:
 			FILE_FLAG_OVERLAPPED, NULL);
 		if( mFileHandle == INVALID_HANDLE_VALUE )
 		{
-			logInfo("Failed to open target config file %ls",
+			logInfoOnce("Failed to open target config file %ls",
 				aDataSource.pathToRead.c_str());
 			mErrorEncountered = true;
 			return;
@@ -1013,7 +1028,7 @@ public:
 		{
 			if( GetLastError() != ERROR_IO_PENDING )
 			{
-				logInfo("Error reading target config file %ls",
+				logInfoOnce("Error reading target config file %ls",
 					aDataSource.pathToRead.c_str());
 				mErrorEncountered = true;
 			}
@@ -1078,7 +1093,7 @@ public:
 			{
 				if( GetLastError() != ERROR_IO_PENDING )
 				{
-					logInfo("Error reading target config file %ls",
+					logInfoOnce("Error reading target config file %ls",
 						aDataSource.pathToRead.c_str());
 					mErrorEncountered = true;
 					return result;
@@ -1198,7 +1213,7 @@ public:
 	{
 		if( mDoneSearching && !mFoundSourceToRead )
 		{
-			logInfo("No target config file matching path '%s' found",
+			logInfoOnce("No target config file matching path '%s' found",
 				sDataSources[mDataSourceID].pathPattern.c_str());
 		}
 	}
@@ -1418,7 +1433,7 @@ public:
 				setPathToRead(aDataSource, widen(aDataSource.pathPattern));
 			if( !isValidFilePath(aDataSource.pathToRead) )
 			{
-				logInfo("Failed to find target config file '%s'",
+				logInfoOnce("Failed to find target config file '%s'",
 					aDataSource.pathPattern.c_str());
 				mDoneSearching = true;
 				return;
@@ -1444,7 +1459,7 @@ public:
 				0, aDataSource.pathPattern.find('*')), true));
 		if( !isValidFolderPath(mRootPath) )
 		{
-			logInfo("Root folder '%ls\' missing for pattern '%s'",
+			logInfoOnce("Root folder '%ls\' missing for pattern '%s'",
 				mRootPath.c_str(),
 				aDataSource.pathPattern.c_str());
 			mDoneSearching = true;
@@ -1591,7 +1606,7 @@ public:
 		if( RegOpenKeyEx(aRootKey, mRootPath.c_str(), 0,
 				KEY_READ | KEY_WRITE, &aSearchStartHKey) != ERROR_SUCCESS )
 		{
-			logInfo(
+			logInfoOnce(
 				"Couldn't open System Registry key '%s\\%s'",
 				aRootKeyName.c_str(),
 				aSearchStartPath.c_str());
@@ -1611,7 +1626,7 @@ public:
 				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
 			if( aDataSize == 0 )
 			{
-				logInfo(
+				logInfoOnce(
 					"Failed to read registry value '%ls' in '%s\\%s'",
 					aDataSource.pathToRead.c_str(),
 					aRootKeyName.c_str(),
@@ -1629,7 +1644,7 @@ public:
 					&mValueBuf[0], &aDataSize)
 						!= ERROR_SUCCESS)
 			{
-				logInfo(
+				logInfoOnce(
 					"Failed to read registry value '%ls' in '%s\\%s' "
 					"(does not exist yet? wrong format?)",
 					aDataSource.pathToRead.c_str(),
@@ -2101,7 +2116,7 @@ static bool setFetchValueFromDataSource(
 	{
 		// It may be intentional that syncing was disabled by not defining the
 		// data path to sync from, so report this only in the log file
-		logInfo("Config file ID '%s' referenced in '%s' not found",
+		logInfoOnce("Config file ID '%s' referenced in '%s' not found",
 			aDataSourceKey.c_str(), theBuilder.debugString.c_str());
 		return false;
 	}
@@ -2649,7 +2664,7 @@ static void reload()
 	{
 		if( !monitoredPathExists(aMonitoredFolderSet[i].path) )
 		{
-			logInfo("Config data base path '%ls' does not exist (yet?)",
+			logInfoOnce("Config data base path '%ls' does not exist (yet?)",
 					aMonitoredFolderSet[i].path.c_str());
 			aMonitoredFolderSet.erase(aMonitoredFolderSet.begin() + i);
 			--i;
@@ -2744,6 +2759,7 @@ static void reload()
 void load()
 {
 	DBG_ASSERT(!sInitialized);
+	++sLoadCount;
 	sLastWildcardFileSelected = widen(Profile::getStr(
 		kTargetConfigSettingsSectionName,
 		kLastFileSelectedPropertyName));
