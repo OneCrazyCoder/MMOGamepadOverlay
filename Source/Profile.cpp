@@ -5,6 +5,8 @@
 #include "Profile.h"
 
 #include "Dialogs.h"
+#include "TargetApp.h"
+
 #include "Resources/resource.h"
 
 #include <fstream>
@@ -2526,10 +2528,25 @@ int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 			expandVars(aSettings.autoLaunchAppParams);
 		aSettings.autoQuitWithTargetApp =
 			expandVars(aSettings.autoQuitWithTargetApp);
-		Dialogs::targetAppPath(
-			aSettings.autoLaunchAppPath,
-			aSettings.autoLaunchAppParams,
-			aSettings.autoQuitWithTargetApp);
+		// Don't ask about auto-launching an app when already have one active
+		if( TargetApp::targetAppActive() )
+		{
+			aSettings.autoLaunchAppPath.clear();
+		}
+		else if( Dialogs::yesNoPrompt(
+				"Would you like to automatically launch target game's "
+				"launcher/patcher when loading this profile at startup?",
+				"Auto-Launch Target App") == eResult_Yes )
+		{
+			Dialogs::targetAppPath(
+				aSettings.autoLaunchAppPath,
+				aSettings.autoLaunchAppParams,
+				aSettings.autoQuitWithTargetApp);
+		}
+		else
+		{
+			aSettings.autoLaunchAppPath.clear();
+		}
 
 		writeBaseGameSettingsChanges(
 			sKnownFiles[sNewBaseProfileIdx],

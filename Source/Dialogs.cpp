@@ -1514,25 +1514,9 @@ void targetAppPath(
 	std::string& theCommandLineParams,
 	std::string& theAutoQuit)
 {
-	// Don't ask about auto-launching an app when already have one active
-	if( TargetApp::targetAppActive() )
-	{
-		thePath.clear();
-		return;
-	}
-
 	sDialogEditText = &theCommandLineParams;
 
 	InputDispatcher::forceReleaseHeldKeys();
-
-	if( yesNoPrompt(
-			"Would you like to automatically launch target game's "
-			"launcher/patcher when loading this profile at startup?",
-			"Auto-Launch Target App") != eResult_Yes )
-	{
-		thePath.clear();
-		return;
-	}
 
 	const std::wstring& anInitDir = widen(getFileDir(thePath));
 	const std::wstring& aFileName = widen(getFileName(thePath));
@@ -1572,8 +1556,7 @@ void targetAppPath(
 		mainLoopTimeSkip();
 		showNotice(
 			"No target app path selected.\n"
-			"You can manually edit the .ini file [System]AutoLaunchApp= "
-			"entry to add one later.",
+			"You can use 'File->Re-launch Target Game' to set this up later.",
 			"Auto-Launch Target App");
 		thePath.clear();
 	}

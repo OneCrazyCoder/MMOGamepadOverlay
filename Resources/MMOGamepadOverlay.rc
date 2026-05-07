@@ -333,8 +333,9 @@ BEGIN
     POPUP "&File"
     BEGIN
         MENUITEM "Change &Profile",             ID_FILE_PROFILE
-        MENUITEM SEPARATOR
         MENUITEM "Select &Character Config",    ID_FILE_CHARACTERCONFIGFILE
+        MENUITEM SEPARATOR
+        MENUITEM "Re-&launch Target Game",      ID_FILE_RELAUNCHAPP
         MENUITEM SEPARATOR
         MENUITEM "E&xit",                       ID_FILE_EXIT
     END

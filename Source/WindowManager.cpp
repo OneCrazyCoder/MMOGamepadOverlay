@@ -280,6 +280,12 @@ static LRESULT CALLBACK mainWindowProc(
 			else
 				TargetConfigSync::promptUserForSyncFileToUse();
 			return 0;
+		case ID_FILE_RELAUNCHAPP:
+			if( sWindowInModalMode || sModalUpdateRunning )
+				PostMessage(theWindow, theMessage, wParam, lParam);
+			else
+				TargetApp::reLaunch();
+			return 0;
 		case ID_EDIT_UILAYOUT:
 			if( sWindowInModalMode || sModalUpdateRunning )
 				PostMessage(theWindow, theMessage, wParam, lParam);

@@ -297,7 +297,7 @@ std::wstring getProcessPath(DWORD theProcessID)
 	// Start with a reasonable buffer for the path
 	USHORT aBufferSize = 512; 
 	SYSTEM_PROCESS_ID_INFORMATION spii = { 0 };
-	spii.ProcessId = (HANDLE)theProcessID;
+	spii.ProcessId = (HANDLE)(ULONG_PTR)theProcessID;
 	spii.ImageName.MaximumLength = aBufferSize;
 	spii.ImageName.Buffer = (PWSTR)malloc(aBufferSize);
 

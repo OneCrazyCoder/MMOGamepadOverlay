@@ -95,6 +95,7 @@ std::string toString(s8 theValue);
 std::string toString(u32 theValue);
 std::string toString(u16 theValue);
 std::string toString(u8 theValue);
+std::string toString(bool theValue);
 std::string toString(float theValue);
 std::string toString(double theValue);
 std::string toString(FILETIME theValue);

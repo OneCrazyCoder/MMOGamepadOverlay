@@ -703,9 +703,45 @@ void autoLaunch()
 	if( sHaveTriedAutoLaunch )
 		return;
 	sHaveTriedAutoLaunch = true;
+	if( !kConfig.targetAppPath.empty() )
+		reLaunch();
+}
 
+
+void reLaunch()
+{
 	if( kConfig.targetAppPath.empty() )
-		return;
+	{
+		if( Dialogs::yesNoPrompt(
+				"No auto-launch application set for loaded profile. "
+				"Would you like to add one for this profile?",
+				"No Target Application Set") == eResult_Yes )
+		{
+			std::string aQuitParam = toString(kConfig.autoCloseWithTargetApp);
+			Dialogs::targetAppPath(
+				kConfig.targetAppPath,
+				kConfig.targetAppParams,
+				aQuitParam);
+			if( kConfig.targetAppPath.empty() )
+				return;
+			kConfig.autoCloseWithTargetApp = stringToBool(aQuitParam);
+			Profile::setStr(
+				"System", "AutoLaunchApp", kConfig.targetAppPath);
+			Profile::setStr(
+				"System", "AutoLaunchAppParams", kConfig.targetAppParams);
+			Profile::setStr(
+				"System", "QuitWhenAutoLaunchAppDoes", aQuitParam);
+
+		}
+		else
+		{
+			return;
+		}
+	}
+
+	if( sTargetAppProcess )
+		CloseHandle(sTargetAppProcess);
+	sTargetAppProcess = NULL;
 
 	// Convert given path into a non-const wide string for CreateProcess
 	std::string aPath = kConfig.targetAppPath;

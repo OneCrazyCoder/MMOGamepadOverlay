@@ -68,6 +68,12 @@ inline std::string toString(u8 theValue)
 }
 
 
+inline std::string toString(bool theValue)
+{
+	return theValue ? "true" : "false";
+}
+
+
 inline std::string toString(FILETIME theValue)
 {
 	char aBuf[24];

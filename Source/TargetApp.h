@@ -22,6 +22,7 @@ void loadProfileChanges();
 
 // Attempt to launch the target application if one was specified
 void autoLaunch();
+void reLaunch();
 
 // Clean up any state and handles
 void cleanup();
