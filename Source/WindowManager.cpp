@@ -137,12 +137,6 @@ static PGetWindowDisplayAffinity sGetWindowDisplayAffinityFunc = NULL;
 // Local Functions
 //------------------------------------------------------------------------------
 
-static inline bool isATopMostWindow(HWND theWindow)
-{
-	return (GetWindowLongPtr(theWindow, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-}
-
-
 DWORD WINAPI modalModeTimerThread(LPVOID lpParam)
 {
 	HANDLE hTimer = *(HANDLE*)lpParam;
@@ -999,7 +993,7 @@ static void drawCompositeOverlayWindow()
 	if( !IsWindowVisible(sSystemOverlayWindow) )
 	{
 		ShowWindow(sSystemOverlayWindow, SW_SHOWNOACTIVATE);
-		restoreOverlayZPos();
+		setOverlaysToTopZ();
 	}
 }
 
@@ -1515,7 +1509,7 @@ void update()
 	if( windowReorderNeeded )
 	{
 		std::sort(sOverlayWindowOrder.begin(), sOverlayWindowOrder.end());
-		restoreOverlayZPos();
+		setOverlaysToTopZ();
 	}
 
 	if( sToolbarWindow && !sHidden && !IsWindowVisible(sToolbarWindow) )
@@ -1766,7 +1760,7 @@ void resetOverlays()
 		restoreMinimizedOverlays();
 	else
 		minimizeOverlays();
-	restoreOverlayZPos();
+	setOverlaysToTopZ();
 }
 
 
@@ -1784,103 +1778,28 @@ void showOverlays()
 		if( sOverlayWindows[i].fadeState == eFadeState_Minimized )
 			sOverlayWindows[i].fadeState = eFadeState_Hidden;
 	}
+	setOverlaysToTopZ();
 }
 
 
-void setTargetWindowIsActive(bool isActive)
+void setOverlaysToTopZ()
 {
-	if( isActive )
+	for(int i = 0, end = intSize(sOverlayWindowOrder.size()); i < end; ++i)
 	{
-		showOverlays();
-		restoreOverlayZPos();
+		const int anOverlayID = sOverlayWindowOrder[i].id;
+		OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
+		if( !aWindow.handle )
+			continue;
+		SetWindowPos(
+			aWindow.handle, HWND_TOPMOST,
+			0, 0, 0, 0,
+			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
 	}
-	else
+	if( sToolbarWindow )
 	{
-		if( sUseSingleOverlayWindow )
-			hideOverlays();
-		else
-			restoreOverlayZPos();
-	}
-}
-
-
-void restoreOverlayZPos()
-{
-	if( sUseSingleOverlayWindow && sSystemOverlayWindow )
-	{// Composite overlay mode - just keep single window as TOPMOST
-		SetWindowPos(sSystemOverlayWindow, HWND_TOPMOST, 0, 0, 0, 0,
-			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW);
-	}
-	else if( !sOverlayWindowOrder.empty() )
-	{
-		HWND hTopOverlay =
-			sOverlayWindows[sOverlayWindowOrder.back().id].handle;
-		HWND hTarget = TargetApp::targetWindowHandle();
-		UINT aFlags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-			(sOverlayWindows[sOverlayWindowOrder.back().id].visible
-				? SWP_SHOWWINDOW : SWP_HIDEWINDOW);
-		if( !hTarget )
-		{// Desktop mode - just set top overlay to TOPMOST
-			SetWindowPos(hTopOverlay, HWND_TOPMOST, 0, 0, 0, 0, aFlags);
-		}
-		else
-		{// Place in next spot just above target window (and lower overlays)
-			HWND hAboveTarget = GetWindow(hTarget, GW_HWNDPREV);
-
-			// Special case: A non-topmost FSW target will be drawn an top of
-			// all non-topmost windows, so it should be treated as if it is
-			// a TOPMOST window at the bottom of the actual TOPMOST windows,
-			// and any non-TOPMOSTs above it should be skipped over.
-			bool targetIsTopMost = isATopMostWindow(hTarget);
-			const bool targetIsFSW = TargetApp::targetWindowIsFullScreen();
-			if( targetIsFSW && !targetIsTopMost )
-			{
-				while(hAboveTarget && !isATopMostWindow(hAboveTarget))
-					hAboveTarget = GetWindow(hAboveTarget, GW_HWNDPREV);
-				targetIsTopMost = true;
-			}
-
-			// If spot above target window is other overlays, in order, then
-			// find the next window above those to be hAboveTarget
-			for(int i = 0, end = intSize(sOverlayWindowOrder.size())-1;
-				i < end; ++i)
-			{
-				if( hAboveTarget ==
-						sOverlayWindows[sOverlayWindowOrder[i].id].handle )
-				{
-					hAboveTarget = GetWindow(hAboveTarget, GW_HWNDPREV);
-					continue;
-				}
-				break;
-			}
-			
-			if( hAboveTarget != hTopOverlay )
-			{// Move top overlay to just below the window above the target
-				if( hAboveTarget == NULL )
-					hAboveTarget = HWND_TOPMOST;
-				SetWindowPos(hTopOverlay, hAboveTarget, 0, 0, 0, 0, aFlags);
-			}
-		}
-
-		// Now set all other overlays to just below the top-most overlay,
-		// in order going back from toward bottom-most overlay just above taget
-		for(int i = intSize(sOverlayWindowOrder.size())-2; i >= 0; --i)
-		{
-			const int anOverlayID = sOverlayWindowOrder[i].id;
-			OverlayWindow& aWindow = sOverlayWindows[anOverlayID];
-			if( GetWindow(hTopOverlay, GW_HWNDNEXT) != aWindow.handle )
-			{
-				SetWindowPos(aWindow.handle, hTopOverlay, 0, 0, 0, 0,
-					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-					(aWindow.visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
-			}
-			hTopOverlay = aWindow.handle;
-		}
-	}
-
-	if( sToolbarWindow && IsWindowVisible(sToolbarWindow) )
-	{
-		SetWindowPos(sToolbarWindow, HWND_TOPMOST, 0, 0, 0, 0,
+		SetWindowPos(
+			sToolbarWindow, HWND_TOPMOST,
+			0, 0, 0, 0,
 			SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE);
 	}
 }
@@ -1889,24 +1808,6 @@ void restoreOverlayZPos()
 bool overlaysAreHidden()
 {
 	return sHidden;
-}
-
-
-bool anyOverlaysVisible()
-{
-	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
-	{
-		if( sOverlayWindows[i].visible )
-			return true;
-	}
-	if( sToolbarWindow &&
-		IsWindowVisible(sToolbarWindow) &&
-		!IsIconic(sToolbarWindow) )
-	{
-		return true;
-	}
-
-	return false;
 }
 
 

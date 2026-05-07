@@ -199,16 +199,17 @@ static void restoreTargetWindow()
 		targetDebugPrint("Restoring target window to active window\n");
 		SetForegroundWindow(sTargetWindowHandle);
 		sLastWindowStatus = eWindowStatus_Active;
-		if( sTargetWindowRect.right > sTargetWindowRect.left &&
-			sTargetWindowRect.bottom > sTargetWindowRect.top )
-		{
-			WindowManager::resize(sTargetWindowRect, true);
-		}
-		updateTargetAppDir();
 		sNextCheckDelay = 0;
 		sRepeatCheckTime = 500;
 		sNextCheck = eCheck_WindowZOrder;
 	}
+
+	if( sTargetWindowRect.right > sTargetWindowRect.left &&
+		sTargetWindowRect.bottom > sTargetWindowRect.top )
+	{
+		WindowManager::resize(sTargetWindowRect, true);
+	}
+	updateTargetAppDir();
 }
 
 
@@ -255,7 +256,7 @@ static void checkWindowExists()
 	sLastWindowStatus = eWindowStatus_Active;
 	sNextCheck = eCheck_WindowPosition;
 	sRepeatCheckTime = 0;
-	WindowManager::setTargetWindowIsActive(true);
+	WindowManager::showOverlays();
 	WindowManager::showTargetWindowFound();
 	updateTargetAppDir();
 
@@ -275,7 +276,7 @@ static void checkWindowActive()
 		{
 			targetDebugPrint("Target window became active - re-syncing!\n");
 			sLastWindowStatus = eWindowStatus_Active;
-			WindowManager::setTargetWindowIsActive(true);
+			WindowManager::showOverlays();
 		}
 		return;
 	}
@@ -319,7 +320,7 @@ static void checkWindowActive()
 		targetDebugPrint(
 			"Re-ordering/hiding overlays for background target window\n");
 		sLastWindowStatus = eWindowStatus_Background;
-		WindowManager::setTargetWindowIsActive(false);
+		WindowManager::hideOverlays();
 	}
 }
 
@@ -367,9 +368,14 @@ static void checkWindowClosed()
 static void checkWindowZOrder()
 {
 	if( !sTargetWindowHandle ||
+		sTargetWindowHandle != GetForegroundWindow() ||
 		IsIconic(sTargetWindowHandle) ||
-		!WindowManager::anyOverlaysVisible() )
-	{ return; }
+		WindowManager::overlaysAreHidden() )
+		return;
+
+	// If Target isn't a TOPMOST, it must be beneath overlays
+	if( !(GetWindowLongPtr(sTargetWindowHandle, GWL_EXSTYLE) & WS_EX_TOPMOST) )
+		return;
 
 	// Loop through windows above target and check for any overlay
 	// The overlays are all lumped together so if any are above, all should be
@@ -390,13 +396,14 @@ static void checkWindowZOrder()
 
 	// Did not find any overlay windows above target!
 	targetDebugPrint("Moving overlays back over top of target window\n");
-	WindowManager::restoreOverlayZPos();
+	WindowManager::setOverlaysToTopZ();
 }
 
 
 static void checkWindowPosition()
 {
 	if( !sTargetWindowHandle ||
+		sTargetWindowHandle != GetForegroundWindow() ||
 		IsIconic(sTargetWindowHandle) )
 	{ return; }
 

@@ -72,10 +72,8 @@ void resize(RECT theNewTargetRect, bool isTargetAppWindow);
 void resetOverlays();
 void hideOverlays();
 void showOverlays();
-void setTargetWindowIsActive(bool);
-void restoreOverlayZPos();
+void setOverlaysToTopZ();
 bool overlaysAreHidden();
-bool anyOverlaysVisible(); // even if not "hidden", possibly none requested
 SIZE overlayTargetSize();
 RECT overlayClipRect(); // relative to main screen
 
