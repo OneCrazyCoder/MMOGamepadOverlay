@@ -300,7 +300,7 @@ static std::vector<DataSource> sDataSources;
 static std::vector<ConfigFileFolder> sFolders;
 static std::vector<SystemRegistryKey> sRegKeys;
 static std::vector<SyncVariable> sVariables;
-static std::vector<double> sValues;
+static std::vector<std::string> sValues;
 static std::vector<u16> sValueSets;
 static BitVector<32> sDataSourcesToCheck;
 static BitVector<32> sDataSourcesToRead;
@@ -405,11 +405,11 @@ protected:
 		{
 			const ValueLink& aValueLink =
 				sDataSources[mDataSourceID].values.vals()[aValueLinkID];
-			sValues[aValueLink.valueIdx] = stringToDouble(theValue);
+			sValues[aValueLink.valueIdx] = theValue;
 			sValueSetsChanged.set(aValueLink.setIdx);
 			mUnfound.reset(aValueLinkID);
-			syncDebugPrint("Read path %s value as %f\n",
-				thePath.c_str(), sValues[aValueLink.valueIdx]);
+			syncDebugPrint("Read path %s value as %s\n",
+				thePath.c_str(), sValues[aValueLink.valueIdx].c_str());
 		}
 		return mUnfound.none();
 	}
@@ -1383,7 +1383,8 @@ protected:
 		{
 			// Just log the file found in case new one created later at runtime
 			syncDebugPrint(
-				"Selected only source found for wildcard match: %s\n",
+				"Selected only source found for wildcard match and timestamp: "
+				"%s\n",
 				narrow(mCandidateNames[0]).c_str());
 			sLastWildcardFileSelected = mCandidateNames[0];
 		}
@@ -2152,7 +2153,7 @@ static bool setConfigValueLinks(
 		sValues.resize(sValues.size() +
 			kValueSetLastIdx[theValueSetType] -
 			kValueSetFirstIdx[theValueSetType] + 1,
-			std::numeric_limits<double>::quiet_NaN());
+			std::string());
 	}
 	// Request fetch all related values for given function & value set
 	bool isValidResult = true;
@@ -2254,13 +2255,13 @@ static SyncVariable parseSyncVariableFunc(
 
 
 static double anchorTypeToSubTypeValue(
-	const double* theValArray,
+	const std::string* theValArray,
 	EValueSetSubType theSubType)
 {
 	// Anchor Type A - used by AOA
 	// This type goes clockwise from TL in a spiral ending at center,
 	// and it affects both alignment and pivot point
-	if( !_isnan(theValArray[eValueSetSubType_AnchorTypeA]) )
+	if( theValArray[eValueSetSubType_AnchorTypeA].empty() )
 	{
 		//	  L-T  C-T  R-T  R-C  R-B  C-B  L-B  L-C  C-C
 		static const double kTypeAAlignX[9] =
@@ -2268,7 +2269,7 @@ static double anchorTypeToSubTypeValue(
 		static const double kTypeAAlignY[9] =
 			{ 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 0.5, 0.5 };
 		const u32 anAnchorType =
-			u32(int(theValArray[eValueSetSubType_AnchorTypeA]));
+			stringToU32(theValArray[eValueSetSubType_AnchorTypeA]);
 		if( anAnchorType < 9 )
 		{
 			switch(theSubType)
@@ -2291,11 +2292,11 @@ static double anchorTypeToSubTypeValue(
 
 
 static double getSubTypeValue(
-	const double* theValArray,
+	std::string* theValArray,
 	EValueSetSubType theSubType)
 {
-	double result = theValArray[theSubType];
-	const bool wasFound = !_isnan(result);
+	double result = stringToDouble(theValArray[theSubType]);
+	const bool wasFound = !theValArray[theSubType].empty();
 	if( !wasFound ) result = 0;
 
 	switch(theSubType)
@@ -2355,14 +2356,14 @@ static std::string getValueString(
 	// Get an array pointer to the value that EValueSetSubType(0) would return
 	// (note this means v could end up pointing before the beginning of the
 	// array, but rest of logic should not be dereferencing v[0] in that case!)
-	double* v = &sValues[sValueSets[theValueSet]];
+	std::string* v = &sValues[sValueSets[theValueSet]];
 	v -= kValueSetFirstIdx[funcToValueSetType(theFunction)];
 	std::string result;
 	result.reserve(32);
 	switch(theFunction)
 	{
 	case eValueFunc_Base:
-		result = toString(getSubTypeValue(v, eValueSetSubType_Base));
+		result = *v;
 		break;
 	case eValueFunc_PosX:
 		{
@@ -2512,7 +2513,6 @@ static void reload()
 	if( sInitialized || sPaused )
 		cleanup();
 	sNeedFullReload = false;
-	sNeedVarChangeReload = false;
 
 	GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
 	TargetConfigSyncBuilder aBuilder;
@@ -2680,7 +2680,7 @@ static void reload()
 	}
 
 	// Load initial values and log timestamps
-	while(!sPaused && !gShutdown &&
+	while(!sPaused && !gShutdown && !sNeedVarChangeReload &&
 		  (sDataSourcesToCheck.any() ||
 		   sDataSourcesToRead.any() ||
 		   sValueSetsChanged.any() ||
@@ -2744,11 +2744,12 @@ static void reload()
 	if( sVariables.size() < sVariables.capacity() )
 		std::vector<SyncVariable>(sVariables).swap(sVariables);
 	if( sValues.size() < sValues.capacity() )
-		std::vector<double>(sValues).swap(sValues);
+		std::vector<std::string>(sValues).swap(sValues);
 	if( sValueSets.size() < sValueSets.capacity() )
 		std::vector<u16>(sValueSets).swap(sValueSets);
 
 	sInitialized = true;
+	sNeedVarChangeReload = false;
 }
 
 
@@ -2758,6 +2759,7 @@ static void reload()
 
 void load()
 {
+	// Initial load for first profile
 	DBG_ASSERT(!sInitialized);
 	++sLoadCount;
 	sLastWildcardFileSelected = widen(Profile::getStr(
@@ -2766,15 +2768,24 @@ void load()
 	sLastTimeWildcardFileSelected = stringToFileTime(Profile::getStr(
 		kTargetConfigSettingsSectionName,
 		kLastTimeFileSelectedPropertyName));
+	// Use full main size initially for W and H for profiles that use them
+	// for detecting which variables to read
+	Profile::setVariable(
+		"W", toString(GetSystemMetrics(SM_CXSCREEN)), true);
+	Profile::setVariable(
+		"H", toString(GetSystemMetrics(SM_CYSCREEN)), true);
+	Profile::clearChangedSections();
 	reload();
 	// Catch cases where sync variable affects sync configurations themselves
 	loadProfileChanges();
 	while( sNeedVarChangeReload )
 	{
 		Profile::clearChangedSections();
+		sNeedVarChangeReload = false;
 		reload();
 		loadProfileChanges();
 	}
+	Profile::clearChangedSections();
 }
 
 
@@ -2848,7 +2859,6 @@ void update()
 		// This is set when a variable was changed that is used by the
 		// Target Config Sync properties themselves
 		reload();
-		return;
 	}
 
 	// Continue any active parsing already in progress
