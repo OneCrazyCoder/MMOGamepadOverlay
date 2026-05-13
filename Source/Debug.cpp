@@ -102,10 +102,11 @@ void logNotice(const char* fmt ...)
 	const std::string& aNoticeString = vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole(aNoticeString);
-	logToFile(aNoticeString);
 	// Store most recent notice, as past ones may no longer matter
 	gNoticeString = widen(aNoticeString);
+
+	logToConsole(aNoticeString);
+	logToFile(aNoticeString);
 }
 
 
@@ -113,35 +114,36 @@ void logError(const char* fmt ...)
 {
 	va_list argList;
 	va_start(argList, fmt);
-	const std::string& anErrorString =
-		std::string("ERROR: ") + vformat(fmt, argList);
+	const std::string& anErrorString = vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole(anErrorString);
-	logToFile(anErrorString);
-	// Store the *first* error logged, as later errors are likely
+	// Store just the *first* error logged, as later errors are likely
 	// to have stemmed from the first error anyway.
 	if( gErrorString.empty() )
 		gErrorString = widen(anErrorString);
+
+	logToConsole(std::string("ERROR: ") + anErrorString);
+	logToFile(std::string("ERROR: ") + anErrorString);
 }
 
 
 void logFatalError(const char* fmt ...)
 {
-	// For first fatal error encountered, overwrite sErrorString
-	if( !gHadFatalError )
-		gErrorString.clear();
 
 	va_list argList;
 	va_start(argList, fmt);
-	const std::string& anErrorString =
-		std::string("!!! FATAL ERROR !!!: ") + vformat(fmt, argList);
+	const std::string& anErrorString = vformat(fmt, argList);
 	va_end(argList);
 
-	logToConsole(anErrorString);
-	logToFile(anErrorString);
+	// For first fatal error encountered, overwrite gErrorString if it
+	// is from a non-fatal error, otherwise leave it as first error
+	if( !gHadFatalError )
+		gErrorString.clear();
 	if( gErrorString.empty() )
 		gErrorString = widen(anErrorString);
+
+	logToConsole(std::string("!!! FATAL ERROR !!!: ") + anErrorString);
+	logToFile(std::string("!!! FATAL ERROR !!!: ") + anErrorString);
 
 	gHadFatalError = true;
 }

@@ -319,7 +319,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		MessageBox(
 			WindowManager::mainHandle(),
 			gErrorString.c_str(),
-			L"MMO Gamepad Overlay Error",
+			L"MMO Gamepad Overlay: Critical Error",
 			MB_OK | MB_ICONERROR);
 		WindowManager::destroyAll(hInstance);
 	}
