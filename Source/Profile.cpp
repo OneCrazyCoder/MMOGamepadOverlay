@@ -764,7 +764,7 @@ static void setPropertyInINI(
 
 static void initSectionMap()
 {
-	DBG_ASSERT(sSectionsMap.empty());
+	sSectionsMap.clear();
 	confirmSafeToWriteToMap();
 	// Make sure "variables" section is always section 0
 	sSectionsMap.setValue(kVariablesSectionName, PropertyMap());
@@ -2603,11 +2603,9 @@ static int queryUserForProfileID()
 // Global Functions
 //------------------------------------------------------------------------------
 
-void loadCore()
+void init()
 {
-	// Should only be run once at app startup, otherwise core will be
-	// loaded alongside normal ::load()
-	initSectionMap();
+	// Should only be run once at app startup
 	ProfileFile aCoreFile = profileNameToFile(kCoreProfileName);
 	if( !fileExists(aCoreFile) )
 	{// Core .ini file not found!
@@ -2630,13 +2628,6 @@ void loadCore()
 			}
 		}
 	}
-	if( hadFatalError() || gShutdown )
-		return;
-
-	parseINI(
-		readProfileCallback,
-		aCoreFile.path,
-		eParseMode_Sections);
 }
 
 
@@ -2686,7 +2677,6 @@ void load()
 	}
 
 	logInfo("Loading profile '%s'", sProfiles[aProfileIDToLoad].name.c_str());
-	sSectionsMap.clear();
 	initSectionMap();
 	// Prepare for reading known issues
 	sNeedShowKnownIssues = false;

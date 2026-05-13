@@ -170,19 +170,6 @@ void mainLoopTimeSkip()
 }
 
 
-void updateFrameTiming()
-{
-	const int aFrameTime =
-		Profile::getInt("System", "FrameTime", gAppTargetFrameTime);
-	if( aFrameTime != gAppTargetFrameTime )
-	{
-		timeEndPeriod(gAppTargetFrameTime / 2);
-		gAppTargetFrameTime = max(1, aFrameTime);
-		timeBeginPeriod(gAppTargetFrameTime / 2);
-	}
-}
-
-
 //------------------------------------------------------------------------------
 // Application entry point - WinMain
 //------------------------------------------------------------------------------
@@ -195,10 +182,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	_CrtSetDbgFlag (_CRTDBG_ALLOC_MEM_DF|_CRTDBG_LEAK_CHECK_DF);
 	#endif
 
-	// Get high-resolution system timer
-	QueryPerformanceFrequency(&sSystemTimeFreq);
-	sSystemTimeFreq.QuadPart /= 1000; // milliseconds instead of seconds
-
 	HANDLE hMutex = CreateMutex(NULL, TRUE, L"MMOGamepadOverlay");
 	if( GetLastError() == ERROR_ALREADY_EXISTS )
 	{
@@ -209,15 +192,18 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		return 0;
 	}
 
+	// Get high-resolution system timer and note app start time
+	QueryPerformanceFrequency(&sSystemTimeFreq);
+	sSystemTimeFreq.QuadPart /= 1000; // milliseconds instead of seconds
+	sAppStartTime = sUpdateStartTime = getSystemTime();
+
 	// Initialize gamepad module so can use it in initial dialogs
 	Gamepad::init();
 
-	// Load core profile to get system settings
-	Profile::loadCore();
+	// Initialize Profile module (may display license agreement)
+	Profile::init();
 
-	// Initiate frame timing
-	timeBeginPeriod(gAppTargetFrameTime / 2);
-	sAppStartTime = sUpdateStartTime = getSystemTime();
+	// Prepare to auto-load or prompt to load initial profile
 	bool wantLoadProfile = true;
 
 	while(wantLoadProfile && !gShutdown && !hadFatalError())
@@ -257,10 +243,14 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		if( !gShutdown && !hadFatalError() )
 			TargetApp::autoLaunch();
 
+		// Initiate frame timing
+		gAppTargetFrameTime = Profile::getInt("System", "FrameTime", 15);
+		timeBeginPeriod(gAppTargetFrameTime / 2);
+
 		// Main loop
 		while(!gShutdown && gProfileToLoad.empty() && !hadFatalError())
 		{
-			// Check if need to react to changed Profile data
+			// Check if need to react to changed Profile data (via variables)
 			if( !Profile::changedSections().empty() )
 			{
 				TargetConfigSync::loadProfileChanges();
@@ -272,7 +262,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 				TargetApp::loadProfileChanges();
 				WindowPainter::loadProfileChanges();
 				WindowManager::loadProfileChanges();
-				updateFrameTiming();
 				Profile::clearChangedSections();
 				InputMap::resetChangedHotspots();
 			}
@@ -286,6 +275,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 			// Yield via Sleep() so sent input can be processed by target
 			mainLoopSleep();
 		}
+
+		timeEndPeriod(gAppTargetFrameTime / 2);
 
 		Profile::saveChangesToFile();
 
@@ -301,7 +292,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 			WindowManager::destroyAll(hInstance);
 		wantLoadProfile = !gProfileToLoad.empty();
 	}
-	timeEndPeriod(gAppTargetFrameTime / 2);
 
 	// Report performance
 	if( !hadFatalError() && gAppRunTime > 0 )

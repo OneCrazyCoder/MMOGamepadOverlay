@@ -12,7 +12,7 @@ bool gShutdown = false;
 std::string gProfileToLoad; // empty = auto-load or prompt user
 int gAppRunTime = 0;
 int gAppFrameTime = 0;
-int gAppTargetFrameTime = 14; // allows >= 60 fps without taxing CPU
+int gAppTargetFrameTime = 15; // allows >= 60 fps without taxing CPU
 BitVector<256> gFiredSignals;
 BitVector<32> gVisibleOverlays;
 BitVector<32> gRefreshOverlays;

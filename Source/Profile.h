@@ -45,8 +45,8 @@ public:
 };
 #endif
 
-// Load (and/or generate) .ini files for core profile data only
-void loadCore();
+// Initialize module - may display license agreement and generate core.ini
+void init();
 
 // Load (and/or generate) .ini files for current profile
 void load();
