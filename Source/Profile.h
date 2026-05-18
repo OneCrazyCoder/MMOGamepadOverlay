@@ -45,7 +45,7 @@ public:
 };
 #endif
 
-// Initialize module - may display license agreement and generate core.ini
+// Initialize module - may display license agreement and/or profile select
 void init();
 
 // Load (and/or generate) .ini files for current profile

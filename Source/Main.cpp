@@ -200,13 +200,11 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	// Initialize gamepad module so can use it in initial dialogs
 	Gamepad::init();
 
-	// Initialize Profile module (may display license agreement)
+	// Initialize Profile module to set up auto-load, prompt for manual load,
+	// or possibly initialize first-time run with license agreement
 	Profile::init();
 
-	// Prepare to auto-load or prompt to load initial profile
-	bool wantLoadProfile = true;
-
-	while(wantLoadProfile && !gShutdown && !hadFatalError())
+	while(!gProfileToLoad.empty() && !gShutdown && !hadFatalError())
 	{
 		// Load requested profile
 		Profile::load();
@@ -290,7 +288,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		LayoutEditor::cleanup();
 		if( !hadFatalError() )
 			WindowManager::destroyAll(hInstance);
-		wantLoadProfile = !gProfileToLoad.empty();
 	}
 
 	// Report performance
