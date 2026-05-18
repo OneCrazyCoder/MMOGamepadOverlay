@@ -791,46 +791,47 @@ static void addParentCallback(
 		return;
 	if( condense(theName) == "PARENTPROFILE" || condense(theName) == "PARENT" )
 	{
-		int aProfileID = sProfiles.findOrAddIndex(extractProfileName(theValue));
+		int aParentProfileID =
+			sProfiles.findOrAddIndex(extractProfileName(theValue));
 		// Ignore setting core profile as parent - that's assumed anyway
-		if( aProfileID == 0 )
+		if( aParentProfileID == 0 )
 		{
 			sProfiles.vals()[*((int*)theChildProfileIdx)].parent.clear();
 			return;
 		}
-		ProfileData& aProfile = sProfiles.vals()[aProfileID];
-		if( aProfile.path.empty() )
+		ProfileData& aParentProfile = sProfiles.vals()[aParentProfileID];
+		if( aParentProfile.path.empty() )
 		{
 			// Try path with existing spaces first in case manually added
-			aProfile.path = profileNameToFilePath(
-				sProfiles.keys()[aProfileID], false);
-			if( !fileExists(aProfile.path) )
+			aParentProfile.path = profileNameToFilePath(
+				sProfiles.keys()[aParentProfileID], false);
+			if( !fileExists(aParentProfile.path) )
 			{// Check again with spaces replaced by '_'
-				aProfile.path = profileNameToFilePath(
-					sProfiles.keys()[aProfileID], true);
+				aParentProfile.path = profileNameToFilePath(
+					sProfiles.keys()[aParentProfileID], true);
 			}
 		}
-		aProfile.isAParent = true;
+		aParentProfile.isAParent = true;
 		sProfiles.vals()[*((int*)theChildProfileIdx)].parent =
-			sProfiles.keys()[aProfileID];
-		if( !fileExists(aProfile.path) )
+			sProfiles.keys()[aParentProfileID];
+		if( !fileExists(aParentProfile.path) )
 		{// File not found - but maybe referencing a resource base file?
 			const std::string& aCmpName =
-				condense(sProfiles.keys()[aProfileID]);
+				condense(sProfiles.keys()[aParentProfileID]);
 			for(int i = 0; i < ARRAYSIZE(kResTemplateBase); ++i)
 			{
 				if( condense(kResTemplateBase[i].fileName) == aCmpName )
 				{
 					generateResourceFile(kResTemplateBase[i]);
-					sNewBaseProfileIdx = aProfileID;
+					sNewBaseProfileIdx = aParentProfileID;
 					break;
 				}
 			}
 		}
-		if( !fileExists(aProfile.path) )
+		if( !fileExists(aParentProfile.path) )
 		{// File still not found - maybe referencing a resource default file?
 			const std::string& aCmpName =
-				condense(sProfiles.keys()[aProfileID]);
+				condense(sProfiles.keys()[aParentProfileID]);
 			for(int i = 0; i < ARRAYSIZE(kResTemplateDefault); ++i)
 			{
 				if( condense(kResTemplateDefault[i].fileName) == aCmpName )
@@ -840,17 +841,34 @@ static void addParentCallback(
 				}
 			}
 		}
-		if( !fileExists(aProfile.path) )
+		if( !fileExists(aParentProfile.path) )
 		{// File still not found - report error
 			Dialogs::showError(strFormat(
 				"Could not find '%s' Profile's parent: '%s' (%s)",
 				sProfiles.keys()[*((int*)theChildProfileIdx)].c_str(),
 				theValue.c_str(),
-				aProfile.path.c_str()));
+				aParentProfile.path.c_str()));
 			return;
 		}
 		// Check for infinite parent loop
-		// TODO
+		while(!sProfiles.vals()[aParentProfileID].parent.empty())
+		{
+			const int aCheckProfileID = sProfiles.quickFindIndex(
+				sProfiles.vals()[aParentProfileID].parent);
+			if( aCheckProfileID == *((int*)theChildProfileIdx) )
+			{
+				Dialogs::showError(strFormat(
+					"Infinite profile parenting loop detected - "
+					"Profile '%s' ends up as a parent of itself!",
+					sProfiles.keys()[*((int*)theChildProfileIdx)].c_str()));
+				sProfiles.vals()[aParentProfileID].parent.clear();
+				aParentProfileID = 0;
+			}
+			else
+			{
+				aParentProfileID = aCheckProfileID;
+			}
+		}
 	}
 }
 
@@ -2116,8 +2134,10 @@ static void syncProfileDisplayList()
 		aNewDisplayList.findOrAdd(sProfiles.keys()[i]);
 	}
 
-	// Transfer aNewDisplayList.keys() to sDisplayedProfileList,
-	// recording any that are different in Core .ini file
+	// Transfer aNewDisplayList.keys() to sDisplayedProfileList, recording any
+	// that are different in Core .ini file as go through them.
+	// Do not shrink displayed list yet so can write out blank entries to Core,
+	// but make sure it is at least as large as new list is now.
 	if( sDisplayedProfileList.size() < size_t(aNewDisplayList.size()) )
 		sDisplayedProfileList.resize(aNewDisplayList.size());
 	for(int i = 0, end = intSize(sDisplayedProfileList.size()); i < end; ++i)
@@ -2135,6 +2155,7 @@ static void syncProfileDisplayList()
 				aProfileName);
 		}
 	}
+	sDisplayedProfileList.resize(aNewDisplayList.size());
 }
 
 
