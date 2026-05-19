@@ -2227,7 +2227,7 @@ static void loadProfileWithParentFirst(const ProfileData& theProfile)
 }
 
 
-static int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
+static int queryUserForProfileImpl(int& theLastSelectedProfileIdx)
 {
 	int result = 0;
 	DBG_ASSERT(!sProfiles.empty());
@@ -2299,7 +2299,7 @@ static int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 	DBG_ASSERT(aTemplateProfileType.size() == aTemplateProfileNames.size());
 
 	// Use Dialog to ask the user what they want to do
-	int aDefaultSelectedIdx = -1;
+	int aLoadedProfileDisplayIdx = -1;
 	if( sLoadedProfileIdx > 0 )
 	{
 		const std::string& aLoadedProfileName =
@@ -2308,22 +2308,40 @@ static int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 			i < end; ++i)
 		{
 			if( sDisplayedProfileList[i] == aLoadedProfileName )
-				aDefaultSelectedIdx = i;
+				aLoadedProfileDisplayIdx = i;
 		}
 	}
-	if( theLastCreatedProfileIdx >= 0 )
-		aDefaultSelectedIdx = theLastCreatedProfileIdx;
+	int aDefaultSelectedIdx =
+		theLastSelectedProfileIdx >= 0
+			? theLastSelectedProfileIdx
+			: aLoadedProfileDisplayIdx;
 	Dialogs::ProfileSelectResult aDialogResult = Dialogs::profileSelect(
 		sDisplayedProfileList,
 		aTemplateProfileNames,
 		aDefaultSelectedIdx,
+		aLoadedProfileDisplayIdx,
 		sAutoLoadProfileIdx > 0,
 		needFirstProfile);
 
+	// Regardless of whatever else chose, if un-checked AutoLoad then remember
+	if( !aDialogResult.autoLoadRequested )
+		setAutoLoadProfile(0);
+
+	// Regardless of whatever else chose, save changes to display list order
+	if( aDialogResult.orderChanged )
+	{
+		for(int i = 0, end = intSize(sDisplayedProfileList.size());
+			i < end; ++i)
+		{
+			setPropertyInINI(
+				sProfiles.vals()[0].path, "",
+				std::string(kProfileKeyPrefix) + toString(i+1),
+				sDisplayedProfileList[i]);
+		}
+	}
+
 	if( aDialogResult.cancelled )
 	{// User declined to select anything
-		if( !aDialogResult.autoLoadRequested )
-			setAutoLoadProfile(0);
 		return result; // 0
 	}
 
@@ -2339,17 +2357,42 @@ static int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 	}
 
 	if( aDialogResult.newName.empty() )
-	{// User must have requested to load or edit an existing profile
+	{// User must have requested to load/edit/delete an existing profile
 		DBG_ASSERT(size_t(aDialogResult.selectedIndex) <
 			sDisplayedProfileList.size());
+		theLastSelectedProfileIdx = aDialogResult.selectedIndex;
 		result = sProfiles.quickFindIndex(
 			sDisplayedProfileList[aDialogResult.selectedIndex]);
-		setAutoLoadProfile(
-			aDialogResult.autoLoadRequested ? result : 0);
 		if( aDialogResult.editProfileRequested )
 		{
 			userEditProfile(result, false);
+			syncProfileDisplayList();
 			result = -1; // repeat query from the start
+		}
+		else if( aDialogResult.deleteProfileRequested )
+		{
+			const std::string& aProfName =
+				sDisplayedProfileList[aDialogResult.selectedIndex];
+			if( ProfileData* aProfile = sProfiles.find(aProfName) )
+			{
+				if( Dialogs::yesNoPrompt(strFormat(
+						"Are you sure you wish to delete '%s'?\n\n"
+						"NOTE: This will NOT automatically delete any parent " 
+						"profiles of '%s'.",
+						aProfile->path.c_str(),
+						aProfName.c_str()),
+						"Delete Profile") == eResult_Yes )
+				{
+					DeleteFile(widen(aProfile->path.c_str()).c_str());
+					theLastSelectedProfileIdx = -1;
+				}
+			}
+			syncProfileDisplayList();
+			result = -1; // repeat query from the start
+		}
+		else if( aDialogResult.autoLoadRequested )
+		{
+			setAutoLoadProfile(result);
 		}
 		return result;
 	}
@@ -2435,8 +2478,8 @@ static int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 	{
 	case eType_CopyFile:
 		{// Create copy of source file
-			const ProfileData& aSrcProfile =
-				sProfiles.quickFind(aTemplateProfileNames[aSrcIdx]);
+			const ProfileData& aSrcProfile = sProfiles.quickFind(
+				sDisplayedProfileList[aTemplateRelativeIndexes[aSrcIdx]]);
 			// Don't actually do anything if source and dest are the same file
 			if( !isSamePath(aNewPath, aSrcProfile.path) )
 			{
@@ -2525,7 +2568,7 @@ static int queryUserForProfileImpl(int& theLastCreatedProfileIdx)
 	if( needFirstProfile )
 		sDisplayedProfileList.clear();
 	syncProfileDisplayList();
-	theLastCreatedProfileIdx = result;
+	theLastSelectedProfileIdx = intSize(sDisplayedProfileList.size())-1;
 
 	// Extra prompts for first time create a "base" profile, which represents
 	// the shared default values for all profiles for a particular game, and

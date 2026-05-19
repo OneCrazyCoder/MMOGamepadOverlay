@@ -56,20 +56,23 @@ struct MsgBoxData
 
 struct ProfileSelectDialogData
 {
-	const std::vector<std::string>& loadableProfiles;
+	std::vector<std::string>& loadableProfiles;
 	const std::vector<std::string>& templateProfiles;
 	ProfileSelectResult& result;
+	int loadedProfileIdx;
 	bool initialProfile;
 
 	ProfileSelectDialogData(
-		const std::vector<std::string>& loadable,
+		std::vector<std::string>& loadable,
 		const std::vector<std::string>& templates,
 		ProfileSelectResult& res,
+		int loadedProfileIdx,
 		bool initialProfile)
 		:
 		loadableProfiles(loadable),
 		templateProfiles(templates),
 		result(res),
+		loadedProfileIdx(loadedProfileIdx),
 		initialProfile(initialProfile)
 		{}
 };
@@ -179,46 +182,120 @@ static void updateProfileList(
 }
 
 
+static void updateProfileSelectDialogState(
+	HWND theDialog,
+	const ProfileSelectDialogData* theData)
+{
+	DBG_ASSERT(theDialog);
+	DBG_ASSERT(theData);
+
+	// Determine current dialog mode - selection or creation
+	const bool isCreateMode =
+		!theData->result.newName.empty() ||
+		theData->initialProfile;
+
+	// Get relevant controls
+	HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
+	DBG_ASSERT(hListBox);
+
+	HWND hMoveUpButton =
+		GetDlgItem(theDialog, IDC_BUTTON_MOVE_UP);
+	DBG_ASSERT(hMoveUpButton);
+
+	HWND hMoveDownButton =
+		GetDlgItem(theDialog, IDC_BUTTON_MOVE_DOWN);
+	DBG_ASSERT(hMoveDownButton);
+
+	HWND hDeleteButton =
+		GetDlgItem(theDialog, IDC_BUTTON_DELETE);
+	DBG_ASSERT(hDeleteButton);
+
+	HWND hEditButton =
+		GetDlgItem(theDialog, IDC_BUTTON_EDIT);
+	DBG_ASSERT(hEditButton);
+
+	HWND hProfileName =
+		GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
+	DBG_ASSERT(hProfileName);
+
+	// Set profile re-ordering button enabled states
+	const int aSelectedIdx = dropTo<int>(
+		SendMessage(hListBox, LB_GETCURSEL, 0, 0));
+	const int aProfileCount =
+		intSize(theData->loadableProfiles.size());
+	if( isCreateMode || aProfileCount <= 1 )
+	{
+		ShowWindow(hMoveUpButton, SW_HIDE);
+		ShowWindow(hMoveDownButton, SW_HIDE);
+		ShowWindow(hDeleteButton, SW_HIDE);
+	}
+	else
+	{
+		ShowWindow(hMoveUpButton, SW_SHOWNOACTIVATE);
+		ShowWindow(hMoveDownButton, SW_SHOWNOACTIVATE);
+		ShowWindow(hDeleteButton, SW_SHOWNOACTIVATE);
+		EnableWindow(hMoveUpButton, aSelectedIdx > 0);
+		EnableWindow(hMoveDownButton, aSelectedIdx < aProfileCount - 1);
+		// Disable deleting already-loaded profile (delete selection)
+		EnableWindow(hDeleteButton,
+			aSelectedIdx != theData->loadedProfileIdx);
+	}
+
+	// Edit button only valid in normal profile-selection mode and
+	// with game window being a normal window so won't interfere with notepad
+	EnableWindow(hEditButton,
+		!isCreateMode &&
+		IsWindowEnabled(hProfileName));
+
+	// Update prompt text
+	SetDlgItemText(
+		theDialog, IDC_STATIC_PROMPT,
+		!theData->result.newName.empty()
+			? L"Select format of new Profile:"
+			: theData->initialProfile
+				? L"Select Profile to auto-generate:"
+				: L"Select Profile to load:");
+
+	// Update OK button text
+	SetDlgItemText(
+		theDialog, IDOK, isCreateMode ? L"Create" : L"Load");
+}
+
+
 static INT_PTR CALLBACK profileSelectProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
 	ProfileSelectDialogData* theData = NULL;
-	bool targetWindowIsTopMost;
 
 	switch(theMessage)
 	{
 	case WM_INITDIALOG:
 		// Initialize contents
 		theData = (ProfileSelectDialogData*)(UINT_PTR)lParam;
+		DBG_ASSERT(theData);
 		// Allow other messages to access theData later
 		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theData);
-		DBG_ASSERT(theData);
+		SetDlgItemTextW(theDialog, IDC_BUTTON_MOVE_UP, L"\x25B2");
+		SetDlgItemTextW(theDialog, IDC_BUTTON_MOVE_DOWN, L"\x25BC");
 		// Add available profiles to the list box
 		updateProfileList(theDialog, theData, theData->result.selectedIndex);
 		// Set initial value of auto-load checkbox
 		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
 			theData->result.autoLoadRequested);
-		targetWindowIsTopMost = TargetApp::targetWindowIsTopMost();
-		if( targetWindowIsTopMost )
-		{// Disable edit box
+		if( TargetApp::targetWindowIsTopMost() ||
+			TargetApp::targetWindowIsFullScreen() )
+		{// Disable new profile name entry field
 			SetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
-				L"Can't edit - game is top-most window");
+				L"Can't edit due to game window mode");
 			EnableWindow(GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME), false);
 		}
 		else
-		{// Add prompt to edit box
+		{// Add prompt for how to create a new profile
 			HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
 			Edit_SetCueBannerText(hEditBox,
 				L"OR enter new Profile name here...");
 		}
-		EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_EDIT),
-			!theData->initialProfile && !targetWindowIsTopMost);
-		if( theData->initialProfile )
-		{
-			SetDlgItemText(theDialog, IDC_STATIC_PROMPT,
-				L"Select Profile to auto-generate:");
-			SetDlgItemText(theDialog, IDOK, L"Create");
-		}
+		updateProfileSelectDialogState(theDialog, theData);
 		return (INT_PTR)TRUE;
 
 	case WM_COMMAND:
@@ -231,8 +308,9 @@ static INT_PTR CALLBACK profileSelectProc(
 		{
 		case IDOK:
 		case IDC_BUTTON_EDIT:
+		case IDC_BUTTON_DELETE:
 			if( HIWORD(wParam) == BN_CLICKED )
-			{// Okay button clicked
+			{// Confirmation button clicked
 				theData->result.cancelled = false;
 				// Add selected item from the list box to result
 				HWND hListBox = GetDlgItem(theDialog, IDC_LIST_ITEMS);
@@ -243,9 +321,11 @@ static INT_PTR CALLBACK profileSelectProc(
 				theData->result.autoLoadRequested =
 					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
 						== BST_CHECKED);
-				// Flag if actually want to edit profile instead of load it
+				// Flag if want to edit/delete instead of load profile
 				theData->result.editProfileRequested =
 					LOWORD(wParam) == IDC_BUTTON_EDIT;
+				theData->result.deleteProfileRequested =
+					LOWORD(wParam) == IDC_BUTTON_DELETE;
 				// Signal to main loop that are ready to close
 				sDialogDone = true;
 				return (INT_PTR)TRUE;
@@ -277,18 +357,42 @@ static INT_PTR CALLBACK profileSelectProc(
 				if( hasNewName != hadNewName )
 				{// Changed "modes" (Load Profile vs Create New Profile)
 					updateProfileList(theDialog, theData);
-					SetDlgItemText(theDialog, IDC_STATIC_PROMPT,
-						hasNewName ? L"Select format of new Profile:" :
-						theData->initialProfile
-							? L"Select Profile to auto-generate:"
-							: L"Select Profile to load:");
-					SetDlgItemText(theDialog, IDOK,
-						hasNewName || theData->initialProfile
-							? L"Create" : L"Load");
-					EnableWindow(GetDlgItem(theDialog, IDC_BUTTON_EDIT),
-						!theData->initialProfile && !hasNewName);
+					updateProfileSelectDialogState(theDialog, theData);
 				}
 				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDC_LIST_ITEMS:
+			if( HIWORD(wParam) == LBN_SELCHANGE )
+			{// Selected list item changed
+				updateProfileSelectDialogState(theDialog, theData);
+				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDC_BUTTON_MOVE_UP:
+		case IDC_BUTTON_MOVE_DOWN:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				const int aDelta =
+					(LOWORD(wParam) == IDC_BUTTON_MOVE_UP) ? -1 : 1;
+				const int aSelectedIdx = dropTo<int>(
+					SendMessage(GetDlgItem(theDialog, IDC_LIST_ITEMS),
+					LB_GETCURSEL, 0, 0));
+				const int aNewPos = aSelectedIdx +
+					((LOWORD(wParam) == IDC_BUTTON_MOVE_UP) ? -1 : 1);
+				DBG_ASSERT(size_t(aNewPos) < theData->loadableProfiles.size());
+				std::swap(
+					theData->loadableProfiles[aSelectedIdx],
+					theData->loadableProfiles[aNewPos]);
+				if( aSelectedIdx == theData->loadedProfileIdx )
+					theData->loadedProfileIdx = aNewPos;
+				else if( aNewPos == theData->loadedProfileIdx )
+					theData->loadedProfileIdx = aSelectedIdx;
+				theData->result.orderChanged = true;
+				updateProfileList(theDialog, theData, aNewPos);
+				updateProfileSelectDialogState(theDialog, theData);
 			}
 			break;
 		}
@@ -1419,9 +1523,10 @@ void runDialog(HWND theDialog, EDialogLayout theLayout)
 //------------------------------------------------------------------------------
 
 ProfileSelectResult profileSelect(
-	const std::vector<std::string>& theLoadableProfiles,
+	std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles,
-	int theDefaultSelection, bool wantsAutoLoad, bool firstRun)
+	int theDefaultSelection, int theCurrentProfileID,
+	bool wantsAutoLoad, bool firstRun)
 {
 	DBG_ASSERT(!theLoadableProfiles.empty());
 	DBG_ASSERT(!theTemplateProfiles.empty());
@@ -1431,11 +1536,14 @@ ProfileSelectResult profileSelect(
 	result.selectedIndex = theDefaultSelection;
 	result.autoLoadRequested = wantsAutoLoad;
 	result.cancelled = true;
+	result.orderChanged = false;
 
 	ProfileSelectDialogData aDataStruct(
 		theLoadableProfiles,
 		theTemplateProfiles,
-		result, firstRun);
+		result,
+		theCurrentProfileID,
+		firstRun);
 
 	runDialog(openDialog(
 		IDD_DIALOG_PROFILE_SELECT,

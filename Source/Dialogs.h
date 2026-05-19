@@ -19,14 +19,17 @@ struct ZERO_INIT(ProfileSelectResult)
 {
 	std::string newName;
 	int selectedIndex;
+	bool orderChanged;
 	bool autoLoadRequested;
 	bool editProfileRequested;
+	bool deleteProfileRequested;
 	bool cancelled;
 };
 ProfileSelectResult profileSelect(
-	const std::vector<std::string>& theLoadableProfiles,
+	std::vector<std::string>& theLoadableProfiles,
 	const std::vector<std::string>& theTemplateProfiles,
-	int theDefaultSelection, bool wantsAutoLoad, bool firstRun);
+	int theDefaultSelection, int theCurrentProfileID,
+	bool wantsAutoLoad, bool firstRun);
 void profileEdit(const std::vector<std::string>& theFileList, bool firstRun);
 
 struct ZERO_INIT(CharacterSelectResult)

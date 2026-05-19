@@ -61,17 +61,20 @@
 #define IDC_EDIT_S                      1023
 #define IDC_EDIT_S_VAR                  1024
 #define IDC_BUTTON_EDIT                 1025
-#define IDC_COMBO_X_BASE                1026
-#define IDC_COMBO_Y_BASE                1027
-#define IDC_COMBO_W_BASE                1028
-#define IDC_COMBO_H_BASE                1029
-#define IDC_COMBO_ALIGN                 1030
-#define IDC_SPIN_X                      1031
-#define IDC_SPIN_Y                      1032
-#define IDC_SPIN_W                      1033
-#define IDC_SPIN_H                      1034
-#define IDC_SLIDER_S                    1035
-#define IDC_PROMPT_ICON                 1036
+#define IDC_BUTTON_MOVE_UP              1026
+#define IDC_BUTTON_MOVE_DOWN            1027
+#define IDC_BUTTON_DELETE               1028
+#define IDC_COMBO_X_BASE                1029
+#define IDC_COMBO_Y_BASE                1030
+#define IDC_COMBO_W_BASE                1031
+#define IDC_COMBO_H_BASE                1032
+#define IDC_COMBO_ALIGN                 1033
+#define IDC_SPIN_X                      1034
+#define IDC_SPIN_Y                      1035
+#define IDC_SPIN_W                      1036
+#define IDC_SPIN_H                      1037
+#define IDC_SLIDER_S                    1038
+#define IDC_PROMPT_ICON                 1039
 #define ID_FILE_PROFILE                 40001
 #define ID_FILE_CHARACTERCONFIGFILE     40002
 #define ID_FILE_RELAUNCHAPP             40003
@@ -89,7 +92,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        135
 #define _APS_NEXT_COMMAND_VALUE         40011
-#define _APS_NEXT_CONTROL_VALUE         1037
+#define _APS_NEXT_CONTROL_VALUE         1040
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
