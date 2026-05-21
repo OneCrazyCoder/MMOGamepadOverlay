@@ -118,7 +118,7 @@ struct ZERO_INIT(FontInfo)
 {
 	HFONT handle;
 	std::string name;
-	int size;
+	double size;
 	int weight;
 
 	bool operator==(const FontInfo& rhs) const
@@ -1097,13 +1097,15 @@ static void fetchBaseAppearanceProperties(
 		if( aFontSizeProp )
 		{
 			size_t aPos = 0;
-			aNewFont.size = int(stringToWidth(aFontSizeProp.str, aPos));
-			if( aNewFont.size < 4 || aPos != aFontSizeProp.str.size() )
+			aNewFont.size = stringToDoubleSum(aFontSizeProp.str, aPos);
+			if( int(aNewFont.size * gUIScale) < 4 ||
+				aPos != aFontSizeProp.str.size() )
 			{
-				logError("Invalid Font Size '%s' for '[%s]!",
+				logError(
+					"Invalid Font Size '%s' for [%s] at current UI Scale!",
 					aFontSizeProp.str.c_str(),
 					sParseSectName.c_str());
-				aNewFont.size = 8;
+				aNewFont.size = 4.4 / gUIScale;
 			}
 		}
 		theDestAppearance.fontID = dropTo<u16>(getOrCreateFontID(aNewFont));
@@ -2310,7 +2312,7 @@ static void drawMenuTitle(
 	case eAlignment_Center: aFormat |= DT_CENTER; break;
 	case eAlignment_Max: aFormat |= DT_RIGHT; break;
 	}
-	const int aBorderSize = gUIScale > 1.0 ? int(2 * gUIScale) : 2;
+	const int aBorderSize = 2;
 	InflateRect(&aRect, -aBorderSize, -aBorderSize);
 
 	const HFONT aFont = sFonts[theMenuApp.fontID].handle;

@@ -655,7 +655,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 						tvInsert.item.mask |= TVIF_CHILDREN;
 					tvInsert.item.lParam = MAKELPARAM(
 						dropTo<WORD>(i),
-						WORD((*theItems)[i]->isRootCategory));
+						WORD((*theItems)[i]->isCategoryOnly));
 					tvInsert.hParent = aHandlesList[aParentIdx];
 					aHandlesList[i] = (HTREEITEM)SendMessage(
 						hTreeView,

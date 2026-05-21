@@ -1295,7 +1295,7 @@ static bool userEditProfile(int theProfileID, bool firstProfile)
 	// Note file modification times to check if any actual changes are made
 	std::vector<FILETIME> aLastFileModTime;
 	aLastFileModTime.resize(aFileList.size());
-	for(int i = 0, end = aFileList.size(); i < end; ++i)
+	for(int i = 0, end = intSize(aFileList.size()); i < end; ++i)
 		aLastFileModTime[i] = getFileLastModTime(aFileList[i]);
 
 	Dialogs::profileEdit(aFileList, firstProfile);
@@ -2113,7 +2113,7 @@ static void syncProfileDisplayList()
 	// first adding any valid entries from the old list to a StringToValueMap,
 	// which stores keys in order added but eliminates duplicates.
 	StringToValueMap<int> aNewDisplayList;
-	aNewDisplayList.reserve(sDisplayedProfileList.size());
+	aNewDisplayList.reserve(intSize(sDisplayedProfileList.size()));
 	for(int i = 0, end = intSize(sDisplayedProfileList.size()); i < end; ++i)
 	{
 		if( sDisplayedProfileList[i].empty() )
@@ -2741,7 +2741,10 @@ void init()
 
 void load()
 {
-	const int aProfileIDToLoad = sProfiles.findIndex(gProfileToLoad);
+	const int aProfileIDToLoad =
+		gProfileToLoad.empty()
+			? sLoadedProfileIdx
+			: sProfiles.findIndex(gProfileToLoad);
 	if( aProfileIDToLoad == 0 || aProfileIDToLoad >= sProfiles.size() )
 	{
 		logFatalError("Requested to load unknown profile name '%s'",

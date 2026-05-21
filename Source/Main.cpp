@@ -38,7 +38,6 @@
 static u64 sAppStartTime = 0;
 static u64 sUpdateStartTime = 0;
 static LARGE_INTEGER sSystemTimeFreq;
-static int sUpdateLoopCount = 0;
 static bool sUpdateLoopStarted = false;
 
 
@@ -159,8 +158,6 @@ void mainLoopSleep()
 		Sleep(0);
 		aFrameTimePassed = getSystemTime() - sUpdateStartTime;
 	}
-
-	++sUpdateLoopCount;
 }
 
 
@@ -204,7 +201,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	// or possibly initialize first-time run with license agreement
 	Profile::init();
 
-	while(!gProfileToLoad.empty() && !gShutdown && !hadFatalError())
+	while((!gProfileToLoad.empty() || gLayoutEditorRequested) &&
+		  !gShutdown && !hadFatalError())
 	{
 		// Load requested profile
 		Profile::load();
@@ -245,8 +243,15 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		gAppTargetFrameTime = Profile::getInt("System", "FrameTime", 15);
 		timeBeginPeriod(gAppTargetFrameTime / 2);
 
+		if( gLayoutEditorRequested )
+		{
+			gLayoutEditorRequested = false;
+			LayoutEditor::init();
+		}
+
 		// Main loop
-		while(!gShutdown && gProfileToLoad.empty() && !hadFatalError())
+		while(!gShutdown && !gLayoutEditorRequested &&
+			  gProfileToLoad.empty() && !hadFatalError())
 		{
 			// Check if need to react to changed Profile data (via variables)
 			if( !Profile::changedSections().empty() )
@@ -288,13 +293,6 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		LayoutEditor::cleanup();
 		if( !hadFatalError() )
 			WindowManager::destroyAll(hInstance);
-	}
-
-	// Report performance
-	if( !hadFatalError() && gAppRunTime > 0 )
-	{
-		const double averageFPS = sUpdateLoopCount / (gAppRunTime / 1000.0);
-		logInfo("Exiting application. Average FPS: %.2f", averageFPS);
 	}
 
 	// Note that MessageBox self-closes immediately if WM_QUIT has been

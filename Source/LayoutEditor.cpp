@@ -82,6 +82,7 @@ struct ZERO_INIT(LayoutEntry)
 		eType_Root,
 		eType_HotspotCategory,
 		eType_MenuCategory,
+		eType_UIScale,
 
 		// These types should not be used as indexes as count can vary
 		eType_Hotspot,
@@ -215,12 +216,12 @@ static inline bool entryHasParent(const LayoutEntry& theEntry)
 
 static inline bool entryIsAnchorHotspot(const LayoutEntry& theEntry)
 {
-	// Must be a hotspot with no parent AND have childern
+	// Must be a non-range hotspot (doesn't end in a #) AND have childern
 	// (no children just means independent hotspot, not an anchor, thus
-	// can't have an offset scale value)
+	// can't have an offset scale value, which is this chack's main use)
 	return
 		theEntry.type == LayoutEntry::eType_Hotspot &&
-		!entryHasParent(theEntry) &&
+		theEntry.rangeCount < 0 &&
 		!theEntry.children.empty();
 }
 
@@ -675,7 +676,8 @@ static void applyNewLayoutProperties(bool toFile = false)
 	std::string aPosStr;
 	if( isHotspot || (needNewPos && !aNewShape->x.useDefault) )
 	{
-		const bool asOffset = theEntry.rangeCount >= 0;
+		const bool asOffset =
+			theEntry.rangeCount >= 0 && entryHasParent(theEntry);
 		aPosStr = shapeCompToProfString(aNewShape->x, asOffset);
 		if( aNewShape->alignment == eAlignment_WrapX )
 		{
@@ -731,7 +733,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 			kHotspotsSectionName, theEntry.item.name,
 			aProfileStr, toFile);
 	}
-	else // if( entryIsMenu(theEntry) )
+	else if( entryIsMenu(theEntry) )
 	{// Each string is saved to a separate property string within menu section
 		const int aProfileSect = InputMap::menuSectionID(theEntry.menuID);
 		if( needNewPos )
@@ -757,6 +759,10 @@ static void applyNewLayoutProperties(bool toFile = false)
 			}
 		}
 	}
+	else //if( theEntry.type == LayoutEntry::eType_UIScale )
+	{
+		Profile::setVariable("UIScale", sState->entered.scale, !toFile);
+	}
 
 	sState->applied = sState->entered;
 	if( toFile )
@@ -767,7 +773,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 }
 
 
-static void cancelRepositioning()
+static void cancelUnappliedChanges()
 {
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry > 0);
@@ -783,7 +789,7 @@ static void cancelRepositioning()
 }
 
 
-static void saveNewPosition()
+static void saveNewEntryLayout()
 {
 	DBG_ASSERT(sState);
 	DBG_ASSERT(sState->activeEntry > 0);
@@ -953,7 +959,8 @@ static void setupPositionControls(
 		SendMessage(hComboBox, CB_ADDSTRING, 0, (LPARAM)kAnchorOnlyLabel);
 		aDropListSize = 4;
 	}
-	const bool canBeOffsetOnly = theEntry.rangeCount >= 0;
+	const bool canBeOffsetOnly =
+		theEntry.rangeCount >= 0 && entryHasParent(theEntry); 
 	// Set initial selection to one of the above if appropriate
 	const double anAnchorVal = theComponent.offset
 			? 0 : stringToDouble(theComponent.base, true);
@@ -980,7 +987,7 @@ static void setupPositionControls(
 		size_t aPos = 0;
 		const Hotspot::Coord& aCoord = stringToCoord(
 			Profile::expandVars(theComponent.base), aPos);
-		// If string contained an offset or unkwnon characters
+		// If string contained an offset or unknown characters
 		// (likely ${} variables), or has an anchor even though
 		// it is a range, then need to include custom string option
 		bool useStringBase = aCoord.offset != 0 ||
@@ -1451,7 +1458,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 							(WPARAM)GetDlgItem(theDialog, IDOK), TRUE);
 						return (INT_PTR)TRUE;
 					default:
-						saveNewPosition();
+						saveNewEntryLayout();
 						promptForEditEntry();
 						return (INT_PTR)TRUE;
 					}
@@ -1462,7 +1469,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		case IDCANCEL:
 			if( HIWORD(wParam) == BN_CLICKED )
 			{
-				cancelRepositioning();
+				cancelUnappliedChanges();
 				promptForEditEntry();
 				return (INT_PTR)TRUE;
 			}
@@ -1736,7 +1743,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					// with parents, L/T being included indicates parent should
 					// be ignored and to not act as an offset, so keep them).
 					if( aSelectedText == narrow(kOffsetOnlyLabel) ||
-						(anEntry.rangeCount < 0 &&
+						(!entryHasParent(anEntry) &&
 						 (aSelectedText == "L" || aSelectedText == "T")) )
 					{
 						aComp.base.clear();
@@ -1838,6 +1845,113 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				((LPNMUPDOWN)lParam)->iDelta);
 			applyNewLayoutProperties();
 			break;
+		}
+		break;
+
+	case WM_DESTROY:
+		UnregisterHotKey(NULL, kCancelToolbarHotkeyID);
+		break;
+	}
+
+	return (INT_PTR)FALSE;
+}
+
+
+static INT_PTR CALLBACK editUIScaleToolbarProc(
+	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
+{
+	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
+	const LayoutEntry* aSrcEntry = null;
+
+	switch(theMessage)
+	{
+	case WM_INITDIALOG:
+		WindowManager::loadProfileChanges(); // to refresh gUIScale
+		SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+			TBM_SETRANGE, TRUE,
+			MAKELPARAM(kMinOffsetScale, kMaxOffsetScale));
+		SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+			TBM_SETPOS, TRUE, LPARAM(100 * gUIScale));
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+			widen(sState->entered.scale).c_str());
+		// Allow Esc to cancel even when not the active window
+		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
+		break;
+		
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDOK:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				if( HWND hFocus = GetFocus() )
+				{
+					switch(GetDlgCtrlID(hFocus))
+					{
+					case IDC_EDIT_S:
+						// Set focus to OK button but don't click it yet
+						// (so EN_KILLFOCUS applies changes in the field)
+						PostMessage(theDialog, WM_NEXTDLGCTL,
+							(WPARAM)GetDlgItem(theDialog, IDOK), TRUE);
+						return (INT_PTR)TRUE;
+					default:
+						saveNewEntryLayout();
+						promptForEditEntry();
+						return (INT_PTR)TRUE;
+					}
+				}
+			}
+			break;
+
+		case IDCANCEL:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				cancelUnappliedChanges();
+				promptForEditEntry();
+				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDC_EDIT_S:
+			if( HIWORD(wParam) == EN_CHANGE )
+			{
+				std::string aNewScaleStr =
+					getControlText(theDialog, IDC_EDIT_S);
+				if( aNewScaleStr != sState->entered.scale )
+				{
+					sState->entered.scale = aNewScaleStr;
+					aNewScaleStr = Profile::expandVars(sState->entered.scale);
+					size_t aPos = 0;
+					double aNewScaleVal = stringToDoubleSum(
+						Profile::expandVars(aNewScaleStr), aPos);
+					if( aPos < aNewScaleStr.size() )
+						aNewScaleVal = stringToDouble(aNewScaleStr, true);
+					if( !_isnan(aNewScaleVal) &&
+						aNewScaleVal >= 0.01 &&
+						aNewScaleVal <= 10.0 )
+					{
+						SendDlgItemMessage(theDialog, IDC_SLIDER_S,
+							TBM_SETPOS, TRUE, LPARAM(100 * aNewScaleVal));
+						applyNewLayoutProperties();
+					}
+				}
+				return (INT_PTR)TRUE;
+			}
+			break;
+
+		}
+		break;
+		
+	case WM_HSCROLL:
+		if( (HWND)lParam == GetDlgItem(theDialog, IDC_SLIDER_S) )
+		{
+			const int aScaleVal = dropTo<int>(
+				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0));
+			const bool isInPercent =
+				!sState->entered.scale.empty() &&
+				sState->entered.scale[sState->entered.scale.size()-1] == '%';
+			SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
+				widen(numToStringDecimal(aScaleVal, isInPercent)).c_str());
 		}
 		break;
 
@@ -2190,13 +2304,14 @@ static void promptForEditEntry()
 		sState->needsDrawPosUpdate = true;
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
+		const bool isUIScale = anEntry.type == LayoutEntry::eType_UIScale;
 		WindowManager::createToolbarWindow(
-			entryIsMenu(anEntry)
-				? IDD_DIALOG_LAYOUT_MENU
-				: entryIsAnchorHotspot(anEntry)
-					? IDD_DIALOG_LAYOUT_ANCHOR
-					: IDD_DIALOG_LAYOUT_HOTSPOT,
-			editLayoutToolbarProc,
+			isUIScale						? IDD_DIALOG_LAYOUT_UISCALE :
+			entryIsMenu(anEntry)			? IDD_DIALOG_LAYOUT_MENU :
+			entryIsAnchorHotspot(anEntry)	? IDD_DIALOG_LAYOUT_ANCHOR :
+			anEntry.rangeCount > 1			? IDD_DIALOG_LAYOUT_HOTSPOT_RANGE :
+			/*otherwise*/					  IDD_DIALOG_LAYOUT_HOTSPOT,
+			isUIScale ? editUIScaleToolbarProc : editLayoutToolbarProc,
 			anEntry.menuID);
 	}
 	else
@@ -2323,13 +2438,22 @@ void init()
 	{
 		LayoutEntry aCatEntry;
 		aCatEntry.type = LayoutEntry::eType_Root;
-		aCatEntry.item.isRootCategory = true;
+		aCatEntry.item.isCategoryOnly = true;
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_HotspotCategory;
 		aCatEntry.item.name = "Hotspots";
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_MenuCategory;
 		aCatEntry.item.name = "Menus";
+		sState->entries.push_back(aCatEntry);
+		aCatEntry.type = LayoutEntry::eType_UIScale;
+		aCatEntry.item.name = "UI Scale";
+		aCatEntry.item.isCategoryOnly = false;
+		aCatEntry.shape.scale =
+			Profile::getSectionProperties("Variables")->valElse(
+			"UIScale", Profile::Property()).pattern;
+		if( aCatEntry.shape.scale.empty() )
+			aCatEntry.shape.scale = Profile::getVariable("UIScale");
 		sState->entries.push_back(aCatEntry);
 		DBG_ASSERT(sState->entries.size() == LayoutEntry::eType_CategoryNum);
 		#ifndef NDEBUG
@@ -2591,7 +2715,7 @@ void cleanup()
 		return;
 
 	if( sState->activeEntry )
-		cancelRepositioning();
+		cancelUnappliedChanges();
 	delete sState;
 	sState = null;
 

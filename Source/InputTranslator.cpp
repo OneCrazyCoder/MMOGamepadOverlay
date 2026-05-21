@@ -8,7 +8,6 @@
 #include "HotspotMap.h"
 #include "InputDispatcher.h"
 #include "InputMap.h"
-#include "LayoutEditor.h"
 #include "Menus.h"
 #include "Profile.h"
 #include "TargetConfigSync.h"
@@ -1308,7 +1307,7 @@ static void processCommand(
 		gProfileToLoad = Profile::queryUserForProfile();
 		break;
 	case eCmdType_EditLayout:
-		LayoutEditor::init();
+		gLayoutEditorRequested = true;
 		break;
 	case eCmdType_ChangeTargetConfigSyncFile:
 		TargetConfigSync::promptUserForSyncFileToUse();

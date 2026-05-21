@@ -9,6 +9,7 @@
 //------------------------------------------------------------------------------
 
 bool gShutdown = false;
+bool gLayoutEditorRequested = false;
 std::string gProfileToLoad; // empty = auto-load or prompt user
 int gAppRunTime = 0;
 int gAppFrameTime = 0;

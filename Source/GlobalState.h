@@ -12,7 +12,10 @@
 // App shutdown has been requested
 extern bool gShutdown;
 
-// Which profile to manually load
+// UI Layout Editor should be displayed
+extern bool gLayoutEditorRequested;
+
+// Which profile (by name) to load
 extern std::string gProfileToLoad;
 
 // Milliseconds since app started main loop
