@@ -61,19 +61,22 @@ struct ProfileSelectDialogData
 	ProfileSelectResult& result;
 	int loadedProfileIdx;
 	bool initialProfile;
+	bool allowCreate;
 
 	ProfileSelectDialogData(
 		std::vector<std::string>& loadable,
 		const std::vector<std::string>& templates,
 		ProfileSelectResult& res,
 		int loadedProfileIdx,
-		bool initialProfile)
+		bool initialProfile,
+		bool allowCreate)
 		:
 		loadableProfiles(loadable),
 		templateProfiles(templates),
 		result(res),
 		loadedProfileIdx(loadedProfileIdx),
-		initialProfile(initialProfile)
+		initialProfile(initialProfile),
+		allowCreate(allowCreate)
 		{}
 };
 
@@ -282,8 +285,7 @@ static INT_PTR CALLBACK profileSelectProc(
 		// Set initial value of auto-load checkbox
 		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
 			theData->result.autoLoadRequested);
-		if( TargetApp::targetWindowIsTopMost() ||
-			TargetApp::targetWindowIsFullScreen() )
+		if( !theData->allowCreate )
 		{// Disable new profile name entry field
 			SetDlgItemText(theDialog, IDC_EDIT_PROFILE_NAME,
 				L"Can't edit due to game window mode");
@@ -343,8 +345,7 @@ static INT_PTR CALLBACK profileSelectProc(
 			break;
 
 		case IDC_EDIT_PROFILE_NAME:
-			if( HIWORD(wParam) == EN_CHANGE &&
-				!TargetApp::targetWindowIsTopMost() )
+			if( HIWORD(wParam) == EN_CHANGE && theData->allowCreate )
 			{// Edit box contents changed - may affect other controls!
 				// Update result.newName to sanitized edit box string
 				HWND hEditBox = GetDlgItem(theDialog, IDC_EDIT_PROFILE_NAME);
@@ -375,8 +376,6 @@ static INT_PTR CALLBACK profileSelectProc(
 		case IDC_BUTTON_MOVE_DOWN:
 			if( HIWORD(wParam) == BN_CLICKED )
 			{
-				const int aDelta =
-					(LOWORD(wParam) == IDC_BUTTON_MOVE_UP) ? -1 : 1;
 				const int aSelectedIdx = dropTo<int>(
 					SendMessage(GetDlgItem(theDialog, IDC_LIST_ITEMS),
 					LB_GETCURSEL, 0, 0));
@@ -1543,7 +1542,9 @@ ProfileSelectResult profileSelect(
 		theTemplateProfiles,
 		result,
 		theCurrentProfileID,
-		firstRun);
+		firstRun,
+		!TargetApp::targetWindowIsTopMost() &&
+		!TargetApp::targetWindowIsFullScreen());
 
 	runDialog(openDialog(
 		IDD_DIALOG_PROFILE_SELECT,

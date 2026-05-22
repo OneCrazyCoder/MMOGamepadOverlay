@@ -1860,9 +1860,6 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 static INT_PTR CALLBACK editUIScaleToolbarProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
-	LayoutEntry& anEntry = sState->entries[sState->activeEntry];
-	const LayoutEntry* aSrcEntry = null;
-
 	switch(theMessage)
 	{
 	case WM_INITDIALOG:
