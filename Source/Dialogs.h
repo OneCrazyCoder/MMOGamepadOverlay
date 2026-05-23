@@ -35,12 +35,15 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun);
 struct ZERO_INIT(CharacterSelectResult)
 {
 	int selectedIndex;
-	bool autoSelectRequested;
+	bool promptAgain;
+	bool preferMostRecent;
 	bool cancelled;
 };
 CharacterSelectResult characterSelect(
 	const std::vector<std::wstring>& theFoundCharacters,
-	int theDefaultSelection, bool wantsAutoSelect);
+	int theDefaultSelection,
+	bool wantsPromptAgain,
+	bool wantsMostRecentUsed);
 
 struct ZERO_INIT(TreeViewDialogItem)
 {

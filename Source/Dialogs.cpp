@@ -516,9 +516,15 @@ static INT_PTR CALLBACK characterSelectProc(
 				}
 			}
 		}
-		// Set initial value of auto-select checkbox
+		// Set initial value of checkboxes
+		CheckDlgButton(theDialog, IDC_CHECK_AUTOPROMPT,
+			theData->result.promptAgain);
 		CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD,
-			theData->result.autoSelectRequested);
+			theData->result.preferMostRecent);
+		SetWindowText(GetDlgItem(theDialog, IDC_CHECK_AUTOLOAD),
+			theData->result.promptAgain
+				? L"...unless no changes detected"
+				: L"Auto-switch to most recently changed");
 		return (INT_PTR)TRUE;
 
 	case WM_COMMAND:
@@ -541,8 +547,11 @@ static INT_PTR CALLBACK characterSelectProc(
 				theData->result.selectedIndex = clamp(dropTo<int>(
 					SendMessage(hListBox, LB_GETITEMDATA, aListSelIdx, 0)),
 					0, intSize(theData->characterNames.size())-1);
-				// Add auto-select checkbox status to result
-				theData->result.autoSelectRequested =
+				// Add checkbox statuses to result
+				theData->result.promptAgain =
+					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOPROMPT)
+						== BST_CHECKED);
+				theData->result.preferMostRecent =
 					(IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOLOAD)
 						== BST_CHECKED);
 				// Signal to main loop that are ready to close
@@ -558,6 +567,20 @@ static INT_PTR CALLBACK characterSelectProc(
 				// Signal to main loop that are ready to close
 				sDialogDone = true;
 				return (INT_PTR)TRUE;
+			}
+			break;
+
+		case IDC_CHECK_AUTOPROMPT:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				const bool wasChecked =
+					IsDlgButtonChecked(theDialog, IDC_CHECK_AUTOPROMPT)
+						== BST_CHECKED;
+				SetWindowText(GetDlgItem(theDialog, IDC_CHECK_AUTOLOAD),
+					wasChecked
+						? L"...unless no changes detected"
+						: L"Auto-switch to most recently changed");
+				CheckDlgButton(theDialog, IDC_CHECK_AUTOLOAD, wasChecked);
 			}
 			break;
 		}
@@ -1389,12 +1412,34 @@ static void dialogCheckGamepad(HWND theDialog, EDialogLayout theLayout)
 		switch(aNewDir)
 		{
 		case eDialogDir_Left:
+			if( aFocusID == IDC_LIST_ITEMS )
+			{
+				setDialogFocus(theDialog, IDC_CHECK_AUTOPROMPT);
+				return;
+			}
+			else if( aFocusID != IDOK )
+			{
+				return;
+			}
+			break;
 		case eDialogDir_Down:
-			if( aFocusID == IDC_CHECK_AUTOLOAD )
+			if( aFocusID == IDC_CHECK_AUTOLOAD || aFocusID == IDOK )
 				return;
 			break;
+		case eDialogDir_Right:
+			if( aFocusID == IDC_LIST_ITEMS )
+			{
+				setDialogFocus(theDialog, IDOK);
+				return;
+			}
+			if( aFocusID == IDC_CHECK_AUTOPROMPT )
+			{
+				setDialogFocus(theDialog, IDOK);
+				return;
+			}
+			break;
 		case eDialogDir_Up:
-			if( aFocusID != IDC_LIST_ITEMS )
+			if( aFocusID == IDOK )
 			{
 				setDialogFocus(theDialog, IDC_LIST_ITEMS);
 				return;
@@ -1422,7 +1467,7 @@ static void dialogCheckGamepad(HWND theDialog, EDialogLayout theLayout)
 					SendInput(4, &input[0], sizeof(INPUT));
 					return;
 				case eDialogLayout_CharacterSelect:
-					setDialogFocus(theDialog, IDC_CHECK_AUTOLOAD);
+					setDialogFocus(theDialog, IDC_CHECK_AUTOPROMPT);
 					return;
 				}
 			}
@@ -1581,14 +1626,17 @@ void profileEdit(const std::vector<std::string>& theFileList, bool firstRun)
 
 CharacterSelectResult characterSelect(
 	const std::vector<std::wstring>& theFoundCharacters,
-	int theDefaultSelection, bool wantsAutoSelect)
+	int theDefaultSelection,
+	bool wantsPromptAgain,
+	bool wantsMostRecentUsed)
 {
 	DBG_ASSERT(!theFoundCharacters.empty());
 
 	// Initialize data structures
 	CharacterSelectResult result;
 	result.selectedIndex = theDefaultSelection;
-	result.autoSelectRequested = wantsAutoSelect;
+	result.promptAgain = wantsPromptAgain;
+	result.preferMostRecent = wantsMostRecentUsed;
 	result.cancelled = true;
 
 	CharacterSelectDialogData aDataStruct(theFoundCharacters, result);

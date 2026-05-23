@@ -318,6 +318,7 @@ static bool sInitialized = false;
 static bool sPaused = false;
 static bool sPromptForWildcardFiles = false;
 static bool sForcePromptForWildcardFiles = false;
+static bool sPreferMostRecentFiles = true;
 static bool sNeedVarChangeReload = false;
 static bool sNeedFullReload = false;
 
@@ -1310,6 +1311,11 @@ protected:
 				}
 			}
 
+			// If not set to auto-select most-recent but did not find any
+			// previously-selected file (or one was never set), always prompt.
+			if( !sPreferMostRecentFiles && aLastSelCandidateIdx < 0 )
+				sForcePromptForWildcardFiles = true;
+
 			// Treat last selected candidate as having last mod time of
 			// at least sLastTimeWildcardFileSelected time, so it will
 			// be preferred over candidates that may have been modified
@@ -1347,21 +1353,60 @@ protected:
 				Dialogs::CharacterSelectResult aDialogResult =
 					Dialogs::characterSelect(
 						mCandidateNames, aBestIdx,
-						!sPromptForWildcardFiles);
+						sPromptForWildcardFiles,
+						sPreferMostRecentFiles);
 				if( !aDialogResult.cancelled )
 				{
 					aBestIdx = aDialogResult.selectedIndex;
-					GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
-					Profile::setStr(
-						kTargetConfigSettingsSectionName,
-						kLastFileSelectedPropertyName,
-						narrow(mCandidateNames[aBestIdx]));
-					Profile::setStr(
-						kTargetConfigSettingsSectionName,
-						kLastTimeFileSelectedPropertyName,
-						toString(sLastTimeWildcardFileSelected));
-					sPromptForWildcardFiles =
-						!aDialogResult.autoSelectRequested;
+					sPromptForWildcardFiles = aDialogResult.promptAgain;
+					sPreferMostRecentFiles = aDialogResult.preferMostRecent;
+					// Save selection to profile unless set to always prompt
+					// every time or to always auto-pick most recent changed
+					if( sPromptForWildcardFiles == sPreferMostRecentFiles )
+					{
+						Profile::setStr(
+							kTargetConfigSettingsSectionName,
+							kLastFileSelectedPropertyName,
+							narrow(mCandidateNames[aBestIdx]));
+					}
+					else
+					{
+						Profile::setStr(
+							kTargetConfigSettingsSectionName,
+							kLastFileSelectedPropertyName,
+							"");
+					}
+					// If set to auto-pick the same file from now on without any
+					// prompting, set file selected time to highest possible
+					// value to guarantee this. Otherwise note actual time.
+					if( !sPromptForWildcardFiles && !sPreferMostRecentFiles )
+					{
+						sLastTimeWildcardFileSelected
+							.dwHighDateTime = 0xFFFFFFFF;
+						sLastTimeWildcardFileSelected
+							.dwLowDateTime = 0xFFFFFFFF;
+					}
+					else
+					{
+						GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
+					}
+
+					// Only save time stamp for "prompt unless other changed"
+					if( sPromptForWildcardFiles && sPreferMostRecentFiles )
+					{
+						Profile::setStr(
+							kTargetConfigSettingsSectionName,
+							kLastTimeFileSelectedPropertyName,
+							toString(sLastTimeWildcardFileSelected));
+					}
+					else
+					{
+						Profile::setStr(
+							kTargetConfigSettingsSectionName,
+							kLastTimeFileSelectedPropertyName,
+							"");
+					}
+					// Always save out choice for if want future prompts or not
 					Profile::setStr(
 						kTargetConfigSettingsSectionName,
 						kPromptForFilesPropertyName,
@@ -1369,7 +1414,7 @@ protected:
 				}
 			}
 
-			if( sLastWildcardFileSelected != mCandidateNames[aBestIdx] )
+			if( aBestIdx != aLastSelCandidateIdx )
 			{
 				syncDebugPrint(
 					"Selected new source for multi-source wildcard match: %s\n",
@@ -2762,12 +2807,30 @@ void load()
 	// Initial load for first profile
 	DBG_ASSERT(!sInitialized);
 	++sLoadCount;
+	sPromptForWildcardFiles = Profile::getBool(
+		kTargetConfigSettingsSectionName,
+		kPromptForFilesPropertyName);
 	sLastWildcardFileSelected = widen(Profile::getStr(
 		kTargetConfigSettingsSectionName,
 		kLastFileSelectedPropertyName));
-	sLastTimeWildcardFileSelected = stringToFileTime(Profile::getStr(
-		kTargetConfigSettingsSectionName,
-		kLastTimeFileSelectedPropertyName));
+	// Prefer time stamp tracking if prompting but tracking last selected
+	// (meaning only prompt when another file has changed since last selected),
+	// or if not prompting and not tracking last selected (meaning are always
+	// auto-selecting most recent file). Below covers both these cases.
+	sPreferMostRecentFiles =
+		sPromptForWildcardFiles == !sLastWildcardFileSelected.empty();
+	// If set to auto use a pre-selected file, set time stamp to highest value
+	if( !sPromptForWildcardFiles && !sPreferMostRecentFiles )
+	{
+		sLastTimeWildcardFileSelected.dwHighDateTime = 0xFFFFFFFF;
+		sLastTimeWildcardFileSelected.dwLowDateTime = 0xFFFFFFFF;
+	}
+	else
+	{ 
+		sLastTimeWildcardFileSelected = stringToFileTime(Profile::getStr(
+			kTargetConfigSettingsSectionName,
+			kLastTimeFileSelectedPropertyName));
+	}
 	// Use full main size initially for W and H for profiles that use them
 	// for detecting which variables to read
 	Profile::setVariable(
