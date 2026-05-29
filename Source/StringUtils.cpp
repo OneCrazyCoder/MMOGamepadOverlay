@@ -924,70 +924,94 @@ double stringToDoubleSum(
 	std::string::size_type& theOffset)
 {
 	double result = 0;
-	char* end = const_cast<char*>(&theString[theOffset]);
-	if( *end == '\0' )
-		return result;
 
-	bool subtract = false;
-	int foundOperatorCharCount = 0;
-	while(*end != '\0')
+	// Skip initial leading whitespace
+	while(theString[theOffset] && u8(theString[theOffset]) <= ' ')
+		++theOffset;
+
+	for(;;)
 	{
-		const char* start = end;
-		const double num = strtod(start, &end);
+		// Use a temporary pos during parsing so that theOffset is only moved
+		// forward after have found a valid value to add (numerical digits).
+		// Characters like '.' and '+' and '-' depend on what follows to be
+		// considered valid or not, so theOffset should remain at the first
+		// one found in those cases until their validity is verified later.
+		std::string::size_type aPeekPos = theOffset;
 
-		// Treat NaN the same as no valid conversion happened
-		if( _isnan(num) )
-			end = const_cast<char*>(start);
-
-		if( end != start )
-		{// Add result to sum and continue to rest of the string
-			result += subtract ? -num : num;
-			subtract = false;
-			foundOperatorCharCount = 0;
-			continue;
+		// Check for an operator (+ or -)
+		bool shouldSubtract = false;
+		switch(theString[aPeekPos])
+		{
+		case '-': shouldSubtract = true; // fall through
+		case '+': ++aPeekPos;
+			// Move past any whitespace following the operator
+			while(theString[aPeekPos] && u8(theString[aPeekPos]) <= ' ')
+				++aPeekPos;
+			// Allow a second operator to act as the number's sign,
+			// allowing for things like "4 + -3" (or even "4--3") to be valid.
+			switch(theString[aPeekPos])
+			{
+			case '-': shouldSubtract = !shouldSubtract; // fall through
+			case '+': ++aPeekPos;
+			}
+			break;
+			// Do not skip over whitespace here as did for first operator,
+			// so that while "8 - 5" and "8 - -5" are valid, "8 - - 5" is not.
 		}
 
-		// If already found an operator, nothing else but a number is valid
-		if( foundOperatorCharCount )
-			break;
+		// Add any digits found here to numerator, and flag if find any
+		bool foundDigits = false;
+		u64 aNumerator = 0;
+		if( theString[aPeekPos] >= '0' && theString[aPeekPos] <= '9' )
+		{
+			foundDigits = true;
+			aNumerator = theString[aPeekPos++] - '0';
+			while(theString[aPeekPos] >= '0' && theString[aPeekPos] <= '9')
+				aNumerator = aNumerator * 10 + (theString[aPeekPos++] - '0');
+		}
 
-		// Skip any whitespace found before invalid character was hit
-		// (strtod skips leading whitespace but sets 'end' back to 'start'
-		// rather than pointing at the first invalid character it found)
-		while(*end <= ' ' && *end != '\0')
-			++end;
+		// A '.' is valid here only as long as next char is a numerical digit
+		u64 aDenominator = 1;
+		if( theString[aPeekPos] == '.' && // so aPeekPos+1 must be valid or '\0'
+			theString[aPeekPos+1] >= '0' && theString[aPeekPos+1] <= '9' )
+		{
+			++aPeekPos;
+			foundDigits = true;
+			do {
+				// For long sequences after decimal, drop precision to prevent
+				// overflow but keep most significant digits (already read in),
+				// yet continue to parse digits until reach something else
+				if( aNumerator <= 900000000000000ULL &&
+					aDenominator <= 1000000000000000000ULL )
+				{
+					aNumerator = aNumerator * 10 + (theString[aPeekPos] - '0');
+					aDenominator *= 10;
+				}
+				++aPeekPos;
+			} while(theString[aPeekPos] >= '0' && theString[aPeekPos] <= '9');
+		}
 
-		// Only valid character at this point is the + or - operator
-		if( *end != '+' && *end != '-' )
-			break;
+		// Stop here (and do not advance theOffset) if found no actual digits
+		if( !foundDigits )
+			return result;
 
-		// Check for leading '-' before a number directly after operator
-		// where space was missing - "+-#" or "--#" - or for standalone
-		// operator - "+ " or "- ". Everything else is invalid because
-		// "+#" and "-#" should have been valid for strtod.
-		if( *(end+1) == '-' )
-			foundOperatorCharCount = 1; // skip to the second '-'
-		else if( *(end+1) == ' ' )
-			foundOperatorCharCount = 2; // skip past '-/+' and space
+		// Add the found term to the sum regardless of what was found after
+		if( shouldSubtract )
+			result -= double(aNumerator) / double(aDenominator);
 		else
-			break; // invalid char after +/-
+			result += double(aNumerator) / double(aDenominator);
+		
+		// Skip any whitespace between term and next possible operator
+		while(theString[aPeekPos] && u8(theString[aPeekPos]) <= ' ')
+			++aPeekPos;
 
-		if( *end == '-' )
-			subtract = true;
-		end += foundOperatorCharCount;
+		// Advance theOffset to next non-whitespace character after valid term
+		theOffset = aPeekPos;
+
+		// Next char must be + or - in order to continue searching for numbers
+		if( theString[theOffset] != '-' && theString[theOffset] != '+' )
+			return result;
 	}
-
-	// If last operator found didn't have a valid number after it,
-	// set the operator itself as the first invalid character
-	end -= foundOperatorCharCount;
-
-	// Allow trailing spaces after last valid char to still be "valid" (skipped)
-	while(*end <= ' ' && *end != '\0')
-		++end;
-
-	// If no problems found this will set theOffset == len(theString)
-	theOffset = end - &theString[0];
-	return result;
 }
 
 

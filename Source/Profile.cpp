@@ -1553,6 +1553,7 @@ static std::string varTagToString(
 			eMemberType_Round,
 			eMemberType_Floor,
 			eMemberType_Ceil,
+			eMemberType_Abs,
 
 			eMemberType_LastCoordType = eMemberType_Anchor
 		};
@@ -1577,6 +1578,7 @@ static std::string varTagToString(
 					{ "round",		eMemberType_Round	},
 					{ "floor",		eMemberType_Floor	},
 					{ "ceil",		eMemberType_Ceil	},
+					{ "abs",		eMemberType_Abs		},
 				};
 				map.reserve(ARRAYSIZE(kEntries));
 				for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
@@ -1707,6 +1709,9 @@ static std::string varTagToString(
 				break;
 			case eMemberType_Ceil:
 				result = toString(int(ceil(aSum)));
+				break;
+			case eMemberType_Abs:
+				result = toString(abs(aSum));
 				break;
 			}
 			return varTagToString(result, theTagStr, aPos);
@@ -1870,11 +1875,13 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		std::string aVarContents;
 		const std::string kVarOpChars = "}+-*/?[!~<>=.";
 		size_t aVarNameStartPos = aTagCoords.first + 2;
-		while(aStr[aVarNameStartPos] <= ' ')
+		while(u8(aStr[aVarNameStartPos]) <= ' ')
 			++aVarNameStartPos;
 		size_t aVarOpPos = aVarNameStartPos;
 		bool validVarFound = false;
-		if( aStr[aVarNameStartPos] == '-' || aStr[aVarNameStartPos] == '+' ||
+		if( aStr[aVarNameStartPos] == '-' ||
+			aStr[aVarNameStartPos] == '+' ||
+			aStr[aVarNameStartPos] == '.' ||
 			(aStr[aVarNameStartPos] >= '0' && aStr[aVarNameStartPos] <= '9') )
 		{// Possibly a numeric constant in place of an actual variable name
 			const double aVarAsNum = stringToDoubleSum(aStr, aVarOpPos);
