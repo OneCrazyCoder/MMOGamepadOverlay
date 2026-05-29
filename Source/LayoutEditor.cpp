@@ -132,6 +132,7 @@ struct ZERO_INIT(LayoutEntry)
 	RECT drawnRect;
 	Hotspot drawHotspot;
 	float drawOffScale;
+	int drawRangeWrap; // > 0 = X, < 0 = Y
 	int propSectID, menuID;
 	int drawOffX, drawOffY;
 	// -1 = independent/anchor/menu, 0 = range element, 1+ = full range
@@ -366,7 +367,7 @@ static size_t fetchComponentStringEnd(
 		case 'x': case 'X':
 			// Try to differentiate between '5 x 7' and 'CX', for example
 			if( thePos > 0 && !aTagDepth &&
-				(aCStr[thePos-1] <= ' ' ||
+				(u8(aCStr[thePos-1]) <= ' ' ||
 				 (aCStr[thePos-1] >= '0' && aCStr[thePos-1] <= '9') ||
 				 aCStr[thePos-1] == '%' || aCStr[thePos-1] == '.' ||
 				 aCStr[thePos-1] == '}') )
@@ -444,7 +445,7 @@ static LayoutEntry::Shape::Component fetchShapeComponent(
 				result.base[anOffStartPos] <= '9') ||
 			   result.base[anOffStartPos] == '-' ||
 			   result.base[anOffStartPos] == '+' ||
-			   result.base[anOffStartPos] <= ' '))
+			   u8(result.base[anOffStartPos]) <= ' '))
 		{ --anOffStartPos; }
 		// If reached a decimal point, step forward again to get
 		// past decimal number to next int
@@ -534,6 +535,7 @@ static void updateDrawHotspot(
 	theEntry.drawOffScale = entryIsAnchorHotspot(theEntry)
 		? stringToFloat(Profile::expandVars(theShape.scale))
 		: 1.0f;
+	theEntry.drawRangeWrap = 0;
 	if( theEntry.drawOffScale <= 0 )
 		theEntry.drawOffScale = 1.0f;
 	if( theEntry.rangeCount > 0 )
@@ -554,25 +556,28 @@ static void updateDrawHotspot(
 			int anExtraYOffset = 0;
 			for(int i = 2; i <= aParent->rangeCount; ++i)
 			{
-				if( aParent->shape.alignment == eAlignment_WrapX &&
-					aParent->shape.wrap > 0 )
+				if( aParent->drawRangeWrap > 0 )
 				{// Only apply X at wrap point
 					anExtraYOffset += aParent->drawOffY;
-					if( i % aParent->shape.wrap == 0 )
+					if( i % aParent->drawRangeWrap == 0 )
 					{
 						anExtraYOffset = -aParent->drawOffY;
 						anExtraXOffset += aParent->drawOffX;
 					}
 				}
-				else if( aParent->shape.alignment == eAlignment_WrapY &&
-						 aParent->shape.wrap > 0 )
+				else if( aParent->drawRangeWrap < 0 )
 				{// Only apply Y at wrap point
 					anExtraXOffset += aParent->drawOffX;
-					if( i % aParent->shape.wrap == 0 )
+					if( i % (-aParent->drawRangeWrap) == 0 )
 					{
 						anExtraXOffset = -aParent->drawOffX;
 						anExtraYOffset += aParent->drawOffY;
 					}
+				}
+				else
+				{// Apply both offsets
+					anExtraXOffset += aParent->drawOffX;
+					anExtraYOffset += aParent->drawOffY;
 				}
 			}
 
@@ -590,13 +595,20 @@ static void updateDrawHotspot(
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
 			{
 				theEntry.drawHotspot.x.anchor = aParentHotspot.x.anchor;
-				if( theEntry.shape.alignment == eAlignment_WrapX &&
-					theEntry.shape.wrap > 0 )
-				{
+				if( theShape.alignment == eAlignment_WrapX &&
+					theShape.wrap > 1 )
+				{// Apply range wrapping, for now cancelling own X offset
 					theEntry.drawHotspot.x.offset = aParentHotspot.x.offset;
+					theEntry.drawRangeWrap = theShape.wrap;
+				}
+				else if( theShape.alignment == eAlignment_WrapY &&
+						 theShape.wrap == 1 )
+				{// Cancel X offset and treat as having only a Y offset
+					theEntry.drawHotspot.x.offset = aParentHotspot.x.offset;
+					theEntry.drawOffX = 0;
 				}
 				else
-				{
+				{// Normal X offset
 					theEntry.drawHotspot.x.offset = s16(clamp(int(
 						theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
 						aParentHotspot.x.offset, -0x8000, 0x7FFF));
@@ -605,13 +617,20 @@ static void updateDrawHotspot(
 			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
 			{
 				theEntry.drawHotspot.y.anchor = aParentHotspot.y.anchor;
-				if( theEntry.shape.alignment == eAlignment_WrapY &&
-					theEntry.shape.wrap > 0 )
-				{
+				if( theShape.alignment == eAlignment_WrapY &&
+					theShape.wrap > 1 )
+				{// Apply range wrapping, for now cancelling own Y offset
 					theEntry.drawHotspot.y.offset = aParentHotspot.y.offset;
+					theEntry.drawRangeWrap = -theShape.wrap;
+				}
+				else if( theShape.alignment == eAlignment_WrapX &&
+						 theShape.wrap == 1 )
+				{// Cancel Y offset and treat as having only a X offset
+					theEntry.drawHotspot.y.offset = aParentHotspot.y.offset;
+					theEntry.drawOffY = 0;
 				}
 				else
-				{
+				{// Normal Y offset
 					theEntry.drawHotspot.y.offset = s16(clamp(int(
 						theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
 						aParentHotspot.y.offset, -0x8000, 0x7FFF));
@@ -1095,7 +1114,7 @@ static bool setupScaleControls(
 			EM_SETREADONLY, true, 0);
 		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S), L"");
 		ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
-		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), false);
+		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_VAR), false);
 		EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
 		SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 			TBM_SETPOS, TRUE, LPARAM(100));
@@ -1107,7 +1126,7 @@ static bool setupScaleControls(
 		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
 			widen(theScaleString).c_str());
 		ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
-		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), false);
+		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_VAR), false);
 		EnableWindow(GetDlgItem(theDialog, IDC_SLIDER_S), true);
 		SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 			TBM_SETPOS, TRUE, LPARAM(100 * aCalculatedScale));
@@ -1119,9 +1138,9 @@ static bool setupScaleControls(
 		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
 			widen(aCalculatedScaleString).c_str());
 		ShowWindow(GetDlgItem(theDialog, IDC_SLIDER_S), false);
-		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S_VAR),
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_VAR),
 			widen(theScaleString).c_str());
-		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_S_VAR), true);
+		ShowWindow(GetDlgItem(theDialog, IDC_EDIT_VAR), true);
 		break;
 	}
 
@@ -1151,6 +1170,84 @@ static void setupAlignmentControls(
 	adjustComboBoxDroppedWidth(hComboBox);
 	SendMessage(hComboBox, CB_SETCURSEL,
 		(WPARAM)theShape.alignment, 0);
+}
+
+
+static bool setupRangeWrapControls(
+	HWND theDialog, const LayoutEntry::Shape& theShape)
+{
+	enum EWrapType
+	{
+		eWrapType_None,
+		eWrapType_Number,
+		eWrapType_Var,
+	} aWrapType = eWrapType_None;
+
+	int aCalculatedWrap = 0;
+	std::string aCalculatedWrapString;
+	if( !theShape.extraVarString.empty() )
+	{
+		const int aSimpleWrap = stringToInt(theShape.extraVarString);
+		aCalculatedWrap = stringToInt(
+			Profile::expandVars(theShape.extraVarString));
+		aCalculatedWrapString = toString(aCalculatedWrap);
+		if( aCalculatedWrap <= 0 )
+			aWrapType = eWrapType_None;
+		else if( aCalculatedWrap == aSimpleWrap )
+			aWrapType = eWrapType_Number;
+		else
+			aWrapType = eWrapType_Var;
+	}
+	else if( theShape.wrap != 0 )
+	{
+		aWrapType = eWrapType_Number;
+	}
+
+	switch(aWrapType)
+	{
+	case eWrapType_None:
+		SendMessage(GetDlgItem(theDialog, IDC_EDIT_WRAP),
+			EM_SETREADONLY, true, 0);
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_WRAP), L"");
+		EnableWindow(GetDlgItem(theDialog, IDC_SPIN_WRAP), false);
+		EnableWindow(GetDlgItem(theDialog, IDC_RADIO_X), false);
+		EnableWindow(GetDlgItem(theDialog, IDC_RADIO_Y), false);
+		CheckDlgButton(theDialog, IDC_RADIO_X, false);
+		CheckDlgButton(theDialog, IDC_RADIO_Y, false);
+		break;
+
+	case eWrapType_Number:
+		SendMessage(GetDlgItem(theDialog, IDC_EDIT_WRAP),
+			EM_SETREADONLY, false, 0);
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_WRAP),
+			widen(toString(theShape.wrap)).c_str());
+		EnableWindow(GetDlgItem(theDialog, IDC_SPIN_WRAP), true);
+		EnableWindow(GetDlgItem(theDialog, IDC_RADIO_X), true);
+		EnableWindow(GetDlgItem(theDialog, IDC_RADIO_Y), true);
+		CheckDlgButton(theDialog, IDC_RADIO_X,
+			theShape.alignment == eAlignment_WrapY);
+		CheckDlgButton(theDialog, IDC_RADIO_Y,
+			theShape.alignment == eAlignment_WrapX);
+		break;
+
+	case eWrapType_Var:
+		SendMessage(GetDlgItem(theDialog, IDC_EDIT_WRAP),
+			EM_SETREADONLY, true, 0);
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_WRAP),
+			widen(theShape.extraVarString).c_str());
+		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_VAR),
+			widen(theShape.extraVarString).c_str());
+		EnableWindow(GetDlgItem(theDialog, IDC_SPIN_WRAP), false);
+		EnableWindow(GetDlgItem(theDialog, IDC_RADIO_X), false);
+		EnableWindow(GetDlgItem(theDialog, IDC_RADIO_Y), false);
+		CheckDlgButton(theDialog, IDC_RADIO_X,
+			theShape.alignment == eAlignment_WrapY);
+		CheckDlgButton(theDialog, IDC_RADIO_Y,
+			theShape.alignment == eAlignment_WrapX);
+		break;
+	}
+
+	return aWrapType == eWrapType_Number;
 }
 
 
@@ -1410,31 +1507,24 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				CheckDlgButton(theDialog, IDC_CHECK_SCALE, true);
 		}
 
-		{// Adjust spinner control positioning/size slightly
-			HWND hCntrl = GetDlgItem(theDialog, IDC_SPIN_X);
-			std::pair<POINT, SIZE> aCtrlPos = getControlPos(theDialog, hCntrl);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
-			hCntrl = GetDlgItem(theDialog, IDC_SPIN_Y);
-			aCtrlPos = getControlPos(theDialog, hCntrl);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
-			hCntrl = GetDlgItem(theDialog, IDC_SPIN_W);
-			aCtrlPos = getControlPos(theDialog, hCntrl);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
-			hCntrl = GetDlgItem(theDialog, IDC_SPIN_H);
-			aCtrlPos = getControlPos(theDialog, hCntrl);
-			aCtrlPos.first.y += 2;
-			aCtrlPos.second.cy -= 2;
-			SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
-				aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+		if( anEntry.rangeCount > 1 )
+		{// Range wrap
+			if( setupRangeWrapControls(theDialog, anEntry.shape) )
+				CheckDlgButton(theDialog, IDC_CHECK_WRAP, true);
+		}
+
+		// Adjust spinner control positioning/size slightly
+		for( int i = IDC_SPIN_X; i <= IDC_SPIN_WRAP; ++i)
+		{
+			if( HWND hCntrl = GetDlgItem(theDialog, i) )
+			{
+				std::pair<POINT, SIZE> aCtrlPos =
+					getControlPos(theDialog, hCntrl);
+				aCtrlPos.first.y += 2;
+				aCtrlPos.second.cy -= 2;
+				SetWindowPos(hCntrl, NULL, aCtrlPos.first.x, aCtrlPos.first.y,
+					aCtrlPos.second.cx, aCtrlPos.second.cy, SWP_NOZORDER);
+			}
 		}
 
 		setInitialToolbarPos(theDialog, anEntry);
@@ -1502,9 +1592,6 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				{
 					sState->entered.scale =
 						numToStringDecimal(aNewValue, isInPercent);
-					sState->needsDrawPosUpdate = true;
-					gRefreshOverlays.set(kSystemOverlayID);
-					applyNewLayoutProperties();
 					// Update slider to match
 					SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 						TBM_SETPOS, TRUE,
@@ -1515,6 +1602,40 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 							GetDlgItem(theDialog, IDC_EDIT_S),
 							widen(sState->entered.scale).c_str());
 					}
+					sState->needsDrawPosUpdate = true;
+					gRefreshOverlays.set(kSystemOverlayID);
+					applyNewLayoutProperties();
+				}
+			}
+			break;
+
+		case IDC_EDIT_WRAP:
+			if( HIWORD(wParam) == EN_KILLFOCUS &&
+				IsDlgButtonChecked(theDialog, IDC_CHECK_WRAP) == BST_CHECKED )
+			{
+				const std::string& aControlStr =
+					getControlText(theDialog, IDC_EDIT_WRAP);
+				size_t aStrPos = 0;
+				int aNewValue = clamp(
+					int(stringToDoubleSum(aControlStr, aStrPos)),
+					0, 255);
+				if( aNewValue != sState->entered.wrap )
+				{
+					sState->entered.wrap = aNewValue;
+					if( sState->entered.wrap == 0 )
+						sState->entered.extraVarString = "0 (Off)";
+					else
+						sState->entered.extraVarString = toString(aNewValue);
+					if( aControlStr != sState->entered.extraVarString )
+					{
+						SetWindowText(
+							GetDlgItem(theDialog, IDC_EDIT_WRAP),
+							widen(sState->entered.extraVarString).c_str());
+					}
+					sState->entered.extraVarString.clear();
+					sState->needsDrawPosUpdate = true;
+					gRefreshOverlays.set(kSystemOverlayID);
+					applyNewLayoutProperties();
 				}
 			}
 			break;
@@ -1683,13 +1804,63 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				else
 				{
 					sState->entered.scale =
-						getControlText(theDialog, IDC_EDIT_S_VAR);
+						getControlText(theDialog, IDC_EDIT_VAR);
 				}
 				setupScaleControls(theDialog, sState->entered.scale);
 				sState->needsDrawPosUpdate = true;
 				gRefreshOverlays.set(kSystemOverlayID);
 				applyNewLayoutProperties();
 				break;
+			}
+			break;
+
+		case IDC_CHECK_WRAP:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				const bool isChecked =
+					IsDlgButtonChecked(theDialog, IDC_CHECK_WRAP)
+						== BST_CHECKED;
+				if( isChecked )
+				{
+					sState->entered.wrap = clamp(stringToInt(
+						Profile::expandVars(sState->entered.extraVarString)),
+						0, 255);
+					if( sState->entered.wrap <= 0 )
+						sState->entered.wrap = max(2, anEntry.rangeCount / 2);
+					if( sState->entered.alignment != eAlignment_WrapX &&
+						sState->entered.alignment != eAlignment_WrapY )
+					{
+						sState->entered.alignment = eAlignment_WrapY;
+					}
+					sState->entered.extraVarString.clear();
+				}
+				else
+				{
+					sState->entered.extraVarString =
+						getControlText(theDialog, IDC_EDIT_VAR);
+					sState->entered.wrap = clamp(stringToInt(
+						Profile::expandVars(sState->entered.extraVarString)),
+						0, 255);
+					sState->entered.alignment = anEntry.shape.alignment;
+				}
+				setupRangeWrapControls(theDialog, sState->entered);
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
+				applyNewLayoutProperties();
+				break;
+			}
+			break;
+
+		case IDC_RADIO_X:
+		case IDC_RADIO_Y:
+			if( HIWORD(wParam) == BN_CLICKED )
+			{
+				sState->entered.alignment =
+					LOWORD(wParam) == IDC_RADIO_X
+						? eAlignment_WrapY : eAlignment_WrapX;
+				sState->needsDrawPosUpdate = true;
+				gRefreshOverlays.set(kSystemOverlayID);
+				applyNewLayoutProperties();
 			}
 			break;
 
@@ -1843,6 +2014,27 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				IDC_EDIT_X +
 				dropTo<int>(((LPNMHDR)lParam)->idFrom) - IDC_SPIN_X,
 				((LPNMUPDOWN)lParam)->iDelta);
+			applyNewLayoutProperties();
+			break;
+		case IDC_SPIN_WRAP:
+			sState->entered.wrap = stringToInt(
+				Profile::expandVars(getControlText(
+					theDialog, IDC_EDIT_WRAP)));
+			sState->entered.wrap -= ((LPNMUPDOWN)lParam)->iDelta;
+			sState->entered.wrap = clamp(sState->entered.wrap, 0, 255);
+			if( sState->entered.wrap == 0 )
+			{
+				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_WRAP),
+					L"0 (Off)");
+			}
+			else
+			{
+				SetWindowText(GetDlgItem(theDialog, IDC_EDIT_WRAP),
+					widen(toString(sState->entered.wrap)).c_str());
+			}
+			sState->entered.extraVarString.clear();
+			sState->needsDrawPosUpdate = true;
+			gRefreshOverlays.set(kSystemOverlayID);
 			applyNewLayoutProperties();
 			break;
 		}
@@ -2187,25 +2379,43 @@ static void drawEntry(
 	if( theEntry.rangeCount > 1 )
 	{
 		const Hotspot aRangeAnchor = aHotspot;
+		Hotspot aParentHotspot = aHotspot;
+		if( isActiveHotspot && theEntry.drawRangeWrap )
+		{// Draw immediate parent as a stationary reference point
+			if( theEntry.drawRangeWrap < 0 )
+			{
+				aHotspot.x.offset = s16(clamp(
+					int(-theEntry.drawOffX * theEntry.drawOffScale) +
+					aRangeAnchor.x.offset, -0x8000, 0x7FFF));
+			}
+			else
+			{
+				aHotspot.y.offset = s16(clamp(
+					int(-theEntry.drawOffY * theEntry.drawOffScale) +
+					aRangeAnchor.y.offset, -0x8000, 0x7FFF));
+			}
+			RECT aDrawnRect = drawHotspot(hdc, aHotspot,
+				kChildHotspotDrawSize, entryScaleFactor(theEntry),
+				theBaseOffset, theEraseColor, false, true);
+			UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
+		}
 		int aDrawOffsetX = 0;
 		int aDrawOffsetY = 0;
 		for(int i = 2; i <= theEntry.rangeCount; ++i)
 		{
-			if( theEntry.shape.alignment == eAlignment_WrapX &&
-				theEntry.shape.wrap > 0 )
+			if( theEntry.drawRangeWrap > 0 )
 			{// Only apply X at wrap point
 				aDrawOffsetY += theEntry.drawOffY;
-				if( i % theEntry.shape.wrap == 0 )
+				if( i % theEntry.drawRangeWrap == 0 )
 				{
 					aDrawOffsetY = -theEntry.drawOffY;
 					aDrawOffsetX += theEntry.drawOffX;
 				}
 			}
-			else if( theEntry.shape.alignment == eAlignment_WrapY &&
-					 theEntry.shape.wrap > 0 )
+			else if( theEntry.drawRangeWrap < 0 )
 			{// Only apply Y at wrap point
 				aDrawOffsetX += theEntry.drawOffX;
-				if( i % theEntry.shape.wrap == 0 )
+				if( i % (-theEntry.drawRangeWrap) == 0 )
 				{
 					aDrawOffsetX = -theEntry.drawOffX;
 					aDrawOffsetY += theEntry.drawOffY;
