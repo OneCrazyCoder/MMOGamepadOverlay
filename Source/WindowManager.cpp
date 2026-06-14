@@ -234,6 +234,10 @@ static int normalWindowsProc(
 
 	case WM_NCLBUTTONDOWN:
 	case WM_NCLBUTTONDBLCLK:
+	case WM_NCRBUTTONDOWN:
+	case WM_NCRBUTTONDBLCLK:
+	case WM_NCMBUTTONDOWN:
+	case WM_NCMBUTTONDBLCLK:
 	case WM_ENTERSIZEMOVE:
 	case WM_ENTERMENULOOP:
 		startModalModeUpdates();
