@@ -2306,7 +2306,7 @@ static double anchorTypeToSubTypeValue(
 	// Anchor Type A - used by AOA
 	// This type goes clockwise from TL in a spiral ending at center,
 	// and it affects both alignment and pivot point
-	if( theValArray[eValueSetSubType_AnchorTypeA].empty() )
+	if( !theValArray[eValueSetSubType_AnchorTypeA].empty() )
 	{
 		//	  L-T  C-T  R-T  R-C  R-B  C-B  L-B  L-C  C-C
 		static const double kTypeAAlignX[9] =
