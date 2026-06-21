@@ -7,6 +7,7 @@
 #include "HotspotMap.h"
 #include "InputMap.h"
 #include "Profile.h"
+#include "TargetApp.h"
 #include "WindowManager.h"
 
 // Forward declares of functions defined in Main.cpp for main loop update
@@ -42,6 +43,14 @@ kVKeyReleaseFlag = 0x8000, // bit unused by VkKeyScan()
 kVKeyForceReleaseFlag = kVKeyHoldFlag | kVKeyReleaseFlag,
 MOUSEEVENTF_MOVEABSOLUTE =
 	MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+};
+
+enum EOutputMode
+{
+	eOutputMode_None,
+	eOutputMode_MouseOnly,
+	eOutputMode_NeedCursor,
+	eOutputMode_Full,
 };
 
 enum EAutoRunMode
@@ -563,6 +572,7 @@ struct ZERO_INIT(DispatchTracker)
 	VectorMap<u8, int> keysLockedDown;
 	BitArray<eSpecialKey_MoveNum> moveKeysHeld;
 	BitArray<eSpecialKey_MoveNum> stickyMoveKeys;
+	EOutputMode outputMode;
 	EAutoRunMode autoRunMode;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
@@ -597,6 +607,8 @@ struct ZERO_INIT(DispatchTracker)
 	bool mouseVelLockedThisFrame;
 
 	DispatchTracker() :
+		outputMode(eOutputMode_Full),
+		autoRunMode(eAutoRunMode_Off),
 		mouseMode(eMouseMode_Cursor),
 		mouseModeExpected(eMouseMode_Cursor),
 		mouseModeRequested(eMouseMode_Cursor),
@@ -976,6 +988,21 @@ static int modKeysHeldAsFlags()
 }
 
 
+static bool outputModeAllowsKeyPress(int theVKey)
+{
+	if( sTracker.outputMode == eOutputMode_MouseOnly &&
+		!isMouseButton(theVKey) &&
+		!(theVKey & kVKeyWinFlag) )
+	{
+		// Flag that user is attempting to send keyboard input to target window
+		TargetApp::tryFocusOnTargetWindow();
+		return false;
+	}
+
+	return true;
+}
+
+
 static bool requiredModKeysAreAlreadyHeld(int theVKey)
 {
 	return
@@ -1275,10 +1302,9 @@ static bool verifyCursorJumpedTo(const Hotspot& theDestHotspot)
 	if( !sTracker.mouseJumpAttempted )
 		return false;
 
-	// In simulation mode always act as if jump was successful
-	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
-	sTracker.mouseJumpVerified = true;
-	#endif
+	// If skipping all output always act as if jump was successful
+	if( sTracker.outputMode == eOutputMode_None )
+		sTracker.mouseJumpVerified = true;
 
 	if( !sTracker.mouseJumpVerified )
 	{
@@ -1322,10 +1348,12 @@ static bool verifyCursorJumpedTo(const Hotspot& theDestHotspot)
 
 static void trailMouseToHotspot(const Hotspot& theDestHotspot)
 {
-	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
+	if( sTracker.outputMode == eOutputMode_None )
+	{
 		sTracker.mouseJumpAttempted = true;
 		sTracker.mouseJumpVerified = true;
-	#endif
+		return;
+	}
 
 	if( sTracker.mouseJumpAttempted && sTracker.mouseJumpVerified )
 		return;
@@ -1426,7 +1454,8 @@ static void queueMoveMouseTo(const Command& theCommand)
 		if( !sTracker.queue.mouseJumpQueued() &&
 			!sTracker.mouseJumpToHotspot &&
 			sTracker.mouseModeRequested == eMouseMode_Cursor &&
-			sTracker.mouseMode == eMouseMode_Cursor )
+			sTracker.mouseMode == eMouseMode_Cursor &&
+			sTracker.outputMode != eOutputMode_None )
 		{
 			// May not have been tracking mouse cursor despite being in
 			// cursor mode if also performing a mouse drag, since in some
@@ -1435,14 +1464,12 @@ static void queueMoveMouseTo(const Command& theCommand)
 			// knowing if it was that or a click-and-drag on UI. It is thus
 			// assumed to be the latter if requesting a hotspot select, so
 			// to be accurate need to update mouse pos for HotspotMap.
-			#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 			if( InputMap::setLastCursorPosHotspot(
 					WindowManager::overlayPosToHotspot(
 						WindowManager::mouseToOverlayPos(true))) )
 			{
 				HotspotMap::update();
 			}
-			#endif
 		}
 		if( const int aNextHotspot =
 				HotspotMap::getNextHotspotInDir(ECommandDir(theCommand.dir)) )
@@ -1930,11 +1957,11 @@ static EMouseMode getNextMouseMode()
 {
 	EMouseMode aMouseMode = eMouseMode_Cursor;
 
-	#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
-	// Prevent modes that hold a mouse button when not in-game yet, etc
-	if( WindowManager::requiresNormalCursorControl() )
+	if( sTracker.outputMode == eOutputMode_NeedCursor ||
+		sTracker.outputMode == eOutputMode_MouseOnly )
+	{// Output restricted to always be in cursor mode
 		return aMouseMode;
-	#endif
+	}
 
 	aMouseMode = checkMouseLookModeTransitions();
 	aMouseMode = checkMouseLookRestore(aMouseMode);
@@ -2053,6 +2080,7 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 		// Can always instantly do nothing
 		return true;
 	case eCmdType_PressAndHoldKey:
+		if( sTracker.outputMode != eOutputMode_MouseOnly )
 		{
 			const int aVKey = theCommand.vKey;
 			const int aBaseVKey = aVKey & kVKeyMask;
@@ -2098,6 +2126,7 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 		}
 		break;
 	case eCmdType_TapKey:
+		if( sTracker.outputMode != eOutputMode_MouseOnly )
 		{
 			const int aVKey = theCommand.vKey;
 			const int aBaseVKey = aVKey & kVKeyMask;
@@ -2226,9 +2255,10 @@ static void debugPrintInputVector()
 static void flushInputVector()
 {
 	debugPrintInputVector();
+	if( sTracker.outputMode == eOutputMode_None )
+		sTracker.inputs.clear();
 	if( !sTracker.inputs.empty() )
 	{
-		#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 		if( kConfig.useScanCodes )
 		{// Convert Virtual-Key Codes into scan codes
 			for(int i = 0, end = intSize(sTracker.inputs.size()); i < end; ++i)
@@ -2255,7 +2285,6 @@ static void flushInputVector()
 			UINT(sTracker.inputs.size()),
 			static_cast<INPUT*>(&sTracker.inputs[0]),
 			sizeof(INPUT));
-		#endif
 		sTracker.inputs.clear();
 	}
 }
@@ -2343,6 +2372,39 @@ void update()
 	// -------------
 	if( sTracker.queuePauseTime > 0 )
 		sTracker.queuePauseTime -= gAppFrameTime;
+
+	// Update output mode
+	// ------------------
+	#if INPUT_DISPATCHER_SIMULATION_ONLY
+		sTracker.outputMode = eOutputMode_None;
+	#else
+	{
+		HWND aForegroundWindow = GetForegroundWindow();
+		if( aForegroundWindow == WindowManager::mainHandle() )
+		{// Don't send keyboard keys to own main window
+			sTracker.outputMode = eOutputMode_MouseOnly;
+		}
+		else
+		{
+			HWND aTargetWindow =
+				TargetApp::targetWindowRequested()
+					? TargetApp::targetWindowHandle()
+					: aForegroundWindow;
+			if( !aTargetWindow || WindowManager::toolbarHandle() )
+			{// Need a target window to use mouse modes other than "cursor"
+				sTracker.outputMode = eOutputMode_NeedCursor;
+			}
+			else if( aTargetWindow != aForegroundWindow )
+			{// Don't send keyboard keys to anything besides target
+				sTracker.outputMode = eOutputMode_MouseOnly;
+			}
+			else
+			{// Target is ready to receive all forms of output
+				sTracker.outputMode = eOutputMode_Full;
+			}
+		}
+	}
+	#endif
 
 	// Update mouse mode
 	// -----------------
@@ -2434,13 +2496,12 @@ void update()
 			switch(aNextMouseMode)
 			{
 			case eMouseMode_Cursor:
-				#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
-				if( WindowManager::requiresNormalCursorControl() )
+				if( sTracker.outputMode == eOutputMode_NeedCursor ||
+					sTracker.outputMode == eOutputMode_MouseOnly )
 				{// Skip restore jump if cursor mode being forced
 					sTracker.mouseMode = eMouseMode_Cursor;
 				}
 				else
-				#endif
 				{// Jump cursor to last normal cursor position
 					sTracker.mouseJumpDest =
 						InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
@@ -2635,16 +2696,49 @@ void update()
 			}
 			break;
 		case eCmdType_TapKey:
-			if( !taskIsPastDue )
-				sTracker.nextQueuedKey = aCmd.vKey;
+			if( !outputModeAllowsKeyPress(aCmd.vKey) )
+			{
+				sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
+				sTracker.allowFastTasksDuringQueuePause = false;
+				aTaskResult = eResult_Incomplete;
+			}
+			else
+			{
+				if( !taskIsPastDue )
+					sTracker.nextQueuedKey = aCmd.vKey;
+			}
 			break;
 		case eCmdType_VKeySequence:
-			if( !taskIsPastDue )
-				aTaskResult = popNextKey(InputMap::cmdVKeySeq(aCmd));
+			if( sTracker.outputMode == eOutputMode_MouseOnly )
+			{
+				TargetApp::tryFocusOnTargetWindow();
+				if( sTracker.currTaskProgress == 0 )
+				{// Delay start to re-focus (otherwise will abort in-process)
+					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
+					aTaskResult = eResult_Incomplete;
+				}
+			}
+			else
+			{
+				if( !taskIsPastDue )
+					aTaskResult = popNextKey(InputMap::cmdVKeySeq(aCmd));
+			}
 			break;
 		case eCmdType_ChatBoxString:
-			if( !taskIsPastDue )
-				aTaskResult = popNextStringChar(InputMap::cmdString(aCmd));
+			if( sTracker.outputMode == eOutputMode_MouseOnly )
+			{
+				TargetApp::tryFocusOnTargetWindow();
+				if( sTracker.currTaskProgress == 0 )
+				{// Delay start to re-focus (otherwise will abort in-process)
+					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
+					aTaskResult = eResult_Incomplete;
+				}
+			}
+			else
+			{
+				if( !taskIsPastDue )
+					aTaskResult = popNextStringChar(InputMap::cmdString(aCmd));
+			}
 			break;
 		case eCmdType_MoveMouseToHotspot:
 		case eCmdType_MouseClickAtHotspot:
@@ -2653,8 +2747,7 @@ void update()
 		case eCmdType_MoveMouseToOffset:
 			if( sTracker.mouseJumpToHotspot && !sTracker.mouseJumpInterpolate )
 			{// Finish instant jump first
-				sTracker.queuePauseTime =
-					max(sTracker.queuePauseTime, 1);
+				sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
 				sTracker.allowFastTasksDuringQueuePause = false;
 				aTaskResult = eResult_Incomplete;
 			}
@@ -2806,7 +2899,10 @@ void update()
 			continue;
 		}
 
-		// Check if both mod keys needed are already held, and that any
+		if( !outputModeAllowsKeyPress(aVKey) )
+			continue;
+
+		// Check if mod keys needed are already held plus that any
 		// nextQueuedKey, if there is one, won't change them.
 		const bool correctModKeysHeld =
 			requiredModKeysAreAlreadyHeld(aVKey) &&
@@ -2903,21 +2999,30 @@ void update()
 		const bool press = !(aVKey & kVKeyReleaseFlag);
 		const bool hold = !!(aVKey & kVKeyHoldFlag);
 		const bool forced = !press && hold;
-		// Make sure desired modifier keys match those of the queued key
-		aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
-		aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
-		aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
-		aDesiredKeysDown.set(VK_LWIN, !!(aVKey & kVKeyWinFlag));
-		// Only send the key if related keys are already in correct state
-		// Otherwise, need to wait until other keys are ready next frame
-		readyForQueuedKey =
-			requiredModKeysAreAlreadyHeld(sTracker.nextQueuedKey);
-		// Make sure base key is in opposite of desired pressed state
-		if( !forced )
+		if( press && !outputModeAllowsKeyPress(aVKey) )
 		{
-			aDesiredKeysDown.set(aBaseVKey, !press);
-			if( sTracker.keysHeldDown.test(aBaseVKey) == press )
-				readyForQueuedKey = false;
+			// Current output mode does not allow pressing this key now
+			readyForQueuedKey = false;
+			sTracker.nextQueuedKey = 0;
+		}
+		else
+		{
+			// Make sure desired modifier keys match those of the queued key
+			aDesiredKeysDown.set(VK_SHIFT, !!(aVKey & kVKeyShiftFlag));
+			aDesiredKeysDown.set(VK_CONTROL, !!(aVKey & kVKeyCtrlFlag));
+			aDesiredKeysDown.set(VK_MENU, !!(aVKey & kVKeyAltFlag));
+			aDesiredKeysDown.set(VK_LWIN, !!(aVKey & kVKeyWinFlag));
+			// Only send the key if related keys are already in correct state
+			// Otherwise, need to wait until other keys are ready next frame
+			readyForQueuedKey =
+				requiredModKeysAreAlreadyHeld(sTracker.nextQueuedKey);
+			// Make sure base key is in opposite of desired pressed state
+			if( !forced )
+			{
+				aDesiredKeysDown.set(aBaseVKey, !press);
+				if( sTracker.keysHeldDown.test(aBaseVKey) == press )
+					readyForQueuedKey = false;
+			}
 		}
 		// Extra rules may apply for mouse buttons being initially clicked
 		if( (aBaseVKey == VK_LBUTTON || aBaseVKey == VK_RBUTTON) && press )
@@ -2969,16 +3074,15 @@ void update()
 		sTracker.mouseMode == eMouseMode_Cursor &&
 		sTracker.mouseModeRequested == eMouseMode_Cursor &&
 		!sTracker.keysHeldDown.test(VK_LBUTTON) &&
-		!sTracker.keysHeldDown.test(VK_RBUTTON) )
+		!sTracker.keysHeldDown.test(VK_RBUTTON) &&
+		sTracker.outputMode != eOutputMode_None )
 	{// Track cursor position changes in cursor mode when not jumping
 		// Also avoid while holding down LMB or RMB because in some games that
 		// causes the cursor to automatically jump to center-screen briefly
 		// even for quick clicks (just in case user starts mouse-look mode)
-		#ifndef INPUT_DISPATCHER_SIMULATION_ONLY
 		InputMap::setLastCursorPosHotspot(
 			WindowManager::overlayPosToHotspot(
 				WindowManager::mouseToOverlayPos(true)));
-		#endif
 	}
 	// Return speed from digital mouse acceleration back to 0 over time
 	sTracker.mouseDigitalVel = max(0,

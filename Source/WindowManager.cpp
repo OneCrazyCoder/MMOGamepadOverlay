@@ -1679,15 +1679,6 @@ HWND parentWindowHandle()
 }
 
 
-bool requiresNormalCursorControl()
-{
-	return
-		sHidden || sToolbarWindow ||
-		(!TargetApp::targetWindowHandle() &&
-		 TargetApp::targetWindowRequested());
-}
-
-
 void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 {
 	if( !sMainWindow ||

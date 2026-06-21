@@ -62,11 +62,6 @@ HWND toolbarHandle();
 // Gets handle to use as parent window for other windows (or NULL)
 HWND parentWindowHandle();
 
-// Checks for situations where mouse must be visible and directly controlled
-// (not hidden in the corner or attempting to use mouse look mode) due to
-// current status of UI (i.e. not actively in-game at the moment).
-bool requiresNormalCursorControl();
-
 // Move/resize/hide/restore the overlay windows
 void resize(RECT theNewTargetRect, bool isTargetAppWindow);
 void resetOverlays();

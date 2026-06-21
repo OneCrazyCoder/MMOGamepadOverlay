@@ -36,6 +36,9 @@ void swapWindowMode();
 // Call when start a dialog to restore target window after
 void prepareForDialog();
 
+// Attempt to set target window as active soon (to receive keyboard input)
+void tryFocusOnTargetWindow();
+
 // Get target window handle
 HWND targetWindowHandle();
 

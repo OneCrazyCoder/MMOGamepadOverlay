@@ -10,6 +10,7 @@
 #include "InputMap.h"
 #include "Menus.h"
 #include "Profile.h"
+#include "TargetApp.h"
 #include "TargetConfigSync.h"
 #include "WindowManager.h" // readUIScale()
 
@@ -1357,6 +1358,7 @@ static void processCommand(
 		sResults.menuStackAutoCommandRun.set(
 			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
+		TargetApp::tryFocusOnTargetWindow();
 		break;
 	case eCmdType_OpenSideMenu:
 		aForwardCmd = Menus::openSideMenu(
@@ -1367,6 +1369,7 @@ static void processCommand(
 		sResults.menuStackAutoCommandRun.set(
 			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
+		TargetApp::tryFocusOnTargetWindow();
 		break;
 	case eCmdType_MenuReset:
 		aForwardCmd = Menus::reset(theCmd.rootMenuID);
@@ -1412,6 +1415,7 @@ static void processCommand(
 			processCommand(theBtnState, aForwardCmd);
 		}
 		updateMouseForMenu(theCmd.rootMenuID);
+		TargetApp::tryFocusOnTargetWindow();
 		{
 			const bool wasNotAMenuControlCmd =
 				aForwardCmd.type < eCmdType_FirstMenuControl ||
@@ -2068,6 +2072,10 @@ static void updateMenusForCurrentLayers()
 			updateMouseForMenu(aMenuID);
 		}
 	}
+
+	// If requested any new menus appear, try switching to target game window
+	if( (gVisibleOverlays & ~aPrevVisibleOverlays).any() )
+		TargetApp::tryFocusOnTargetWindow();
 }
 
 

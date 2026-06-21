@@ -112,6 +112,7 @@ static EWindowMode sLastKnownTargetMode = eWindowMode_Unknown;
 static EWindowActiveStatus sLastWindowStatus = eWindowStatus_Closed;
 static bool sSwapWindowModeHotkeyRegistered = false;
 static bool sRestoreTargetWindow = false;
+static bool sWantTargetWindowActive = false;
 static bool sSetTargetAppDirToWindowOwner = false;
 
 
@@ -144,6 +145,7 @@ static void dropTargetWindow()
 	sTargetWindowRestoreMenu = NULL;
 	sLastKnownTargetMode = eWindowMode_Unknown;
 	sLastWindowStatus = eWindowStatus_Closed;
+	sWantTargetWindowActive = false;
 	WindowManager::resetOverlays();
 	if( sSwapWindowModeHotkeyRegistered )
 	{
@@ -198,6 +200,7 @@ static void restoreTargetWindow()
 	{
 		targetDebugPrint("Restoring target window to active window\n");
 		SetForegroundWindow(sTargetWindowHandle);
+		sWantTargetWindowActive = false;
 		sLastWindowStatus = eWindowStatus_Active;
 		sNextCheckDelay = 0;
 		sRepeatCheckTime = 500;
@@ -253,6 +256,7 @@ static void checkWindowExists()
 	targetDebugPrint("Target window '%ls' found!\n",
 		kConfig.targetWindowName.c_str());
 	sTargetWindowHandle = aForegroundWindow;
+	sWantTargetWindowActive = false;
 	sLastWindowStatus = eWindowStatus_Active;
 	sNextCheck = eCheck_WindowPosition;
 	sRepeatCheckTime = 0;
@@ -266,12 +270,16 @@ static void checkWindowExists()
 static void checkWindowActive()
 {
 	if( !sTargetWindowHandle )
+	{
+		sWantTargetWindowActive = false;
 		return;
+	}
 
 	HWND aForegroundWindow = GetForegroundWindow();
 
 	if( sTargetWindowHandle == aForegroundWindow )
 	{// Target window is active!
+		sWantTargetWindowActive = false;
 		if( sLastWindowStatus != eWindowStatus_Active )
 		{
 			targetDebugPrint("Target window became active - re-syncing!\n");
@@ -288,6 +296,7 @@ static void checkWindowActive()
 	{// Switch focus from own main window to target if target is topmost
 		targetDebugPrint("Switching focus to target window\n");
 		SetForegroundWindow(sTargetWindowHandle);
+		sWantTargetWindowActive = false;
 	}
 
 	// If already reacted to target window becoming inactive, no action needed
@@ -322,6 +331,13 @@ static void checkWindowActive()
 		sLastWindowStatus = eWindowStatus_Background;
 		WindowManager::hideOverlays();
 	}
+
+	// Try to set target window as active again if requested (unless minimized)
+	if( sWantTargetWindowActive && !IsIconic(sTargetWindowHandle) )
+	{
+		SetForegroundWindow(sTargetWindowHandle);
+		sWantTargetWindowActive = false;
+	}
 }
 
 
@@ -338,6 +354,7 @@ static void checkWindowMinimized()
 		targetDebugPrint("Target window minimized! Hiding overlays!\n");
 		WindowManager::hideOverlays();
 		sLastWindowStatus = eWindowStatus_Minimized;
+		sWantTargetWindowActive = false;
 	}
 }
 
@@ -889,6 +906,13 @@ void prepareForDialog()
 		UnregisterHotKey(NULL, kSwapWindowModeHotkeyID);
 		sSwapWindowModeHotkeyRegistered = false;
 	}
+}
+
+
+void tryFocusOnTargetWindow()
+{
+	sWantTargetWindowActive = true;
+	sNextCheck = eCheck_WindowActive;
 }
 
 
