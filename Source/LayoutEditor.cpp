@@ -5,6 +5,8 @@
 #include "LayoutEditor.h"
 #include "Dialogs.h"
 #include "InputMap.h"
+#include "InputTranslator.h"
+#include "Menus.h"
 #include "Profile.h"
 #include "Resources/resource.h"
 #include "TargetConfigSync.h"
@@ -2629,11 +2631,15 @@ static void setHotspotEntryParent(
 
 void init()
 {
+	gLayoutEditorRequested = false;
 	if( sState )
-	{
 		cleanup();
-		return;
-	}
+
+	// Reset to initial control layors & menu setup
+	Menus::cleanup();
+	InputTranslator::cleanup();
+	Menus::init();
+	InputTranslator::loadProfile();
 
 	TargetConfigSync::pauseMonitoring();
 

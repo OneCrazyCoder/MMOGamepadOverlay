@@ -201,8 +201,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 	// or possibly initialize first-time run with license agreement
 	Profile::init();
 
-	while((!gProfileToLoad.empty() || gLayoutEditorRequested) &&
-		  !gShutdown && !hadFatalError())
+	while(!gProfileToLoad.empty() && !gShutdown && !hadFatalError())
 	{
 		// Load requested profile
 		Profile::load();
@@ -243,15 +242,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		gAppTargetFrameTime = Profile::getInt("System", "FrameTime", 15);
 		timeBeginPeriod(gAppTargetFrameTime / 2);
 
-		if( gLayoutEditorRequested )
-		{
-			gLayoutEditorRequested = false;
-			LayoutEditor::init();
-		}
-
 		// Main loop
-		while(!gShutdown && !gLayoutEditorRequested &&
-			  gProfileToLoad.empty() && !hadFatalError())
+		while(!gShutdown && gProfileToLoad.empty() && !hadFatalError())
 		{
 			// Check if need to react to changed Profile data (via variables)
 			if( !Profile::changedSections().empty() )
@@ -268,6 +260,9 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 				Profile::clearChangedSections();
 				InputMap::resetChangedHotspots();
 			}
+
+			if( gLayoutEditorRequested )
+				LayoutEditor::init();
 
 			// Update frame timers and process windows messages
 			mainLoopUpdate(NULL);
