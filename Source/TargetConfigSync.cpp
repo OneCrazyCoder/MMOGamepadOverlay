@@ -1197,7 +1197,8 @@ public:
 		:
 		mDataSourceID(theDataSourceID),
 		mDoneSearching(false),
-		mFoundSourceToRead(false),
+		mSourceFound(false),
+		mSourceUpdated(false),
 		mSearchTriggeredChange(false)
 	{
 	}
@@ -1206,13 +1207,13 @@ public:
 	virtual void checkNextLocation() = 0;
 
 	bool done() const { return mDoneSearching; }
-	bool foundSourceToRead() const { return mFoundSourceToRead; }
+	bool foundSourceToRead() const { return mSourceFound && mSourceUpdated; }
 	bool searchTriggeredChange() const { return mSearchTriggeredChange; }
 	int dataSourceID() const { return mDataSourceID; }
 
 	void reportResults()
 	{
-		if( mDoneSearching && !mFoundSourceToRead )
+		if( mDoneSearching && !mSourceFound )
 		{
 			logInfoOnce("No target config file matching path '%s' found",
 				sDataSources[mDataSourceID].pathPattern.c_str());
@@ -1235,11 +1236,13 @@ protected:
 		const std::wstring& theMatchedString,
 		FILETIME theModTime) // also matching mValueBuf set for these
 	{
+		mSourceFound = true;
 		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
 		DataSource& aDataSource = sDataSources[mDataSourceID];
 		if( CompareFileTime(&theModTime, &aDataSource.lastModTime) < 0 )
 			return;
 
+		mSourceUpdated = true;
 		mCandidateNames.push_back(theMatchedString);
 		mCandidates.push_back(DataSourceCandidate());
 		mCandidates.back().lastModTime = theModTime;
@@ -1437,8 +1440,6 @@ protected:
 		setPathToRead(aDataSource, mCandidates[aBestIdx].pathToRead);
 		aDataSource.lastModTime = mCandidates[aBestIdx].lastModTime;
 		swap(aDataSource.dataCache, mCandidates[aBestIdx].dataCache);
-
-		mFoundSourceToRead = true;
 	}
 
 	struct ZERO_INIT(DataSourceCandidate)
@@ -1452,7 +1453,8 @@ protected:
 	std::vector<BYTE> mValueBuf;
 	const int mDataSourceID;
 	bool mDoneSearching;
-	bool mFoundSourceToRead;
+	bool mSourceFound;
+	bool mSourceUpdated;
 	bool mSearchTriggeredChange;
 };
 
@@ -1484,6 +1486,7 @@ public:
 				mDoneSearching = true;
 				return;
 			}
+			mSourceFound = true;
 			FILETIME aModTime = getFileLastModTime(aDataSource.pathToRead);
 			if( CompareFileTime(&aModTime, &aDataSource.lastModTime) > 0 )
 			{
@@ -1494,7 +1497,7 @@ public:
 						getFileName(aDataSource.pathPattern).c_str());
 				}
 				aDataSource.lastModTime = aModTime;
-				mFoundSourceToRead = true;
+				mSourceUpdated = true;
 			}
 			mDoneSearching = true;
 			return;
@@ -1701,6 +1704,7 @@ public:
 				return;
 			}
 
+			mSourceFound = true;
 			FILETIME aModTime = extractTimestamp(
 				mValueBuf,
 				aSearchStartHKey,
@@ -1716,7 +1720,7 @@ public:
 				}
 				aDataSource.lastModTime = aModTime;
 				swap(aDataSource.dataCache, mValueBuf);
-				mFoundSourceToRead = true;
+				mSourceUpdated = true;
 			}
 			mDoneSearching = true;
 			RegCloseKey(aSearchStartHKey);
