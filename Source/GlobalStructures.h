@@ -73,7 +73,7 @@ struct ZERO_INIT(Command)
 			u16 sideMenuDir : 2;
 			u16 __padding : 5;
 		};
-		struct { Hotspot::Coord x, y; } hotspot;
+		POINT pos;
 		u64 compare;
 	};
 

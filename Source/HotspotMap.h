@@ -23,6 +23,9 @@ void loadProfileChanges();
 // Deactivate all hotspots and free memory
 void cleanup();
 
+// Re-evaluate hotspot positions due to target/overlay position/size change
+void resize();
+
 // Updates hotspot tracking from changes to cursor, target size, etc.
 void update();
 

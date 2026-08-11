@@ -12,27 +12,23 @@ namespace HotspotMap
 {
 
 // Uncomment this to print details about hotspot searches to debug window
-//#define HOTSPOT_MAP_DEBUG_PRINT
+#define HOTSPOT_MAP_DEBUG_PRINT
 
 //------------------------------------------------------------------------------
 // Const Data
 //------------------------------------------------------------------------------
 
 enum {
-// This value won't overflow a u32 when used with dist formula
-kNormalizedTargetSize = 0x7FFF,
-// >> amount to convert kNormalizedTargetSize to kGridSize
-kNormalizedToGridShift = 12, // 0x7FFF >> 12 = 7 = 8x8 grid
+// >> amount to convert 0xFFFF (normalized desktop max pos) to kGridSize
+kNormalizedToGridShift = 13, // (0x10000 >> 13 = 8x8 grid)
 // Grid cells per axis
-kGridSize = (kNormalizedTargetSize >> kNormalizedToGridShift) + 1,
-// Size of each grid cell
-kGridCellSize = (kNormalizedTargetSize + 1) / kGridSize,
+kGridSize = 0x10000 >> kNormalizedToGridShift,
 // If point is too close, jump FROM it rather than to it
-kDefaultMinJumpDist = 0x0100,
+kDefaultMinJumpDist = 0x0200,
 // Max leeway in perpindicular direction to still count as "straight"
-kMaxPerpDistForStraightLine = 0x0088,
+kMaxPerpDistForStraightLine = 0x0110,
 // Max leeway for final "columns" step when making link maps
-kMaxLinkMapColumnXDist = 0x0500,
+kMaxLinkMapColumnXDist = 0x0A00,
 };
 
 const char* kBaseJumpDistSectName = "Mouse";
@@ -54,7 +50,6 @@ const int /*double*/ kColumnXDistPenaltyMult = 2;
 
 enum ETask
 {
-	eTask_Init,
 	eTask_SetDistances,
 	eTask_Normalize,
 	eTask_AddToGrid,
@@ -85,8 +80,7 @@ enum ETask
 
 struct ZERO_INIT(TrackedPoint)
 {
-	// 0-32767 so can convert to dist squared without overflowing a u32
-	u16 x, y;
+	u16 x, y; // normalized
 };
 
 struct ZERO_INIT(GridPos)
@@ -118,9 +112,8 @@ static std::vector<int> sCandidates;
 static VectorMap<u16, MenuLinks> sLinkMaps;
 static VectorMap<u16, MenuEdgeMap> sEdgeMaps;
 static int sNextHotspotInDir[eCmd8Dir_Num] = { 0 };
-static double sLastUIScale = 1.0;
-static SIZE sLastTargetSize;
-static POINT sNormalizedCursorPos;
+static int sMaxDesktopAxis = 0;
+static POINT sNormalizedCursorPos = { 0 };
 static BitArray<eTask_Num> sNewTasks;
 static ETask sCurrentTask = eTask_None;
 static int sTaskProgress = 0;
@@ -334,25 +327,29 @@ private:
 
 static void processSetDistancesTask()
 {
-	sBaseJumpDist = int(max(0.0,
+	const u64 aJumpDist = u32(max(0.0,
 		Profile::getFloat(kBaseJumpDistSectName, kBaseJumpDistPropName) *
-		sLastUIScale * kNormalizedTargetSize));
+		gUIScale * 0x10000));
+	const u64 aScaleFactor = sMaxDesktopAxis;
+	u64 aMaxDeviationRadius = u64(aJumpDist * kDeviationRadiusMult);
+	
+	if( aScaleFactor > 0 )
+	{
+		sBaseJumpDist = dropTo<int>(
+			(aJumpDist + 1) / aScaleFactor);
+		sMaxJumpDist = dropTo<int>(
+			(aJumpDist + aMaxDeviationRadius + 1) / aScaleFactor);
+		aMaxDeviationRadius = (aMaxDeviationRadius + 1) / aScaleFactor;
+		sMaxDeviationRadiusSquared = dropTo<u32>(min<u64>(
+			0xFFFFFFFF,
+			aMaxDeviationRadius * aMaxDeviationRadius));
+		sMaxJumpDistSquared = dropTo<u32>(min<u64>(
+			0xFFFFFFFF,
+			u64(sMaxJumpDist) * u64(sMaxJumpDist)));
 
-	int aMaxDeviationRadius = int(sBaseJumpDist * kDeviationRadiusMult);
-	sMaxJumpDist = sBaseJumpDist + aMaxDeviationRadius;
-
-	const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
-	sBaseJumpDist /= aScaleFactor;
-	sMaxJumpDist /= aScaleFactor;
-	aMaxDeviationRadius /= aScaleFactor;
-	sMaxDeviationRadiusSquared =
-		u32(min<s64>(0xFFFFFFFF,
-		s64(aMaxDeviationRadius) * aMaxDeviationRadius));
-	sMaxJumpDistSquared =
-		u32(min<s64>(0xFFFFFFFF, s64(sMaxJumpDist) * sMaxJumpDist));
-
-	mapDebugPrint("Set base jump distance to %d (normalized)\n", sBaseJumpDist);
-	sCurrentTask = eTask_None;
+		mapDebugPrint("Set base jump distance to %d (normalized)\n", sBaseJumpDist);
+		sCurrentTask = eTask_None;
+	}
 }
 
 
@@ -377,21 +374,19 @@ static void processNormalizeTask()
 	{
 		sPointsToNormalize.reset(sTaskProgress);
 		const Hotspot& aHotspot = InputMap::getHotspot(sTaskProgress);
-		const POINT& anOverlayPos =
-			WindowManager::hotspotToOverlayPos(aHotspot);
-		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
-		if( aScaleFactor > 0 )
+		const POINT& aDesktopPos = WindowManager::overlayPosToDesktopPos(
+			WindowManager::hotspotToOverlayPos(aHotspot));
+		if( sMaxDesktopAxis > 0 )
 		{
-			sPoints[sTaskProgress].x = u16(min<double>(kNormalizedTargetSize,
-				(anOverlayPos.x + 1) * kNormalizedTargetSize / aScaleFactor));
-			sPoints[sTaskProgress].y = u16(min<double>(kNormalizedTargetSize,
-				(anOverlayPos.y + 1) * kNormalizedTargetSize / aScaleFactor));
-			DBG_ASSERT(sPoints[sTaskProgress].y <= kNormalizedTargetSize);
+			sPoints[sTaskProgress].x =
+				ratioToU16(aDesktopPos.x, sMaxDesktopAxis);
+			sPoints[sTaskProgress].y =
+				ratioToU16(aDesktopPos.y, sMaxDesktopAxis);
 		}
 		mapDebugPrint(
 			"Normalizing Hotspot '%s' (%d x %d) position to %d x %d \n",
 			InputMap::hotspotLabel(sTaskProgress).c_str(),
-			anOverlayPos.x, anOverlayPos.y,
+			aDesktopPos.x, aDesktopPos.y,
 			sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
 	}
 
@@ -459,41 +454,59 @@ static void processAddToGridTask()
 
 static void processBeginSearchTask()
 {
-	if( sTaskProgress == 0 )
+	switch(sTaskProgress)
 	{
-		// This task will restart every time the cursor moves at all,
-		// meaning could be repeated every frame for a while, so do the
-		// bare minimum in this first step.
+	case 0:
+		// Calculate normalized mouse position
+		if( sMaxDesktopAxis > 0 )
+		{
+			sNormalizedCursorPos =
+				WindowManager::overlayPosToDesktopPos(gLastCursorPos);
+			sNormalizedCursorPos.x =
+				ratioToU16(sNormalizedCursorPos.x, sMaxDesktopAxis);
+			sNormalizedCursorPos.y =
+				ratioToU16(sNormalizedCursorPos.y, sMaxDesktopAxis);
+			++sTaskProgress;
+		}
+		break;
+	case 1:
+		// Reset search parameters
 		sCandidates.clear();
 		sFetchGrid.clear();
 		for(int i = 0; i < eCmd8Dir_Num; ++i)
 			sNextHotspotInDir[i] = 0;
 		++sTaskProgress;
-		return;
-	}
+		break;
+	case 2:
+	default:
+		{// Determine grid sections that must be searched
+			const int aMinGridX(u32(clamp(sNormalizedCursorPos.x - sMaxJumpDist,
+				0, 0xFFFF)) >> kNormalizedToGridShift);
+			const int aMinGridY(u32(clamp(sNormalizedCursorPos.y - sMaxJumpDist,
+				0, 0xFFFF)) >> kNormalizedToGridShift);
+			const int aMaxGridX(u32(clamp(sNormalizedCursorPos.x + sMaxJumpDist,
+				0, 0xFFFF)) >> kNormalizedToGridShift);
+			const int aMaxGridY(u32(clamp(sNormalizedCursorPos.y + sMaxJumpDist,
+				0, 0xFFFF)) >> kNormalizedToGridShift);
+			GridPos aPos = GridPos();
+			for(aPos.x = aMinGridX; aPos.x <= aMaxGridX; ++aPos.x)
+			{
+				for(aPos.y = aMinGridY; aPos.y <= aMaxGridY; ++aPos.y)
+					sFetchGrid.push_back(aPos);
+			}
+		}
 
-	const int aMinGridX(u32(clamp(sNormalizedCursorPos.x - sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
-	const int aMinGridY(u32(clamp(sNormalizedCursorPos.y - sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
-	const int aMaxGridX(u32(clamp(sNormalizedCursorPos.x + sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
-	const int aMaxGridY(u32(clamp(sNormalizedCursorPos.y + sMaxJumpDist,
-		0, kNormalizedTargetSize)) >> kNormalizedToGridShift);
-	GridPos aGridPos = GridPos();
-	for(aGridPos.x = aMinGridX; aGridPos.x <= aMaxGridX; ++aGridPos.x)
-	{
-		for(aGridPos.y = aMinGridY; aGridPos.y <= aMaxGridY; ++aGridPos.y)
-			sFetchGrid.push_back(aGridPos);
-	}
-	sCurrentTask = eTask_None;
-	sNewTasks.set(eTask_FetchFromGrid);
-	for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
-		sNewTasks.set(eTask_NextInDir + aDir);
+		// Start up fetch grid tasks
+		sCurrentTask = eTask_None;
+		sNewTasks.set(eTask_FetchFromGrid);
+		for(u8 aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+			sNewTasks.set(eTask_NextInDir + aDir);
 
-	mapDebugPrint(
-		"Beginning new search starting from %d x %d (normalized)\n",
-		sNormalizedCursorPos.x, sNormalizedCursorPos.y);
+		mapDebugPrint(
+			"Beginning new search starting from %d x %d (normalized)\n",
+			sNormalizedCursorPos.x, sNormalizedCursorPos.y);
+		break;
+	}
 }
 
 
@@ -603,8 +616,8 @@ static void processNextInDirTask(ECommandDir theDir)
 
 		// All others have at least as much penalty as full straight line,
 		// plus their distance from the default no-hotspot-found jump dest.
-		dx = abs(aDirDist - sBaseJumpDist);
-		dy = int(aPerpDist * kPerpPenaltyMult);
+		dx = min(aDirDist - sBaseJumpDist, 0xFFFF);
+		dy = min(int(aPerpDist * kPerpPenaltyMult), 0xFFFF);
 		const u32 aDistSqFromBaseDest = (dx * dx) + (dy * dy);
 		if( aDistSqFromBaseDest > sMaxDeviationRadiusSquared )
 			continue;
@@ -655,7 +668,6 @@ static void processTasks()
 	switch(sCurrentTask)
 	{
 	case eTask_None:			break;
-	case eTask_Init:			sCurrentTask = eTask_None;	break;		
 	case eTask_SetDistances:	processSetDistancesTask();	break;
 	case eTask_Normalize:		processNormalizeTask();		break;
 	case eTask_AddToGrid:		processAddToGridTask();		break;
@@ -953,8 +965,9 @@ void init()
 	sPointsToNormalize.clearAndResize(aHotspotsCount);
 	sActiveArrays.clearAndResize(aHotspotArraysCount);
 
-	// Queue ALL tasks initially, including _Init for first update()
+	// Queue ALL tasks initially
 	sNewTasks.set();
+	resize();
 }
 
 
@@ -1034,50 +1047,30 @@ void cleanup()
 }
 
 
+void resize()
+{
+	if( sPoints.empty() )
+		return;
+
+	// Recalculate where points are on the desktop and normalize them
+	sPointsToNormalize.set();
+	sPointsToNormalize.reset(eSpecialHotspot_None);
+	sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
+	sNewTasks.set(eTask_SetDistances);
+	sNewTasks.set(eTask_Normalize);
+	sNewTasks.set(eTask_AddToGrid);
+	sNewTasks.set(eTask_BeginSearch);
+	sMaxDesktopAxis = max(
+		GetSystemMetrics(SM_CXVIRTUALSCREEN),
+		GetSystemMetrics(SM_CYVIRTUALSCREEN));
+}
+
+
 void update()
 {
-	// Check for state changes that could trigger new tasks
-	const SIZE& aTargetSize = WindowManager::overlayTargetSize();
-	const bool aTargetSizeChanged =
-		aTargetSize.cx != sLastTargetSize.cx ||
-		aTargetSize.cy != sLastTargetSize.cy ||
-		gUIScale != sLastUIScale;
-
-	if( aTargetSizeChanged || sNewTasks.test(eTask_Init) )
-	{
-		sLastTargetSize.cx = aTargetSize.cx;
-		sLastTargetSize.cy = aTargetSize.cy;
-		sLastUIScale = gUIScale;
-		sPointsToNormalize.set();
-		sPointsToNormalize.reset(eSpecialHotspot_None);
-		sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
-		sNewTasks.set(eTask_SetDistances);
-		sNewTasks.set(eTask_Normalize);
-		sNewTasks.set(eTask_AddToGrid);
+	// Restart search whenever cursor has moved
+	if( InputMap::changedHotspots().test(eSpecialHotspot_LastCursorPos) )
 		sNewTasks.set(eTask_BeginSearch);
-	}
-
-	const bool aCursorPosChanged =
-		InputMap::changedHotspots().test(eSpecialHotspot_LastCursorPos);
-
-	if( aTargetSizeChanged || aCursorPosChanged || sNewTasks.test(eTask_Init) )
-	{
-		const Hotspot& aCursorPos =
-			InputMap::getHotspot(eSpecialHotspot_LastCursorPos);
-		sNormalizedCursorPos = WindowManager::hotspotToOverlayPos(aCursorPos);
-		const int aScaleFactor = max(sLastTargetSize.cx, sLastTargetSize.cy);
-		if( aScaleFactor > 0 )
-		{
-			sNormalizedCursorPos.x =
-				(sNormalizedCursorPos.x + 1) *
-				kNormalizedTargetSize / aScaleFactor;
-			sNormalizedCursorPos.y =
-				(sNormalizedCursorPos.y + 1) *
-				kNormalizedTargetSize / aScaleFactor;
-		}
-		sNewTasks.reset(eTask_Init);
-		sNewTasks.set(eTask_BeginSearch);
-	}
 
 	// Continue progress on any current tasks
 	processTasks();
@@ -1470,7 +1463,7 @@ int getEdgeMenuItem(int theMenuID, ECommandDir theDir, int theDefault)
 			switch(theDir)
 			{
 			case eCmdDir_L:
-				posInDir = kNormalizedTargetSize - aNodePos.x;
+				posInDir = 0xFFFF - aNodePos.x;
 				posInPerpDir = aNodePos.y;
 				break;
 			case eCmdDir_R:
@@ -1478,7 +1471,7 @@ int getEdgeMenuItem(int theMenuID, ECommandDir theDir, int theDefault)
 				posInPerpDir = aNodePos.y;
 				break;
 			case eCmdDir_U:
-				posInDir = kNormalizedTargetSize - aNodePos.y;
+				posInDir = 0xFFFF - aNodePos.y;
 				posInPerpDir = aNodePos.x;
 				break;
 			case eCmdDir_D:

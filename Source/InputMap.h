@@ -123,7 +123,7 @@ int sizeOfHotspotArray(int theHotspotArrayID);
 bool hotspotArrayHasAnchor(int theHotspotArrayID);
 float hotspotScale(int theHotspotID);
 int KeyBindCycleHotspotID(int theArrayID, int theIndex); // or 0
-bool setLastCursorPosHotspot(const Hotspot& theNewCursorPos); // true if changed
+bool setLastCursorPos(POINT theNewCursorPos); // true if changed
 const BitVector<512>& changedHotspots();
 void resetChangedHotspots();
 

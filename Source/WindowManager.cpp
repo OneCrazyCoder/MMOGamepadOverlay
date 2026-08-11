@@ -6,6 +6,7 @@
 
 #include "Dialogs.h"
 #include "InputMap.h"
+#include "HotspotMap.h"
 #include "LayoutEditor.h"
 #include "Menus.h"
 #include "Profile.h"
@@ -109,9 +110,9 @@ static SIZE sCompositeBitmapSize;
 static POINT sMainWindowPos;
 static std::vector<OverlayWindow> sOverlayWindows;
 static std::vector<OverlayWindowPriority> sOverlayWindowOrder;
-static RECT sDesktopTargetRect; // relative to virtual desktop
-static RECT sScreenTargetRect; // relative to main screen
-static RECT sTargetClipRect; // relative to sScreenTargetRect
+static RECT sDesktopTargetRect = { 0 }; // relative to virtual desktop
+static RECT sScreenTargetRect = { 0 }; // relative to main screen
+static RECT sTargetClipRect = { 0 }; // relative to sScreenTargetRect
 static SIZE sTargetSize = { 0 };
 static WNDPROC sSystemOverlayProc = NULL;
 static int sSystemOverlayPosIdx = -1;
@@ -1230,6 +1231,7 @@ void loadProfileChanges()
 		WindowPainter::updateScaling();
 		for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
 			sOverlayWindows[i].layoutReady = false;
+		HotspotMap::resize();
 	}
 	
 	bool shouldUnexcludeOverlayWindows = false;
@@ -1747,6 +1749,9 @@ void resize(RECT theNewWindowRect, bool isTargetAppWindow)
 		sOverlayWindows[i].layoutReady = false;
 	sNeedRecompositeOverlays = true;
 	WindowPainter::refreshCopyIconCache();
+
+	// Update hotspot map
+	HotspotMap::resize();
 }
 
 
@@ -1900,7 +1905,7 @@ void setSystemOverlayCallbacks(WNDPROC theProc, SystemPaintFunc thePaintFunc)
 }
 
 
-POINT mouseToOverlayPos(bool clamped)
+POINT mouseToOverlayPos()
 {
 	POINT result;
 	// Get current screen-relative mouse position
@@ -1908,11 +1913,6 @@ POINT mouseToOverlayPos(bool clamped)
 	// Offset to client relative position
 	result.x -= sScreenTargetRect.left;
 	result.y -= sScreenTargetRect.top;
-	if( clamped )
-	{// Clamp to within client rect range
-		result.x = clamp(result.x, 0, sTargetSize.cx - 1);
-		result.y = clamp(result.y, 0, sTargetSize.cy - 1);
-	}
 	return result;
 }
 
@@ -1946,6 +1946,23 @@ POINT hotspotToOverlayPos(const Hotspot& theHotspot)
 }
 
 
+POINT overlayPosValidated(POINT thePos)
+{
+	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+	thePos.x = clamp(thePos.x,
+		-sDesktopTargetRect.left,
+		kDesktopWidth - 1 - sDesktopTargetRect.left);
+
+	thePos.y = clamp(thePos.y,
+		-sDesktopTargetRect.top,
+		kDesktopHeight - 1 - sDesktopTargetRect.top);
+
+	return thePos;
+}
+
+
 Hotspot overlayPosToHotspot(POINT thePos)
 {
 	Hotspot result;
@@ -1954,6 +1971,16 @@ Hotspot overlayPosToHotspot(POINT thePos)
 	result.x.anchor = ratioToU16(thePos.x, sTargetSize.cx);
 	result.y.anchor = ratioToU16(thePos.y, sTargetSize.cy);
 	return result;
+}
+
+
+POINT overlayPosToDesktopPos(POINT thePos)
+{
+	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+	thePos.x = clamp(thePos.x + sDesktopTargetRect.left, 0, kDesktopWidth-1);
+	thePos.y = clamp(thePos.y + sDesktopTargetRect.top, 0, kDesktopHeight-1);
+	return thePos;
 }
 
 
@@ -1966,21 +1993,13 @@ POINT overlayPosToNormalizedMousePos(POINT theMousePos)
 		return theMousePos;
 	}
 
-	// Clamp to within client rect range
-	// (move in a bit on any edge that isn't a desktop edge)
+	// Convert to virtual desktop pixel coordinate
 	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-	const LONG kClientMinX = sDesktopTargetRect.left == 0 ? 0 : 2;
-	const LONG kClientMinY = sDesktopTargetRect.top == 0 ? 0 : 2;
-	const LONG kClientMaxX = sTargetSize.cx -
-		(sDesktopTargetRect.right == kDesktopWidth ? 1 : 3);
-	const LONG kClientMaxY = sTargetSize.cy -
-		(sDesktopTargetRect.bottom == kDesktopHeight ? 1 : 3);
-	theMousePos.x = clamp(theMousePos.x, kClientMinX, kClientMaxX);
-	theMousePos.y = clamp(theMousePos.y, kClientMinY, kClientMaxY);	
-	// Convert to virtual desktop pixel coordinate
-	theMousePos.x = max(0L, theMousePos.x + sDesktopTargetRect.left);
-	theMousePos.y = max(0L, theMousePos.y + sDesktopTargetRect.top);
+	theMousePos.x = clamp(theMousePos.x + sDesktopTargetRect.left,
+		0, kDesktopWidth-1);
+	theMousePos.y = clamp(theMousePos.y + sDesktopTargetRect.top,
+		0, kDesktopHeight-1);
 	// Convert to % of virtual desktop size as normalized 0-65535
 	theMousePos.x = ratioToU16(theMousePos.x, kDesktopWidth);
 	theMousePos.y = ratioToU16(theMousePos.y, kDesktopHeight);
@@ -2005,7 +2024,7 @@ POINT normalizedMouseToOverlayPos(POINT theSentMousePos)
 }
 
 
-Hotspot hotspotForMenuItem(int theRootMenuID, int theMenuItemIdx)
+POINT menuItemMousePos(int theRootMenuID, int theMenuItemIdx)
 {
 	const int theOverlayID = InputMap::menuOverlayID(theRootMenuID);
 	const int theMenuID = Menus::activeMenuForOverlayID(theOverlayID);
@@ -2019,8 +2038,8 @@ Hotspot hotspotForMenuItem(int theRootMenuID, int theMenuItemIdx)
 	case eMenuStyle_Hotspots:
 	case eMenuStyle_Highlight:
 		// Directly use the hotspot associated with the menu item already
-		return InputMap::getHotspot(
-			InputMap::menuItemHotspotID(theMenuID, theMenuItemIdx));
+		return hotspotToOverlayPos(InputMap::getHotspot(
+			InputMap::menuItemHotspotID(theMenuID, theMenuItemIdx)));
 	}
 
 	OverlayWindow& aWindow = sOverlayWindows[theOverlayID];
@@ -2036,17 +2055,30 @@ Hotspot hotspotForMenuItem(int theRootMenuID, int theMenuItemIdx)
 
 	const RECT& aMenuRect =
 		WindowPainter::windowLayoutRect(theOverlayID, theMenuItemIdx + 1);
-	POINT aPos;
-	aPos.x = aMenuRect.left;
-	aPos.y = aMenuRect.top;
-	aPos.x += aMenuRect.right;
-	aPos.y += aMenuRect.bottom;
-	aPos.x /= 2;
-	aPos.y /= 2;
-	aPos.x += aWindow.position.x;
-	aPos.y += aWindow.position.y;
+	POINT result;
+	result.x = aMenuRect.left;
+	result.y = aMenuRect.top;
+	result.x += aMenuRect.right;
+	result.y += aMenuRect.bottom;
+	result.x /= 2;
+	result.y /= 2;
+	result.x += aWindow.position.x;
+	result.y += aWindow.position.y;
 
-	return overlayPosToHotspot(aPos);
+	// Clamp to within client rect range
+	// (move in a bit on any edge that isn't a desktop edge)
+	const int kDesktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	const int kDesktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+	const LONG kClientMinX = sDesktopTargetRect.left == 0 ? 0 : 2;
+	const LONG kClientMinY = sDesktopTargetRect.top == 0 ? 0 : 2;
+	const LONG kClientMaxX = sTargetSize.cx -
+		(sDesktopTargetRect.right == kDesktopWidth ? 1 : 3);
+	const LONG kClientMaxY = sTargetSize.cy -
+		(sDesktopTargetRect.bottom == kDesktopHeight ? 1 : 3);
+	result.x = clamp(result.x, kClientMinX, kClientMaxX);
+	result.y = clamp(result.y, kClientMinY, kClientMaxY);
+
+	return result;
 }
 
 

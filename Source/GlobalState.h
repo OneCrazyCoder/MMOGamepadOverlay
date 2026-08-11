@@ -63,3 +63,6 @@ extern BitVector<32> gKeyBindCycleDefaultIndexChanged;
 // All Hotspots/Positions/Sizes will be scaled by gUIScale
 extern double gUIScale;
 
+// Overlay-relative mouse position last time were in a "cursor mode"
+extern POINT gLastCursorPos;
+

@@ -5,6 +5,7 @@
 #include "InputMap.h"
 
 #include "Profile.h"
+#include "WindowManager.h"
 
 namespace InputMap
 {
@@ -5022,14 +5023,18 @@ int KeyBindCycleHotspotID(int theCycleID, int theIndex)
 }
 
 
-bool setLastCursorPosHotspot(const Hotspot& theNewValues)
+bool setLastCursorPos(POINT theNewPos)
 {
-	if( sHotspots[eSpecialHotspot_LastCursorPos] != theNewValues )
+	theNewPos = WindowManager::overlayPosValidated(theNewPos);
+	if( theNewPos.x != gLastCursorPos.x || theNewPos.y != gLastCursorPos.y )
 	{
+		gLastCursorPos = theNewPos;
 		sChangedHotspots.set(eSpecialHotspot_LastCursorPos);
-		sHotspots[eSpecialHotspot_LastCursorPos] = theNewValues;
+		sHotspots[eSpecialHotspot_LastCursorPos] =
+			WindowManager::overlayPosToHotspot(theNewPos);
 		return true;
 	}
+
 	return false;
 }
 

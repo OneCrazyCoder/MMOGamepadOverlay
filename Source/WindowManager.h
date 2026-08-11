@@ -89,19 +89,24 @@ void destroyToolbarWindow();
 typedef void (*SystemPaintFunc)(HDC, const RECT&, bool firstDraw);
 void setSystemOverlayCallbacks(WNDPROC, SystemPaintFunc);
 
-// Gets overlay-relative/clamped mouse position
-POINT mouseToOverlayPos(bool clamped = true);
+// Gets overlay-relative mouse position
+POINT mouseToOverlayPos();
 // Converts a hotspot into overlay-relative position
 POINT hotspotToOverlayPos(const Hotspot& theHotspot);
+// Clamps overlay-relative position to within virtual desktop bounds
+POINT overlayPosValidated(POINT thePos);
 // Converts overlay-relative position into a hotspot
 Hotspot overlayPosToHotspot(POINT thePos);
+// Converts overlay-relative position into virtual-desktop-relative position
+// Converts a hotspot into virtual-desktop-relative position
+POINT overlayPosToDesktopPos(POINT thePos);
 // Converts overlay-relative mouse position into a
 // virtual-desktop-relative 0-65535 normalized pos for SendInput
 POINT overlayPosToNormalizedMousePos(POINT theMousePos);
 // Converts above back to overlay-relative mouse position
 POINT normalizedMouseToOverlayPos(POINT theSentMousePos);
-// Calculates center-point pos of a menu item as a hotspot
-Hotspot hotspotForMenuItem(int theRootMenuID, int theMenuItemIdx);
+// Calculates center-point pos of a menu item as an overlay-relative position
+POINT menuItemMousePos(int theRootMenuID, int theMenuItemIdx);
 // Returns overlay-relative RECT of given individual overlay
 RECT overlayRect(int theOverlayID);
 
