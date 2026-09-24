@@ -12,7 +12,7 @@ namespace HotspotMap
 {
 
 // Uncomment this to print details about hotspot searches to debug window
-#define HOTSPOT_MAP_DEBUG_PRINT
+//#define HOTSPOT_MAP_DEBUG_PRINT
 
 //------------------------------------------------------------------------------
 // Const Data

@@ -163,6 +163,7 @@ int keyNameToVirtualKey(const std::string& theKeyName)
 				{ "Question",		VK_OEM_2			},
 				{ "Tilde",			VK_OEM_3			},
 				{ "Backtick",		VK_OEM_3			},
+				{ "Backquote",		VK_OEM_3			},
 				{ "Openb",			VK_OEM_4			},
 				{ "OpenBracket",	VK_OEM_4			},
 				{ "Backslash",		VK_OEM_5			},
