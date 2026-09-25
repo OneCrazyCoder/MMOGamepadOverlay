@@ -1234,7 +1234,7 @@ protected:
 	void compareBestSource(
 		const std::wstring& thePath,
 		const std::wstring& theMatchedString,
-		FILETIME theModTime) // also matching mValueBuf set for these
+		FILETIME theModTime) // mValueBuf also set for this source when called
 	{
 		mSourceFound = true;
 		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
@@ -1319,24 +1319,23 @@ protected:
 			if( !sPreferMostRecentFiles && aLastSelCandidateIdx < 0 )
 				sForcePromptForWildcardFiles = true;
 
-			// Treat last selected candidate as having last mod time of
-			// at least sLastTimeWildcardFileSelected time, so it will
-			// be preferred over candidates that may have been modified
-			// after it yet not modified since a selection was made.
-			if( aLastSelCandidateIdx >= 0 &&
-				CompareFileTime(
-					&mCandidates[aLastSelCandidateIdx].lastModTime,
-					&sLastTimeWildcardFileSelected) < 0 )
-			{
-				mCandidates[aLastSelCandidateIdx].lastModTime =
-					sLastTimeWildcardFileSelected;
-			}
-
 			// Find candidate with most recent modification time
 			for(int i = 1, end = intSize(mCandidates.size()); i < end; ++i)
 			{
 				FILETIME aTestTime = mCandidates[i].lastModTime;
 				FILETIME aBestTime = mCandidates[aBestIdx].lastModTime;
+				// Treat last selected candidate as having last mod time of
+				// at least sLastTimeWildcardFileSelected time, so it will
+				// be preferred over candidates that may have been modified
+				// after it yet not modified since a selection was made.
+				if( i == aLastSelCandidateIdx &&
+					aLastSelCandidateIdx >= 0 &&
+					CompareFileTime(
+						&aTestTime,
+						&sLastTimeWildcardFileSelected) < 0 )
+				{
+					aTestTime = sLastTimeWildcardFileSelected;
+				}
 				LONG aComp = CompareFileTime(&aTestTime, &aBestTime);
 				if( aComp > 0 )
 					aBestIdx = i;
