@@ -254,7 +254,7 @@ struct ZERO_INIT(DataSource)
 	EConfigDataFormat format;
 	EDataSourceType type;
 	std::string pathPattern;
-	FILETIME lastModTime;
+	FileMetaData lastMetaData; // from FileUtils.h
 	std::wstring pathToRead;
 	std::vector<BYTE> dataCache;
 	bool usesWildcards;
@@ -1234,20 +1234,32 @@ protected:
 	void compareBestSource(
 		const std::wstring& thePath,
 		const std::wstring& theMatchedString,
-		FILETIME theModTime) // also matching mValueBuf set for these
+		const FileMetaData& theMetaData)
+		// NOTE: mValueBuf should be set for thePath as well for this func
 	{
 		mSourceFound = true;
 		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
 		DataSource& aDataSource = sDataSources[mDataSourceID];
-		if( CompareFileTime(&theModTime, &aDataSource.lastModTime) < 0 )
-			return;
 
-		mSourceUpdated = true;
-		mCandidateNames.push_back(theMatchedString);
-		mCandidates.push_back(DataSourceCandidate());
-		mCandidates.back().lastModTime = theModTime;
-		mCandidates.back().pathToRead = thePath;
-		swap(mCandidates.back().dataCache, mValueBuf);
+		// Candidates for being the best source must have been modified at
+		// least as recently as the last source used (if any).
+		// Exception: If the path is the same as last path read, then allow
+		// it to be a candidate again if ANY meta data changed, not just newer
+		// mod time, since things like a direct file replace will not
+		// update mod time but may change file size etc.
+		if( !aDataSource.lastMetaData.valid ||
+			CompareFileTime(&theMetaData.lastModTime,
+				&aDataSource.lastMetaData.lastModTime) >= 0 ||
+			(thePath == aDataSource.pathToRead &&
+			 theMetaData != aDataSource.lastMetaData) )
+		{
+			mSourceUpdated = true;
+			mCandidateNames.push_back(theMatchedString);
+			mCandidates.push_back(DataSourceCandidate());
+			mCandidates.back().metaData = theMetaData;
+			mCandidates.back().pathToRead = thePath;
+			swap(mCandidates.back().dataCache, mValueBuf);
+		}
 	}
 
 	void finalizeBestSourceFound()
@@ -1319,29 +1331,29 @@ protected:
 			if( !sPreferMostRecentFiles && aLastSelCandidateIdx < 0 )
 				sForcePromptForWildcardFiles = true;
 
-			// Treat last selected candidate as having last mod time of
-			// at least sLastTimeWildcardFileSelected time, so it will
-			// be preferred over candidates that may have been modified
-			// after it yet not modified since a selection was made.
-			if( aLastSelCandidateIdx >= 0 &&
-				CompareFileTime(
-					&mCandidates[aLastSelCandidateIdx].lastModTime,
-					&sLastTimeWildcardFileSelected) < 0 )
-			{
-				mCandidates[aLastSelCandidateIdx].lastModTime =
-					sLastTimeWildcardFileSelected;
-			}
-
 			// Find candidate with most recent modification time
-			for(int i = 1, end = intSize(mCandidates.size()); i < end; ++i)
+			FILETIME aBestTime = FILETIME();
+			for(int i = 0, end = intSize(mCandidates.size()); i < end; ++i)
 			{
-				FILETIME aTestTime = mCandidates[i].lastModTime;
-				FILETIME aBestTime = mCandidates[aBestIdx].lastModTime;
+				FILETIME aTestTime = mCandidates[i].metaData.lastModTime;
+				// Treat last selected candidate as having last mod time of
+				// at least sLastTimeWildcardFileSelected time, so it will
+				// be preferred over candidates that may have been modified
+				// after it yet not modified since a selection was made.
+				if( i == aLastSelCandidateIdx &&
+					CompareFileTime(
+						&aTestTime,
+						&sLastTimeWildcardFileSelected) < 0 )
+				{
+					aTestTime = sLastTimeWildcardFileSelected;
+				}
 				LONG aComp = CompareFileTime(&aTestTime, &aBestTime);
-				if( aComp > 0 )
+				if( aComp > 0 ||
+					(aComp == 0 && i == aLastSelCandidateIdx) )
+				{// Has better time (or equal and last selected is tie breaker)
 					aBestIdx = i;
-				else if( aComp == 0 && i == aLastSelCandidateIdx )
-					aBestIdx = i; // last selected candidate is tie-breaker
+					aBestTime = aTestTime;
+				}
 			}
 
 			// If requested prompting for multiple found, and best candidate
@@ -1438,13 +1450,13 @@ protected:
 		}
 
 		setPathToRead(aDataSource, mCandidates[aBestIdx].pathToRead);
-		aDataSource.lastModTime = mCandidates[aBestIdx].lastModTime;
+		aDataSource.lastMetaData = mCandidates[aBestIdx].metaData;
 		swap(aDataSource.dataCache, mCandidates[aBestIdx].dataCache);
 	}
 
 	struct ZERO_INIT(DataSourceCandidate)
 	{
-		FILETIME lastModTime;
+		FileMetaData metaData;
 		std::wstring pathToRead;
 		std::vector<BYTE> dataCache;
 	};
@@ -1487,16 +1499,16 @@ public:
 				return;
 			}
 			mSourceFound = true;
-			FILETIME aModTime = getFileLastModTime(aDataSource.pathToRead);
-			if( CompareFileTime(&aModTime, &aDataSource.lastModTime) > 0 )
+			const FileMetaData& aCurrMetaData =
+				getFileMetaData(aDataSource.pathToRead);
+			if( aCurrMetaData != aDataSource.lastMetaData )
 			{
-				if( aDataSource.lastModTime.dwHighDateTime ||
-					aDataSource.lastModTime.dwLowDateTime )
+				if( aDataSource.lastMetaData.valid )
 				{
 					syncDebugPrint("Detected change in file %s\n",
 						getFileName(aDataSource.pathPattern).c_str());
 				}
-				aDataSource.lastModTime = aModTime;
+				aDataSource.lastMetaData = aCurrMetaData;
 				mSourceUpdated = true;
 			}
 			mDoneSearching = true;
@@ -1584,7 +1596,7 @@ public:
 					compareBestSource(
 						mRootPath + aFileName,
 						aMatchStr,
-						ffd.ftLastWriteTime);
+						getFileMetaData(mRootPath + aFileName));
 					// Finding a match is enough work for one update
 					return;
 				}
@@ -1705,20 +1717,21 @@ public:
 			}
 
 			mSourceFound = true;
-			FILETIME aModTime = extractTimestamp(
+			FileMetaData aCurrMetaData;
+			aCurrMetaData.valid = true;
+			aCurrMetaData.lastModTime = extractTimestamp(
 				mValueBuf,
 				aSearchStartHKey,
 				aDataSource.pathToRead);
-			if( CompareFileTime(&aModTime, &aDataSource.lastModTime) > 0 )
+			if( aCurrMetaData != aDataSource.lastMetaData )
 			{
-				if( aDataSource.lastModTime.dwHighDateTime ||
-					aDataSource.lastModTime.dwLowDateTime )
+				if( aDataSource.lastMetaData.valid )
 				{
 					syncDebugPrint(
 						"Detected change in registry key value name %ls\n",
 						aDataSource.pathToRead.c_str());
 				}
-				aDataSource.lastModTime = aModTime;
+				aDataSource.lastMetaData = aCurrMetaData;
 				swap(aDataSource.dataCache, mValueBuf);
 				mSourceUpdated = true;
 			}
@@ -1794,7 +1807,8 @@ public:
 				}
 
 				if( mKeyStack.size() < kMaxSubkeyStackSize &&
-					CompareFileTime(&aModTime, &aDataSource.lastModTime) > 0 )
+					CompareFileTime(&aModTime,
+						&aDataSource.lastMetaData.lastModTime) > 0 )
 				{
 					SubkeyState aSubkeyState = SubkeyState();
 					if( RegOpenKeyEx(aKeyState.hKey, &mNameBuf[0], 0,
@@ -1842,10 +1856,12 @@ public:
 								&mValueBuf[0],
 								&aDataSize) == ERROR_SUCCESS )
 						{
-							const FILETIME aModTime = extractTimestamp(
+							FileMetaData aMetaData;
+							aMetaData.valid = true;
+							aMetaData.lastModTime = extractTimestamp(
 								mValueBuf, aKeyState.hKey, &mNameBuf[0]);
 							compareBestSource(
-								&mNameBuf[0], aMatchStr, aModTime);
+								&mNameBuf[0], aMatchStr, aMetaData);
 							// Finding a match is enough work for one update
 							return;
 						}
@@ -2859,8 +2875,7 @@ void load()
 void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	if( theProfileMap.contains(kTargetConfigSettingsSectionName) ||
-		theProfileMap.contains(kTargetConfigFilesSectionName) ||
+	if( theProfileMap.contains(kTargetConfigFilesSectionName) ||
 		theProfileMap.contains(kTargetConfigVarsSectionName) ||
 		theProfileMap.contains(kValueFormatStrSectionName) )
 	{

@@ -31,9 +31,24 @@ std::wstring nativeNTToWin32Path(const std::wstring& theNTPath);
 // Gets process path from a process ID
 std::wstring getProcessPath(DWORD theProcessID);
 
-// Gets last modification time for file with given path
-FILETIME getFileLastModTime(const std::string& theFilePath);
-FILETIME getFileLastModTime(const std::wstring& theFilePath);
+// Gets meta data (modification time etc) for file with given path,
+// for use in checking if a file changed at all since last checked
+struct ZERO_INIT(FileMetaData)
+{
+	FILETIME creationTime;
+	FILETIME lastModTime;
+	DWORD sizeHigh;
+	DWORD sizeLow;
+	DWORD volumeSerial;
+	DWORD fileIndexHigh;
+	DWORD fileIndexLow;
+	bool valid;
+
+	bool operator==(const FileMetaData& rhs) const;
+    bool operator!=(const FileMetaData& rhs) const;
+};
+FileMetaData getFileMetaData(const std::string& theFilePath);
+FileMetaData getFileMetaData(const std::wstring& theFilePath);
 
 // Will overwrite any existing file at theDestFilePath, or return false
 bool writeResourceToFile(

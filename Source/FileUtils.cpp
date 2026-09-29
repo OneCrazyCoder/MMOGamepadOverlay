@@ -338,22 +338,64 @@ std::wstring getProcessPath(DWORD theProcessID)
 }
 
 
-FILETIME getFileLastModTime(const std::string& theFilePath)
+bool FileMetaData::operator==(const FileMetaData& rhs) const
 {
-	return getFileLastModTime(widen(theFilePath));
+	return
+		valid && rhs.valid &&
+		CompareFileTime(&creationTime, &rhs.creationTime)  == 0 &&
+		CompareFileTime(&lastModTime, &rhs.lastModTime) == 0 &&
+		sizeHigh == rhs.sizeHigh &&
+		sizeLow == rhs.sizeLow &&
+		volumeSerial == rhs.volumeSerial &&
+		fileIndexHigh == rhs.fileIndexHigh &&
+		fileIndexLow == rhs.fileIndexLow;
 }
 
 
-FILETIME getFileLastModTime(const std::wstring& theFilePath)
+bool FileMetaData::operator!=(const FileMetaData& rhs) const
 {
-	WIN32_FILE_ATTRIBUTE_DATA aFileAttr;
-	if( GetFileAttributesEx(theFilePath.c_str(),
-			GetFileExInfoStandard, &aFileAttr) )
-	{
-		return aFileAttr.ftLastWriteTime;
-	}
+    return !(*this == rhs);
+}
 
-	return FILETIME();
+
+FileMetaData getFileMetaData(const std::string& thePath)
+{
+	return getFileMetaData(widen(thePath));
+}
+
+
+FileMetaData getFileMetaData(const std::wstring& thePath)
+{
+	FileMetaData result;
+
+	WIN32_FILE_ATTRIBUTE_DATA attr;
+	if( !GetFileAttributesExW(thePath.c_str(), GetFileExInfoStandard, &attr))
+		return result;
+
+	result.valid = true;
+	result.creationTime = attr.ftCreationTime;
+	result.lastModTime = attr.ftLastWriteTime;
+	result.sizeHigh = attr.nFileSizeHigh;
+	result.sizeLow = attr.nFileSizeLow;
+
+	HANDLE hFile = CreateFileW(thePath.c_str(),
+		0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+		NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	if( hFile == INVALID_HANDLE_VALUE )
+		return result;
+	BY_HANDLE_FILE_INFORMATION info = { 0 };
+	if( !GetFileInformationByHandle(hFile, &info) )
+	{
+		CloseHandle(hFile);
+		return result;
+	}
+	CloseHandle(hFile);
+
+	result.volumeSerial = info.dwVolumeSerialNumber;
+	result.fileIndexHigh = info.nFileIndexHigh;
+	result.fileIndexLow = info.nFileIndexLow;
+
+	return result;
 }
 
 

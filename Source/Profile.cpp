@@ -1293,10 +1293,10 @@ static bool userEditProfile(int theProfileID, bool firstProfile)
 	fillProfileFileList(theProfileID, aFileList);
 
 	// Note file modification times to check if any actual changes are made
-	std::vector<FILETIME> aLastFileModTime;
-	aLastFileModTime.resize(aFileList.size());
+	std::vector<FileMetaData> aLastFileMetaData;
+	aLastFileMetaData.resize(aFileList.size());
 	for(int i = 0, end = intSize(aFileList.size()); i < end; ++i)
-		aLastFileModTime[i] = getFileLastModTime(aFileList[i]);
+		aLastFileMetaData[i] = getFileMetaData(aFileList[i]);
 
 	Dialogs::profileEdit(aFileList, firstProfile);
 
@@ -1305,8 +1305,7 @@ static bool userEditProfile(int theProfileID, bool firstProfile)
 	{
 		if( !fileExists(aFileList[i]) )
 			return true;
-		const FILETIME& aNewFileTime = getFileLastModTime(aFileList[i]);
-		if( CompareFileTime(&aLastFileModTime[i], &aNewFileTime) != 0 )
+		if( aLastFileMetaData[i] != getFileMetaData(aFileList[i]) )
 			return true;
 	}
 
