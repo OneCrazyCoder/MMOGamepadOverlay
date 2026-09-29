@@ -2108,13 +2108,12 @@ static bool setFetchValueFromDataSource(
 		}
 		aConfigDataPath =
 			theBuilder.valueFormatStrings[theDestValueSetSubType];
-		std::pair<std::string::size_type, std::string::size_type> aTagCoords =
-			findStringTag(aConfigDataPath);
-		while(aTagCoords.first != std::string::npos)
+		StringTagPos aTagCoords = findStringTag(aConfigDataPath);
+		while(aTagCoords.found)
 		{
 			const std::string& aTag = condense(
 				aConfigDataPath.substr(
-					aTagCoords.first + 1, aTagCoords.second - 2));
+					aTagCoords.start + 1, aTagCoords.len - 2));
 			if( isAnInteger(aTag) || aTag == "NAME" )
 			{
 				// <name> can be used the same as <1>
@@ -2122,8 +2121,8 @@ static bool setFetchValueFromDataSource(
 				if( aTagNum < aReplacementStrings.size() )
 				{
 					aConfigDataPath.replace(
-						aTagCoords.first,
-						aTagCoords.second,
+						aTagCoords.start,
+						aTagCoords.len,
 						aReplacementStrings[aTagNum]);
 				}
 				else
@@ -2143,7 +2142,7 @@ static bool setFetchValueFromDataSource(
 				logError(
 					"Unrecognized tag %s '%s = %s'",
 					aConfigDataPath.substr(
-					aTagCoords.first, aTagCoords.second).c_str(),
+					aTagCoords.start, aTagCoords.len).c_str(),
 					kValueFormatStringKeys[theDestValueSetSubType],
 					theBuilder.valueFormatStrings[
 						theDestValueSetSubType].c_str());
@@ -2152,7 +2151,7 @@ static bool setFetchValueFromDataSource(
 					theDestValueSetSubType].clear();
 				return false;
 			}
-			aTagCoords = findStringTag(aConfigDataPath, aTagCoords.first + 1);
+			aTagCoords = findStringTag(aConfigDataPath, aTagCoords.start + 1);
 		}
 	}
 	else if( theValueSetType != eValueSetType_Single )

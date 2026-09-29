@@ -53,21 +53,22 @@ std::string breakOffNextItem(std::string& theString, char theChar = ',');
 // Returns substring from thePosition to first theDelimiter (or whole string),
 // updating thePosition to theDelimiter or '\0' pos. Returned string is trimmed.
 // If entire substring is quoted, theDelimiter is ignored inside quoted section,
-// whitespace in the quotes is left as-is, and outer quote chars are removed.
+// and whitespace in the quotes is left as-is (and can strip outer quote chars).
 // Supports SQL style for quote chars inside quoted strings ("" or '"' etc).
 std::string fetchNextItem(
-	const std::string&, size_t& thePosition, const char* theDelimiter = ",");
+	const std::string&, size_t& thePosition, const char* theDelimiter = ",",
+	bool stripOuterQuotes = true);
 // If the string ends in a positive integer (and isn't entirely one),
 // returns that integer and removes those chars. Otherwise returns -1.
 // allowJustInt must be true to work for a string that is entirely an integer.
 int breakOffIntegerSuffix(std::string& theString, bool allowJustInt = false);
 // Converts an integer range suffix of positive integers into their components,
 // such as "Name12-17" into "Name", 12, and 17 (or both 12 for just "Name12").
-// Returns true if was a valid range with 2 values (even for i.e. "Name12-12").
+// Returns true if was a valid range with 2 distinct values.
 bool fetchRangeSuffix(const std::string& theString, std::string& theRangeName,
 					  int& theStart, int& theEnd, bool allowJustInt = false);
 // Replace all instances in a string of given char with given int (as a string),
-// but also allow for "c+3" or "c-12" to adjust the replacement integer.
+// but also allows for "c+3" or "c-12" to adjust the replacement integer.
 std::string replaceAllCharWithInt(
 	const std::string& theString, char theChar, int theInt);
 // Breaks the string into individual sub-strings of ASCII alphanumeric chars,
@@ -80,10 +81,9 @@ void sanitizeSentence(const std::string&, std::vector<std::string>& out);
 // Returns 0 if theString does not start with entire prefix or prefix is empty
 size_t posAfterPrefix(const std::string&, const std::string& thePrefix);
 bool hasPrefix(const std::string&, const std::string& thePrefix);
-// Finds the first most-nested string "tag" (${TagContents}, <TagContents>, etc)
+// Finds the most-nested string "tag" (${TagContents}, <TagContents>, etc)
 // and returns its start pos and length (which include theTagStart/End chars).
-// If no tags are found, .first will be set to npos and .second to 0
-std::pair<std::string::size_type, std::string::size_type>
+struct StringTagPos{ size_t start, len; bool found, nested; }
 findStringTag(const std::string&, std::string::size_type theStartPos = 0,
 			  const char* theTagStart = "<", const char theTagEnd = '>');
 

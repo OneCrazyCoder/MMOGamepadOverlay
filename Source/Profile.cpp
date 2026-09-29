@@ -891,14 +891,13 @@ static void generateKnownIssuesRTF(std::string theIssuesList)
 	FreeResource(hRes);
 
 	// Find which issues to display and filter out the rest
-	std::pair<std::string::size_type, std::string::size_type> aTagCoords;
-	aTagCoords = findStringTag(sKnownIssuesRTF, 0, "|", '|');
+	StringTagPos aTagCoords = findStringTag(sKnownIssuesRTF, 0, "|", '|');
 	std::string anIssueName;
 	std::string aTagContents;
-	while(aTagCoords.first != std::string::npos)
+	while(aTagCoords.found)
 	{
 		aTagContents = sKnownIssuesRTF.substr(
-			aTagCoords.first+1, aTagCoords.second-2);
+			aTagCoords.start+1, aTagCoords.len-2);
 		anIssueName = breakOffItemBeforeChar(aTagContents);
 		if( anIssueName == "NONE" )
 		{// Show contents only if have no issues so far
@@ -915,8 +914,8 @@ static void generateKnownIssuesRTF(std::string theIssuesList)
 			aTagContents.clear();
 		}
 		sKnownIssuesRTF.replace(
-			aTagCoords.first,
-			aTagCoords.second,
+			aTagCoords.start,
+			aTagCoords.len,
 			aTagContents);
 		aTagCoords = findStringTag(sKnownIssuesRTF, 0, "|", '|');
 	}
@@ -1360,7 +1359,8 @@ static bool checkVarCompare(
 static std::string varSelectString(
 	const std::string& theVarStr,
 	const std::string& theTagStr,
-	size_t thePos)
+	size_t thePos,
+	bool nested)
 {
 	const double theVarNum = stringToDouble(theVarStr, true);
 	std::string aCaseStr, aValStr, aStr;
@@ -1416,7 +1416,7 @@ static std::string varSelectString(
 			}
 			aCaseStr = aStr.substr(anOpCharCount);
 			aCaseNum = stringToDouble(aCaseStr, true);
-			aValStr = fetchNextItem(theTagStr, ++thePos, ",]}");
+			aValStr = fetchNextItem(theTagStr, ++thePos, ",]}", !nested);
 			if( (_isnan(aCaseNum) || _isnan(theVarNum)) &&
 				anOpC != '!' && anOpC != '=' )
 			{
@@ -1435,8 +1435,8 @@ static std::string varSelectString(
 			// Use previous case + 1 as assumed next case if using numbers
 			if( !_isnan(aCaseNum) )
 				aCaseNum = floor(aCaseNum) + 1.0;
-			// Assume this is instead the value string
-			aValStr = aStr;
+			// Re-grab case string as value string instead
+			aValStr = fetchNextItem(theTagStr, thePos, ":,]}", !nested);
 		}
 
 		// If reached end of [] block without returning anything yet, return
@@ -1457,6 +1457,7 @@ static std::string varTagToString(
 	const std::string& theVarContents,
 	const std::string& theTagStr,
 	const size_t theFirstOperatorPos,
+	bool nested,
 	VarPropDependency* theVarDep = null,
 	bool init = false)
 {
@@ -1477,6 +1478,8 @@ static std::string varTagToString(
 	switch(anOpC)
 	{
 	case '}':
+		if( nested ) // keep quotes in this case
+			return theVarContents;
 		return result;
 	case '?':
 		aNextDel = ":}";
@@ -1528,18 +1531,17 @@ static std::string varTagToString(
 		aNextDel = "}+-*/?[!~<>=.";
 		break;
 	case '[':
-		return varSelectString(theVarContents, theTagStr, aPos);
+		return varSelectString(theVarContents, theTagStr, aPos, nested);
 	default:
 		DBG_ASSERT(false && "Unhandled operator character");
 	}
-
-	// Get first parameter for operator
-	const std::string& aParam = fetchNextItem(theTagStr, aPos, aNextDel);
 
 	// Check for special .anchor, .offset, .x/xs, and .y/ys for coord vars,
 	// as well as .sum, .int, .round, .floor, and .ceil for sum vars
 	if( anOpC == '.' )
 	{
+		const std::string& aConverterName =
+			fetchNextItem(theTagStr, aPos, aNextDel);
 		enum EMemberType {
 			eMemberType_Unknown,
 			eMemberType_X,
@@ -1586,12 +1588,12 @@ static std::string varTagToString(
 		};
 		static NameToEnumMapper sNameToEnumMapper;
 		const EMemberType aMemberType =
-			sNameToEnumMapper.map.valElse(aParam, eMemberType_Unknown);
+			sNameToEnumMapper.map.valElse(aConverterName, eMemberType_Unknown);
 		if( aMemberType == eMemberType_Unknown )
 		{
 			logError("Uknown variable string conversion name '.%s' in '%s'!",
-				aParam.c_str(), theTagStr.c_str());
-			return varTagToString(result, theTagStr, aPos);
+				aConverterName.c_str(), theTagStr.c_str());
+			return varTagToString(result, theTagStr, aPos, nested);
 		}
 		if( aMemberType < eMemberType_LastCoordType )
 		{
@@ -1601,8 +1603,8 @@ static std::string varTagToString(
 			{
 				logError("Expected an anchor + offset coordinate string "
 					"instead of '%s' for conversion type '.%s' in '%s'!",
-					result.c_str(), aParam.c_str(), theTagStr.c_str());
-				return varTagToString(result, theTagStr, aPos);
+					result.c_str(), aConverterName.c_str(), theTagStr.c_str());
+				return varTagToString(result, theTagStr, aPos, nested);
 			}
 			switch(aMemberType)
 			{
@@ -1681,7 +1683,7 @@ static std::string varTagToString(
 				result = toString(aCoord.anchor / double(0x10000U));
 				break;
 			}
-			return varTagToString(result, theTagStr, aPos);
+			return varTagToString(result, theTagStr, aPos, nested);
 		}
 		else
 		{
@@ -1691,8 +1693,8 @@ static std::string varTagToString(
 			{
 				logError("Expected string representing a sum of numbers "
 					"instead of '%s' for conversion type '.%s' in '%s'!",
-					result.c_str(), aParam.c_str(), theTagStr.c_str());
-				return varTagToString(result, theTagStr, aPos);
+					result.c_str(), aConverterName.c_str(), theTagStr.c_str());
+				return varTagToString(result, theTagStr, aPos, nested);
 			}
 
 			switch(aMemberType)
@@ -1713,9 +1715,13 @@ static std::string varTagToString(
 				result = toString(abs(aSum));
 				break;
 			}
-			return varTagToString(result, theTagStr, aPos);
+			return varTagToString(result, theTagStr, aPos, nested);
 		}
 	}
+
+	// Get first parameter for operator
+	const std::string& aParam =
+		fetchNextItem(theTagStr, aPos, aNextDel, !nested || anOpC != '?');
 
 	// Check for valid values (i.e. numbers) for some operators
 	double aVarNum = 0, aParamNum = 0;
@@ -1820,7 +1826,7 @@ static std::string varTagToString(
 			result = aParam;
 			return result;
 		}
-		result = fetchNextItem(theTagStr, aPos, "}");
+		result = fetchNextItem(theTagStr, aPos, "}", !nested);
 		return result;
 	}
 
@@ -1828,11 +1834,12 @@ static std::string varTagToString(
 	DBG_ASSERT(anOpC2 == '?');
 
 	// Get result for true, or to advance aPos to : for false condition result
-	const std::string& aTrueResult = fetchNextItem(theTagStr, aPos, ":}");
+	const std::string& aTrueResult =
+		fetchNextItem(theTagStr, aPos, ":}", !nested);
 	if( isTrue )
 		result = aTrueResult;
 	else if( theTagStr[aPos++] == ':' )
-		result = fetchNextItem(theTagStr, aPos, "}");
+		result = fetchNextItem(theTagStr, aPos, "}", !nested);
 	else
 		result = "";
 
@@ -1850,10 +1857,9 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 	if( !theProp.str.empty() || theProp.pattern.empty() )
 		return;
 
-	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
-		findStringTag(theProp.pattern, 0, "${", '}');
+	StringTagPos aTagCoords = findStringTag(theProp.pattern, 0, "${", '}');
 
-	if( aTagCoords.first == std::string::npos )
+	if( !aTagCoords.found )
 	{// No variables referenced - set .str and clear .pattern via swap
 		swap(theProp.str, theProp.pattern);
 		return;
@@ -1873,7 +1879,7 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		std::string aRepStr;
 		std::string aVarContents;
 		const std::string kVarOpChars = "}+-*/?[!~<>=.";
-		size_t aVarNameStartPos = aTagCoords.first + 2;
+		size_t aVarNameStartPos = aTagCoords.start + 2;
 		while(u8(aStr[aVarNameStartPos]) <= ' ')
 			++aVarNameStartPos;
 		size_t aVarOpPos = aVarNameStartPos;
@@ -1917,12 +1923,12 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 			}
 		}
 
-		DBG_ASSERT(aVarOpPos < aTagCoords.first + aTagCoords.second);
+		DBG_ASSERT(aVarOpPos < aTagCoords.start + aTagCoords.len);
 		if( !validVarFound )
 		{
 			logError("Could not identify variable name from %s in property "
 				"[%s] / %s!",
-				aStr.substr(aTagCoords.first, aTagCoords.second).c_str(),
+				aStr.substr(aTagCoords.start, aTagCoords.len).c_str(),
 				sSectionsMap.keys()[theSectionID].c_str(),
 				theSection.keys()[thePropID].c_str());
 			expandPropertyVars(theSectionID, thePropID, init);
@@ -1930,11 +1936,12 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 		else
 		{
 			aRepStr = varTagToString(
-				aVarContents, aStr, aVarOpPos, aDepPtr, init);
+				aVarContents, aStr, aVarOpPos,
+				aTagCoords.nested, aDepPtr, init);
 		}
-		aStr = aStr.replace(aTagCoords.first, aTagCoords.second, aRepStr);
+		aStr = aStr.replace(aTagCoords.start, aTagCoords.len, aRepStr);
 		aTagCoords = findStringTag(aStr, 0, "${", '}');
-	} while( aTagCoords.first != std::string::npos );
+	} while( aTagCoords.found );
 
 	theProp.str = aStr;
 }
@@ -2916,26 +2923,25 @@ std::string expandVars(std::string theString)
 {
 	std::string result;
 	PropertyMap& theVarsMap = sSectionsMap.vals()[kVarsSectionIdx];
-	std::pair<std::string::size_type, std::string::size_type> aTagCoords =
-		findStringTag(theString, 0, "${", '}');
+	StringTagPos aTagCoords = findStringTag(theString, 0, "${", '}');
 
-	while( aTagCoords.first != std::string::npos )
+	while( aTagCoords.found )
 	{
 		// Extract variable name from tag
-		size_t aVarOpPos = aTagCoords.first + 2;
+		size_t aVarOpPos = aTagCoords.start + 2;
 		const std::string& aVarName =
 			fetchNextItem(theString, aVarOpPos, "}+-*/?[!~<>=.");
 		const int aVarID = theVarsMap.findIndex(aVarName);
-		if( aVarOpPos < aTagCoords.first + aTagCoords.second &&
+		if( aVarOpPos < aTagCoords.start + aTagCoords.len &&
 			!aVarName.empty() && aVarID < theVarsMap.size() )
 		{
 			if( theVarsMap.vals()[aVarID].str.empty() )
 				expandPropertyVars(kVarsSectionIdx, aVarID, false);
 			const std::string& aRepStr = varTagToString(
 				theVarsMap.vals()[aVarID].str,
-				theString, aVarOpPos);
+				theString, aVarOpPos, aTagCoords.nested);
 			theString = theString.replace(
-				aTagCoords.first, aTagCoords.second, aRepStr);
+				aTagCoords.start, aTagCoords.len, aRepStr);
 			aTagCoords = findStringTag(theString, 0, "${", '}');
 		}
 		else

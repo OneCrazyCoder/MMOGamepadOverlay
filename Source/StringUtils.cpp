@@ -464,7 +464,8 @@ std::string getPathParams(const std::string& thePath)
 std::string fetchNextItem(
 	const std::string& theString,
 	size_t& thePosition,
-	const char* theDelimiter)
+	const char* theDelimiter,
+	bool stripOuterQuotes)
 {
 	#ifndef NDEBUG
 	DBG_ASSERT(theDelimiter && *theDelimiter);
@@ -488,6 +489,8 @@ std::string fetchNextItem(
 	std::string::size_type aPos = 0;
 	if( isQuoted )
 	{
+		if( !stripOuterQuotes )
+			result += aQuoteChar;
 		for(aPos = thePosition + 1; aPos < theString.size(); ++aPos)
 		{
 			if( theString[aPos] == aQuoteChar )
@@ -499,6 +502,8 @@ std::string fetchNextItem(
 					result += aQuoteChar;
 					continue;
 				}
+				if( !stripOuterQuotes )
+					result += aQuoteChar;
 				break;
 			}
 			result += theString[aPos];
@@ -521,6 +526,7 @@ std::string fetchNextItem(
 					continue;
 				if( strchr(theDelimiter, theString[aPos]) != null )
 					break;
+				// Found non-delimiter character before hit end of string
 				isQuoted = false;
 				result.clear();
 				break;
@@ -654,7 +660,7 @@ bool fetchRangeSuffix(
 		}
 	}
 
-	return isInRangeFormat;
+	return isInRangeFormat && theEnd > theStart;
 }
 
 
@@ -827,14 +833,14 @@ size_t posAfterPrefix(
 }
 
 
-std::pair<std::string::size_type, std::string::size_type>
-findStringTag(
+StringTagPos findStringTag(
 	const std::string& theString,
 	std::string::size_type theStartPos,
 	const char* theTagStart, char theTagEnd)
 {
-	std::pair<std::string::size_type, std::string::size_type> result(
-		std::string::npos, 0);
+	StringTagPos result;
+	result.start = result.len = 0;
+	result.found = result.nested = false;
 	std::string::size_type aTagStartPos =
 		theString.find(theTagStart, theStartPos);
 	if( aTagStartPos != std::string::npos )
@@ -845,8 +851,15 @@ findStringTag(
 		if( aTagEndPos != std::string::npos )
 		{
 			// Only use the last theTagStart found before the closing theTagEnd
-			result.first = theString.rfind(theTagStart, aTagEndPos-1);
-			result.second = aTagEndPos - result.first + 1;
+			result.start = aTagStartPos;
+			aTagStartPos = theString.rfind(theTagStart, aTagEndPos-1);
+			if( aTagStartPos != result.start )
+			{
+				result.start = aTagStartPos;
+				result.nested = true;
+			}
+			result.len = aTagEndPos - result.start + 1;
+			result.found = true;
 		}
 	}
 
@@ -1102,7 +1115,7 @@ Hotspot::Coord stringToCoord(
 				aDenominator = 1;
 				break;
 			case ' ': case '-': case '+':
-			case ',': case '*': case '@': case 'x': case 'X':
+			case ',': case 'x': case 'X':
 				done = true;
 				break;
 			}
