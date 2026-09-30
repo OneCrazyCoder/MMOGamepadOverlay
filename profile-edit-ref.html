@@ -14,7 +14,7 @@
     <div class="stackedit__toc">
       
 <ul>
-<li><a href="#mmo-gamepad-overlay---profile-editing-reference-guide">MMO Gamepad Overlay - Profile Editing Reference Guide</a>
+<li><a href="#mmo-gamepad-overlay---profile-editing-reference-manual">MMO Gamepad Overlay - Profile Editing Reference Manual</a>
 <ul>
 <li><a href="#profile-customization">Profile customization</a></li>
 <li><a href="#scheme-section">[Scheme] Section</a></li>
@@ -33,8 +33,8 @@
   </div>
   <div class="stackedit__right">
     <div class="stackedit__html">
-      <h1 id="mmo-gamepad-overlay---profile-editing-reference-guide">MMO Gamepad Overlay - Profile Editing Reference Guide</h1>
-<p>The application generates a <em>MMOGO_Core.ini</em> file which contains some default settings and is used to track what other profiles you have created and their names. You can edit this file and any other <em>.ini</em> files it generates or create your own, with any text editor.</p>
+      <h1 id="mmo-gamepad-overlay---profile-editing-reference-manual">MMO Gamepad Overlay - Profile Editing Reference Manual</h1>
+<p>Starting MMO Gamepad Overlay and agreeing to the license agreement generates a <em>MMOGO_Core.ini</em> file in the same folder as the application was placed, which contains some default settings and is used to track what other profiles you have created and their names. You can edit this file and any other <em>.ini</em> files the app generates, or create your own, with any text editor.</p>
 <p>The list of profiles is at the top of <em>MMOGO_Core.ini</em>, along with an entry for specifying which one to load automatically (if any).</p>
 <p>Each profile <em>.ini</em> file can specify a “parent” Profile with a line like:</p>
 <pre><code>ParentProfile = MyBaseProfile
@@ -238,19 +238,22 @@ Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>Each of the coordinates can have one of 3 formats - an <em>Anchor</em>, one or more <em>Offsets</em>, or both.</p>
 <p>The anchor represents the starting point as a relative position of the target game’s window, and is expressed as either percent (like 50%, or 0.5 if you prefer) or by special shortcuts like L/T/R/B/C/CX/CY instead of numbers. If no anchor is specified, it is assumed to be 0% (the top-left corner). This value must be between 0 and 100% (or 0 and 1.0).</p>
 <p>An offset is expressed as pixels and can be negative or positive, and any decimal values after all offsets are added up are rounded off to whole numbers. The app decides the first number given must be an offset instead of an anchor if the number does not include a % sign or any of the shortcut letters specified above, or is out of range for a valid anchor value (negative or greater than 1.0).</p>
-<p>To completely avoid ambiguity on if a value is an anchor or offset, you can always just specify both anchor plus offset(s) for each coordinate, done by first giving the anchor followed by a ‘+’ or ‘-’ for each offset following (i.e. <code>30% + 10 - 2.5</code>). The final coordinate will be the anchor position calculated according to the target window size, and then with the pixel offset(s) added to that.</p>
+<p>To completely avoid ambiguity on if a value is an anchor or offset, you can always just specify both anchor plus offset(s) for each coordinate, done by first giving the anchor followed by a ‘+’ or ‘-’ for each offset following (i.e. <code>30% + 10 - 2.5</code>). The final coordinate will be the anchor position calculated according to the game window size, and then with the pixel offset(s) added to that.</p>
+<p><em>Pro tip - You can instead specify another hotspot by name as the anchor and then just use offsets for X and Y by using the format <code>= ParentHotspot: xOfsfset, yOffset</code></em></p>
 <p>Some examples of valid hotspots for reference:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector"> [Hotspots]</span>
 <span class="token comment">; Center of the screen/window</span>
 <span class="token constant">CenterScreen</span> <span class="token attr-value"><span class="token punctuation">=</span> 50% x 50%</span>
 <span class="token constant">CenterScreen</span> <span class="token attr-value"><span class="token punctuation">=</span> 0.5, CY</span>
 <span class="token comment">; Pixel position 200x by 100y</span>
-<span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> 200 x 100</span>
+<span class="token constant">MyHotspot1</span> <span class="token attr-value"><span class="token punctuation">=</span> 200 x 100</span>
 <span class="token comment">; 10 pixels to the left of right edge, and</span>
 <span class="token comment">; 5 pixels down from 30.5% of the game window's height</span>
-<span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> R - 10, 30.5% + 5</span>
+<span class="token constant">MyHotspot2</span> <span class="token attr-value"><span class="token punctuation">=</span> R - 10, 30.5% + 5</span>
 <span class="token comment">; BR corner offset -50x and -75y</span>
-<span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> R-50, B-75</span>
+<span class="token constant">MyHotspot3</span> <span class="token attr-value"><span class="token punctuation">=</span> R-50, B-75</span>
+<span class="token comment">; 10 pixels to the right and 5 up from MyHotspot3</span>
+<span class="token constant">MyHotspot4</span> <span class="token attr-value"><span class="token punctuation">=</span> MyHotspot3: +10, -5</span>
 </code></pre>
 <p>In addition to direct named Hotspots in the <code>[Hotspots]</code> section, some other positions also use Hotspot formatting, such as the <code>Position=</code> property of <strong>Menus</strong>.</p>
 <h3 id="special-hotspots">Special Hotspots</h3>
@@ -269,14 +272,34 @@ Hold R2 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>Hotspots can be used as more than points, but represent a rectangular region, for certain specific menu styles and other advanced features. To define a hotspot with a width and/or height greater than 0, add said width and height, separated by commas, after the x and y position:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
 <span class="token comment">; Width and height both 10</span>
-<span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> 200 x 100, 10, 10</span>
+<span class="token constant">MyHotspot1</span> <span class="token attr-value"><span class="token punctuation">=</span> 200 x 100, 10, 10</span>
 <span class="token comment">; Width of 40 and height of 20</span>
-<span class="token constant">MyHotspot</span> <span class="token attr-value"><span class="token punctuation">=</span> R - 10, 30.5% + 5, 40, 15+5</span>
+<span class="token constant">MyHotspot2</span> <span class="token attr-value"><span class="token punctuation">=</span> R - 10, 30.5% + 5, 40, 15+5</span>
+<span class="token comment">; Uses 40x20 size from MyHotspot2</span>
+<span class="token constant">MyHotspot3</span> <span class="token attr-value"><span class="token punctuation">=</span> MyHotspot2: +10, -5</span>
+<span class="token comment">; Overrides anchor size and uses 32x32</span>
+<span class="token constant">MyHotspot4</span> <span class="token attr-value"><span class="token punctuation">=</span> MyHotspot2: +20, -15, 32, 32</span>
 </code></pre>
 <p>The hotspot itself is considered at the center of the region, but the full width and height are specified in this section. So a width of 10 would mean the actual region would be the area between 5 pixels to the left and 5 pixels to the right of the hotspot (195 to 205 in the first example above).</p>
 <h3 id="ui-scale">UI Scale</h3>
-<p>Hotspot offset values are not directly affected by the size of the target screen/window like the hotspot anchor is, but will instead be multiplied by a global UI Scale value. Size-related properties, such as ItemSize, BorderSize, FontSize, TitleHeight, and the above Hotspot region sizes, are also multiplied by this global UI Scale value. The initial value for this can be configured by setting the special <code>[Variables]</code> property <code>UIScale=</code>, which defaults to 100% if undefined.</p>
-<p>For games that allow setting a scale for individual windows, <strong>Hotspot Arrays</strong> (a group of hotspots sharing the same name but just ending in different sequential numbers) can have their offsets and size further multiplied by these per-window scales. See <em>Hotspot Array scaling</em> under <em>Other Commands and Features</em> for more details.</p>
+<p>Hotspot offset values are not directly affected by the size of the target screen/window like the hotspot anchor is, but will instead be multiplied by a global UI Scale value. Size-related properties, such as ItemSize, BorderSize, FontSize, TitleHeight, and the above Hotspot region sizes are also multiplied by this global UI Scale value. The initial value for this can be configured by setting the special <code>[Variables]</code> property <code>UIScale=</code>, which defaults to 100% if undefined.</p>
+<h3 id="hotspot-sets">Hotspot Sets</h3>
+<p>You will generally want sets of related hotspots, typically with the set representing all the buttons etc in a particular a game window. This allows turning on and off multiple hotspots at once when certain game windows are assumed to be active or not (using the <code>Hotspots=</code> property in a Layer, explained later), and repositioning or scaling all the hotspots related to one window by only changing a base position or scale for the set as a whole.</p>
+<p>To define a Hotspot Set, create a separate section labeled as <code>[Hotspot.HotspotSetName]</code> for each set. You will also need at minimum the property <code>Anchor=</code> set to hotspot coordinates. This will generate a hotspot called HotspotSetName with the anchor position.</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots.Inventory]</span>
+<span class="token constant">Anchor</span> <span class="token attr-value"><span class="token punctuation">=</span> L+100, T+300, 32, 32</span>
+</code></pre>
+<p>The above creates a hotspot called <em>Inventory</em>, so mostly be the same as using <code>Inventory = L+100, T+300, 32, 32</code> in the normal <code>[Hotspots]</code> section. <em>NOTE: While this anchor hotspot can be directly referenced individually by name, it is not, itself, considered to be part of the set!</em></p>
+<p>The hotspots within the set are then defined by specifying the rest of their name after the set name, and their value set to offsets from the set’s anchor (the same as using <code>= HotspotSetName: x, y</code> format but without needing to specify HotspotSetName).</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots.Inventory]</span>
+<span class="token constant">Anchor</span> <span class="token attr-value"><span class="token punctuation">=</span> L+100, T+300, 32, 32</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> 50, 50</span>
+<span class="token constant">2</span> <span class="token attr-value"><span class="token punctuation">=</span> 100, 50</span>
+<span class="token constant">Weapon1</span> <span class="token attr-value"><span class="token punctuation">=</span> 200, 50, 40, 40</span>
+<span class="token constant">Weapon2</span> <span class="token attr-value"><span class="token punctuation">=</span> Weapon1: +55, 0</span>
+</code></pre>
+<p>Besides the special <em>Inventory</em> anchor, this would create hotspots called <em>Inventory1</em>, <em>Inventory2</em>, <em>InventoryWeapon1</em>, and <em>InventoryWeapon2</em>. InventoryWeapon1 is offset +50 in x and y, so combined with the base means it is a final position of  L+150 x T+350. It would also use the base hotspot’s width and height of 32x32 - yet <em>InventoryWeapon1</em> overrides that to be set to 40x40 instead. Since <em>InventoryWeapon2</em> directly specifies its own anchor, it just offsets from <em>InventoryWeapon1</em> (and inherits its 40x40 size). <em>Technically you could specify ANY hotspot as an anchor, even ones outside of the set, and even the <code>Anchor=</code> property could specify another hotspot as its anchor.</em></p>
+<p>There are more advanced options for defining Hotspot Sets such as specifying entire ranges (rows, columns, or even a wrapping grid) of hotspots with a single property, and applying a separate extra scale to all of a set at once (for use with games that offer per-window scaling option to be able to adjust all of the hotspots in a set with a single property). See <em>Hotspot ranges</em> and <em>Hotspot Set scaling</em> under <em>Other Commands and Features</em> for more details on these.</p>
 <h3 id="ui-layout-editor">UI Layout Editor</h3>
 <p>The UI Layout Editor can be accessed from the Edit menu of the main app window, or by adding a <code>=Edit UI Layout</code> command to a button or menu in your profile somewhere.</p>
 <p>This option will bring up a dialog listing all the Hotspots and Menus found in your profile that can be repositioned. Select one and click the Reposition button. You can then see a visual indicator of the position in question overlayed over the game (and any menus from this app), to see how they line up. A pop-up dialog will also appear showing the actual values from the .ini file. You can use the buttons and edit fields in that dialog to move the item, or just drag it around directly on the screen with a mouse. The game and app will continue running while you are doing this, to allow checking the position against different in-game menus and such. Simply click OK in the dialog box when done positioning the item to save the change to your profile .ini file automatically.</p>
@@ -370,19 +393,14 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <span class="token constant">Menus</span> <span class="token attr-value"><span class="token punctuation">=</span> Hide MainMenu, Show TargetGroupLast</span>
 </code></pre>
 <h3 id="layer-hotspots-property">Layer Hotspots= property</h3>
-<p>Similar to the <code>ShowMenus=</code> property, each layer can enable or disable <strong>Hotspot Arrays</strong> that can be used via the <code>=Select Hotspot &lt;direction&gt;</code> command. Each layer can also disable Hotspot Arrays enabled in the layers below it, though layers above can override that yet again.</p>
-<p>Hotspot Arrays are defined as a list of Hotspots with the same name but just different number on the end, starting with 1, like so:</p>
-<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.LootMode]</span>
-<span class="token constant">Hotspots</span> <span class="token attr-value"><span class="token punctuation">=</span> LootWindow, Disable Standard</span>
+<p>Similar to the <code>ShowMenus=</code> property, each layer can enable or disable <strong>Hotspot Sets</strong> that can be used via the <code>=Select Hotspot &lt;direction&gt;</code> command. Each layer can also disable Hotspot Sets enabled in the layers below it, though layers above can override that yet again. This is done via the <code>Hotspots=</code> property including a list of the base names of any Hotspot Sets to enable (and optionally the ‘Enable’ and ‘Disable’ key words), such as:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Layer.UseInventory]</span>
+<span class="token constant">Hotspots</span> <span class="token attr-value"><span class="token punctuation">=</span> Inventory, Bags</span>
 
-<span class="token selector">[Hotspots]</span>
-<span class="token constant">LootWindow1</span><span class="token attr-value"><span class="token punctuation">=</span>32, 240</span>
-<span class="token constant">LootWindow2</span><span class="token attr-value"><span class="token punctuation">=</span>32, 281</span>
-<span class="token constant">LootWindow3</span><span class="token attr-value"><span class="token punctuation">=</span>32, 322</span>
-...
+<span class="token selector">[Layer.MemSpells]</span>
+<span class="token constant">Hotspots</span> <span class="token attr-value"><span class="token punctuation">=</span> Enable SpellBook, Disable Bags</span>
 </code></pre>
-<p><em>Shortcut tip - Multiple hotspots in an array can be defined at once to make it easier to add or adjust a whole array quickly. More on this in the later section “Hotspot Array ranges”.</em></p>
-<p>The <code>=Select Hotspot &lt;direction&gt;</code> command will quickly move the mouse cursor to the next nearby enabled hotspot in the direction given. If none are found the mouse will be moved the amount of the <code>[Mouse]</code> section property <code>DefaultHotspotDistance=</code> (multiplied by the UIScale variable) instead.</p>
+<p>The <code>=Select Hotspot &lt;direction&gt;</code> command will quickly move the mouse cursor to the next nearby <em>enabled</em> hotspot in the direction given. If none are found the mouse will be moved the amount of the <code>[Mouse]</code> section property <code>DefaultHotspotDistance=</code> (multiplied by the UIScale variable) instead. <em>NOTE: This does not enable/include the special anchor hotspot for a set - these and basic non-set hotspots can NOT be enabled for use with Select Hotspot!</em></p>
 <p>Using <code>Dpad = Select Hotspot</code> in your control scheme is a good way to allow a quick and accurate mouse movement method to navigate in-game windows and menus using defined hotspots.</p>
 <h3 id="layer-autolayers-property">Layer AutoLayers= property</h3>
 <p>This property is similar to ShowMenus= and Hotspots= but with a list of Layer names (and optional “Add” and “Remove” key words) of other layers that should be automatically added or removed whenever this layer is added:</p>
@@ -512,7 +530,7 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 <p>The <code>Default=</code> property determines which menu item will be initially selected when the menu is first activated (or reset with the <code>=Reset &lt;MenuName&gt;</code> command with no menu item number specified). If unspecified then item # 1 is used as the default.</p>
 <p>Notice how Menu Item #3 in the above example has no Command, but still contains <code>:</code>, so the label will be shown but nothing will happen if it is used (alternatively could set it to <code>TBD: Do nothing</code> to make this clearer).</p>
 <p>If you want a menu item that does do something but has no label, just start with <code>:</code> with nothing before it. You still need to include the <code>:</code> and not just a command by itself though, because the absence of <code>:</code> is used to indicate that menu item opens a <strong>Sub-Menu</strong>, as shown in Menu Item #4 above.</p>
-<p><em>Pro tip - f you want to include a colon character in the actual label text, surround the entire label with double-quotes, i.e. <code>1 = "Label: MoreLabel" : Command</code></em></p>
+<p><em>Pro tip - If you want to include a colon character in the actual label text, surround the entire label with double-quotes, i.e. <code>1 = "Label: MoreLabel" : Command</code></em></p>
 <p><em>Shortcut tip - you can actually specify multiple menu items at once if they have commands and labels that only differ by a number value that matches the menu item number. For example, to have a menu with 10 items, each with a label that has the number 1 through 10 in it, and/or a command such as a numbered KeyBind numbered 1 through 10, you could specify all the menu items in a single line using something like <code>1-10 = Ability#: UseAbility#</code>. The <code>#</code> symbols are replaced by the menu item number in the property value as each individual menu item is created - i.e. “1 = Ability1: UseAbility1” and so on. Adjustments like <code>#+1</code> or <code>#-2</code> are also supported, so <code>1-10 = Ability#+2</code> would generate “1 = Ability3” and so on.</em></p>
 <h3 id="sub-menus">Sub-Menus</h3>
 <p>A sub-menu is created by having a menu item <em>property value</em> without any <code>:</code> character, which then has the label double as the sub-menu’s name. The sub-menu is defined by the section name <code>[Menu.MenuName.SubMenuName]</code>.  In the earlier example, <code>4=Settings</code> specified a sub-menu named “Settings”. Here is an example setup for that sub-menu:</p>
@@ -668,7 +686,7 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 ...
 </code></pre>
 <p>If the associated hotspot has a non-zero size width or height specified, than that menu item will use the hotspot’s size instead of the <code>ItemSize=</code> property, meaning that this menu style can even have different menu items using different sizes.</p>
-<p><em>Shortcut tip - the above example could have a single line for all of the menu items - <code>WindowButton1-15 = WB#: UseWB#</code>. This only works when the hotspots in the given range end in numbers themselves (i.e. are part of a Hotspot Array).</em></p>
+<p><em>Shortcut tip - the above example could have a single line for all of the menu items - <code>WindowButton1-15 = WB#: UseWB#</code>. This only works when the names of the hotspots in the given range end in numbers themselves.</em></p>
 <h3 id="highlight-menu-style">Highlight Menu Style</h3>
 <p>This menu style is very similar to the Hotspots style above - using Hotspots for menu items instead of numbers - except instead of displaying the entire menu at once, it <em>only</em> displays the currently-selected item - and <em>only</em> draws the border of that menu item (in <code>SelectedBorderRGB=</code> color) and nothing else.</p>
 <p>The idea behind this menu style is to use it over top of an in-game menu or other HUD element, with the simple border highlighting which in-game item you have selected. This can give more of a feel of interacting directly with the game while limiting how much the overlay obscures in-game UI, yet still be using a gamepad for selecting items instead of a mouse.</p>
@@ -789,7 +807,12 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 
 <span class="token selector">[Hotspots]</span>
 <span class="token constant">TargetSelf</span> <span class="token attr-value"><span class="token punctuation">=</span> 100, 100</span>
-<span class="token constant">TargetGroup1</span> <span class="token attr-value"><span class="token punctuation">=</span> 100, 200</span>
+
+<span class="token selector">[Hotspots.TargetGroup]</span>
+<span class="token constant">Anchor</span> <span class="token attr-value"><span class="token punctuation">=</span> 100, 200</span>
+<span class="token constant">1</span> <span class="token attr-value"><span class="token punctuation">=</span> 150, 200</span>
+<span class="token constant">2</span> <span class="token attr-value"><span class="token punctuation">=</span> 150, 250</span>
+<span class="token constant">3</span> <span class="token attr-value"><span class="token punctuation">=</span> 150, 300</span>
 ...
 
 <span class="token selector">[KeyBindCycles]</span>
@@ -801,7 +824,7 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <span class="token constant">Position</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +0</span>
 ...
 </code></pre>
-<p>For <code>=KeyBindCycle</code>, the menu will reposition itself to the Hotspot matching the name of the last Key Bind in the cycle that was used. For <code>=KeyBindCycleDefault</code>, it will instead use whatever Key Bind is set as the default for its position (the first one in the cycle until changed via the command <code>=Set &lt;KeyBindCycleName&gt; default</code>). Anything set for <code>Position=</code> will act as an offset to the current hotspot.</p>
+<p>For <code>=KeyBindCycle</code>, the menu will reposition itself to the Hotspot matching the name of the last Key Bind in the cycle that was used. For <code>=KeyBindCycleDefault</code>, it will instead use whatever Key Bind is set as the default for its position (the first one in the cycle until changed via the command <code>=Set &lt;KeyBindCycleName&gt; default</code>).</p>
 <h2 id="other-commands-and-features">Other Commands and Features</h2>
 <p>This final section covers various extra features that don’t fit into the main categories above.</p>
 <h3 id="system-commands">System commands</h3>
@@ -813,62 +836,39 @@ Tap L2 <span class="token attr-value"><span class="token punctuation">=</span> R
 <li><code>=Change target config file</code> - see <em>Auto-sync variables to game config files</em></li>
 <li><code>=Set &lt;VariableName&gt; to</code> - see <em>Variables</em> section below</li>
 </ul>
-<h3 id="hotspot-array-ranges">Hotspot Array ranges</h3>
-<p>When defining Hotspot Arrays, it can be a pain to change every individual hotspot associated with an in-game UI window when you want to move that UI window in the game, even with the help of the runtime UI Layout Editor. To assist with this, these elements can use a base <em>anchor</em> hotspot with the other hotspots defined as just <em>offsets</em> to the anchor, meaning they can all be moved at once by only moving the anchor.</p>
-<p>To create an anchor, define a hotspot with no number after its name. At that point, any hotspots with the same name but with a number at the end of the name will be treated as an offset. For example:</p>
+<h3 id="hotspot-ranges">Hotspot ranges</h3>
+<p>When defining many related hotspots, you can assign multiple at once in a single property by using the format <code>Name##-##</code> for the property name, with ## being numbers (and second number &gt;= the first). For example, <code>MyHotspot2-4=</code> will actually generate <em>MyHotspot2</em>, <em>MyHotspot3</em>, and <em>MyHotspot4</em>. This only works for names ending in whole numbers.</p>
+<p>Of course, it does no good to have multiple hotspots with the exact same position, so extra data must be included in the property value to designate how each subsequent hotspot in the range is offset from the last (the first hotspot in the range just uses the exact position given). After the normal hotpot description, add a colon <code>:</code> follow by an x and y offset to add to the position for each subsequent hotspot in the range.</p>
+<p>For example:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
-<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240</span>
-<span class="token comment">; Below will actually be at 32, 250</span>
-<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +10</span>
-<span class="token comment">; Below will actually be at 32, 291</span>
-<span class="token constant">LootWindow2</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
-</code></pre>
-<p>In addition, you can specify multiple hotspot offsets in a single line by using the format <code>Name##-##</code>, with the first number being the first index in the array and the number after the <code>-</code> being the last index in the array. When using this format, each hotspot in the range (including the first) will be offset from <em>the previous hotspot in the array</em>, and ignore the base anchor position (in fact, you do not need to define a base anchor position at all in this case). For example:</p>
-<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
-<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240</span>
 <span class="token comment">; Define 8-tall left column starting at 32x240 then each 41 apart in Y</span>
-<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +0</span>
-<span class="token constant">LootWindow2-8</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
-<span class="token comment">; Define right column @ 73x240 then 41 each in Y</span>
-<span class="token constant">LootWindow9</span> <span class="token attr-value"><span class="token punctuation">=</span> +41, +0</span>
-<span class="token constant">LootWindow10-16</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
+<span class="token constant">LootWindow1-8</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240 : +0, +41</span>
+<span class="token comment">; Define right column @ 73x240 then each 41 apart in Y</span>
+<span class="token constant">LootWindow9-16</span> <span class="token attr-value"><span class="token punctuation">=</span> LootWindow1: +41, 0 : 0, +41</span>
 </code></pre>
-<p><em>Note that the + signs in front of each number for the offsets don’t do anything and are optional - it is just a handy way to make it clearer that these are offsets rather than direct positions. The offsets can be negative values as well.</em></p>
-<p>A single hotspot range can also represent an entire wrapping grid of positions by specifying a coordinate (X or Y) that only increments at every <em>n</em> number of hotspots in the range (with the parent acting as <em>n=1</em>). This is done with the <code>@</code> character at the end of the X or Y offset, meaning that offset will only be applied (and the other reset) every <em>n</em> hotspots. The above example could thus be written simply as:</p>
+<p><em>Note that the + signs in front of each number for the offsets don’t do anything and are optional - it is just a way to make it clearer that these are offsets rather than direct positions.</em></p>
+<p>A single hotspot range can also represent an entire wrapping grid of positions by specifying a coordinate (X or Y) that only increments at every <em>n</em> number of hotspots in the range. This is done with the <code>@</code> character at the end of the X or Y offset, meaning that offset will only be applied (and the other reset) every <em>n</em> hotspots (specifically, for the next hotspot after each <em>n</em>, meaning if n = 8 the offset will only be applied for the 9th, 17th, 25th, etc hotspot in the range). The above example could thus be written as a single property:</p>
 <pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
-<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240</span>
-<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +0</span>
-<span class="token constant">LootWindow2-16</span> <span class="token attr-value"><span class="token punctuation">=</span> +41 @ 8, +41</span>
+<span class="token constant">LootWindow1-16</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240 : +41 @ 8, +41</span>
 </code></pre>
-<p>Hotspot width and height can be set for any offset hotspot or for all hotspots in a specific range (but act as a replacement value and not an additional offset like positions do). If they are not specified, single numbered hotspots will use the width and height set for the anchor hotspot, and for ranges, they will use the width and height of the previous hotspot in the array. Example:</p>
-<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
-<span class="token comment">; Sets default size of each hotspot in the LootWindow array to 10x10</span>
-<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240, 10, 10</span>
-<span class="token comment">; Will have default 10x10 size from the anchor above</span>
-<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +0</span>
-<span class="token comment">; Will override default and have 16 w 8 h</span>
-<span class="token constant">LootWindow2-8</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41, 16, 4</span>
-<span class="token comment">; Will override anchor LootWindow and have 40 w 12 h</span>
-<span class="token constant">LootWindow9</span> <span class="token attr-value"><span class="token punctuation">=</span> +41, +0, 40, 11</span>
-<span class="token comment">; Will use LootWindow9's 40w 12h</span>
-<span class="token constant">LootWindow10-16</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
-<span class="token comment">; Overrides from above don't matter!</span>
-<span class="token comment">; Below will still have default 10 x 10 from anchor</span>
-<span class="token constant">LootWindow17</span> <span class="token attr-value"><span class="token punctuation">=</span> +82, +0</span>
-<span class="token constant">LootWindow18-24</span> <span class="token attr-value"><span class="token punctuation">=</span> +0, +41</span>
-</code></pre>
-<h3 id="hotspot-array-scaling">Hotspot Array scaling</h3>
-<p>A Hotspot Array using an anchor + offsets (as described above) can also have all the offsets scaled by a single scale value. This works the same as the global UI Scale and is combined with it, but only applies to the hotspots in that specific array. <em>The scale value will also apply to width and height values for these hotspots</em>.</p>
-<p>This is useful in games that allow scaling individual UI windows, by setting a Hotspot array associated with that window and than scaling all the offsets and sizes with a single change. Simply add <code>* scaleValue</code> to the end of the anchor hotspot’s property value to do this.</p>
-<p>To use the above example, let’s say the LootWindow is separately set to 1.5x scale, and the Inventory window to 0.75x scale. You could just set the anchor hotspots as follows, without needing to make any other adjustments to the rest of the hotspots in each array:</p>
-<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots]</span>
-<span class="token constant">LootWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240 * 1.5</span>
-<span class="token constant">LootWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> ...</span>
+<p>Every hotspot in the range will share the same width and height, which can be specified in the normal manner (just before the last <code>:</code> character) or inherited from a base hotspot.</p>
+<h3 id="hotspot-set-scaling">Hotspot Set scaling</h3>
+<p>A Hotspot Set can have all the offsets (and width/height values) of all the hotspots in that set scaled by a single scale value. This works the same as the global UI Scale and is combined with it, but only applies to the hotspots in that specific set.</p>
+<p>This is useful in games that allow scaling individual UI windows, by setting a Hotspot set associated with that window and than scaling all the offsets and sizes with a single change</p>
+<p>To do this, simply use the property <code>Scale = ##</code> in the Hotspot Set’s section.</p>
+<p>For an example:</p>
+<pre class=" language-ini"><code class="prism  language-ini"><span class="token selector">[Hotspots.LootWindow]</span>
+<span class="token constant">Anchor</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240</span>
+<span class="token constant">Scale</span> <span class="token attr-value"><span class="token punctuation">=</span>  1.5</span>
+<span class="token constant">1-16</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240 : +41 @ 8, +41</span>
 
-<span class="token constant">InventoryWindow</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240, 600, 800 * 150%</span>
-<span class="token constant">InventoryWindow1</span> <span class="token attr-value"><span class="token punctuation">=</span> ...</span>
+<span class="token selector">[Hotspots.Inventory]</span>
+<span class="token constant">Anchor</span> <span class="token attr-value"><span class="token punctuation">=</span> 32, 240, 64, 64</span>
+<span class="token constant">Scale</span> <span class="token attr-value"><span class="token punctuation">=</span> 75%</span>
+<span class="token constant">1-16</span> <span class="token attr-value"><span class="token punctuation">=</span> ...</span>
 </code></pre>
-<p>Note that the above scaling will <strong>not</strong> be applied to the anchor’s base 32, 240 values in the above examples, which would represent the “origin” of the game’s UI window. It just scales the offsets from that point for the remaining hotspots in the arrays. Width and height <strong>are</strong> scaled though if any are included, even in the anchor hotspots themselves.</p>
+<p>Note that the above scaling will <strong>not</strong> be applied to the anchor hotspot and its base 32, 240 values in the above examples, which would represent the “origin” of the game’s UI window. It just scales the offsets from that point for the hotspots within the set.</p>
+<p>Width and height for any hotspots in the set (except the anchor) are also scaled - even in cases where the width/height are inherited from the anchor (so the 64x64 will become 48x48 for the Inventory window hotspots <em>Inventory1</em> through <em>Inventory16</em> in the above example)…</p>
 <h3 id="experimental-command-move-and-look">Experimental command: Move and Look</h3>
 <p>Setting something to <code>=MoveAndLook</code> functions mostly the same as <code>=MoveStrafe</code>, except it also automatically rotates the camera during left and right strafing motion (using the mouse of course, which means it only does this while in Mouse Look mode).</p>
 <p>The rotation speed depends on how far to the left or right the analog stick is pressed (if this command is set to an analog input). This is an option seen in some games called “Auto Rotate Camera” or “Camera Follow” or some such, and is pretty common in 3D 3rd-person console games. It allows for steering with only one stick and being able to see where you are going, but you can still strafe by holding one direction on the left stick and the opposite on the right stick to counter the auto-rotation.</p>

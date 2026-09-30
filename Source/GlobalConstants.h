@@ -55,10 +55,10 @@ enum ECommandType
 	// These first 2 do not actually send any input...
 	eCmdType_KeyBindCycleReset, // Resets such that prev/next will be "default"
 	eCmdType_KeyBindCycleSetDefault, // Sets "default" index to "last" index
-	// These all update "last" to the index in the array that was pressed
-	eCmdType_KeyBindCyclePrev, // Press previous key in array
-	eCmdType_KeyBindCycleNext, // Press next key in array
-	eCmdType_KeyBindCycleLast, // Re-press last-pressed key in the array
+	// These all update "last" to the index in the cycle that was pressed
+	eCmdType_KeyBindCyclePrev, // Press previous key in cycle
+	eCmdType_KeyBindCycleNext, // Press next key in cycle
+	eCmdType_KeyBindCycleLast, // Re-press last-pressed key in the cycle
 
 	// These are just a mix of special-case one-off commands
 	eCmdType_SetVariable,

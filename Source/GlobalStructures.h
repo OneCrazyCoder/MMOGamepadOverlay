@@ -43,7 +43,6 @@ struct ZERO_INIT(Command)
 				u16 vKeySeqID;
 				u16 stringID;
 				u16 subMenuID;
-				u16 arrayIdx;
 				u16 layerID;
 				u16 keyBindCycleID;
 			};

@@ -855,7 +855,7 @@ static void setLabelIcon(
 	if( !aNewIcon.bitmapIconID )
 	{// Nope! Copy-from-screen hotspot instead?
 		aNewIcon.hotspotID =
-			dropTo<u16>(InputMap::hotspotIDFromName(theIconDesc));
+			dropTo<u16>(HotspotMap::hotspotIDFromName(theIconDesc));
 		if( !aNewIcon.hotspotID )
 		{
 			logError("Could not identify '%s' as either a Bitmap or Hotspot "
@@ -864,14 +864,14 @@ static void setLabelIcon(
 				theTextLabel.c_str());
 			return;
 		}
-		const Hotspot& aNewHotspot = InputMap::getHotspot(aNewIcon.hotspotID);
+		const Hotspot& aNewHotspot = HotspotMap::getHotspot(aNewIcon.hotspotID);
 		if( (aNewHotspot.w == 0 || aNewHotspot.h == 0) &&
-			InputMap::isValidHotspotID(aNewIcon.hotspotID) )
+			HotspotMap::isValidHotspotID(aNewIcon.hotspotID) )
 		{
 			logError("Copy-from-screen label '%s' set to hotspot '%s' "
 				"which has 0 for width or height, so nothing to copy!",
 				theTextLabel.c_str(),
-				InputMap::hotspotLabel(aNewIcon.hotspotID).c_str());
+				HotspotMap::hotspotLabel(aNewIcon.hotspotID));
 			return;
 		}
 		aNewIcon.copyFromTarget = true;
@@ -901,7 +901,7 @@ static void fetchMenuPositionProperties(
 	if( PropString p = getPropString(thePropMap, kPositionPropName) )
 	{
 		// Might be the name of a hotspot, or just in the format of one
-		if( InputMap::hotspotIDFromName(p.str) )
+		if( HotspotMap::hotspotIDFromName(p.str) )
 		{
 			// Will get position from a hotspot via InputMap instead
 			theDestPosition.hotspotOrigin = true;
@@ -1466,12 +1466,12 @@ static void initCopiedBitmapIcon(DrawData& dd, CopiedBitmapIcon& theIcon)
 	theIcon.valid = false;
 	theIcon.updated = false;
 	const Hotspot& aCopySrcHotspot =
-		InputMap::getHotspot(theIcon.hotspotID);
+		HotspotMap::getHotspot(theIcon.hotspotID);
 	if( aCopySrcHotspot.w == 0 || aCopySrcHotspot.h == 0 )
 		return;
-	if( !InputMap::isValidHotspotID(theIcon.hotspotID) )
+	if( !HotspotMap::isValidHotspotID(theIcon.hotspotID) )
 		return;
-	const double aHotspotScale = InputMap::hotspotScale(theIcon.hotspotID);
+	const double aHotspotScale = HotspotMap::hotspotScale(theIcon.hotspotID);
 	const int anIconSizeX =
 		int(aCopySrcHotspot.w * aHotspotScale * gUIScale + 0.5);
 	const int anIconSizeY =
@@ -2030,7 +2030,7 @@ static void initializeLabelDrawCacheEntry(
 			logError("Copy-from-screen label '%s' set to hotspot '%s' "
 				"which has 0 for width or height, so nothing to copy!",
 				theLabel.c_str(),
-				InputMap::hotspotLabel(aLabelIcon->hotspotID).c_str());
+				HotspotMap::hotspotLabel(aLabelIcon->hotspotID));
 			aLabelIcon->hotspotID = 0; // prevent repeat of this error
 		}
 	}
@@ -2421,6 +2421,10 @@ static void drawBasicMenu(DrawData& dd)
 	bool redrawSelectedItem = false;
 	for(int itemIdx = 0; itemIdx < anItemCount; ++itemIdx)
 	{
+		if( ps.rects[itemIdx+1].right <= ps.rects[itemIdx+1].left ||
+			ps.rects[itemIdx+1].bottom <= ps.rects[itemIdx+1].top )
+		{ continue; }
+
 		if( shouldRedrawAll ||
 			(selectionChanged &&
 				(itemIdx == aPrevSelection || itemIdx == ps.selection)) ||
@@ -2445,7 +2449,9 @@ static void drawBasicMenu(DrawData& dd)
 	}
 
 	// Draw selected menu item last
-	if( redrawSelectedItem )
+	if( redrawSelectedItem &&
+		ps.rects[ps.selection+1].right > ps.rects[ps.selection+1].left &&
+		ps.rects[ps.selection+1].bottom > ps.rects[ps.selection+1].top )
 	{
 		drawMenuItem(dd, ps.selection+1, ps.selection,
 			InputMap::menuItemLabel(dd.menuID, ps.selection),
@@ -2624,7 +2630,7 @@ static void drawHSGuide(DrawData& dd)
 	OverlayPaintState& ps = sOverlayPaintStates[dd.overlayID];
 	const MenuLayout& layout = getMenuLayout(dd.menuID);
 	DBG_ASSERT(layout.style == eMenuStyle_HotspotGuide);
-	const BitVector<32>& arraysToShow = HotspotMap::getEnabledHotspotArrays();
+	const BitVector<512>& aHotspotsToShow = HotspotMap::enabledHotspots();
 
 	if( !dd.firstDraw )
 		eraseRect(dd, ps.rects[0]);
@@ -2637,26 +2643,20 @@ static void drawHSGuide(DrawData& dd)
 	SetDCBrushColor(dd.hdc, itemApp.baseColor);
 	HBRUSH hBrush = (HBRUSH)GetCurrentObject(dd.hdc, OBJ_BRUSH);
 
-	for(int anArrayIdx = arraysToShow.firstSetBit();
-		anArrayIdx < arraysToShow.size();
-		anArrayIdx = arraysToShow.nextSetBit(anArrayIdx+1))
+	for(int aHotspotID = aHotspotsToShow.firstSetBit();
+		aHotspotID < aHotspotsToShow.size();
+		aHotspotID = aHotspotsToShow.nextSetBit(aHotspotID+1))
 	{
-		const int aFirstHotspot = InputMap::firstHotspotInArray(anArrayIdx);
-		const int aHotspotCount = InputMap::sizeOfHotspotArray(anArrayIdx);
-		for(int i = aFirstHotspot, end = aFirstHotspot + aHotspotCount;
-			i < end; ++i)
-		{
-			if( !InputMap::isValidHotspotID(i) )
-				continue;
-			const POINT& aHotspotPos = hotspotToPoint(
-				InputMap::getHotspot(i), dd.targetSize);
-			const RECT aDrawRect = {
-				aHotspotPos.x - menuApp.baseRadius,
-				aHotspotPos.y - menuApp.baseRadius,
-				aHotspotPos.x + menuApp.baseRadius,
-				aHotspotPos.y + menuApp.baseRadius };
-			FillRect(dd.hdc, &aDrawRect, hBrush);
-		}
+		if( !HotspotMap::isValidHotspotID(aHotspotID) )
+			continue;
+		const POINT& aHotspotPos = hotspotToPoint(
+			HotspotMap::getHotspot(aHotspotID), dd.targetSize);
+		const RECT aDrawRect = {
+			aHotspotPos.x - menuApp.baseRadius,
+			aHotspotPos.y - menuApp.baseRadius,
+			aHotspotPos.x + menuApp.baseRadius,
+			aHotspotPos.y + menuApp.baseRadius };
+		FillRect(dd.hdc, &aDrawRect, hBrush);
 	}
 }
 
@@ -2762,12 +2762,18 @@ static void updateHotspotsMenuLayout(
 	for(int i = 0; i < theMenuItemCount; ++i)
 	{
 		const int aHotspotID = InputMap::menuItemHotspotID(theMenuID, i);
-		const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
+		if( !HotspotMap::isValidHotspotID(aHotspotID) )
+		{
+			const RECT anEmptyRect = { 0, 0, 0, 0 };
+			ps.rects.push_back(anEmptyRect);
+			continue;
+		}
+		const Hotspot& aHotspot = HotspotMap::getHotspot(aHotspotID);
 		const POINT& anItemPos = hotspotToPoint(aHotspot, theTargetSize);
 		SIZE anItemSize = { theLayout.sizeX, theLayout.sizeY };
 		if( aHotspot.w > 0 && aHotspot.h > 0 )
 		{
-			const double aHotspotScale = InputMap::hotspotScale(aHotspotID);
+			const double aHotspotScale = HotspotMap::hotspotScale(aHotspotID);
 			anItemSize.cx = LONG(aHotspot.w * aHotspotScale * gUIScale + 0.5);
 			anItemSize.cy = LONG(aHotspot.h * aHotspotScale * gUIScale + 0.5);
 		}
@@ -2844,6 +2850,7 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 				{ "KeyBindCycle",				ePropChangeImpact_Position	},
 				{ "KeybindCycles",				ePropChangeImpact_Position	},
 				{ "KBCycle",					ePropChangeImpact_Position	},
+				{ "Cycle",						ePropChangeImpact_Position	},
 				{ "Array",						ePropChangeImpact_Position	},
 				{ "Style",						ePropChangeImpact_Layout	},
 				{ "Type",						ePropChangeImpact_Layout	},
@@ -3191,7 +3198,7 @@ void loadProfileChanges()
 	}
 
 	// Check for changes to any hotspots
-	const BitVector<512>& aChangedHotspotSet = InputMap::changedHotspots();
+	const BitVector<512>& aChangedHotspotSet = HotspotMap::changedHotspots();
 	if( aChangedHotspotSet.any() )
 	{
 		gRefreshOverlays.set(kHotspotGuideOverlayID);
@@ -3504,7 +3511,7 @@ void update()
 		}
 	}
 
-	if( InputMap::changedHotspots().test(eSpecialHotspot_LastCursorPos) )
+	if( HotspotMap::changedHotspots().test(eSpecialHotspot_LastCursorPos) )
 	{// Move any overlays tied directly to cursor position
 		for(int i = 0, end = InputMap::menuOverlayCount(); i < end; ++i)
 		{
@@ -3868,7 +3875,7 @@ void updateWindowLayout(
 						? gKeyBindCycleLastIndex[thePos.parentKBCycleID]
 						: gKeyBindCycleDefaultIndex[thePos.parentKBCycleID]) )
 		{
-			const Hotspot& aHotspot = InputMap::getHotspot(aHotspotID);
+			const Hotspot& aHotspot = HotspotMap::getHotspot(aHotspotID);
 			aWinBasePosX = LONG(u16ToRangeVal(
 				aHotspot.x.anchor, theTargetSize.cx));
 			aWinBasePosY = LONG(u16ToRangeVal(
@@ -3885,7 +3892,7 @@ void updateWindowLayout(
 					theMenuID, eMenuItemDrawState_Selected).borderSize;
 				aWinScalingSizeX = aHotspot.w + aSelectedBorderSize * 2;
 				aWinScalingSizeY = aHotspot.h + aSelectedBorderSize * 2;
-				const double aHotspotScale = InputMap::hotspotScale(aHotspotID);
+				const double aHotspotScale = HotspotMap::hotspotScale(aHotspotID);
 				aWinScalingSizeX *= aHotspotScale;
 				aWinScalingSizeY *= aHotspotScale;
 			}
@@ -3910,8 +3917,8 @@ void updateWindowLayout(
 		if( thePos.hotspotOrigin )
 		{
 			const int aHotspotID = InputMap::menuOriginHotspotID(theMenuID);
-			anOriginX = &InputMap::getHotspot(aHotspotID).x;
-			anOriginY = &InputMap::getHotspot(aHotspotID).y;
+			anOriginX = &HotspotMap::getHotspot(aHotspotID).x;
+			anOriginY = &HotspotMap::getHotspot(aHotspotID).y;
 		}
 		else
 		{

@@ -4,6 +4,7 @@
 
 #include "InputMap.h"
 
+#include "HotspotMap.h"
 #include "Profile.h"
 #include "WindowManager.h"
 
@@ -25,17 +26,7 @@ const char* kMenuPrefix = "Menu.";
 const char* kMenuDefaultsSectionName = "Appearance";
 const char* kKeyBindsSectionName = "KeyBinds";
 const char* kKeyBindCyclesSectionName = "KeyBindCycles";
-const char* kHotspotsSectionName = "Hotspots";
 const std::string kSignalCommandPrefix = "When";
-
-const char* const kSpecialHotspotNames[] =
-{
-	"<Unknown>",			// eSpecialHotspot_None
-	"LastCursorPos",		// eSpecialHotspot_LastCursorPos
-	"MouseLookStart",		// eSpecialHotspot_MouseLookStart
-	"MouseHidden",			// eSpecialHotspot_MouseHidden
-};
-DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
 
 const char* const kButtonActionPrefx[] =
 {
@@ -71,7 +62,6 @@ enum EPropertyType
 	ePropType_MenuItemDown,		// eCmdDir_D
 
 	// These are specifically section names
-	ePropType_Hotspots,
 	ePropType_KeyBinds,
 	ePropType_KeyBindCycles,
 	ePropType_Scheme,
@@ -85,6 +75,7 @@ enum EPropertyType
 	ePropType_Priority,
 	ePropType_AutoLayers,
 	ePropType_ShowMenus,
+	ePropType_HotspotSets,
 	ePropType_Hotspot,
 	ePropType_ButtonSwap,
 	ePropType_Auto,
@@ -117,7 +108,6 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "R",							ePropType_MenuItemRight	},
 				{ "U",							ePropType_MenuItemUp	},
 				{ "D",							ePropType_MenuItemDown	},
-				{ "Hotspots",					ePropType_Hotspots		},
 				{ "Keybinds",					ePropType_KeyBinds		},
 				{ "KeybindCycles",				ePropType_KeyBindCycles	},
 				{ "Scheme",						ePropType_Scheme		},
@@ -132,6 +122,8 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "AutoLayer",					ePropType_AutoLayers	},
 				{ "AutoLayers",					ePropType_AutoLayers	},
 				{ "AddLayers",					ePropType_AutoLayers	},
+				{ "Hotspots",					ePropType_HotspotSets	},
+				{ "HotspotSets",				ePropType_HotspotSets	},
 				{ "Hotspot",					ePropType_Hotspot		},
 				{ "Hot",						ePropType_Hotspot		},
 				{ "Spot",						ePropType_Hotspot		},
@@ -151,6 +143,7 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "KeyBindCycle",				ePropType_KBCycle		},
 				{ "KBCycle",					ePropType_KBCycle		},
 				{ "Array",						ePropType_KBCycle		},
+				{ "Cycle",						ePropType_KBCycle		},
 				{ "GridWidth",					ePropType_GridWidth		},
 				{ "ColumnHeight",				ePropType_GridWidth		},
 				{ "ColumnsHeight",				ePropType_GridWidth		},
@@ -300,45 +293,11 @@ struct ZERO_INIT(ControlsLayer)
 	s8 priority;
 };
 
-struct ZERO_INIT(HotspotRange)
-{
-	s16 xOffset, yOffset;
-	u16 width, height;
-	u16 firstIdx : 11;
-	u16 hasOwnXAnchor : 1;
-	u16 hasOwnYAnchor : 1;
-	u16 offsetFromPrev : 1;
-	u16 removed : 1;
-	u16 wrapOnY : 1;
-	u8 wrapPoint;
-	u8 count;
-
-	int lastIdx() const { return firstIdx + count - 1; }
-	bool operator<(const HotspotRange& rhs) const
-	{ return firstIdx < rhs.firstIdx; }
-};
-
-struct ZERO_INIT(HotspotArray)
-{
-	std::vector<HotspotRange> ranges;
-	float offsetScale;
-	u16 anchorIdx; // set to first hotspot idx - 1 if !hasAnchor
-	u16 hasAnchor : 1;
-	u16 size : 15; // not including anchor
-
-	HotspotArray() : offsetScale(1.0) {}
-	bool operator<(const HotspotArray& rhs) const
-	{ return (anchorIdx + (hasAnchor ? 0 : 1)) <
-		(rhs.anchorIdx + (rhs.hasAnchor ? 0 : 1)); }
-};
-
 
 //------------------------------------------------------------------------------
 // Static Variables
 //------------------------------------------------------------------------------
 
-static std::vector<Hotspot> sHotspots;
-static StringToValueMap<HotspotArray> sHotspotArrays;
 static StringToValueMap<bool, u16, true> sCmdStrings;
 static StringToValueMap<Command> sKeyBinds;
 static StringToValueMap<KeyBindCycle> sKeyBindCycles;
@@ -350,9 +309,6 @@ static std::vector<ButtonRemap> sButtonRemaps;
 static std::vector<std::string> sParsedString(16);
 static std::string sSectionPrintName;
 static std::string sPropertyPrintName;
-static BitVector<512> sChangedHotspots;
-static BitVector<512> sInvalidatedHotspots;
-static bool sHotspotArrayResized = false;
 
 
 //------------------------------------------------------------------------------
@@ -369,499 +325,6 @@ static bool sHotspotArrayResized = false;
 //------------------------------------------------------------------------------
 // Local Functions
 //------------------------------------------------------------------------------
-
-static void createEmptyHotspotArray(const std::string& theName)
-{
-	// Check if name ends in a number and thus could be part of an array
-	int aStartIdx, anEndIdx;
-	std::string anArrayKey;
-	bool isRange = fetchRangeSuffix(theName, anArrayKey, aStartIdx, anEndIdx);
-	if( anEndIdx - aStartIdx > 0xFF || anEndIdx > 0x7FF )
-		anEndIdx = aStartIdx;
-	bool isAnchorHotspot = anEndIdx <= 0;
-
-	// Create hotspot array object
-	HotspotArray& anArray = sHotspotArrays.findOrAdd(anArrayKey);
-	if( isAnchorHotspot )
-	{
-		anArray.hasAnchor = true;
-		return;
-	}
-
-	// Now create the range to add
-	DBG_ASSERT(anEndIdx >= aStartIdx && aStartIdx > 0 && anEndIdx > 0);
-	HotspotRange aNewRange;
-	aNewRange.firstIdx = dropTo<u16>(aStartIdx);
-	aNewRange.count = dropTo<u8>(anEndIdx - aStartIdx + 1);
-	aNewRange.offsetFromPrev = isRange;
-	aNewRange.hasOwnXAnchor = !isRange;
-	aNewRange.hasOwnYAnchor = !isRange;
-
-	// Insert into the ranges vector in sorted order and check for overlap
-	std::vector<HotspotRange>::iterator itr = std::lower_bound(
-		anArray.ranges.begin(), anArray.ranges.end(), aNewRange);
-
-	// Check for overlap with previous range (if any)
-	if( itr != anArray.ranges.begin() )
-	{
-		const HotspotRange& aPrevRange = *(itr - 1);
-		if( aPrevRange.lastIdx() >= aNewRange.firstIdx )
-		{
-			logError("%s overlaps with another hotspot/range!",
-				theName.c_str());
-			return; // skip adding
-		}
-	}
-
-	// Check for overlap with next range (if any)
-	if( itr != anArray.ranges.end() )
-	{
-		const HotspotRange& aNextRange = *itr;
-		if( aNewRange.lastIdx() >= aNextRange.firstIdx )
-		{
-			logError("%s overlaps with another hotspot/range!",
-				theName.c_str());
-			return; // skip adding
-		}
-	}
-
-	anArray.ranges.insert(itr, aNewRange);
-
-	// Update total size (excluding anchor)
-	anArray.size = anArray.ranges.back().lastIdx();
-}
-
-
-static void createEmptyHotspotsForArray(int theArrayID)
-{
-	HotspotArray& theArray = sHotspotArrays.vals()[theArrayID];
-
-	// Check for missing entries
-	int anExpectedIdx = 1;
-	for(int i = 0, end = intSize(theArray.ranges.size()); i < end; ++i)
-	{
-		if( theArray.ranges[i].firstIdx != anExpectedIdx )
-		{
-			logError("Hotspot Array '%s' appears to be missing '%s%d'!",
-				sHotspotArrays.keys()[theArrayID].c_str(),
-				sHotspotArrays.keys()[theArrayID].c_str(), anExpectedIdx);
-			theArray.size = anExpectedIdx - 1;
-			theArray.ranges.resize(i);
-			break;
-		}
-		anExpectedIdx = theArray.ranges[i].lastIdx() + 1;
-	}
-	DBG_ASSERT(anExpectedIdx == int(theArray.size) + 1);
-
-	// Trim ranges vector
-	if( theArray.ranges.size() < theArray.ranges.capacity() )
-		std::vector<HotspotRange>(theArray.ranges).swap(theArray.ranges);
-
-	// Create contiguous hotspots in sHotspots for this array, and
-	// update this array to know where its hotspots are located
-	theArray.anchorIdx = dropTo<u16>(sHotspots.size());
-	if( theArray.hasAnchor )
-		sHotspots.push_back(Hotspot());
-	else
-		--theArray.anchorIdx;
-	if( theArray.size > 0 )
-		sHotspots.resize(sHotspots.size() + theArray.size);
-}
-
-
-static int getHotspotID(const std::string& theName)
-{
-	std::string anArrayName = theName;
-	const int anArrayIdx = breakOffIntegerSuffix(anArrayName);
-	if( anArrayIdx <= 0 )
-	{// Get the anchor hotspot of the array with full matching name
-		if( HotspotArray* aHotspotArray = sHotspotArrays.find(theName) )
-			return aHotspotArray->anchorIdx;
-	}
-	if( HotspotArray* aHotspotArray = sHotspotArrays.find(anArrayName) )
-	{
-		if( anArrayIdx <= int(aHotspotArray->size) )
-			return aHotspotArray->anchorIdx + anArrayIdx;
-	}
-
-	return eSpecialHotspot_None;
-}
-
-
-static void applyHotspotProperty(
-	const std::string& theKey,
-	const std::string& theDesc)
-{
-	// Determine if this is a single hotspot or part of a range
-	int aRangeStartIdx, aRangeEndIdx;
-	std::string anArrayKey;
-	fetchRangeSuffix(theKey, anArrayKey, aRangeStartIdx, aRangeEndIdx);
-	if( aRangeEndIdx - aRangeStartIdx > 0xFF || aRangeEndIdx > 0x7FF )
-		aRangeEndIdx = aRangeStartIdx;
-	bool isAnchorHotspot = aRangeEndIdx <= 0;
-
-	// Look up hotspot metadata using array key
-	int aHotspotArrayID = sHotspotArrays.findIndex(anArrayKey);
-	if( aHotspotArrayID >= intSize(sHotspots.size()) )
-		return;
-	HotspotArray& anArray = sHotspotArrays.vals()[aHotspotArrayID];
-	DBG_ASSERT(!isAnchorHotspot || anArray.hasAnchor);
-
-	// Parse hotspot data from the description string
-	const bool isEmptyHotspot = isEffectivelyEmptyString(theDesc);
-	Hotspot aHotspot;
-	double anOffsetScale = 0;
-	u8 aRangeWrapAtX = 0;
-	u8 aRangeWrapAtY = 0;
-	if( !isEmptyHotspot )
-	{
-		// X
-		size_t aStrPos = 0;
-		aHotspot.x = stringToCoord(theDesc, aStrPos);
-		bool valid = aStrPos < theDesc.size() &&
-			(theDesc[aStrPos] == ',' ||
-			 theDesc[aStrPos] == 'x' ||
-			 theDesc[aStrPos] == 'X');
-		// Check for wrap value for hotspot ranges
-		if( !valid && theDesc[aStrPos] == '@' )
-		{
-			if( aRangeEndIdx <= aRangeStartIdx )
-			{
-				logError(
-					"Hotspot %s: Only hotspot ranges can specify "
-					"an X or Y wrapping point (use '@' character)!",
-					sPropertyPrintName.c_str());
-			}
-			else
-			{
-				const std::string& aWrapPointStr =
-					fetchNextItem(theDesc, ++aStrPos, ",xX");
-				if( aWrapPointStr[0] == '-' || !isAnInteger(aWrapPointStr) )
-				{
-					logError(
-						"Hotspot %s: Value of wrap point (after @ symbol) "
-						"must be a positive integer value!",
-						sPropertyPrintName.c_str());
-				}
-				else
-				{
-					aRangeWrapAtX = dropTo<u8>(clamp(
-						stringToU32(aWrapPointStr), 0, 255));
-					valid = true;
-				}
-			}
-		}
-		// Y
-		if( valid )
-		{
-			aHotspot.y = stringToCoord(theDesc, ++aStrPos);
-			valid = aStrPos == theDesc.size() ||
-				theDesc[aStrPos] == ',' ||
-				theDesc[aStrPos] == '*';
-			// Check for wrap value for hotspot ranges
-			if( !valid && theDesc[aStrPos] == '@' )
-			{
-				if( aRangeWrapAtX )
-				{
-					logError(
-						"Hotspot %s: Only one axis (X or Y) can have a "
-						"wrapping point set (use '@' character)!",
-						sPropertyPrintName.c_str());
-				}
-				else if( aRangeEndIdx <= aRangeStartIdx )
-				{
-					logError(
-						"Hotspot %s: Only hotspot ranges can specify "
-						"an X or Y wrapping point (use '@' character)!",
-						sPropertyPrintName.c_str());
-				}
-				else
-				{
-					const std::string& aWrapPointStr =
-						fetchNextItem(theDesc, ++aStrPos, ",*");
-					if( aWrapPointStr[0] == '-' || !isAnInteger(aWrapPointStr) )
-					{
-						logError(
-							"Hotspot %s: Value of wrap point (after @ symbol) "
-							"must be a positive integer value!",
-							sPropertyPrintName.c_str());
-					}
-					else
-					{
-						aRangeWrapAtY = dropTo<u8>(clamp(
-							stringToU32(aWrapPointStr), 0, 255));
-						valid = true;
-					}
-				}
-			}
-		}
-		// W
-		if( valid && aStrPos < theDesc.size() && theDesc[aStrPos] == ',' )
-		{
-			const double aWidth = stringToDoubleSum(theDesc, ++aStrPos);
-			aHotspot.w = u16(clamp(floor(aWidth + 0.5), 0, 0xFFFF));
-			valid = aStrPos < theDesc.size() &&
-				(theDesc[aStrPos] == ',' ||
-				 theDesc[aStrPos] == 'x' ||
-				 theDesc[aStrPos] == 'X');
-			// H
-			if( valid )
-			{
-				const double aHeight = stringToDoubleSum(theDesc, ++aStrPos);
-				aHotspot.h = u16(clamp(floor(aHeight + 0.5), 0, 0xFFFF));
-				valid = aStrPos == theDesc.size() ||
-					theDesc[aStrPos] == '*';
-			}
-		}
-		// Offset scaling
-		if( valid && aStrPos < theDesc.size() && theDesc[aStrPos] == '*' )
-		{
-			if( !isAnchorHotspot || anArray.ranges.empty() )
-			{
-				logError(
-					"Hotspot %s: Only array anchor hotspots can specify "
-					"an offset scale factor (using '*')!",
-					sPropertyPrintName.c_str());
-			}
-			else
-			{
-				anOffsetScale = stringToFloat(theDesc.substr(aStrPos+1));
-				if( anOffsetScale == 0 )
-				{
-					logError("Hotspot %s: Invalid offset scale factor '%s'",
-						sPropertyPrintName.c_str(),
-						theDesc.substr(aStrPos+1).c_str());
-				}
-			}
-		}
-		if( !valid )
-		{
-			logError("Hotspot %s: Error parsing hotspot description '%s'",
-				sPropertyPrintName.c_str(), theDesc.c_str());
-			aHotspot = Hotspot();
-		}
-	}
-
-	std::vector<HotspotRange>::iterator aRange;
-	if( isAnchorHotspot )
-	{
-		if( sInvalidatedHotspots.test(anArray.anchorIdx) != isEmptyHotspot )
-		{
-			sInvalidatedHotspots.set(anArray.anchorIdx, isEmptyHotspot);
-			sChangedHotspots.set(anArray.anchorIdx);
-		}
-
-		// Skip any further work if no different than previous setting
-		if( sHotspots[anArray.anchorIdx] == aHotspot &&
-			(anOffsetScale == 0 || anOffsetScale == anArray.offsetScale) )
-		{ return; }
-
-		sHotspots[anArray.anchorIdx] = aHotspot;
-		sChangedHotspots.set(anArray.anchorIdx);
-		if( anOffsetScale )
-			anArray.offsetScale = float(anOffsetScale);
-
-		// Start scanning at first range for dependent hotspots
-		aRange = anArray.ranges.begin();
-	}
-	else
-	{
-		// Find matching range entry to apply the property to
-		HotspotRange aCmpRange;
-		aCmpRange.firstIdx = dropTo<u16>(aRangeStartIdx);
-		aCmpRange.count = dropTo<u8>(aRangeEndIdx - aRangeStartIdx + 1);
-		std::vector<HotspotRange>::iterator itr = std::lower_bound(
-			anArray.ranges.begin(), anArray.ranges.end(), aCmpRange);
-
-		// Exit if none match exactly (should already have warned)
-		if( itr == anArray.ranges.end() ||
-			itr->firstIdx != aCmpRange.firstIdx ||
-			itr->lastIdx() != aCmpRange.lastIdx() )
-		{ return; }
-
-		// Set this range's width and height to what exactly was read in
-		// (so can know later it was specified or not) but prepare to set
-		// actual hotspot(s) to default to anchor's size if not specified
-		itr->width = aHotspot.w;
-		itr->height = aHotspot.h;
-		if( !aHotspot.w && !aHotspot.h && !isEmptyHotspot )
-		{
-			aHotspot.w = sHotspots[anArray.anchorIdx].w;
-			aHotspot.h = sHotspots[anArray.anchorIdx].h;
-		}
-
-		// Set wrap point setting
-		itr->wrapPoint = max(aRangeWrapAtX, aRangeWrapAtY);
-		itr->wrapOnY = aRangeWrapAtY > 0 ? 1 : 0;
-
-		if( itr->count == 1 && !itr->offsetFromPrev )
-		{// Might have own anchors - set hotspot directly for now
-			if( sInvalidatedHotspots.test(
-					anArray.anchorIdx + itr->firstIdx) != isEmptyHotspot )
-			{
-				sInvalidatedHotspots.set(
-					anArray.anchorIdx + itr->firstIdx, isEmptyHotspot);
-				sChangedHotspots.set(anArray.anchorIdx + itr->firstIdx);
-			}
-			itr->hasOwnXAnchor = aHotspot.x.anchor != 0 || !anArray.hasAnchor;
-			itr->hasOwnYAnchor = aHotspot.y.anchor != 0 || !anArray.hasAnchor;
-			if( itr->hasOwnXAnchor && itr->hasOwnYAnchor &&
-				sHotspots[anArray.anchorIdx + itr->firstIdx] == aHotspot )
-			{ return; } // skip scan for dependent changes
-			sHotspots[anArray.anchorIdx + itr->firstIdx] = aHotspot;
-			sChangedHotspots.set(anArray.anchorIdx + itr->firstIdx);
-		}
-
-		itr->xOffset = itr->hasOwnXAnchor ? 0 : aHotspot.x.offset;
-		itr->yOffset = itr->hasOwnYAnchor ? 0 : aHotspot.y.offset;
-		if( itr->hasOwnXAnchor && itr->hasOwnYAnchor )
-			aRange = itr + 1;
-		else
-			aRange = itr;
-
-		// Empty description removes range from array (and all ranges after it)
-		// by marking them invalid (until re-defined as valid via var change).
-		if( isEmptyHotspot )
-			itr->removed = true;
-		if( itr->removed )
-		{
-			// If removed in a previous call might be restored now
-			if( !isEmptyHotspot )
-				itr->removed = false;
-			// Calculate remaining valid entry count
-			int aValidEntryCount = 0;
-			for(itr = anArray.ranges.begin();
-				itr != anArray.ranges.end() && !itr->removed; ++itr)
-			{ aValidEntryCount = itr->lastIdx(); }
-			sHotspotArrayResized = true;
-			// Mark all entries from first to count as valid
-			for(int aHotspotID = anArray.anchorIdx + 1,
-				end = anArray.anchorIdx + 1 + aValidEntryCount;
-				aHotspotID < end; ++aHotspotID)
-			{
-				if( sInvalidatedHotspots.test(aHotspotID) )
-				{
-					sInvalidatedHotspots.reset(aHotspotID);
-					sChangedHotspots.set(aHotspotID);
-				}
-			}
-			// Mark remaining hotspots up to size as no longer valid
-			for(int aHotspotID = anArray.anchorIdx + 1 + aValidEntryCount,
-				end = anArray.anchorIdx + 1 + anArray.size;
-				aHotspotID < end; ++aHotspotID)
-			{
-				if( !sInvalidatedHotspots.test(aHotspotID) )
-				{
-					sInvalidatedHotspots.set(aHotspotID);
-					sChangedHotspots.set(aHotspotID);
-				}
-			}
-		}
-	}
-
-	// Update actual hotspots to reflect stored offsets & size in array data
-	for(bool rangeAffected = true;
-		aRange != anArray.ranges.end() && (rangeAffected || isAnchorHotspot);
-		++aRange)
-	{
-		// Skip if prev range was unchanged and this depends on it
-		if( !rangeAffected && aRange->offsetFromPrev )
-		{
-			rangeAffected = false;
-			continue;
-		}
-
-		rangeAffected = false;
-		if( aRange->hasOwnXAnchor && aRange->hasOwnYAnchor &&
-			aRange->width && aRange->height )
-		{ continue; }
-
-		for(int aHotspotID = aRange->firstIdx + anArray.anchorIdx;
-			aHotspotID <= aRange->lastIdx() + int(anArray.anchorIdx);
-			++aHotspotID)
-		{
-			if( sInvalidatedHotspots.test(aHotspotID) )
-			{
-				aHotspot = Hotspot();
-			}
-			else
-			{
-				int aBaseXHotspotID =
-					aRange->offsetFromPrev ? aHotspotID - 1 :
-					anArray.hasAnchor ? anArray.anchorIdx : 0;
-				int aBaseYHotspotID = aBaseXHotspotID;
-				int aRangeXOffset = aRange->xOffset;
-				int aRangeYOffset = aRange->yOffset;
-				if( aRange->wrapPoint )
-				{
-					DBG_ASSERT(aRange->offsetFromPrev);
-					const int aPosWithinRange =
-						aHotspotID - (aRange->firstIdx + anArray.anchorIdx) + 1;
-					if( aPosWithinRange % aRange->wrapPoint == 0 )
-					{// Appy wrap offset on ignored axis and reset main axis
-						if( aRange->wrapOnY )
-						{
-							aBaseXHotspotID = aHotspotID - aRange->wrapPoint;
-							aRangeXOffset = 0;
-						}
-						else
-						{
-							aBaseYHotspotID = aHotspotID - aRange->wrapPoint;
-							aRangeYOffset = 0;
-						}
-					}
-					else
-					{// Ignore the wrapping axis
-						if( aRange->wrapOnY )
-							aRangeYOffset = 0;
-						else
-							aRangeXOffset = 0;
-					}
-				}
-				if( aRange->hasOwnXAnchor )
-				{
-					aHotspot.x = sHotspots[aHotspotID].x;
-				}
-				else
-				{
-					aHotspot.x.anchor = sHotspots[aBaseXHotspotID].x.anchor;
-					aHotspot.x.offset = s16(clamp(
-						sHotspots[aBaseXHotspotID].x.offset +
-						aRangeXOffset * anArray.offsetScale,
-						-0x8000, 0x7FFF));
-				}
-				if( aRange->hasOwnYAnchor )
-				{
-					aHotspot.y = sHotspots[aHotspotID].y;
-				}
-				else
-				{
-					aHotspot.y.anchor = sHotspots[aBaseYHotspotID].y.anchor;
-					aHotspot.y.offset = s16(clamp(
-						sHotspots[aBaseYHotspotID].y.offset +
-						aRangeYOffset * anArray.offsetScale,
-						-0x8000, 0x7FFF));
-				}
-				if( aRange->width )
-					aHotspot.w = aRange->width;
-				else
-					aHotspot.w = sHotspots[aBaseXHotspotID].w;
-				if( aRange->height )
-					aHotspot.h = aRange->height;
-				else
-					aHotspot.h = sHotspots[aBaseYHotspotID].h;
-			}
-			if( aHotspot != sHotspots[aHotspotID] )
-			{
-				rangeAffected = true;
-				sHotspots[aHotspotID] = aHotspot;
-				sChangedHotspots.set(aHotspotID);
-			}
-		}
-		aRangeWrapAtX = aRangeWrapAtY = 0;
-	}
-}
-
 
 static Command parseChatBoxMacro(std::string theString)
 {
@@ -1131,8 +594,8 @@ static EResult checkForVKeyHotspotPos(
 		return eResult_Incomplete;
 	}
 
-	int aHotspotIdx = getHotspotID(theKeyName);
-	if( aHotspotIdx <= 0 )
+	int aHotspotID = HotspotMap::hotspotIDFromName(theKeyName);
+	if( aHotspotID <= 0 )
 		return eResult_NotFound;
 
 	std::string suffix;
@@ -1154,8 +617,8 @@ static EResult checkForVKeyHotspotPos(
 	}
 
 	// Encode the hotspot ID into 14-bit as in checkForVKeySeqPause()
-	out.push_back(u8(((aHotspotIdx >> 7) & 0x7F) | 0x80));
-	out.push_back(u8((aHotspotIdx & 0x7F) | 0x80));
+	out.push_back(u8(((aHotspotID >> 7) & 0x7F) | 0x80));
+	out.push_back(u8((aHotspotID & 0x7F) | 0x80));
 
 	// Add back in the actual click if had to filter it out
 	out += suffix;
@@ -1501,7 +964,7 @@ static void applyKeyBindCycleProperty(
 	{
 		if( aNewCycle[i].keyBindID == 0 )
 			continue;
-		aNewCycle[i].hotspotID = dropTo<u16>(getHotspotID(
+		aNewCycle[i].hotspotID = dropTo<u16>(HotspotMap::hotspotIDFromName(
 			sKeyBinds.keys()[aNewCycle[i].keyBindID]));
 	}
 
@@ -1689,10 +1152,13 @@ static bool createEmptyMenu(
 		theSectionsMap.keys()[theSectionID];
 	const std::string& aMenuName =
 		aSectionName.substr(posAfterPrefix(aSectionName, thePrefix));
-	DBG_ASSERT(!aMenuName.empty());
-	// Quick access to this menu's profile section later
-	DBG_ASSERT(&theSectionsMap == &Profile::allSections());
-	sMenus.findOrAdd(aMenuName).profileSectionID = dropTo<u16>(theSectionID);
+	if( !aMenuName.empty() )
+	{
+		// Quick access to this menu's profile section later
+		DBG_ASSERT(&theSectionsMap == &Profile::allSections());
+		sMenus.findOrAdd(aMenuName).profileSectionID =
+			dropTo<u16>(theSectionID);
+	}
 	return true;
 }
 
@@ -2159,8 +1625,8 @@ static Command wordsToSpecialCommand(
 				allowedKeyWords.firstSetBit()));
 		if( itr != sKeyWordMap.end() )
 		{
-			int aHotspotID = getHotspotID(theWords[itr->second]);
-			if( aHotspotID )
+			if( int aHotspotID =
+					HotspotMap::hotspotIDFromName(theWords[itr->second]) )
 			{
 				result.type = eCmdType_MoveMouseToHotspot;
 				result.hotspotID = dropTo<u16>(aHotspotID);
@@ -2853,7 +2319,7 @@ static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
 		}
 		--result;
 	}
-	else if( int aHotspotID = getHotspotID(theString) )
+	else if( int aHotspotID = HotspotMap::hotspotIDFromName(theString) )
 	{// Find or add a menu item for this hotspot ID
 		const int aMenuLen = intSize(theMenu.items.size());
 		result = aMenuLen;
@@ -3066,7 +2532,8 @@ static void applyMenuProperty(
 	case ePropType_Position:
 		// Only interested in position property that is set to a hotspot name
 		// Direct position values are read in by WindowPainter instead
-		theMenu.posHotspotID = dropTo<u16>(getHotspotID(thePropVal));
+		theMenu.posHotspotID = dropTo<u16>(
+			HotspotMap::hotspotIDFromName(thePropVal));
 		return;
 
 	case ePropType_MenuItemLeft:
@@ -3158,12 +2625,8 @@ static void applyMenuProperty(
 			}
 
 			// Possibly name of a hotspot for hotspot menu type
-			if( int aHotspotID = getHotspotID(thePropKey) )
+			if( int aHotspotID = HotspotMap::hotspotIDFromName(thePropKey) )
 			{
-				// If not currently valid for a hotspot-based menu item,
-				// but might later with var changes, just ignore it for now
-				if( sInvalidatedHotspots.test(aHotspotID) )
-					break;
 				const int aMenuLen = intSize(theMenu.items.size());
 				int aMenuItemID = aMenuLen;
 				for(int i = 0; i < aMenuLen; ++i)
@@ -3373,11 +2836,13 @@ static bool createEmptyLayer(
 		theSectionsMap.keys()[theSectionID];
 	const std::string& aLayerName = aSectionName.substr(
 		posAfterPrefix(aSectionName, thePrefix));
-	DBG_ASSERT(!aLayerName.empty());
-	ControlsLayer& aLayer = sLayers.findOrAdd(aLayerName);
-	// Flag as potential combo layer if contains delimiter
-	if( aLayerName.find(kComboLayerDelimiter) != std::string::npos )
-		aLayer.comboParentLayer = kInvalidID;
+	if( !aLayerName.empty() )
+	{
+		ControlsLayer& aLayer = sLayers.findOrAdd(aLayerName);
+		// Flag as potential combo layer if contains delimiter
+		if( aLayerName.find(kComboLayerDelimiter) != std::string::npos )
+			aLayer.comboParentLayer = kInvalidID;
+	}
 	return true;
 }
 
@@ -3712,7 +3177,7 @@ static void applyControlsLayerProperty(
 		return;
 
 	case ePropType_ShowMenus:
-	case ePropType_Hotspots:
+	case ePropType_HotspotSets:
 	case ePropType_AutoLayers:
 		{
 			if( aPropType == ePropType_ShowMenus )
@@ -3724,12 +3189,12 @@ static void applyControlsLayerProperty(
 				theLayer.showOverlays.reset();
 				theLayer.hideOverlays.reset();
 			}
-			else if( aPropType == ePropType_Hotspots )
+			else if( aPropType == ePropType_HotspotSets )
 			{
 				DBG_ASSERT(theLayer.enableHotspots.size() ==
-					sHotspotArrays.size());
+					HotspotMap::hotspotSetCount());
 				DBG_ASSERT(theLayer.disableHotspots.size() ==
-					sHotspotArrays.size());
+					HotspotMap::hotspotSetCount());
 				theLayer.enableHotspots.reset();
 				theLayer.disableHotspots.reset();
 			}
@@ -3781,21 +3246,19 @@ static void applyControlsLayerProperty(
 						foundItem = true;
 					}
 				}
-				else if( aPropType == ePropType_Hotspots )
+				else if( aPropType == ePropType_HotspotSets )
 				{
-					const int aHotspotArrayID =
-						sHotspotArrays.findIndex(aUpperName);
-					if( aHotspotArrayID < theLayer.enableHotspots.size() )
+					if( const int aHotspotSetID =
+							HotspotMap::hotspotSetIDFromName(aName) )
 					{
-						theLayer.enableHotspots.set(aHotspotArrayID, enable);
-						theLayer.disableHotspots.set(aHotspotArrayID, !enable);
+						theLayer.enableHotspots.set(aHotspotSetID, enable);
+						theLayer.disableHotspots.set(aHotspotSetID, !enable);
 						foundItem = true;
 					}
 				}
 				else
 				{
-					const int aLayerID =
-						sLayers.findIndex(aUpperName);
+					const int aLayerID = sLayers.findIndex(aName);
 					if( aLayerID < theLayer.addLayers.size() )
 					{
 						theLayer.addLayers.set(aLayerID, enable);
@@ -4126,6 +3589,8 @@ static void loadDataFromProfile(
 			isSubSection
 				? theProfileMap.keys()[aSectID].substr(aSectionKeySplit+1)
 				: theProfileMap.keys()[aSectID];
+		if( aSectionKey.empty() )
+			continue;
 		const std::string& aSectionTypeName =
 			isSubSection
 				? theProfileMap.keys()[aSectID].substr(0, aSectionKeySplit)
@@ -4137,15 +3602,6 @@ static void loadDataFromProfile(
 		int aComponentID = kInvalidID;
 		switch(aPropType)
 		{
-		case ePropType_Hotspots:
-			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
-			{
-				sPropertyPrintName = aPropMap->keys()[aPropIdx];
-				applyHotspotProperty(
-					aPropMap->keys()[aPropIdx],
-					aPropMap->vals()[aPropIdx].str);
-			}
-			break;
 		case ePropType_KeyBinds:
 			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 			{
@@ -4271,8 +3727,6 @@ static void loadDataFromProfile(
 void loadProfile()
 {
 	// Clear out any data from a previous profile
-	sHotspots.clear();
-	sHotspotArrays.clear();
 	sCmdStrings.clear();
 	sKeyBinds.clear();
 	sKeyBindCycles.clear();
@@ -4283,30 +3737,12 @@ void loadProfile()
 	sButtonRemaps.resize(1);
 	sParsedString.clear();
 
-	// Allocate hotspot arrays
-	// Start with the the special hotspots so they get correct IDs
-	for(int i = 1; i < eSpecialHotspot_Num; ++i) // skip eSpecialHotspot_None
-		createEmptyHotspotArray(kSpecialHotspotNames[i]);
-	 Profile::PropertyMapPtr aPropMapPtr =
-		 Profile::getSectionProperties(kHotspotsSectionName);
-	for(int i = 0; i < aPropMapPtr->size(); ++i)
-		createEmptyHotspotArray(aPropMapPtr->keys()[i]);
-	sHotspotArrays.trim();
-
-	// Allocate hotspots and link arrays to them
-	sHotspots.resize(1); // for eSpecialHotspot_None
-	for(int i = 0; i < sHotspotArrays.size(); ++i)
-		createEmptyHotspotsForArray(i);
-	sInvalidatedHotspots.clearAndResize(sHotspots.size());
-	sChangedHotspots.clearAndResize(sHotspots.size());
-	if( sHotspots.size() < sHotspots.capacity() )
-		std::vector<Hotspot>(sHotspots).swap(sHotspots);
-
 	// Allocate key binds
 	// Start with the special keys so they get correct IDs
 	for(int i = 0; i < eSpecialKey_Num; ++i)
 		sKeyBinds.findOrAdd(kSpecialKeyBindNames[i], Command());
-	aPropMapPtr =  Profile::getSectionProperties(kKeyBindsSectionName);
+	 Profile::PropertyMapPtr aPropMapPtr =
+		 Profile::getSectionProperties(kKeyBindsSectionName);
 	for(int i = 0; i < aPropMapPtr->size(); ++i)
 		sKeyBinds.findOrAdd(aPropMapPtr->keys()[i], Command());
 	sKeyBinds.trim();
@@ -4367,10 +3803,12 @@ void loadProfile()
 	{
 		sLayers.vals()[aLayerID].hideOverlays.resize(sOverlayRootMenus.size());
 		sLayers.vals()[aLayerID].showOverlays.resize(sOverlayRootMenus.size());
-		sLayers.vals()[aLayerID].disableHotspots.resize(sHotspotArrays.size());
-		sLayers.vals()[aLayerID].enableHotspots.resize(sHotspotArrays.size());
 		sLayers.vals()[aLayerID].addLayers.resize(sLayers.size());
 		sLayers.vals()[aLayerID].removeLayers.resize(sLayers.size());
+		sLayers.vals()[aLayerID].disableHotspots.resize(
+			HotspotMap::hotspotSetCount());
+		sLayers.vals()[aLayerID].enableHotspots.resize(
+			HotspotMap::hotspotSetCount());
 	}
 	gVisibleOverlays.clearAndResize(sOverlayRootMenus.size());
 	gRefreshOverlays.clearAndResize(sOverlayRootMenus.size());
@@ -4391,8 +3829,6 @@ void loadProfile()
 
 	// Fill in the data
 	loadDataFromProfile(Profile::allSections(), true);
-	sChangedHotspots.reset();
-	sHotspotArrayResized = false;
 }
 
 
@@ -4423,37 +3859,6 @@ void loadProfileChanges()
 	}
 
 	loadDataFromProfile(theProfileMap, false);
-
-	if( sHotspotArrayResized )
-	{// Reload all menu items for hotspot-using menu styles
-		for(int aMenuID = 0; aMenuID < sMenus.size(); ++aMenuID)
-		{
-			if( sMenus.vals()[aMenuID].style != eMenuStyle_Hotspots &&
-				sMenus.vals()[aMenuID].style != eMenuStyle_Highlight )
-			{ continue; }
-
-			sMenus.vals()[aMenuID].items.clear();
-			Profile::PropertyMapPtr aPropMap = Profile::getSectionProperties(
-				sMenus.vals()[aMenuID].profileSectionID);
-			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
-			{
-				const std::string& aPropKey = aPropMap->keys()[aPropIdx];
-				const EPropertyType aPropType = propKeyToType(aPropKey);
-				if( aPropType != ePropType_Default &&
-					aPropType != ePropType_Num )
-				{ continue; }
-				
-				sPropertyPrintName = aPropKey;
-				applyMenuProperty(
-					aMenuID, false,
-					aPropKey,
-					aPropMap->vals()[aPropIdx].str);
-			}
-			sSectionPrintName = "[" + sMenus.keys()[aMenuID] + "]";
-			validateMenu(aMenuID);
-		}
-		sHotspotArrayResized = false;
-	}
 }
 
 
@@ -4484,41 +3889,36 @@ Command keyBindCommand(int theKeyBindID)
 
 u16 keyForSpecialAction(ESpecialKey theSpecialKeyID)
 {
-	const int aKeyBindID = specialKeyToKeyBindID(theSpecialKeyID);
-	const Command& aKeyBindCmd = keyBindCommand(aKeyBindID);
+	DBG_ASSERT(theSpecialKeyID < eSpecialKey_Num);
+	const Command& aKeyBindCmd = keyBindCommand(theSpecialKeyID);
 	if( aKeyBindCmd.type == eCmdType_TapKey )
 		return aKeyBindCmd.vKey;
 	return 0;
 }
 
 
-u16 specialKeyToKeyBindID(ESpecialKey theSpecialKeyID)
-{
-	DBG_ASSERT(size_t(theSpecialKeyID) < size_t(eSpecialKey_Num));
-	return u16(theSpecialKeyID);
-}
-
-
-ESpecialKey keyBindIDToSpecialKey(int theKeyBindID)
-{
-	if( theKeyBindID < 0 || theKeyBindID >= eSpecialKey_Num )
-		return eSpecialKey_None;
-	return ESpecialKey(theKeyBindID);
-}
-
-
-u32 keyBindSignalID(int theKeyBindID)
+int keyBindSignalID(int theKeyBindID)
 {
 	DBG_ASSERT(theKeyBindID >= 0 && theKeyBindID < sKeyBinds.size());
 	return eBtn_Num + theKeyBindID;
 }
 
 
-u16 keyBindCycleIndexToKeyBindID(int theCycleID, int theIndex)
+int keyBindCycleIndexToKeyBindID(int theCycleID, int theIndex)
 {
 	DBG_ASSERT(theCycleID >= 0 && theCycleID < sKeyBindCycles.size());
 	DBG_ASSERT(theIndex >= 0 && theIndex < keyBindCycleSize(theCycleID));
 	return sKeyBindCycles.vals()[theCycleID][theIndex].keyBindID;
+}
+
+
+int KeyBindCycleHotspotID(int theCycleID, int theIndex)
+{
+	DBG_ASSERT(theCycleID >= 0 && theCycleID < sKeyBindCycles.size());
+	DBG_ASSERT(theIndex >= 0 && theIndex < keyBindCycleSize(theCycleID));
+	const int result = sKeyBindCycles.vals()[theCycleID][theIndex].hotspotID;
+	DBG_ASSERT(result < HotspotMap::hotspotCount());
+	return result;
 }
 
 
@@ -4600,14 +4000,14 @@ const BitVector<32>& overlaysToHide(int theLayerID)
 }
 
 
-const BitVector<32>& hotspotArraysToEnable(int theLayerID)
+const BitVector<32>& hotspotSetsToEnable(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].enableHotspots;
 }
 
 
-const BitVector<32>& hotspotArraysToDisable(int theLayerID)
+const BitVector<32>& hotspotSetsToDisable(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.vals()[theLayerID].disableHotspots;
@@ -4806,6 +4206,7 @@ int menuKeyBindCycleID(int theMenuID)
 
 bool menuHotspotsChanged(int theMenuID)
 {
+	const BitVector<512>& aChangedHotspotSet = HotspotMap::changedHotspots();
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	switch(menuStyle(theMenuID))
 	{
@@ -4818,7 +4219,7 @@ bool menuHotspotsChanged(int theMenuID)
 			for(int i = 0, end = keyBindCycleSize(aCycleID); i < end; ++i)
 			{
 				const int aHotspotID = KeyBindCycleHotspotID(aCycleID, i);
-				if( sChangedHotspots.test(aHotspotID) )
+				if( aChangedHotspotSet.test(aHotspotID) )
 					return true;
 			}
 		}
@@ -4827,12 +4228,12 @@ bool menuHotspotsChanged(int theMenuID)
 	case eMenuStyle_Highlight:
 		for(int i = 0, end = menuItemCount(theMenuID); i < end; ++i)
 		{
-			if( sChangedHotspots.test(menuItemHotspotID(theMenuID, i)) )
+			if( aChangedHotspotSet.test(menuItemHotspotID(theMenuID, i)) )
 				return true;
 		}
 		break;
 	default:
-		if( sChangedHotspots.test(sMenus.vals()[theMenuID].posHotspotID) )
+		if( aChangedHotspotSet.test(sMenus.vals()[theMenuID].posHotspotID) )
 			return true;
 		break;
 	}
@@ -4934,123 +4335,6 @@ void menuItemStringToSubMenuName(std::string& theString)
 }
 
 
-const Hotspot& getHotspot(int theHotspotID)
-{
-	DBG_ASSERT(size_t(theHotspotID) < sHotspots.size());
-	return sHotspots[theHotspotID];
-}
-
-
-int hotspotIDFromName(const std::string& theHotspotName)
-{
-	return getHotspotID(theHotspotName);
-}
-
-
-bool isValidHotspotID(int theHotspotID)
-{
-	return
-		theHotspotID > 0 &&
-		theHotspotID < sInvalidatedHotspots.size() &&
-		!sInvalidatedHotspots.test(theHotspotID);
-}
-
-
-int hotspotArrayIDFromName(const std::string& theHotspotArrayName)
-{
-	return sHotspotArrays.findIndex(theHotspotArrayName);
-}
-
-
-int firstHotspotInArray(int theHotspotArrayID)
-{
-	DBG_ASSERT(theHotspotArrayID >= 0);
-	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
-	HotspotArray& aHotspotArray = sHotspotArrays.vals()[theHotspotArrayID];
-	return aHotspotArray.anchorIdx + 1;
-}
-
-
-int sizeOfHotspotArray(int theHotspotArrayID)
-{
-	DBG_ASSERT(theHotspotArrayID >= 0);
-	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
-	return sHotspotArrays.vals()[theHotspotArrayID].size;
-}
-
-
-bool hotspotArrayHasAnchor(int theHotspotArrayID)
-{
-	DBG_ASSERT(theHotspotArrayID >= 0);
-	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
-	return sHotspotArrays.vals()[theHotspotArrayID].hasAnchor != 0;
-}
-
-
-float hotspotScale(int theHotspotID)
-{
-	float result = 1.0;
-	if( theHotspotID >= eSpecialHotspot_Num && !sHotspotArrays.empty() )
-	{
-		HotspotArray aSearchArray;
-		aSearchArray.anchorIdx = dropTo<u16>(theHotspotID);
-		aSearchArray.hasAnchor = true;
-		// StringToValueMap values aren't sorted, they are in the order added,
-		// but this works because hotspots are created according to the order
-		// of hotspot array creation order, thus hotspot arrays are naturally
-		// sorted in the same order as the hotspots overall in the end.
-		std::vector<HotspotArray>::iterator itr = std::upper_bound(
-			sHotspotArrays.vals().begin(),
-			sHotspotArrays.vals().end(),
-			aSearchArray);
-		DBG_ASSERT(itr > sHotspotArrays.vals().begin());
-		--itr;
-		result = itr->offsetScale;
-	}
-
-	return result;
-}
-
-
-int KeyBindCycleHotspotID(int theCycleID, int theIndex)
-{
-	DBG_ASSERT(theCycleID >= 0 && theCycleID < sKeyBindCycles.size());
-	DBG_ASSERT(theIndex >= 0 && theIndex < keyBindCycleSize(theCycleID));
-	const int result =
-		sKeyBindCycles.vals()[theCycleID][theIndex].hotspotID;
-	DBG_ASSERT(size_t(result) < sHotspots.size());
-	return result;
-}
-
-
-bool setLastCursorPos(POINT theNewPos)
-{
-	theNewPos = WindowManager::overlayPosValidated(theNewPos);
-	if( theNewPos.x != gLastCursorPos.x || theNewPos.y != gLastCursorPos.y )
-	{
-		gLastCursorPos = theNewPos;
-		sChangedHotspots.set(eSpecialHotspot_LastCursorPos);
-		sHotspots[eSpecialHotspot_LastCursorPos] =
-			WindowManager::overlayPosToHotspot(theNewPos);
-		return true;
-	}
-
-	return false;
-}
-
-
-const BitVector<512>& changedHotspots()
-{
-	return sChangedHotspots;
-}
-
-
-void resetChangedHotspots()
-{
-	sChangedHotspots.reset();
-}
-
-
 int keyBindCount()
 {
 	return sKeyBinds.size();
@@ -5095,62 +4379,10 @@ int menuItemCount(int theMenuID)
 }
 
 
-int hotspotCount()
-{
-	return intSize(sHotspots.size());
-}
-
-
-int hotspotArrayCount()
-{
-	return sHotspotArrays.size();
-}
-
-
 const char* layerLabel(int theLayerID)
 {
 	DBG_ASSERT(theLayerID >= 0 && theLayerID < sLayers.size());
 	return sLayers.keys()[theLayerID].c_str();
-}
-
-
-std::string hotspotLabel(int theHotspotID)
-{
-	std::string result;
-	DBG_ASSERT(size_t(theHotspotID) < sHotspots.size());
-	if( theHotspotID < eSpecialHotspot_Num )
-	{// Special-use named hotspot
-		result = kSpecialHotspotNames[theHotspotID];
-	}
-	else if( sHotspotArrays.empty() )
-	{// Shouldn't be possible...
-		result = "ERROR - UNKNOWN";
-	}
-	else
-	{// Should be in one of the arrays
-		HotspotArray aSearchArray;
-		aSearchArray.anchorIdx = dropTo<u16>(theHotspotID);
-		aSearchArray.hasAnchor = true;
-		std::vector<HotspotArray>::iterator itr = std::upper_bound(
-			sHotspotArrays.vals().begin(),
-			sHotspotArrays.vals().end(),
-			aSearchArray);
-		DBG_ASSERT(itr > sHotspotArrays.vals().begin());
-		--itr;
-		result = sHotspotArrays.keys()[itr - sHotspotArrays.vals().begin()];
-		if( theHotspotID > int(itr->anchorIdx) )
-			result += toString(theHotspotID - itr->anchorIdx);
-	}
-
-	return result;
-}
-
-
-const char* hotspotArrayLabel(int theHotspotArrayID)
-{
-	DBG_ASSERT(theHotspotArrayID >= 0);
-	DBG_ASSERT(theHotspotArrayID < sHotspotArrays.size());
-	return sHotspotArrays.keys()[theHotspotArrayID].c_str();
 }
 
 

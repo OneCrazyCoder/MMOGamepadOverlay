@@ -331,9 +331,9 @@ public:
 				++mMouseJumpQueueCount;
 				if( aFinalJumpHotspotID )
 				{// Assign gLastCursorPos now as source point for next jump
-					InputMap::setLastCursorPos(
+					HotspotMap::setLastCursorPos(
 						WindowManager::hotspotToOverlayPos(
-							InputMap::getHotspot(aFinalJumpHotspotID)));
+							HotspotMap::getHotspot(aFinalJumpHotspotID)));
 				}
 			}
 			break;
@@ -352,7 +352,7 @@ public:
 			mBuffer[mTail].slow = true;
 			++mMouseJumpQueueCount;
 			// Assign gLastCursorPos now as source point for next jump
-			InputMap::setLastCursorPos(aFinalCmd.pos);
+			HotspotMap::setLastCursorPos(aFinalCmd.pos);
 			// Update hotspot map now in case another command wants to move
 			// directly from new gLastCursorPos to a different relative hotspot
 			HotspotMap::update();
@@ -642,7 +642,7 @@ static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 	}
 
 	gFiredSignals.set(InputMap::keyBindSignalID(theKeyBindID));
-	switch(InputMap::keyBindIDToSpecialKey(theKeyBindID))
+	switch(theKeyBindID)
 	{
 	case eSpecialKey_AutoRun:
 		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
@@ -872,7 +872,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 			DBG_ASSERT(c != '\0');
 			aHotspotID |= (c & 0x7F);
 			sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
-				InputMap::getHotspot(aHotspotID));
+				HotspotMap::getHotspot(aHotspotID));
 			sTracker.mouseJumpRequested = true;
 			sTracker.mouseJumpInterpolate = false;
 			sTracker.mouseAllowMidJumpControl = false;
@@ -1093,7 +1093,7 @@ static void offsetMousePos()
 			sTracker.mouseJumpDest.x += sTracker.mouseVelX;
 			sTracker.mouseJumpDest.y += sTracker.mouseVelY;
 			if( jumpingToCursorPos )
-				InputMap::setLastCursorPos(sTracker.mouseJumpDest);
+				HotspotMap::setLastCursorPos(sTracker.mouseJumpDest);
 			sTracker.mouseVelX = sTracker.mouseVelY = 0;
 			sTracker.mouseInterpolateUpdateDest = true;
 			return;
@@ -1431,7 +1431,7 @@ static void queueMoveMouseTo(const Command& theCommand)
 	case eCmdType_MouseClickAtHotspot:
 	case eCmdType_RightClickAtHotspot:
 		aCmd.pos = WindowManager::hotspotToOverlayPos(
-			InputMap::getHotspot(theCommand.hotspotID));
+			HotspotMap::getHotspot(theCommand.hotspotID));
 		break;
 	case eCmdType_MoveMouseToMenuItem:
 		gHotspotsGuideMode = eHotspotGuideMode_Disabled;
@@ -1452,15 +1452,18 @@ static void queueMoveMouseTo(const Command& theCommand)
 			// knowing if it was that or a click-and-drag on UI. It is thus
 			// assumed to be the latter if requesting a hotspot select, so
 			// to be accurate need to update mouse pos for HotspotMap.
-			if( InputMap::setLastCursorPos(WindowManager::mouseToOverlayPos()) )
+			if( HotspotMap::setLastCursorPos(
+					WindowManager::mouseToOverlayPos()) )
+			{
 				HotspotMap::update();
+			}
 		}
 		if( const int aNextHotspot =
 				HotspotMap::getNextHotspotInDir(ECommandDir(theCommand.dir)) )
 		{
 			aCmd.type = eCmdType_MoveMouseToHotspot;
 			aCmd.pos = WindowManager::hotspotToOverlayPos(
-				InputMap::getHotspot(aNextHotspot));
+				HotspotMap::getHotspot(aNextHotspot));
 			break;
 		}
 		aCmd.type = eCmdType_MoveMouseToOffset;
@@ -1873,7 +1876,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		else
 		{
 			anExpectedPos = WindowManager::hotspotToOverlayPos(
-				InputMap::getHotspot(eSpecialHotspot_MouseLookStart));
+				HotspotMap::getHotspot(eSpecialHotspot_MouseLookStart));
 		}
 		const LONG aDistX = abs(anExpectedPos.x - aCursorPos.x);
 		const LONG aDistY = abs(anExpectedPos.y - aCursorPos.y);
@@ -2319,7 +2322,7 @@ void forceReleaseHeldKeys()
 				 gAppRunTime >= sTracker.mouseJumpAllowedTime )
 		{
 			sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
-				InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
+				HotspotMap::getHotspot(eSpecialHotspot_LastCursorPos));
 			sTracker.mouseJumpToMode = eMouseMode_Cursor;
 			sTracker.mouseJumpRequested = true;
 			sTracker.mouseJumpInterpolate = false;
@@ -2347,7 +2350,7 @@ void update()
 
 	// Update output mode
 	// ------------------
-	#if INPUT_DISPATCHER_SIMULATION_ONLY
+	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
 		sTracker.outputMode = eOutputMode_None;
 	#else
 	{
@@ -2476,7 +2479,7 @@ void update()
 				else
 				{// Jump cursor to last normal cursor position
 					sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
-						InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
+						HotspotMap::getHotspot(eSpecialHotspot_LastCursorPos));
 					sTracker.mouseJumpToMode = aNextMouseMode;
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
@@ -2526,7 +2529,7 @@ void update()
 				else if( !sTracker.queue.mouseJumpQueued() )
 				{// Jump cursor to safe spot for initial click
 					sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
-						InputMap::getHotspot(eSpecialHotspot_MouseLookStart));
+						HotspotMap::getHotspot(eSpecialHotspot_MouseLookStart));
 					sTracker.mouseJumpToMode = aNextMouseMode;
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
@@ -2542,7 +2545,7 @@ void update()
 				if( !sTracker.queue.mouseJumpQueued() )
 				{
 					sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
-						InputMap::getHotspot(eSpecialHotspot_MouseHidden));
+						HotspotMap::getHotspot(eSpecialHotspot_MouseHidden));
 					sTracker.mouseJumpToMode = aNextMouseMode;
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
@@ -2555,7 +2558,7 @@ void update()
 				if( !sTracker.queue.mouseJumpQueued() )
 				{
 					sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
-						InputMap::getHotspot(eSpecialHotspot_MouseLookStart));
+						HotspotMap::getHotspot(eSpecialHotspot_MouseLookStart));
 					sTracker.mouseJumpToMode = aNextMouseMode;
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
@@ -2942,7 +2945,7 @@ void update()
 			(hiddenCursorMode(sTracker.mouseMode) ||
 			 hiddenCursorMode(sTracker.mouseModeRequested)) )
 		{// Update cursor pos to return to later rather than actually jumping
-			InputMap::setLastCursorPos(sTracker.mouseJumpDest);
+			HotspotMap::setLastCursorPos(sTracker.mouseJumpDest);
 			readyForMouseJump = sTracker.mouseJumpRequested = false;
 		}
 		else if( !sTracker.mouseAllowMidJumpControl )
@@ -3002,7 +3005,7 @@ void update()
 			{// In hiding spot or hidden via mouselook
 				// Need to restore normal cursor pos before the click
 				sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
-					InputMap::getHotspot(eSpecialHotspot_LastCursorPos));
+					HotspotMap::getHotspot(eSpecialHotspot_LastCursorPos));
 				sTracker.mouseJumpToMode = eMouseMode_Cursor;
 				sTracker.mouseJumpRequested = true;
 				sTracker.mouseJumpInterpolate = false;
@@ -3049,7 +3052,7 @@ void update()
 		// Also avoid while holding down LMB or RMB because in some games that
 		// causes the cursor to automatically jump to center-screen briefly
 		// even for quick clicks (just in case user starts mouse-look mode)
-		InputMap::setLastCursorPos(WindowManager::mouseToOverlayPos());
+		HotspotMap::setLastCursorPos(WindowManager::mouseToOverlayPos());
 	}
 	// Return speed from digital mouse acceleration back to 0 over time
 	sTracker.mouseDigitalVel = max(0,
@@ -3680,7 +3683,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		aCmd.vKey = InputMap::keyForSpecialAction(
 			ESpecialKey(aMoveKey + eSpecialKey_FirstMove));
 		aCmd.hasKeybindSignal = true;
-		aCmd.keyBindID = InputMap::specialKeyToKeyBindID(
+		aCmd.keyBindID = dropTo<u16>(
 			ESpecialKey(eSpecialKey_FirstMove + aMoveKey));
 		aCmd.type =
 			aCmd.vKey ? eCmdType_PressAndHoldKey : eCmdType_TriggerKeyBind;
@@ -3754,8 +3757,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		if( aCmd.vKey )
 		{
 			aCmd.type = eCmdType_TriggerKeyBind;
-			aCmd.keyBindID =
-				InputMap::specialKeyToKeyBindID(eSpecialKey_AutoRun);
+			aCmd.keyBindID = u16(eSpecialKey_AutoRun);
 			sendCommand(aCmd);
 			sTracker.autoRunMode = eAutoRunMode_Started;
 		}

@@ -128,7 +128,7 @@ void mainModulesUpdate()
 
 	Gamepad::update();
 	HotspotMap::update();
-	InputMap::resetChangedHotspots();
+	HotspotMap::resetChangedHotspots();
 	InputTranslator::update();
 	InputDispatcher::update();
 	TargetApp::update();
@@ -217,8 +217,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 		// Load configuration settings for each module from profile
 		if( !gShutdown && !hadFatalError() )
 		{
+			HotspotMap::loadProfile();
 			InputMap::loadProfile();
-			HotspotMap::init();
 			Menus::init();
 			InputTranslator::loadProfile();
 			InputDispatcher::loadProfile();
@@ -249,8 +249,8 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 			if( !Profile::changedSections().empty() )
 			{
 				TargetConfigSync::loadProfileChanges();
-				InputMap::loadProfileChanges();
 				HotspotMap::loadProfileChanges();
+				InputMap::loadProfileChanges();
 				Menus::loadProfileChanges();
 				InputTranslator::loadProfileChanges();
 				InputDispatcher::loadProfileChanges();
@@ -258,7 +258,7 @@ INT APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT /*cmd_show*/)
 				WindowPainter::loadProfileChanges();
 				WindowManager::loadProfileChanges();
 				Profile::clearChangedSections();
-				InputMap::resetChangedHotspots();
+				HotspotMap::resetChangedHotspots();
 			}
 
 			if( gLayoutEditorRequested )

@@ -16,7 +16,7 @@ namespace Menus
 // Static Variables
 //------------------------------------------------------------------------------
 
-std::vector<s16> sSelectedItem;
+std::vector<int> sSelectedItem;
 std::vector<u16> sActiveSubMenu;
 int sOverrideActiveMenuBackup = -1;
 
@@ -137,10 +137,7 @@ void init()
 	const int kMenuCount = InputMap::menuCount();
 	sSelectedItem.resize(kMenuCount);
 	for(int aMenuID = 0; aMenuID < kMenuCount; ++aMenuID)
-	{
-		sSelectedItem[aMenuID] = dropTo<u16>(
-			InputMap::menuDefaultItemIdx(aMenuID));
-	}
+		sSelectedItem[aMenuID] = InputMap::menuDefaultItemIdx(aMenuID);
 }
 
 
@@ -155,7 +152,7 @@ void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
 	if( theProfileMap.containsPrefix("Menu.") ||
-		InputMap::changedHotspots().any() )
+		HotspotMap::changedHotspots().any() )
 	{
 		const int oldMenuCount = intSize(sSelectedItem.size());
 		sSelectedItem.resize(InputMap::menuCount());
@@ -163,10 +160,40 @@ void loadProfileChanges()
 		{
 			// Select default selection for newly-added sub-menus
 			if( i >= oldMenuCount )
-				sSelectedItem[i] = dropTo<u16>(InputMap::menuDefaultItemIdx(i));
-			// Clamp current selection to current menu item count
-			sSelectedItem[i] = clamp(
-				sSelectedItem[i], 0, InputMap::menuItemCount(i)-1);
+				sSelectedItem[i] = InputMap::menuDefaultItemIdx(i);
+			switch(InputMap::menuStyle(i))
+			{
+			case eMenuStyle_Hotspots:
+			case eMenuStyle_Highlight:
+				{// Make sure selected menu item has valid hotspot
+					bool isValidItem = HotspotMap::isValidHotspotID(
+						InputMap::menuItemHotspotID(i, sSelectedItem[i]));
+					for(int j = sSelectedItem[i]-1;
+						!isValidItem && j >= 0; --j)
+					{
+						isValidItem = HotspotMap::isValidHotspotID(
+							InputMap::menuItemHotspotID(i, j));
+						if( isValidItem )
+							sSelectedItem[i] = j;
+					}
+					for(int j = sSelectedItem[i]+1;
+						!isValidItem && j < InputMap::menuItemCount(i); ++j)
+					{
+						isValidItem = HotspotMap::isValidHotspotID(
+							InputMap::menuItemHotspotID(i, j));
+						if( isValidItem )
+							sSelectedItem[i] = j;
+					}
+					// No valid menu items at all, guess it doesn't matter now?
+					if( !isValidItem )
+						sSelectedItem[i] = InputMap::menuDefaultItemIdx(i);
+				}
+				break;
+			default:
+				// Clamp current selection to current menu item count
+				sSelectedItem[i] = clamp(
+					sSelectedItem[i], 0, InputMap::menuItemCount(i)-1);
+			}
 		}
 	}
 }
@@ -403,7 +430,7 @@ Command selectMenuItem(
 
 	if( aSelection != sSelectedItem[theSubMenuID] )
 	{
-		sSelectedItem[theSubMenuID] = dropTo<s16>(aSelection);
+		sSelectedItem[theSubMenuID] = aSelection;
 		// Need to refresh to show selection differently
 		gRefreshOverlays.set(theOverlayID);
 	}
@@ -444,7 +471,7 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 	theMenuItem = max(theMenuItem, 0);
 	if( sSelectedItem[theSubMenuID] != theMenuItem )
 	{
-		sSelectedItem[theSubMenuID] = dropTo<u16>(theMenuItem);
+		sSelectedItem[theSubMenuID] = theMenuItem;
 		// Refresh to show selection changed, just in case went to same menu ID
 		gRefreshOverlays.set(theOverlayID);
 	}

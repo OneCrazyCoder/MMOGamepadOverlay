@@ -1230,9 +1230,10 @@ static void processCommand(
 			}
 		}
 		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindCycleIndexToKeyBindID(
-			theCmd.keyBindCycleID,
-			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
+		aForwardCmd.keyBindID = dropTo<u16>(
+			InputMap::keyBindCycleIndexToKeyBindID(
+				theCmd.keyBindCycleID,
+				gKeyBindCycleLastIndex[theCmd.keyBindCycleID]));
 		aForwardCmd.fromKeyBindCycle = true;
 		aForwardCmd.keyBindCycleID = theCmd.keyBindCycleID;
 		processCommand(theBtnState, aForwardCmd);
@@ -1267,9 +1268,10 @@ static void processCommand(
 			}
 		}
 		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindCycleIndexToKeyBindID(
-			theCmd.keyBindCycleID,
-			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
+		aForwardCmd.keyBindID = dropTo<u16>(
+			InputMap::keyBindCycleIndexToKeyBindID(
+				theCmd.keyBindCycleID,
+				gKeyBindCycleLastIndex[theCmd.keyBindCycleID]));
 		aForwardCmd.fromKeyBindCycle = true;
 		aForwardCmd.keyBindCycleID = theCmd.keyBindCycleID;
 		processCommand(theBtnState, aForwardCmd);
@@ -1287,9 +1289,10 @@ static void processCommand(
 			gKeyBindCycleLastIndexChanged.set(theCmd.keyBindCycleID);
 		}
 		aForwardCmd.type = eCmdType_TriggerKeyBind;
-		aForwardCmd.keyBindID = InputMap::keyBindCycleIndexToKeyBindID(
-			theCmd.keyBindCycleID,
-			gKeyBindCycleLastIndex[theCmd.keyBindCycleID]);
+		aForwardCmd.keyBindID = dropTo<u16>(
+			InputMap::keyBindCycleIndexToKeyBindID(
+				theCmd.keyBindCycleID,
+				gKeyBindCycleLastIndex[theCmd.keyBindCycleID]));
 		aForwardCmd.asHoldAction = theCmd.asHoldAction;
 		processCommand(theBtnState, aForwardCmd);
 		break;
@@ -2082,15 +2085,15 @@ static void updateMenusForCurrentLayers()
 static void updateHotspotArraysForCurrentLayers()
 {
 	DBG_ASSERT(!sState.layersNeedSorting);
-	BitVector<32> aHotspotArraysEnabled(InputMap::hotspotArrayCount());
+	BitVector<32> aHotspotSetsEnabled(HotspotMap::hotspotSetCount());
 	for(int i = 0, end = intSize(sState.layerOrder.size()); i < end; ++i)
 	{
-		aHotspotArraysEnabled |=
-			InputMap::hotspotArraysToEnable(sState.layerOrder[i]);
-		aHotspotArraysEnabled &=
-			~InputMap::hotspotArraysToDisable(sState.layerOrder[i]);
+		aHotspotSetsEnabled |=
+			InputMap::hotspotSetsToEnable(sState.layerOrder[i]);
+		aHotspotSetsEnabled &=
+			~InputMap::hotspotSetsToDisable(sState.layerOrder[i]);
 	}
-	HotspotMap::setEnabledHotspotArrays(aHotspotArraysEnabled);
+	HotspotMap::setEnabledHotspotSets(aHotspotSetsEnabled);
 }
 
 

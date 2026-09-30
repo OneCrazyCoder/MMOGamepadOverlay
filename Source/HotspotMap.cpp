@@ -31,6 +31,7 @@ kMaxPerpDistForStraightLine = 0x0110,
 kMaxLinkMapColumnXDist = 0x0A00,
 };
 
+const char* kHotspotSectName = "Hotspots";
 const char* kBaseJumpDistSectName = "Mouse";
 const char* kBaseJumpDistPropName = "DefaultHotspotDistance";
 // How much past base jump dest to search for a hotspot to jump to,
@@ -62,6 +63,15 @@ enum ETask
 	eTask_None = eTask_Num,
 };
 
+const char* const kSpecialHotspotNames[] =
+{
+	"<None>",				// eSpecialHotspot_None
+	"LastCursorPos",		// eSpecialHotspot_LastCursorPos
+	"MouseLookStart",		// eSpecialHotspot_MouseLookStart
+	"MouseHidden",			// eSpecialHotspot_MouseHidden
+};
+DBG_CTASSERT(ARRAYSIZE(kSpecialHotspotNames) == eSpecialHotspot_Num);
+
 
 //------------------------------------------------------------------------------
 // Debugging
@@ -78,9 +88,26 @@ enum ETask
 // Local Structures
 //------------------------------------------------------------------------------
 
-struct ZERO_INIT(TrackedPoint)
+struct ZERO_INIT(HotspotData)
 {
-	u16 x, y; // normalized
+	Hotspot hs;
+	u16 nx, ny; // normalized desktop pos
+	s16 ox, oy; // offset from anchor hotspot
+	u16 anchorHotspotID; // other hotspot to offset from
+	u16 valid : 1; // isn't just set to none/skip/blank
+	u16 directAssigned : 1; // i.e. not part of a range
+	u16 hasOwnXAnchor : 1; // has anchor specified - ignore anchor hotspot
+	u16 hasOwnYAnchor : 1; // has anchor specified - ignore anchor hotspot
+	u16 hasOwnSize : 1; // has width/height specified - ignore anchor hotspot
+	u16 setID : 11; // which hotspot set belongs to
+};
+
+struct HotspotSet
+{
+	BitVector<512> included;
+	float scale;
+	u16 anchorHotspotID;
+	HotspotSet() : scale(1.0f), anchorHotspotID() {}
 };
 
 struct ZERO_INIT(GridPos)
@@ -103,9 +130,12 @@ typedef std::vector<HotspotLinkNode> MenuLinks;
 // Static Variables
 //------------------------------------------------------------------------------
 
-static BitVector<32> sActiveArrays;
-static BitVector<512> sPointsToNormalize;
-static std::vector<TrackedPoint> sPoints;
+static StringToValueMap<HotspotData> sHotspots;
+static StringToValueMap<HotspotSet> sHotspotSets;
+static BitVector<32> sActiveHotspotSets;
+static BitVector<512> sActiveHotspots;
+static BitVector<512> sChangedHotspots;
+static BitVector<512> sHotspotsToNormalize;
 static std::vector<u16> sActiveGrid[kGridSize][kGridSize];
 static std::vector<GridPos> sFetchGrid;
 static std::vector<int> sCandidates;
@@ -155,11 +185,11 @@ public:
 
 	struct ZERO_INIT(Dot)
 	{
-		int pointID, x, y, vertLink[eVDir_Num];
-		Dot(int thePointID = 0) :
-			pointID(thePointID),
-			x(sPoints[thePointID].x),
-			y(sPoints[thePointID].y),
+		int hotspotID, x, y, vertLink[eVDir_Num];
+		Dot(int theHotspotID = 0) :
+			hotspotID(theHotspotID),
+			x(sHotspots.vals()[theHotspotID].nx),
+			y(sHotspots.vals()[theHotspotID].ny),
 			vertLink()
 		{}
 
@@ -168,10 +198,10 @@ public:
 	};
 
 	// MUTATORS
-	void addDot(int thePointID)
+	void addDot(int theHotspotID)
 	{
-		DBG_ASSERT(size_t(thePointID) < sPoints.size());
-		mDots.push_back(Dot(thePointID));
+		DBG_ASSERT(theHotspotID > 0 && theHotspotID < sHotspots.size());
+		mDots.push_back(Dot(theHotspotID));
 		this->totalY += mDots.back().y;
 		this->avgY = this->totalY / intSize(mDots.size());
 	}
@@ -325,6 +355,361 @@ private:
 // Local Functions
 //------------------------------------------------------------------------------
 
+static bool finalizeHotspot(int theHotspotID, Hotspot theNewHotspot)
+{
+	DBG_ASSERT(theHotspotID > 0 && theHotspotID < sHotspots.size());
+	HotspotData& aHotspot = sHotspots.vals()[theHotspotID];
+	if( !aHotspot.valid )
+		return false;
+
+	if( aHotspot.anchorHotspotID > 0 )
+	{
+		// Apply (scaled) offsets from anchor hotspot
+		const HotspotData& anAnchorHotspot =
+			sHotspots.vals()[aHotspot.anchorHotspotID];
+		if( anAnchorHotspot.valid )
+		{
+			float anOffsetScale = 1.0f;
+			if( aHotspot.setID > 0 )
+			{
+				DBG_ASSERT(aHotspot.setID < sHotspotSets.size());
+				const HotspotSet& aHotspotSet =
+					sHotspotSets.vals()[aHotspot.setID];
+				if( aHotspotSet.anchorHotspotID != theHotspotID )
+					anOffsetScale = aHotspotSet.scale;
+			}
+			if( !aHotspot.hasOwnXAnchor )
+			{
+				theNewHotspot.x = anAnchorHotspot.hs.x;
+				theNewHotspot.x.offset = s16(clamp(
+					theNewHotspot.x.offset + aHotspot.ox * anOffsetScale,
+					-0x8000, 0x7FFF));
+			}
+			if( !aHotspot.hasOwnYAnchor )
+			{
+				theNewHotspot.y = anAnchorHotspot.hs.y;
+				theNewHotspot.y.offset = s16(clamp(
+					theNewHotspot.y.offset + aHotspot.oy * anOffsetScale,
+					-0x8000, 0x7FFF));
+			}
+			if( !aHotspot.hasOwnSize )
+			{
+				theNewHotspot.w = anAnchorHotspot.hs.w;
+				theNewHotspot.h = anAnchorHotspot.hs.h;
+			}
+		}
+	}
+
+	if( aHotspot.hs != theNewHotspot )
+	{
+		aHotspot.hs = theNewHotspot;
+		sChangedHotspots.set(theHotspotID);
+		return true;
+	}
+
+	return false;
+}
+
+
+static void applyHotspotProperty(
+	const std::string& theKey,
+	std::string theDesc,
+	int theParentSet,
+	bool fullParse,
+	bool autoAssigned = false)
+{
+	// Check theKey suffix to see if single hotspot or a range of hotspots
+	int aRangeStartIdx, aRangeEndIdx;
+	std::string anArrayKey;
+	if( !autoAssigned &&
+		fetchRangeSuffix(theKey, anArrayKey, aRangeStartIdx, aRangeEndIdx) )
+	{
+		int aStepX = 0;
+		int aStepY = 0;
+		u32 applyXEvery = 0;
+		u32 applyYEvery = 0;
+		const bool calculateOffsets =
+			fullParse && !isEffectivelyEmptyString(theDesc);
+		if( calculateOffsets )
+		{
+			const size_t aRangeInfoStrPos = theDesc.rfind(':');
+			if( aRangeInfoStrPos != std::string::npos )
+			{
+				size_t aStrPos = aRangeInfoStrPos;
+				// X step
+				aStepX = int(floor(
+					stringToDoubleSum(theDesc, ++aStrPos) + 0.5));
+				bool valid = aStrPos < theDesc.size() &&
+					(theDesc[aStrPos] == ',' ||
+					 theDesc[aStrPos] == 'x' ||
+					 theDesc[aStrPos] == 'X' ||
+					 theDesc[aStrPos] == '@');
+				// X wrap
+				if( valid && theDesc[aStrPos] == '@' )
+				{
+					const std::string& aWrapPointStr =
+						fetchNextItem(theDesc, ++aStrPos, ",xX");
+					if( aWrapPointStr[0] == '-' ||
+						!isAnInteger(aWrapPointStr) )
+					{
+						logError(
+							"Hotspot Range '%s': "
+							"Value of wrap point (after @ symbol) "
+							"must be a positive integer value!",
+							theKey.c_str());
+						valid = false;
+					}
+					else
+					{
+						applyXEvery = stringToU32(aWrapPointStr);
+						valid = aStrPos < theDesc.size() &&
+							(theDesc[aStrPos] == ',' ||
+							 theDesc[aStrPos] == 'x' ||
+							 theDesc[aStrPos] == 'X');
+					}
+				}
+				// Y step
+				if( valid )
+				{
+					aStepY = int(floor(
+						stringToDoubleSum(theDesc, ++aStrPos) + 0.5));
+					valid =
+						aStrPos == theDesc.size() ||
+						theDesc[aStrPos] == '@';
+				}
+				// Y wrap
+				if( valid && theDesc[aStrPos] == '@' )
+				{
+					if( applyXEvery )
+					{
+						logError(
+							"Hotspot Range '%s': "
+							"Only one axis (X or Y) can have a "
+							"wrapping point set (using '@' character)!",
+							theKey.c_str());
+					}
+					else
+					{
+						const std::string& aWrapPointStr =
+							fetchNextItem(theDesc, ++aStrPos, ",xX");
+						if( aWrapPointStr[0] == '-' ||
+							!isAnInteger(aWrapPointStr) )
+						{
+							logError(
+								"Hotspot Range '%s': "
+								"Value of wrap point (after @ symbol) "
+								"must be a positive integer value!",
+								theKey.c_str());
+							valid = false;
+						}
+						else
+						{
+							applyYEvery = stringToU32(aWrapPointStr);
+							valid = aStrPos == theDesc.size();
+						}
+					}
+				}
+				if( !valid )
+				{
+					logError("Hotspot Range '%s' expected per-hotspot offsets "
+						"but unable to interpret '%s' as such!",
+						theKey.c_str(),
+						theDesc.substr(aRangeInfoStrPos+1).c_str());
+				}
+				// Cut range description off the end of theDesc
+				theDesc = theDesc.substr(0, aRangeInfoStrPos);
+			}
+			else
+			{
+				logError("Hotspot Range '%s' expected per-hotspot offsets "
+					"(after ':') but found none in '%s'!",
+					theKey.c_str(), theDesc.c_str());
+			}
+		}
+
+		// Set first hotspot directly as a normal hotspot at start pos
+		applyHotspotProperty(
+			anArrayKey + toString(aRangeStartIdx),
+			theDesc, theParentSet, fullParse, true);
+
+		// Remaining hotspots in the range use previous hotspots as their
+		// anchor and apply as offsets only
+		for(int i = 1, end = aRangeEndIdx - aRangeStartIdx + 1; i < end; ++i)
+		{
+			if( calculateOffsets )
+			{
+				int aParentIdx = aRangeStartIdx + i - 1;
+				int anOffsetX = applyXEvery ? 0 : aStepX;
+				int anOffsetY = applyYEvery ? 0 : aStepY;
+				if( applyXEvery > 0 && i % applyXEvery == 0 )
+				{
+					aParentIdx = aRangeStartIdx + i - applyXEvery;
+					anOffsetX = aStepX;
+					anOffsetY = 0;
+				}
+				if( applyYEvery > 0 && i % applyYEvery == 0 )
+				{
+					aParentIdx = aRangeStartIdx + i - applyYEvery;
+					anOffsetX = 0;
+					anOffsetY = aStepY;
+				}
+				theDesc = anArrayKey + toString(aParentIdx) + ":" +
+					toString(anOffsetX) + ", " +
+					toString(anOffsetY);
+			}
+			applyHotspotProperty(
+				anArrayKey + toString(aRangeStartIdx + i),
+				theDesc, theParentSet, fullParse, true);
+		}
+		return;
+	}
+
+	int aHotspotID = sHotspots.findOrAddIndex(theKey);
+	if( aHotspotID == sHotspots.size()-1 )
+	{
+		sActiveHotspots.resize(sHotspots.size());
+		sChangedHotspots.resize(sHotspots.size());
+		sChangedHotspots.set(sHotspots.size()-1);
+		sHotspotsToNormalize.resize(sHotspots.size());
+		for(int i = 0, end = sHotspotSets.size(); i < end; ++i)
+			sHotspotSets.vals()[i].included.resize(sHotspots.size());
+	}
+
+	// If only collecting hotspot names for the map, stop here for now
+	if( !fullParse )
+		return;
+
+	HotspotData& aHotspot = sHotspots.vals()[aHotspotID];
+
+	// Don't allow an auto assignment to override a direct one
+	if( !autoAssigned )
+		aHotspot.directAssigned = true;
+	else if( aHotspot.directAssigned )
+		return;
+
+	// Assign a hotspot to offset from
+	aHotspot.anchorHotspotID = 0; // default "None" hotspot
+	const std::string& anAnchorName = breakOffItemBeforeChar(theDesc, ':');
+	if( theParentSet > 0 )
+	{// Add set name to beginning of anchor name (or entirely as anchor name)
+		DBG_ASSERT(theParentSet < sHotspotSets.size());
+		const std::string& aSetAnchorName =
+			sHotspotSets.keys()[theParentSet] + anAnchorName;
+		aHotspot.anchorHotspotID = dropTo<u16>(
+			sHotspots.findIndex(aSetAnchorName));
+		if( aHotspot.anchorHotspotID >= sHotspots.size() )
+			aHotspot.anchorHotspotID = 0;
+	}
+	if( !anAnchorName.empty() && aHotspot.anchorHotspotID == 0 )
+	{
+		aHotspot.anchorHotspotID = dropTo<u16>(
+			sHotspots.findIndex(anAnchorName));
+		if( aHotspot.anchorHotspotID >= sHotspots.size() )
+		{
+			aHotspot.anchorHotspotID = 0;
+			logError("Hotspot %s: Could not find anchor hotspot named '%s'",
+				theKey.c_str(),
+				anAnchorName.c_str());
+		}
+	}
+	if( aHotspot.anchorHotspotID )
+	{// Confirm didn't just make an infinite parenting loop
+		int aParentID = aHotspot.anchorHotspotID;
+		while(aParentID != 0)
+		{
+			if( aParentID == aHotspotID )
+			{// Infinite loop found!
+				logError("Hotspot %s ends up with itself as a parent/anchor!",
+					theKey.c_str());
+				aHotspot.anchorHotspotID = 0;
+				break;
+			}
+			aParentID = sHotspots.vals()[aParentID].anchorHotspotID;
+		}
+	}
+	if( theDesc[0] == ':' )
+		theDesc = theDesc.substr(1);
+	
+	// Add to parent set if haven't alreday done so
+	if( theParentSet && !aHotspot.setID )
+	{
+		aHotspot.setID = dropTo<u16>(theParentSet);
+		sHotspotSets.vals()[theParentSet].included.set(aHotspotID);
+	}
+
+	if( isEffectivelyEmptyString(theDesc) )
+	{// Mark as invalid hotspot (and changed if was previously valid)
+		if( aHotspot.valid )
+		{
+			aHotspot.valid = false;
+			sChangedHotspots.set(aHotspotID);
+		}
+		return;
+	}
+
+	Hotspot aNewHotspot;
+	if( !theDesc.empty() )
+	{
+		// X
+		size_t aStrPos = 0;
+		aNewHotspot.x = stringToCoord(theDesc, aStrPos);
+		bool valid = aStrPos < theDesc.size() &&
+			(theDesc[aStrPos] == ',' ||
+			 theDesc[aStrPos] == 'x' ||
+			 theDesc[aStrPos] == 'X');
+		// Y
+		if( valid )
+		{
+			aNewHotspot.y = stringToCoord(theDesc, ++aStrPos);
+			valid = aStrPos == theDesc.size() ||
+				theDesc[aStrPos] == ',';
+		}
+		// W
+		aHotspot.hasOwnSize =
+			valid && aStrPos < theDesc.size() && theDesc[aStrPos] == ',';
+		if( aHotspot.hasOwnSize )
+		{
+			const double aWidth = stringToDoubleSum(theDesc, ++aStrPos);
+			aNewHotspot.w = u16(clamp(floor(aWidth + 0.5), 0, 0xFFFF));
+			valid = aStrPos < theDesc.size() &&
+				(theDesc[aStrPos] == ',' ||
+				 theDesc[aStrPos] == 'x' ||
+				 theDesc[aStrPos] == 'X');
+			// H
+			if( valid )
+			{
+				const double aHeight = stringToDoubleSum(theDesc, ++aStrPos);
+				aNewHotspot.h = u16(clamp(floor(aHeight + 0.5), 0, 0xFFFF));
+				valid = aStrPos == theDesc.size();
+			}
+		}
+		if( valid )
+		{
+			if( !aHotspot.valid )
+			{
+				aHotspot.valid = true;
+				sChangedHotspots.set(aHotspotID);
+			}
+		}
+		else
+		{
+			logError("Hotspot %s: Error parsing hotspot description '%s'",
+				theKey.c_str(), theDesc.c_str());
+			aNewHotspot = Hotspot();
+			aHotspot.valid = false;
+		}
+	}
+
+	aHotspot.hasOwnXAnchor = aNewHotspot.x.anchor != 0;
+	aHotspot.hasOwnYAnchor = aNewHotspot.y.anchor != 0;
+	if( !aHotspot.hasOwnXAnchor )
+		aHotspot.ox = aNewHotspot.x.offset;
+	if( !aHotspot.hasOwnYAnchor )
+		aHotspot.oy = aNewHotspot.y.offset;
+	finalizeHotspot(aHotspotID, aNewHotspot);
+}
+
+
 static void processSetDistancesTask()
 {
 	const u64 aJumpDist = u32(max(0.0,
@@ -356,42 +741,43 @@ static void processSetDistancesTask()
 static void processNormalizeTask()
 {
 	if( sTaskProgress == 0 )
-		sTaskProgress = sPointsToNormalize.firstSetBit();
+		sTaskProgress = sHotspotsToNormalize.firstSetBit();
 
-	while(sTaskProgress < sPointsToNormalize.size() &&
-		  !InputMap::isValidHotspotID(sTaskProgress) )
+	while(sTaskProgress < sHotspotsToNormalize.size() &&
+		  !HotspotMap::isValidHotspotID(sTaskProgress) )
 	{
-		sPointsToNormalize.reset(sTaskProgress);
-		sTaskProgress = sPointsToNormalize.nextSetBit(sTaskProgress);
-		if( sTaskProgress >= sPointsToNormalize.size() )
+		sHotspotsToNormalize.reset(sTaskProgress);
+		sTaskProgress = sHotspotsToNormalize.nextSetBit(sTaskProgress);
+		if( sTaskProgress >= sHotspotsToNormalize.size() )
 		{
 			sCurrentTask = eTask_None;
 			return;
 		}
 	}
 
-	if( sTaskProgress < intSize(sPoints.size()) )
+	if( sTaskProgress < intSize(sHotspots.size()) )
 	{
-		sPointsToNormalize.reset(sTaskProgress);
-		const Hotspot& aHotspot = InputMap::getHotspot(sTaskProgress);
+		sHotspotsToNormalize.reset(sTaskProgress);
+		const Hotspot& aHotspot = HotspotMap::getHotspot(sTaskProgress);
 		const POINT& aDesktopPos = WindowManager::overlayPosToDesktopPos(
 			WindowManager::hotspotToOverlayPos(aHotspot));
 		if( sMaxDesktopAxis > 0 )
 		{
-			sPoints[sTaskProgress].x =
+			sHotspots.vals()[sTaskProgress].nx =
 				ratioToU16(aDesktopPos.x, sMaxDesktopAxis);
-			sPoints[sTaskProgress].y =
+			sHotspots.vals()[sTaskProgress].ny =
 				ratioToU16(aDesktopPos.y, sMaxDesktopAxis);
 		}
 		mapDebugPrint(
 			"Normalizing Hotspot '%s' (%d x %d) position to %d x %d \n",
-			InputMap::hotspotLabel(sTaskProgress).c_str(),
+			hotspotLabel(sTaskProgress),
 			aDesktopPos.x, aDesktopPos.y,
-			sPoints[sTaskProgress].x, sPoints[sTaskProgress].y);
+			sHotspots.vals()[sTaskProgress].nx,
+			sHotspots.vals()[sTaskProgress].ny);
 	}
 
-	sTaskProgress = sPointsToNormalize.nextSetBit(sTaskProgress);
-	if( sTaskProgress >= sPointsToNormalize.size() )
+	sTaskProgress = sHotspotsToNormalize.nextSetBit(sTaskProgress);
+	if( sTaskProgress >= sHotspotsToNormalize.size() )
 		sCurrentTask = eTask_None;
 }
 
@@ -400,7 +786,7 @@ static void processAddToGridTask()
 {
 	if( sTaskProgress == 0 )
 	{
-		if( sActiveArrays.any() )
+		if( sActiveHotspotSets.any() )
 			mapDebugPrint("Adding enabled hotspots to grid...\n");
 		for(int x = 0; x < kGridSize; ++x)
 		{
@@ -409,46 +795,33 @@ static void processAddToGridTask()
 		}
 	}
 
-	const int kArrayCount = InputMap::hotspotArrayCount();
-	int aTaskArrayID = sActiveArrays.nextSetBit(sTaskProgress >> 16);
-	if( aTaskArrayID >= kArrayCount )
+	int anAddedCount = 0;
+	for(int anAddedCount = 0; anAddedCount < 16; ++anAddedCount)
 	{
-		sCurrentTask = eTask_None;
-		return;
-	}
-
-	const int kArrayFirstIdx = InputMap::firstHotspotInArray(aTaskArrayID);
-	const int kCurrArraySize = InputMap::sizeOfHotspotArray(aTaskArrayID);
-	int aTaskHotspotID = sTaskProgress & 0xFFFF;
-
-	while(aTaskHotspotID < kCurrArraySize)
-	{
-		const int aPointIdx = kArrayFirstIdx + aTaskHotspotID;
-		++aTaskHotspotID;
-		if( !InputMap::isValidHotspotID(aPointIdx) )
-			continue;
-		const int aGridX = sPoints[aPointIdx].x >> kNormalizedToGridShift;
-		const int aGridY = sPoints[aPointIdx].y >> kNormalizedToGridShift;
+		sTaskProgress = sActiveHotspots.nextSetBit(sTaskProgress);
+		while(sTaskProgress < sActiveHotspots.size() &&
+			  !sHotspots.vals()[sTaskProgress].valid)
+		{
+			sTaskProgress = sActiveHotspots.nextSetBit(sTaskProgress+1);
+		}
+		if( sTaskProgress >= sActiveHotspots.size() )
+		{
+			sCurrentTask = eTask_None;
+			return;
+		}
+		const int aGridX =
+			sHotspots.vals()[sTaskProgress].nx >> kNormalizedToGridShift;
+		const int aGridY =
+			sHotspots.vals()[sTaskProgress].ny >> kNormalizedToGridShift;
 		DBG_ASSERT(aGridX >= 0 && aGridX < kGridSize);
 		DBG_ASSERT(aGridY >= 0 && aGridY < kGridSize);
 		mapDebugPrint(
 			"Adding Hotspot '%s' to grid cell %d x %d\n",
-			InputMap::hotspotLabel(aPointIdx).c_str(),
+			hotspotLabel(sTaskProgress),
 			aGridX, aGridY);
-		sActiveGrid[aGridX][aGridY].push_back(dropTo<u16>(aPointIdx));
-		break;
+		sActiveGrid[aGridX][aGridY].push_back(dropTo<u16>(sTaskProgress));
+		++sTaskProgress;
 	}
-
-	if( aTaskHotspotID >= kCurrArraySize )
-	{
-		++aTaskArrayID;
-		aTaskHotspotID = 0;
-	}
-
-	if( aTaskArrayID >= kArrayCount )
-		sCurrentTask = eTask_None;
-	else
-		sTaskProgress = (aTaskArrayID << 16) | aTaskHotspotID;
 }
 
 
@@ -528,13 +901,13 @@ static void processFetchFromGridTask()
 
 	for(size_t i = 0; i < sActiveGrid[aGridX][aGridY].size(); ++i)
 	{
-		const int aPointIdx = sActiveGrid[aGridX][aGridY][i];
-		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		const u32 aDeltaX = abs(aPoint.x - sNormalizedCursorPos.x);
-		const u32 aDeltaY = abs(aPoint.y - sNormalizedCursorPos.y);
+		const int aHotspotID = sActiveGrid[aGridX][aGridY][i];
+		const HotspotData& aHotspot = sHotspots.vals()[aHotspotID];
+		const u32 aDeltaX = abs(aHotspot.nx - sNormalizedCursorPos.x);
+		const u32 aDeltaY = abs(aHotspot.ny - sNormalizedCursorPos.y);
 		const u32 aDistSq = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
 		if( aDistSq >= sMinJumpDistSquared && aDistSq < sMaxJumpDistSquared )
-			sCandidates.push_back(aPointIdx);
+			sCandidates.push_back(aHotspotID);
 	}
 
 	if( ++sTaskProgress >= kFetchGridSize )
@@ -550,10 +923,10 @@ static void processNextInDirTask(ECommandDir theDir)
 
 	while(sTaskProgress < kCandidateCount)
 	{
-		const int aPointIdx = sCandidates[sTaskProgress++];
-		const TrackedPoint& aPoint = sPoints[aPointIdx];
-		int dx = aPoint.x - sNormalizedCursorPos.x;
-		int dy = aPoint.y - sNormalizedCursorPos.y;
+		const int aHotspotID = sCandidates[sTaskProgress++];
+		const HotspotData& aHotspot = sHotspots.vals()[aHotspotID];
+		int dx = aHotspot.nx - sNormalizedCursorPos.x;
+		int dy = aHotspot.ny - sNormalizedCursorPos.y;
 		bool inAllowedDir = false;
 		switch(theDir)
 		{
@@ -608,7 +981,7 @@ static void processNextInDirTask(ECommandDir theDir)
 		{
 			if( u32(aDirDist) < sBestCandidateDistPenalty )
 			{
-				sNextHotspotInDir[theDir] = aPointIdx;
+				sNextHotspotInDir[theDir] = aHotspotID;
 				sBestCandidateDistPenalty = u32(aDirDist);
 			}
 			continue;
@@ -625,7 +998,7 @@ static void processNextInDirTask(ECommandDir theDir)
 		const u32 aDistPenalty = u32(sMaxJumpDist) + aDistSqFromBaseDest;
 		if( aDistPenalty < sBestCandidateDistPenalty )
 		{
-			sNextHotspotInDir[theDir] = aPointIdx;
+			sNextHotspotInDir[theDir] = aHotspotID;
 			sBestCandidateDistPenalty = aDistPenalty;
 		}
 		break;
@@ -645,7 +1018,7 @@ static void processNextInDirTask(ECommandDir theDir)
 				theDir == eCmd8Dir_UR	? "UpRight":
 				theDir == eCmd8Dir_DL	? "DownLeft":
 				/*eCmd8Dir_DR*/			  "DownRight",
-				InputMap::hotspotLabel(sNextHotspotInDir[theDir]).c_str());
+				hotspotLabel(sNextHotspotInDir[theDir]));
 		}
 	}
 }
@@ -740,7 +1113,7 @@ static void safeLinkHotspotRows(
 								(aLinkDot.x > aRow[i-1].x &&
 								 aLinkDot.x < aRow[i+1].x) )
 							{
-								aRow[i].vertLink[aVDir] = aLinkDot.pointID;
+								aRow[i].vertLink[aVDir] = aLinkDot.hotspotID;
 							}
 						}
 					}
@@ -753,7 +1126,7 @@ static void safeLinkHotspotRows(
 					if( aRow[i].vertLink[aVDir] == 0 )
 					{
 						aRow[i].vertLink[aVDir] =
-							aNextRow.closestTo(aRow[i].x).pointID;
+							aNextRow.closestTo(aRow[i].x).hotspotID;
 					}
 				}
 				break;
@@ -763,7 +1136,7 @@ static void safeLinkHotspotRows(
 					aRow.outsideLink[eHDir_L] == 0 )
 				{
 					aRow.leftEdgeDot().vertLink[aVDir] =
-						aNextRow.rightEdgeDot().pointID;
+						aNextRow.rightEdgeDot().hotspotID;
 				}
 				break;
 			case Row::eConnectMethod_OffRightEdge:
@@ -772,7 +1145,7 @@ static void safeLinkHotspotRows(
 					aRow.outsideLink[eHDir_R] == 0 )
 				{
 					aRow.rightEdgeDot().vertLink[aVDir] =
-						aNextRow.leftEdgeDot().pointID;
+						aNextRow.leftEdgeDot().hotspotID;
 				}
 				break;
 			case Row::eConnectMethod_SplitOut:
@@ -781,13 +1154,13 @@ static void safeLinkHotspotRows(
 					aRow.outsideLink[eHDir_L] == 0 )
 				{
 					aRow.leftEdgeDot().vertLink[aVDir] =
-						aNextRow.nextLeft(aRow.minX()).pointID;
+						aNextRow.nextLeft(aRow.minX()).hotspotID;
 				}
 				if( aRow.rightEdgeDot().vertLink[aVDir] == 0 &&
 					aRow.outsideLink[eHDir_R] == 0 )
 				{
 					aRow.rightEdgeDot().vertLink[aVDir] =
-						aNextRow.nextRight(aRow.maxX()).pointID;
+						aNextRow.nextRight(aRow.maxX()).hotspotID;
 				}
 				break;
 			case Row::eConnectMethod_SplitIn:
@@ -796,13 +1169,13 @@ static void safeLinkHotspotRows(
 					aRow.insideLink[eHDir_R] == 0 )
 				{
 					aRow.nextLeft(aNextRow.minX()).vertLink[aVDir] =
-						aNextRow.leftEdgeDot().pointID;
+						aNextRow.leftEdgeDot().hotspotID;
 				}
 				if( aRow.nextRight(aNextRow.minX()).vertLink[aVDir] == 0 &&
 					aRow.insideLink[eHDir_L] == 0 )
 				{
 					aRow.nextRight(aNextRow.minX()).vertLink[aVDir] =
-						aNextRow.rightEdgeDot().pointID;
+						aNextRow.rightEdgeDot().hotspotID;
 				}
 				break;
 			}
@@ -874,7 +1247,7 @@ static void safeLinkHotspotRows(
 					if( aRow.outsideLink[aHDir] )
 						break;
 					aRow.outsideLink[aHDir] =
-						aNextRow.edgeDot(oppositeDir(aHDir)).pointID;
+						aNextRow.edgeDot(oppositeDir(aHDir)).hotspotID;
 					aRow.edgeDot(aHDir).vertLink[aVDir] = 0;
 					if( isBidirectional )
 						aRow.edgeDot(aHDir).vertLink[anOppVDir] = 0;
@@ -887,9 +1260,9 @@ static void safeLinkHotspotRows(
 
 				// Convert to horizontal links in both directions
 				aRow.outsideLink[eHDir_L] =
-					aNextRow.nextLeft(aRow.minX()).pointID;
+					aNextRow.nextLeft(aRow.minX()).hotspotID;
 				aRow.outsideLink[eHDir_R] =
-					aNextRow.nextRight(aRow.minX()).pointID;
+					aNextRow.nextRight(aRow.minX()).hotspotID;
 				aRow.leftEdgeDot().vertLink[aVDir] = 0;
 				aRow.rightEdgeDot().vertLink[aVDir] = 0;
 				if( isBidirectional )
@@ -907,14 +1280,14 @@ static void safeLinkHotspotRows(
 				aRow.insideLinkDotIdx[eHDir_L] =
 					aRow.nextRightIdx(aNextRow.maxX());
 				aRow.insideLink[eHDir_L] =
-					aNextRow.rightEdgeDot().pointID;
+					aNextRow.rightEdgeDot().hotspotID;
 				aRow[aRow.insideLinkDotIdx[eHDir_L]].vertLink[aVDir] = 0;
 
 				// Right to smaller row's left-most dot
 				aRow.insideLinkDotIdx[eHDir_R] =
 					aRow.nextLeftIdx(aNextRow.minX());
 				aRow.insideLink[eHDir_R] =
-					aNextRow.leftEdgeDot().pointID;
+					aNextRow.leftEdgeDot().hotspotID;
 				aRow[aRow.insideLinkDotIdx[eHDir_R]].vertLink[aVDir] = 0;
 
 				if( isBidirectional )
@@ -950,29 +1323,196 @@ static void safeLinkHotspotRows(
 }
 
 
+static bool addHotspotSet(
+	const Profile::SectionsMap& theSectionsMap,
+	int theSectionID, const std::string& thePrefix, void*)
+{
+	const std::string& aSectionName =
+		theSectionsMap.keys()[theSectionID];
+	const std::string& aHotspotSetName =
+		aSectionName.substr(posAfterPrefix(aSectionName, thePrefix));
+	if( !aHotspotSetName.empty() )
+		sHotspotSets.findOrAdd(aHotspotSetName);
+	return true;
+}
+
+
+static void loadHotspotDataFromProfile(
+	const Profile::SectionsMap& theProfileMap)
+{
+	// Need to parse properties twice - once to add hotspot names for
+	// possible reference by other hotspots, and then the full parse
+	for(int aParseMode = 0; aParseMode < 2; ++aParseMode)
+	{
+		// Parse non-set Hotspots
+		if( Profile::PropertyMapPtr aPropMap =
+				theProfileMap.find(kHotspotSectName) )
+		{
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
+			{
+				applyHotspotProperty(
+					aPropMap->keys()[aPropIdx],
+					aPropMap->vals()[aPropIdx].str,
+					0, aParseMode != 0);
+			}
+		}
+
+		// Parse hotspots in sets
+		for(int i = 1, end = sHotspotSets.size(); i < end; ++i)
+		{
+			Profile::PropertyMapPtr aPropMap = theProfileMap.find(
+				kHotspotSectName + std::string(".") +
+				sHotspotSets.keys()[i]);
+			if( !aPropMap )
+				continue;
+			if( !sHotspotSets.vals()[i].anchorHotspotID )
+			{// Make sure has an anchor hotspot assigned (even if empty)
+				applyHotspotProperty(
+					sHotspotSets.keys()[i], "", 0, false, true);
+				const int anAnchorIdx =
+					sHotspots.findIndex(sHotspotSets.keys()[i]);
+				DBG_ASSERT(anAnchorIdx != 0);
+				DBG_ASSERT(anAnchorIdx < sHotspots.size());
+				sHotspotSets.vals()[i].anchorHotspotID =
+					dropTo<u16>(anAnchorIdx);
+			}
+			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
+			{
+				const std::string& aCondensedKey =
+					condense(aPropMap->keys()[aPropIdx]);
+				if( aCondensedKey == "ANCHOR" ||
+					aCondensedKey == "BASE" )
+				{
+					// Anchor hotspots aren't considered actually IN the set,
+					// so still send in a setID of 0
+					applyHotspotProperty(
+						sHotspotSets.keys()[i],
+						aPropMap->vals()[aPropIdx].str,
+						0, aParseMode != 0);
+				}
+				else if( aCondensedKey == "SCALE" )
+				{
+					if( aParseMode != 0 )
+					{
+						const float aNewScale =
+							stringToFloat(aPropMap->vals()[aPropIdx].str);
+						if( aNewScale != sHotspotSets.vals()[i].scale )
+						{
+							sHotspotSets.vals()[i].scale = aNewScale;
+							// Mark anchor hotspot as changded so re-apply
+							// scale to all hotspot offsets in this set
+							const int anAnchorID =
+								sHotspotSets.vals()[i].anchorHotspotID;
+							DBG_ASSERT(anAnchorID != 0);
+							sChangedHotspots.set(anAnchorID);
+						}
+					}
+				}
+				else
+				{
+					// Parse hotspot assigned to this set
+					applyHotspotProperty(
+						sHotspotSets.keys()[i] + aPropMap->keys()[aPropIdx],
+						aPropMap->vals()[aPropIdx].str,
+						i, aParseMode != 0);
+				}
+			}
+		}
+	}
+
+	// Changes to anchor hotspots need to be applied to offet hotspots
+	// Continue updating until a full pass happens with no new changes
+	bool needApplyOffsets = sChangedHotspots.any();
+	while(needApplyOffsets)
+	{
+		needApplyOffsets = false;
+		for(int i = 1, end = sHotspots.size(); i < end; ++i)
+		{
+			HotspotData& aHotspot = sHotspots.vals()[i];
+			if( aHotspot.anchorHotspotID > 0 &&
+				sChangedHotspots.test(aHotspot.anchorHotspotID) &&
+				finalizeHotspot(i, sHotspots.vals()[i].hs) )
+			{
+				needApplyOffsets = true;
+			}
+		}
+	}
+
+	if( sTaskProgress > 0 )
+		sCurrentTask = eTask_None;
+
+	// Report changed hotspots (done after the fact since a single hotspot
+	// property can change multiple hotspots at once due to ranges).
+	#ifdef HOTSPOT_MAP_DEBUG_PRINT
+	for(int aHotspotID = sChangedHotspots.firstSetBit();
+		aHotspotID < sChangedHotspots.size();
+		aHotspotID = sChangedHotspots.nextSetBit(aHotspotID+1))
+	{
+		if( !sHotspots.vals()[aHotspotID].valid )
+		{
+			mapDebugPrint("Assigned '%s' to EMPTY (invalid)\n",
+				hotspotLabel(aHotspotID));
+		}
+		else
+		{
+			const Hotspot& aHotspot = sHotspots.vals()[aHotspotID].hs;
+			const float aScale = hotspotScale(aHotspotID);
+			mapDebugPrint("Assigned '%s' to %d%s%dx, %d%s%dy, %dw, %dh\n",
+				hotspotLabel(aHotspotID),
+				int(aHotspot.x.anchor / 655.36 + 0.5),
+				aHotspot.x.offset >= 0 ? "%+" : "%",
+				aHotspot.x.offset,
+				int(aHotspot.y.anchor / 655.36 + 0.5),
+				aHotspot.y.offset >= 0 ? "%+" : "%",
+				aHotspot.y.offset,
+				int(aHotspot.w * aScale),
+				int(aHotspot.h * aScale));
+		}
+	}
+	#endif
+}
+
+
 //------------------------------------------------------------------------------
 // Global Functions
 //------------------------------------------------------------------------------
 
-void init()
+void loadProfile()
 {
-	DBG_ASSERT(sPoints.empty());
-	const int aHotspotsCount = InputMap::hotspotCount();
-	const int aHotspotArraysCount = InputMap::hotspotArrayCount();
+	DBG_ASSERT(sHotspots.empty());
+	DBG_ASSERT(sHotspotSets.empty());
 	sFetchGrid.reserve(kGridSize * kGridSize);
-	sPoints.reserve(aHotspotsCount);
-	sPoints.resize(aHotspotsCount);
-	sPointsToNormalize.clearAndResize(aHotspotsCount);
-	sActiveArrays.clearAndResize(aHotspotArraysCount);
+
+	// Create hotspot sets (starting with default unnamed set)
+	sHotspotSets.setValue(kSpecialHotspotNames[0], HotspotSet());
+	Profile::allSections().findAllWithPrefix(
+		kHotspotSectName + std::string("."), addHotspotSet);
+
+	// Create the special hotspots first so they get correct IDs
+	for(int i = 0; i < eSpecialHotspot_Num; ++i)
+		sHotspots.setValue(kSpecialHotspotNames[i], HotspotData());
+	sChangedHotspots.clearAndResize(eSpecialHotspot_Num);
+	sChangedHotspots.set();
+	sChangedHotspots.reset(eSpecialHotspot_None);
+	sChangedHotspots.reset(eSpecialHotspot_LastCursorPos);
+
+	// Fetch and apply hotspot properties
+	loadHotspotDataFromProfile(Profile::allSections());
+	sChangedHotspots.reset();
 
 	// Queue ALL tasks initially
 	sNewTasks.set();
+
+	// Set initial desktop size for normalizing
 	resize();
 }
 
 
 void loadProfileChanges()
 {
+	// Load any changes to hotspots themselves first (to flag changed ones)
+	loadHotspotDataFromProfile(Profile::changedSections());
+
 	// Unlikely, but did base jump distance change?
 	if( Profile::PropertyMapPtr aPropMap =
 			Profile::changedSections().find(kBaseJumpDistSectName) )
@@ -1014,10 +1554,10 @@ void loadProfileChanges()
 	}
 
 	// Check for any hotspots need to re-normalize and thus re-process grid
-	sPointsToNormalize |= InputMap::changedHotspots();
-	sPointsToNormalize.reset(eSpecialHotspot_None);
-	sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
-	if( sPointsToNormalize.any() )
+	sHotspotsToNormalize |= sChangedHotspots;
+	sHotspotsToNormalize.reset(eSpecialHotspot_None);
+	sHotspotsToNormalize.reset(eSpecialHotspot_LastCursorPos);
+	if( sHotspotsToNormalize.any() )
 	{
 		sNewTasks.set(eTask_Normalize);
 		sNewTasks.set(eTask_AddToGrid);
@@ -1030,12 +1570,16 @@ void loadProfileChanges()
 
 void cleanup()
 {
-	sActiveArrays.clear();
-	sPointsToNormalize.clear();
-	sPoints.clear();
+	sHotspots.clear();
+	sHotspotSets.clear();
+	sActiveHotspotSets.clear();
+	sActiveHotspots.clear();
+	sChangedHotspots.clear();
+	sHotspotsToNormalize.clear();
+	sFetchGrid.clear();
+	sCandidates.clear();
 	sLinkMaps.clear();
 	sEdgeMaps.clear();
-	sCandidates.clear();
 	sNewTasks.reset();
 	sCurrentTask = eTask_None;
 	sTaskProgress = 0;
@@ -1049,13 +1593,13 @@ void cleanup()
 
 void resize()
 {
-	if( sPoints.empty() )
+	if( sHotspots.empty() )
 		return;
 
 	// Recalculate where points are on the desktop and normalize them
-	sPointsToNormalize.set();
-	sPointsToNormalize.reset(eSpecialHotspot_None);
-	sPointsToNormalize.reset(eSpecialHotspot_LastCursorPos);
+	sHotspotsToNormalize.set();
+	sHotspotsToNormalize.reset(eSpecialHotspot_None);
+	sHotspotsToNormalize.reset(eSpecialHotspot_LastCursorPos);
 	sNewTasks.set(eTask_SetDistances);
 	sNewTasks.set(eTask_Normalize);
 	sNewTasks.set(eTask_AddToGrid);
@@ -1068,37 +1612,144 @@ void resize()
 
 void update()
 {
-	// Restart search whenever cursor has moved
-	if( InputMap::changedHotspots().test(eSpecialHotspot_LastCursorPos) )
-		sNewTasks.set(eTask_BeginSearch);
-
-	// Continue progress on any current tasks
 	processTasks();
 }
 
 
-void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays)
+const Hotspot& getHotspot(int theHotspotID)
 {
-	if( sActiveArrays != theHotspotArrays )
+	DBG_ASSERT(size_t(theHotspotID) < size_t(sHotspots.size()));
+	return sHotspots.vals()[theHotspotID].hs;
+}
+
+
+const BitVector<512>& getHotspotSet(int theHotspotSetID)
+{
+	DBG_ASSERT(size_t(theHotspotSetID) < size_t(sHotspotSets.size()));
+	return sHotspotSets.vals()[theHotspotSetID].included;
+}
+
+
+int hotspotCount()
+{
+	return sHotspots.size();
+}
+
+
+int hotspotSetCount()
+{
+	return sHotspotSets.size();
+}
+
+
+int hotspotIDFromName(const std::string& theHotspotName)
+{
+	int result = sHotspots.findIndex(theHotspotName);
+	if( result >= sHotspots.size() )
+		result = eSpecialHotspot_None;
+	return result;
+}
+
+
+int hotspotSetIDFromName(const std::string& theHotspotSetName)
+{
+	int result = sHotspotSets.findIndex(theHotspotSetName);
+	if( result >= sHotspotSets.size() )
+		result = 0;
+	return result;
+}
+
+
+bool isValidHotspotID(int theHotspotID)
+{
+	return
+		theHotspotID > 0 &&
+		theHotspotID < sHotspots.size() &&
+		sHotspots.vals()[theHotspotID].valid;
+}
+
+
+float hotspotScale(int theHotspotID)
+{
+	DBG_ASSERT(size_t(theHotspotID) < size_t(sHotspots.size()));
+	return sHotspotSets.vals()[sHotspots.vals()[theHotspotID].setID].scale;
+}
+
+
+const char* hotspotLabel(int theHotspotID)
+{
+	DBG_ASSERT(theHotspotID >= 0);
+	DBG_ASSERT(theHotspotID < sHotspots.size());
+	return sHotspots.keys()[theHotspotID].c_str();
+}
+
+
+const char* hotspotSetLabel(int theHotspotSetID)
+{
+	DBG_ASSERT(theHotspotSetID >= 0);
+	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
+	return sHotspotSets.keys()[theHotspotSetID].c_str();
+}
+
+
+const BitVector<512>& changedHotspots()
+{
+	return sChangedHotspots;
+}
+
+
+void resetChangedHotspots()
+{
+	sChangedHotspots.reset();
+}
+
+
+bool setLastCursorPos(POINT theNewPos)
+{
+	theNewPos = WindowManager::overlayPosValidated(theNewPos);
+	if( theNewPos.x != gLastCursorPos.x || theNewPos.y != gLastCursorPos.y )
+	{
+		gLastCursorPos = theNewPos;
+		sChangedHotspots.set(eSpecialHotspot_LastCursorPos);
+		sHotspots.vals()[eSpecialHotspot_LastCursorPos].hs =
+			WindowManager::overlayPosToHotspot(theNewPos);
+		sNewTasks.set(eTask_BeginSearch);
+		return true;
+	}
+
+	return false;
+}
+
+
+void setEnabledHotspotSets(const BitVector<32>& theHotspotSets)
+{
+	if( sActiveHotspotSets != theHotspotSets )
 	{
 		#ifdef HOTSPOT_MAP_DEBUG_PRINT
-		for(int i = 0, end = sActiveArrays.size(); i < end; ++i)
+		for(int i = 0, end = sActiveHotspotSets.size(); i < end; ++i)
 		{
-			if( theHotspotArrays.test(i) && !sActiveArrays.test(i) )
+			if( theHotspotSets.test(i) && !sActiveHotspotSets.test(i) )
 			{
 				mapDebugPrint(
-					"Enabling hotspots in Hotspot Array '%s'\n",
-					InputMap::hotspotArrayLabel(i));
+					"Enabling hotspots in Hotspot Set '%s'\n",
+					hotspotSetLabel(i));
 			}
-			else if( !theHotspotArrays.test(i) && sActiveArrays.test(i) )
+			else if( !theHotspotSets.test(i) && sActiveHotspotSets.test(i) )
 			{
 				mapDebugPrint(
-					"Disabling hotspots in Hotspot Array '%s'\n",
-					InputMap::hotspotArrayLabel(i));
+					"Disabling hotspots in Hotspot Set '%s'\n",
+					hotspotSetLabel(i));
 			}
 		}
 		#endif
-		sActiveArrays = theHotspotArrays;
+		sActiveHotspotSets = theHotspotSets;
+		sActiveHotspots.reset();
+		for(int aHotspotSet = sActiveHotspotSets.firstSetBit();
+			aHotspotSet < sActiveHotspotSets.size();
+			aHotspotSet = sActiveHotspotSets.nextSetBit(aHotspotSet+1))
+		{
+			sActiveHotspots |= sHotspotSets.vals()[aHotspotSet].included;
+		}
 		sNewTasks.set(eTask_AddToGrid);
 		sNewTasks.set(eTask_BeginSearch);
 		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
@@ -1107,15 +1758,15 @@ void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays)
 }
 
 
-const BitVector<32>& getEnabledHotspotArrays()
+const BitVector<512>& enabledHotspots()
 {
-	return sActiveArrays;
+	return sActiveHotspots;
 }
 
 
 int getNextHotspotInDir(ECommandDir theDirection)
 {
-	if( sPoints.empty() || sActiveArrays.none() )
+	if( sHotspots.empty() || sActiveHotspotSets.none() )
 		return 0;
 
 	// Abort _nextInDir tasks in all directions besides requested
@@ -1168,19 +1819,29 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 	std::vector<Row> aRowVec; aRowVec.reserve(aNodeCount);
 	for(int aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 	{
-		const int aPointIdx =
+		const int aHotspotID =
 			InputMap::menuItemHotspotID(theMenuID, aNodeIdx);
 		aHotspotToMenuIdxMap.addPair(
-			dropTo<u16>(aPointIdx), dropTo<u8>(aNodeIdx));
-		TrackedPoint& aPoint = sPoints[aPointIdx];
+			dropTo<u16>(aHotspotID), dropTo<u8>(aNodeIdx));
+		if( !isValidHotspotID(aHotspotID) )
+		{
+			const int aDefaultItemIdx = InputMap::menuDefaultItemIdx(theMenuID);
+			for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
+			{
+				aLinkVec[aNodeIdx].next[aDir] = dropTo<u8>(aDefaultItemIdx);
+				aLinkVec[aNodeIdx].edge[aDir] = false;
+			}
+			continue;
+		}
+		HotspotData& aHotspot = sHotspots.vals()[aHotspotID];
 		bool addedToExistingRow = false;
 		for(int i = 0, end = intSize(aRowVec.size()); i < end; ++i)
 		{
 			Row& aRow = aRowVec[i];
-			const int aYDist = abs(aRow.avgY - signed(aPoint.y));
+			const int aYDist = abs(aRow.avgY - signed(aHotspot.ny));
 			if( aYDist <= kMaxPerpDistForStraightLine )
 			{
-				aRow.addDot(aPointIdx);
+				aRow.addDot(aHotspotID);
 				addedToExistingRow = true;
 				break;
 			}
@@ -1188,7 +1849,7 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 		if( !addedToExistingRow )
 		{
 			aRowVec.push_back(Row());
-			aRowVec.back().addDot(aPointIdx);
+			aRowVec.back().addDot(aHotspotID);
 		}
 	}
 	aHotspotToMenuIdxMap.sort();
@@ -1236,7 +1897,7 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 						aDistY + aDistX * kColumnXDistPenaltyMult;
 					if( aDistPenalty < aBestCandidateDistPenalty )
 					{
-						aFromDot.vertLink[aVDir] = aToDot.pointID;
+						aFromDot.vertLink[aVDir] = aToDot.hotspotID;
 						aBestCandidateDistPenalty = aDistPenalty;
 					}
 				}
@@ -1328,7 +1989,7 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 				}
 			}
 			if( aBestDot )
-				aRow.outsideLink[eHDir_L] = aBestDot->pointID;
+				aRow.outsideLink[eHDir_L] = aBestDot->hotspotID;
 
 			aBestDot = aBestBelowRight;
 			if( aBestAboveRight )
@@ -1341,7 +2002,7 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 				}
 			}
 			if( aBestDot )
-				aRow.outsideLink[eHDir_R] = aBestDot->pointID;
+				aRow.outsideLink[eHDir_R] = aBestDot->hotspotID;
 		}
 		for(int aDotIdx = 0, aDotsEnd = intSize(aRow.size());
 			aDotIdx < aDotsEnd; ++aDotIdx )
@@ -1353,12 +2014,12 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 				if( aRowIdx > 0 )
 				{
 					aDot.vertLink[eVDir_U] =
-						aRowVec[aRowIdx-1].closestTo(aDot.x).pointID;
+						aRowVec[aRowIdx-1].closestTo(aDot.x).hotspotID;
 				}
 				if( aRowIdx < intSize(aRowVec.size())-1 )
 				{
 					aDot.vertLink[eVDir_D] =
-						aRowVec[aRowIdx+1].closestTo(aDot.x).pointID;
+						aRowVec[aRowIdx+1].closestTo(aDot.x).hotspotID;
 				}
 			}
 		}
@@ -1381,7 +2042,7 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 					 aRow.insideLinkDotIdx[eHDir_L] == aDotIdx )
 				{ aPointInDir[eCmdDir_L] = aRow.insideLink[eHDir_L]; }
 			else
-				{ aPointInDir[eCmdDir_L] = aRow[aDotIdx-1].pointID; }
+				{ aPointInDir[eCmdDir_L] = aRow[aDotIdx-1].hotspotID; }
 
 			if( aDotIdx == aDotsEnd - 1 )
 				{ aPointInDir[eCmdDir_R] = aRow.outsideLink[eHDir_R]; }
@@ -1389,10 +2050,10 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 					 aRow.insideLinkDotIdx[eHDir_R] == aDotIdx )
 				{ aPointInDir[eCmdDir_R] = aRow.insideLink[eHDir_R]; }
 			else
-				{ aPointInDir[eCmdDir_R] = aRow[aDotIdx+1].pointID; }
+				{ aPointInDir[eCmdDir_R] = aRow[aDotIdx+1].hotspotID; }
 
 			const u8 aNodeIdx = aHotspotToMenuIdxMap.find(
-				dropTo<u16>(aDot.pointID))->second;
+				dropTo<u16>(aDot.hotspotID))->second;
 			HotspotLinkNode& aNode = aLinkVec[aNodeIdx];
 			for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 			{
@@ -1457,26 +2118,26 @@ int getEdgeMenuItem(int theMenuID, ECommandDir theDir, int theDefault)
 		int anEdgeTotalPos = 0;
 		for(int aNodeIdx = 0; aNodeIdx < aNodeCount; ++aNodeIdx)
 		{
-			const TrackedPoint& aNodePos =
-				sPoints[InputMap::menuItemHotspotID(theMenuID, aNodeIdx)];
+			const HotspotData& aHotspot = sHotspots.vals()[
+				InputMap::menuItemHotspotID(theMenuID, aNodeIdx)];
 			int posInDir = -1, posInPerpDir = 0;
 			switch(theDir)
 			{
 			case eCmdDir_L:
-				posInDir = 0xFFFF - aNodePos.x;
-				posInPerpDir = aNodePos.y;
+				posInDir = 0xFFFF - aHotspot.nx;
+				posInPerpDir = aHotspot.ny;
 				break;
 			case eCmdDir_R:
-				posInDir = aNodePos.x;
-				posInPerpDir = aNodePos.y;
+				posInDir = aHotspot.nx;
+				posInPerpDir = aHotspot.ny;
 				break;
 			case eCmdDir_U:
-				posInDir = 0xFFFF - aNodePos.y;
-				posInPerpDir = aNodePos.x;
+				posInDir = 0xFFFF - aHotspot.ny;
+				posInPerpDir = aHotspot.nx;
 				break;
 			case eCmdDir_D:
-				posInDir = aNodePos.y;
-				posInPerpDir = aNodePos.x;
+				posInDir = aHotspot.ny;
+				posInPerpDir = aHotspot.nx;
 				break;
 			}
 			if( posInDir + kMaxPerpDistForStraightLine < anEdgeAvgPos )
@@ -1502,12 +2163,12 @@ int getEdgeMenuItem(int theMenuID, ECommandDir theDir, int theDefault)
 	if( anEdge.size() == 1 )
 		return anEdge[0].second;
 
-	const TrackedPoint& aDefaultPos =
-		sPoints[InputMap::menuItemHotspotID(theMenuID, theDefault)];
+	const HotspotData& aDefaultHotspot =
+		sHotspots.vals()[InputMap::menuItemHotspotID(theMenuID, theDefault)];
 
 	const MenuEdgeNode aSearchNode(
 		(theDir == eCmdDir_L || theDir == eCmdDir_R)
-			? aDefaultPos.y : aDefaultPos.x,
+			? aDefaultHotspot.ny : aDefaultHotspot.nx,
 		0);
 	MenuEdge::const_iterator aNextNode = std::lower_bound(
 		anEdge.begin(), anEdge.end(), aSearchNode);

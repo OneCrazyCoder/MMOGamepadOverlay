@@ -43,18 +43,15 @@ const u8* cmdVKeySeq(const Command& theCommand);
 // KEYBINDS
 Command keyBindCommand(int theKeyBindID);
 u16 keyForSpecialAction(ESpecialKey);
-u16 specialKeyToKeyBindID(ESpecialKey);
-ESpecialKey keyBindIDToSpecialKey(int theKeyBindID); // or _None
-u32 keyBindSignalID(int theKeyBindID);
-u16 keyBindCycleIndexToKeyBindID(int theCycleID, int theIndex);
+int keyBindSignalID(int theKeyBindID);
+int keyBindCycleIndexToKeyBindID(int theCycleID, int theIndex);
+int KeyBindCycleHotspotID(int theCycleID, int theIndex); // or 0
 
 // CONTROLS LAYERS
 const ButtonActionsMap& buttonCommandsForLayer(int theLayerID);
 const SignalActionsMap& signalCommandsForLayer(int theLayerID);
 const ButtonRemap& buttonRemap(int theLayerID);
 BitArray<eBtn_Num> buttonsUsed(int theLayerID);
-// Returns how long given button needs to be held to trigger eBtnAct_Hold
-int commandHoldTime(int theLayerID, EButton theButton);
 int parentLayer(int theLayerID);
 int comboParentLayer(int theLayerID); // 0 if not a combo layer
 
@@ -71,12 +68,12 @@ const BitVector<32>& overlaysToShow(int theLayerID);
 // (overrides any lower layers wishing to show these menus)
 const BitVector<32>& overlaysToHide(int theLayerID);
 
-// Gets what hotspot arrays given layer specifically wants to enable
-const BitVector<32>& hotspotArraysToEnable(int theLayerID);
+// Gets what hotspot sets given layer specifically wants to enable
+const BitVector<32>& hotspotSetsToEnable(int theLayerID);
 
-// Gets what hotspot arrays given layer specifically wants to disable
+// Gets what hotspot sets given layer specifically wants to disable
 // (overrides any lower layers wishing to enable these hotspots)
-const BitVector<32>& hotspotArraysToDisable(int theLayerID);
+const BitVector<32>& hotspotSetsToDisable(int theLayerID);
 
 // Gets layers to auto-add or remove alongside given layer
 const BitVector<32>& autoAddLayers(int theLayerID);
@@ -99,7 +96,7 @@ int menuOverlayID(int theMenuID);
 int overlayRootMenuID(int theOverlayID);
 int menuDefaultItemIdx(int theMenuID);
 int menuItemHotspotID(int theMenuID, int theMenuItemIdx); // or 0
-int menuOriginHotspotID(int theMenuID); // usually 0
+int menuOriginHotspotID(int theMenuID); // usually _None or _LastCursorPos
 int menuKeyBindCycleID(int theMenuID); // for _KBCycle styles
 bool menuHotspotsChanged(int theMenuID);
 int menuGridWidth(int theMenuID); // for _Grid style
@@ -113,20 +110,6 @@ std::string menuItemDirKeyName(ECommandDir theDir);
 int menuSectionNameToID(const std::string& theProfileSectionName);
 void menuItemStringToSubMenuName(std::string& theFullMenuItemString);
 
-// HOTSPOTS
-const Hotspot& getHotspot(int theHotspotID);
-int hotspotIDFromName(const std::string& theHotspotName); // or 0
-int hotspotArrayIDFromName(const std::string& theHotspotArrayName); // or count
-bool isValidHotspotID(int theHotspotID);
-int firstHotspotInArray(int theHotspotArrayID);
-int sizeOfHotspotArray(int theHotspotArrayID);
-bool hotspotArrayHasAnchor(int theHotspotArrayID);
-float hotspotScale(int theHotspotID);
-int KeyBindCycleHotspotID(int theArrayID, int theIndex); // or 0
-bool setLastCursorPos(POINT theNewCursorPos); // true if changed
-const BitVector<512>& changedHotspots();
-void resetChangedHotspots();
-
 // SIZES
 int keyBindCount();
 int keyBindCycleCount();
@@ -135,13 +118,9 @@ int controlsLayerCount();
 int menuCount();
 int menuOverlayCount();
 int menuItemCount(int theMenuID);
-int hotspotCount();
-int hotspotArrayCount();
 
 // LABELS
 const char* layerLabel(int theLayerID);
-std::string hotspotLabel(int theHotspotID);
-const char* hotspotArrayLabel(int theHotspotArrayID);
 const char* menuLabel(int theMenuID);
 const char* menuItemLabel(int theMenuID, int theMenuItemIdx);
 const char* menuItemAltLabel(int theMenuID, int theMenuItemIdx);

@@ -14,13 +14,11 @@
 namespace HotspotMap
 {
 
-// Initialize hotspot tracking based on data parsed by InputMap
-void init();
-
-// Update map to reflect changes to any hotspots
+// Load configuration settings from current profile
+void loadProfile();
 void loadProfileChanges();
 
-// Deactivate all hotspots and free memory
+// Remove/disable all hotspots for app shutdown or profile change
 void cleanup();
 
 // Re-evaluate hotspot positions due to target/overlay position/size change
@@ -29,9 +27,28 @@ void resize();
 // Updates hotspot tracking from changes to cursor, target size, etc.
 void update();
 
-// Set which hotspot arrays should be active
-void setEnabledHotspotArrays(const BitVector<32>& theHotspotArrays);
-const BitVector<32>& getEnabledHotspotArrays();
+// Access basic hotspot data
+const Hotspot& getHotspot(int theHotspotID);
+const BitVector<512>& getHotspotSet(int theHotspotSetID);
+int hotspotCount();
+int hotspotSetCount();
+int hotspotIDFromName(const std::string& theHotspotName); // or 0
+int hotspotSetIDFromName(const std::string& theHotspotSetName); // or 0
+bool isValidHotspotID(int theHotspotID);
+float hotspotScale(int theHotspotID);
+const char* hotspotLabel(int theHotspotID);
+const char* hotspotSetLabel(int theHotspotSetID);
+
+// Check which hotspots changed from last loadProfileChanges() call
+const BitVector<512>& changedHotspots();
+void resetChangedHotspots();
+
+// Updates both eSpecialHotspot_LastCursorPos and gLastCursorPos
+bool setLastCursorPos(POINT theNewCursorPos); // true if changed
+
+// Set which hotspot sets should be active
+void setEnabledHotspotSets(const BitVector<32>& theHotspotsets);
+const BitVector<512>& enabledHotspots();
 
 // Returns which hotspot to jump mouse cursor to in given direction (or 0)
 int getNextHotspotInDir(ECommandDir theDirection);

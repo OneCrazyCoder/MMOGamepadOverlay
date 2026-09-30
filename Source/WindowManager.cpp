@@ -2038,7 +2038,7 @@ POINT menuItemMousePos(int theRootMenuID, int theMenuItemIdx)
 	case eMenuStyle_Hotspots:
 	case eMenuStyle_Highlight:
 		// Directly use the hotspot associated with the menu item already
-		return hotspotToOverlayPos(InputMap::getHotspot(
+		return hotspotToOverlayPos(HotspotMap::getHotspot(
 			InputMap::menuItemHotspotID(theMenuID, theMenuItemIdx)));
 	}
 
