@@ -2372,7 +2372,7 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 		aMenuItem.altLabel = breakOffItemBeforeChar(aLabel, '|');
 		if( aLabel[0] == '|' )
 			aLabel = aLabel.substr(1);
-		aMenuItem.label = aLabel;
+		aMenuItem.label = replaceAllStr(aLabel, "\\n", "\n");
 	}
 
 	aMenuItem.cmd.type = eCmdType_Unassigned;
@@ -2426,14 +2426,14 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 				sPropertyPrintName.c_str(),
 				theString.c_str(), theString.c_str());
 			aMenuItem.cmd.type = eCmdType_Unassigned;
-			aMenuItem.label = theString;
+			aMenuItem.label = replaceAllStr(theString, "\\n", "\n");
 			return aMenuItem;
 		}
 		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
 		aMenuItem.cmd.subMenuID = dropTo<u16>(aSubMenuID);
 		aMenuItem.cmd.rootMenuID = sMenus.vals()[aSubMenuID].rootMenuID;
 		if( aMenuItem.label.empty() && theString[0] != '.' )
-			aMenuItem.label = theString;
+			aMenuItem.label = replaceAllStr(theString, "\\n", "\n");
 		DBG_ASSERT(
 			sMenus.vals()[theMenuID].rootMenuID == aMenuItem.cmd.rootMenuID);
 		return aMenuItem;
@@ -2469,7 +2469,7 @@ static void applyMenuProperty(
 	switch(aPropType)
 	{
 	case ePropType_Label:
-		theMenu.label = thePropVal;
+		theMenu.label = replaceAllStr(thePropVal, "\\n", "\n");
 		return;
 
 	case ePropType_Style:

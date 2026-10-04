@@ -1863,6 +1863,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 	if( kConfig.mouseLookVerifyCenterCursor != // either set but not both
 			kConfig.mouseLookVerifyOriginCursor &&
 		inMouseLookMode &&
+		sTracker.outputMode != eOutputMode_None &&
 		theWantedMode != eMouseMode_LookReady &&
 		gAppRunTime >= sTracker.mouseLookPosVerifyTime )
 	{

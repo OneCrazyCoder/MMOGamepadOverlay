@@ -631,6 +631,8 @@ static void applyHotspotProperty(
 		theDesc = theDesc.substr(1);
 	
 	// Add to parent set if haven't alreday done so
+	// It is intentional that there is no way to remove a hotspot from a set,
+	// even if it is also defined as a non-set hotspot using the same name.
 	if( theParentSet && !aHotspot.setID )
 	{
 		aHotspot.setID = dropTo<u16>(theParentSet);
@@ -795,7 +797,6 @@ static void processAddToGridTask()
 		}
 	}
 
-	int anAddedCount = 0;
 	for(int anAddedCount = 0; anAddedCount < 16; ++anAddedCount)
 	{
 		sTaskProgress = sActiveHotspots.nextSetBit(sTaskProgress);
