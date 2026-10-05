@@ -355,55 +355,52 @@ private:
 // Local Functions
 //------------------------------------------------------------------------------
 
-static bool finalizeHotspot(int theHotspotID, Hotspot theNewHotspot)
+static bool finalizeHotspot(HotspotData& theHotspotData)
 {
-	DBG_ASSERT(theHotspotID > 0 && theHotspotID < sHotspots.size());
-	HotspotData& aHotspot = sHotspots.vals()[theHotspotID];
-	if( !aHotspot.valid )
+	if( !theHotspotData.valid )
 		return false;
 
-	if( aHotspot.anchorHotspotID > 0 )
+	Hotspot aFinalHotspot = theHotspotData.hs;
+	if( theHotspotData.anchorHotspotID > 0 )
 	{
 		// Apply (scaled) offsets from anchor hotspot
 		const HotspotData& anAnchorHotspot =
-			sHotspots.vals()[aHotspot.anchorHotspotID];
+			sHotspots.vals()[theHotspotData.anchorHotspotID];
 		if( anAnchorHotspot.valid )
 		{
 			float anOffsetScale = 1.0f;
-			if( aHotspot.setID > 0 )
+			if( theHotspotData.setID > 0 )
 			{
-				DBG_ASSERT(aHotspot.setID < sHotspotSets.size());
+				DBG_ASSERT(theHotspotData.setID < sHotspotSets.size());
 				const HotspotSet& aHotspotSet =
-					sHotspotSets.vals()[aHotspot.setID];
-				if( aHotspotSet.anchorHotspotID != theHotspotID )
-					anOffsetScale = aHotspotSet.scale;
+					sHotspotSets.vals()[theHotspotData.setID];
+				anOffsetScale = aHotspotSet.scale;
 			}
-			if( !aHotspot.hasOwnXAnchor )
+			if( !theHotspotData.hasOwnXAnchor )
 			{
-				theNewHotspot.x = anAnchorHotspot.hs.x;
-				theNewHotspot.x.offset = s16(clamp(
-					theNewHotspot.x.offset + aHotspot.ox * anOffsetScale,
+				aFinalHotspot.x = anAnchorHotspot.hs.x;
+				aFinalHotspot.x.offset = s16(clamp(
+					aFinalHotspot.x.offset + theHotspotData.ox * anOffsetScale,
 					-0x8000, 0x7FFF));
 			}
-			if( !aHotspot.hasOwnYAnchor )
+			if( !theHotspotData.hasOwnYAnchor )
 			{
-				theNewHotspot.y = anAnchorHotspot.hs.y;
-				theNewHotspot.y.offset = s16(clamp(
-					theNewHotspot.y.offset + aHotspot.oy * anOffsetScale,
+				aFinalHotspot.y = anAnchorHotspot.hs.y;
+				aFinalHotspot.y.offset = s16(clamp(
+					aFinalHotspot.y.offset + theHotspotData.oy * anOffsetScale,
 					-0x8000, 0x7FFF));
 			}
-			if( !aHotspot.hasOwnSize )
+			if( !theHotspotData.hasOwnSize )
 			{
-				theNewHotspot.w = anAnchorHotspot.hs.w;
-				theNewHotspot.h = anAnchorHotspot.hs.h;
+				aFinalHotspot.w = anAnchorHotspot.hs.w;
+				aFinalHotspot.h = anAnchorHotspot.hs.h;
 			}
 		}
 	}
 
-	if( aHotspot.hs != theNewHotspot )
+	if( theHotspotData.hs != aFinalHotspot )
 	{
-		aHotspot.hs = theNewHotspot;
-		sChangedHotspots.set(theHotspotID);
+		theHotspotData.hs = aFinalHotspot;
 		return true;
 	}
 
@@ -411,7 +408,7 @@ static bool finalizeHotspot(int theHotspotID, Hotspot theNewHotspot)
 }
 
 
-static void applyHotspotProperty(
+static int applyHotspotProperty(
 	const std::string& theKey,
 	std::string theDesc,
 	int theParentSet,
@@ -429,7 +426,8 @@ static void applyHotspotProperty(
 		u32 applyXEvery = 0;
 		u32 applyYEvery = 0;
 		const bool calculateOffsets =
-			fullParse && !isEffectivelyEmptyString(theDesc);
+			fullParse &&
+			!isEffectivelyEmptyString(theDesc);
 		if( calculateOffsets )
 		{
 			const size_t aRangeInfoStrPos = theDesc.rfind(':');
@@ -528,7 +526,7 @@ static void applyHotspotProperty(
 		}
 
 		// Set first hotspot directly as a normal hotspot at start pos
-		applyHotspotProperty(
+		const int aRangeStartID = applyHotspotProperty(
 			anArrayKey + toString(aRangeStartIdx),
 			theDesc, theParentSet, fullParse, true);
 
@@ -553,15 +551,15 @@ static void applyHotspotProperty(
 					anOffsetX = 0;
 					anOffsetY = aStepY;
 				}
-				theDesc = anArrayKey + toString(aParentIdx) + ":" +
-					toString(anOffsetX) + ", " +
-					toString(anOffsetY);
+				theDesc = anArrayKey + toString(aParentIdx) + ":";
+				if( sHotspots.vals()[aRangeStartID].valid )
+					theDesc += toString(anOffsetX) + ", " + toString(anOffsetY);
 			}
 			applyHotspotProperty(
 				anArrayKey + toString(aRangeStartIdx + i),
 				theDesc, theParentSet, fullParse, true);
 		}
-		return;
+		return aRangeStartID;
 	}
 
 	int aHotspotID = sHotspots.findOrAddIndex(theKey);
@@ -577,51 +575,60 @@ static void applyHotspotProperty(
 
 	// If only collecting hotspot names for the map, stop here for now
 	if( !fullParse )
-		return;
-
-	HotspotData& aHotspot = sHotspots.vals()[aHotspotID];
+		return aHotspotID;
 
 	// Don't allow an auto assignment to override a direct one
 	if( !autoAssigned )
-		aHotspot.directAssigned = true;
-	else if( aHotspot.directAssigned )
-		return;
+		sHotspots.vals()[aHotspotID].directAssigned = true;
+	else if( sHotspots.vals()[aHotspotID].directAssigned )
+		return aHotspotID;
+
+	// Add to parent set if haven't already done so
+	// It is intentional that there is no way to remove a hotspot from a set,
+	// even if it is also defined as a non-set hotspot using the same name.
+	if( theParentSet && !sHotspots.vals()[aHotspotID].setID )
+	{
+		sHotspots.vals()[aHotspotID].setID = dropTo<u16>(theParentSet);
+		sHotspotSets.vals()[theParentSet].included.set(aHotspotID);
+	}
+
+	HotspotData aNewHotspot = sHotspots.vals()[aHotspotID];
 
 	// Assign a hotspot to offset from
-	aHotspot.anchorHotspotID = 0; // default "None" hotspot
+	aNewHotspot.anchorHotspotID = 0; // default "None" hotspot
 	const std::string& anAnchorName = breakOffItemBeforeChar(theDesc, ':');
 	if( theParentSet > 0 )
 	{// Add set name to beginning of anchor name (or entirely as anchor name)
 		DBG_ASSERT(theParentSet < sHotspotSets.size());
 		const std::string& aSetAnchorName =
 			sHotspotSets.keys()[theParentSet] + anAnchorName;
-		aHotspot.anchorHotspotID = dropTo<u16>(
+		aNewHotspot.anchorHotspotID = dropTo<u16>(
 			sHotspots.findIndex(aSetAnchorName));
-		if( aHotspot.anchorHotspotID >= sHotspots.size() )
-			aHotspot.anchorHotspotID = 0;
+		if( aNewHotspot.anchorHotspotID >= sHotspots.size() )
+			aNewHotspot.anchorHotspotID = 0;
 	}
-	if( !anAnchorName.empty() && aHotspot.anchorHotspotID == 0 )
+	if( !anAnchorName.empty() && aNewHotspot.anchorHotspotID == 0 )
 	{
-		aHotspot.anchorHotspotID = dropTo<u16>(
+		aNewHotspot.anchorHotspotID = dropTo<u16>(
 			sHotspots.findIndex(anAnchorName));
-		if( aHotspot.anchorHotspotID >= sHotspots.size() )
+		if( aNewHotspot.anchorHotspotID >= sHotspots.size() )
 		{
-			aHotspot.anchorHotspotID = 0;
+			aNewHotspot.anchorHotspotID = 0;
 			logError("Hotspot %s: Could not find anchor hotspot named '%s'",
 				theKey.c_str(),
 				anAnchorName.c_str());
 		}
 	}
-	if( aHotspot.anchorHotspotID )
+	if( aNewHotspot.anchorHotspotID )
 	{// Confirm didn't just make an infinite parenting loop
-		int aParentID = aHotspot.anchorHotspotID;
+		int aParentID = aNewHotspot.anchorHotspotID;
 		while(aParentID != 0)
 		{
 			if( aParentID == aHotspotID )
 			{// Infinite loop found!
 				logError("Hotspot %s ends up with itself as a parent/anchor!",
 					theKey.c_str());
-				aHotspot.anchorHotspotID = 0;
+				aNewHotspot.anchorHotspotID = 0;
 				break;
 			}
 			aParentID = sHotspots.vals()[aParentID].anchorHotspotID;
@@ -630,85 +637,74 @@ static void applyHotspotProperty(
 	if( theDesc[0] == ':' )
 		theDesc = theDesc.substr(1);
 	
-	// Add to parent set if haven't alreday done so
-	// It is intentional that there is no way to remove a hotspot from a set,
-	// even if it is also defined as a non-set hotspot using the same name.
-	if( theParentSet && !aHotspot.setID )
-	{
-		aHotspot.setID = dropTo<u16>(theParentSet);
-		sHotspotSets.vals()[theParentSet].included.set(aHotspotID);
-	}
-
-	if( isEffectivelyEmptyString(theDesc) )
-	{// Mark as invalid hotspot (and changed if was previously valid)
-		if( aHotspot.valid )
+	size_t aStrPos = 0;
+	if( isEffectivelyEmptyString(fetchNextItem(theDesc, aStrPos, ",xX")) )
+	{// Mark as invalid hotspot (and mark as changed if was previously valid)
+		if( sHotspots.vals()[aHotspotID].valid )
 		{
-			aHotspot.valid = false;
+			sHotspots.vals()[aHotspotID].valid = false;
 			sChangedHotspots.set(aHotspotID);
 		}
-		return;
+		return aHotspotID;
 	}
 
-	Hotspot aNewHotspot;
-	if( !theDesc.empty() )
+	// X
+	aStrPos = 0;
+	aNewHotspot.hs.x = stringToCoord(theDesc, aStrPos);
+	bool valid = aStrPos < theDesc.size() &&
+		(theDesc[aStrPos] == ',' ||
+		 theDesc[aStrPos] == 'x' ||
+		 theDesc[aStrPos] == 'X');
+
+	// Y
+	if( valid )
 	{
-		// X
-		size_t aStrPos = 0;
-		aNewHotspot.x = stringToCoord(theDesc, aStrPos);
-		bool valid = aStrPos < theDesc.size() &&
+		aNewHotspot.hs.y = stringToCoord(theDesc, ++aStrPos);
+		valid = aStrPos == theDesc.size() ||
+			theDesc[aStrPos] == ',';
+	}
+	// W
+	aNewHotspot.hasOwnSize =
+		valid && aStrPos < theDesc.size() && theDesc[aStrPos] == ',';
+	if( aNewHotspot.hasOwnSize )
+	{
+		const double aWidth = stringToDoubleSum(theDesc, ++aStrPos);
+		aNewHotspot.hs.w = u16(clamp(floor(aWidth + 0.5), 0, 0xFFFF));
+		valid = aStrPos < theDesc.size() &&
 			(theDesc[aStrPos] == ',' ||
 			 theDesc[aStrPos] == 'x' ||
 			 theDesc[aStrPos] == 'X');
-		// Y
+		// H
 		if( valid )
 		{
-			aNewHotspot.y = stringToCoord(theDesc, ++aStrPos);
-			valid = aStrPos == theDesc.size() ||
-				theDesc[aStrPos] == ',';
-		}
-		// W
-		aHotspot.hasOwnSize =
-			valid && aStrPos < theDesc.size() && theDesc[aStrPos] == ',';
-		if( aHotspot.hasOwnSize )
-		{
-			const double aWidth = stringToDoubleSum(theDesc, ++aStrPos);
-			aNewHotspot.w = u16(clamp(floor(aWidth + 0.5), 0, 0xFFFF));
-			valid = aStrPos < theDesc.size() &&
-				(theDesc[aStrPos] == ',' ||
-				 theDesc[aStrPos] == 'x' ||
-				 theDesc[aStrPos] == 'X');
-			// H
-			if( valid )
-			{
-				const double aHeight = stringToDoubleSum(theDesc, ++aStrPos);
-				aNewHotspot.h = u16(clamp(floor(aHeight + 0.5), 0, 0xFFFF));
-				valid = aStrPos == theDesc.size();
-			}
-		}
-		if( valid )
-		{
-			if( !aHotspot.valid )
-			{
-				aHotspot.valid = true;
-				sChangedHotspots.set(aHotspotID);
-			}
-		}
-		else
-		{
-			logError("Hotspot %s: Error parsing hotspot description '%s'",
-				theKey.c_str(), theDesc.c_str());
-			aNewHotspot = Hotspot();
-			aHotspot.valid = false;
+			const double aHeight = stringToDoubleSum(theDesc, ++aStrPos);
+			aNewHotspot.hs.h = u16(clamp(floor(aHeight + 0.5), 0, 0xFFFF));
+			valid = aStrPos == theDesc.size();
 		}
 	}
+	if( !valid )
+	{
+		logError("Hotspot %s: Error parsing hotspot description '%s'",
+			theKey.c_str(), theDesc.c_str());
+		// This hotspot might be set by another property, so leave it as is
+		return aHotspotID;
+	}
 
-	aHotspot.hasOwnXAnchor = aNewHotspot.x.anchor != 0;
-	aHotspot.hasOwnYAnchor = aNewHotspot.y.anchor != 0;
-	if( !aHotspot.hasOwnXAnchor )
-		aHotspot.ox = aNewHotspot.x.offset;
-	if( !aHotspot.hasOwnYAnchor )
-		aHotspot.oy = aNewHotspot.y.offset;
-	finalizeHotspot(aHotspotID, aNewHotspot);
+	aNewHotspot.hasOwnXAnchor = aNewHotspot.hs.x.anchor != 0;
+	aNewHotspot.hasOwnYAnchor = aNewHotspot.hs.y.anchor != 0;
+	if( !aNewHotspot.hasOwnXAnchor )
+		aNewHotspot.ox = aNewHotspot.hs.x.offset;
+	if( !aNewHotspot.hasOwnYAnchor )
+		aNewHotspot.oy = aNewHotspot.hs.y.offset;
+	aNewHotspot.valid = true;
+	finalizeHotspot(aNewHotspot);
+	if( sHotspots.vals()[aHotspotID].valid != aNewHotspot.valid ||
+		sHotspots.vals()[aHotspotID].hs != aNewHotspot.hs )
+	{
+		sChangedHotspots.set(aHotspotID);
+	}
+	sHotspots.vals()[aHotspotID] = aNewHotspot;
+	return aHotspotID;
 }
 
 
@@ -1381,8 +1377,7 @@ static void loadHotspotDataFromProfile(
 			{
 				const std::string& aCondensedKey =
 					condense(aPropMap->keys()[aPropIdx]);
-				if( aCondensedKey == "ANCHOR" ||
-					aCondensedKey == "BASE" )
+				if( aCondensedKey == "ANCHOR" )
 				{
 					// Anchor hotspots aren't considered actually IN the set,
 					// so still send in a setID of 0
@@ -1432,8 +1427,9 @@ static void loadHotspotDataFromProfile(
 			HotspotData& aHotspot = sHotspots.vals()[i];
 			if( aHotspot.anchorHotspotID > 0 &&
 				sChangedHotspots.test(aHotspot.anchorHotspotID) &&
-				finalizeHotspot(i, sHotspots.vals()[i].hs) )
+				finalizeHotspot(sHotspots.vals()[i]) )
 			{
+				sChangedHotspots.set(i);
 				needApplyOffsets = true;
 			}
 		}
