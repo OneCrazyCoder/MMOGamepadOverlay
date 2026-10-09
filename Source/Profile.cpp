@@ -62,7 +62,7 @@ struct ResourceFile
 };
 
 const ResourceFile kResTemplateCore =
-	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		24	};
+	{	"Core",				"Core",				IDR_TEXT_INI_CORE,		25	};
 
 const ResourceFile kResTemplateBase[] =
 {//		dispName			fileName			resID					ver

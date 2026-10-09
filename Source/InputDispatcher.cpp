@@ -123,7 +123,6 @@ struct ZERO_INIT(Config)
 	int mouseWheelJumpDelayTimePerStep;
 	int mouseLookIdleResetTime;
 	int mouseLookStartThrottleDistance;
-	int mouseTurnStartThrottleDistance;
 	int offsetHotspotDist;
 	int baseKeyReleaseLockTime;
 	int mouseClickLockTime;
@@ -233,8 +232,6 @@ struct ZERO_INIT(Config)
 			"Mouse", "CameraQuickSwapLookToTurn");
 		mouseLookStartThrottleDistance = Profile::getInt(
 			"Mouse", "LookStartThrottleDistance");
-		mouseTurnStartThrottleDistance = Profile::getInt(
-			"Mouse", "TurnStartThrottleDistance");
 		offsetHotspotDist = max(0, Profile::getInt(
 			"Mouse", "DefaultHotspotDistance"));
 
@@ -1154,9 +1151,7 @@ static void offsetMousePos()
 	if( sTracker.mouseLookStartThrottle > 0 )
 	{
 		// May need to restrict mouse movements until Mouse Look fully started
-		const int kClampDist =
-			holdingRMB ? kConfig.mouseTurnStartThrottleDistance :
-			holdingLMB ? kConfig.mouseLookStartThrottleDistance : 0;			
+		const int kClampDist = kConfig.mouseLookStartThrottleDistance;			
 		const int kClampDistSq = kClampDist * kClampDist;
 
 		// Determine current status
@@ -1899,6 +1894,9 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 			// If off for multiple checks in a row but now stationary
 			if( sTracker.mouseLookPosVerifyTime == -kMouseLookCursorLeeway )
 			{// Off for a while now - instant reset by releasing button
+				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+				debugPrint("InputDispatcher: Emergency restart ML mode!\n");
+				#endif
 				if( theWantedMode == eMouseMode_LookTurn )
 					setKeyDown(VK_RBUTTON, false);
 				else
