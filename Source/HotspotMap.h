@@ -31,13 +31,14 @@ void update();
 const Hotspot& getHotspot(int theHotspotID);
 const BitVector<512>& getHotspotSet(int theHotspotSetID);
 int hotspotCount();
-int hotspotSetCount();
+int hotspotSetCount(); // counts the non-set (ID 0) as well
 int hotspotIDFromName(const std::string& theHotspotName); // or 0
 int hotspotSetIDFromName(const std::string& theHotspotSetName); // or 0
 bool isValidHotspotID(int theHotspotID);
 float hotspotScale(int theHotspotID);
 const char* hotspotLabel(int theHotspotID);
 const char* hotspotSetLabel(int theHotspotSetID);
+int hotspotSetSectionID(int theHotspotSetID);
 
 // Check which hotspots changed from last loadProfileChanges() call
 const BitVector<512>& changedHotspots();

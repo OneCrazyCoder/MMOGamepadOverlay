@@ -2922,33 +2922,48 @@ std::string getVariable(const std::string& theVarName)
 
 std::string expandVars(std::string theString)
 {
-	std::string result;
 	PropertyMap& theVarsMap = sSectionsMap.vals()[kVarsSectionIdx];
 	StringTagPos aTagCoords = findStringTag(theString, 0, "${", '}');
 
 	while( aTagCoords.found )
 	{
-		// Extract variable name from tag
-		size_t aVarOpPos = aTagCoords.start + 2;
-		const std::string& aVarName =
-			fetchNextItem(theString, aVarOpPos, "}+-*/?[!~<>=.");
-		const int aVarID = theVarsMap.findIndex(aVarName);
-		if( aVarOpPos < aTagCoords.start + aTagCoords.len &&
-			!aVarName.empty() && aVarID < theVarsMap.size() )
-		{
-			if( theVarsMap.vals()[aVarID].str.empty() )
-				expandPropertyVars(kVarsSectionIdx, aVarID, false);
-			const std::string& aRepStr = varTagToString(
-				theVarsMap.vals()[aVarID].str,
-				theString, aVarOpPos, aTagCoords.nested);
-			theString = theString.replace(
-				aTagCoords.start, aTagCoords.len, aRepStr);
-			aTagCoords = findStringTag(theString, 0, "${", '}');
+		// Extract variable name (or a number as a const var) from tag
+		std::string aRepStr;
+		std::string aVarContents;
+		const std::string kVarOpChars = "}+-*/?[!~<>=.";
+		size_t aVarNameStartPos = aTagCoords.start + 2;
+		while(u8(theString[aVarNameStartPos]) <= ' ')
+			++aVarNameStartPos;
+		size_t aVarOpPos = aVarNameStartPos;
+		if( theString[aVarNameStartPos] == '-' ||
+			theString[aVarNameStartPos] == '+' ||
+			theString[aVarNameStartPos] == '.' ||
+			(theString[aVarNameStartPos] >= '0' &&
+			 theString[aVarNameStartPos] <= '9') )
+		{// Possibly a numeric constant in place of an actual variable name
+			const double aVarAsNum = stringToDoubleSum(theString, aVarOpPos);
+			if( aVarOpPos < aVarNameStartPos ||
+				kVarOpChars.find(theString[aVarOpPos]) == std::string::npos )
+			{ break; }
+			aVarContents = toString(aVarAsNum);
 		}
 		else
 		{
-			return theString;
+			const std::string& aVarName =
+				fetchNextItem(theString, aVarOpPos, kVarOpChars.c_str());
+			const int aVarID = theVarsMap.findIndex(aVarName);
+			if( aVarOpPos >= aTagCoords.start + aTagCoords.len ||
+				aVarName.empty() || aVarID >= theVarsMap.size() )
+			{ break; }
+			if( theVarsMap.vals()[aVarID].str.empty() )
+				expandPropertyVars(kVarsSectionIdx, aVarID, false);
+			aVarContents = theVarsMap.vals()[aVarID].str;
 		}
+		aRepStr = varTagToString(
+			aVarContents, theString, aVarOpPos, aTagCoords.nested);
+		theString = theString.replace(
+			aTagCoords.start, aTagCoords.len, aRepStr);
+		aTagCoords = findStringTag(theString, 0, "${", '}');
 	}
 
 	return theString;

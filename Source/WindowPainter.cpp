@@ -1098,13 +1098,22 @@ static void fetchBaseAppearanceProperties(
 		{
 			size_t aPos = 0;
 			aNewFont.size = stringToDoubleSum(aFontSizeProp.str, aPos);
-			if( int(aNewFont.size * gUIScale) < 4 ||
-				aPos != aFontSizeProp.str.size() )
+			if( aPos != aFontSizeProp.str.size() )
 			{
 				logError(
-					"Invalid Font Size '%s' for [%s] at current UI Scale!",
+					"Invalid Font Size '%s' for [%s]!",
 					aFontSizeProp.str.c_str(),
 					sParseSectName.c_str());
+				aNewFont.size = 4.4 / gUIScale;
+			}
+			else if( int(aNewFont.size * gUIScale) < 4 )
+			{
+				logError(
+					"Font Size for [%s] too small for current UI Scale "
+					"(%d scales to %d yet must be 4 or more)!",
+					sParseSectName.c_str(),
+					int(aNewFont.size),
+					int(aNewFont.size * gUIScale));
 				aNewFont.size = 4.4 / gUIScale;
 			}
 		}

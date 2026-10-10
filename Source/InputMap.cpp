@@ -243,7 +243,8 @@ struct ZERO_INIT(MenuItem)
 
 struct Menu
 {
-	std::string label;
+	std::string customLabel;
+	std::string subName;
 	std::vector<MenuItem> items;
 	MenuItem dirItems[eCmdDir_Num];
 	Command autoCommand;
@@ -1173,11 +1174,11 @@ static bool setMenuAsChildOf(
 		aSubMenuName.substr(posAfterPrefix(aSubMenuName, thePrefix));
 	if( aPotentialLabel.empty() )
 		return true;
-	if( aSubMenu.label.empty() ||
-		aSubMenu.label.size() > aPotentialLabel.size() )
+	if( aSubMenu.subName.empty() ||
+		aSubMenu.subName.size() > aPotentialLabel.size() )
 	{
 		aSubMenu.parentMenuID = dropTo<u16>(*((int*)theParentMenuIDPtr));
-		aSubMenu.label = aPotentialLabel;
+		aSubMenu.subName = aPotentialLabel;
 	}
 
 	return true;
@@ -2469,7 +2470,7 @@ static void applyMenuProperty(
 	switch(aPropType)
 	{
 	case ePropType_Label:
-		theMenu.label = replaceAllStr(thePropVal, "\\n", "\n");
+		theMenu.customLabel = replaceAllStr(thePropVal, "\\n", "\n");
 		return;
 
 	case ePropType_Style:
@@ -2765,9 +2766,9 @@ static void validateMenu(int theMenuID)
 	if( aMenuStyle == eMenuStyle_HUD ||
 		aMenuStyle == eMenuStyle_KBCycleLast ||
 		aMenuStyle == eMenuStyle_KBCycleDefault )
-	{// Guarantee a single menu item with label matching menu's custom label
+	{// Guarantee a single menu item with label matching menu's *custom* label
 		theMenu.items.resize(1);
-		theMenu.items.back().label = theMenu.label;
+		theMenu.items.back().label = theMenu.customLabel;
 		return;
 	}
 	
@@ -3761,7 +3762,7 @@ void loadProfile()
 	DBG_ASSERT(anIdx == kSystemMenuID);
 	DBG_ASSERT(sOverlayRootMenus.size() == kSystemOverlayID);
 	sOverlayRootMenus.push_back(kSystemMenuID);
-	sMenus.vals()[anIdx].label = "MMOGO System Overlay";
+	sMenus.vals()[anIdx].subName = "MMOGO System Overlay";
 	sMenus.vals()[anIdx].style = eMenuStyle_System;
 	sMenus.vals()[anIdx].overlayID = kSystemOverlayID;
 	sMenus.vals()[anIdx].profileSectionID = dropTo<u16>(
@@ -3771,7 +3772,7 @@ void loadProfile()
 	DBG_ASSERT(anIdx == kHotspotGuideMenuID);
 	DBG_ASSERT(sOverlayRootMenus.size() == kHotspotGuideOverlayID);
 	sOverlayRootMenus.push_back(kHotspotGuideMenuID);
-	sMenus.vals().back().label = "MMOGO Hotspot Guide";
+	sMenus.vals().back().subName = "MMOGO Hotspot Guide";
 	sMenus.vals().back().style = eMenuStyle_HotspotGuide;
 	sMenus.vals().back().overlayID = kHotspotGuideOverlayID;
 	sMenus.vals().back().profileSectionID = dropTo<u16>(
@@ -4386,12 +4387,21 @@ const char* layerLabel(int theLayerID)
 }
 
 
+const char* menuName(int theMenuID)
+{
+	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
+	if( !sMenus.vals()[theMenuID].subName.empty() )
+		return sMenus.vals()[theMenuID].subName.c_str();
+	return sMenus.keys()[theMenuID].c_str();
+}
+
+
 const char* menuLabel(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
-	if( !sMenus.vals()[theMenuID].label.empty() )
-		return sMenus.vals()[theMenuID].label.c_str();
-	return sMenus.keys()[theMenuID].c_str();
+	if( !sMenus.vals()[theMenuID].customLabel.empty() )
+		return sMenus.vals()[theMenuID].customLabel.c_str();
+	return menuName(theMenuID);
 }
 
 

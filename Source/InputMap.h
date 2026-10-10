@@ -121,6 +121,7 @@ int menuItemCount(int theMenuID);
 
 // LABELS
 const char* layerLabel(int theLayerID);
+const char* menuName(int theMenuID);
 const char* menuLabel(int theMenuID);
 const char* menuItemLabel(int theMenuID, int theMenuItemIdx);
 const char* menuItemAltLabel(int theMenuID, int theMenuItemIdx);

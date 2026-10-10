@@ -106,8 +106,14 @@ struct HotspotSet
 {
 	BitVector<512> included;
 	float scale;
+	int profileSectionID;
 	u16 anchorHotspotID;
-	HotspotSet() : scale(1.0f), anchorHotspotID() {}
+
+	HotspotSet() :
+		scale(1.0f),
+		profileSectionID(kInvalidID),
+		anchorHotspotID()
+	{}
 };
 
 struct ZERO_INIT(GridPos)
@@ -417,14 +423,14 @@ static int applyHotspotProperty(
 {
 	// Check theKey suffix to see if single hotspot or a range of hotspots
 	int aRangeStartIdx, aRangeEndIdx;
-	std::string anArrayKey;
+	std::string aRangeName;
 	if( !autoAssigned &&
-		fetchRangeSuffix(theKey, anArrayKey, aRangeStartIdx, aRangeEndIdx) )
+		fetchRangeSuffix(theKey, aRangeName, aRangeStartIdx, aRangeEndIdx) )
 	{
 		int aStepX = 0;
 		int aStepY = 0;
-		u32 applyXEvery = 0;
-		u32 applyYEvery = 0;
+		int applyXEvery = 0;
+		int applyYEvery = 0;
 		const bool calculateOffsets =
 			fullParse &&
 			!isEffectivelyEmptyString(theDesc);
@@ -527,36 +533,38 @@ static int applyHotspotProperty(
 
 		// Set first hotspot directly as a normal hotspot at start pos
 		const int aRangeStartID = applyHotspotProperty(
-			anArrayKey + toString(aRangeStartIdx),
+			aRangeName + toString(aRangeStartIdx),
 			theDesc, theParentSet, fullParse, true);
 
-		// Remaining hotspots in the range use previous hotspots as their
-		// anchor and apply as offsets only
+		// Remaining hotspots in the range use first hotspot as their anchor
+		// and apply as offsets to it only
 		for(int i = 1, end = aRangeEndIdx - aRangeStartIdx + 1; i < end; ++i)
 		{
 			if( calculateOffsets )
 			{
-				int aParentIdx = aRangeStartIdx + i - 1;
-				int anOffsetX = applyXEvery ? 0 : aStepX;
-				int anOffsetY = applyYEvery ? 0 : aStepY;
-				if( applyXEvery > 0 && i % applyXEvery == 0 )
+				int anOffsetX, anOffsetY;
+				if( applyXEvery )
 				{
-					aParentIdx = aRangeStartIdx + i - applyXEvery;
-					anOffsetX = aStepX;
-					anOffsetY = 0;
+					anOffsetX = (i / applyXEvery) * aStepX;
+					anOffsetY = (i % applyXEvery) * aStepY;
 				}
-				if( applyYEvery > 0 && i % applyYEvery == 0 )
+				else if( applyYEvery )
 				{
-					aParentIdx = aRangeStartIdx + i - applyYEvery;
-					anOffsetX = 0;
-					anOffsetY = aStepY;
+					anOffsetX = (i % applyYEvery) * aStepX;
+					anOffsetY = (i / applyYEvery) * aStepY;
 				}
-				theDesc = anArrayKey + toString(aParentIdx) + ":";
+				else
+				{
+					anOffsetX = i * aStepX;
+					anOffsetY = i * aStepY;
+				}
+
+				theDesc = aRangeName + toString(aRangeStartIdx) + ":";
 				if( sHotspots.vals()[aRangeStartID].valid )
 					theDesc += toString(anOffsetX) + ", " + toString(anOffsetY);
 			}
 			applyHotspotProperty(
-				anArrayKey + toString(aRangeStartIdx + i),
+				aRangeName + toString(aRangeStartIdx + i),
 				theDesc, theParentSet, fullParse, true);
 		}
 		return aRangeStartID;
@@ -1328,8 +1336,7 @@ static bool addHotspotSet(
 		theSectionsMap.keys()[theSectionID];
 	const std::string& aHotspotSetName =
 		aSectionName.substr(posAfterPrefix(aSectionName, thePrefix));
-	if( !aHotspotSetName.empty() )
-		sHotspotSets.findOrAdd(aHotspotSetName);
+	sHotspotSets.findOrAdd(aHotspotSetName).profileSectionID = theSectionID;
 	return true;
 }
 
@@ -1395,7 +1402,7 @@ static void loadHotspotDataFromProfile(
 						if( aNewScale != sHotspotSets.vals()[i].scale )
 						{
 							sHotspotSets.vals()[i].scale = aNewScale;
-							// Mark anchor hotspot as changded so re-apply
+							// Mark anchor hotspot as changed so re-apply
 							// scale to all hotspot offsets in this set
 							const int anAnchorID =
 								sHotspotSets.vals()[i].anchorHotspotID;
@@ -1481,7 +1488,17 @@ void loadProfile()
 	sFetchGrid.reserve(kGridSize * kGridSize);
 
 	// Create hotspot sets (starting with default unnamed set)
-	sHotspotSets.setValue(kSpecialHotspotNames[0], HotspotSet());
+	int theDefaultHotspotSectionID =
+		Profile::getSectionID(kHotspotSectName);
+	if( theDefaultHotspotSectionID < 0 )
+	{// Very unlikely to occur...
+		Profile::setStr(kHotspotSectName, "~", "", false);
+		theDefaultHotspotSectionID = Profile::getSectionID(kHotspotSectName);
+	}
+	addHotspotSet(
+		Profile::allSections(),
+		theDefaultHotspotSectionID,
+		kHotspotSectName, null);
 	Profile::allSections().findAllWithPrefix(
 		kHotspotSectName + std::string("."), addHotspotSet);
 
@@ -1686,6 +1703,14 @@ const char* hotspotSetLabel(int theHotspotSetID)
 	DBG_ASSERT(theHotspotSetID >= 0);
 	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
 	return sHotspotSets.keys()[theHotspotSetID].c_str();
+}
+
+
+int hotspotSetSectionID(int theHotspotSetID)
+{
+	DBG_ASSERT(theHotspotSetID >= 0);
+	DBG_ASSERT(theHotspotSetID < sHotspotSets.size());
+	return sHotspotSets.vals()[theHotspotSetID].profileSectionID;
 }
 
 
