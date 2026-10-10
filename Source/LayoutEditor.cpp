@@ -4,6 +4,7 @@
 
 #include "LayoutEditor.h"
 #include "Dialogs.h"
+#include "HotspotMap.h"
 #include "InputMap.h"
 #include "InputTranslator.h"
 #include "Menus.h"
@@ -29,8 +30,8 @@ kMinOffsetScale = 25,
 kMaxOffsetScale = 400,
 };
 
-const char* kHotspotsSectionName = "Hotspots";
-const char* kMenuSectionPrefix = "Menu.";
+const char* kAnchorPropName = "Anchor";
+const char* kScalePropName = "Scale";
 const char* kPositionPropName = "Position";
 const char* kItemSizePropName = "ItemSize";
 const char* kAlignmentPropName = "Alignment";
@@ -88,6 +89,7 @@ struct ZERO_INIT(LayoutEntry)
 
 		// These types should not be used as indexes as count can vary
 		eType_Hotspot,
+		eType_HotspotSetAnchor,
 		eType_Menu,
 
 		eType_Num,
@@ -117,8 +119,9 @@ struct ZERO_INIT(LayoutEntry)
 		std::string scale;
 		EAlignment alignment;
 		int wrap;
+		int rangeIdx;
 		std::string extraVarString; // for alignment or wrap
-		Shape() : alignment(eAlignment_UseDefault), wrap() {}
+		Shape() : alignment(eAlignment_UseDefault), wrap(), rangeIdx() {}
 		bool operator==(const Shape& rhs) const
 		{
 			return
@@ -134,13 +137,13 @@ struct ZERO_INIT(LayoutEntry)
 	RECT drawnRect;
 	Hotspot drawHotspot;
 	float drawOffScale;
-	int drawRangeWrap; // > 0 = X, < 0 = Y
-	int propSectID, menuID;
-	int drawOffX, drawOffY;
-	// -1 = independent/anchor/menu, 0 = range element, 1+ = full range
+	int propSectID;
+	std::string overrideAnchorName;
+	int parentID;
+	union { int menuID; int hotpotSetEntryIdx; };
 	int rangeCount;
 
-	LayoutEntry() : type(eType_Num), menuID(-1), rangeCount(-1) {}
+	LayoutEntry() : type(eType_Num) {}
 };
 
 
@@ -207,25 +210,32 @@ static inline std::string numToStringDecimal(int theNum, bool asPercent)
 }
 
 
-static inline bool entryHasParent(const LayoutEntry& theEntry)
+static inline bool entryIsHotspot(const LayoutEntry& theEntry)
 {
-	// _MenuCategory acts as a "parent" (has default values),
-	// but _Root and _HotspotCategory do not
 	return
-		theEntry.item.parentIndex != LayoutEntry::eType_Root &&
-		theEntry.item.parentIndex != LayoutEntry::eType_HotspotCategory;
+		theEntry.type == LayoutEntry::eType_Hotspot ||
+		theEntry.type == LayoutEntry::eType_HotspotSetAnchor;
 }
 
 
-static inline bool entryIsAnchorHotspot(const LayoutEntry& theEntry)
+static inline bool entryIsHotspotSetAnchor(const LayoutEntry& theEntry)
 {
-	// Must be a non-range hotspot (doesn't end in a #) AND have childern
-	// (no children just means independent hotspot, not an anchor, thus
-	// can't have an offset scale value, which is this chack's main use)
+	return theEntry.type == LayoutEntry::eType_HotspotSetAnchor;
+}
+
+
+static inline bool entryIsRangeOffsets(const LayoutEntry& theEntry)
+{
+	return theEntry.rangeCount > 0;
+}
+
+
+static inline bool entryIsRangeStart(const LayoutEntry& theEntry)
+{
 	return
 		theEntry.type == LayoutEntry::eType_Hotspot &&
-		theEntry.rangeCount < 0 &&
-		!theEntry.children.empty();
+		!theEntry.children.empty() &&
+		entryIsRangeOffsets(sState->entries[theEntry.children[0]]);
 }
 
 
@@ -235,30 +245,12 @@ static inline bool entryIsMenu(const LayoutEntry& theEntry)
 }
 
 
-static inline LayoutEntry* getParentEntry(const LayoutEntry* theEntry)
-{
-	DBG_ASSERT(theEntry);
-	DBG_ASSERT(entryHasParent(*theEntry));
-	LayoutEntry* aParent = &sState->entries[theEntry->item.parentIndex];
-	if( entryIsMenu(*theEntry) )
-	{
-		// In the context of inheritence, the "parent" menu is the root menu,
-		// not the actual immediate parent used for sorting the tree view
-		int aRootMenuID = InputMap::rootMenuOfMenu(theEntry->menuID);
-		while(aParent->menuID != aRootMenuID && entryHasParent(*aParent))
-			aParent = &sState->entries[aParent->item.parentIndex];
-		return aParent;
-	}
-	return aParent;
-}
-
-
 static const LayoutEntry* getPosSourceEntry(const LayoutEntry* theEntry)
 {
 	DBG_ASSERT(theEntry);
 	const LayoutEntry* result = theEntry;
-	while(result->shape.x.useDefault && entryHasParent(*result))
-		result = getParentEntry(result);
+	while(result->shape.x.useDefault && result->parentID)
+		result = &sState->entries[result->parentID];
 	return result;
 }
 
@@ -267,8 +259,8 @@ static const LayoutEntry* getSizeSourceEntry(const LayoutEntry* theEntry)
 {
 	DBG_ASSERT(theEntry);
 	const LayoutEntry* result = theEntry;
-	while(result->shape.w.useDefault && entryHasParent(*result))
-		result = getParentEntry(result);
+	while(result->shape.w.useDefault && result->parentID)
+		result = &sState->entries[result->parentID];
 	return result;
 }
 
@@ -279,46 +271,18 @@ static const LayoutEntry* getAlignmentSourceEntry(const LayoutEntry* theEntry)
 	const LayoutEntry* result = theEntry;
 	while(
 		result->shape.alignment == eAlignment_UseDefault &&
-		entryHasParent(*result))
+		result->parentID)
 	{
-		result = getParentEntry(result);
+		result = &sState->entries[result->parentID];
 	}
 	return result;
 }
 
 
-static double entryScaleFactor(const LayoutEntry& theEntry)
+static std::string fetchShapeScale(std::string theString)
 {
-	double result = 1.0;
-
-	if( !entryIsMenu(theEntry) && entryHasParent(theEntry) )
-	{
-		// Find anchor hotspot
-		LayoutEntry* anAnchorEntry =
-			&sState->entries[theEntry.item.parentIndex];
-		while(entryHasParent(*anAnchorEntry))
-			anAnchorEntry = getParentEntry(anAnchorEntry);
-		DBG_ASSERT(sState->activeEntry > 0);
-		DBG_ASSERT(size_t(sState->activeEntry) < sState->entries.size());
-		result = anAnchorEntry == &sState->entries[sState->activeEntry]
-			? stringToFloat(Profile::expandVars(sState->entered.scale))
-			: stringToFloat(Profile::expandVars(anAnchorEntry->shape.scale));
-		if( result == 0 )
-			result = 1.0;
-	}
-
-	return result;
-}
-
-
-static std::string fetchShapeScale(const std::string& theString, size_t thePos)
-{
-	std::string result;
-	if( thePos >= theString.size() )
-		return result;
-	result = trim(theString.substr(thePos));
-	// Verify result
-	std::string aCheckStr = Profile::expandVars(result);
+	DBG_ASSERT(!theString.empty());
+	std::string aCheckStr = Profile::expandVars(theString);
 	char* end = null;
 	const char* aCStr = aCheckStr.c_str();
 	if( double aResultVal = strtod(aCStr, &end) )
@@ -333,20 +297,20 @@ static std::string fetchShapeScale(const std::string& theString, size_t thePos)
 		// when read in as a float or percent, then generate an 
 		// appropriate string ourselves out of whatever we did get
 		if( *end != '\0' )
-			result = toString(aResultVal * 100.0) + '%';
+			theString = toString(aResultVal * 100.0) + '%';
 	}
 	else
 	{
 		// No valid numberals at all (or 0), treat as no scale specified
-		result.clear();
+		theString.clear();
 	}
 
-	return result;
+	return theString;
 }
 
 
 static size_t fetchComponentStringEnd(
-	const std::string& theString, size_t thePos)
+	const std::string& theString, size_t thePos, bool nameOnly = false)
 {
 	const char* aCStr = theString.c_str();
 	int aTagDepth = 0;
@@ -368,7 +332,7 @@ static size_t fetchComponentStringEnd(
 			break;
 		case 'x': case 'X':
 			// Try to differentiate between '5 x 7' and 'CX', for example
-			if( thePos > 0 && !aTagDepth &&
+			if( !nameOnly && thePos > 0 && !aTagDepth &&
 				(u8(aCStr[thePos-1]) <= ' ' ||
 				 (aCStr[thePos-1] >= '0' && aCStr[thePos-1] <= '9') ||
 				 aCStr[thePos-1] == '%' || aCStr[thePos-1] == '.' ||
@@ -381,7 +345,7 @@ static size_t fetchComponentStringEnd(
 				++thePos;
 			}
 			break;
-		case ',': case '*': case '@':
+		case ',': case ':': case '@':
 			if( !aTagDepth )
 				done = true;
 			else
@@ -400,74 +364,85 @@ static size_t fetchComponentStringEnd(
 }
 
 
-static LayoutEntry::Shape::Component fetchShapeComponent(
-	const std::string& theString, size_t& thePos, bool allowAnchor)
+static bool fetchShapeComponent(
+	LayoutEntry::Shape::Component& theComponent,
+	const std::string& theString,
+	size_t& thePos,
+	bool allowAnchor)
 {
-	LayoutEntry::Shape::Component result;
+	theComponent = LayoutEntry::Shape::Component();
 	if( thePos >= theString.size() )
-		return result; // useDefault == true
+		return false;
 
 	// First need to find the end of this component
 	size_t anEndPos = fetchComponentStringEnd(theString, thePos);
 
 	// Extract the section of the string representing this component
-	result.base = trim(theString.substr(thePos, anEndPos-thePos));
+	theComponent.base = trim(theString.substr(thePos, anEndPos-thePos));
 
-	// Advance thePos to end of component section for next component or end
-	// (done here because no longer need to know start point of component and
-	// anEndPos might be used as a dummy var after this)
-	thePos = anEndPos;
-
-	if( !result.base.empty() )
+	if( !theComponent.base.empty() )
 	{// Check if base string is actually valid (after var expansion)
-		const std::string& aCheckStr = Profile::expandVars(result.base);
+		const std::string& aCheckStr = Profile::expandVars(theComponent.base);
 		if( isEffectivelyEmptyString(aCheckStr) )
-			return result; // useDefault == true
+		{
+			theComponent.base.clear();
+			thePos = anEndPos;
+			return false;
+		}
 		size_t aCheckPos = 0;
 		if( allowAnchor )
 			stringToCoord(aCheckStr, aCheckPos);
 		else
 			stringToDoubleSum(aCheckStr, aCheckPos);
-		// If didn't make it to end of component string, its invalid
-		// Directly use (post-var-expansion) whatever chars were valid
+		// If didn't make it to end of component string, it is invalid
+		// Treat as an empty component for purposes of editing
+		// (it may actually be valid elsewhere but just has a complicated
+		// variable setup that were unable to parse here)
 		if( aCheckPos < aCheckStr.size() )
-			result.base = result.base.substr(0, aCheckPos);
+		{
+			theComponent.base.clear();
+			thePos = anEndPos;
+			return false;
+		}
 	}
+
+	// Advance thePos to end of component section for next component or end
+	thePos = anEndPos;
+
+	if( theComponent.base.empty() )
+		return false;
 
 	// See if component string ends in a non-variable non-decimal offset value,
 	// and if so bump that to the offset int and trim it off the base string
-	if( !result.base.empty() )
+	theComponent.useDefault = false;
+	// Step back from end until encounter anything that isn't a numeral
+	// or a + or - operator.
+	int anOffStartPos = intSize(theComponent.base.size()-1);
+	while(anOffStartPos >= 0 &&
+		  ((theComponent.base[anOffStartPos] >= '0' &&
+			theComponent.base[anOffStartPos] <= '9') ||
+		   theComponent.base[anOffStartPos] == '-' ||
+		   theComponent.base[anOffStartPos] == '+' ||
+		   u8(theComponent.base[anOffStartPos]) <= ' '))
+	{ --anOffStartPos; }
+	// If reached a decimal point, step forward again to get
+	// past decimal number to next int
+	if( anOffStartPos >= 0 && theComponent.base[anOffStartPos] == '.' )
 	{
-		result.useDefault = false;
-		// Step back from end until encounter anything that isn't a numeral
-		// or a + or - operator.
-		int anOffStartPos = intSize(result.base.size()-1);
-		while(anOffStartPos >= 0 &&
-			  ((result.base[anOffStartPos] >= '0' &&
-				result.base[anOffStartPos] <= '9') ||
-			   result.base[anOffStartPos] == '-' ||
-			   result.base[anOffStartPos] == '+' ||
-			   u8(result.base[anOffStartPos]) <= ' '))
-		{ --anOffStartPos; }
-		// If reached a decimal point, step forward again to get
-		// past decimal number to next int
-		if( anOffStartPos >= 0 && result.base[anOffStartPos] == '.' )
-		{
-			while(++anOffStartPos < intSize(result.base.size()) &&
-				  (result.base[anOffStartPos] >= '0' &&
-				   result.base[anOffStartPos] <= '9'))
-			{ ++anOffStartPos; }
-		}
-		if( ++anOffStartPos < intSize(result.base.size()) )
-		{
-			anEndPos = 0;
-			result.offset = int(stringToDoubleSum(
-				result.base.substr(anOffStartPos), anEndPos));
-			result.base = result.base.substr(0, anOffStartPos);
-		}
+		while(++anOffStartPos < intSize(theComponent.base.size()) &&
+			  (theComponent.base[anOffStartPos] >= '0' &&
+			   theComponent.base[anOffStartPos] <= '9'))
+		{ ++anOffStartPos; }
+	}
+	if( ++anOffStartPos < intSize(theComponent.base.size()) )
+	{
+		size_t aDummyPos = 0;
+		theComponent.offset = int(stringToDoubleSum(
+			theComponent.base.substr(anOffStartPos), aDummyPos));
+		theComponent.base = theComponent.base.substr(0, anOffStartPos);
 	}
 
-	return result;
+	return true;
 }
 
 
@@ -488,6 +463,57 @@ static std::string shapeCompToProfString(
 			result += std::string(" + ") + toString(theComponent.offset);
 		else if( theComponent.offset < 0 )
 			result += std::string(" - ") + toString(-theComponent.offset);
+	}
+
+	return result;
+}
+
+
+static std::string hotspotRangeToProfString(
+	const LayoutEntry& theStartEntry,
+	const LayoutEntry::Shape& theStartShape,
+	const LayoutEntry::Shape& theOffsetsShape)
+{
+	std::string result = theStartEntry.overrideAnchorName;
+	if( !result.empty() )
+		result += ": ";
+	result += shapeCompToProfString(
+		theStartShape.x, theStartEntry.parentID != 0) + ", ";
+	result += shapeCompToProfString(
+		theStartShape.y, theStartEntry.parentID != 0);
+	if( !theStartShape.w.useDefault )
+	{
+		result += ", " +
+			shapeCompToProfString(theStartShape.w) + ", " +
+			shapeCompToProfString(theStartShape.h);
+	}
+	result += " : " + shapeCompToProfString(theOffsetsShape.x, true);
+	if( theOffsetsShape.alignment == eAlignment_WrapX )
+	{
+		if( !theOffsetsShape.extraVarString.empty() )
+		{
+			result += " @ ";
+			result += theOffsetsShape.extraVarString;
+		}
+		else if( theOffsetsShape.wrap > 0 )
+		{
+			result += " @ ";
+			result += toString(theOffsetsShape.wrap);
+		}
+	}
+	result += ", " + shapeCompToProfString(theOffsetsShape.y, true);
+	if( theOffsetsShape.alignment == eAlignment_WrapY )
+	{
+		if( !theOffsetsShape.extraVarString.empty() )
+		{
+			result += " @ ";
+			result += theOffsetsShape.extraVarString;
+		}
+		else if( theOffsetsShape.wrap > 0 )
+		{
+			result += " @ ";
+			result += toString(theOffsetsShape.wrap);
+		}
 	}
 
 	return result;
@@ -525,126 +551,111 @@ static Hotspot shapeToHotspot(const LayoutEntry::Shape& theShape)
 }
 
 
+static Hotspot getRangeEntryOffset(
+	int theRangeIdx,
+	int theStepX, int theStepY,
+	int applyXEvery, int applyYEvery)
+{
+	Hotspot result;
+	if( applyXEvery )
+	{
+		result.x.offset = dropTo<s16>((theRangeIdx / applyXEvery) * theStepX);
+		result.y.offset = dropTo<s16>((theRangeIdx % applyXEvery) * theStepY);
+	}
+	else if( applyYEvery )
+	{
+		result.x.offset = dropTo<s16>((theRangeIdx % applyYEvery) * theStepX);
+		result.y.offset = dropTo<s16>((theRangeIdx / applyYEvery) * theStepY);
+	}
+	else
+	{
+		result.x.offset = dropTo<s16>(theRangeIdx * theStepX);
+		result.y.offset = dropTo<s16>(theRangeIdx * theStepY);
+	}
+
+	return result;
+}
+
+
 static void updateDrawHotspot(
 	LayoutEntry& theEntry,
 	const LayoutEntry::Shape& theShape,
 	bool updateParentIfNeeded = true,
-	bool updateChildren = true)
+	bool updateChildren = true,
+	bool updateRangeElements = true)
 {
-	theEntry.drawHotspot = shapeToHotspot(theShape);
+	if( !theShape.rangeIdx || updateRangeElements )
+		theEntry.drawHotspot = shapeToHotspot(theShape);
 
-	theEntry.drawOffX = theEntry.drawOffY = 0;
-	theEntry.drawOffScale = entryIsAnchorHotspot(theEntry)
-		? stringToFloat(Profile::expandVars(theShape.scale))
-		: 1.0f;
-	theEntry.drawRangeWrap = 0;
+	theEntry.drawOffScale =
+		entryIsHotspotSetAnchor(theEntry)
+			? stringToFloat(Profile::expandVars(theShape.scale))
+			: 1.0f;
 	if( theEntry.drawOffScale <= 0 )
 		theEntry.drawOffScale = 1.0f;
-	if( theEntry.rangeCount > 0 )
-	{
-		theEntry.drawOffX = theEntry.drawHotspot.x.offset;
-		theEntry.drawOffY = theEntry.drawHotspot.y.offset;
-	}
-	if( entryHasParent(theEntry) )
-	{
-		LayoutEntry* aParent = getParentEntry(&theEntry);
-		if( updateParentIfNeeded )
-			updateDrawHotspot(*aParent, aParent->shape, true, false);
-		theEntry.drawOffScale = aParent->drawOffScale;
-		Hotspot aParentHotspot = aParent->drawHotspot;
-		if( aParent->rangeCount > 1 )
-		{// Rare case where the parent is itself a range of hotspots
-			int anExtraXOffset = 0;
-			int anExtraYOffset = 0;
-			for(int i = 2; i <= aParent->rangeCount; ++i)
-			{
-				if( aParent->drawRangeWrap > 0 )
-				{// Only apply X at wrap point
-					anExtraYOffset += aParent->drawOffY;
-					if( i % aParent->drawRangeWrap == 0 )
-					{
-						anExtraYOffset = -aParent->drawOffY;
-						anExtraXOffset += aParent->drawOffX;
-					}
-				}
-				else if( aParent->drawRangeWrap < 0 )
-				{// Only apply Y at wrap point
-					anExtraXOffset += aParent->drawOffX;
-					if( i % (-aParent->drawRangeWrap) == 0 )
-					{
-						anExtraXOffset = -aParent->drawOffX;
-						anExtraYOffset += aParent->drawOffY;
-					}
-				}
-				else
-				{// Apply both offsets
-					anExtraXOffset += aParent->drawOffX;
-					anExtraYOffset += aParent->drawOffY;
-				}
-			}
 
-			aParentHotspot.x.offset = s16(clamp(int(
-				aParent->drawHotspot.x.offset +
-				anExtraXOffset * aParent->drawOffScale),
-				-0x8000, 0x7FFF));
-			aParentHotspot.y.offset = s16(clamp(int(
-				aParent->drawHotspot.y.offset +
-				anExtraYOffset * aParent->drawOffScale),
-				-0x8000, 0x7FFF));
+	if( theEntry.parentID )
+	{
+		LayoutEntry& aParent = sState->entries[theEntry.parentID];
+		if( updateParentIfNeeded )
+			updateDrawHotspot(aParent, aParent.shape, true, false);
+		theEntry.drawOffScale = aParent.drawOffScale;
+		const Hotspot& aParentHotspot = aParent.drawHotspot;
+
+		if( entryIsRangeOffsets(theEntry) && updateRangeElements )
+		{
+			// Manually update the range element entries
+			// Parent is the range's first hotspot, this is the second, and
+			// children are the rest, but range's offset values are stored here
+			const int aStepX = theEntry.drawHotspot.x.offset;
+			const int aStepY = theEntry.drawHotspot.y.offset;
+			const int applyXEvery =
+				theShape.alignment == eAlignment_WrapX ? theShape.wrap : 0;
+			const int applyYEvery =
+				theShape.alignment == eAlignment_WrapY ? theShape.wrap : 0;
+			
+			for(int i = -1, end = intSize(theEntry.children.size());
+				i < end; ++i )
+			{
+				LayoutEntry& anEntry = i < 0
+					? theEntry : sState->entries[theEntry.children[i]];
+				if( i >= 0 && anEntry.shape.rangeIdx == 0 )
+					continue; // range element has manual override hotspot
+				anEntry.drawHotspot = getRangeEntryOffset(
+					anEntry.shape.rangeIdx,
+					aStepX, aStepY,
+					applyXEvery, applyYEvery);
+			}
 		}
-		if( theEntry.rangeCount >= 0 )
+
+		if( entryIsHotspot(theEntry) &&
+			theEntry.drawHotspot.x.anchor == 0 )
 		{// Offset from parent position
-			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.x.anchor == 0 )
-			{
-				theEntry.drawHotspot.x.anchor = aParentHotspot.x.anchor;
-				if( theShape.alignment == eAlignment_WrapX &&
-					theShape.wrap > 1 )
-				{// Apply range wrapping, for now cancelling own X offset
-					theEntry.drawHotspot.x.offset = aParentHotspot.x.offset;
-					theEntry.drawRangeWrap = theShape.wrap;
-				}
-				else if( theShape.alignment == eAlignment_WrapY &&
-						 theShape.wrap == 1 )
-				{// Cancel X offset and treat as having only a Y offset
-					theEntry.drawHotspot.x.offset = aParentHotspot.x.offset;
-					theEntry.drawOffX = 0;
-				}
-				else
-				{// Normal X offset
-					theEntry.drawHotspot.x.offset = s16(clamp(int(
-						theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
-						aParentHotspot.x.offset, -0x8000, 0x7FFF));
-				}
-			}
-			if( theEntry.rangeCount > 0 || theEntry.drawHotspot.y.anchor == 0 )
-			{
-				theEntry.drawHotspot.y.anchor = aParentHotspot.y.anchor;
-				if( theShape.alignment == eAlignment_WrapY &&
-					theShape.wrap > 1 )
-				{// Apply range wrapping, for now cancelling own Y offset
-					theEntry.drawHotspot.y.offset = aParentHotspot.y.offset;
-					theEntry.drawRangeWrap = -theShape.wrap;
-				}
-				else if( theShape.alignment == eAlignment_WrapX &&
-						 theShape.wrap == 1 )
-				{// Cancel Y offset and treat as having only a X offset
-					theEntry.drawHotspot.y.offset = aParentHotspot.y.offset;
-					theEntry.drawOffY = 0;
-				}
-				else
-				{// Normal Y offset
-					theEntry.drawHotspot.y.offset = s16(clamp(int(
-						theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
-						aParentHotspot.y.offset, -0x8000, 0x7FFF));
-				}
-			}
+			theEntry.drawHotspot.x.anchor = aParentHotspot.x.anchor;
+			theEntry.drawHotspot.x.offset = s16(clamp(int(
+				theEntry.drawHotspot.x.offset * theEntry.drawOffScale) +
+				aParentHotspot.x.offset, -0x8000, 0x7FFF));
 		}
 		else if( theShape.x.useDefault )
 		{// Inherit parent position
 			DBG_ASSERT(entryIsMenu(theEntry));
 			theEntry.drawHotspot.x = aParentHotspot.x;
+		}
+
+		if( entryIsHotspot(theEntry) &&
+			theEntry.drawHotspot.y.anchor == 0 )
+		{// Offset from parent position
+			theEntry.drawHotspot.y.anchor = aParentHotspot.y.anchor;
+			theEntry.drawHotspot.y.offset = s16(clamp(int(
+				theEntry.drawHotspot.y.offset * theEntry.drawOffScale) +
+				aParentHotspot.y.offset, -0x8000, 0x7FFF));
+		}
+		else if( theShape.y.useDefault )
+		{// Inherit parent position
+			DBG_ASSERT(entryIsMenu(theEntry));
 			theEntry.drawHotspot.y = aParentHotspot.y;
 		}
+
 		if( theShape.w.useDefault ||
 			theEntry.drawHotspot.w == 0 && theEntry.drawHotspot.h == 0 )
 		{// Inherit parent size
@@ -657,7 +668,8 @@ static void updateDrawHotspot(
 		for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
 		{
 			LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
-			updateDrawHotspot(aChildEntry, aChildEntry.shape, false, true);
+			updateDrawHotspot(aChildEntry, aChildEntry.shape, false, true,
+				!entryIsRangeOffsets(theEntry));
 		}
 	}
 }
@@ -685,7 +697,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 	const bool needNewAlign =
 		aNewShape->alignment != anOldShape1->alignment ||
 		aNewShape->alignment != anOldShape2->alignment ||
-		(theEntry.rangeCount > 1 &&
+		(entryIsRangeOffsets(theEntry) &&
 		 (aNewShape->wrap != anOldShape1->wrap ||
 		  aNewShape->wrap != anOldShape2->wrap ||
 		  aNewShape->extraVarString != anOldShape1->extraVarString ||
@@ -693,102 +705,144 @@ static void applyNewLayoutProperties(bool toFile = false)
 	if( !needNewPos && !needNewSize && !needNewScale && !needNewAlign )
 		return;
 
-	const bool isHotspot = theEntry.type == LayoutEntry::eType_Hotspot;
-	std::string aPosStr;
-	if( isHotspot || (needNewPos && !aNewShape->x.useDefault) )
+	if( entryIsRangeOffsets(theEntry) )
 	{
-		const bool asOffset =
-			theEntry.rangeCount >= 0 && entryHasParent(theEntry);
-		aPosStr = shapeCompToProfString(aNewShape->x, asOffset);
-		if( aNewShape->alignment == eAlignment_WrapX )
-		{
-			if( !aNewShape->extraVarString.empty() )
-			{
-				aPosStr += " @ ";
-				aPosStr += aNewShape->extraVarString;
-			}
-			else if( aNewShape->wrap > 0 )
-			{
-				aPosStr += " @ ";
-				aPosStr += toString(aNewShape->wrap);
-			}
-		}
-		aPosStr += ", ";
-		aPosStr += shapeCompToProfString(aNewShape->y, asOffset);
-		if( aNewShape->alignment == eAlignment_WrapY )
-		{
-			if( !aNewShape->extraVarString.empty() )
-			{
-				aPosStr += " @ ";
-				aPosStr += aNewShape->extraVarString;
-			}
-			else if( aNewShape->wrap > 0 )
-			{
-				aPosStr += " @ ";
-				aPosStr += toString(aNewShape->wrap);
-			}
-		}
-	}
-	std::string aSizeStr;
-	if( !aNewShape->w.useDefault && (needNewSize || isHotspot) )
-	{
-		aSizeStr =
-			shapeCompToProfString(aNewShape->w) + ", " +
-			shapeCompToProfString(aNewShape->h);
-	}
-
-	if( isHotspot )
-	{// Combine everything into a single property string for hotspot/range
-		std::string aScaleStr;
-		if( entryIsAnchorHotspot(theEntry) &&
-			stringToFloat(aNewShape->scale) >= 0 )
-		{
-			aScaleStr = aNewShape->scale;
-		}
-		std::string aProfileStr = aPosStr;
-		if( !aSizeStr.empty() )
-			aProfileStr += ", " + aSizeStr;
-		if( !aScaleStr.empty() )
-			aProfileStr += " * " + aScaleStr;
+		const LayoutEntry& aRangeStartEntry =
+			sState->entries[theEntry.parentID];
+		DBG_ASSERT(entryIsRangeStart(aRangeStartEntry));
+		const std::string& aProfileStr = hotspotRangeToProfString(
+			aRangeStartEntry, aRangeStartEntry.shape, *aNewShape);
 		Profile::setStr(
-			kHotspotsSectionName, theEntry.item.name,
+			aRangeStartEntry.propSectID, aRangeStartEntry.item.name,
 			aProfileStr, toFile);
 	}
+	else if( entryIsRangeStart(theEntry) )
+	{
+		const LayoutEntry& aRangeOffsetsEntry =
+			sState->entries[theEntry.children[0]];
+		DBG_ASSERT(entryIsRangeOffsets(aRangeOffsetsEntry));
+		const std::string& aProfileStr = hotspotRangeToProfString(
+			theEntry, *aNewShape, aRangeOffsetsEntry.shape);
+		Profile::setStr(
+			theEntry.propSectID, theEntry.item.name,
+			aProfileStr, toFile);
+	}
+	else if( entryIsHotspot(theEntry) )
+	{
+		std::string aProfileStr = theEntry.overrideAnchorName;
+		if( !aProfileStr.empty() )
+			aProfileStr += ": ";
+		aProfileStr +=
+			shapeCompToProfString(aNewShape->x, theEntry.parentID > 0) + ", " +
+			shapeCompToProfString(aNewShape->y, theEntry.parentID > 0);
+		if( !aNewShape->w.useDefault )
+		{
+			aProfileStr += ", " +
+				shapeCompToProfString(aNewShape->w) + ", " +
+				shapeCompToProfString(aNewShape->h);
+		}
+		if( entryIsHotspotSetAnchor(theEntry) )
+		{
+			Profile::setStr(
+				theEntry.propSectID, kAnchorPropName,
+				aProfileStr, toFile);
+			if( needNewScale &&
+				stringToFloat(aNewShape->scale) >= 0 )
+			{
+				Profile::setStr(
+					theEntry.propSectID,
+					kScalePropName, aNewShape->scale, toFile);
+			}
+		}
+		else
+		{
+			Profile::setStr(
+				theEntry.propSectID, theEntry.item.name,
+				aProfileStr, toFile);
+		}
+	}
 	else if( entryIsMenu(theEntry) )
-	{// Each string is saved to a separate property string within menu section
-		const int aProfileSect = InputMap::menuSectionID(theEntry.menuID);
+	{
 		if( needNewPos )
-			Profile::setStr(aProfileSect, kPositionPropName, aPosStr, toFile);
+		{
+			std::string aProfileStr;
+			if( !aNewShape->x.useDefault )
+			{
+				aProfileStr =
+					shapeCompToProfString(aNewShape->x) + ", " +
+					shapeCompToProfString(aNewShape->y);
+			}
+			Profile::setStr(
+				theEntry.propSectID, kPositionPropName, aProfileStr, toFile);
+		}
 		if( needNewSize )
-			Profile::setStr(aProfileSect, kItemSizePropName, aSizeStr, toFile);
+		{
+			std::string aProfileStr;
+			if( !aNewShape->w.useDefault )
+			{
+				aProfileStr += ", " +
+					shapeCompToProfString(aNewShape->w) + ", " +
+					shapeCompToProfString(aNewShape->h);
+			}
+			Profile::setStr(
+				theEntry.propSectID, kItemSizePropName, aProfileStr, toFile);
+		}
 		if( needNewAlign )
 		{
 			if( aNewShape->alignment == eAlignment_UseDefault )
 			{
-				Profile::setStr(aProfileSect, kAlignmentPropName,
+				Profile::setStr(theEntry.propSectID, kAlignmentPropName,
 					"", toFile);
 			}
 			else if( aNewShape->alignment == eAlignment_VarString )
 			{
-				Profile::setStr(aProfileSect, kAlignmentPropName,
+				Profile::setStr(theEntry.propSectID, kAlignmentPropName,
 					aNewShape->extraVarString, toFile);
 			}
 			else
 			{
-				Profile::setStr(aProfileSect, kAlignmentPropName,
+				Profile::setStr(theEntry.propSectID, kAlignmentPropName,
 					kAlignmentStr[aNewShape->alignment][1], toFile);
 			}
 		}
 	}
-	else //if( theEntry.type == LayoutEntry::eType_UIScale )
+	else if( theEntry.type == LayoutEntry::eType_UIScale )
 	{
 		Profile::setVariable("UIScale", sState->entered.scale, !toFile);
+	}
+	else
+	{
+		DBG_ASSERT(false);
 	}
 
 	sState->applied = sState->entered;
 	if( toFile )
 	{
 		theEntry.shape = sState->entered;
+		if( entryIsRangeOffsets(theEntry) )
+		{// Apply offset changes to individual hotspots within the range as well
+			Hotspot anOffsets = shapeToHotspot(sState->entered);
+			const int aStepX = anOffsets.x.offset;
+			const int aStepY = anOffsets.y.offset;
+			const u32 applyXEvery =
+				sState->entered.alignment == eAlignment_WrapX
+					? sState->entered.wrap : 0;
+			const u32 applyYEvery =
+				sState->entered.alignment == eAlignment_WrapY
+					? sState->entered.wrap : 0;
+			for(int i = 0, end = intSize(theEntry.children.size());
+				i < end; ++i)
+			{
+				LayoutEntry& anEntry = sState->entries[theEntry.children[i]];
+				if( !anEntry.shape.rangeIdx )
+					continue;
+				anOffsets = getRangeEntryOffset(
+					anEntry.shape.rangeIdx,
+					aStepX, aStepY, applyXEvery, applyYEvery);
+				anEntry.shape.x.offset = anOffsets.x.offset;
+				anEntry.shape.y.offset = anOffsets.y.offset;
+			}
+		}
 		Profile::saveChangesToFile();
 	}
 }
@@ -969,7 +1023,7 @@ static void setupPositionControls(
 	}
 
 	int aDropListSize = 0;
-	if( theEntry.rangeCount <= 0 )
+	if( !entryIsRangeOffsets(theEntry) )
 	{
 		SendMessage(hComboBox,CB_ADDSTRING, 0,
 			(LPARAM)(isY ? L"T" : L"L"));
@@ -981,12 +1035,14 @@ static void setupPositionControls(
 		aDropListSize = 4;
 	}
 	const bool canBeOffsetOnly =
-		theEntry.rangeCount >= 0 && entryHasParent(theEntry); 
-	// Set initial selection to one of the above if appropriate
+		entryIsHotspot(theEntry) && theEntry.parentID > 0;
+	const bool mustBeOffsetOnly =
+		canBeOffsetOnly && entryIsRangeOffsets(theEntry);
 	const double anAnchorVal = theComponent.offset
 			? 0 : stringToDouble(theComponent.base, true);
-	const bool isCustomAnchor = theEntry.rangeCount <= 0 &&
+	const bool isCustomAnchor = !mustBeOffsetOnly &&
 		!_isnan(anAnchorVal) && anAnchorVal != 0 && anAnchorVal < 1.0;
+	// Set initial selection to one of the above if appropriate
 	if( canBeOffsetOnly )
 	{
 		SendMessage(hComboBox, CB_ADDSTRING, 0, (LPARAM)kOffsetOnlyLabel);
@@ -1009,11 +1065,9 @@ static void setupPositionControls(
 		const Hotspot::Coord& aCoord = stringToCoord(
 			Profile::expandVars(theComponent.base), aPos);
 		// If string contained an offset or unknown characters
-		// (likely ${} variables), or has an anchor even though
-		// it is a range, then need to include custom string option
+		// (likely ${} variables), then need to include custom string option
 		bool useStringBase = aCoord.offset != 0 ||
-			(!theComponent.base.empty() && aPos < theComponent.base.size()) ||
-			(theEntry.rangeCount > 0 && aCoord.anchor != 0);
+			(!theComponent.base.empty() && aPos < theComponent.base.size());
 		if( !useStringBase )
 		{// Check if string is simply a known basic anchor type
 			switch(aCoord.anchor)
@@ -1423,7 +1477,15 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 	case WM_INITDIALOG:
 		// Set title to match the entry name and display scaling being applied
 		{
-			const double aScaling = entryScaleFactor(anEntry) * gUIScale;
+			double aScaling = 1.0;
+			if( entryIsHotspot(anEntry) && anEntry.hotpotSetEntryIdx > 0 )
+			{
+				aScaling = stringToFloat(Profile::expandVars(
+					sState->entries[anEntry.hotpotSetEntryIdx].shape.scale));
+				if( aScaling == 0 )
+					aScaling = 1.0;
+			}
+			aScaling *= gUIScale;
 			if( aScaling != 1 )
 			{
 				SetWindowText(theDialog,
@@ -1466,23 +1528,26 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 		}
 		
 		// Size (W & H)
-		aSrcEntry = getSizeSourceEntry(&anEntry);
-		setupSizeControls(theDialog, aSrcEntry->shape.w, false);
-		setupSizeControls(theDialog, aSrcEntry->shape.h, true);
-		if( aSrcEntry != &anEntry || aSrcEntry->shape.w.useDefault )
+		if( !entryIsRangeOffsets(anEntry) )
 		{
-			SendMessage(GetDlgItem(theDialog, IDC_EDIT_W),
-				EM_SETREADONLY, true, 0);
-			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_W_BASE), false);
-			EnableWindow(GetDlgItem(theDialog, IDC_SPIN_W), false);
-			SendMessage(GetDlgItem(theDialog, IDC_EDIT_H),
-				EM_SETREADONLY, true, 0);
-			EnableWindow(GetDlgItem(theDialog, IDC_COMBO_H_BASE), false);
-			EnableWindow(GetDlgItem(theDialog, IDC_SPIN_H), false);
-		}
-		else
-		{
-			CheckDlgButton(theDialog, IDC_CHECK_SIZE, true);
+			aSrcEntry = getSizeSourceEntry(&anEntry);
+			setupSizeControls(theDialog, aSrcEntry->shape.w, false);
+			setupSizeControls(theDialog, aSrcEntry->shape.h, true);
+			if( aSrcEntry != &anEntry || aSrcEntry->shape.w.useDefault )
+			{
+				SendMessage(GetDlgItem(theDialog, IDC_EDIT_W),
+					EM_SETREADONLY, true, 0);
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_W_BASE), false);
+				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_W), false);
+				SendMessage(GetDlgItem(theDialog, IDC_EDIT_H),
+					EM_SETREADONLY, true, 0);
+				EnableWindow(GetDlgItem(theDialog, IDC_COMBO_H_BASE), false);
+				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_H), false);
+			}
+			else
+			{
+				CheckDlgButton(theDialog, IDC_CHECK_SIZE, true);
+			}
 		}
 
 		if( entryIsMenu(anEntry) )
@@ -1500,7 +1565,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 			setupAlignmentControls(theDialog, aSrcEntry->shape);
 		}
 
-		if( entryIsAnchorHotspot(anEntry) )
+		if( entryIsHotspotSetAnchor(anEntry) )
 		{// Scale
 			SendDlgItemMessage(theDialog, IDC_SLIDER_S,
 				TBM_SETRANGE, TRUE,
@@ -1509,7 +1574,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				CheckDlgButton(theDialog, IDC_CHECK_SCALE, true);
 		}
 
-		if( anEntry.rangeCount > 1 )
+		if( entryIsRangeOffsets(anEntry) )
 		{// Range wrap
 			if( setupRangeWrapControls(theDialog, anEntry.shape) )
 				CheckDlgButton(theDialog, IDC_CHECK_WRAP, true);
@@ -1658,7 +1723,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_Y), isChecked);
 				const LayoutEntry* aSrcEntry;
 				if( isChecked )
-				{// Begin using own custom values (or duplicate of parent's)
+				{// Begin using own custom values (or duplicate of default's)
 					aSrcEntry = getPosSourceEntry(&anEntry);
 					sState->entered.x = aSrcEntry->shape.x;
 					sState->entered.y = aSrcEntry->shape.y;
@@ -1674,8 +1739,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					sState->entered.x = LayoutEntry::Shape::Component();
 					sState->entered.y = LayoutEntry::Shape::Component();
 					aSrcEntry = getPosSourceEntry(
-						entryHasParent(anEntry)
-							? getParentEntry(&anEntry)
+						anEntry.parentID != 0
+							? &sState->entries[anEntry.parentID]
 							: &anEntry);
 				}
 				DBG_ASSERT(aSrcEntry);
@@ -1709,7 +1774,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				EnableWindow(GetDlgItem(theDialog, IDC_SPIN_H), isChecked);
 				const LayoutEntry* aSrcEntry;
 				if( isChecked )
-				{// Begin using own custom values (or duplicate of parent's)
+				{// Begin using own custom values (or duplicate of default's)
 					aSrcEntry = getSizeSourceEntry(&anEntry);
 					sState->entered.w = aSrcEntry->shape.w;
 					sState->entered.h = aSrcEntry->shape.h;
@@ -1727,8 +1792,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					sState->entered.w = LayoutEntry::Shape::Component();
 					sState->entered.h = LayoutEntry::Shape::Component();
 					aSrcEntry = getSizeSourceEntry(
-						entryHasParent(anEntry)
-							? getParentEntry(&anEntry)
+						anEntry.parentID != 0
+							? &sState->entries[anEntry.parentID]
 							: &anEntry);
 				}
 				DBG_ASSERT(aSrcEntry);
@@ -1770,8 +1835,8 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					sState->entered.alignment = eAlignment_UseDefault;
 					sState->entered.extraVarString.clear();
 					aSrcEntry = getAlignmentSourceEntry(
-						entryHasParent(anEntry)
-							? getParentEntry(&anEntry)
+						anEntry.parentID > 0
+							? &sState->entries[anEntry.parentID]
 							: &anEntry);
 				}
 				DBG_ASSERT(aSrcEntry);
@@ -1916,7 +1981,7 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 					// with parents, L/T being included indicates parent should
 					// be ignored and to not act as an offset, so keep them).
 					if( aSelectedText == narrow(kOffsetOnlyLabel) ||
-						(!entryHasParent(anEntry) &&
+						((entryIsMenu(anEntry) || !anEntry.parentID) &&
 						 (aSelectedText == "L" || aSelectedText == "T")) )
 					{
 						aComp.base.clear();
@@ -2065,6 +2130,14 @@ static INT_PTR CALLBACK editUIScaleToolbarProc(
 			TBM_SETPOS, TRUE, LPARAM(100 * gUIScale));
 		SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
 			widen(sState->entered.scale).c_str());
+		{
+			size_t aPos = 0;
+			SetWindowText(theDialog,
+				(L"Set Global UI Scale Multiplier (was " +
+				 widen(numToStringDecimal(stringToDoubleSum(
+					Profile::expandVars(sState->entered.scale), aPos), true)) +
+				 L")").c_str());
+		}
 		// Allow Esc to cancel even when not the active window
 		RegisterHotKey(NULL, kCancelToolbarHotkeyID, 0, VK_ESCAPE);
 		break;
@@ -2140,7 +2213,8 @@ static INT_PTR CALLBACK editUIScaleToolbarProc(
 				SendDlgItemMessage(theDialog, IDC_SLIDER_S, TBM_GETPOS, 0, 0));
 			const bool isInPercent =
 				!sState->entered.scale.empty() &&
-				sState->entered.scale[sState->entered.scale.size()-1] == '%';
+				(sState->entered.scale.find('$') != std::string::npos || // var
+				 sState->entered.scale[sState->entered.scale.size()-1] == '%');
 			SetWindowText(GetDlgItem(theDialog, IDC_EDIT_S),
 				widen(numToStringDecimal(aScaleVal, isInPercent)).c_str());
 		}
@@ -2364,98 +2438,38 @@ static void drawEntry(
 	COLORREF theEraseColor,
 	bool isActiveHotspot)
 {
-	Hotspot aHotspot = theEntry.drawHotspot;
+	if( theEntry.type < LayoutEntry::eType_CategoryNum )
+		return;
 	if( !isActiveHotspot )
 	{// Draw basic hotspot
-		theEntry.drawnRect = drawHotspot(hdc, aHotspot,
-			kChildHotspotDrawSize, entryScaleFactor(theEntry),
+		theEntry.drawnRect = drawHotspot(hdc, theEntry.drawHotspot,
+			kChildHotspotDrawSize, theEntry.drawOffScale,
 			theBaseOffset, theEraseColor, false, true);
 	}
-	for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i )
+	else if( entryIsRangeOffsets(theEntry) )
+	{// Draw parent hotspot (first in range) as reference point
+		drawEntry( sState->entries[theEntry.parentID],
+			hdc, theBaseOffset, theEraseColor, false);
+	}
+	for(int i = 0, end = intSize(theEntry.children.size()); i < end; ++i)
 	{// Draw child hotspots
 		LayoutEntry& aChildEntry = sState->entries[theEntry.children[i]];
 		drawEntry(aChildEntry, hdc, theBaseOffset, theEraseColor, false);
 	}
-	// Draw built-in range of hotspots and track their combined drawn rect
-	RECT aRangeDrawnRect = { 0 };
-	if( theEntry.rangeCount > 1 )
-	{
-		const Hotspot aRangeAnchor = aHotspot;
-		Hotspot aParentHotspot = aHotspot;
-		if( isActiveHotspot && theEntry.drawRangeWrap )
-		{// Draw immediate parent as a stationary reference point
-			if( theEntry.drawRangeWrap < 0 )
-			{
-				aHotspot.x.offset = s16(clamp(
-					int(-theEntry.drawOffX * theEntry.drawOffScale) +
-					aRangeAnchor.x.offset, -0x8000, 0x7FFF));
-			}
-			else
-			{
-				aHotspot.y.offset = s16(clamp(
-					int(-theEntry.drawOffY * theEntry.drawOffScale) +
-					aRangeAnchor.y.offset, -0x8000, 0x7FFF));
-			}
-			RECT aDrawnRect = drawHotspot(hdc, aHotspot,
-				kChildHotspotDrawSize, entryScaleFactor(theEntry),
-				theBaseOffset, theEraseColor, false, true);
-			UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
-		}
-		int aDrawOffsetX = 0;
-		int aDrawOffsetY = 0;
-		for(int i = 2; i <= theEntry.rangeCount; ++i)
-		{
-			if( theEntry.drawRangeWrap > 0 )
-			{// Only apply X at wrap point
-				aDrawOffsetY += theEntry.drawOffY;
-				if( i % theEntry.drawRangeWrap == 0 )
-				{
-					aDrawOffsetY = -theEntry.drawOffY;
-					aDrawOffsetX += theEntry.drawOffX;
-				}
-			}
-			else if( theEntry.drawRangeWrap < 0 )
-			{// Only apply Y at wrap point
-				aDrawOffsetX += theEntry.drawOffX;
-				if( i % (-theEntry.drawRangeWrap) == 0 )
-				{
-					aDrawOffsetX = -theEntry.drawOffX;
-					aDrawOffsetY += theEntry.drawOffY;
-				}
-			}
-			else
-			{// Apply offsets normally
-				aDrawOffsetX += theEntry.drawOffX;
-				aDrawOffsetY += theEntry.drawOffY;
-			}
-			aHotspot.x.offset = s16(clamp(
-				int(aDrawOffsetX * theEntry.drawOffScale) +
-				aRangeAnchor.x.offset, -0x8000, 0x7FFF));
-			aHotspot.y.offset = s16(clamp(
-				int(aDrawOffsetY * theEntry.drawOffScale) +
-				aRangeAnchor.y.offset, -0x8000, 0x7FFF));
-			RECT aDrawnRect = drawHotspot(hdc, aHotspot,
-				kChildHotspotDrawSize, entryScaleFactor(theEntry),
-				theBaseOffset, theEraseColor, false, true);
-			UnionRect(&aRangeDrawnRect, &aRangeDrawnRect, &aDrawnRect);
-		}
-	}
 	if( isActiveHotspot )
-	{// Draw primary hotspot last so is over top of all children/range
+	{// Draw primary hotspot last so is over top of all children
 		// Only draw size box for active entry for normal hotspots, not
-		// anchor hotspots (size is only specified for those to pass on to
-		// the rest of the range really) or menus (size is displayed by menu
+		// set anchor hotspots (size is only specified for those to pass on to
+		// the rest of the set really) or menus (size is displayed by menu
 		// itself being drawn).
 		COLORREF oldColor = SetDCBrushColor(hdc, RGB(255, 255, 255));
 		theEntry.drawnRect = drawHotspot(hdc, theEntry.drawHotspot,
-			kActiveHotspotDrawSize, entryScaleFactor(theEntry),
+			kActiveHotspotDrawSize,
+			theEntry.drawOffScale,
 			theBaseOffset, theEraseColor, true,
-			!entryIsAnchorHotspot(theEntry) && !entryIsMenu(theEntry));
+			!entryIsHotspotSetAnchor(theEntry) && !entryIsMenu(theEntry));
 		SetDCBrushColor(hdc, oldColor);
 	}
-	// Have final drawn rect include range
-	if( theEntry.rangeCount > 1 )
-		UnionRect(&theEntry.drawnRect, &theEntry.drawnRect, &aRangeDrawnRect);
 }
 
 
@@ -2510,6 +2524,8 @@ static void promptForEditEntry()
 	{
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 		sState->entered = sState->applied = anEntry.shape;
+		// Any modification of a range element changes it to a normal hotspot
+		sState->entered.rangeIdx = 0;
 		sState->needsDrawPosUpdate = true;
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
@@ -2517,11 +2533,11 @@ static void promptForEditEntry()
 		WindowManager::createToolbarWindow(
 			isUIScale						? IDD_DIALOG_LAYOUT_UISCALE :
 			entryIsMenu(anEntry)			? IDD_DIALOG_LAYOUT_MENU :
-			entryIsAnchorHotspot(anEntry)	? IDD_DIALOG_LAYOUT_ANCHOR :
-			anEntry.rangeCount > 1			? IDD_DIALOG_LAYOUT_HOTSPOT_RANGE :
+			entryIsHotspotSetAnchor(anEntry)? IDD_DIALOG_LAYOUT_ANCHOR :
+			entryIsRangeOffsets(anEntry)	? IDD_DIALOG_LAYOUT_HOTSPOT_RANGE :
 			/*otherwise*/					  IDD_DIALOG_LAYOUT_HOTSPOT,
 			isUIScale ? editUIScaleToolbarProc : editLayoutToolbarProc,
-			anEntry.menuID);
+			entryIsMenu(anEntry) ? anEntry.menuID : -1);
 	}
 	else
 	{
@@ -2530,98 +2546,132 @@ static void promptForEditEntry()
 }
 
 
-static bool setEntryParentFromMap(
-	const StringToValueMap<u32>& theEntryNameMap,
-	int theIndex, const std::string& /*thePrefix*/, void* theEntryPtr)
+static bool parseHotspotEntry(
+	LayoutEntry& theNewEntry,
+	const std::string& theDesc,
+	size_t& thePos,
+	const std::string& theSetName)
 {
-	LayoutEntry& theEntry = *((LayoutEntry*)theEntryPtr);
-	std::string aHotspotPropertyName =
-		theEntryNameMap.keys()[theIndex];
-	const int aHotspotEndIdx =
-		breakOffIntegerSuffix(aHotspotPropertyName);
-	const int anArrayPrevIdx = -theEntry.item.parentIndex;
-	if( aHotspotEndIdx == anArrayPrevIdx )
+	// Check for an override anchor hotspot in format "Name:"
+	const size_t anEndPos = fetchComponentStringEnd(theDesc, thePos, true);
+	if( anEndPos < theDesc.size() && theDesc[anEndPos] == ':' )
 	{
-		theEntry.item.parentIndex = theEntryNameMap.values()[theIndex];
+		const std::string& anAnchorVarName =
+			trim(theDesc.substr(thePos, anEndPos-thePos));
+		const std::string& anAnchorName = Profile::expandVars(anAnchorVarName);
+		if( !theSetName.empty() )
+		{
+			const std::string& aSetAnchorName = theSetName + anAnchorName;
+			if( HotspotMap::hotspotIDFromName(aSetAnchorName) )
+				theNewEntry.overrideAnchorName = aSetAnchorName;
+		}
+		if( !anAnchorName.empty() && theNewEntry.overrideAnchorName.empty() )
+		{
+			if( HotspotMap::hotspotIDFromName(anAnchorName) )
+				theNewEntry.overrideAnchorName = anAnchorVarName;				
+		}
+		if( !theNewEntry.overrideAnchorName.empty() )
+			thePos = anEndPos+1;
+	}
+
+	if( isEffectivelyEmptyString(theDesc.substr(thePos)) )
 		return false;
+
+	if( !fetchShapeComponent(theNewEntry.shape.x, theDesc, thePos, true) )
+		return false;
+
+	if( thePos < theDesc.size() &&
+		theDesc[thePos] != '@' && theDesc[thePos] != ':' )
+	{
+		if( !fetchShapeComponent(theNewEntry.shape.y, theDesc, ++thePos, true) )
+			return false;
+	}
+	
+	if( thePos < theDesc.size() &&
+		theDesc[thePos] != '@' && theDesc[thePos] != ':' )
+	{
+		if( !fetchShapeComponent(
+				theNewEntry.shape.w, theDesc, ++thePos, false) ||
+			thePos == theDesc.size() ||
+			theDesc[thePos] == '@' ||
+			theDesc[thePos] == ':' )
+		{
+			theNewEntry.shape.w.useDefault = true;
+			return false;
+		}
+		if( !fetchShapeComponent(
+				theNewEntry.shape.h, theDesc, ++thePos, false) )
+		{
+			theNewEntry.shape.w.useDefault = true;
+			theNewEntry.shape.h.useDefault = true;
+			return false;
+		}
+		// useDefault flag must match on each component pair
+		theNewEntry.shape.x.useDefault = theNewEntry.shape.y.useDefault = false;
+		if( theNewEntry.shape.w.base.empty() && !theNewEntry.shape.w.offset &&
+			theNewEntry.shape.w.base.empty() && !theNewEntry.shape.w.offset )
+		{// Width & height being 0 is equivalent to useDefault for hotspots
+			theNewEntry.shape.w.useDefault = true;
+			theNewEntry.shape.h.useDefault = true;
+			return true;
+		}
+		
+		// At least one was set to > 0 - make sure both are set to >= 1
+		DBG_ASSERT(!theNewEntry.shape.w.useDefault);
+		DBG_ASSERT(!theNewEntry.shape.h.useDefault);
+		if( theNewEntry.shape.w.base.empty() )
+			theNewEntry.shape.w.offset = max(1, theNewEntry.shape.w.offset);
+		if( theNewEntry.shape.h.base.empty() )
+			theNewEntry.shape.h.offset = max(1, theNewEntry.shape.h.offset);
 	}
 
 	return true;
 }
 
 
-static void setHotspotEntryParent(
-	LayoutEntry& theEntry,
-	const StringToValueMap<u32>& theEntryNameMap)
+static bool parseHotspotRangeOffsets(
+	LayoutEntry& theNewEntry,
+	const std::string& theDesc,
+	size_t& thePos)
 {
-	// Check if might have a parent/anchor (ends in a number or range)
-	theEntry.rangeCount = -1;
-	int aRangeStartIdx, aRangeEndIdx;
-	std::string anArrayName;
-	const bool usePrevIndexAsParent = fetchRangeSuffix(
-		theEntry.item.name, anArrayName,
-		aRangeStartIdx, aRangeEndIdx);
+	if( thePos >= theDesc.size() || theDesc[thePos] != ':' )
+		return false;
 
-	// If didn't end in a number, must be an anchor or independent hotspot
-	// Leave rangeCount as -1 and exit now
-	if( aRangeEndIdx <= 0 )
-		return;
+	if( !fetchShapeComponent(theNewEntry.shape.x, theDesc, ++thePos, false) ||
+		thePos >= theDesc.size() ||
+		theDesc[thePos] == ':' )
+	{ return false; }
 
-	// For "ArrayName#" entries (!usePrevIndexAsParent), set rangeCount = 0 and
-	// only let the overall array anchor hotspot be a parent, if there is one
-	const u32* aParentIdx;
-	if( !usePrevIndexAsParent )
+	if( theDesc[thePos] == '@' )
 	{
-		theEntry.rangeCount = 0;
-		aParentIdx = theEntryNameMap.find(anArrayName);
-		if( aParentIdx )
-			theEntry.item.parentIndex = *aParentIdx;
-		return;
+		const size_t aWrapStrEndPos =
+			fetchComponentStringEnd(theDesc, ++thePos);
+		theNewEntry.shape.extraVarString =
+			trim(theDesc.substr(thePos, aWrapStrEndPos - thePos));
+		theNewEntry.shape.wrap = clamp(stringToInt(
+			Profile::expandVars(theNewEntry.shape.extraVarString)),
+			0, 255);
+		thePos = aWrapStrEndPos;
+		theNewEntry.shape.alignment = eAlignment_WrapX;
 	}
 
-	// Must be "ArrayName#-#" (though both #'s might be the same value),
-	// and thus usePrevIndexAsParent is true. Set .rangeCount appropriately.
-	theEntry.rangeCount = 1 + aRangeEndIdx - aRangeStartIdx;
-
-	// Need to find the hotspot in the array with starting index - 1
-	const int anArrayPrevIdx = aRangeStartIdx - 1;
-
-	// Directly check for an entry named "ArrayName#" (with # == prev index)
-	aParentIdx = theEntryNameMap.find(anArrayName + toString(anArrayPrevIdx));
-	if( aParentIdx )
+	if( !fetchShapeComponent(theNewEntry.shape.y, theDesc, ++thePos, false) )
+		return false;
+	
+	if( thePos < theDesc.size() && theDesc[thePos] == '@' )
 	{
-		theEntry.item.parentIndex = *aParentIdx;
-		return;
+		const size_t aWrapStrEndPos =
+			fetchComponentStringEnd(theDesc, ++thePos);
+		theNewEntry.shape.extraVarString =
+			trim(theDesc.substr(thePos, aWrapStrEndPos - thePos));
+		theNewEntry.shape.wrap = clamp(stringToInt(
+			Profile::expandVars(theNewEntry.shape.extraVarString)),
+			0, 255);
+		thePos = aWrapStrEndPos;
+		theNewEntry.shape.alignment = eAlignment_WrapY;
 	}
 
-	// Previous index may be itself in a range like "ArrayName3-#", in which
-	// case need to search through all hotspots in the named array for any
-	// ranges that end in "-#" by using findAllWithPrefix
-	if( anArrayPrevIdx > 0 )
-	{
-		// Store the value we are looking for temporarily in theEntry
-		// for use in the setEntryParentFromMap function, and set it negative
-		// so can check if it was re-set to an actual parent (became positive).
-		const int oldParentIndex = theEntry.item.parentIndex;
-		theEntry.item.parentIndex = -anArrayPrevIdx;
-		theEntryNameMap.findAllWithPrefix(
-			anArrayName, setEntryParentFromMap, &theEntry);
-		if( theEntry.item.parentIndex >= 0 )
-			return;
-		theEntry.item.parentIndex = oldParentIndex;
-	}
-
-	// All else failed, so try using the overall anchor hotspot for the array.
-	// One case where this might happen is if the first hotspot is a range,
-	// such as "ArrayName1-3", so previous index (0) is just "ArrayName".
-	aParentIdx = theEntryNameMap.find(anArrayName);
-	if( aParentIdx )
-	{
-		theEntry.item.parentIndex = *aParentIdx;
-		return;
-	}
-
-	// Very unlikely but possible to be a range with no parent (offset from 0x0)
+	return true;
 }
 
 
@@ -2651,7 +2701,7 @@ void init()
 	{
 		LayoutEntry aCatEntry;
 		aCatEntry.type = LayoutEntry::eType_Root;
-		aCatEntry.item.isCategoryOnly = true;
+		aCatEntry.item.immutable = true;
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_HotspotCategory;
 		aCatEntry.item.name = "Hotspots";
@@ -2661,7 +2711,7 @@ void init()
 		sState->entries.push_back(aCatEntry);
 		aCatEntry.type = LayoutEntry::eType_UIScale;
 		aCatEntry.item.name = "UI Scale";
-		aCatEntry.item.isCategoryOnly = false;
+		aCatEntry.item.immutable = false;
 		aCatEntry.shape.scale =
 			Profile::getSectionProperties("Variables")->valElse(
 			"UIScale", Profile::Property()).pattern;
@@ -2676,100 +2726,199 @@ void init()
 	}
 
 	// Collect hotspot data entries
-	const int kHotspotsSectionID = Profile::getSectionID(kHotspotsSectionName);
-	if( kHotspotsSectionID >= 0 )
+	size_t aPos;
+	StringToValueMap<int> aHotspotNameToEntryMap;
+	for(int aHotspotSetID = 0, aHotspotSetCnt = HotspotMap::hotspotSetCount();
+		aHotspotSetID < aHotspotSetCnt; ++aHotspotSetID)
 	{
+		int aHotspotSetAnchorIdx = 0;
+		const int aSectionID = HotspotMap::hotspotSetSectionID(aHotspotSetID);
+		const std::string& aSetName = aHotspotSetID == 0 ? "" :
+			HotspotMap::hotspotSetLabel(aHotspotSetID);
+		if( aHotspotSetID > 0 )
+		{// Make sure set anchor hotspot exists in some basic form
+			aHotspotSetAnchorIdx = int(sState->entries.size());
+			sState->entries.push_back(LayoutEntry());
+			LayoutEntry& anEntry = sState->entries.back();
+			anEntry.propSectID = aSectionID;
+			anEntry.type = LayoutEntry::eType_HotspotSetAnchor;
+			anEntry.hotpotSetEntryIdx = 0; // Not considered part of own set
+			anEntry.item.parentIndex = LayoutEntry::eType_HotspotCategory;
+			anEntry.item.name = aSetName;
+		}
+		aHotspotNameToEntryMap.setValue(aSetName, aHotspotSetAnchorIdx);
+
+		// Add all hotspots in the set (plus set's Anchor and Scale)
 		Profile::PropertyMapPtr aPropMap =
-			Profile::getSectionProperties(kHotspotsSectionID);
-		StringToValueMap<u32> anEntryNameToIdxMap;
-		for(int i = 0, end = intSize(aPropMap->size()); i < end; ++i)
+			Profile::getSectionProperties(aSectionID);
+		for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 		{
-			LayoutEntry aNewEntry;
-			aNewEntry.type = LayoutEntry::eType_Hotspot;
-			aNewEntry.item.parentIndex = LayoutEntry::eType_HotspotCategory;
-			aNewEntry.item.name = aPropMap->keys()[i];
-			aNewEntry.propSectID = kHotspotsSectionID;
-			if( isEffectivelyEmptyString(aPropMap->vals()[i].str) )
-				continue;
-			anEntryNameToIdxMap.setValue(
-				aNewEntry.item.name, u32(sState->entries.size()));
-			const std::string& aDesc =
-				aPropMap->vals()[i].pattern.empty()
-					? aPropMap->vals()[i].str
-					: aPropMap->vals()[i].pattern;
-			size_t aPos = 0;
-			aNewEntry.shape.x = fetchShapeComponent(aDesc, aPos, true);
-			if( aDesc[aPos] == '@' )
-			{
-				const size_t aWrapStrEndPos =
-					fetchComponentStringEnd(aDesc, ++aPos);
-				aNewEntry.shape.extraVarString =
-					trim(aDesc.substr(aPos, aWrapStrEndPos - aPos));
-				aNewEntry.shape.wrap = clamp(stringToInt(
-					Profile::expandVars(aNewEntry.shape.extraVarString)),
-					0, 255);
-				aPos = aWrapStrEndPos;
-				aNewEntry.shape.alignment = eAlignment_WrapX;
-			}
-			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
-			{
-				aNewEntry.shape.y = fetchShapeComponent(aDesc, ++aPos, true);
-				if( aDesc[aPos] == '@' )
+			if( aHotspotSetID > 0 )
+			{// Check for special set properties Anchor and Scale
+				const std::string& aCondensedKey =
+					condense(aPropMap->keys()[aPropIdx]);
+				if( aCondensedKey == "ANCHOR" )
 				{
-					const size_t aWrapStrEndPos =
-						fetchComponentStringEnd(aDesc, ++aPos);
-					aNewEntry.shape.extraVarString =
-						trim(aDesc.substr(aPos, aWrapStrEndPos - aPos));
-					aNewEntry.shape.wrap = clamp(stringToInt(
-						Profile::expandVars(aNewEntry.shape.extraVarString)),
-						0, 255);
-					aPos = aWrapStrEndPos;
-					aNewEntry.shape.alignment = eAlignment_WrapY;
+					LayoutEntry aNewEntry =
+						sState->entries[aHotspotSetAnchorIdx];
+					const std::string& aDesc =
+						aPropMap->vals()[aPropIdx].pattern.empty()
+							? aPropMap->vals()[aPropIdx].str
+							: aPropMap->vals()[aPropIdx].pattern;
+					aPos = 0;
+					if( parseHotspotEntry(aNewEntry, aDesc, aPos, "") )
+						sState->entries[aHotspotSetAnchorIdx] = aNewEntry;
+					continue;
+				}
+				if( aCondensedKey == "SCALE" )
+				{
+					const std::string& aDesc =
+						aPropMap->vals()[aPropIdx].pattern.empty()
+							? aPropMap->vals()[aPropIdx].str
+							: aPropMap->vals()[aPropIdx].pattern;
+					sState->entries[aHotspotSetAnchorIdx].shape.scale =
+						fetchShapeScale(aDesc);
+					continue;
 				}
 			}
-			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
-				aNewEntry.shape.w = fetchShapeComponent(aDesc, ++aPos, false);
-			if( aPos < aDesc.size() && aDesc[aPos] != '*' )
-				aNewEntry.shape.h = fetchShapeComponent(aDesc, ++aPos, false);
-			// useDefault flag must match on each component pair
-			aNewEntry.shape.x.useDefault = aNewEntry.shape.y.useDefault = false;
-			if( aNewEntry.shape.w.base.empty() && !aNewEntry.shape.w.offset &&
-				aNewEntry.shape.w.base.empty() && !aNewEntry.shape.w.offset )
-			{// Width & height being 0 is equivalent to useDefault for hotspots
-				aNewEntry.shape.w.useDefault = true;
-				aNewEntry.shape.h.useDefault = true;
+			LayoutEntry aNewEntry = LayoutEntry();
+			aNewEntry.propSectID = aSectionID;
+			aNewEntry.type = LayoutEntry::eType_Hotspot;
+			aNewEntry.hotpotSetEntryIdx = aHotspotSetAnchorIdx;	
+			aNewEntry.item.parentIndex =
+				aHotspotSetAnchorIdx
+					? aHotspotSetAnchorIdx
+					: LayoutEntry::eType_HotspotCategory;
+			aPos = 0;
+			const std::string& aDesc =
+				aPropMap->vals()[aPropIdx].pattern.empty()
+					? aPropMap->vals()[aPropIdx].str
+					: aPropMap->vals()[aPropIdx].pattern;
+			aNewEntry.item.name = aSetName + aPropMap->keys()[aPropIdx];
+			if( !parseHotspotEntry(aNewEntry, aDesc, aPos, aSetName) )
+			{
+				// TODO: Mark as disabled rather than immutable so can re-enable
+				aNewEntry.item.immutable = true;
 			}
-			else if( !aNewEntry.shape.w.useDefault ||
-					 !aNewEntry.shape.h.useDefault )
-			{// If either W or H was set, make sure both are set to >= 1
-				aNewEntry.shape.w.useDefault = false;
-				aNewEntry.shape.h.useDefault = false;
-				if( aNewEntry.shape.w.base.empty() )
-					aNewEntry.shape.w.offset = max(1, aNewEntry.shape.w.offset);
-				if( aNewEntry.shape.h.base.empty() )
-					aNewEntry.shape.h.offset = max(1, aNewEntry.shape.h.offset);
-			}
-			// This might read in a scale for hotspots that aren't allowed to
-			// have one, but it will just be ignored in those cases.
-			if( aPos < aDesc.size() && aDesc[aPos] == '*' )
-				aNewEntry.shape.scale = fetchShapeScale(aDesc, ++aPos);
+			if( aNewEntry.overrideAnchorName.empty() )
+				aNewEntry.parentID = aHotspotSetAnchorIdx;
 			sState->entries.push_back(aNewEntry);
-		}
-
-		// Link hotspots in arrays with their direct parents
-		for(int i = LayoutEntry::eType_CategoryNum,
-			end = intSize(sState->entries.size()); i < end; ++i)
-		{
-			setHotspotEntryParent(sState->entries[i], anEntryNameToIdxMap);
+			// Check if is a range and need sub-entries
+			int aRangeStartIdx, aRangeEndIdx;
+			std::string aRangeName;
+			if( fetchRangeSuffix(
+					aNewEntry.item.name,
+					aRangeName,
+					aRangeStartIdx, aRangeEndIdx) )
+			{
+				if( !parseHotspotRangeOffsets(aNewEntry, aDesc, aPos) )
+					aNewEntry.item.immutable = true; // TODO: Disabled instead
+				const int aRangeFirstEntryIdx = int(sState->entries.size())-1;
+				aNewEntry.overrideAnchorName.clear();
+				aNewEntry.parentID = aRangeFirstEntryIdx;
+				aNewEntry.item.parentIndex = aRangeFirstEntryIdx;
+				aNewEntry.item.name =
+					aRangeName + toString(aRangeStartIdx+1);
+				if( aRangeEndIdx > aRangeStartIdx + 1)
+					aNewEntry.item.name += "-" + toString(aRangeEndIdx);
+				aNewEntry.rangeCount = aRangeEndIdx - aRangeStartIdx;
+				aNewEntry.shape.rangeIdx = 1;
+				// Though listed as "Name1-10" etc in tree view, for linking
+				// to anchor hotspots it is registered as just "Name1"
+				const int aRangeOffsetsEntryIdx = int(sState->entries.size());
+				aHotspotNameToEntryMap.setValue(
+					aRangeName + toString(aRangeStartIdx),
+					aRangeOffsetsEntryIdx);
+				sState->entries[aRangeFirstEntryIdx].children
+					.push_back(aRangeOffsetsEntryIdx);
+				// Add the second entry in range (Name2-10) for changing offsets
+				sState->entries.push_back(aNewEntry);		
+				// Its name for linking is also just "Name2" not "Name2-10"
+				aHotspotNameToEntryMap.setValue(
+					aRangeName + toString(aRangeStartIdx),
+					int(sState->entries.size())-1);
+				if( aRangeEndIdx <= aRangeStartIdx + 1 )
+					continue;
+				// Create individual entries for rest in this range so they can
+				// act as individual parents if needed or override the range.
+				// Borrow shapeToHotspot to convert vars to pure offsets...
+				aNewEntry.drawHotspot = shapeToHotspot(aNewEntry.shape);
+				const int aStepX = aNewEntry.drawHotspot.x.offset;
+				const int aStepY = aNewEntry.drawHotspot.y.offset;
+				const u32 applyXEvery =
+					aNewEntry.shape.alignment == eAlignment_WrapX
+						? aNewEntry.shape.wrap : 0;
+				const u32 applyYEvery =
+					aNewEntry.shape.alignment == eAlignment_WrapY
+						? aNewEntry.shape.wrap : 0;
+				// These use the second entry in the range, the offset, as the
+				// tree view parent, even though actual direct (anchor) parent
+				// is the first hotspot in the range.
+				aNewEntry.item.parentIndex = aRangeOffsetsEntryIdx;
+				aNewEntry.item.immutable = true; // TEMP
+				aNewEntry.rangeCount = 0;
+				aNewEntry.shape = LayoutEntry::Shape();
+				for(int aNameIdx = aRangeStartIdx+2, anOffsetIdx = 2;
+					aNameIdx <= aRangeEndIdx; ++aNameIdx, ++anOffsetIdx)
+				{
+					aNewEntry.item.name = aRangeName + toString(aNameIdx);
+					aNewEntry.shape.rangeIdx = anOffsetIdx;
+					aNewEntry.shape.x.useDefault = false;
+					aNewEntry.shape.y.useDefault = false;
+					const Hotspot& anOffsets = getRangeEntryOffset(
+						anOffsetIdx, aStepX, aStepY, applyXEvery, applyYEvery);
+					aNewEntry.shape.x.offset = anOffsets.x.offset;
+					aNewEntry.shape.y.offset = anOffsets.y.offset;
+					sState->entries.push_back(aNewEntry);
+					sState->entries[aRangeOffsetsEntryIdx].children
+						.push_back(int(sState->entries.size())-1);
+					aHotspotNameToEntryMap.setValue(
+						aNewEntry.item.name,
+						int(sState->entries.size())-1);
+				}
+			}
+			else
+			{
+				// Not a range hotspot - just add to name-to-idx map
+				aHotspotNameToEntryMap.setValue(
+					aNewEntry.item.name,
+					int(sState->entries.size()-1));
+			}
 		}
 	}
 
-	// Link parent hotspot entries to their children for drawing later
+	// Set override anchor parents
 	for(int i = LayoutEntry::eType_CategoryNum,
 		end = intSize(sState->entries.size()); i < end; ++i)
 	{
-		if( entryHasParent(sState->entries[i]) )
-			getParentEntry(&sState->entries[i])->children.push_back(i);
+		if( !sState->entries[i].parentID &&
+			!sState->entries[i].overrideAnchorName.empty() )
+		{
+			sState->entries[i].parentID =
+				aHotspotNameToEntryMap.quickFind(
+					Profile::expandVars(sState->entries[i].overrideAnchorName));
+			DBG_ASSERT(sState->entries[i].parentID > 0);
+			DBG_ASSERT(
+				size_t(sState->entries[i].parentID) < sState->entries.size());
+			if( !entryIsHotspotSetAnchor(sState->entries[i]) )
+			{// For tree view prefer set parent (if have one) over direct parent
+				sState->entries[i].item.parentIndex =
+					sState->entries[i].hotpotSetEntryIdx
+						? sState->entries[i].hotpotSetEntryIdx
+						: sState->entries[i].parentID;
+			}
+		}
+	}
+	aHotspotNameToEntryMap.clear(); aHotspotNameToEntryMap.trim();
+
+	// Link parent hotspot entries to their children for drawing later
+	// (range offset entries aren't considered parents of first range entry)
+	for(int i = LayoutEntry::eType_CategoryNum,
+		end = intSize(sState->entries.size()); i < end; ++i)
+	{
+		LayoutEntry& anEntry = sState->entries[i];
+		if( anEntry.parentID && !anEntry.shape.rangeIdx )
+			sState->entries[anEntry.parentID].children.push_back(i);
 	}
 
 	// Collect menu layout entries
@@ -2810,29 +2959,39 @@ void init()
 		{
 			aNewEntry.type = LayoutEntry::eType_Menu;
 			aNewEntry.item.parentIndex = LayoutEntry::eType_MenuCategory;
-			aNewEntry.item.name = InputMap::menuLabel(aMenuID);
+			aNewEntry.parentID = LayoutEntry::eType_MenuCategory;
+			aNewEntry.item.name = InputMap::menuName(aMenuID);
 		}
 		aNewEntry.menuID = aMenuID;
 		aPropMap = Profile::getSectionProperties(aNewEntry.propSectID);
+		bool valid = true;
 		if( const Profile::Property* aPosProp =
 				aPropMap->find(kPositionPropName) )
 		{
 			const std::string& aDesc = aPosProp->pattern.empty()
 				? aPosProp->str : aPosProp->pattern;
-			size_t aPos = 0;
-			aNewEntry.shape.x = fetchShapeComponent(aDesc, aPos, true);
+			aPos = 0;
+			valid = valid && fetchShapeComponent(
+				aNewEntry.shape.x, aDesc, aPos, true);
 			if( aPos < aDesc.size() )
-				aNewEntry.shape.y = fetchShapeComponent(aDesc, ++aPos, true);
+			{
+				valid = valid && fetchShapeComponent(
+					aNewEntry.shape.y, aDesc, ++aPos, true);
+			}
 		}
 		if( const Profile::Property* aSizeProp =
 				aPropMap->find(kItemSizePropName) )
 		{
 			const std::string& aDesc = aSizeProp->pattern.empty()
 				? aSizeProp->str : aSizeProp->pattern;
-			size_t aPos = 0;
-			aNewEntry.shape.w = fetchShapeComponent(aDesc, aPos, false);
+			aPos = 0;
+			valid = valid && fetchShapeComponent(
+				aNewEntry.shape.w, aDesc, aPos, false);
 			if( aPos < aDesc.size() )
-				aNewEntry.shape.h = fetchShapeComponent(aDesc, ++aPos, false);
+			{
+				valid = valid && fetchShapeComponent(
+					aNewEntry.shape.h, aDesc, ++aPos, false);
+			}
 		}
 		if( const Profile::Property* anAlignProp =
 				aPropMap->find(kAlignmentPropName) )
@@ -2843,7 +3002,7 @@ void init()
 			}
 			else if( anAlignProp->pattern.empty() )
 			{// No pattern vars used - parse alignment string
-				size_t aPos = 0;
+				aPos = 0;
 				Hotspot::Coord aCoord = stringToCoord(anAlignProp->str, aPos);
 				int anAlignVal =
 					aCoord.anchor < 0x4000	? eAlignment_L_T :
@@ -2883,12 +3042,16 @@ void init()
 		}
 		if( aNewEntry.shape.alignment == eAlignment_UseDefault &&
 			isMenuDefaults )
-		{// Default alignment if unspecified at allshould be TL
+		{// Default alignment if unspecified at all should be TL
 			aNewEntry.shape.alignment = eAlignment_L_T;
 		}
+		if( !valid )
+			aNewEntry.item.immutable = true; // TODO - better solution
 	}
 
-	// Link menus with their parent menus
+	// Link menus with their parent menus (both immediate and root)
+	// item.parentIndex is used just for sorting the tree view, but
+	// .parentID is used for inheriting default values from root menu
 	for(int i = aFirstMenuEntryIdx,
 		end = intSize(sState->entries.size()); i < end; ++i)
 	{
@@ -2896,13 +3059,17 @@ void init()
 		int aParentMenuID = InputMap::parentMenuOfMenu(anEntry.menuID);
 		if( aParentMenuID == anEntry.menuID )
 			continue;
+		int aRootMenuID = InputMap::rootMenuOfMenu(anEntry.menuID);
 		for(int j = aFirstMenuEntryIdx,
 			end = intSize(sState->entries.size()); j < end; ++j)
 		{
 			if( sState->entries[j].menuID == aParentMenuID )
-			{
 				anEntry.item.parentIndex = j;
-				break;
+			if( sState->entries[j].menuID == aRootMenuID )
+			{
+				anEntry.parentID = j;
+				if( sState->entries[j].item.immutable )
+					anEntry.item.immutable = true; // TODO - better solution
 			}
 		}
 	}

@@ -49,7 +49,7 @@ struct ZERO_INIT(TreeViewDialogItem)
 {
 	std::string name;
 	int parentIndex;
-	bool isCategoryOnly;
+	bool immutable;
 };
 int layoutItemSelect(const std::vector<TreeViewDialogItem*>& theList);
 

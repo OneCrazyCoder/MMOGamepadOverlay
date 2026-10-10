@@ -677,7 +677,7 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 						tvInsert.item.mask |= TVIF_CHILDREN;
 					tvInsert.item.lParam = MAKELPARAM(
 						dropTo<WORD>(i),
-						WORD((*theItems)[i]->isCategoryOnly));
+						WORD((*theItems)[i]->immutable));
 					tvInsert.hParent = aHandlesList[aParentIdx];
 					aHandlesList[i] = (HTREEITEM)SendMessage(
 						hTreeView,
@@ -744,8 +744,8 @@ static INT_PTR CALLBACK layoutItemSelectProc(
 				tvItem.mask = TVIF_PARAM;
 				tvItem.hItem = hSelectedItem;
 				SendMessage(nmhdr->hwndFrom, TVM_GETITEM, 0, (LPARAM)&tvItem);
-				const bool isRootCategory = HIWORD(tvItem.lParam) != 0;
-				EnableWindow(GetDlgItem(theDialog, IDOK), !isRootCategory);
+				const bool immutable = HIWORD(tvItem.lParam) != 0;
+				EnableWindow(GetDlgItem(theDialog, IDOK), !immutable);
 			}
 			else
 			{
