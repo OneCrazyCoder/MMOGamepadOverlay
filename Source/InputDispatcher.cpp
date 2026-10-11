@@ -2450,7 +2450,7 @@ void update()
 			{
 				wantDifferentMode = true;
 			}
-			// Allow transitioning between look modes even while holding mouse
+			// Allow transitioning between look modes even while moving mouse
 			if( aNextMouseMode == eMouseMode_LookOnly ||
 				aNextMouseMode == eMouseMode_LookTurn )
 			{
@@ -2462,6 +2462,16 @@ void update()
 				holdingRMB = false;
 			if( sTracker.mouseMode == eMouseMode_LookOnly )
 				holdingLMB = false;
+			break;
+		case eMouseMode_Cursor:
+			// Allow switching to a MouseLook mode even while cursor is moving
+			if( wantDifferentMode && !holdingLMB && !holdingRMB &&
+				(aNextMouseMode == eMouseMode_LookOnly ||
+				 aNextMouseMode == eMouseMode_LookTurn ||
+				 aNextMouseMode == eMouseMode_LookReady) )
+			{
+				mouseMoving = false;
+			}
 			break;
 		}
 
