@@ -104,6 +104,7 @@ static DLGPROC sToolbarDialogProc = NULL;
 static HANDLE sModalModeTimer = NULL;
 static HANDLE sModalModeThread = NULL;
 static HANDLE sModalModeExit = NULL;
+static HDC sRenderToWindowDC = NULL;
 static HBITMAP sCompositeBitmap = NULL;
 static void* sCompositeBits = NULL;
 static SIZE sCompositeBitmapSize;
@@ -432,11 +433,15 @@ static LRESULT CALLBACK mainWindowProc(
 				DeleteObject(sOverlayWindows[i].bitmap);
 				sOverlayWindows[i].bitmap = NULL;
 				sOverlayWindows[i].bits = NULL;
-				DeleteObject(sCompositeBitmap);
-				sCompositeBitmap = NULL;
-				sCompositeBits = NULL;
 			}
 		}
+		if( sRenderToWindowDC )
+			DeleteDC(sRenderToWindowDC);
+		sRenderToWindowDC = NULL;
+		if( sCompositeBitmap )
+			DeleteObject(sCompositeBitmap);
+		sCompositeBitmap = NULL;
+		sCompositeBits = NULL;
 		WindowPainter::cleanup();
 		WindowPainter::init();
 		break;
@@ -891,20 +896,27 @@ static void drawCompositeOverlayWindow()
 		if( !sCompositeBitmap )
 		{
 			logFatalError("Could not create bitmap for composite overlay!");
+			ReleaseDC(NULL, aScreenDC);
 			return;
 		}
 	}
 
-	HDC aWindowDC = CreateCompatibleDC(aScreenDC);
-	const int aWindowDCInitialState = SaveDC(aWindowDC);
-	if( !aWindowDC )
+	if( !sRenderToWindowDC )
 	{
-		logFatalError("Could not create device context for composite overlay!");
-		return;
+		sRenderToWindowDC = CreateCompatibleDC(aScreenDC);
+		if( !sRenderToWindowDC )
+		{
+			logFatalError(
+				"Could not create device context for composite overlay!");
+			ReleaseDC(NULL, aScreenDC);
+			return;
+		}
 	}
+	const int aWindowDCInitialState = SaveDC(sRenderToWindowDC);
 
 	DBG_ASSERT(sCompositeBitmap && sCompositeBits);
-	SelectObject(aWindowDC, sCompositeBitmap);
+	HBITMAP hOldBitmap = (HBITMAP)
+		SelectObject(sRenderToWindowDC, sCompositeBitmap);
 
 	// Clear composite bits and copy visible overlays windows to composite
 	memset(sCompositeBits, 0,
@@ -993,12 +1005,14 @@ static void drawCompositeOverlayWindow()
 	POINT anOriginPoint = { 0, 0 };
 	UpdateLayeredWindow(sSystemOverlayWindow,
 		aScreenDC, &aWindowScreenPos, &aCompWinSize,
-		aWindowDC, &anOriginPoint, 0,
+		sRenderToWindowDC, &anOriginPoint, 0,
 		&aBlendFunction, ULW_ALPHA);
 
 	// Cleanup
-	RestoreDC(aWindowDC, aWindowDCInitialState);
-	DeleteDC(aWindowDC);
+	SelectObject(sRenderToWindowDC, hOldBitmap);
+	if( aWindowDCInitialState )
+		RestoreDC(sRenderToWindowDC, aWindowDCInitialState);
+	ReleaseDC(NULL, aScreenDC);
 
 	// Show window if it isn't visible yet
 	if( !IsWindowVisible(sSystemOverlayWindow) )
@@ -1206,6 +1220,9 @@ void destroyAll(HINSTANCE theAppInstanceHandle)
 	}
 	if( sCompositeBitmap )
 		DeleteObject(sCompositeBitmap);
+	if( sRenderToWindowDC )
+		DeleteDC(sRenderToWindowDC);
+	sRenderToWindowDC = NULL;
 	sCompositeBitmap = NULL;
 	sCompositeBits = NULL;
 	sSystemOverlayProc = NULL;
@@ -1288,16 +1305,32 @@ void update()
 	HDC aScreenDC = GetDC(NULL);
 	HDC aCaptureDC = NULL;
 	POINT aCaptureOffset = { 0 };
+	bool captureDCIsTargetWindow = false;
 	if( sUseCopyIcons && sCopyFromTargetWindow &&
 		TargetApp::targetWindowHandle() )
 	{
 		aCaptureDC = GetDC(TargetApp::targetWindowHandle());
+		captureDCIsTargetWindow = true;
 	}
 	else if( !sCopyFromTargetWindow )
 	{
 		aCaptureDC = GetDC(NULL);
 		aCaptureOffset.x = sScreenTargetRect.left;
 		aCaptureOffset.y = sScreenTargetRect.top;
+	}
+	if( !sRenderToWindowDC )
+	{
+		sRenderToWindowDC = CreateCompatibleDC(aScreenDC);
+		if( !sRenderToWindowDC )
+		{
+			logFatalError("Could not create device context for overlays!");
+			ReleaseDC(
+				captureDCIsTargetWindow
+					? TargetApp::targetWindowHandle() : NULL,
+				aCaptureDC);
+			ReleaseDC(NULL, aScreenDC);
+			return;
+		}
 	}
 	bool windowReorderNeeded = false;
 	POINT anOriginPoint = { 0, 0 };
@@ -1430,21 +1463,16 @@ void update()
 		}
 
 		// Redraw bitmap contents if needed
-		HDC aWindowDC = CreateCompatibleDC(aScreenDC);
-		const int aWindowDCInitialState = SaveDC(aWindowDC);
-		if( !aWindowDC )
-		{
-			logFatalError("Could not create device context for overlay!");
-			continue;
-		}
-		SelectObject(aWindowDC, aWindow.bitmap);
+		const int aWindowDCInitialState = SaveDC(sRenderToWindowDC);
+		HBITMAP hOldBitmap = (HBITMAP)
+			SelectObject(sRenderToWindowDC, aWindow.bitmap);
 		if( allowRedraw &&
 			(gRefreshOverlays.test(anOverlayID) ||
 			 gFullRedrawOverlays.test(anOverlayID)) )
 		{
 			// Draw main bitmap contents
 			WindowPainter::paintWindowContents(
-				aWindowDC, sTargetSize, anOverlayID,
+				sRenderToWindowDC, sTargetSize, anOverlayID,
 				gFullRedrawOverlays.test(anOverlayID),
 				sUseCopyIcons);
 			aWindow.windowReady = false;
@@ -1456,7 +1484,7 @@ void update()
 		// Copy over extra contents from target window
 		const bool copyFromTargetDone =
 			WindowPainter::copyContentsFromTarget(
-				aWindowDC, aCaptureDC, aCaptureOffset,
+				sRenderToWindowDC, aCaptureDC, aCaptureOffset,
 				sTargetSize, anOverlayID, aWindow.windowReady);
 		if( !copyFromTargetDone &&
 			aWindow.alpha > anOldWindowAlpha &&
@@ -1480,7 +1508,7 @@ void update()
 					sScreenTargetRect.top + aWindow.position.y;
 				UpdateLayeredWindow(aWindow.handle, aScreenDC,
 					&aWindowScreenPos, &aWindow.size,
-					aWindowDC, &anOriginPoint,
+					sRenderToWindowDC, &anOriginPoint,
 					WindowPainter::transColor(anOverlayID),
 					&aBlendFunction, ULW_ALPHA | ULW_COLORKEY);
 			}
@@ -1505,11 +1533,15 @@ void update()
 		}
 
 		// Cleanup
-		RestoreDC(aWindowDC, aWindowDCInitialState);
-		DeleteDC(aWindowDC);
+		SelectObject(sRenderToWindowDC, hOldBitmap);
+		if( aWindowDCInitialState )
+			RestoreDC(sRenderToWindowDC, aWindowDCInitialState);
 	}
 
-	ReleaseDC(NULL, aCaptureDC);
+	ReleaseDC(
+		captureDCIsTargetWindow
+			? TargetApp::targetWindowHandle() : NULL,
+		aCaptureDC);
 	ReleaseDC(NULL, aScreenDC);
 
 	if( sUseSingleOverlayWindow && sNeedRecompositeOverlays )
