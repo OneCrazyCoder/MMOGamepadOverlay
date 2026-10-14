@@ -817,54 +817,19 @@ static void drawCompositeOverlayWindow()
 	DBG_ASSERT(sSystemOverlayWindow);
 	DBG_ASSERT(size_t(sSystemOverlayPosIdx) < sOverlayWindowOrder.size());
 
-	// Calculate what rect we need based on all currently visible overlays
-	RECT aCompWinRect = { 0 };
-	for(int i = 0, end = intSize(sOverlayWindows.size()); i < end; ++i)
-	{
-		const OverlayWindow& aWindow = sOverlayWindows[i];
-		if( !aWindow.windowReady || !aWindow.visible )
-			continue;
-		const RECT anOverlayRect = {
-			aWindow.position.x,
-			aWindow.position.y,
-			aWindow.position.x + aWindow.size.cx,
-			aWindow.position.y + aWindow.size.cy };
-		UnionRect(&aCompWinRect, &aCompWinRect, &anOverlayRect);
-	}
+	// One problem that can occur is if the windo matches the full size of the
+	// screen. On some setups this will bestow it a special status that might
+	// actually force it to be hidden beneath the game. Therefore, the top and
+	// left coordinates are each always set to 1, Unfortunately, this means a
+	// single pixel line will always be missing for anything at 0x/y.
+	// This is why there are several +1 and -1's related to the size and
+	// screen position of the composite window.
+	SIZE aCompWinSize = { sTargetSize.cx - 1, sTargetSize.cy - 1};
 
-	// If ended up with an empty rect, just hide the overlay for now
-	if( aCompWinRect.right <= aCompWinRect.left ||
-		aCompWinRect.bottom <= aCompWinRect.top )
-	{
-		if( IsWindowVisible(sSystemOverlayWindow) )
-			ShowWindow(sSystemOverlayWindow, SW_HIDE);
-		return;
-	}
-
-	// Two problems emerge here with using this for single-window solution.
-	// First, moving the window and re-drawing it may not be a single atomic
-	// operation, and cause a visible shift in the contents (not unlike screen
-	// tearing when VSync is turned off, in principle). Therefore the window
-	// should not actually change position at any point. Second, if the window
-	// matches the full size of the screen, on some setups this will bestow it
-	// a special status that might actually force it to be hidden beneath the
-	// game. Therefore, the top and left coordinates are each always set to 1,
-	// meaning the window should never be moved (only resized) and never be
-	// as large as the target window. Unfortunately, this means a single pixel
-	// line will always be missing for anything at 0x/y and that the window
-	// will usually be much larger than actually needed and slow performance.
-	aCompWinRect.left = aCompWinRect.top = 1;
-
-	// Adjust size of window and composite bitmap to meet needs
-	SIZE aCompWinSize = {
-		aCompWinRect.right - aCompWinRect.left,
-		aCompWinRect.bottom - aCompWinRect.top };
-
-	// Delete bitmap if it is too small or much too big
-	if( sCompositeBitmapSize.cx < aCompWinSize.cx ||
-		sCompositeBitmapSize.cy < aCompWinSize.cy ||
-		sCompositeBitmapSize.cx >= aCompWinSize.cx * 3 / 2 ||
-		sCompositeBitmapSize.cy >= aCompWinSize.cy * 3 / 2 )
+	// Delete bitmap if it is not the correct size
+	if( sCompositeBitmap &&
+		(sCompositeBitmapSize.cx != aCompWinSize.cx ||
+		 sCompositeBitmapSize.cy != aCompWinSize.cy) )
 	{
 		DeleteObject(sCompositeBitmap);
 		sCompositeBitmap = NULL;
@@ -937,8 +902,8 @@ static void drawCompositeOverlayWindow()
 		void* aSrcBits = aWindow.bits;
 		void* aDstBits = sCompositeBits;
 		POINT aDstPos = {
-			aWindow.position.x - aCompWinRect.left,
-			aWindow.position.y - aCompWinRect.top };
+			aWindow.position.x - 1,
+			aWindow.position.y - 1 };
 		DBG_ASSERT(aSrcBits != NULL);
 		const POINT aSrcStartPos = {
 			aDstPos.x < 0 ? -aDstPos.x : 0,
@@ -1000,8 +965,8 @@ static void drawCompositeOverlayWindow()
 	// Update window with composite bitmap
 	BLENDFUNCTION aBlendFunction = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
 	POINT aWindowScreenPos;
-	aWindowScreenPos.x = sScreenTargetRect.left + aCompWinRect.left;
-	aWindowScreenPos.y = sScreenTargetRect.top + aCompWinRect.top;
+	aWindowScreenPos.x = sScreenTargetRect.left + 1;
+	aWindowScreenPos.y = sScreenTargetRect.top + 1;
 	POINT anOriginPoint = { 0, 0 };
 	UpdateLayeredWindow(sSystemOverlayWindow,
 		aScreenDC, &aWindowScreenPos, &aCompWinSize,
