@@ -342,7 +342,7 @@ bool FileMetaData::operator==(const FileMetaData& rhs) const
 {
 	return
 		valid && rhs.valid &&
-		CompareFileTime(&creationTime, &rhs.creationTime)  == 0 &&
+		CompareFileTime(&creationTime, &rhs.creationTime) == 0 &&
 		CompareFileTime(&lastModTime, &rhs.lastModTime) == 0 &&
 		sizeHigh == rhs.sizeHigh &&
 		sizeLow == rhs.sizeLow &&

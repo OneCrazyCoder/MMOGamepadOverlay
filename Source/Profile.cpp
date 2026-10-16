@@ -77,7 +77,7 @@ const ResourceFile kResTemplateDefault[] =
 	{	"AOA Default",		"AOA Default",		IDR_TEXT_INI_DEF_AOA,	21	},
 	{	"EQ P99 Default",	"P99 Default",		IDR_TEXT_INI_DEF_P99,	23	},
 	{	"EQ PQ Default",	"PQ Default",		IDR_TEXT_INI_DEF_PQ,	22	},
-	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	29	},
+	{	"M&M Default",		"MnM Default",		IDR_TEXT_INI_DEF_MNM,	30	},
 };
 
 const ResourceFile kResTemplateCustom[] =
@@ -1175,13 +1175,65 @@ static void checkForOutdatedFileVersion(const std::string& theFilePath)
 		}
 	}
 	#endif
+
+	// Special case: To fix my own earlier screw-up, remove some lines I left in
+	// the example custom M&M profile that will mess up the default profile for
+	// version 30 or higher. TODO - Once it seems pretty certain everyone has
+	// version 30 or higher anyway and this fix applied, remove this nonsense.
+	static bool needMnMCustomProfFix = false;
+	if( needMnMCustomProfFix && !theMatchingResource && !sLoadedProfileIdx )
+	{
+		std::ifstream inFile(widen(theFilePath).c_str(), std::ios::binary);
+		if( inFile.is_open() )
+		{
+			inFile.seekg(0, std::ios::end);
+			std::streamsize size = inFile.tellg();
+			inFile.seekg(0, std::ios::beg);
+			std::string content;
+			content.resize(static_cast<size_t>(size));
+			inFile.read(&content[0], size);
+			inFile.close();
+
+			const std::string kBadString =
+				"#########################################"
+				"######################################\r\n"
+				"## Default control scheme has nothing set "
+				"for the Select/Back/Share button,\r\n"
+				"## since in EQOA it changed camera view - "
+				"which this game has no key bind for.\r\n"
+				"## Set it to do whatever you like here!\r\n"
+				"#########################################"
+				"######################################\r\n\r\n"
+				"[Scheme]\r\n"
+				"Tap Select = Screenshot\r\n"
+				"Hold Select = ToggleUI\r\n\r\n"
+				"[Layer.L2Held]\r\n"
+				"Tap Select = GameStats\r\n"
+				"Hold Select = ToggleMusic\r\n\r\n\r\n";
+
+			size_t pos = content.find(kBadString);
+			if( pos != std::wstring::npos )
+			{
+				content.replace(pos, kBadString.size(), "");
+				std::ofstream outFile(
+					widen(theFilePath).c_str(),
+					std::ios::binary | std::ios::trunc);
+				if( outFile.is_open() )
+				{
+					outFile << content;
+					outFile.close();
+				}
+			}
+		}
+	}
+
 	if( !theMatchingResource )
 		return;
 
 	EResult aResult = eResult_Yes;
 	#ifndef ALWAYS_REFRESH_DEFAULT_INI
-	// Check for version number stored in the file
 	int aFileVersion = 0;
+	// Check for version number stored in the file
 	parseINI(
 		readVersionCallback,
 		theFilePath,
@@ -1251,6 +1303,13 @@ static void checkForOutdatedFileVersion(const std::string& theFilePath)
 			}
 			#endif
 		}
+		#ifndef ALWAYS_REFRESH_DEFAULT_INI
+		else if( aFileVersion < 30 &&
+				 theMatchingResource->resID == IDR_TEXT_INI_DEF_MNM )
+		{
+			needMnMCustomProfFix = true;
+		}
+		#endif
 	}
 	else if( aResult == eResult_No )
 	{

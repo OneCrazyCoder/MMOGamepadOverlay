@@ -1241,15 +1241,16 @@ protected:
 		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
 		DataSource& aDataSource = sDataSources[mDataSourceID];
 
-		// Candidates for being the best source must have been modified at
-		// least as recently as the last source used (if any).
+		// Candidates for being the best source must have been modified more
+		// recently than the last source read in (if any).
 		// Exception: If the path is the same as last path read, then allow
 		// it to be a candidate again if ANY meta data changed, not just newer
 		// mod time, since things like a direct file replace will not
 		// update mod time but may change file size etc.
 		if( !aDataSource.lastMetaData.valid ||
-			CompareFileTime(&theMetaData.lastModTime,
-				&aDataSource.lastMetaData.lastModTime) >= 0 ||
+			CompareFileTime(
+				&theMetaData.lastModTime,
+				&aDataSource.lastMetaData.lastModTime) > 0 ||
 			(thePath == aDataSource.pathToRead &&
 			 theMetaData != aDataSource.lastMetaData) )
 		{
