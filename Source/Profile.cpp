@@ -881,6 +881,11 @@ static void generateKnownIssuesRTF(std::string theIssuesList)
 	while(!theIssuesList.empty())
 		anIssuesMap.setValue(breakOffNextItem(theIssuesList), true);
 
+	if( getBool(getSectionProperties(kVarsSectionIdx), kLinuxVarName) ||
+		(GetSystemMetrics(SM_CXSCREEN) == 1280 &&
+		 GetSystemMetrics(SM_CYSCREEN) == 800) )
+	{ anIssuesMap.setValue("SteamDeck", true); }
+
 	HRSRC hRes = FindResource(null,
 		MAKEINTRESOURCE(IDR_TEXT_KNOWN_ISSUES), L"TEXT");
 	DBG_ASSERT(hRes);
