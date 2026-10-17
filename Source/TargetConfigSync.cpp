@@ -254,6 +254,7 @@ struct ZERO_INIT(DataSource)
 	EConfigDataFormat format;
 	EDataSourceType type;
 	std::string pathPattern;
+	FILETIME lastLoadedTime;
 	FileMetaData lastMetaData; // from FileUtils.h
 	std::wstring pathToRead;
 	std::vector<BYTE> dataCache;
@@ -1242,15 +1243,18 @@ protected:
 		DataSource& aDataSource = sDataSources[mDataSourceID];
 
 		// Candidates for being the best source must have been modified more
-		// recently than the last source read in (if any).
+		// recently than last read time (if any).
 		// Exception: If the path is the same as last path read, then allow
 		// it to be a candidate again if ANY meta data changed, not just newer
 		// mod time, since things like a direct file replace will not
-		// update mod time but may change file size etc.
+		// update mod time but may change file size etc. This also covers the
+		// case where set .lastLoadedTime to max value to guarantee this one
+		// file is the only one that can be a candidate from then on and this
+		// file did get modified normally (changing its meta data).
 		if( !aDataSource.lastMetaData.valid ||
 			CompareFileTime(
 				&theMetaData.lastModTime,
-				&aDataSource.lastMetaData.lastModTime) > 0 ||
+				&aDataSource.lastLoadedTime) > 0 ||
 			(thePath == aDataSource.pathToRead &&
 			 theMetaData != aDataSource.lastMetaData) )
 		{
@@ -1272,7 +1276,8 @@ protected:
 		if( mCandidates.empty() )
 			return;
 
-		int aBestIdx = 0;
+		FILETIME aMostRecentFileTime = mCandidates[0].metaData.lastModTime;
+ 		int aBestIdx = 0;
 		DBG_ASSERT(mCandidates.size() == mCandidateNames.size());
 		if( mCandidates.size() > 1 )
 		{
@@ -1354,6 +1359,7 @@ protected:
 				{// Has better time (or equal and last selected is tie breaker)
 					aBestIdx = i;
 					aBestTime = aTestTime;
+					aMostRecentFileTime = aBestTime;
 				}
 			}
 
@@ -1392,20 +1398,8 @@ protected:
 							kLastFileSelectedPropertyName,
 							"");
 					}
-					// If set to auto-pick the same file from now on without any
-					// prompting, set file selected time to highest possible
-					// value to guarantee this. Otherwise note actual time.
-					if( !sPromptForWildcardFiles && !sPreferMostRecentFiles )
-					{
-						sLastTimeWildcardFileSelected
-							.dwHighDateTime = 0xFFFFFFFF;
-						sLastTimeWildcardFileSelected
-							.dwLowDateTime = 0xFFFFFFFF;
-					}
-					else
-					{
-						GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
-					}
+					GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
+					aMostRecentFileTime = sLastTimeWildcardFileSelected;
 
 					// Only save time stamp for "prompt unless other changed"
 					if( sPromptForWildcardFiles && sPreferMostRecentFiles )
@@ -1450,8 +1444,19 @@ protected:
 			sLastWildcardFileSelected = mCandidateNames[0];
 		}
 
+		// If set to auto-pick the same file from now on without any prompting,
+		// set last read time to highest possible value to guarantee no other
+		// candidate but this one can be selected from now on.
+		if( !sPromptForWildcardFiles && !sPreferMostRecentFiles )
+		{
+			aMostRecentFileTime.dwHighDateTime = 0xFFFFFFFF;
+			aMostRecentFileTime.dwLowDateTime = 0xFFFFFFFF;
+			sLastTimeWildcardFileSelected = aMostRecentFileTime;
+		}
+		
 		setPathToRead(aDataSource, mCandidates[aBestIdx].pathToRead);
 		aDataSource.lastMetaData = mCandidates[aBestIdx].metaData;
+		aDataSource.lastLoadedTime = aMostRecentFileTime;
 		swap(aDataSource.dataCache, mCandidates[aBestIdx].dataCache);
 	}
 
@@ -1510,6 +1515,7 @@ public:
 						getFileName(aDataSource.pathPattern).c_str());
 				}
 				aDataSource.lastMetaData = aCurrMetaData;
+				aDataSource.lastLoadedTime = aCurrMetaData.lastModTime;
 				mSourceUpdated = true;
 			}
 			mDoneSearching = true;
@@ -1733,6 +1739,7 @@ public:
 						aDataSource.pathToRead.c_str());
 				}
 				aDataSource.lastMetaData = aCurrMetaData;
+				aDataSource.lastLoadedTime = aCurrMetaData.lastModTime;
 				swap(aDataSource.dataCache, mValueBuf);
 				mSourceUpdated = true;
 			}
