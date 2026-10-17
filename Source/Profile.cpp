@@ -2451,15 +2451,47 @@ static int queryUserForProfileImpl(int& theLastSelectedProfileIdx)
 		{
 			const std::string& aProfName =
 				sDisplayedProfileList[aDialogResult.selectedIndex];
-			if( ProfileData* aProfile = sProfiles.find(aProfName) )
+			if( aLoadedProfileDisplayIdx == aDialogResult.selectedIndex )
 			{
-				if( Dialogs::yesNoPrompt(strFormat(
-						"Are you sure you wish to delete '%s'?\n\n"
-						"NOTE: This will NOT automatically delete any parent " 
-						"profiles of '%s'.",
-						aProfile->path.c_str(),
-						aProfName.c_str()),
-						"Delete Profile") == eResult_Yes )
+				Dialogs::showNotice(
+					"Can not delete currently-loaded profile. Load a different "
+					"profile first or un-select the \"Auto-load\" option "
+					"and restart the application before attempting delete.");
+			}
+			else if( ProfileData* aProfile = sProfiles.find(aProfName) )
+			{
+				if( sDisplayedProfileList.size() == 1 &&
+					aProfile->parent.empty() )
+				{
+					if( Dialogs::yesNoPrompt(strFormat(
+							"Are you sure you wish to delete '%s'?\n\n"
+							"NOTE: As the only profile, this will ALSO delete "
+							"all remaining configuration data (Core) and exit "
+							"the application, to allow doing initial setup "
+							"from scratch again!",
+							aProfile->path.c_str()),
+							"Delete Only Profile") == eResult_Yes )
+					{
+						for(int i = 0; i < sProfiles.size(); ++i)
+						{
+							DeleteFile(widen(
+								sProfiles.vals()[i].path.c_str()).c_str());
+						}
+						sProfiles.clear();
+						Dialogs::showNotice(
+							"All profiles deleted! Application will now exit!");
+						gShutdown = true;
+						result = 0;
+						return result;
+					}
+				}
+				else if( Dialogs::yesNoPrompt(strFormat(
+							"Are you sure you wish to delete '%s'?\n\n"
+							"NOTE: This will NOT automatically delete any " 
+							"parent profiles of '%s'.",
+							aProfile->path.c_str(),
+							aProfName.c_str()),
+							"Delete Profile") == eResult_Yes )
 				{
 					DeleteFile(widen(aProfile->path.c_str()).c_str());
 					theLastSelectedProfileIdx = -1;

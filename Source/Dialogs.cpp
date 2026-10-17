@@ -226,7 +226,7 @@ static void updateProfileSelectDialogState(
 		SendMessage(hListBox, LB_GETCURSEL, 0, 0));
 	const int aProfileCount =
 		intSize(theData->loadableProfiles.size());
-	if( isCreateMode || aProfileCount <= 1 )
+	if( isCreateMode )
 	{
 		ShowWindow(hMoveUpButton, SW_HIDE);
 		ShowWindow(hMoveDownButton, SW_HIDE);
@@ -239,9 +239,6 @@ static void updateProfileSelectDialogState(
 		ShowWindow(hDeleteButton, SW_SHOWNOACTIVATE);
 		EnableWindow(hMoveUpButton, aSelectedIdx > 0);
 		EnableWindow(hMoveDownButton, aSelectedIdx < aProfileCount - 1);
-		// Disable deleting already-loaded profile (delete selection)
-		EnableWindow(hDeleteButton,
-			aSelectedIdx != theData->loadedProfileIdx);
 	}
 
 	// Edit button only valid in normal profile-selection mode and
