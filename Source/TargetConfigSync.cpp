@@ -2307,6 +2307,8 @@ static SyncVariable parseSyncVariableFunc(
 {
 	SyncVariable result;
 	result.valueSetID = -1;
+	if( isEffectivelyEmptyString(theDesc) ) // skip syncing this variable
+		return result;
 	const std::string& aFuncName = breakOffItemBeforeChar(theDesc, ':');
 	result.funcType = valueFuncNameToID(aFuncName);
 	if( result.funcType == eValueFunc_Num )
