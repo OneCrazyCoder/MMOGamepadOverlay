@@ -675,6 +675,18 @@ static void updateDrawHotspot(
 }
 
 
+static std::string hotspotPropName(const LayoutEntry& theEntry)
+{
+	// Non-set hotspots use full name
+	if( !theEntry.hotpotSetEntryIdx )
+		return theEntry.item.name;
+
+	// In-set hotspots must chop the set name off of the front
+	return theEntry.item.name.substr(
+		sState->entries[theEntry.hotpotSetEntryIdx].item.name.size());
+}
+
+
 static void applyNewLayoutProperties(bool toFile = false)
 {
 	DBG_ASSERT(sState);
@@ -713,7 +725,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 		const std::string& aProfileStr = hotspotRangeToProfString(
 			aRangeStartEntry, aRangeStartEntry.shape, *aNewShape);
 		Profile::setStr(
-			aRangeStartEntry.propSectID, aRangeStartEntry.item.name,
+			aRangeStartEntry.propSectID, hotspotPropName(aRangeStartEntry),
 			aProfileStr, toFile);
 	}
 	else if( entryIsRangeStart(theEntry) )
@@ -724,7 +736,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 		const std::string& aProfileStr = hotspotRangeToProfString(
 			theEntry, *aNewShape, aRangeOffsetsEntry.shape);
 		Profile::setStr(
-			theEntry.propSectID, theEntry.item.name,
+			theEntry.propSectID, hotspotPropName(theEntry),
 			aProfileStr, toFile);
 	}
 	else if( entryIsHotspot(theEntry) )
@@ -757,7 +769,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 		else
 		{
 			Profile::setStr(
-				theEntry.propSectID, theEntry.item.name,
+				theEntry.propSectID, hotspotPropName(theEntry),
 				aProfileStr, toFile);
 		}
 	}
