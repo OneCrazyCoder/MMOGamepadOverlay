@@ -2537,7 +2537,8 @@ static void promptForEditEntry()
 		LayoutEntry& anEntry = sState->entries[sState->activeEntry];
 		sState->entered = sState->applied = anEntry.shape;
 		// Any modification of a range element changes it to a normal hotspot
-		sState->entered.rangeIdx = 0;
+		if( anEntry.rangeCount == 0 )
+			sState->entered.rangeIdx = 0;
 		sState->needsDrawPosUpdate = true;
 		WindowManager::setSystemOverlayCallbacks(
 			layoutEditorWindowProc, layoutEditorPaintFunc);
