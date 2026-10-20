@@ -455,10 +455,6 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 
 		// Need full redraw of new menu items
 		gFullRedrawOverlays.set(theOverlayID);
-
-		// Might need to reshape menu for new menu item count
-		if( oldMenuItemCount != InputMap::menuItemCount(theSubMenuID) )
-			gReshapeOverlays.set(theOverlayID);
 	}
 
 	// If theMenuItem <= 0, select default menu item, otherwise select
@@ -811,10 +807,6 @@ void tempForceShowSubMenu(int theMenuID)
 				sActiveSubMenu[aBackupOverlayID] =
 					dropTo<u16>(sOverrideActiveMenuBackup);
 				gFullRedrawOverlays.set(aBackupOverlayID);
-				const int newMenuItemCount =
-					InputMap::menuItemCount(sActiveSubMenu[aBackupOverlayID]);
-				if( oldMenuItemCount != newMenuItemCount )
-					gReshapeOverlays.set(aBackupOverlayID);
 			}
 			sOverrideActiveMenuBackup = -1;
 		}
@@ -834,10 +826,6 @@ void tempForceShowSubMenu(int theMenuID)
 		InputMap::menuItemCount(sActiveSubMenu[theOverlayID]);
 	sActiveSubMenu[theOverlayID] = dropTo<u16>(theMenuID);
 	gFullRedrawOverlays.set(theOverlayID);
-	const int newMenuItemCount =
-		InputMap::menuItemCount(sActiveSubMenu[theOverlayID]);
-	if( oldMenuItemCount != newMenuItemCount )
-		gReshapeOverlays.set(theOverlayID);
 }
 
 

@@ -1314,7 +1314,8 @@ void update()
 		}
 
 		// Check for flag that need to update layout
-		if( gReshapeOverlays.test(anOverlayID) )
+		if( gReshapeOverlays.test(anOverlayID) ||
+			gFullRedrawOverlays.test(anOverlayID) )
 		{
 			aWindow.layoutReady = false;
 			gReshapeOverlays.reset(anOverlayID);
@@ -2040,7 +2041,9 @@ POINT menuItemMousePos(int theRootMenuID, int theMenuItemIdx)
 	}
 
 	OverlayWindow& aWindow = sOverlayWindows[theOverlayID];
-	if( !aWindow.layoutReady || gReshapeOverlays.test(theOverlayID) )
+	if( !aWindow.layoutReady ||
+		gReshapeOverlays.test(theOverlayID) ||
+		gFullRedrawOverlays.test(theOverlayID) )
 	{
 		WindowPainter::updateWindowLayout(
 			theOverlayID, sTargetSize, sTargetClipRect,
@@ -2082,7 +2085,9 @@ POINT menuItemMousePos(int theRootMenuID, int theMenuItemIdx)
 RECT overlayRect(int theOverlayID)
 {
 	OverlayWindow& aWindow = sOverlayWindows[theOverlayID];
-	if( !aWindow.layoutReady || gReshapeOverlays.test(theOverlayID) )
+	if( !aWindow.layoutReady ||
+		gReshapeOverlays.test(theOverlayID) ||
+		gFullRedrawOverlays.test(theOverlayID) )
 	{
 		WindowPainter::updateWindowLayout(
 			theOverlayID, sTargetSize, sTargetClipRect,
