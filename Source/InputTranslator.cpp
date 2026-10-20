@@ -229,7 +229,6 @@ struct InputResults
 {
 	std::vector<Command> queuedCommands;
 	std::vector<int> changedLayers;
-	BitVector<32> menuStackAutoCommandRun;
 	BitArray<eBtn_Num> buttonPressProcessed;
 	ECommandDir selectHotspotDir;
 	int charMove;
@@ -251,7 +250,6 @@ struct InputResults
 	{
 		queuedCommands.clear();
 		changedLayers.clear();
-		menuStackAutoCommandRun.clearAndResize(InputMap::menuOverlayCount());
 		buttonPressProcessed.reset();
 		selectHotspotDir = eCmd8Dir_None;
 		charMove = 0;
@@ -867,7 +865,9 @@ static void addRelatedLayers(int theNewLayerID)
 
 static void sortLayers()
 {
-	if( !sState.layersNeedSorting || sState.layerOrder.size() < 2 )
+	if( sState.layerOrder.size() < 2 )
+		sState.layersNeedSorting = false;
+	if( !sState.layersNeedSorting )
 		return;
 	sState.layersNeedSorting = false;
 
@@ -1358,8 +1358,6 @@ static void processCommand(
 			theCmd.subMenuID,
 			theCmd.menuItemID);
 		processCommand(theBtnState, aForwardCmd);
-		sResults.menuStackAutoCommandRun.set(
-			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
 		TargetApp::tryFocusOnTargetWindow();
 		break;
@@ -1369,19 +1367,13 @@ static void processCommand(
 			theCmd.subMenuID,
 			ECommandDir(theCmd.sideMenuDir));
 		processCommand(theBtnState, aForwardCmd);
-		sResults.menuStackAutoCommandRun.set(
-			InputMap::menuOverlayID(theCmd.rootMenuID));
 		updateMouseForMenu(theCmd.rootMenuID);
 		TargetApp::tryFocusOnTargetWindow();
 		break;
 	case eCmdType_MenuReset:
 		aForwardCmd = Menus::reset(theCmd.rootMenuID);
 		if( aForwardCmd.type != eCmdType_Invalid )
-		{
 			processCommand(theBtnState, aForwardCmd);
-			sResults.menuStackAutoCommandRun.set(
-				InputMap::menuOverlayID(theCmd.rootMenuID));
-		}
 		updateMouseForMenu(theCmd.rootMenuID);
 		break;
 	case eCmdType_MenuConfirm:
@@ -2053,10 +2045,9 @@ static void updateMenusForCurrentLayers()
 		}
 	}
 
-	// Run Auto command for any newly-visible or newly-enabled menus,
-	// update cursor for them if they are set to control mouse cursor,
-	// and re-draw menus that changed disabled status to change if
-	// selected item is drawn differently or not
+	// Update cursor for any newly-visible or newly-enabled menus if they
+	// are set to control mouse cursor, and re-draw menus that changed
+	// disabled status to change if selected item is drawn differently or not
 	for(int i = gVisibleOverlays.firstSetBit();
 		i < gVisibleOverlays.size();
 		i = gVisibleOverlays.nextSetBit(i+1))
@@ -2066,14 +2057,8 @@ static void updateMenusForCurrentLayers()
 		const bool isDisabled = gDisabledOverlays.test(i);
 		if( wasDisabled != isDisabled )
 			gRefreshOverlays.set(i);
-		if( sResults.menuStackAutoCommandRun.test(i) )
-			continue;
 		if( !aPrevVisibleOverlays.test(i) || (wasDisabled && !isDisabled) )
-		{
-			processCommand(null, Menus::autoCommand(aMenuID));
-			sResults.menuStackAutoCommandRun.set(i);
 			updateMouseForMenu(aMenuID);
-		}
 	}
 
 	// If requested any new menus appear, try switching to target game window
