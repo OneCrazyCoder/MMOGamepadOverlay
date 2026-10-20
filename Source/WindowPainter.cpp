@@ -79,6 +79,7 @@ const char* kFadeOutDelayPropName = "FadeOutDelay";
 const char* kFadeOutTimePropName = "FadeOutTime";
 const char* kInactiveDelayPropName = "InactiveDelay";
 const char* kInactiveAlphaPropName = "InactiveAlpha";
+const char* kActiveFadeInDelayPropName = "ActiveFadeInDelay";
 const char* kRadiusPropName = "Radius";
 const char* kTitleHeightPropName = "TitleHeight";
 const char* kAltLabelWidthPropName = "AltLabelWidth";
@@ -257,7 +258,9 @@ struct ZERO_INIT(MenuItemAppearance)
 WindowAlphaInfo::WindowAlphaInfo() :
 	fadeInRate(255), fadeOutRate(255),
 	fadeInTime(1), fadeOutTime(1),
-	fadeInDelay(0), fadeOutDelay(0), inactiveFadeOutDelay(0),
+	fadeInDelay(0), fadeOutDelay(0),
+	inactiveFadeOutDelay(0),
+	activeFadeInDelay(0),
 	maxAlpha(255), inactiveAlpha(255)
 	{}
 
@@ -270,6 +273,7 @@ bool WindowAlphaInfo::operator==(const WindowAlphaInfo& rhs) const
 		this->fadeInDelay == rhs.fadeInDelay &&
 		this->fadeOutDelay == rhs.fadeOutDelay &&
 		this->inactiveFadeOutDelay == rhs.inactiveFadeOutDelay &&
+		this->activeFadeInDelay == rhs.activeFadeInDelay &&
 		this->maxAlpha == rhs.maxAlpha &&
 		this->inactiveAlpha == rhs.inactiveAlpha;
 }
@@ -1246,6 +1250,9 @@ static void fetchAlphaFadeProperties(
 			u16(clamp(stringToInt(p.str), 0, 0xFFFF));
 	if( PropString p = getPropString(thePropMap, kInactiveDelayPropName) )
 		theDestAlpha.inactiveFadeOutDelay =
+			u16(clamp(stringToInt(p.str), 0, 0xFFFF));
+	if( PropString p = getPropString(thePropMap, kActiveFadeInDelayPropName) )
+		theDestAlpha.activeFadeInDelay =
 			u16(clamp(stringToInt(p.str), 0, 0xFFFF));
 
 	if( !(anOldAlphaInfo == theDestAlpha) )

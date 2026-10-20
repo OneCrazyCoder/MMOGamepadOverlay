@@ -176,6 +176,7 @@ EPropertyType propKeyToType(const std::string& theName)
 				{ "FadeOutTime",				ePropType_Appearance	},
 				{ "InactiveDelay",				ePropType_Appearance	},
 				{ "InactiveAlpha",				ePropType_Appearance	},
+				{ "ActiveFadeInDelay",			ePropType_Appearance	},
 				{ "Bitmap",						ePropType_Appearance	},
 				{ "Radius",						ePropType_Appearance	},
 				{ "TitleHeight",				ePropType_Appearance	},

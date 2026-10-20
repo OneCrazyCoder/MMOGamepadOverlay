@@ -42,6 +42,7 @@ enum EFadeState
 {
 	eFadeState_Hidden,
 	eFadeState_FadeInDelay,
+	eFadeState_ReactivateFadeInDelay,
 	eFadeState_FadingIn,
 	eFadeState_MaxAlpha,
 	eFadeState_DisabledFadeOut,
@@ -565,6 +566,14 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 				theWindow.fadeValue = 0;
 			}
 			break;
+		case eFadeState_ReactivateFadeInDelay:
+			if( gDisabledOverlays.test(id) )
+			{
+				theWindow.fadeState = eFadeState_Disabled;
+				theWindow.fadeValue = 0;
+				break;
+			}
+			// fall through
 		case eFadeState_FadeInDelay:
 			if( gActiveOverlays.test(id) )
 			{
@@ -581,10 +590,18 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 				break;
 			}
 			theWindow.fadeValue += gAppFrameTime;
-			if( theWindow.fadeValue >= wai.fadeInDelay )
+			if( theWindow.fadeState == eFadeState_FadeInDelay &&
+				theWindow.fadeValue >= wai.fadeInDelay )
 			{
 				theWindow.fadeState = eFadeState_FadingIn;
 				theWindow.fadeValue = 0;
+				break;
+			}
+			if( theWindow.fadeState == eFadeState_ReactivateFadeInDelay &&
+				theWindow.fadeValue >= wai.activeFadeInDelay )
+			{
+				theWindow.fadeState = eFadeState_FadingIn;
+				theWindow.fadeValue = wai.inactiveAlpha;
 				break;
 			}
 			break;
@@ -677,19 +694,9 @@ static void updateAlphaFades(OverlayWindow& theWindow, int id)
 		case eFadeState_Disabled:
 			if( !gDisabledOverlays.test(id) )
 			{
-				theWindow.fadeState = eFadeState_FadingIn;
-				theWindow.fadeValue = wai.inactiveAlpha;
+				theWindow.fadeState = eFadeState_ReactivateFadeInDelay;
+				theWindow.fadeValue = 0;
 				break;
-			}
-			if( wai.fadeOutDelay > 0 && wai.inactiveAlpha < wai.maxAlpha )
-			{
-				theWindow.fadeValue += gAppFrameTime;
-				if( theWindow.fadeValue >= wai.inactiveFadeOutDelay )
-				{
-					theWindow.fadeState = eFadeState_Inactive;
-					theWindow.fadeValue = 0;
-					break;
-				}
 			}
 			// fall through
 		case eFadeState_Inactive:

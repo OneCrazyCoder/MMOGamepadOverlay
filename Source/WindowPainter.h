@@ -74,7 +74,7 @@ struct WindowAlphaInfo
 {
 	double fadeInRate, fadeOutRate;
 	u16 fadeInTime, fadeOutTime;
-	u16 fadeInDelay, fadeOutDelay, inactiveFadeOutDelay;
+	u16 fadeInDelay, fadeOutDelay, inactiveFadeOutDelay, activeFadeInDelay;
 	u8 maxAlpha, inactiveAlpha;
 
 	WindowAlphaInfo();
