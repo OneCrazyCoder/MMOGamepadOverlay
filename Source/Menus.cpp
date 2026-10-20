@@ -444,7 +444,6 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 	DBG_ASSERT(theRootMenuID == InputMap::rootMenuOfMenu(theSubMenuID));
 	const int theOverlayID = getMenuOverlayID(theRootMenuID);
 	const int theOldSubMenuID = sActiveSubMenu[theOverlayID];
-	const int oldMenuItemCount = activeMenuItemCount(theRootMenuID);
 
 	// Even if no actual change made, mark menu as having been interacted with
 	gActiveOverlays.set(theOverlayID);
@@ -802,8 +801,6 @@ void tempForceShowSubMenu(int theMenuID)
 				InputMap::menuOverlayID(sOverrideActiveMenuBackup);
 			if( sActiveSubMenu[aBackupOverlayID] != sOverrideActiveMenuBackup )
 			{
-				const int oldMenuItemCount =
-					InputMap::menuItemCount(sActiveSubMenu[aBackupOverlayID]);
 				sActiveSubMenu[aBackupOverlayID] =
 					dropTo<u16>(sOverrideActiveMenuBackup);
 				gFullRedrawOverlays.set(aBackupOverlayID);
@@ -822,8 +819,6 @@ void tempForceShowSubMenu(int theMenuID)
 		return;
 
 	sOverrideActiveMenuBackup = sActiveSubMenu[theOverlayID];
-	const int oldMenuItemCount =
-		InputMap::menuItemCount(sActiveSubMenu[theOverlayID]);
 	sActiveSubMenu[theOverlayID] = dropTo<u16>(theMenuID);
 	gFullRedrawOverlays.set(theOverlayID);
 }
