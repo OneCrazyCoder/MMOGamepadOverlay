@@ -99,8 +99,6 @@ enum ECommandType
 	eCmdType_Num,
 
 	eCmdType_FirstValid = eCmdType_PressAndHoldKey,
-	eCmdType_FirstMenuControl = eCmdType_OpenSubMenu,
-	eCmdType_LastMenuControl = eCmdType_MenuEditDir,
 	eCmdType_FirstDirectional = eCmdType_MenuSelect,
 	eCmdType_FirstContinuous = eCmdType_MoveTurn,
 };

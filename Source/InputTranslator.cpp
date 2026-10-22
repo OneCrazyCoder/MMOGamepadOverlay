@@ -1380,9 +1380,8 @@ static void processCommand(
 		updateMouseForMenu(theCmd.rootMenuID, true);
 		aForwardCmd = Menus::selectedMenuItemCommand(theCmd.rootMenuID);
 		processCommand(theBtnState, aForwardCmd);
-		if( aForwardCmd.type < eCmdType_FirstMenuControl ||
-			aForwardCmd.type > eCmdType_LastMenuControl )
-		{// Run Confirm command as well if main command wasn't menu control
+		if( !aForwardCmd.skipMenuConfirm )
+		{
 			aForwardCmd = Menus::confirmCommand(theCmd.rootMenuID, false);
 			processCommand(theBtnState, aForwardCmd);
 		}
@@ -1412,17 +1411,15 @@ static void processCommand(
 		updateMouseForMenu(theCmd.rootMenuID);
 		TargetApp::tryFocusOnTargetWindow();
 		{
-			const bool wasNotAMenuControlCmd =
-				aForwardCmd.type < eCmdType_FirstMenuControl ||
-				aForwardCmd.type > eCmdType_LastMenuControl;
+			const bool allowConfirmCommand = !aForwardCmd.skipMenuConfirm;
 			aForwardCmd = Menus::confirmCommand(theCmd.rootMenuID, true);
 			// Allow holding this button to auto-repeat after a delay, OR
 			// use confirm command if menu has a valid one for selection dir
-			// and the selection command wasn't just a menu control command
-			// (just having a confirm command on selection dir blocks repeat)
+			// and the selection command and command not set to skip it
+			// (just having a confirm command at all blocks repeat)
 			if( aForwardCmd.type < eCmdType_FirstValid )
 				sState.exclusiveAutoRepeatButton = theBtnState;
-			else if( wasNotAMenuControlCmd )
+			else if( allowConfirmCommand )
 				processCommand(theBtnState, aForwardCmd);
 		}
 		break;
@@ -1872,7 +1869,7 @@ static void processButtonState(
 			theBtnState.usedInButtonCombo = true;
 		}
 
-		if( wasDown )
+		if( wasDown && !wasHit )
 		{
 			theBtnState.heldTime += gAppFrameTime;
 			processButtonHold(theBtnState);

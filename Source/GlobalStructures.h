@@ -70,7 +70,8 @@ struct ZERO_INIT(Command)
 			u16 asHoldAction : 1;
 			u16 forced : 1;
 			u16 sideMenuDir : 2;
-			u16 __padding : 5;
+			u16 skipMenuConfirm : 1;
+			u16 __padding : 4;
 		};
 		POINT pos;
 		u64 compare;

@@ -1849,6 +1849,7 @@ static Command wordsToSpecialCommand(
 		{
 			result.type = eCmdType_MenuReset;
 			result.rootMenuID = aRootMenuID;
+			result.skipMenuConfirm = true;
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Reset);
@@ -2153,6 +2154,7 @@ static Command wordsToSpecialCommand(
 			result.type = eCmdType_MenuBack;
 			result.dir = eCmdDir_None;
 			result.rootMenuID = aRootMenuID;
+			result.skipMenuConfirm = true;
 			return result;
 		}
 	}
@@ -2381,9 +2383,17 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 	if( theString.empty() )
 		return aMenuItem;
 
+	bool shouldSkipMenuConfirm = false;
+	if( theString[0] == '*' )
+	{// Set to skip menu-wide Confirm command for this item
+		shouldSkipMenuConfirm = true;
+		theString = theString.substr(1);
+	}
+
 	if( theString == ".." || commandWordToID(theString) == eCmdWord_Back )
 	{// Go back one sub-menu
 		aMenuItem.cmd.type = eCmdType_MenuBack;
+		aMenuItem.cmd.skipMenuConfirm = true;
 		aMenuItem.cmd.rootMenuID = sMenus.vals()[theMenuID].rootMenuID;
 		return aMenuItem;
 	}
@@ -2434,6 +2444,7 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 		aMenuItem.cmd.type = eCmdType_OpenSubMenu;
 		aMenuItem.cmd.subMenuID = dropTo<u16>(aSubMenuID);
 		aMenuItem.cmd.rootMenuID = sMenus.vals()[aSubMenuID].rootMenuID;
+		aMenuItem.cmd.skipMenuConfirm = true;
 		if( aMenuItem.label.empty() && theString[0] != '.' )
 			aMenuItem.label = replaceAllStr(theString, "\\n", "\n");
 		DBG_ASSERT(
@@ -2442,6 +2453,7 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 	}
 
 	aMenuItem.cmd = stringToCommand(theString);
+	aMenuItem.cmd.skipMenuConfirm = shouldSkipMenuConfirm;
 	if( aMenuItem.cmd.type == eCmdType_Invalid )
 	{
 		// Possibly just forgot the > at front of a plain string
@@ -2519,10 +2531,19 @@ static void applyMenuProperty(
 	case ePropType_Back:
 		{
 			Command aCmd = stringToCommand(thePropVal);
-			// Don't allow assigning menu control commands to menu items
-			if( aCmd.type >= eCmdType_FirstMenuControl &&
-				aCmd.type <= eCmdType_LastMenuControl )
-			{ aCmd = Command(); }
+			switch(aCmd.type)
+			{
+			case eCmdType_OpenSubMenu:
+			case eCmdType_OpenSideMenu:
+			case eCmdType_MenuConfirm:
+			case eCmdType_MenuBack:
+			case eCmdType_MenuEdit:
+			case eCmdType_MenuSelect:
+			case eCmdType_MenuEditDir:
+				// Don't allow assigning menu control commands
+				aCmd = Command();
+				break;
+			}
 			reportCommandAssignment(aCmd, thePropVal);
 			if( aPropType == ePropType_Auto )
 				theMenu.autoCommand = aCmd;
