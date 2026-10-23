@@ -580,6 +580,7 @@ struct ZERO_INIT(DispatchTracker)
 	int nonModKeyPressAllowedTime;
 	int modKeyChangeAllowedTime;
 	int chatBoxEndAllowedTime;
+	int lastLostFocusTime;
 	BitArray<0xFF> keysHeldDown;
 	KeysWantDownMap keysWantDown;
 	VectorMap<u8, int> keysLockedDown;
@@ -1009,8 +1010,6 @@ static bool outputModeAllowsKeyPress(int theVKey)
 		!isMouseButton(theVKey) &&
 		!(theVKey & kVKeyWinFlag) )
 	{
-		// Flag that user is attempting to send keyboard input to target window
-		TargetApp::tryFocusOnTargetWindow();
 		return false;
 	}
 
@@ -2406,6 +2405,16 @@ void forceReleaseHeldKeys()
 		{
 			setKeyDown(aVKey, false);
 		}
+		for(KeysWantDownMap::iterator itr =
+			sTracker.keysWantDown.begin();
+			itr != sTracker.keysWantDown.end(); ++itr)
+		{
+			if( itr->second.depth > 0 )
+			{
+				itr->second.depth = 0;
+				itr->second.pressed = false;
+			}
+		}
 		if( sTracker.mouseJumpRequested )
 		{
 			if( !verifyCursorJumpedTo(sTracker.mouseJumpDest) )
@@ -2431,6 +2440,7 @@ void forceReleaseHeldKeys()
 		if( sTracker.keysHeldDown.none() &&
 			sTracker.mouseMode == eMouseMode_Cursor )
 		{
+			sTracker.lastLostFocusTime = gAppRunTime;
 			return;
 		}
 		Sleep(DWORD(max(1, gAppTargetFrameTime / 2)));
@@ -2455,7 +2465,11 @@ void update()
 		HWND aForegroundWindow = GetForegroundWindow();
 		if( aForegroundWindow == WindowManager::mainHandle() )
 		{// Don't send keyboard keys to own main window
-			sTracker.outputMode = eOutputMode_MouseOnly;
+			if( sTracker.outputMode != eOutputMode_MouseOnly )
+			{
+				sTracker.outputMode = eOutputMode_MouseOnly;
+				sTracker.lastLostFocusTime = gAppRunTime;
+			}
 		}
 		else
 		{
@@ -2469,7 +2483,11 @@ void update()
 			}
 			else if( aTargetWindow != aForegroundWindow )
 			{// Don't send keyboard keys to anything besides target
-				sTracker.outputMode = eOutputMode_MouseOnly;
+				if( sTracker.outputMode != eOutputMode_MouseOnly )
+				{
+					sTracker.outputMode = eOutputMode_MouseOnly;
+					sTracker.lastLostFocusTime = gAppRunTime;
+				}
 			}
 			else
 			{// Target is ready to receive all forms of output
@@ -2744,6 +2762,11 @@ void update()
 				}
 				if( !taskIsPastDue && aCmd.hasKeybindSignal )
 					signalKeyBindUsed(aCmd);
+				if( !outputModeAllowsKeyPress(aCmd.vKey) &&
+					aCurrTask.queuedTime > sTracker.lastLostFocusTime )
+				{
+					TargetApp::tryFocusOnTargetWindow();
+				}
 			}
 			break;
 		case eCmdType_ReleaseKey:
@@ -2788,6 +2811,8 @@ void update()
 		case eCmdType_TapKey:
 			if( !outputModeAllowsKeyPress(aCmd.vKey) )
 			{
+				if( aCurrTask.queuedTime > sTracker.lastLostFocusTime )
+					TargetApp::tryFocusOnTargetWindow();
 				sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
 				sTracker.allowFastTasksDuringQueuePause = false;
 				aTaskResult = eResult_Incomplete;
@@ -2801,7 +2826,8 @@ void update()
 		case eCmdType_VKeySequence:
 			if( sTracker.outputMode == eOutputMode_MouseOnly )
 			{
-				TargetApp::tryFocusOnTargetWindow();
+				if( aCurrTask.queuedTime > sTracker.lastLostFocusTime )
+					TargetApp::tryFocusOnTargetWindow();
 				if( sTracker.currTaskProgress == 0 )
 				{// Delay start to re-focus (otherwise will abort in-process)
 					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
@@ -2817,7 +2843,8 @@ void update()
 		case eCmdType_ChatBoxString:
 			if( sTracker.outputMode == eOutputMode_MouseOnly )
 			{
-				TargetApp::tryFocusOnTargetWindow();
+				if( aCurrTask.queuedTime > sTracker.lastLostFocusTime )
+					TargetApp::tryFocusOnTargetWindow();
 				if( sTracker.currTaskProgress == 0 )
 				{// Delay start to re-focus (otherwise will abort in-process)
 					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
