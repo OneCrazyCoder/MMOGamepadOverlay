@@ -1137,12 +1137,8 @@ static void offsetMousePos()
 		return;
 	}
 
-	Input anInput;
-	anInput.type = INPUT_MOUSE;
-	anInput.mi.dx = sTracker.mouseVelX;
-	anInput.mi.dy = sTracker.mouseVelY;
-	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
-	sTracker.mouseVelX = sTracker.mouseVelY = 0;
+	int anAppliedX = sTracker.mouseVelX;
+	int anAppliedY = sTracker.mouseVelY;
 
 	const bool holdingLMB = sTracker.keysHeldDown.test(VK_LBUTTON);
 	const bool holdingRMB = sTracker.keysHeldDown.test(VK_RBUTTON);
@@ -1176,10 +1172,9 @@ static void offsetMousePos()
 		const int kClampDistSq = kClampDist * kClampDist;
 
 		// Determine current status
-		int aNextVelX = anInput.mi.dx;
-		int aNextVelY = anInput.mi.dy;
-		const int aNextVelMagSq =
-			(aNextVelX * aNextVelX) + (aNextVelY * aNextVelY);
+		const int aRequestedVelMagSq =
+			(sTracker.mouseVelX * sTracker.mouseVelX) +
+			(sTracker.mouseVelY * sTracker.mouseVelY);
 		bool clampVelocity = false;
 
 		if( sTracker.mouseLookState == eMouseLookState_Throttled ||
@@ -1214,7 +1209,7 @@ static void offsetMousePos()
 				// Set the cap and decide if needs to actually apply this frame
 				sTracker.mouseLookThrottleVelCapSq =
 					aMaxAddedDist * aMaxAddedDist;
-				if( aNextVelMagSq > sTracker.mouseLookThrottleVelCapSq )
+				if( aRequestedVelMagSq > sTracker.mouseLookThrottleVelCapSq )
 					clampVelocity = true;
 			}
 			else if( sTracker.mouseLookState == eMouseLookState_Init )
@@ -1245,7 +1240,7 @@ static void offsetMousePos()
 			// being requested, and then disable throttling.
 			sTracker.mouseLookThrottleVelCapSq +=
 				max(1, sTracker.mouseLookThrottleVelCapSq / 2);
-			if( aNextVelMagSq <= sTracker.mouseLookThrottleVelCapSq )
+			if( aRequestedVelMagSq <= sTracker.mouseLookThrottleVelCapSq )
 			{
 				if( sTracker.mouseLookState == eMouseLookState_EaseOutStable )
 					sTracker.mouseLookState = eMouseLookState_Stabilized;
@@ -1269,12 +1264,10 @@ static void offsetMousePos()
 			// If set to verify an auto-jump to non-origin point yet
 			// throttle distance is 0, assume that means the jump should
 			// happen near immediately and don't move at all until then
-			if( !kClampDist && kConfig.mouseLookVerifyCenterCursor &&
+			if( !kClampDist &&
+				kConfig.mouseLookVerifyCenterCursor &&
 				(holdingRMB || holdingLMB) )
 			{
-				// Continue storing some motion while waiting for test
-				sTracker.mouseVelX = anInput.mi.dx - anInput.mi.dx / 8;
-				sTracker.mouseVelY = anInput.mi.dy - anInput.mi.dx / 8;
 				return;
 			}
 		}
@@ -1283,56 +1276,58 @@ static void offsetMousePos()
 			// Cap magnitude of velocity requested while maintaining direction
 			const double aCappedVelMag =
 				sqrt(double(sTracker.mouseLookThrottleVelCapSq));
-			const double aNextVelMag =
-				sqrt(double(aNextVelMagSq));
+			const double aRequestedVelMag = sqrt(double(aRequestedVelMagSq));
 			const double aCappedVelX =
-				aNextVelX * aCappedVelMag / aNextVelMag;
+				sTracker.mouseVelX * aCappedVelMag / aRequestedVelMag;
 			const double aCappedVelY =
-				aNextVelY * aCappedVelMag / aNextVelMag;
+				sTracker.mouseVelY * aCappedVelMag / aRequestedVelMag;
 			// Deal with double->int rounding
-			aNextVelX = aCappedVelX < 0 ?
+			anAppliedX = aCappedVelX < 0 ?
 				int(aCappedVelX - 0.5) : int(aCappedVelX + 0.5);
-			aNextVelY = aCappedVelY < 0 ?
+			anAppliedY = aCappedVelY < 0 ?
 				int(aCappedVelY - 0.5) : int(aCappedVelY + 0.5);
-			if( (aNextVelX * aNextVelX + aNextVelY * aNextVelY) >
-					sTracker.mouseLookThrottleVelCapSq + 1 )
+			const int anAppliedVelMagSq =
+				(anAppliedX * anAppliedX + anAppliedY * anAppliedY);
+			if( anAppliedVelMagSq > sTracker.mouseLookThrottleVelCapSq + 1 )
 			{
-				if( abs(aNextVelX) > abs(aNextVelY) )
-					aNextVelX -= aNextVelX > 0 ? 1 : -1;
+				if( abs(anAppliedX) > abs(anAppliedY) )
+					anAppliedX -= anAppliedX > 0 ? 1 : -1;
 				else
-					aNextVelY -= aNextVelY > 0 ? 1 : -1;
+					anAppliedY -= anAppliedY > 0 ? 1 : -1;
 			}
 			// Make sure have a minimum of 1 mickey of movement
-			if( aNextVelX == 0 && aNextVelY == 0 )
+			if( anAppliedX == 0 && anAppliedY == 0 )
 			{
-				aNextVelX = abs(anInput.mi.dx) >= abs(anInput.mi.dy)
-					? (anInput.mi.dx < 0 ? -1 : 1) : 0;
-				aNextVelY = abs(anInput.mi.dy) >= abs(anInput.mi.dx)
-					? (anInput.mi.dy < 0 ? -1 : 1) : 0;
+				anAppliedX = abs(sTracker.mouseVelX) >= abs(sTracker.mouseVelY)
+					? (sTracker.mouseVelX < 0 ? -1 : 1) : 0;
+				anAppliedY = abs(sTracker.mouseVelY) >= abs(sTracker.mouseVelX)
+					? (sTracker.mouseVelY < 0 ? -1 : 1) : 0;
 			}
-			// Store some motion past the cap to be applied in a future update
-			sTracker.mouseVelX = anInput.mi.dx - aNextVelX;
-			sTracker.mouseVelX -= sTracker.mouseVelX / 8;
-			sTracker.mouseVelY = anInput.mi.dy - aNextVelY;
-			sTracker.mouseVelY -= sTracker.mouseVelY / 8;
-			anInput.mi.dx = aNextVelX;
-			anInput.mi.dy = aNextVelY;
 		}
 	}
 
 	// Track total drag delta when holding a mouse button
 	if( holdingLMB )
 	{
-		sTracker.mouseLDragX += anInput.mi.dx;
-		sTracker.mouseLDragY += anInput.mi.dy;
+		sTracker.mouseLDragX += anAppliedX;
+		sTracker.mouseLDragY += anAppliedY;
 	}
 	if( holdingRMB )
 	{
-		sTracker.mouseRDragX += anInput.mi.dx;
-		sTracker.mouseRDragY += anInput.mi.dy;
+		sTracker.mouseRDragX += anAppliedX;
+		sTracker.mouseRDragY += anAppliedY;
 	}
 
+	Input anInput;
+	anInput.type = INPUT_MOUSE;
+	anInput.mi.dx = anAppliedX;
+	anInput.mi.dy = anAppliedY;
+	anInput.mi.dwFlags = MOUSEEVENTF_MOVE;
 	sTracker.inputs.push_back(anInput);
+
+	// Subtract out whatever was actually applied and keep the rest for later
+	sTracker.mouseVelX -= anAppliedX;
+	sTracker.mouseVelY -= anAppliedY;
 }
 
 
@@ -3200,6 +3195,10 @@ void update()
 	sTracker.mouseDigitalVel = max(0,
 		sTracker.mouseDigitalVel -
 		kConfig.mouseDPadAccel * 3 * gAppFrameTime);
+	// Decay leftover unapplied velocity over time to prevent large jumps
+	// KNOWN: Only decays down to 7 and doesn't take gAppFrameTime into account!
+	sTracker.mouseVelX -= sTracker.mouseVelX / 8;
+	sTracker.mouseVelY -= sTracker.mouseVelY / 8;
 
 
 	// Sync actual keys held to desired state
@@ -3357,10 +3356,14 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 	static int sMouseXSubPixel = 0;
 	static int sMouseYSubPixel = 0;
 
+	const EMouseMode kMouseSpeedMode =
+		sTracker.mouseJumpRequested
+			? sTracker.mouseModeRequested
+			: sTracker.mouseMode;
 	const bool kForMouseLook =
-		sTracker.mouseMode == eMouseMode_LookOnly ||
-		sTracker.mouseMode == eMouseMode_LookTurn ||
-		sTracker.mouseMode == eMouseMode_LookReady;
+		kMouseSpeedMode == eMouseMode_LookOnly ||
+		kMouseSpeedMode == eMouseMode_LookTurn ||
+		kMouseSpeedMode == eMouseMode_LookReady;
 
 	// Get magnitude of desired mouse motion in 0 to 1.0 range
 	double aMagnitude = std::sqrt(double(dx) * dx + dy * dy) / 255.0;
@@ -3449,8 +3452,8 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 
 	// Add lookX to dx in mouselook modes while moving
 	if( lookX != 0 && sTracker.moveKeysHeld.any() &&
-		(sTracker.mouseMode == eMouseMode_LookTurn ||
-		 sTracker.mouseMode == eMouseMode_LookReady) )
+		(kMouseSpeedMode == eMouseMode_LookTurn ||
+		 kMouseSpeedMode == eMouseMode_LookReady) )
 	{
 		aMagnitude = abs(lookX) / 255.0;
 		if( aMagnitude > kConfig.moveLookDeadzone )
