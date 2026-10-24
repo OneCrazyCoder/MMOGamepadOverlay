@@ -1986,10 +1986,10 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 			{// Everything seems fine - can wait a while for next re-check
 				sTracker.mouseLookPosVerifyTime =
 					gAppRunTime + kMouseLookCursorPosReCheckRate;
-				// Once verified at least once allow for things like quick swap
-				// (and initial motion at all in some configurations!)
-				sTracker.mouseLookStatusStabilized = true;
 			}
+			// Once verified at least once allow for things like quick swap
+			// (and initial motion at all in some configurations!)
+			sTracker.mouseLookStatusStabilized = true;
 		}
 	}
 
