@@ -1142,11 +1142,6 @@ static void releaseLayerHeldByButton(ButtonState& theBtnState)
 
 static void updateMouseForMenu(int theRootMenuID, bool canClick = false)
 {
-	if( !canClick &&
-		(gDisabledOverlays.test(InputMap::menuOverlayID(theRootMenuID)) ||
-		 !gVisibleOverlays.test(InputMap::menuOverlayID(theRootMenuID))) )
-	{ return; }
-
 	const EMenuMouseMode aMenuMouseMode = Menus::menuMouseMode(theRootMenuID);
 	if( aMenuMouseMode != eMenuMouseMode_None )
 	{

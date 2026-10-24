@@ -3696,27 +3696,6 @@ static void loadDataFromProfile(
 		}
 	}
 
-	// Report changed hotspots (done after the fact since a single hotspot
-	// property can change multiple hotspots at once due to ranges.
-	#ifdef INPUT_MAP_DEBUG_PRINT
-	for(int aHotspotID = sChangedHotspots.firstSetBit();
-		aHotspotID < sChangedHotspots.size();
-		aHotspotID = sChangedHotspots.nextSetBit(aHotspotID+1))
-	{
-		const Hotspot& aHotspot = sHotspots[aHotspotID];
-		mapDebugPrint("[%s]: Assigned '%s' to %d%s%dx, %d%s%dy, %dw, %dh\n",
-			kHotspotsSectionName,
-			hotspotLabel(aHotspotID).c_str(),
-			int(aHotspot.x.anchor / 655.36 + 0.5),
-			aHotspot.x.offset >= 0 ? "%+" : "%",
-			aHotspot.x.offset,
-			int(aHotspot.y.anchor / 655.36 + 0.5),
-			aHotspot.y.offset >= 0 ? "%+" : "%",
-			aHotspot.y.offset,
-			aHotspot.w, aHotspot.h);
-	}
-	#endif
-
 	// Validate interdependent objects are configured properly
 	for(int aKeyBindID = loadedKeyBinds.firstSetBit();
 		aKeyBindID < loadedKeyBinds.size();
