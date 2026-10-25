@@ -712,12 +712,17 @@ static EResult popNextStringChar(const char* theString)
 {
 	// Strings should start with '/' or '>'
 	DBG_ASSERT(theString && (theString[0] == '/' || theString[0] == '>'));
-	DBG_ASSERT(size_t(sTracker.currTaskProgress) <= strlen(theString));
 
-	if( theString[sTracker.currTaskProgress] == '\0' )
+	// Progress is 1-based - 0 means task hasn't been attempted yet
+	sTracker.currTaskProgress = max(1, sTracker.currTaskProgress);
+	const int idx = sTracker.currTaskProgress - 1;
+
+	DBG_ASSERT(size_t(idx) <= strlen(theString));
+
+	if( theString[idx] == '\0' )
 		return eResult_TaskCompleted;
 
-	const int idx = sTracker.currTaskProgress++;
+	++sTracker.currTaskProgress;
 	const u16 kPasteKey = InputMap::keyForSpecialAction(eSpecialKey_PasteText);
 
 	if( theString[idx] == '/' || theString[idx] == '>' )
@@ -749,7 +754,7 @@ static EResult popNextStringChar(const char* theString)
 		// If can paste, copy the rest of the line into the clipboard now
 		if( kPasteKey && OpenClipboard(NULL) )
 		{
-			std::string aStr(&theString[sTracker.currTaskProgress]);
+			std::string aStr(&theString[idx + 1]);
 			aStr.resize(aStr.find_first_of("\n\r"));
 			const std::wstring& aWStr = widen(aStr);
 
@@ -2710,17 +2715,22 @@ void update()
 			max(sTracker.currTaskProgress, aCurrTask.progress);
 
 		const bool taskIsPastDue =
-			sTracker.currTaskProgress == 0 &&
-			aCurrTask.queuedTime < (gAppRunTime - kConfig.maxTaskQueuedTime);
+			sTracker.currTaskProgress == -999/* &&
+			aCurrTask.queuedTime < (gAppRunTime - kConfig.maxTaskQueuedTime)*/;
 
 		Command aCmd = aCurrTask.cmd;
-		if( aCmd.type == eCmdType_TriggerKeyBind )
+		if( aCurrTask.cmd.type == eCmdType_TriggerKeyBind )
 		{
-			if( !taskIsPastDue && sTracker.currTaskProgress == 0 )
-				signalKeyBindUsed(aCmd);
 			do {
 				aCmd = InputMap::keyBindCommand(aCmd.keyBindID);
 			} while(aCmd.type == eCmdType_TriggerKeyBind);
+
+			if( !taskIsPastDue &&
+				sTracker.currTaskProgress == 0 &&
+				aCmd.type != eCmdType_ChatBoxString )
+			{// Chat box strings wait to send signal once complete instead
+				signalKeyBindUsed(aCurrTask.cmd);
+			}
 		}
 		EResult aTaskResult = eResult_TaskCompleted;
 
@@ -2843,7 +2853,14 @@ void update()
 			else
 			{
 				if( !taskIsPastDue )
+				{
 					aTaskResult = popNextStringChar(InputMap::cmdString(aCmd));
+					if( aTaskResult == eResult_TaskCompleted &&
+						aCurrTask.cmd.type == eCmdType_TriggerKeyBind )
+					{
+						signalKeyBindUsed(aCurrTask.cmd);
+					}
+				}
 			}
 			break;
 		case eCmdType_MoveMouseToHotspot:
@@ -2924,6 +2941,7 @@ void update()
 		else if( sTracker.queuePauseTime > 0 )
 		{
 			sTracker.queue.setCurrTaskProgress(sTracker.currTaskProgress);
+			sTracker.currTaskProgress = 0;
 		}
 		// End "chat box active mode" only once finished task ends the loop,
 		// or a pause was requested that allows for other tasks to complete.
