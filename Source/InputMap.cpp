@@ -1242,7 +1242,14 @@ static int getMenuID(std::string theMenuName, int theParentMenuID)
 		DBG_ASSERT(theRootMenuID >= 0 && theRootMenuID < sMenus.size());
 		if( theMenuName.size() == 1 ) // i.e. == "."
 			return theRootMenuID;
-		return sMenus.findIndex(sMenus.keys()[theRootMenuID] + theMenuName);
+		int result =
+			sMenus.findIndex(sMenus.keys()[theRootMenuID] + theMenuName);
+		if( result >= sMenus.size() )
+		{// Maybe meant as a sub-path not full path from root
+			result =
+				sMenus.findIndex(sMenus.keys()[theParentMenuID] + theMenuName);
+		}
+		return result;
 	}
 
 	return sMenus.findIndex(sMenus.keys()[theParentMenuID] + "." + theMenuName);

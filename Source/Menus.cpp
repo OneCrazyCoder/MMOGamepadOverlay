@@ -54,6 +54,27 @@ static inline int activeMenuItemCount(int theRootMenuID)
 }
 
 
+static inline bool isParentOfActiveMenu(int theRootMenuID, int theMenuID)
+{
+	const int theActiveMenu = activeSubMenu(theRootMenuID);
+	if( theActiveMenu == theMenuID )
+		return false;
+	if( theMenuID == theRootMenuID )
+		return true;
+
+	int aTestMenu = InputMap::parentMenuOfMenu(theActiveMenu);
+	while(aTestMenu != theRootMenuID)
+	{
+		DBG_ASSERT(InputMap::rootMenuOfMenu(aTestMenu) == theRootMenuID);
+		if( aTestMenu == theMenuID )
+			return true;
+		aTestMenu = InputMap::parentMenuOfMenu(aTestMenu);
+	}
+
+	return false;
+}
+
+
 static inline int selectedXPos(int theMenuID)
 {
 	switch(InputMap::menuStyle(theMenuID))
@@ -448,6 +469,18 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 	// Even if no actual change made, mark menu as having been interacted with
 	gActiveOverlays.set(theOverlayID);
 
+	// If theMenuItem > 0 select requested menu item directly.
+	// Otherwise, if going back to a parent menu then keep previous selection
+	// for that menu, and if not doing that then select default menu item
+	if( theMenuItem > 0 )
+		--theMenuItem;
+	else if( isParentOfActiveMenu(theRootMenuID, theSubMenuID) )
+		theMenuItem = sSelectedItem[theSubMenuID];
+	else
+		theMenuItem = InputMap::menuDefaultItemIdx(theSubMenuID);
+	theMenuItem = min(theMenuItem, InputMap::menuItemCount(theSubMenuID) - 1);
+	theMenuItem = max(theMenuItem, 0);
+
 	if( theOldSubMenuID != theSubMenuID )
 	{
 		sActiveSubMenu[theOverlayID] = dropTo<u16>(theSubMenuID);
@@ -456,14 +489,6 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 		gFullRedrawOverlays.set(theOverlayID);
 	}
 
-	// If theMenuItem <= 0, select default menu item, otherwise select
-	// requested menu item - either way previously-selected item is ignored
-	if( theMenuItem <= 0 )
-		theMenuItem = InputMap::menuDefaultItemIdx(theSubMenuID);
-	else
-		--theMenuItem; // convert from 1-based to 0-based index
-	theMenuItem = min(theMenuItem, InputMap::menuItemCount(theSubMenuID) - 1);
-	theMenuItem = max(theMenuItem, 0);
 	if( sSelectedItem[theSubMenuID] != theMenuItem )
 	{
 		sSelectedItem[theSubMenuID] = theMenuItem;
@@ -573,11 +598,9 @@ Command closeActiveSubMenu(int theRootMenuID)
 		return result;
 	}
 
-	// Retain selected item of parent menu rather than reset to default
-	// (remember that openSubMenu() expects a 1-based index for this!)
-	const int aParentMenuID = InputMap::parentMenuOfMenu(theOldSubMenuID);
-	const int aParentMenuSelection = sSelectedItem[aParentMenuID];
-	result = openSubMenu(theRootMenuID, aParentMenuID, aParentMenuSelection+1);
+	result = openSubMenu(
+		theRootMenuID,
+		InputMap::parentMenuOfMenu(theOldSubMenuID));
 
 	// Make sure even if command is empty caller knows when active menu changed
 	const int aNewSubMenuID = sActiveSubMenu[theOverlayID];

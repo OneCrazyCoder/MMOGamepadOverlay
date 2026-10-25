@@ -119,15 +119,24 @@ struct ZERO_INIT(UnsavedProperty)
 
 struct ZERO_INIT(VarPropDependency)
 {
-	u32 varID : 9;
-	u32 sectID : 9;
-	u32 propID : 14;
+	u16 varID;
+	u16 sectID;
+	u16 propID;
 
-	u32 cmpVal() const { return (varID << 23) | (sectID << 14) | propID; }
 	bool operator<(const VarPropDependency& rhs) const
-	{ return cmpVal() < rhs.cmpVal(); }
+	{
+		if( varID != rhs.varID ) return varID < rhs.varID;
+		if( sectID != rhs.sectID ) return sectID < rhs.sectID;
+		return propID < rhs.propID;
+	}
+
 	bool operator==(const VarPropDependency& rhs) const
-	{ return cmpVal() == rhs.cmpVal(); }
+	{
+		return
+			varID == rhs.varID &&
+			sectID == rhs.sectID &&
+			propID == rhs.propID;
+	}
 };
 
 struct BaseGameSettings
@@ -157,6 +166,7 @@ static int sLoadedProfileIdx = 0; // = core, which is invalid to directly load
 static int sNewBaseProfileIdx = -1;
 static bool sPerformedProfileFolderScan = false;
 static bool sNeedShowKnownIssues = false;
+static bool sVarPropDepListModified = false;
 
 
 //------------------------------------------------------------------------------
@@ -1381,6 +1391,7 @@ static void logPropVarDependency(VarPropDependency theDep, bool init)
 	if( init )
 	{
 		// Just push on to the list and it will be sorted in later
+		sVarPropDepListModified = true;
 		sVarPropDepList.push_back(theDep);
 		return;
 	}
@@ -1388,7 +1399,10 @@ static void logPropVarDependency(VarPropDependency theDep, bool init)
 	std::vector<VarPropDependency>::iterator itr = std::lower_bound(
 		sVarPropDepList.begin(), sVarPropDepList.end(), theDep);
 	if( itr == sVarPropDepList.end() || !(*itr == theDep) )
+	{
 		sVarPropDepList.insert(itr, theDep);
+		sVarPropDepListModified = true;
+	}
 }
 
 
@@ -1932,8 +1946,8 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 
 	VarPropDependency* aDepPtr = null;
 	VarPropDependency aDep;
-	aDep.sectID = theSectionID;
-	aDep.propID = thePropID;
+	aDep.sectID = dropTo<u16>(theSectionID);
+	aDep.propID = dropTo<u16>(thePropID);
 	PropertyMap& theVarsMap = sSectionsMap.vals()[kVarsSectionIdx];
 	DBG_ASSERT(sSectionsMap.keys()[kVarsSectionIdx] == kVariablesSectionName);
 
@@ -1978,7 +1992,7 @@ static void expandPropertyVars(int theSectionID, int thePropID, bool init)
 				else
 				{
 					aDepPtr = &aDep;
-					aDep.varID = aVarID;
+					aDep.varID = dropTo<u16>(aVarID);
 					logPropVarDependency(aDep, init);
 					if( aVarProp.str.empty() && !aVarProp.pattern.empty() )
 						expandPropertyVars(kVarsSectionIdx, aVarID, init);
@@ -2037,7 +2051,8 @@ static void readProfileCallback(
 }
 
 
-static void propogatePropertyChange(int theSectionID, int thePropertyID)
+static void propogatePropertyChange(
+	int theSectionID, int thePropertyID, bool recursed = false)
 {
 	// Apply variable expansion to this property
 	DBG_ASSERT(theSectionID >= 0 && theSectionID < sSectionsMap.size());
@@ -2053,17 +2068,24 @@ static void propogatePropertyChange(int theSectionID, int thePropertyID)
 	if( theSectionID == kVarsSectionIdx )
 	{// Property is a variable - update other properties that depend on it
 		VarPropDependency aSearchVarDep;
-		aSearchVarDep.varID = thePropertyID;
-		for(std::vector<VarPropDependency>::const_iterator itr =
-				std::lower_bound(
-					sVarPropDepList.begin(),
-					sVarPropDepList.end(),
-					aSearchVarDep);
-			itr != sVarPropDepList.end() && int(itr->varID) == thePropertyID;
-			++itr)
+		aSearchVarDep.varID = dropTo<u16>(thePropertyID);
+		do
 		{
-			propogatePropertyChange(itr->sectID, itr->propID);
-		}
+			// Will need to start from beginning again of dep list changes
+			sVarPropDepListModified = false;
+			for(std::vector<VarPropDependency>::const_iterator itr =
+					std::lower_bound(
+						sVarPropDepList.begin(),
+						sVarPropDepList.end(),
+						aSearchVarDep);
+				itr != sVarPropDepList.end() && int(itr->varID) == thePropertyID;
+				++itr)
+			{
+				propogatePropertyChange(itr->sectID, itr->propID, true);
+				if( sVarPropDepListModified )
+					break;
+			}
+		} while(sVarPropDepListModified && !recursed);
 	}
 	else
 	{// Log property update in sChangedSectionsMap for other modules as well
