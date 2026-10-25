@@ -471,10 +471,11 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 
 	// If theMenuItem > 0 select requested menu item directly.
 	// Otherwise, if going back to a parent menu then keep previous selection
-	// for that menu, and if not doing that then select default menu item
+	// for that menu, and if not doing that then select default menu item.
+	// -1 (such as from reset()) forces default item
 	if( theMenuItem > 0 )
 		--theMenuItem;
-	else if( isParentOfActiveMenu(theRootMenuID, theSubMenuID) )
+	else if( !theMenuItem && isParentOfActiveMenu(theRootMenuID, theSubMenuID) )
 		theMenuItem = sSelectedItem[theSubMenuID];
 	else
 		theMenuItem = InputMap::menuDefaultItemIdx(theSubMenuID);
@@ -622,7 +623,7 @@ Command reset(int theRootMenuID)
 
 	// Borrow openSubMenu() even if already at root to reset default selection
 	const bool wasActivatedThisUpdate = gActiveOverlays.test(theOverlayID);
-	Command result = openSubMenu(theRootMenuID, theRootMenuID);
+	Command result = openSubMenu(theRootMenuID, theRootMenuID, -1);
 	DBG_ASSERT(activeSubMenu(theRootMenuID) == theRootMenuID);
 
 	// UN-mark menu as being activated by this action (if nothing else did)
