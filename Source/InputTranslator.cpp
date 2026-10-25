@@ -812,6 +812,11 @@ static void addControlsLayer(int theLayerID, bool asHeldLayer)
 	}
 	#endif
 
+	// If parent ended up being removed during above, it couldn't remove this
+	// child because it wasn't added yet, so layer must remove itself
+	const bool needImmediateRemove =
+		aParentLayerID && !sState.layers[aParentLayerID].active();
+
 	sState.layerOrder.push_back(dropTo<u16>(theLayerID));
 	sState.layersNeedSorting = true;
 	LayerState& aLayer = sState.layers[theLayerID];
@@ -821,11 +826,31 @@ static void addControlsLayer(int theLayerID, bool asHeldLayer)
 	aLayer.autoButtonHit = true;
 	sResults.changedLayers.push_back(theLayerID);
 	addRelatedLayers(theLayerID);
+
+	if( needImmediateRemove )
+		removeControlsLayer(theLayerID);
 }
 
 
 static void addRelatedLayers(int theNewLayerID)
 {
+	DBG_ASSERT(size_t(theNewLayerID) < sState.layers.size());
+
+	// Find and add any combo layers with theNewLayerID as a base and
+	// the other base layer also being active
+	for(int i = 1; i < intSize(sState.layerOrder.size()); ++i)
+	{
+		const int aLayerID = sState.layerOrder[i];
+		if( aLayerID == theNewLayerID )
+			continue;
+		int aComboLayerID = InputMap::comboLayerID(theNewLayerID, aLayerID);
+		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active() )
+			addControlsLayer(aComboLayerID);
+		aComboLayerID = InputMap::comboLayerID(aLayerID, theNewLayerID);
+		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active() )
+			addControlsLayer(aComboLayerID);
+	}
+
 	// Add/remove any auto layers associated with the new layer ID
 	const BitVector<32>& autoRemoveLayers =
 		InputMap::autoRemoveLayers(theNewLayerID);
@@ -842,23 +867,6 @@ static void addRelatedLayers(int theNewLayerID)
 		i = autoAddLayers.nextSetBit(i+1))
 	{
 		addControlsLayer(i);
-	}
-
-	DBG_ASSERT(size_t(theNewLayerID) < sState.layers.size());
-
-	// Find and add any combo layers with theNewLayerID as a base and
-	// the other base layer also being active
-	for(int i = 1; i < intSize(sState.layerOrder.size()); ++i)
-	{
-		const int aLayerID = sState.layerOrder[i];
-		if( aLayerID == theNewLayerID )
-			continue;
-		int aComboLayerID = InputMap::comboLayerID(theNewLayerID, aLayerID);
-		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active() )
-			addControlsLayer(aComboLayerID);
-		aComboLayerID = InputMap::comboLayerID(aLayerID, theNewLayerID);
-		if( aComboLayerID != 0 && !sState.layers[aComboLayerID].active() )
-			addControlsLayer(aComboLayerID);
 	}
 }
 
