@@ -1801,6 +1801,7 @@ static EMouseMode checkMouseLookModeTransitions()
 		// Avoid leaving _LookTurn until character stops moving
 		// and are actively trying to pan camera in X axis
 		if( sTracker.mouseMode == eMouseMode_LookTurn &&
+			sTracker.keysHeldDown.test(VK_RBUTTON) &&
 			(isManuallyMovingCharacter() || sTracker.mouseVelX == 0) )
 		{
 			return eMouseMode_LookTurn;
@@ -1813,8 +1814,10 @@ static EMouseMode checkMouseLookModeTransitions()
 	if( sTracker.mouseModeExpected == eMouseMode_SwapToTurn )
 	{
 		// Immediately swap if actively trying to move character
+		// or if LMB isn't being held down anyway
 		if( sTracker.mouseMode == eMouseMode_LookTurn ||
-			isManuallyMovingCharacter() )
+			isManuallyMovingCharacter() ||
+			!sTracker.keysHeldDown.test(VK_LBUTTON) )
 		{
 			sTracker.mouseModeExpected = eMouseMode_LookTurn;
 			return eMouseMode_LookTurn;
@@ -1928,13 +1931,17 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 	if( kConfig.mouseLookVerifyCenterCursor != // either set but not both
 			kConfig.mouseLookVerifyOriginCursor &&
 		inMouseLookMode &&
-		sTracker.outputMode != eOutputMode_None &&
 		theWantedMode != eMouseMode_LookReady &&
 		gAppRunTime >= sTracker.mouseLookPosVerifyTime )
 	{
 		const POINT& aCursorPos = WindowManager::mouseToOverlayPos();
 		POINT anExpectedPos = { 0, 0 };
-		if( kConfig.mouseLookVerifyCenterCursor )
+		if( sTracker.outputMode == eOutputMode_None )
+		{
+			anExpectedPos.x = aCursorPos.x;
+			anExpectedPos.y = aCursorPos.y;
+		}
+		else if( kConfig.mouseLookVerifyCenterCursor )
 		{
 			anExpectedPos.x = WindowManager::overlayTargetSize().cx / 2;
 			anExpectedPos.y = WindowManager::overlayTargetSize().cy / 2;
@@ -2494,6 +2501,7 @@ void update()
 	if( !sTracker.nextQueuedKey &&
 		!sTracker.backupQueuedKey &&
 		!sTracker.mouseJumpRequested &&
+		!sTracker.chatBoxActive &&
 		(sTracker.currTaskProgress == 0 ||
 		 (sTracker.queuePauseTime > 0 &&
 		  !sTracker.queue.frontTaskHasMouseAction())) )
