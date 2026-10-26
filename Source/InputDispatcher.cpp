@@ -466,6 +466,23 @@ public:
 	}
 
 
+	bool hasLongTaskInProgress() const
+	{
+		if( empty() )
+			return false;
+
+		bool foundInProgressTask = false;
+		const u32 aWrapMask = dropTo<u32>(mBuffer.size()) - 1;
+		u32 idx = mHead;
+		for(; idx != mTail; idx = (idx + 1) & aWrapMask)
+		{
+			if( mBuffer[idx].progress > 0 )
+				return true;
+		}
+
+		return false;
+	}
+
 	bool empty() const
 	{
 		return mHead == mTail;
@@ -574,7 +591,6 @@ struct ZERO_INIT(DispatchTracker)
 {
 	DispatchQueue queue;
 	std::vector<Input> inputs;
-	int currTaskProgress;
 	int queuePauseTime;
 	int nonModKeyPressAllowedTime;
 	int modKeyChangeAllowedTime;
@@ -589,6 +605,7 @@ struct ZERO_INIT(DispatchTracker)
 	EAutoRunMode autoRunMode;
 	u16 nextQueuedKey;
 	u16 backupQueuedKey;
+	bool longTaskInProgress;
 	bool typingChatBoxString;
 	bool chatBoxActive;
 	bool chatBoxWasUsed;
@@ -708,28 +725,28 @@ static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 }
 
 
-static EResult popNextStringChar(const char* theString)
+static EResult popNextStringChar(const char* theString, int& theTaskProgress)
 {
 	// Strings should start with '/' or '>'
 	DBG_ASSERT(theString && (theString[0] == '/' || theString[0] == '>'));
 
 	// Progress is 1-based - 0 means task hasn't been attempted yet
-	sTracker.currTaskProgress = max(1, sTracker.currTaskProgress);
-	const int idx = sTracker.currTaskProgress - 1;
+	theTaskProgress = max(1, theTaskProgress);
+	const int idx = theTaskProgress - 1;
 
 	DBG_ASSERT(size_t(idx) <= strlen(theString));
 
 	if( theString[idx] == '\0' )
 		return eResult_TaskCompleted;
 
-	++sTracker.currTaskProgress;
+	++theTaskProgress;
 	const u16 kPasteKey = InputMap::keyForSpecialAction(eSpecialKey_PasteText);
 
 	if( theString[idx] == '/' || theString[idx] == '>' )
 	{
 		if( sTracker.typingChatBoxString )
 		{// Let this flag from prev string clear first before starting!
-			--sTracker.currTaskProgress;
+			--theTaskProgress;
 			sTracker.queuePauseTime =
 				max(sTracker.queuePauseTime, 1);
 			sTracker.allowFastTasksDuringQueuePause = true;
@@ -788,8 +805,8 @@ static EResult popNextStringChar(const char* theString)
 			CloseClipboard();
 
 			// Jump progress to the character just before eol char
-			sTracker.currTaskProgress += intSize(aStr.size());
-			--sTracker.currTaskProgress;
+			theTaskProgress += intSize(aStr.size());
+			--theTaskProgress;
 		}
 	}
 	else if( theString[idx] == '\r' )
@@ -837,47 +854,47 @@ static EResult popNextStringChar(const char* theString)
 }
 
 
-static EResult popNextKey(const u8* theVKeySequence)
+static EResult popNextKey(const u8* theVKeySequence, int& theTaskProgress)
 {
 	DBG_ASSERT(sTracker.nextQueuedKey == 0);
-	DBG_ASSERT(sTracker.currTaskProgress >= 0);
-	DBG_ASSERT(size_t(sTracker.currTaskProgress) <=
-		strlen((char*)theVKeySequence));
+	DBG_ASSERT(theTaskProgress >= 0);
+	DBG_ASSERT(size_t(theTaskProgress) <= strlen((char*)theVKeySequence));
 
-	while(theVKeySequence[sTracker.currTaskProgress] != '\0')
+	while(theVKeySequence[theTaskProgress] != '\0')
 	{
-		const int idx = sTracker.currTaskProgress++;
+		const int idx = theTaskProgress++;
 		u8 aVKey = theVKeySequence[idx];
 
 		if( aVKey == kVKeyTriggerKeyBind )
 		{
 			// Special 3-byte sequence to execute a key bind
 			Command aCmd; aCmd.type = eCmdType_TriggerKeyBind;
-			u8 c = theVKeySequence[sTracker.currTaskProgress++];
+			u8 c = theVKeySequence[theTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			aCmd.keyBindID = u16((c & 0x7F) << 7);
-			c = theVKeySequence[sTracker.currTaskProgress++];
+			c = theVKeySequence[theTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			aCmd.keyBindID |= u16(c & 0x7F);
 			// Jump this command to the front of the queue, and then
 			// return to where we left off here once it is done
-			sTracker.queue.setCurrTaskProgress(sTracker.currTaskProgress);
+			sTracker.queue.setCurrTaskProgress(theTaskProgress);
 			sTracker.queue.push_front(aCmd);
-			sTracker.currTaskProgress = 0;
+			// Make sure own task progress doesn't overwrite temp tasks'
+			theTaskProgress = 0;
 			return eResult_Incomplete;
 		}
 
 		if( aVKey == VK_PAUSE )
 		{
 			// Special 3-byte sequence to add a forced pause
-			u8 c = theVKeySequence[sTracker.currTaskProgress++];
+			u8 c = theVKeySequence[theTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			int aDelay = (c & 0x7F) << 7;
-			c = theVKeySequence[sTracker.currTaskProgress++];
+			c = theVKeySequence[theTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			aDelay |= (c & 0x7F);
 			// Delays at end of sequence are ignored
-			if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
+			if( theVKeySequence[theTaskProgress] == '\0' )
 				return eResult_TaskCompleted;
 			sTracker.queuePauseTime = MAX(sTracker.queuePauseTime, aDelay);
 			sTracker.allowFastTasksDuringQueuePause = true;
@@ -887,10 +904,10 @@ static EResult popNextKey(const u8* theVKeySequence)
 		if( aVKey == kVKeyMouseJump )
 		{
 			// Special 3-byte sequence to cause mouse cursor jump to hotspot
-			u8 c = theVKeySequence[sTracker.currTaskProgress++];
+			u8 c = theVKeySequence[theTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			int aHotspotID = (c & 0x7F) << 7;
-			c = theVKeySequence[sTracker.currTaskProgress++];
+			c = theVKeySequence[theTaskProgress++];
 			DBG_ASSERT(c != '\0');
 			aHotspotID |= (c & 0x7F);
 			sTracker.mouseJumpDest = WindowManager::hotspotToOverlayPos(
@@ -953,7 +970,7 @@ static EResult popNextKey(const u8* theVKeySequence)
 		}
 	}
 
-	if( theVKeySequence[sTracker.currTaskProgress] == '\0' )
+	if( theVKeySequence[theTaskProgress] == '\0' )
 	{
 		// Set a flags-only key to just be 0
 		if( sTracker.nextQueuedKey && !(sTracker.nextQueuedKey & kVKeyMask) )
@@ -2502,7 +2519,7 @@ void update()
 		!sTracker.backupQueuedKey &&
 		!sTracker.mouseJumpRequested &&
 		!sTracker.chatBoxActive &&
-		(sTracker.currTaskProgress == 0 ||
+		(!sTracker.longTaskInProgress ||
 		 (sTracker.queuePauseTime > 0 &&
 		  !sTracker.queue.frontTaskHasMouseAction())) )
 	{// No tasks in progress that mouse mode change could interfere with
@@ -2719,12 +2736,11 @@ void update()
 		    sTracker.queue.hasFastTaskReady())))
 	{
 		const DispatchTask& aCurrTask = sTracker.queue.front();
-		sTracker.currTaskProgress =
-			max(sTracker.currTaskProgress, aCurrTask.progress);
+		int aTaskProgress = aCurrTask.progress;
 
 		const bool taskIsPastDue =
-			sTracker.currTaskProgress == -999/* &&
-			aCurrTask.queuedTime < (gAppRunTime - kConfig.maxTaskQueuedTime)*/;
+			aTaskProgress == 0 &&
+			aCurrTask.queuedTime < (gAppRunTime - kConfig.maxTaskQueuedTime);
 
 		Command aCmd = aCurrTask.cmd;
 		if( aCurrTask.cmd.type == eCmdType_TriggerKeyBind )
@@ -2734,7 +2750,7 @@ void update()
 			} while(aCmd.type == eCmdType_TriggerKeyBind);
 
 			if( !taskIsPastDue &&
-				sTracker.currTaskProgress == 0 &&
+				aTaskProgress == 0 &&
 				aCmd.type != eCmdType_ChatBoxString )
 			{// Chat box strings wait to send signal once complete instead
 				signalKeyBindUsed(aCurrTask.cmd);
@@ -2835,24 +2851,7 @@ void update()
 			{
 				if( aCurrTask.queuedTime > sTracker.lastLostFocusTime )
 					TargetApp::tryFocusOnTargetWindow();
-				if( sTracker.currTaskProgress == 0 )
-				{// Delay start to re-focus (otherwise will abort in-process)
-					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
-					aTaskResult = eResult_Incomplete;
-				}
-			}
-			else
-			{
-				if( !taskIsPastDue )
-					aTaskResult = popNextKey(InputMap::cmdVKeySeq(aCmd));
-			}
-			break;
-		case eCmdType_ChatBoxString:
-			if( sTracker.outputMode == eOutputMode_MouseOnly )
-			{
-				if( aCurrTask.queuedTime > sTracker.lastLostFocusTime )
-					TargetApp::tryFocusOnTargetWindow();
-				if( sTracker.currTaskProgress == 0 )
+				if( aTaskProgress == 0 )
 				{// Delay start to re-focus (otherwise will abort in-process)
 					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
 					aTaskResult = eResult_Incomplete;
@@ -2862,7 +2861,30 @@ void update()
 			{
 				if( !taskIsPastDue )
 				{
-					aTaskResult = popNextStringChar(InputMap::cmdString(aCmd));
+					aTaskResult = popNextKey(
+						InputMap::cmdVKeySeq(aCmd),
+						aTaskProgress);
+				}
+			}
+			break;
+		case eCmdType_ChatBoxString:
+			if( sTracker.outputMode == eOutputMode_MouseOnly )
+			{
+				if( aCurrTask.queuedTime > sTracker.lastLostFocusTime )
+					TargetApp::tryFocusOnTargetWindow();
+				if( aTaskProgress == 0 )
+				{// Delay start to re-focus (otherwise will abort in-process)
+					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
+					aTaskResult = eResult_Incomplete;
+				}
+			}
+			else
+			{
+				if( !taskIsPastDue )
+				{
+					aTaskResult = popNextStringChar(
+						InputMap::cmdString(aCmd),
+						aTaskProgress);
 					if( aTaskResult == eResult_TaskCompleted &&
 						aCurrTask.cmd.type == eCmdType_TriggerKeyBind )
 					{
@@ -2927,7 +2949,7 @@ void update()
 						? DWORD(-WHEEL_DELTA) : WHEEL_DELTA;
 					anInput.mi.dwFlags = MOUSEEVENTF_WHEEL;
 					sTracker.inputs.push_back(anInput);
-					if( ++sTracker.currTaskProgress < aCmd.count )
+					if( ++aTaskProgress < aCmd.count )
 						aTaskResult = eResult_Incomplete;
 					sTracker.queuePauseTime = max(sTracker.queuePauseTime,
 						kConfig.mouseWheelJumpDelayTimePerStep);
@@ -2941,16 +2963,11 @@ void update()
 			DBG_ASSERT(false && "Command type should not have been queued!");
 			break;
 		}
+		// If task completed, pop off queue, otherwise store progress so far
 		if( aTaskResult == eResult_TaskCompleted )
-		{// Move to next item in queue
-			sTracker.currTaskProgress = 0;
 			sTracker.queue.pop_front();
-		}
-		else if( sTracker.queuePauseTime > 0 )
-		{
-			sTracker.queue.setCurrTaskProgress(sTracker.currTaskProgress);
-			sTracker.currTaskProgress = 0;
-		}
+		else
+			sTracker.queue.setCurrTaskProgress(aTaskProgress);
 		// End "chat box active mode" only once finished task ends the loop,
 		// or a pause was requested that allows for other tasks to complete.
 		if( sTracker.chatBoxActive &&
@@ -2963,6 +2980,7 @@ void update()
 			sTracker.chatBoxActive = false;
 		}
 	}
+	sTracker.longTaskInProgress = sTracker.queue.hasLongTaskInProgress();
 
 
 	// Process keysWantDown
@@ -2982,7 +3000,7 @@ void update()
 	bool heldKeyUsingNextQueuedkey = false;
 	bool readyForIdleModKeys =
 		!sTracker.nextQueuedKey &&
-		sTracker.currTaskProgress == 0;
+		!sTracker.longTaskInProgress;
 	int aPressedKeysDesiredMods = 0;
 	for(KeysWantDownMap::iterator itr =
 		sTracker.keysWantDown.begin(), next_itr = itr;
