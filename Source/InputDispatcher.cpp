@@ -471,7 +471,6 @@ public:
 		if( empty() )
 			return false;
 
-		bool foundInProgressTask = false;
 		const u32 aWrapMask = dropTo<u32>(mBuffer.size()) - 1;
 		u32 idx = mHead;
 		for(; idx != mTail; idx = (idx + 1) & aWrapMask)
