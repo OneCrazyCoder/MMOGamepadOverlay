@@ -247,7 +247,6 @@ static void checkWindowExists()
 
 	// Check if foreground window matches name we are looking for
 	GetWindowText(aForegroundWindow, aWStr, ARRAYSIZE(aWStr));
-	debugPrint("%ls\n", aWStr);
 	if( kConfig.targetWindowName != aWStr )
 		return;
 

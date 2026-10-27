@@ -78,10 +78,9 @@ enum EMouseLookStartStyle
 enum EMouseLookState
 {
 	eMouseLookState_Off,
-	eMouseLookState_Init,
 	eMouseLookState_WaitForGameJump,
-	eMouseLookState_Throttled,
-	eMouseLookState_Verifying,
+	eMouseLookState_Throttle,
+	eMouseLookState_Verify,
 	eMouseLookState_Stabilized,
 };
 
@@ -150,13 +149,13 @@ struct ZERO_INIT(Config)
 	int mouseClickLockTime;
 	int mouseReClickLockTime;
 	int mouseLookMinHoldTime;
+	int mouseLookQuickTurnToLook;
+	int mouseLookQuickLookToTurn;
 	int minModKeyChangeTime;
 	int mouseJumpDelayTime;
 	int cancelAutoRunDeadzone;
 	int mouseDPadAccel;
 	bool mouseLookResetOnChatBox;
-	bool mouseLookQuickTurnToLook;
-	bool mouseLookQuickLookToTurn;
 	bool useScanCodes;
 
 	void load()
@@ -246,9 +245,9 @@ struct ZERO_INIT(Config)
 			"Mouse", "CameraVerifyOriginCursor");
 		mouseLookResetOnChatBox = Profile::getBool(
 			"Mouse", "CameraRestartWhenUseChatBox");
-		mouseLookQuickTurnToLook = Profile::getBool(
+		mouseLookQuickTurnToLook = Profile::getInt(
 			"Mouse", "CameraQuickSwapTurnToLook");
-		mouseLookQuickLookToTurn = Profile::getBool(
+		mouseLookQuickLookToTurn = Profile::getInt(
 			"Mouse", "CameraQuickSwapLookToTurn");
 		mouseLookStartThrottleDistance = Profile::getInt(
 			"Mouse", "LookStartThrottleDistance");
@@ -1230,38 +1229,13 @@ static void offsetMousePos()
 			sTracker.mouseLookThrottleVelCapSq = 0;
 	}
 
-	if( sTracker.mouseLookState == eMouseLookState_Init )
-	{
-		const EMouseLookStartStyle kMLStartStyle =
-			sTracker.mouseMode == eMouseMode_LookTurn
-				? kConfig.turnStartStyle
-				: kConfig.lookStartStyle;
-		switch(kMLStartStyle)
-		{
-		case eMouseLookStartStyle_ImmediateJumpToCenter:
-			sTracker.mouseLookThrottleVelCapSq = 0;
-			sTracker.mouseLookState = eMouseLookState_WaitForGameJump;
-			break;
-		case eMouseLookStartStyle_MoveThenJumpToCenter:
-		case eMouseLookStartStyle_MoveThenJumpToOrigin:
-		case eMouseLookStartStyle_ContinuousMotion:
-			sTracker.mouseLookState = eMouseLookState_Throttled;
-			break;
-		case eMouseLookStartStyle_ImmediateLockToOrigin:
-			sTracker.mouseLookThrottleVelCapSq = 0;
-			sTracker.mouseLookState = eMouseLookState_Verifying;
-			break;
-		}
-	}
-
 	switch(sTracker.mouseLookState)
 	{
 	case eMouseLookState_Off:
 		// Cancel prior cap immediately
 		sTracker.mouseLookThrottleVelCapSq = 0;
 		break;
-
-	case eMouseLookState_Throttled:
+	case eMouseLookState_Throttle:
 		// Set velocity cap according to distance-based startup throttling
 		{
 			const int kClampDist =
@@ -1271,7 +1245,7 @@ static void offsetMousePos()
 					? kConfig.mouseLookStartThrottleDistance : 0;
 			if( aMouseDragDistSq < kClampDist * kClampDist )
 			{
-				sTracker.mouseLookState = eMouseLookState_Throttled;
+				sTracker.mouseLookState = eMouseLookState_Throttle;
 				const int kVelCap =  
 					max(1, kClampDist / kConfig.mouseLookThrottleSteps);
 				const int aCurrDist = int(sqrt(double(aMouseDragDistSq)));
@@ -1300,23 +1274,20 @@ static void offsetMousePos()
 			}
 			else
 			{
-				sTracker.mouseLookState = eMouseLookState_Verifying;
+				sTracker.mouseLookState = eMouseLookState_Verify;
 			}
 		}
 		break;
-
 	case eMouseLookState_WaitForGameJump:
 		// Don't apply any motion until checkMouseLookRestore() changes this
 		return;
-
-	case eMouseLookState_Verifying:
-	case eMouseLookState_Stabilized:
-		// Apply motion normally and wait for checkMouseLookRestore() updates
+	case eMouseLookState_Verify:
+		// Apply motion normally and wait for checkMouseLookRestore() update
 		break;
-
-	case eMouseLookState_Init:
+	case eMouseLookState_Stabilized:
+		// Continue to apply motion normally (w/ cap ease-off)
+		break;
 	default:
-		// Already should have changed state above
 		DBG_ASSERT(false);
 		break;
 	}
@@ -1638,16 +1609,16 @@ static void lockKeyDownFor(int theBaseVKey, int theLockTime)
 }
 
 
-static bool keyIsLockedDown(int theBaseVKey)
+static int keyLockDownRemainingTime(int theBaseVKey)
 {
 	VectorMap<u8, int>::iterator itr =
 		sTracker.keysLockedDown.find(dropTo<u8>(theBaseVKey));
 	if( itr == sTracker.keysLockedDown.end() )
-		return false;
+		return 0;
 	if( gAppRunTime < itr->second )
-		return true;
+		return itr->second - gAppRunTime;
 	sTracker.keysLockedDown.erase(itr);
-	return false;
+	return 0;
 }
 
 
@@ -1683,7 +1654,7 @@ static EResult setKeyDown(int theKey, bool down)
 	{ return eResult_NotAllowed; }
 
 	// May not be allowed to release the given key yet
-	if( !down && keyIsLockedDown(theKey) )
+	if( !down && keyLockDownRemainingTime(theKey) > 0 )
  		return eResult_NotAllowed;
 
 	Input anInput;
@@ -1943,8 +1914,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		(sTracker.mouseMode == eMouseMode_LookOnly ||
 		 sTracker.mouseMode == eMouseMode_LookTurn) &&
 		(sTracker.keysHeldDown.test(VK_LBUTTON) ||
-		 sTracker.keysHeldDown.test(VK_RBUTTON)) &&
-		sTracker.mouseLookState != eMouseLookState_Init;
+		 sTracker.keysHeldDown.test(VK_RBUTTON));
 	const bool cursorMotionWanted =
 		sTracker.mouseVelX != 0 || sTracker.mouseVelY != 0;
 
@@ -1975,7 +1945,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		if( !inMouseLookMode ||
 			cursorMotionWanted ||
 			sTracker.mouseLookNeededToStrafe ||
-			sTracker.mouseLookState == eMouseLookState_Throttled ||
+			sTracker.mouseLookState == eMouseLookState_Throttle ||
 			theWantedMode == eMouseMode_LookReady )
 		{// Reset timer to check again after being idle in mouse look mode
 			sTracker.mouseLookIdleResetTime =
@@ -1993,36 +1963,38 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 	// Small positive = in correct spot but checking each frame to be sure
 	// Small negative = not in correct spot but checking more before fail out
 	// Large number = app run time until next periodic re-verify
-	const EMouseLookStartStyle kMLStartStyle =
-		sTracker.mouseMode == eMouseMode_LookTurn
-			? kConfig.turnStartStyle
-			: kConfig.lookStartStyle;
 	if( inMouseLookMode &&
 		theWantedMode != eMouseMode_LookReady &&
-		kMLStartStyle != eMouseLookStartStyle_ContinuousMotion &&		
 		gAppRunTime >= sTracker.mouseLookPosVerifyTime )
 	{
 		const POINT& aCursorPos = WindowManager::mouseToOverlayPos();
 		POINT anExpectedPos = { 0, 0 };
-		if( sTracker.outputMode == eOutputMode_None )
+		const EMouseLookStartStyle kMLStartStyle =
+			sTracker.outputMode == eOutputMode_None
+				? eMouseLookStartStyle_ContinuousMotion
+				: sTracker.mouseMode == eMouseMode_LookTurn
+					? kConfig.turnStartStyle
+					: kConfig.lookStartStyle;
+		switch(kMLStartStyle)
 		{
+		case eMouseLookStartStyle_ContinuousMotion:
+			// Cursor is just expected to be wherever it happens to be
 			anExpectedPos.x = aCursorPos.x;
 			anExpectedPos.y = aCursorPos.y;
-		}
-		else if( kMLStartStyle == eMouseLookStartStyle_ImmediateJumpToCenter ||
-				 kMLStartStyle == eMouseLookStartStyle_MoveThenJumpToCenter )
-		{
+			break;
+		case eMouseLookStartStyle_ImmediateJumpToCenter:
+		case eMouseLookStartStyle_MoveThenJumpToCenter:
+			// Cursor is expected to be hidden at center-sceren
 			anExpectedPos.x = WindowManager::overlayTargetSize().cx / 2;
 			anExpectedPos.y = WindowManager::overlayTargetSize().cy / 2;
-		}
-		else if( kMLStartStyle == eMouseLookStartStyle_ImmediateLockToOrigin ||
-				 kMLStartStyle == eMouseLookStartStyle_MoveThenJumpToOrigin )
-		{
+			break;
+		case eMouseLookStartStyle_ImmediateLockToOrigin:
+		case eMouseLookStartStyle_MoveThenJumpToOrigin:
+			// Cursor is expected to stay at point where first clicked
 			anExpectedPos = WindowManager::hotspotToOverlayPos(
 				HotspotMap::getHotspot(eSpecialHotspot_MouseLookStart));
-		}
-		else
-		{
+			break;
+		default:
 			DBG_ASSERT(false && "Unknown EMouseLookStartStyle value");
 		}
 		const LONG aDistX = abs(anExpectedPos.x - aCursorPos.x);
@@ -2039,7 +2011,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		else if( aDistX > kMouseLookMaxCursorDeviation ||
 				 aDistY > kMouseLookMaxCursorDeviation )
 		{// Cursor is NOT (yet) where game puts it during Mouse Look
-			if( sTracker.mouseLookState != eMouseLookState_Throttled )
+			if( sTracker.mouseLookState != eMouseLookState_Throttle )
 			{// Don't worry about it during throttling, and allow time leeway
 				// Each time not in expected position reduce timer by 1 frame,
 				// until reach negative leeway time before declaring failure
@@ -2063,11 +2035,11 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		}
 		else
 		{// Cursor IS where expected!
-			// Only needs to happen once to allow initial movement for
-			// eMouseLookStartStyle_ImmediateJumpToCenter which halts motion
-			// using _WaitForGameJump, while _Verifying allows full movement
+			// _WaitForGameJump halts all movement until at least register
+			// a single jump to expected position, so switch immediately to
+			// the more lenient _Verify state for now
 			if( sTracker.mouseLookState == eMouseLookState_WaitForGameJump )
-				sTracker.mouseLookState = eMouseLookState_Verifying;
+				sTracker.mouseLookState = eMouseLookState_Verify;
 
 			if( sTracker.mouseLookPosVerifyTime <= kMouseLookCursorLeeway )
 			{// Make sure cursor position has stabilized by checking a few times
@@ -2078,8 +2050,21 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 			{// Everything seems fine - can wait a while for next re-check
 				sTracker.mouseLookPosVerifyTime =
 					gAppRunTime + kMouseLookCursorPosReCheckRate;
-				// Can report fully stabilized, allowing for quick mode swaps
-				sTracker.mouseLookState = eMouseLookState_Stabilized;
+				// Can possibly report fully stabilized Mouse Look mode now
+				switch(kMLStartStyle)
+				{
+				case eMouseLookStartStyle_ImmediateJumpToCenter:
+				case eMouseLookStartStyle_MoveThenJumpToCenter:
+					// A verified jump to center means clearly stabilized,
+					// even if were throttling before this point
+					sTracker.mouseLookState = eMouseLookState_Stabilized;
+				default:
+					// Only change current state if just _Verify -
+					// otherwise could incorrectly abort _Throttling state!
+					if( sTracker.mouseLookState == eMouseLookState_Verify )
+						sTracker.mouseLookState = eMouseLookState_Stabilized;
+					break;
+				}
 			}
 		}
 	}
@@ -2118,14 +2103,8 @@ static void startMouseLookMode(int theKey)
 	switch(theKey)
 	{
 	case VK_LBUTTON:
-		// Keep initial mouse movement throttled as a guard against cursor
-		// zooming off to UI before game registers it as mouse look starting
-		sTracker.mouseLookState = eMouseLookState_Init;
-		// Verify mouse look mode started properly once done with throttle,
-		// for games where this is possible to do
-		sTracker.mouseLookPosVerifyTime = 0;
 		// Don't let mouse look register as just a click - even if in the
-		// mode for a very short time - by forcing a long hold time or a
+		// mode for a very short time - by forcing a long hold time OR a
 		// minimum movement amount first, so game registers it as a "drag"
 		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
 		sTracker.mouseLDragX = sTracker.mouseLDragY = 0;
@@ -2134,8 +2113,6 @@ static void startMouseLookMode(int theKey)
 		#endif
 		break;
 	case VK_RBUTTON:
-		sTracker.mouseLookState = eMouseLookState_Init;
-		sTracker.mouseLookPosVerifyTime = 0;
 		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
 		sTracker.mouseRDragX = sTracker.mouseRDragY = 0;
 		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
@@ -2144,8 +2121,36 @@ static void startMouseLookMode(int theKey)
 		break;
 	default:
 		DBG_ASSERT(false && "Invalid key value to start a mouse look mode");
+		return;
+	}
+
+	// Decide how to initialize Mouse Look mode based on how this game behaves
+	const EMouseLookStartStyle kMLStartStyle =
+		sTracker.mouseMode == eMouseMode_LookTurn
+			? kConfig.turnStartStyle
+			: kConfig.lookStartStyle;
+	switch(kMLStartStyle)
+	{
+	case eMouseLookStartStyle_MoveThenJumpToCenter:
+	case eMouseLookStartStyle_MoveThenJumpToOrigin:
+	case eMouseLookStartStyle_ContinuousMotion:
+		// Keep initial mouse movement throttled as a guard against cursor
+		// zooming off to UI before game registers it as mouse look starting
+		sTracker.mouseLookState = eMouseLookState_Throttle;
+		break;
+	case eMouseLookStartStyle_ImmediateJumpToCenter:
+		// Don't allow movement until game jumps cursor to center
+		sTracker.mouseLookThrottleVelCapSq = 0;
+		sTracker.mouseLookState = eMouseLookState_WaitForGameJump;
+		break;
+	case eMouseLookStartStyle_ImmediateLockToOrigin:
+		// Allow immediate full movement but verify don't leave origin point
+		sTracker.mouseLookThrottleVelCapSq = 0;
+		sTracker.mouseLookState = eMouseLookState_Verify;
 		break;
 	}
+	// Initialize testing for Mouse Look not initializing as expected by game
+	sTracker.mouseLookPosVerifyTime = 0;
 }
 
 
@@ -2648,15 +2653,15 @@ void update()
 				mouseMoving = false;
 			}
 			// Don't prevent changing modes from holding a button if that
-			// mode is always supposed to be holding that button anyway,
-			// unless that button is locked down and can't be released yet
+			// mode is always supposed to be holding that button anyway
+			// (unless that button is locked down and can't be released yet)
 			if( sTracker.mouseMode == eMouseMode_LookTurn &&
-				!keyIsLockedDown(VK_RBUTTON) )
+				keyLockDownRemainingTime(VK_RBUTTON) == 0 )
 			{
 				holdingRMB = false;
 			}
 			if( sTracker.mouseMode == eMouseMode_LookOnly &&
-				!keyIsLockedDown(VK_LBUTTON) )
+				keyLockDownRemainingTime(VK_LBUTTON) == 0 )
 			{
 				holdingLMB = false;
 			}
@@ -2665,7 +2670,8 @@ void update()
 			// Allow switching to a MouseLook mode even while cursor is moving
 			// (but only to LookReady initially to give a frame for any move
 			// keys requested to be held down first)
-			if( wantDifferentMode && !holdingLMB && !holdingRMB &&
+			if( mouseMoving && wantDifferentMode &&
+				!holdingLMB && !holdingRMB &&
 				(aNextMouseMode == eMouseMode_LookOnly ||
 				 aNextMouseMode == eMouseMode_LookTurn ||
 				 aNextMouseMode == eMouseMode_LookReady) )
@@ -2725,20 +2731,33 @@ void update()
 					sTracker.nextQueuedKey = aMouseLookStartKey;
 				}
 				else if( ((sTracker.mouseMode == eMouseMode_LookTurn &&
-						   kConfig.mouseLookQuickTurnToLook) ||
+						   kConfig.mouseLookQuickTurnToLook > 0) ||
 						  (sTracker.mouseMode == eMouseMode_LookOnly &&
-						   kConfig.mouseLookQuickLookToTurn)) &&
+						   kConfig.mouseLookQuickLookToTurn > 0)) &&
 						 sTracker.keysHeldDown.test(anAltMouseLookKey) &&
 						 sTracker.mouseLookState == eMouseLookState_Stabilized )
-				{// Immediately release other button and press new one
-					if( setKeyDown(anAltMouseLookKey, false) == eResult_Ok )
-					{
+				{// Skip full initialization of Mouse Look and swap buttons
+					// Get how long both buttons should be down together
+					int bothPressedTime =
+						aNextMouseMode == eMouseMode_LookTurn
+							? kConfig.mouseLookQuickLookToTurn
+							: kConfig.mouseLookQuickTurnToLook;
+					// Special setting of 1 means release and press same frame
+					if( bothPressedTime == 1 ) bothPressedTime = 0;
+					const int anOldButtonLockDownTime =
+						keyLockDownRemainingTime(anAltMouseLookKey);
+					if( anOldButtonLockDownTime <= bothPressedTime &&
+						(bothPressedTime > 0 ||
+						 setKeyDown(anAltMouseLookKey, false) == eResult_Ok) )
+					{// Ready to press new button now
+						if( bothPressedTime )
+							lockKeyDownFor(anAltMouseLookKey, bothPressedTime);
 						sTracker.mouseClickAllowedTime = 0;
 						sTracker.mouseMode = aNextMouseMode;
 						setKeyDown(aMouseLookStartKey & kVKeyMask, true);
 						startMouseLookMode(aMouseLookStartKey & kVKeyMask);
 						// Skip initial throttling and so on
-						sTracker.mouseLookState = eMouseLookState_Verifying;
+						sTracker.mouseLookState = eMouseLookState_Verify;
 					}
 				}
 				else if( !sTracker.queue.mouseJumpQueued() )

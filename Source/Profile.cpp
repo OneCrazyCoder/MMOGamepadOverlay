@@ -69,7 +69,7 @@ const ResourceFile kResTemplateBase[] =
 	{	"AOA Base",			"AOA Base",			IDR_TEXT_INI_BASE_AOA,	24	},
 	{	"EQ P99 Base",		"P99 Base",			IDR_TEXT_INI_BASE_P99,	24	},
 	{	"EQ PQ Base",		"PQ Base",			IDR_TEXT_INI_BASE_PQ,	24	},
-	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	30	},
+	{	"M&M Base",			"MnM Base",			IDR_TEXT_INI_BASE_MNM,	31	},
 };
 
 const ResourceFile kResTemplateDefault[] =
