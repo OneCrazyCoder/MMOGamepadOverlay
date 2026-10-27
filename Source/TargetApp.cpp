@@ -29,6 +29,7 @@ enum ECheck
 	eCheck_WindowZOrder,
 	eCheck_WindowPosition,
 	eCheck_WindowMode,
+	eCheck_WindowKeyboard,
 	eCheck_AppClosed,
 
 	eCheck_Num
@@ -97,6 +98,8 @@ struct ZERO_INIT(Config)
 
 static Config kConfig;
 static HANDLE sTargetAppProcess = NULL;
+static HKL sTargetWindowKeyboardLayout = NULL;
+static HKL sLastTargetWindowKeyboardLayout = NULL;
 static HWND sTargetWindowHandle = NULL;
 static RECT sTargetWindowRect = { 0 };
 static RECT sTargetWindowRestoreRect = { 0 };
@@ -138,6 +141,8 @@ static void dropTargetWindow()
 
 	targetDebugPrint("Dropping tracking of former target window\n");
 	sTargetWindowHandle = NULL;
+	sTargetWindowKeyboardLayout = NULL;
+	sLastTargetWindowKeyboardLayout = NULL;
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	SetRect(&sTargetWindowRestoreRect, 0, 0, 0, 0);
 	sTargetWindowRestoreStyle = 0;
@@ -242,6 +247,7 @@ static void checkWindowExists()
 
 	// Check if foreground window matches name we are looking for
 	GetWindowText(aForegroundWindow, aWStr, ARRAYSIZE(aWStr));
+	debugPrint("%ls\n", aWStr);
 	if( kConfig.targetWindowName != aWStr )
 		return;
 
@@ -305,6 +311,8 @@ static void checkWindowActive()
 		// Release held keys when target window deactivates
 		targetDebugPrint("Target window inactive! Halting sent input!\n");
 		InputDispatcher::forceReleaseHeldKeys();
+		sTargetWindowKeyboardLayout = NULL;
+		sLastTargetWindowKeyboardLayout = NULL;
 		// Don't interfere with other applications by keeping hotkey registered
 		if( sSwapWindowModeHotkeyRegistered )
 		{
@@ -318,7 +326,7 @@ static void checkWindowActive()
 	{// Don't completely deactivate if active window is the toolbar
 		if( sLastWindowStatus != eWindowStatus_Toolbar )
 		{
-			targetDebugPrint("Maintining overlays while using toolbar\n");
+			targetDebugPrint("Maintaining overlays while using toolbar\n");
 			sLastWindowStatus = eWindowStatus_Toolbar;
 		}
 		return;
@@ -354,6 +362,8 @@ static void checkWindowMinimized()
 		targetDebugPrint("Target window minimized! Hiding overlays!\n");
 		WindowManager::hideOverlays();
 		sLastWindowStatus = eWindowStatus_Minimized;
+		sTargetWindowKeyboardLayout = NULL;
+		sLastTargetWindowKeyboardLayout = NULL;
 		sWantTargetWindowActive = false;
 	}
 }
@@ -453,7 +463,7 @@ static void checkWindowMode()
 		!sTargetWindowHandle ||
 		sTargetWindowHandle != GetForegroundWindow() ||
 		IsIconic(sTargetWindowHandle) )
-		return;
+	{ return; }
 
 	// Gather info about the window's current mode
 	RECT aMonRect = { 0 };
@@ -652,6 +662,31 @@ static void checkWindowMode()
 }
 
 
+static void checkWindowKBLayout()
+{
+	if( !sTargetWindowHandle ||
+		sTargetWindowHandle != GetForegroundWindow() ||
+		IsIconic(sTargetWindowHandle) )
+	{ return; }
+
+	const DWORD aTargetThreadId =
+		GetWindowThreadProcessId(sTargetWindowHandle, NULL);
+	if( !aTargetThreadId )
+		return;
+
+	// Only set sTargetWindowKeyboardLayout if layout of target window
+	// actually changed from last time checked - it may have been
+	// set to NULL due to incompatibility with current one,
+	// in which case just leave it NULL until a change is made
+	HKL aKeyboardLayout = GetKeyboardLayout(aTargetThreadId);
+	if( aKeyboardLayout != sLastTargetWindowKeyboardLayout )
+	{
+		sLastTargetWindowKeyboardLayout = aKeyboardLayout;
+		sTargetWindowKeyboardLayout = aKeyboardLayout;
+	}
+}
+
+
 static void checkAppClosed()
 {
 	if( !sTargetAppProcess )
@@ -826,6 +861,8 @@ void cleanup()
 		CloseHandle(sTargetAppProcess);
 	sTargetAppProcess = NULL;
 	sTargetWindowHandle = NULL;
+	sTargetWindowKeyboardLayout = NULL;
+	sLastTargetWindowKeyboardLayout = NULL;
 	SetRect(&sTargetWindowRect, 0, 0, 0, 0);
 	SetRect(&sTargetWindowRestoreRect, 0, 0, 0, 0);
 	sTargetWindowRestoreStyle = 0;
@@ -868,6 +905,7 @@ void update()
 	case eCheck_WindowZOrder:	checkWindowZOrder();	break;
 	case eCheck_WindowPosition:	checkWindowPosition();	break;
 	case eCheck_WindowMode:		checkWindowMode();		break;
+	case eCheck_WindowKeyboard:	checkWindowKBLayout();	break;
 	case eCheck_AppClosed:		checkAppClosed();		break;
 	default: sNextCheck = ECheck(0); // wrap check type
 	}
@@ -995,6 +1033,78 @@ bool targetWindowIsActive()
 bool targetWindowRequested()
 {
 	return !kConfig.targetWindowName.empty();
+}
+
+
+u16 typedCharVKey(char theChar)
+{
+	// Attempt to use target app's keyboard layout first
+	if( sTargetWindowKeyboardLayout )
+	{
+		const SHORT result = VkKeyScanEx(theChar, sTargetWindowKeyboardLayout);
+		if( result == -1 )
+			sTargetWindowKeyboardLayout = NULL;
+		else
+			return dropTo<u16>(result);
+	}
+
+	// Use our own keyboard layout
+	static bool sUseLocalKBLayout = true;
+	if( sUseLocalKBLayout )
+	{
+		const SHORT result = VkKeyScan(theChar);
+		if( result == -1 )
+			sUseLocalKBLayout = false;
+		else
+			return dropTo<u16>(result);
+	}
+
+	// Fall back on US keyboard layout if all else failed
+	if( theChar >= 'a' && theChar <= 'z' )
+		return u16(theChar - 'a' + 'A');
+	if( theChar >= 'A' && theChar <= 'Z' )
+		return u16(kVKeyShiftFlag | theChar);
+	if( theChar >= '0' && theChar <= '9' )
+		return u16(theChar);
+	switch(theChar)
+	{
+	case ' ': return VK_SPACE;
+	case '!': return kVKeyShiftFlag | '1';
+	case '@': return kVKeyShiftFlag | '2';
+	case '#': return kVKeyShiftFlag | '3';
+	case '$': return kVKeyShiftFlag | '4';
+	case '%': return kVKeyShiftFlag | '5';
+	case '^': return kVKeyShiftFlag | '6';
+	case '&': return kVKeyShiftFlag | '7';
+	case '*': return kVKeyShiftFlag | '8';
+	case '(': return kVKeyShiftFlag | '9';
+	case ')': return kVKeyShiftFlag | '0';
+	case '-': return VK_OEM_MINUS;
+	case '_': return kVKeyShiftFlag | VK_OEM_MINUS;
+	case '=': return VK_OEM_PLUS;
+	case '+': return kVKeyShiftFlag | VK_OEM_PLUS;
+	case '[': return VK_OEM_4;
+	case '{': return kVKeyShiftFlag | VK_OEM_4;
+	case ']': return VK_OEM_6;
+	case '}': return kVKeyShiftFlag | VK_OEM_6;
+	case '\\': return VK_OEM_5;
+	case '|': return kVKeyShiftFlag | VK_OEM_5;
+	case ';': return VK_OEM_1;
+	case ':': return kVKeyShiftFlag | VK_OEM_1;
+	case '\'': return VK_OEM_7;
+	case '"': return kVKeyShiftFlag | VK_OEM_7;
+	case ',': return VK_OEM_COMMA;
+	case '<': return kVKeyShiftFlag | VK_OEM_COMMA;
+	case '.': return VK_OEM_PERIOD;
+	case '>': return kVKeyShiftFlag | VK_OEM_PERIOD;
+	case '/': return VK_OEM_2;
+	case '?': return kVKeyShiftFlag | VK_OEM_2;
+	case '`': return VK_OEM_3;
+	case '~': return kVKeyShiftFlag | VK_OEM_3;
+	}
+
+	// Really have no idea how to type this character!
+	return 0;
 }
 
 #undef TARGET_APP_DEBUG_PRINT

@@ -51,9 +51,15 @@ int keyNameToVirtualKey(const std::string& theKeyName)
 {
 	if( theKeyName.size() == 1 && !(theKeyName[0] & 0x80) )
 	{
-		int aVKey = VkKeyScan(WCHAR(::tolower(theKeyName[0])));
-		DBG_ASSERT(aVKey <= 0xFF);
-		return aVKey;
+		// Valid single-char key names only include A-Z and 0-9,
+		// which have same virtual key value as their ASCII value
+		if( theKeyName[0] >= 'a' && theKeyName[0] <= 'z' )
+			return theKeyName[0] - 'a' + 'A'; // VKeys are upper-case only
+		if( theKeyName[0] >= 'A' && theKeyName[0] <= 'Z' )
+			return theKeyName[0];
+		if( theKeyName[0] >= '0' && theKeyName[0] <= '9' )
+			return theKeyName[0];
+		return 0;
 	}
 
 	struct NameToVKeyMapper

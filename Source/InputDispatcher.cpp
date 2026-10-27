@@ -758,7 +758,7 @@ static EResult popNextStringChar(const char* theString, int& theTaskProgress)
 
 		// Press initial key to switch to chat box mode ('/' or '\r')
 		sTracker.nextQueuedKey =
-			theString[idx] == '/' ? VkKeyScan('/') : VK_RETURN;
+			theString[idx] == '/' ? VK_OEM_2 /*'/' VKey*/ : VK_RETURN;
 		// Add a pause to make sure game-side async key checking switches to
 		// direct text input in chat box before 'typing' at full speed
 		sTracker.queuePauseTime =
@@ -840,7 +840,7 @@ static EResult popNextStringChar(const char* theString, int& theTaskProgress)
 		// Queue typing a string character key (possibly w/ shift key modifier)
 		// Only printable ASCII characters are supported with this method!
 		if( theString[idx] >= ' ' && theString[idx] <= '~' )
-			sTracker.nextQueuedKey = VkKeyScan(theString[idx]);
+			sTracker.nextQueuedKey = TargetApp::typedCharVKey(theString[idx]);
 		// Allow releasing shift quickly to continue typing characters
 		// when are using chatbox (shouldn't have the same need for a delay
 		// as a key sequence since target game likely uses keyboard events

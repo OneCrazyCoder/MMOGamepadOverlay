@@ -83,9 +83,10 @@ size_t posAfterPrefix(const std::string&, const std::string& thePrefix);
 bool hasPrefix(const std::string&, const std::string& thePrefix);
 // Finds the most-nested string "tag" (${TagContents}, <TagContents>, etc)
 // and returns its start pos and length (which include theTagStart/End chars).
-struct StringTagPos{ size_t start, len; bool found, nested; }
-findStringTag(const std::string&, std::string::size_type theStartPos = 0,
-			  const char* theTagStart = "<", const char theTagEnd = '>');
+struct StringTagPos{ size_t start, len; bool found, nested; };
+StringTagPos findStringTag(
+	const std::string&, std::string::size_type theStartPos = 0,
+	const char* theTagStart = "<", const char theTagEnd = '>');
 
 // Conversion between numbers and (pure ASCII) strings
 std::string commaSeparate(u32 theValue);

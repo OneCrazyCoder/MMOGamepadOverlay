@@ -57,4 +57,7 @@ bool targetWindowIsActive();
 // Confirm actually trying to target a window and not just run on desktop
 bool targetWindowRequested();
 
+// Get VKey to type a character into the target app (if active)
+u16 typedCharVKey(char theChar);
+
 } // TargetApp
