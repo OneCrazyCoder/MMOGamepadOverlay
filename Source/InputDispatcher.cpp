@@ -609,6 +609,10 @@ struct ZERO_INIT(DispatchTracker)
 	bool chatBoxActive;
 	bool chatBoxWasUsed;
 	bool allowFastTasksDuringQueuePause;
+	bool manualCharMoveRequested;
+	bool manualCharTurnRequested;
+	bool manualCharStrafeRequested;
+	bool manualMouseMoveRequested;
 
 	POINT mouseJumpDest;
 	EMouseMode mouseMode;
@@ -2554,10 +2558,12 @@ void update()
 			{
 				// Don't exit LookTurn mode while holding a turn key directly
 				// or it may change from strafing to turning.
-				if( sTracker.keysHeldDown.test(
-						InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
-					sTracker.keysHeldDown.test(
-						InputMap::keyForSpecialAction(eSpecialKey_TurnR)) )
+				const u16 aTurnLKey =
+					InputMap::keyForSpecialAction(eSpecialKey_TurnL);
+				const u16 aTurnRKey =
+					InputMap::keyForSpecialAction(eSpecialKey_TurnR);
+				if( (aTurnLKey && sTracker.keysHeldDown.test(aTurnLKey)) ||
+					(aTurnRKey && sTracker.keysHeldDown.test(aTurnRKey)) )
 				{
 					// If key is being held as part of auto-strafe-run in X,
 					// abort that first so aren't stuck in LookTurn mode
@@ -2639,10 +2645,12 @@ void update()
 				{
 					// Don't start look turn mode while holding a turn key,
 					// or turning may suddenly become strafing
-					if( sTracker.keysHeldDown.test(
-							InputMap::keyForSpecialAction(eSpecialKey_TurnL)) ||
-						sTracker.keysHeldDown.test(
-							InputMap::keyForSpecialAction(eSpecialKey_TurnR)) )
+					const u16 aTurnLKey =
+						InputMap::keyForSpecialAction(eSpecialKey_TurnL);
+					const u16 aTurnRKey =
+						InputMap::keyForSpecialAction(eSpecialKey_TurnR);
+					if( (aTurnLKey && sTracker.keysHeldDown.test(aTurnLKey)) ||
+						(aTurnRKey && sTracker.keysHeldDown.test(aTurnRKey)) )
 					{
 						break;
 					}
@@ -3487,6 +3495,19 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 		dy = dy * kCursorYSpeed / kMouseMaxSpeed * gAppFrameTime;
 	}
 
+	// Fire signals related to user intended mouse movement or not
+	// (this does not include lookX since that's more "automatic" movement)
+	if( sTracker.manualMouseMoveRequested && !dx && !dy )
+	{
+		sTracker.manualMouseMoveRequested = false;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_MouseStop));
+	}
+	else if( !sTracker.manualMouseMoveRequested && (dx || dy) )
+	{
+		sTracker.manualMouseMoveRequested = true;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_MouseMove));
+	}
+
 	// Add lookX to dx in mouselook modes while moving
 	if( lookX != 0 && sTracker.moveKeysHeld.any() &&
 		(kMouseSpeedMode == eMouseMode_LookTurn ||
@@ -3674,6 +3695,44 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		(applyMoveStrafe && abs(strafe) >= abs(turn) &&
 			aStrafeAngle < -M_PI * 0.5 + kYRange &&
 			aStrafeAngle > -M_PI * 0.5 - kYRange));
+
+	// Fire signals related to requesting motion starting or stopping
+	if( sTracker.manualCharMoveRequested && moveKeysWantDown.none() )
+	{
+		sTracker.manualCharMoveRequested = false;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_MoveStop));
+	}
+	else if( !sTracker.manualCharMoveRequested && moveKeysWantDown.any() )
+	{
+		sTracker.manualCharMoveRequested = true;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_MoveAny));
+	}
+	if( sTracker.manualCharStrafeRequested &&
+		!moveKeysWantDown.test(eMoveKey_SL) &&
+		!moveKeysWantDown.test(eMoveKey_SR) )
+	{
+		sTracker.manualCharStrafeRequested = false;
+	}
+	else if( !sTracker.manualCharStrafeRequested &&
+			 (moveKeysWantDown.test(eMoveKey_SL) ||
+			  moveKeysWantDown.test(eMoveKey_SR)) )
+	{
+		sTracker.manualCharStrafeRequested = true;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_StrafeAny));
+	}
+	if( sTracker.manualCharTurnRequested &&
+		!moveKeysWantDown.test(eMoveKey_TL) &&
+		!moveKeysWantDown.test(eMoveKey_TR) )
+	{
+		sTracker.manualCharTurnRequested = false;
+	}
+	else if( !sTracker.manualCharTurnRequested &&
+			 (moveKeysWantDown.test(eMoveKey_TL) ||
+			  moveKeysWantDown.test(eMoveKey_TR)) )
+	{
+		sTracker.manualCharTurnRequested = true;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_TurnAny));
+	}
 
 	if( lock )
 	{// Send desired movement first, then lock it at end of this function
@@ -3879,8 +3938,11 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			// same key is pressed as part of the chat box message.
 			if( sTracker.moveKeysHeld.test(aMoveKey) )
 			{
-				aCmd.type = eCmdType_ReleaseKey;
-				sendCommand(aCmd);
+				if( aCmd.vKey )
+				{
+					aCmd.type = eCmdType_ReleaseKey;
+					sendCommand(aCmd);
+				}
 				sTracker.moveKeysHeld.reset(aMoveKey);
 			}
 		}
@@ -3898,11 +3960,15 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		{
 			if( sTracker.moveKeysHeld.test(aMoveKey) )
 			{// Release this movement key now that it is no longer wanted
-				aCmd.type = eCmdType_ReleaseKey;
-				sendCommand(aCmd);
+				if( aCmd.vKey )
+				{
+					aCmd.type = eCmdType_ReleaseKey;
+					sendCommand(aCmd);
+				}
 				sTracker.moveKeysHeld.reset(aMoveKey);
 			}
-			if( sTracker.stickyMoveKeys.test(aMoveKey) &&
+			if( aCmd.vKey &&
+				sTracker.stickyMoveKeys.test(aMoveKey) &&
 				(!sTracker.chatBoxActive ||
 				 isSafeAsyncKey(aCmd.vKey) ||
 				 isMouseButton(aCmd.vKey)) )

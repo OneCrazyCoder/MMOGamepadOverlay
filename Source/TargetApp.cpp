@@ -575,12 +575,15 @@ static void checkWindowMode()
 			InputMap::keyForSpecialAction(eSpecialKey_SwapWindowMode);
 		UINT aVKey = aFullVKey & kVKeyMask;
 		UINT aModKey = 0;
-		if( aFullVKey & kVKeyShiftFlag ) aModKey |= MOD_SHIFT;
-		if( aFullVKey & kVKeyCtrlFlag ) aModKey |= MOD_CONTROL;
-		if( aFullVKey & kVKeyAltFlag ) aModKey |= MOD_ALT;
-		if( aFullVKey & kVKeyWinFlag ) aModKey |= MOD_WIN;
-		RegisterHotKey(NULL, kSwapWindowModeHotkeyID, aModKey, aVKey);
-		sSwapWindowModeHotkeyRegistered = true;
+		if( aVKey )
+		{
+			if( aFullVKey & kVKeyShiftFlag ) aModKey |= MOD_SHIFT;
+			if( aFullVKey & kVKeyCtrlFlag ) aModKey |= MOD_CONTROL;
+			if( aFullVKey & kVKeyAltFlag ) aModKey |= MOD_ALT;
+			if( aFullVKey & kVKeyWinFlag ) aModKey |= MOD_WIN;
+			RegisterHotKey(NULL, kSwapWindowModeHotkeyID, aModKey, aVKey);
+			sSwapWindowModeHotkeyRegistered = true;
+		}
 	}
 
 	// Mode matches desired mode already (or one of them is unknown)

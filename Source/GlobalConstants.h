@@ -289,6 +289,14 @@ enum ESpecialKey
 	eSpecialKey_StrafeL,
 	eSpecialKey_StrafeR,
 
+	// Can't be assigned - are used for special signals
+	eSpecialKey_MoveAny,
+	eSpecialKey_StrafeAny,
+	eSpecialKey_TurnAny,
+	eSpecialKey_MoveStop,
+	eSpecialKey_MouseMove,
+	eSpecialKey_MouseStop,
+
 	eSpecialKey_Num,
 
 	eSpecialKey_FirstMove = eSpecialKey_MoveF,

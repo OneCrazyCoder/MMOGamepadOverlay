@@ -50,6 +50,13 @@ const char* const kSpecialKeyBindNames[] =
 	"TurnRight",			// eSpecialKey_TurnR
 	"StrafeLeft",			// eSpecialKey_StrafeL
 	"StrafeRight",			// eSpecialKey_StrafeR
+	// These can't be assigned directly but are used for special signals
+	"~MoveAny~",			// eSpecialKey_MoveAny
+	"~StrafeAny~",			// eSpecialKey_StrafeAny
+	"~TurnAny~",			// eSpecialKey_TurnAny
+	"~MoveStop~",			// eSpecialKey_MoveStop
+	"~MoveMouse~",			// eSpecialKey_MoveMouse
+	"~MouseStop~",			// eSpecialKey_StopMouse
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialKeyBindNames) == eSpecialKey_Num);
 
@@ -3111,37 +3118,6 @@ static void addWhenSignalCommand(
 		return;
 	}
 
-	// Check for responding to use of "Move", "MoveTurn", and "MoveStrafe"
-	switch(commandWordToID(theSignalKeyName))
-	{
-	case eCmdWord_Move:
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_StrafeL], theCmdStr);
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_StrafeR], theCmdStr);
-		// fall through
-	case eCmdWord_Turn:
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_MoveF], theCmdStr);
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_MoveB], theCmdStr);
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_TurnL], theCmdStr);
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_TurnR], theCmdStr);
-		return;
-	case eCmdWord_Strafe:
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_MoveF], theCmdStr);
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_MoveB], theCmdStr);
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_StrafeL], theCmdStr);
-		addWhenSignalCommand(theLayerIdx,
-			kSpecialKeyBindNames[eSpecialKey_StrafeR], theCmdStr);
-		return;
-	}
-
 	// For button press signals, need to actually use the word "press"
 	// Other button actions (tap, hold, release) are not supported as signals
 	if( breakOffButtonAction(theSignalKeyName) == eBtnAct_Press )
@@ -3163,6 +3139,57 @@ static void addWhenSignalCommand(
 			}
 			return;
 		}
+	}
+
+	// Check for special cases - Move, Stop, Turn, Strafe, Mouse Move/Stop
+	struct NameToSignalMapper
+	{
+		typedef StringToValueMap<ESpecialKey, u8> NameToSignalMap;
+		NameToSignalMap map;
+		NameToSignalMapper()
+		{
+			struct { const char* str; ESpecialKey val; } const kEntries[] = {
+				{ "Move",						eSpecialKey_MoveAny		},
+				{ "Strafe",						eSpecialKey_StrafeAny	},
+				{ "Move Strafe",				eSpecialKey_StrafeAny	},
+				{ "Turn",						eSpecialKey_TurnAny		},
+				{ "Move Turn",					eSpecialKey_TurnAny		},
+				{ "Stop",						eSpecialKey_MoveStop	},
+				{ "Move Stop",					eSpecialKey_MoveStop	},
+				{ "Stop Move",					eSpecialKey_MoveStop	},
+				{ "Stop Moving",				eSpecialKey_MoveStop	},
+				{ "Mouse",						eSpecialKey_MouseMove	},
+				{ "Move Mouse",					eSpecialKey_MouseMove	},
+				{ "Mouse Move",					eSpecialKey_MouseMove	},
+				{ "Mouse Moves",				eSpecialKey_MouseMove	},
+				{ "Mouse Stop",					eSpecialKey_MouseStop	},
+				{ "Mouse Stops",				eSpecialKey_MouseStop	},
+				{ "Stop Mouse",					eSpecialKey_MouseStop	},
+				{ "Move Mouse Stop",			eSpecialKey_MouseStop	},
+				{ "Move Mouse Stops",			eSpecialKey_MouseStop	},
+				{ "Mouse Stops Moving",			eSpecialKey_MouseStop	},
+			};
+			map.reserve(ARRAYSIZE(kEntries));
+			for(int i = 0; i < ARRAYSIZE(kEntries); ++i)
+				map.setValue(kEntries[i].str, kEntries[i].val);
+		}
+	};
+	static NameToSignalMapper sNameToSignalMapper;
+
+	if( ESpecialKey* aSpecialSignalKey =
+			sNameToSignalMapper.map.find(theSignalKeyName) )
+	{
+		if( aCmd.type >= eCmdType_FirstValid )
+		{
+			sLayers.vals()[theLayerIdx].signalCommands.setValue(
+				dropTo<u16>(keyBindSignalID(*aSpecialSignalKey)), aCmd);
+		}
+		else
+		{
+			sLayers.vals()[theLayerIdx].signalCommands.erase(
+				dropTo<u16>(keyBindSignalID(*aSpecialSignalKey)));
+		}
+		return;
 	}
 
 	logError("Unrecognized signal name for '%s' requested in %s",
@@ -3748,12 +3775,14 @@ void loadProfile()
 
 	// Allocate key binds
 	// Start with the special keys so they get correct IDs
+	Command aDoNothingCommand = Command();
+	aDoNothingCommand.type = eCmdType_DoNothing;
 	for(int i = 0; i < eSpecialKey_Num; ++i)
-		sKeyBinds.findOrAdd(kSpecialKeyBindNames[i], Command());
+		sKeyBinds.findOrAdd(kSpecialKeyBindNames[i], aDoNothingCommand);
 	 Profile::PropertyMapPtr aPropMapPtr =
 		 Profile::getSectionProperties(kKeyBindsSectionName);
 	for(int i = 0; i < aPropMapPtr->size(); ++i)
-		sKeyBinds.findOrAdd(aPropMapPtr->keys()[i], Command());
+		sKeyBinds.findOrAdd(aPropMapPtr->keys()[i], aDoNothingCommand);
 	sKeyBinds.trim();
 
 	// Allocate key bind cycles

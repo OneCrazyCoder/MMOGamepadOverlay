@@ -488,11 +488,12 @@ Hold R1 <span class="token attr-value"><span class="token punctuation">=</span> 
 </li>
 </ul>
 <h3 id="when-signal-commands">“When Signal” commands</h3>
-<p>Now that layers and the importance of their order is covered, it is time for the exception to the rule - Signal Commands. These commands run whenever a “signal” is sent out, and <strong>ignore layer order.</strong> The layer containing the command must still be actively added to the stack, but it doesn’t need to be higher than any other layers to respond to a signal…</p>
+<p>Now that layers and the importance of their order is covered, it is time for the exception to the rule - Signal Commands. These commands run whenever a “signal” is sent out, and <strong>ignore layer order.</strong> The layer containing the command must still be actively added to the stack, but it doesn’t need to be higher than any other layers to respond to a signal.</p>
 <p>To add a Signal Command to a layer (or the root [Scheme]), use the syntax <code>When Signal = Command</code>. Most commands can be used, though not ones that must be “held” (since signals have no duration associated with them).</p>
-<p>There are two types of signals that are sent out to activate these commands - initially pressing a Gamepad button, or using a Key Bind by name (including as part of a Key Sequence or Key Bind Cycle).</p>
+<p>There are three types of signals that are sent out to activate these commands - initially pressing a Gamepad button, using a Key Bind by name (including as part of a Key Sequence or Key Bind Cycle), or a few special-case signals.</p>
 <p>To run a command when a button is pressed, even when another, higher layer has something assigned to that button, use the syntax <code>When Press ButtonName = Command</code>. Example: <code>When press L2 = Remove this layer</code>.</p>
 <p>To run a command when a Key Bind is used, use the syntax <code>When KeyBindName = Command</code>. Examples: <code>When Sit = Remove this layer</code> or <code>When MoveForward = Remove this layer</code>. <em>As you may be able to tell, a layer removing itself is the most common use for signal commands.</em></p>
+<p>The special-case signals are Move, Turn, Strafe, Stop, Mouse Moves, and Mouse Stops. If assign Move/Mouse to analog sticks, for example, the Move signals are sent when the stick is first pressed in any direction, but not repeatedly if “spin the stick”, and the Stop signals are sent when the stick returns to neutral.</p>
 <p>Some other things to note:</p>
 <ul>
 <li>
