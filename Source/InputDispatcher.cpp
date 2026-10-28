@@ -2534,6 +2534,9 @@ void update()
 
 	// Update output mode
 	// ------------------
+	#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+	const EOutputMode oldMode = sTracker.outputMode;
+	#endif
 	#ifdef INPUT_DISPATCHER_SIMULATION_ONLY
 		sTracker.outputMode = eOutputMode_None;
 	#else
@@ -2570,6 +2573,16 @@ void update()
 				sTracker.outputMode = eOutputMode_Full;
 			}
 		}
+	}
+	#endif
+	#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+	if( sTracker.outputMode != oldMode )
+	{
+		debugPrint("InputDispatcher: Output mode changed to: %s\n",
+			sTracker.outputMode == eOutputMode_None ? "None" :
+			sTracker.outputMode == eOutputMode_MouseOnly ? "Mouse Only" :
+			sTracker.outputMode == eOutputMode_NeedCursor ? "No Mouse Look" :
+			"Full Output");
 	}
 	#endif
 

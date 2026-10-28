@@ -2024,7 +2024,7 @@ static void updateMenusForCurrentLayers()
 			gDisabledOverlays.set(i, true);
 	}
 
-	// Now re-enable any menus that have a command associated with them
+	// Now re-enable any menus that have buttons assigned to select or confirm
 	for(int aBtnIdx = 1; aBtnIdx < eBtn_Num; ++aBtnIdx)
 	{
 		ButtonState& aBtnState = sState.gamepadButtons[aBtnIdx];
@@ -2033,12 +2033,8 @@ static void updateMenusForCurrentLayers()
 			int anOverlayIdx = 0xFFFF;
 			switch(aBtnState.commands.cmd[aBtnAct].type)
 			{
-			case eCmdType_MenuReset:
-			case eCmdType_MenuConfirm:
-			case eCmdType_MenuBack:
-			case eCmdType_MenuEdit:
 			case eCmdType_MenuSelect:
-			case eCmdType_MenuEditDir:
+			case eCmdType_MenuConfirm:
 				anOverlayIdx = InputMap::menuOverlayID(
 					aBtnState.commands.cmd[aBtnAct].rootMenuID);
 				break;
