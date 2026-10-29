@@ -1220,14 +1220,11 @@ static void offsetMousePos()
 		(sTracker.mouseVelX * sTracker.mouseVelX) +
 		(sTracker.mouseVelY * sTracker.mouseVelY);
 
+	// Ease out prior cap over time for smoother transition to unrestricted
 	if( sTracker.mouseLookThrottleVelCapSq > 0 )
 	{
-		// Ease out prior cap over time for smoother transition to unrestricted,
-		// and stop having a cap at all if requested vel is less than cap
 		sTracker.mouseLookThrottleVelCapSq +=
 			max(1, sTracker.mouseLookThrottleVelCapSq / 2);
-		if( aRequestedVelMagSq <= sTracker.mouseLookThrottleVelCapSq )
-			sTracker.mouseLookThrottleVelCapSq = 0;
 	}
 
 	switch(sTracker.mouseLookState)
@@ -1292,6 +1289,10 @@ static void offsetMousePos()
 		DBG_ASSERT(false);
 		break;
 	}
+
+	// Don't apply cap (now or in future) once requesting less than it
+	if( aRequestedVelMagSq <= sTracker.mouseLookThrottleVelCapSq )
+		sTracker.mouseLookThrottleVelCapSq = 0;
 
 	if( sTracker.mouseLookThrottleVelCapSq )
 	{
