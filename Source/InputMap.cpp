@@ -1792,6 +1792,7 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.set(eCmdWord_Replace);
 		if( theButtonLayerIdx >= 0 &&
 			keyWordsFound.test(eCmdWord_Replace) &&
+			(!aSecondLayerName || aSecondLayerID == aLayerID) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ReplaceControlsLayer;
