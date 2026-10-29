@@ -254,8 +254,11 @@ struct ZERO_INIT(DataSource)
 	EConfigDataFormat format;
 	EDataSourceType type;
 	std::string pathPattern;
-	FILETIME lastLoadedTime;
-	FileMetaData lastMetaData; // from FileUtils.h
+	FileMetaData lastFoundMetaData; // from FileUtils.h
+	FileMetaData lastReadMetaData;
+	// May not match above due to special-case overrides (forced last selected)
+	FILETIME lastFoundTime;
+	FILETIME lastReadTime;
 	std::wstring pathToRead;
 	std::vector<BYTE> dataCache;
 	bool usesWildcards;
@@ -912,6 +915,10 @@ public:
 		mSourceWasBusy(false),
 		mErrorEncountered(false)
 	{
+		DBG_ASSERT(size_t(theDataSourceID) < sDataSources.size());
+		DataSource& aDataSource = sDataSources[theDataSourceID];
+		aDataSource.lastReadMetaData = aDataSource.lastFoundMetaData;
+		aDataSource.lastReadTime = aDataSource.lastFoundTime;
 	}
 
 	virtual ~ConfigDataReader() {}
@@ -1248,15 +1255,15 @@ protected:
 		// it to be a candidate again if ANY meta data changed, not just newer
 		// mod time, since things like a direct file replace will not
 		// update mod time but may change file size etc. This also covers the
-		// case where set .lastLoadedTime to max value to guarantee this one
+		// case where set .lastReadTime to max value to guarantee this one
 		// file is the only one that can be a candidate from then on and this
 		// file did get modified normally (changing its meta data).
-		if( !aDataSource.lastMetaData.valid ||
+		if( !aDataSource.lastReadMetaData.valid ||
 			CompareFileTime(
 				&theMetaData.lastModTime,
-				&aDataSource.lastLoadedTime) > 0 ||
+				&aDataSource.lastReadTime) > 0 ||
 			(thePath == aDataSource.pathToRead &&
-			 theMetaData != aDataSource.lastMetaData) )
+			 theMetaData != aDataSource.lastReadMetaData) )
 		{
 			mSourceUpdated = true;
 			mCandidateNames.push_back(theMatchedString);
@@ -1455,8 +1462,8 @@ protected:
 		}
 		
 		setPathToRead(aDataSource, mCandidates[aBestIdx].pathToRead);
-		aDataSource.lastMetaData = mCandidates[aBestIdx].metaData;
-		aDataSource.lastLoadedTime = aMostRecentFileTime;
+		aDataSource.lastFoundMetaData = mCandidates[aBestIdx].metaData;
+		aDataSource.lastFoundTime = aMostRecentFileTime;
 		swap(aDataSource.dataCache, mCandidates[aBestIdx].dataCache);
 	}
 
@@ -1507,15 +1514,15 @@ public:
 			mSourceFound = true;
 			const FileMetaData& aCurrMetaData =
 				getFileMetaData(aDataSource.pathToRead);
-			if( aCurrMetaData != aDataSource.lastMetaData )
+			if( aCurrMetaData != aDataSource.lastReadMetaData )
 			{
-				if( aDataSource.lastMetaData.valid )
+				if( aDataSource.lastReadMetaData.valid )
 				{
 					syncDebugPrint("Detected change in file %s\n",
 						getFileName(aDataSource.pathPattern).c_str());
 				}
-				aDataSource.lastMetaData = aCurrMetaData;
-				aDataSource.lastLoadedTime = aCurrMetaData.lastModTime;
+				aDataSource.lastFoundMetaData = aCurrMetaData;
+				aDataSource.lastFoundTime = aCurrMetaData.lastModTime;
 				mSourceUpdated = true;
 			}
 			mDoneSearching = true;
@@ -1730,16 +1737,16 @@ public:
 				mValueBuf,
 				aSearchStartHKey,
 				aDataSource.pathToRead);
-			if( aCurrMetaData != aDataSource.lastMetaData )
+			if( aCurrMetaData != aDataSource.lastReadMetaData )
 			{
-				if( aDataSource.lastMetaData.valid )
+				if( aDataSource.lastReadMetaData.valid )
 				{
 					syncDebugPrint(
 						"Detected change in registry key value name %ls\n",
 						aDataSource.pathToRead.c_str());
 				}
-				aDataSource.lastMetaData = aCurrMetaData;
-				aDataSource.lastLoadedTime = aCurrMetaData.lastModTime;
+				aDataSource.lastFoundMetaData = aCurrMetaData;
+				aDataSource.lastFoundTime = aCurrMetaData.lastModTime;
 				swap(aDataSource.dataCache, mValueBuf);
 				mSourceUpdated = true;
 			}
@@ -1816,7 +1823,7 @@ public:
 
 				if( mKeyStack.size() < kMaxSubkeyStackSize &&
 					CompareFileTime(&aModTime,
-						&aDataSource.lastMetaData.lastModTime) > 0 )
+						&aDataSource.lastReadMetaData.lastModTime) > 0 )
 				{
 					SubkeyState aSubkeyState = SubkeyState();
 					if( RegOpenKeyEx(aKeyState.hKey, &mNameBuf[0], 0,

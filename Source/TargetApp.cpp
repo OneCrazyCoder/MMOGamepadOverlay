@@ -260,6 +260,7 @@ static void checkWindowExists()
 	// Target window found!
 	targetDebugPrint("Target window '%ls' found!\n",
 		kConfig.targetWindowName.c_str());
+	dropTargetWindow();
 	sTargetWindowHandle = aForegroundWindow;
 	sWantTargetWindowActive = false;
 	sLastWindowStatus = eWindowStatus_Active;
