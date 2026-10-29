@@ -15,6 +15,7 @@ kCancelToolbarHotkeyID = 0x02,
 kVKeyForceRelease = VK_CANCEL,
 kVKeyMouseJump = VK_SELECT,
 kVKeyTriggerKeyBind = VK_EXECUTE,
+kVkeyCancelMove = VK_CLEAR,
 kVKeyModKeyOnlyBase = 0x0F, // unassigned by MS
 kVKeyShiftFlag = 0x0100, // from MS docs for VkKeyScan()
 kVKeyCtrlFlag = 0x0200,

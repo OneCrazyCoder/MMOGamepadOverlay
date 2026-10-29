@@ -641,6 +641,7 @@ struct ZERO_INIT(DispatchTracker)
 	bool manualCharMoveRequested;
 	bool manualCharTurnRequested;
 	bool manualCharStrafeRequested;
+	bool moveKeysForceDropped;
 	bool manualMouseMoveRequested;
 
 	POINT mouseJumpDest;
@@ -2324,6 +2325,32 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 }
 
 
+static bool forceReleaseAllMoveKeys()
+{
+	for(int i = eSpecialKey_FirstMove; i <= eSpecialKey_LastMove; ++i)
+	{
+		const u16 aVKey = InputMap::keyForSpecialAction(ESpecialKey(i));
+		if( !aVKey )
+			continue;
+		if( setKeyDown(aVKey, false) != eResult_Ok )
+			return false;
+		for(KeysWantDownMap::iterator itr =
+			sTracker.keysWantDown.begin();
+			itr != sTracker.keysWantDown.end(); ++itr)
+		{
+			if( (itr->first & kVKeyMask) == aVKey )
+			{
+				itr->second.depth = 0;
+				itr->second.pressed = false;
+			}
+		}
+	}
+
+	sTracker.moveKeysForceDropped = true;
+	return true;
+}
+
+
 static void debugPrintInputVector()
 {
 	static int sUpdateCount = 0;
@@ -3383,7 +3410,13 @@ void update()
 		int aVKeyBase = aVKey & kVKeyMask;
 		const bool wantRelease = !!(sTracker.nextQueuedKey & kVKeyReleaseFlag);
 
-		if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
+		if( aVKey == kVkeyCancelMove )
+		{
+			DBG_ASSERT(wantRelease);
+			if( forceReleaseAllMoveKeys() )
+				sTracker.nextQueuedKey = 0;;
+		}
+		else if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
 		{
 			const bool wantHold = !!(sTracker.nextQueuedKey & kVKeyHoldFlag);
 			const bool wantStartMouseLook =
@@ -3824,10 +3857,20 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_TurnAny));
 	}
 
+	if( sTracker.moveKeysForceDropped )
+	{
+		// Don't let any movement keys press until none are requested
+		if( moveKeysWantDown.any() )
+			moveKeysWantDown.reset();
+		else
+			sTracker.moveKeysForceDropped = false;
+	}
+
 	if( lock )
 	{// Send desired movement first, then lock it at end of this function
 		sTracker.autoRunMode = eAutoRunMode_Off;
 		autoRun = moveKeysWantDown.none();
+		sTracker.moveKeysForceDropped = false;
 	}
 	if( autoRun )
 	{// Don't necessarily send the auto run key right away...

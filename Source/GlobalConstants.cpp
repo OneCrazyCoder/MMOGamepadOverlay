@@ -81,6 +81,7 @@ int keyNameToVirtualKey(const std::string& theKeyName)
 				{ "Cancel",			kVKeyForceRelease	},
 				{ "Stop",			kVKeyForceRelease	},
 				{ "Lift",			kVKeyForceRelease	},
+				{ "Move",			kVkeyCancelMove		}, // after Release only
 				{ "MClick",			VK_MBUTTON			},
 				{ "MiddleClick",	VK_MBUTTON			},
 				{ "MMB",			VK_MBUTTON			},

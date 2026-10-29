@@ -425,8 +425,7 @@ static int checkForComboVKeyName(std::string theKeyName)
 			(aModKey == VK_SHIFT ||
 			 aModKey == VK_CONTROL ||
 			 aModKey == VK_MENU ||
-			 aModKey == VK_LWIN ||
-			 aModKey == kVKeyForceRelease) )
+			 aModKey == VK_LWIN) )
 		{// Found a valid modifier key
 			switch(aModKey)
 			{
@@ -733,6 +732,17 @@ static std::string namesToVKeySequence(
 		{
 			// Get name of hotspot to jump cursor to next
 			expectingJumpPos = true;
+			result.push_back(dropTo<char>(aVKey));
+		}
+		else if( aVKey == kVkeyCancelMove )
+		{
+			// Only valid if following a release
+			if( result.empty() ||
+				result[result.size()-1] != kVKeyForceRelease )
+			{
+				result.clear();
+				return result;
+			}
 			result.push_back(dropTo<char>(aVKey));
 		}
 		else
