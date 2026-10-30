@@ -28,6 +28,7 @@ enum EConfigDataFormat
 	eConfigDataFormat_Unknown,
 	eConfigDataFormat_JSON,
 	eConfigDataFormat_INI,
+	eConfigDataFormat_DWORD,
 
 	eConfigDataFormat_Num
 };
@@ -316,6 +317,7 @@ static ConfigDataParser* sParser;
 static std::wstring sLastWildcardFileSelected;
 static FILETIME sLastChangeDetectedTime;
 static FILETIME sLastTimeWildcardFileSelected;
+static size_t sAutoWildcardSwitchCount = 0;
 static u8 sLoadCount = 0;
 static bool sInvertAxis[eValueSetSubType_Num];
 static bool sInitialized = false;
@@ -413,7 +415,7 @@ protected:
 			sValues[aValueLink.valueIdx] = theValue;
 			sValueSetsChanged.set(aValueLink.setIdx);
 			mUnfound.reset(aValueLinkID);
-			syncDebugPrint("Read path %s value as %s\n",
+			syncDebugPrint("Read %s = %s\n",
 				thePath.c_str(), sValues[aValueLink.valueIdx].c_str());
 		}
 		return mUnfound.none();
@@ -902,6 +904,39 @@ private:
 
 
 //------------------------------------------------------------------------------
+// DWORDParser
+//------------------------------------------------------------------------------
+
+class DWORDParser : public ConfigDataParser
+{
+public:
+	DWORDParser(int theDataSourceID) :
+		ConfigDataParser(theDataSourceID)
+	{
+	}
+
+	virtual void parseNextChunk(const std::string& theReadChunk)
+	{
+		// Convert the string, originally a series of bytes, into a DWORD,
+		// and then back into a string but of numeric digits
+		DBG_ASSERT(theReadChunk.size() == sizeof(DWORD));
+		DWORD aValue;
+		std::memcpy(&aValue, theReadChunk.data(), sizeof(aValue));
+		const std::string& aNumericString = toString(int(aValue));
+		// Assume ALL paths requested of this "file" are found, and all
+		// return the same value
+		for(int i = 0, end = sDataSources[mDataSourceID].values.size();
+			i < end; ++i)
+		{
+			checkForFoundValue(
+				sDataSources[mDataSourceID].values.keys()[i],
+				aNumericString);
+		}
+	}
+};
+
+
+//------------------------------------------------------------------------------
 // ConfigDataReader
 //------------------------------------------------------------------------------
 
@@ -1230,115 +1265,146 @@ public:
 
 protected:
 
-	void setPathToRead(DataSource& theDataSource, const std::wstring& thePath)
+	struct ZERO_INIT(DataSourceCandidate)
+	{
+		FileMetaData metaData;
+		EConfigDataFormat dataFormat;
+		std::wstring pathToRead;
+		std::vector<BYTE> dataCache;
+	};
+
+	void setPathToRead(
+		DataSource& theDataSource,
+		const std::wstring& thePath,
+		EConfigDataFormat theFormat = eConfigDataFormat_Unknown)
 	{
 		theDataSource.pathToRead = thePath;
-		if( lower(getExtension(narrow(thePath))) == ".ini" )
-			theDataSource.format = eConfigDataFormat_INI;
-		else
-			theDataSource.format = eConfigDataFormat_JSON;
+		theDataSource.format = theFormat;
+		if( theDataSource.format == eConfigDataFormat_Unknown )
+		{
+			if( lower(getExtension(narrow(thePath))) == ".ini" )
+				theDataSource.format = eConfigDataFormat_INI;
+			else
+				theDataSource.format = eConfigDataFormat_JSON;
+		}
 	}
 
-	void compareBestSource(
+	DataSourceCandidate* compareBestSource(
 		const std::wstring& thePath,
 		const std::wstring& theMatchedString,
 		const FileMetaData& theMetaData)
-		// NOTE: mValueBuf should be set for thePath as well for this func
 	{
 		mSourceFound = true;
 		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
 		DataSource& aDataSource = sDataSources[mDataSourceID];
 
-		// Candidates for being the best source must have been modified more
-		// recently than last read time (if any).
-		// Exception: If the path is the same as last path read, then allow
-		// it to be a candidate again if ANY meta data changed, not just newer
-		// mod time, since things like a direct file replace will not
-		// update mod time but may change file size etc. This also covers the
-		// case where set .lastReadTime to max value to guarantee this one
-		// file is the only one that can be a candidate from then on and this
-		// file did get modified normally (changing its meta data).
+		// Don't waste time with candidates that have older modification time
+		// than previously selected - except always allow the exact same file
+		// to be a candidate because it may have been changed via direct file
+		// replacement which may actually decrease its mod time, or have had
+		// its mod time temporarily overridden as a manually-selected option.
+		// Technically this could happen to a different file that would now be
+		// the "newest", but have to draw the line somewhere on tracked data.
 		if( !aDataSource.lastReadMetaData.valid ||
 			CompareFileTime(
 				&theMetaData.lastModTime,
-				&aDataSource.lastReadTime) > 0 ||
-			(thePath == aDataSource.pathToRead &&
-			 theMetaData != aDataSource.lastReadMetaData) )
+				&aDataSource.lastReadTime) >= 0 ||
+			thePath == aDataSource.pathToRead )
 		{
-			mSourceUpdated = true;
 			mCandidateNames.push_back(theMatchedString);
 			mCandidates.push_back(DataSourceCandidate());
 			mCandidates.back().metaData = theMetaData;
 			mCandidates.back().pathToRead = thePath;
-			swap(mCandidates.back().dataCache, mValueBuf);
+			return &mCandidates.back();
 		}
+
+		return null;
 	}
 
 	void finalizeBestSourceFound()
 	{
 		DBG_ASSERT(size_t(mDataSourceID) < sDataSources.size());
+		DBG_ASSERT(mCandidates.size() == mCandidateNames.size());
 		DataSource& aDataSource = sDataSources[mDataSourceID];
 
 		mDoneSearching = true;
 		if( mCandidates.empty() )
-			return;
-
-		FILETIME aMostRecentFileTime = mCandidates[0].metaData.lastModTime;
- 		int aBestIdx = 0;
-		DBG_ASSERT(mCandidates.size() == mCandidateNames.size());
-		if( mCandidates.size() > 1 )
 		{
-			// Check if one of the candidates was previously selected already,
-			// determined by at least one matched sub-string fully matching
-			// from sLastWildcardFileSelected, and if that applies to more
-			// than one candidate, select the one that most closely matches
-			int aLastSelCandidateIdx = -1;
-			if( !sLastWildcardFileSelected.empty() )
+			// Candidates should always include previously-read file, so if
+			// even that wasn't found, it may have been deleted, in which case
+			// should restore default values for that data source.
+			if( aDataSource.lastReadMetaData.valid )
+				sNeedFullReload = true;
+			return;
+		}
+
+		// If a wild card match (character name) has already been selected
+		// for another source path pattern, figure out which one most closely
+		// matches (if any match any part at all) for giving preference to it.
+		int aLastSelCandidateIdx = -1;
+		if( !sLastWildcardFileSelected.empty() )
+		{
+			int aBestMatchCount = 0;
+			for(int i = 0; i < intSize(mCandidateNames.size()); ++i)
 			{
-				int aBestMatchCount = 0;
-				for(int i = 0; i < intSize(mCandidateNames.size()); ++i)
+				int aMatchCount = 0;
+
+				const std::wstring& a = sLastWildcardFileSelected;
+				const std::wstring& b = mCandidateNames[i];
+
+				const size_t aLen = a.length(), bLen = b.length();
+				size_t aPos = 0, bPos = 0;
+
+				while(aPos < aLen && bPos < bLen)
 				{
-					int aMatchCount = 0;
+					// Find next asterisk or end of string
+					size_t aNext = a.find(L'*', aPos);
+					size_t bNext = b.find(L'*', bPos);
+					if( aNext == std::wstring::npos ) aNext = aLen;
+					if( bNext == std::wstring::npos ) bNext = bLen;
 
-					const std::wstring& a = sLastWildcardFileSelected;
-					const std::wstring& b = mCandidateNames[i];
+					// Calculate lengths
+					const int aSubLen = intSize(aNext) - intSize(aPos);
+					const int bSubLen = intSize(bNext) - intSize(bPos);
 
-					const size_t aLen = a.length(), bLen = b.length();
-					size_t aPos = 0, bPos = 0;
-
-					while(aPos < aLen && bPos < bLen)
+					// Compare directly (case-insensitive)
+					if( CompareStringOrdinal(
+							&a[aPos], aSubLen,
+							&b[bPos], bSubLen,
+							TRUE) == CSTR_EQUAL )
 					{
-						// Find next asterisk or end of string
-						size_t aNext = a.find(L'*', aPos);
-						size_t bNext = b.find(L'*', bPos);
-						if( aNext == std::wstring::npos ) aNext = aLen;
-						if( bNext == std::wstring::npos ) bNext = bLen;
-
-						// Calculate lengths
-						const int aSubLen = intSize(aNext) - intSize(aPos);
-						const int bSubLen = intSize(bNext) - intSize(bPos);
-
-						// Compare directly (case-insensitive)
-						if( CompareStringOrdinal(
-								&a[aPos], aSubLen,
-								&b[bPos], bSubLen,
-								TRUE) == CSTR_EQUAL )
-						{
-							++aMatchCount;
-						}
-
-						// Move past the '*'
-						aPos = (aNext < aLen) ? aNext + 1 : aLen + 1;
-						bPos = (bNext < bLen) ? bNext + 1 : bLen + 1;
+						++aMatchCount;
 					}
-					if( aMatchCount > aBestMatchCount )
-					{
-						aBestMatchCount = aMatchCount;
-						aLastSelCandidateIdx = i;
-					}
+
+					// Move past the '*'
+					aPos = (aNext < aLen) ? aNext + 1 : aLen + 1;
+					bPos = (bNext < bLen) ? bNext + 1 : bLen + 1;
+				}
+				if( aMatchCount > aBestMatchCount )
+				{
+					aBestMatchCount = aMatchCount;
+					aLastSelCandidateIdx = i;
 				}
 			}
 
+			if( aLastSelCandidateIdx < 0 )
+			{
+				// No candidates matched the chosen wildcard pattern at all!
+				// To avoid loading from different sources for the same
+				// pattern (i.e. files from different characters), don't load
+				// anything from this path pattern. In fact, if DID previously
+				// load data for this path pattern then it is invalid and needs
+				// to be reset to default values for a new character, so reload.
+				if( aDataSource.lastReadMetaData.valid )
+					sNeedFullReload = true;
+				return;
+			}
+		}
+			
+		FILETIME aMostRecentFileTime = mCandidates[0].metaData.lastModTime;
+ 		int aBestIdx = 0;
+		if( mCandidates.size() > 1 )
+		{
 			// If not set to auto-select most-recent but did not find any
 			// previously-selected file (or one was never set), always prompt.
 			if( !sPreferMostRecentFiles && aLastSelCandidateIdx < 0 )
@@ -1352,7 +1418,7 @@ protected:
 				// Treat last selected candidate as having last mod time of
 				// at least sLastTimeWildcardFileSelected time, so it will
 				// be preferred over candidates that may have been modified
-				// after it yet not modified since a selection was made.
+				// after it was, yet not modified since a selection was made.
 				if( i == aLastSelCandidateIdx &&
 					CompareFileTime(
 						&aTestTime,
@@ -1379,11 +1445,14 @@ protected:
 				 !sInitialized) )
 			{
 				sForcePromptForWildcardFiles = false;
+				sAutoWildcardSwitchCount = 0;
 				Dialogs::CharacterSelectResult aDialogResult =
 					Dialogs::characterSelect(
 						mCandidateNames, aBestIdx,
 						sPromptForWildcardFiles,
 						sPreferMostRecentFiles);
+				GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
+				aMostRecentFileTime = sLastTimeWildcardFileSelected;
 				if( !aDialogResult.cancelled )
 				{
 					aBestIdx = aDialogResult.selectedIndex;
@@ -1405,8 +1474,6 @@ protected:
 							kLastFileSelectedPropertyName,
 							"");
 					}
-					GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
-					aMostRecentFileTime = sLastTimeWildcardFileSelected;
 
 					// Only save time stamp for "prompt unless other changed"
 					if( sPromptForWildcardFiles && sPreferMostRecentFiles )
@@ -1430,26 +1497,63 @@ protected:
 						sPromptForWildcardFiles ? "Yes" : "No");
 				}
 			}
+		}
 
-			if( aBestIdx != aLastSelCandidateIdx )
-			{
-				syncDebugPrint(
-					"Selected new source for multi-source wildcard match: %s\n",
-					narrow(mCandidateNames[aBestIdx]).c_str());
-				if( sInitialized && !sLastWildcardFileSelected.empty() )
-					sNeedFullReload = true;
-				sLastWildcardFileSelected = mCandidateNames[aBestIdx];
-			}
+		if( sLastWildcardFileSelected.empty() )
+		{
+			// Haven't picked a wilcard match string yet - use this one!
+			sLastWildcardFileSelected = mCandidateNames[aBestIdx];
+		}
+		else if( aBestIdx != aLastSelCandidateIdx )
+		{
+			DBG_ASSERT(aLastSelCandidateIdx >= 0);
+			// Found a candidate that matched previously selected wildcard
+			// match (character name) but it wasn't the one chosen!
+			// This means candidate was manually selected, or found a candidate
+			// that is better than the one that matched old wildcard file name.
+			// Essentially, have switched characters from what was already
+			// partially loaded, so need to do a full reload with new character
+			// to clear out any data loaded from previous character.
+			sLastWildcardFileSelected = mCandidateNames[aBestIdx];
+			sNeedFullReload = true;
+			// Avoid a possible infinite reload loop in edge case where one
+			// character has one source newer than others but another character
+			// has a different source newer than the others.
+			if( ++sAutoWildcardSwitchCount >= sDataSources.size() )
+				sForcePromptForWildcardFiles = true;
+			return;
+		}
+
+		// Do not re-read the same file again if it didn't actually change
+		// (doesn't need later mod time - just anything different in metadata)
+		if( aDataSource.lastReadMetaData == mCandidates[aBestIdx].metaData &&
+			aDataSource.pathToRead == mCandidates[aBestIdx].pathToRead )
+		{
+			return;
+		}
+		mSourceUpdated = true;
+
+		#ifdef TARGET_CONFIG_SYNC_DEBUG_PRINT
+		if( aDataSource.lastReadMetaData.valid &&
+			aDataSource.pathToRead == mCandidates[aBestIdx].pathToRead )
+		{
+			syncDebugPrint(
+				"Detected change in wilcdard match source: %s\n",
+				narrow(mCandidateNames[aBestIdx]).c_str());
+		}
+		else if( mCandidates.size() == 1 )
+		{
+			syncDebugPrint(
+				"Selected ONLY source for multi-source wildcard match: %s\n",
+				narrow(mCandidateNames[aBestIdx]).c_str());
 		}
 		else
 		{
-			// Just log the file found in case new one created later at runtime
 			syncDebugPrint(
-				"Selected only source found for wildcard match and timestamp: "
-				"%s\n",
-				narrow(mCandidateNames[0]).c_str());
-			sLastWildcardFileSelected = mCandidateNames[0];
+				"Selected new source for multi-source wildcard match: %s\n",
+				narrow(mCandidateNames[aBestIdx]).c_str());
 		}
+		#endif
 
 		// If set to auto-pick the same file from now on without any prompting,
 		// set last read time to highest possible value to guarantee no other
@@ -1461,18 +1565,14 @@ protected:
 			sLastTimeWildcardFileSelected = aMostRecentFileTime;
 		}
 		
-		setPathToRead(aDataSource, mCandidates[aBestIdx].pathToRead);
+		setPathToRead(aDataSource,
+			mCandidates[aBestIdx].pathToRead,
+			mCandidates[aBestIdx].dataFormat);
 		aDataSource.lastFoundMetaData = mCandidates[aBestIdx].metaData;
 		aDataSource.lastFoundTime = aMostRecentFileTime;
 		swap(aDataSource.dataCache, mCandidates[aBestIdx].dataCache);
 	}
 
-	struct ZERO_INIT(DataSourceCandidate)
-	{
-		FileMetaData metaData;
-		std::wstring pathToRead;
-		std::vector<BYTE> dataCache;
-	};
 	std::vector<DataSourceCandidate> mCandidates;
 	std::vector<std::wstring> mCandidateNames;
 	std::vector<BYTE> mValueBuf;
@@ -1695,29 +1795,28 @@ public:
 		{
 			setPathToRead(
 				aDataSource, widen(getFileName(aDataSource.pathPattern)));
+			DWORD aDataType = 0;
 			DWORD aDataSize = 0;
-			RegGetValue(aSearchStartHKey, NULL,
-				aDataSource.pathToRead.c_str(),
-				RRF_RT_REG_BINARY, NULL, NULL, &aDataSize);
-			if( aDataSize == 0 )
-			{
-				logInfoOnce(
-					"Failed to read registry value '%ls' in '%s\\%s'",
-					aDataSource.pathToRead.c_str(),
-					aRootKeyName.c_str(),
-					aSearchStartPath.c_str());
-				RegCloseKey(aSearchStartHKey);
-				mDoneSearching = true;
-				return;
-			}
+			bool success = RegGetValue(aSearchStartHKey, NULL,
+				aDataSource.pathToRead.c_str(), RRF_RT_ANY, 
+				&aDataType, NULL, &aDataSize) == ERROR_SUCCESS;
+			success = success && aDataSize > 0;
 
-			mValueBuf.reserve(aDataSize + kTimestampSuffixSize);
-			mValueBuf.resize(aDataSize);
-			if( RegGetValue(aSearchStartHKey, NULL,
+			// Consider a 4-byte REG_BINARY as a mislabeled DWORD
+			if( aDataSize == sizeof(DWORD) )
+				aDataType = REG_DWORD;
+
+			success = success &&
+				(aDataType == REG_BINARY ||
+				 (aDataType == REG_DWORD && aDataSize == sizeof(DWORD)));
+			if( success )
+				mValueBuf.resize(aDataSize);
+			success = success &&
+				RegGetValue(aSearchStartHKey, NULL,
 					aDataSource.pathToRead.c_str(),
-					RRF_RT_REG_BINARY, NULL,
-					&mValueBuf[0], &aDataSize)
-						!= ERROR_SUCCESS)
+					RRF_RT_ANY, NULL,
+					&mValueBuf[0], &aDataSize) == ERROR_SUCCESS;
+			if( !success )
 			{
 				logInfoOnce(
 					"Failed to read registry value '%ls' in '%s\\%s' "
@@ -1733,10 +1832,23 @@ public:
 			mSourceFound = true;
 			FileMetaData aCurrMetaData;
 			aCurrMetaData.valid = true;
-			aCurrMetaData.lastModTime = extractTimestamp(
-				mValueBuf,
-				aSearchStartHKey,
-				aDataSource.pathToRead);
+			if( aDataType == REG_DWORD )
+			{
+				// Can't add a timestamp so just detect any change to
+				// value itself as being a change in its "metadata" by
+				// borrowing .volumeSerial
+				std::memcpy(
+					&aCurrMetaData.volumeSerial,
+					&mValueBuf[0],
+					sizeof(DWORD));
+			}
+			else
+			{
+				aCurrMetaData.lastModTime = extractTimestamp(
+					mValueBuf,
+					aSearchStartHKey,
+					aDataSource.pathToRead);
+			}
 			if( aCurrMetaData != aDataSource.lastReadMetaData )
 			{
 				if( aDataSource.lastReadMetaData.valid )
@@ -1748,6 +1860,10 @@ public:
 				aDataSource.lastFoundMetaData = aCurrMetaData;
 				aDataSource.lastFoundTime = aCurrMetaData.lastModTime;
 				swap(aDataSource.dataCache, mValueBuf);
+				aDataSource.format =
+					aDataType == REG_DWORD
+						? eConfigDataFormat_DWORD
+						: eConfigDataFormat_JSON;
 				mSourceUpdated = true;
 			}
 			mDoneSearching = true;
@@ -1840,12 +1956,12 @@ public:
 
 			if( aKeyState.traverseValuesStarted )
 			{
-				DWORD aType;
+				DWORD aDataType;
 				DWORD aDataSize = 0;
 				if( RegEnumValue(
 						aKeyState.hKey, aKeyState.index++,
 						&mNameBuf[0], &aNameSize,
-						NULL, &aType, NULL, &aDataSize) != ERROR_SUCCESS )
+						NULL, &aDataType, NULL, &aDataSize) != ERROR_SUCCESS )
 				{
 					// Must be done checking for values
 					RegCloseKey(aKeyState.hKey);
@@ -1854,7 +1970,10 @@ public:
 					return;
 				}
 
-				if( aType == REG_BINARY && aDataSize > 0 )
+				if( aDataSize == sizeof(DWORD) )
+					aDataType = REG_DWORD;
+				if( (aDataType == REG_BINARY && aDataSize > 0) ||
+					(aDataType == REG_DWORD && aDataSize == sizeof(DWORD)) )
 				{
 					const std::wstring& aValuePath =
 						aKeyState.path + &mNameBuf[0];
@@ -1866,17 +1985,33 @@ public:
 							aDataSize + kTimestampSuffixSize);
 						mValueBuf.resize(aDataSize);
 						if( RegGetValue(aKeyState.hKey, NULL,
-								&mNameBuf[0],
-								RRF_RT_REG_BINARY, NULL,
+								&mNameBuf[0], RRF_RT_ANY, NULL,
 								&mValueBuf[0],
 								&aDataSize) == ERROR_SUCCESS )
 						{
 							FileMetaData aMetaData;
 							aMetaData.valid = true;
-							aMetaData.lastModTime = extractTimestamp(
-								mValueBuf, aKeyState.hKey, &mNameBuf[0]);
-							compareBestSource(
-								&mNameBuf[0], aMatchStr, aMetaData);
+							if( aDataType == REG_DWORD )
+							{
+								std::memcpy(&aMetaData.volumeSerial,
+									&mValueBuf[0], sizeof(DWORD));
+							}
+							else
+							{
+								aMetaData.lastModTime = extractTimestamp(
+									mValueBuf, aKeyState.hKey, &mNameBuf[0]);
+							}
+							DataSourceCandidate* aCandidate =
+								compareBestSource(
+									&mNameBuf[0], aMatchStr, aMetaData);
+							if( aCandidate )
+							{
+								swap(aCandidate->dataCache, mValueBuf);
+								aCandidate->dataFormat =
+									aDataType == REG_DWORD
+										? eConfigDataFormat_DWORD
+										: eConfigDataFormat_JSON;
+							}
 							// Finding a match is enough work for one update
 							return;
 						}
@@ -2593,6 +2728,8 @@ static void reload()
 {
 	if( sInitialized || sPaused )
 		cleanup();
+	if( sNeedFullReload )
+		syncDebugPrint("Full reload (alternate character selected)!\n");
 	sNeedFullReload = false;
 
 	GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
@@ -2761,13 +2898,19 @@ static void reload()
 	}
 
 	// Load initial values and log timestamps
-	while(!sPaused && !gShutdown && !sNeedVarChangeReload &&
+	while(!sPaused && !gShutdown &&
+		  !sNeedVarChangeReload &&
 		  (sDataSourcesToCheck.any() ||
 		   sDataSourcesToRead.any() ||
 		   sValueSetsChanged.any() ||
 		   sFinder || sReader || sParser))
 	{// Keep updating until done for this initial pass
 		update();
+		if( sNeedFullReload )
+		{
+			cleanup();
+			return;
+		}
 	}
 
 	// Begin monitoring for folder and registry key changes
@@ -2874,14 +3017,14 @@ void load()
 	Profile::setVariable(
 		"H", toString(GetSystemMetrics(SM_CYSCREEN)), true);
 	Profile::clearChangedSections();
-	reload();
+	do{ reload(); } while(sNeedFullReload);
 	// Catch cases where sync variable affects sync configurations themselves
 	loadProfileChanges();
-	while( sNeedVarChangeReload )
+	while(sNeedVarChangeReload)
 	{
 		Profile::clearChangedSections();
 		sNeedVarChangeReload = false;
-		reload();
+		do{ reload(); } while(sNeedFullReload);
 		loadProfileChanges();
 	}
 	Profile::clearChangedSections();
@@ -2957,6 +3100,8 @@ void update()
 		// This is set when a variable was changed that is used by the
 		// Target Config Sync properties themselves
 		reload();
+		if( sNeedFullReload )
+			return;
 	}
 
 	// Continue any active parsing already in progress
@@ -3027,6 +3172,7 @@ void update()
 
 				// Note time of change detected
 				GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
+				sAutoWildcardSwitchCount = 0;
 
 				// Flag to check for changes to any related data sources
 				for(int i = 0, end = intSize(aFolder.dataSourceIDs.size());
@@ -3053,6 +3199,7 @@ void update()
 
 				// Note time of change detected
 				GetSystemTimeAsFileTime(&sLastChangeDetectedTime);
+				sAutoWildcardSwitchCount = 0;
 
 				// Flag to check for changes to any related data sources
 				for(int i = 0, end = intSize(aRegKey.dataSourceIDs.size());
@@ -3086,6 +3233,7 @@ void update()
 		// Search (for file with newer timestamp) will continue next update()
 		return;
 	}
+	sAutoWildcardSwitchCount = 0;
 
 	// Begin reading any new/changed data sources found
 	if( sDataSourcesToRead.any() )
@@ -3111,6 +3259,9 @@ void update()
 			break;
 		case eConfigDataFormat_INI:
 			sParser = new INIParser(aDataSourceID);
+			break;
+		case eConfigDataFormat_DWORD:
+			sParser = new DWORDParser(aDataSourceID);
 			break;
 		default:
 			DBG_ASSERT(false && "Unknown config data format");
