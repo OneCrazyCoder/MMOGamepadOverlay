@@ -1386,19 +1386,6 @@ protected:
 					aLastSelCandidateIdx = i;
 				}
 			}
-
-			if( aLastSelCandidateIdx < 0 )
-			{
-				// No candidates matched the chosen wildcard pattern at all!
-				// To avoid loading from different sources for the same
-				// pattern (i.e. files from different characters), don't load
-				// anything from this path pattern. In fact, if DID previously
-				// load data for this path pattern then it is invalid and needs
-				// to be reset to default values for a new character, so reload.
-				if( aDataSource.lastReadMetaData.valid )
-					sNeedFullReload = true;
-				return;
-			}
 		}
 			
 		FILETIME aMostRecentFileTime = mCandidates[0].metaData.lastModTime;
@@ -1445,6 +1432,7 @@ protected:
 				 !sInitialized) )
 			{
 				sForcePromptForWildcardFiles = false;
+				sLastWildcardFileSelected.clear();
 				sAutoWildcardSwitchCount = 0;
 				Dialogs::CharacterSelectResult aDialogResult =
 					Dialogs::characterSelect(
@@ -1504,9 +1492,20 @@ protected:
 			// Haven't picked a wilcard match string yet - use this one!
 			sLastWildcardFileSelected = mCandidateNames[aBestIdx];
 		}
+		else if( aLastSelCandidateIdx < 0 )
+		{
+			// No candidates matched the chosen wildcard pattern at all!
+			// To avoid loading from different sources for the same
+			// pattern (i.e. files from different characters), don't load
+			// anything from this path pattern. In fact, if DID previously
+			// load data for this path pattern then it is invalid and needs
+			// to be reset to default values for a new character, so reload.
+			if( aDataSource.lastReadMetaData.valid )
+				sNeedFullReload = true;
+			return;
+		}
 		else if( aBestIdx != aLastSelCandidateIdx )
 		{
-			DBG_ASSERT(aLastSelCandidateIdx >= 0);
 			// Found a candidate that matched previously selected wildcard
 			// match (character name) but it wasn't the one chosen!
 			// This means candidate was manually selected, or found a candidate
