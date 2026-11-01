@@ -108,46 +108,47 @@ public:
 
 	Variant of a PATRICIA binary radix trie (Donald R. Morrison, 1968).
 
-	An alternative to VetorMap that is generally superior when the key values
-	are strings, as opposed to int's or other fast-to-compare data types.
+	An alternative to VectorMap that is generally superior when the key values
+	are strings, as opposed to integers or other fast-to-compare data types.
 	Very fast to add and look up keys - possibly faster than even a hash table
-	with longer keys that share common prefixes such as file paths.
+	when used with longer keys that share common prefixes (such as file paths).
 
 	Can also take up much less memory than a hash table (or any other trie
-	variant I've come across) and in a more consistent way, with each unique
-	key having a fixed size (4-6 bytes) of overhead per key/value pair with no
-	wasted empty slots or extra collision-handling overhead as is necessary for
-	all non-perfect hash tables. Of course, the underlying vectors themselves
-	can allocate more memory than is actually needed (a necessary evil to get
-	the cache-efficient performance enhancement of using contiguous memory),
-	but this can be controlled using reserve() and trim().
+	variant I've come across) and in a more deterministic way, with each unique
+	key having a fixed size (4 or 6 bytes based on template used) of memory
+	needed beyond the key (and value) itself, with zero wasted empty slots or
+	extra collision-handling overhead (as is necessary for all non-perfect hash
+	tables). Of course, the underlying vectors themselves can allocate more
+	memory than is actually needed (a necessary evil to get the cache-efficient
+	performance enhancement of using contiguous memory), but this can be
+	controlled using reserve() and trim().
 
 	Keys and values are stored in vectors in the order in which new keys are
 	created and never sorted. This means that it is index-stable, so you can
 	search by the string key once to get an index and then use the index for
 	even faster access to that key/value pair later on. On the other hand,
-	being unsorted means can't do range searches and such - though can use
-	findAllWithPrefix() to get all keys with a given prefix.
+	being unsorted means you can't do range searches and such - though you can
+	use findAllWithPrefix() to get all keys with a given prefix.
 
-	When it is possible to do, using freeKeys() and then only quickFind() after
-	adding all keys will significantly speed up search times, and greatly
+	When it is possible to do, using freeKeys() and then only quickFind/Index()
+	after adding all keys will significantly speed up search times, and greatly
 	reduce memory used, but this is only useful when you know for sure that all
 	queries made are for keys that were previously added.
 
 	Some things to be aware of:
 
-	*	There is no way to erase a key/value pairs without erasing everything.
+	*	As mentioned above, indexes are stable, like with stl vector, but
+		(unlike an stl map), existing values can be moved in memory when keys
+		are added, so pointers/iterators/references to them are NOT stable.
+
+	*	There is no way to erase a key/value pair without erasing everything.
 		I have a function written that does it (contact me if really needed),
 		but it is incredibly complex and slow, and makes the container no
 		longer index-stable. This structure was just not designed for random
-		erasing of keys. Instead, set their associated values to some sentinal
+		erasing of keys. Instead, set their associated values to some sentinel
 		value that indicates it is no longer valid (null, -1, etc).
 
-	*	Unlike an stl map, existing values can be moved in memory when keys
-		are added, so pointers, iterators, and references to them are unstable.
-		As mentioned above, indexes are stable, like with stl vector.
-
-	*	Maximum .size() of a key std::string must be <= 8,190
+	*	Maximum .size() of a key std::string must be <= 8,190 (regardless of I).
 
 	*	'V' must be valid for use in a vector (copyable, etc).
 
@@ -159,9 +160,9 @@ public:
 	*	'S' stands for "strict mode" and, if true, will only allow exact
 		key matches byte-by-byte. If false, keys can differ in casing (for
 		plain ANSI 0 to 0x7F chars anyway) and include different whitespace
-		and underscores and hyphens, yet still count as the same key (except
+		and underscores/hyphens, yet still count as the same key (except
 		for hyphens following a number). Therefore keys 'user-friendly',
-		'UserFriendly', and 'USER_FRIENDLY' would all count as the same key,
+		'UserFriendly', and '  USER_FRIENDLY  ' would all count as the same key,
 		but 'Range10-12' and 'Range1012' would not. Strict mode offers faster
 		performance, however.
 //----------------------------------------------------------------------------*/
@@ -199,9 +200,9 @@ public:
 	void shrink_to_fit();
 	// Frees memory used to store copies of the original string keys, which
 	// are not needed any more if done adding/removing keys and only use
-	// quickFind() from then on. Invalidates the use of setValue(),
-	// find(), contains(), containsPrefix(), and findOrAdd() (will all assert)
-	// until next time clear() is used, and makes getKeyVector().empty().
+	// quickFind/Index() from then on. Invalidates the use of all other
+	// functions that search or add keys to the map (will all assert) until
+	// next time clear() is used, and makes getKeyVector().empty().
 	void freeKeys();
 
 	// ACCESSORS
@@ -263,6 +264,8 @@ private:
 		bool matches(const Key& theKey, bool asPrefixOnly = false) const;
 		bool operator==(const Key& theKey) const { return matches(theKey); }
 		char* ptr; int size; char buf[256]; bool dynamic;
+		private: LenientKey(const LenientKey&); // not copy-able (unsafe ptr)
+		private: LenientKey& operator=(const LenientKey&); // not assign-able
 	};
 	typedef typename conditional<S, StrictKey, LenientKey>::type FindKey;
 	struct PrefixFindData

@@ -29,6 +29,8 @@ kDefaultMinJumpDist = 0x0200,
 kMaxPerpDistForStraightLine = 0x0110,
 // Max leeway for final "columns" step when making link maps
 kMaxLinkMapColumnXDist = 0x0A00,
+// Max value of a single axis for distance formula to not overflow a u32
+kMaxDistFormulaAxisVal = 0xB504,
 };
 
 const char* kHotspotSectName = "Hotspots";
@@ -36,7 +38,7 @@ const char* kBaseJumpDistSectName = "Mouse";
 const char* kBaseJumpDistPropName = "DefaultHotspotDistance";
 // How much past base jump dest to search for a hotspot to jump to,
 // as a multiplier of Mouse/DefaultHotspotDistance property
-const double kDeviationRadiusMult = 0.75;
+const double kDetectionRadiusMult = 0.75;
 // Higher number = prioritize straighter lines over shorter distances
 const double kPerpPenaltyMult = 1.25;
 // These are used only for generating hotspot link maps, which must
@@ -152,12 +154,14 @@ static int sMaxDesktopAxis = 0;
 static POINT sNormalizedCursorPos = { 0 };
 static BitArray<eTask_Num> sNewTasks;
 static ETask sCurrentTask = eTask_None;
+static double sJumpDistMult = 1.0;
 static int sTaskProgress = 0;
 static int sBaseJumpDist = 0;
+static int sNonNormalizedJumpDist = 0;
 static int sMaxJumpDist = 0;
 static u32 sMaxJumpDistSquared = 0;
-static u32 sMaxDeviationRadiusSquared = 0;
 static u32 sMinJumpDistSquared = kDefaultMinJumpDist * kDefaultMinJumpDist;
+static u32 sMaxDetectionRadiusSquared = 0;
 static u32 sBestCandidateDistPenalty = 0xFFFFFFFF;
 
 
@@ -718,22 +722,30 @@ static int applyHotspotProperty(
 
 static void processSetDistancesTask()
 {
-	const u64 aJumpDist = u32(max(0.0,
-		Profile::getFloat(kBaseJumpDistSectName, kBaseJumpDistPropName) *
-		gUIScale * 0x10000));
 	const u64 aScaleFactor = sMaxDesktopAxis;
-	u64 aMaxDeviationRadius = u64(aJumpDist * kDeviationRadiusMult);
+	const double kProfileJumpDist = max(0.0,
+		Profile::getFloat(kBaseJumpDistSectName, kBaseJumpDistPropName) *
+		gUIScale);
+
+	// Extra jump distance from acceleration increases max dist but does
+	// not increase detection radius allowed, so need to calculate twice
+	u64 aJumpDist = u64(kProfileJumpDist * 0x10000);
+	u64 aMaxDetectionRadius = u64(aJumpDist * kDetectionRadiusMult);
+
+	// Now get actual distance with multiplier applied
+	sNonNormalizedJumpDist = max(1, int(kProfileJumpDist * sJumpDistMult));
+	aJumpDist = u64(kProfileJumpDist * sJumpDistMult * 0x10000);
 	
 	if( aScaleFactor > 0 )
 	{
-		sBaseJumpDist = dropTo<int>(
-			(aJumpDist + 1) / aScaleFactor);
+		sBaseJumpDist = dropTo<int>((aJumpDist + 1) / aScaleFactor);
 		sMaxJumpDist = dropTo<int>(
-			(aJumpDist + aMaxDeviationRadius + 1) / aScaleFactor);
-		aMaxDeviationRadius = (aMaxDeviationRadius + 1) / aScaleFactor;
-		sMaxDeviationRadiusSquared = dropTo<u32>(min<u64>(
+			(aJumpDist + aMaxDetectionRadius + 1) / aScaleFactor);
+
+		aMaxDetectionRadius = (aMaxDetectionRadius + 1) / aScaleFactor;
+		sMaxDetectionRadiusSquared = dropTo<u32>(min<u64>(
 			0xFFFFFFFF,
-			aMaxDeviationRadius * aMaxDeviationRadius));
+			aMaxDetectionRadius * aMaxDetectionRadius));
 		sMaxJumpDistSquared = dropTo<u32>(min<u64>(
 			0xFFFFFFFF,
 			u64(sMaxJumpDist) * u64(sMaxJumpDist)));
@@ -908,9 +920,11 @@ static void processFetchFromGridTask()
 	{
 		const int aHotspotID = sActiveGrid[aGridX][aGridY][i];
 		const HotspotData& aHotspot = sHotspots.vals()[aHotspotID];
-		const u32 aDeltaX = abs(aHotspot.nx - sNormalizedCursorPos.x);
-		const u32 aDeltaY = abs(aHotspot.ny - sNormalizedCursorPos.y);
-		const u32 aDistSq = (aDeltaX * aDeltaX) + (aDeltaY * aDeltaY);
+		const u32 aDistX = min(u32(abs(aHotspot.nx - sNormalizedCursorPos.x)),
+			u32(kMaxDistFormulaAxisVal));
+		const u32 aDistY = min(u32(abs(aHotspot.ny - sNormalizedCursorPos.y)),
+			u32(kMaxDistFormulaAxisVal));
+		const u32 aDistSq = (aDistX * aDistX) + (aDistY * aDistY);
 		if( aDistSq >= sMinJumpDistSquared && aDistSq < sMaxJumpDistSquared )
 			sCandidates.push_back(aHotspotID);
 	}
@@ -980,9 +994,14 @@ static void processNextInDirTask(ECommandDir theDir)
 		default: DBG_ASSERT(false); aPerpDist = 0;			break;
 		}
 
-		// First check if counts as being straight in desired direction,
+		// Calculate distSq from no-hotspot-found base dest (on primary axis)
+		dx = min(aDirDist - sBaseJumpDist, int(kMaxDistFormulaAxisVal));
+		u32 aDistSqFromBaseDest = u32(dx) * u32(dx);
+
+		// Check if counts as being straight in desired direction,
 		// which gives highest priority (lowest weight), based on dist.
-		if( aPerpDist <= kMaxPerpDistForStraightLine )
+		if( aPerpDist <= kMaxPerpDistForStraightLine &&
+			aDistSqFromBaseDest <= sMaxDetectionRadiusSquared )
 		{
 			if( u32(aDirDist) < sBestCandidateDistPenalty )
 			{
@@ -993,11 +1012,11 @@ static void processNextInDirTask(ECommandDir theDir)
 		}
 
 		// All others have at least as much penalty as full straight line,
-		// plus their distance from the default no-hotspot-found jump dest.
-		dx = min(aDirDist - sBaseJumpDist, 0xFFFF);
-		dy = min(int(aPerpDist * kPerpPenaltyMult), 0xFFFF);
-		const u32 aDistSqFromBaseDest = (dx * dx) + (dy * dy);
-		if( aDistSqFromBaseDest > sMaxDeviationRadiusSquared )
+		// plus extra perpindicular distance penalty
+		dy = min(int(aPerpDist * kPerpPenaltyMult),
+			int(kMaxDistFormulaAxisVal));
+		aDistSqFromBaseDest += u32(dy) * u32(dy);
+		if( aDistSqFromBaseDest > sMaxDetectionRadiusSquared )
 			continue;
 
 		const u32 aDistPenalty = u32(sMaxJumpDist) + aDistSqFromBaseDest;
@@ -1597,6 +1616,7 @@ void cleanup()
 	sNewTasks.reset();
 	sCurrentTask = eTask_None;
 	sTaskProgress = 0;
+	sJumpDistMult = 1.0;
 	for(int x = 0; x < kGridSize; ++x)
 	{
 		for(int y = 0; y < kGridSize; ++y)
@@ -1726,7 +1746,7 @@ void resetChangedHotspots()
 }
 
 
-bool setLastCursorPos(POINT theNewPos)
+void setLastCursorPos(POINT theNewPos)
 {
 	theNewPos = WindowManager::overlayPosValidated(theNewPos);
 	if( theNewPos.x != gLastCursorPos.x || theNewPos.y != gLastCursorPos.y )
@@ -1736,10 +1756,35 @@ bool setLastCursorPos(POINT theNewPos)
 		sHotspots.vals()[eSpecialHotspot_LastCursorPos].hs =
 			WindowManager::overlayPosToHotspot(theNewPos);
 		sNewTasks.set(eTask_BeginSearch);
-		return true;
 	}
+}
 
-	return false;
+
+void setJumpDistMult(double theJumpDistMult)
+{
+	DBG_ASSERT(theJumpDistMult > 0.5);
+	if( theJumpDistMult != sJumpDistMult )
+	{
+		sJumpDistMult = theJumpDistMult;
+		sNewTasks.set(eTask_SetDistances);
+		sNewTasks.set(eTask_BeginSearch);
+	}
+}
+
+
+double getJumpDistMult()
+{
+	return sJumpDistMult;
+}
+
+
+int getBaseJumpDist()
+{
+	while(sNewTasks.test(eTask_SetDistances) ||
+		  sCurrentTask == eTask_SetDistances)
+	{ processTasks(); }
+
+	return sNonNormalizedJumpDist;
 }
 
 
@@ -1791,24 +1836,25 @@ int getNextHotspotInDir(ECommandDir theDirection)
 	if( sHotspots.empty() || sActiveHotspotSets.none() )
 		return 0;
 
-	// Abort _nextInDir tasks in all directions besides requested
+	// Complete tasks to get desired answer
 	BitArray<eTask_Num> abortedTasks; abortedTasks.reset();
-	for(int aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
+	while(sCurrentTask != eTask_None || sNewTasks.any())
 	{
-		if( theDirection != aDir &&
-			sNewTasks.test(eTask_NextInDir + aDir) )
+		// Abort _nextInDir tasks in all directions besides requested
+		for(int aDir = 0; aDir < eCmd8Dir_Num; ++aDir)
 		{
-			sNewTasks.reset(eTask_NextInDir + aDir);
-			abortedTasks.set(eTask_NextInDir + aDir);
+			if( theDirection != aDir &&
+				sNewTasks.test(eTask_NextInDir + aDir) )
+			{
+				sNewTasks.reset(eTask_NextInDir + aDir);
+				abortedTasks.set(eTask_NextInDir + aDir);
+			}
 		}
+		processTasks();
 	}
 
-	// Complete all other tasks to get desired answer
-	while(sCurrentTask != eTask_None || sNewTasks.any())
-		processTasks();
-
 	// Restore aborted tasks
-	sNewTasks |= abortedTasks;
+	sNewTasks = abortedTasks;
 
 	// Return found result
 	return sNextHotspotInDir[theDirection];

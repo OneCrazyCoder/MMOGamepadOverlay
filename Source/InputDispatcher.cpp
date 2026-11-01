@@ -144,7 +144,6 @@ struct ZERO_INIT(Config)
 	int mouseLookStartThrottleDistance;
 	int mouseTurnStartThrottleDistance;
 	int mouseLookThrottleSteps;
-	int offsetHotspotDist;
 	int baseKeyReleaseLockTime;
 	int mouseClickLockTime;
 	int mouseReClickLockTime;
@@ -257,8 +256,6 @@ struct ZERO_INIT(Config)
 			"Mouse", "MouseLookThrottleSteps");
 		if( mouseLookThrottleSteps <= 0 )
 			mouseLookThrottleSteps = 7;
-		offsetHotspotDist = max(0, Profile::getInt(
-			"Mouse", "DefaultHotspotDistance"));
 
 		lookStartStyle =
 			mouseLookVerifyCenterCursor && !mouseLookVerifyOriginCursor
@@ -396,9 +393,6 @@ public:
 			++mMouseJumpQueueCount;
 			// Assign gLastCursorPos now as source point for next jump
 			HotspotMap::setLastCursorPos(aFinalCmd.pos);
-			// Update hotspot map now in case another command wants to move
-			// directly from new gLastCursorPos to a different relative hotspot
-			HotspotMap::update();
 			break;
 		}
 		mTail = (mTail + 1) & dropTo<u32>(mBuffer.size() - 1);
@@ -1145,11 +1139,13 @@ static void offsetMousePos()
 
 	if( sTracker.mouseJumpRequested )
 	{
-		if( !sTracker.mouseJumpInterpolate || sTracker.mouseJumpAttempted )
+		if( !sTracker.mouseJumpInterpolate )
 			return;
 
 		if( !sTracker.mouseAllowMidJumpControl )
 		{
+			if( sTracker.mouseJumpAttempted )
+				return;
 			sTracker.mouseVelX = sTracker.mouseVelY = 0;
 			return;
 		}
@@ -1161,6 +1157,8 @@ static void offsetMousePos()
 				sTracker.mouseJumpDest.y == gLastCursorPos.y;
 			sTracker.mouseJumpDest.x += sTracker.mouseVelX;
 			sTracker.mouseJumpDest.y += sTracker.mouseVelY;
+			sTracker.mouseJumpDest =
+				WindowManager::overlayPosValidated(sTracker.mouseJumpDest);
 			if( jumpingToCursorPos )
 				HotspotMap::setLastCursorPos(sTracker.mouseJumpDest);
 			sTracker.mouseVelX = sTracker.mouseVelY = 0;
@@ -1444,8 +1442,6 @@ static void trailMouseToPos(const POINT& theDestPos)
 	if( sTracker.mouseJumpAttempted && sTracker.mouseJumpVerified )
 		return;
 
-	static const int kMinTrailTime = 100;
-	static const int kMaxTrailTime = 300;
 	static int sStartTime = 0, sTrailTime = 0;
 	static int sStartPosX, sStartPosY, sTrailDistX, sTrailDistY;
 
@@ -1473,6 +1469,9 @@ static void trailMouseToPos(const POINT& theDestPos)
 
 	if( sTracker.mouseInterpolateRestart )
 	{
+		const int kMinTrailTime = 100;
+		const int kMaxTrailTime =
+			max(kMinTrailTime, int(300 / HotspotMap::getJumpDistMult()));
 		const int aDistance = int(sqrt(
 			double(sTrailDistX) * sTrailDistX +
 			double(sTrailDistY) * sTrailDistY));
@@ -1549,11 +1548,7 @@ static void queueMoveMouseTo(const Command& theCommand)
 			// knowing if it was that or a click-and-drag on UI. It is thus
 			// assumed to be the latter if requesting a hotspot select, so
 			// to be accurate need to update mouse pos for HotspotMap.
-			if( HotspotMap::setLastCursorPos(
-					WindowManager::mouseToOverlayPos()) )
-			{
-				HotspotMap::update();
-			}
+			HotspotMap::setLastCursorPos(WindowManager::mouseToOverlayPos());
 		}
 		if( const int aNextHotspot =
 				HotspotMap::getNextHotspotInDir(ECommandDir(theCommand.dir)) )
@@ -1572,12 +1567,12 @@ static void queueMoveMouseTo(const Command& theCommand)
 		case eCmd8Dir_L:
 		case eCmd8Dir_UL:
 		case eCmd8Dir_DL:
-			aCmd.pos.x -= max(1, int(kConfig.offsetHotspotDist * gUIScale));
+			aCmd.pos.x -= HotspotMap::getBaseJumpDist();
 			break;
 		case eCmd8Dir_R:
 		case eCmd8Dir_UR:
 		case eCmd8Dir_DR:
-			aCmd.pos.x += max(1, int(kConfig.offsetHotspotDist * gUIScale));
+			aCmd.pos.x += HotspotMap::getBaseJumpDist();
 			break;
 		}
 		switch(theCommand.dir)
@@ -1585,14 +1580,15 @@ static void queueMoveMouseTo(const Command& theCommand)
 		case eCmd8Dir_U:
 		case eCmd8Dir_UL:
 		case eCmd8Dir_UR:
-			aCmd.pos.y -= max(1, int(kConfig.offsetHotspotDist * gUIScale));
+			aCmd.pos.y -= HotspotMap::getBaseJumpDist();
 			break;
 		case eCmd8Dir_D:
 		case eCmd8Dir_DL:
 		case eCmd8Dir_DR:
-			aCmd.pos.y += max(1, int(kConfig.offsetHotspotDist * gUIScale));
+			aCmd.pos.y += HotspotMap::getBaseJumpDist();
 			break;
 		}
+		aCmd.pos = WindowManager::overlayPosValidated(aCmd.pos);
 		break;
 	default:
 		DBG_ASSERT(false && "Invalid command type for queueMoveMouseTo()!");
@@ -3590,8 +3586,13 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 			}
 
 			// Restart acceleration during and right after mouse jumps
-			if( sTracker.mouseJumpRequested )
+			// (unless allowing movement during jump anyway)
+			if( sTracker.mouseJumpRequested &&
+				(!sTracker.mouseJumpInterpolate ||
+				 !sTracker.mouseAllowMidJumpControl) )
+			{
 				sMagnitudeAccelFactor = 0;
+			}
 
 			const double kHighMagThreshold = 0.5;
 			sMagnitudeAccelFactor += gAppFrameTime *

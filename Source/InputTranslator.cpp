@@ -26,6 +26,7 @@ namespace InputTranslator
 
 enum {
 kMaxLayerChangesPerUpdate = 32,
+kMaxHotspotJumpDistMult = 3,
 };
 
 
@@ -41,6 +42,7 @@ struct ZERO_INIT(Config)
 	int autoRepeatRate;
 	int hotspotAutoRepeatDelay;
 	int hotspotAutoRepeatRate;
+	double hotspotJumpAccelRate;
 
 	void load()
 	{
@@ -56,6 +58,9 @@ struct ZERO_INIT(Config)
 			max(0, Profile::getInt("System", "SelectHotspotRepeatDelay", 150));
 		hotspotAutoRepeatRate =
 			max(0, Profile::getInt("System", "SelectHotspotRepeatRate", 75));
+		hotspotJumpAccelRate =
+			max(0, Profile::getInt("Mouse", "HotspotJumpAccelRate", 15))
+			/ 100.0;
 		u8 aThreshold = u8(clamp(
 			Profile::getInt("Gamepad", "LStickThreshold", 40),
 				0, 100) * 255 / 100);
@@ -201,6 +206,7 @@ struct TranslatorState
 	int layersAddedCount;
 	int exclusiveAutoRepeatDelay;
 	int syncAutoRepeatDelay;
+	int hotspotJumpAccelTime;
 	bool syncAutoRepeatActive;
 	bool layersNeedSorting;
 
@@ -243,6 +249,7 @@ struct InputResults
 	bool mouseWheelStepped;
 	bool charMoveStartAutoRun;
 	bool charMoveLockMovement;
+	bool hotspotSelectButtonHeld;
 	bool exclusiveAutoRepeatNeeded;
 	bool syncAutoRepeatNeeded;
 
@@ -264,6 +271,7 @@ struct InputResults
 		mouseWheelStepped = false;
 		charMoveStartAutoRun = false;
 		charMoveLockMovement = false;
+		hotspotSelectButtonHeld = false;
 		exclusiveAutoRepeatNeeded = false;
 		syncAutoRepeatNeeded = false;
 	}
@@ -1723,6 +1731,9 @@ static void processAutoRepeat(ButtonState& theBtnState)
 			// Flag need syncing auto-repeat in main update()
 			sResults.syncAutoRepeatNeeded = true;
 
+			// Possibly apply acceleration as well
+			sResults.hotspotSelectButtonHeld = true;
+
 			// Wait until response flag from update() is set to continue
 			if( !sState.syncAutoRepeatActive )
 				return;
@@ -2130,8 +2141,12 @@ void loadProfile()
 void loadProfileChanges()
 {
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
-	if( theProfileMap.contains("Gamepad") || theProfileMap.contains("System") )
+	if( theProfileMap.contains("Gamepad") ||
+		theProfileMap.contains("System") ||
+		theProfileMap.contains("Mouse") )
+	{
 		kConfig.load();
+	}
 
 	if( theProfileMap.contains("Scheme") ||
 		theProfileMap.containsPrefix("Layer.") )
@@ -2280,6 +2295,31 @@ void update()
 	else
 	{
 		sState.exclusiveAutoRepeatDelay = 0;
+	}
+
+	// Accelerate jump distance for hotspot select if continue to hold
+	double aJumpDistMult = HotspotMap::getJumpDistMult();
+	if( sResults.hotspotSelectButtonHeld && kConfig.hotspotJumpAccelRate )
+	{
+		if( aJumpDistMult < kMaxHotspotJumpDistMult )
+		{
+			// Shift to being the delta between start (1.0) and max (3.0)
+			// but make sure is above 0 or won't get a curve at all
+			aJumpDistMult =
+				max(aJumpDistMult - 1.0,
+				kConfig.hotspotJumpAccelRate * gAppFrameTime / 15.0);
+			const double t = aJumpDistMult / (kMaxHotspotJumpDistMult - 1.0);
+			aJumpDistMult +=
+				1.0 + kConfig.hotspotJumpAccelRate * t * t * gAppFrameTime;
+			if( aJumpDistMult > kMaxHotspotJumpDistMult )
+				aJumpDistMult = kMaxHotspotJumpDistMult;
+			HotspotMap::setJumpDistMult(aJumpDistMult);
+		}
+	}
+	else if( aJumpDistMult > 1.0 )
+	{
+		aJumpDistMult = max(1.0, aJumpDistMult * 0.75);
+		HotspotMap::setJumpDistMult(aJumpDistMult);
 	}
 
 	// Clear results for next update
