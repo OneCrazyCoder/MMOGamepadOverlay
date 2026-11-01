@@ -15,6 +15,9 @@ extern bool gShutdown;
 // UI Layout Editor should be displayed
 extern bool gLayoutEditorRequested;
 
+// Request reset back to default controls layers
+extern bool gNeedLayerReset;
+
 // Which profile (by name) to load
 extern std::string gProfileToLoad;
 

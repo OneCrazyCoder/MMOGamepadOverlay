@@ -33,6 +33,7 @@ kMouseToPixelDivisor = 8192,
 kMouseMaxAccelVel = 32768,
 kMouseMaxClickMoveDistSq = 500,
 kMouseLookMaxCursorDeviation = 5,
+kMaxMouseLookFailCount = 4,
 kMouseLookCursorLeeway = 150,
 kMouseLookCursorPosReCheckRate = 1000,
 kVKeyModsMask = 0x1F00,
@@ -653,6 +654,7 @@ struct ZERO_INIT(DispatchTracker)
 	int mouseJumpFinishedTime;
 	int mouseLookIdleResetTime;
 	int mouseLookPosVerifyTime;
+	int mouseLookFailCount;
 	int mouseLookThrottleVelCapSq;
 	bool mouseJumpRequested;
 	bool mouseJumpAttempted;
@@ -1172,6 +1174,7 @@ static void offsetMousePos()
 	{
 	case eMouseMode_Cursor:
 		// Always allow
+		sTracker.mouseLookState = eMouseLookState_Off;
 		break;
 	case eMouseMode_LookTurn:
 		// Allow once right mouse button is held down
@@ -1903,7 +1906,15 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 	
 	// The solution here is at periodic times and under certain conditions the
 	// button will be released and the cursor returned to MouseLookStart to
-	// re-start Mouse Look mode.
+	// re-start Mouse Look mode. If this fails too many times, will resort to
+	// a notice and an attempted restart of controls layers to "cursor mode".
+
+	// If failed too much already, keep using Cursor mode until actually
+	// request Cursor mode in the first place (at which time reset fail count).
+	if( theWantedMode == eMouseMode_Cursor )
+		sTracker.mouseLookFailCount = 0;
+	else if( sTracker.mouseLookFailCount > kMaxMouseLookFailCount )
+		return eMouseMode_Cursor;
 
 	const bool wantMouseLookMode =
 		theWantedMode == eMouseMode_LookOnly ||
@@ -1961,18 +1972,39 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 	// Small positive = in correct spot but checking each frame to be sure
 	// Small negative = not in correct spot but checking more before fail out
 	// Large number = app run time until next periodic re-verify
+	const u16 anExpectedVKey =
+		theWantedMode == eMouseMode_LookTurn ? VK_RBUTTON : VK_LBUTTON;
 	if( inMouseLookMode &&
 		theWantedMode != eMouseMode_LookReady &&
-		gAppRunTime >= sTracker.mouseLookPosVerifyTime )
+		gAppRunTime >= sTracker.mouseLookPosVerifyTime &&
+		sTracker.keysHeldDown.test(anExpectedVKey) )
 	{
+		DBG_ASSERT(sTracker.outputMode == eOutputMode_Full);
+		const bool expectedButtonIsPressed =
+			keyLockDownRemainingTime(anExpectedVKey) > 0 ||
+			(GetAsyncKeyState(anExpectedVKey) & 0x8000) != 0;
+		if( !expectedButtonIsPressed )
+		{
+			// Mouse button isn't being held down despite request for it!
+			// User may have forced button release using another device.
+			if( sTracker.mouseLookFailCount++ == kMaxMouseLookFailCount )
+			{
+				logNotice(
+					"Mouse Look mode aborted - "
+					"detected button not held!");
+				// Skip mode transition
+				sTracker.mouseMode = eMouseMode_Cursor;
+				gNeedLayerReset = true;
+				return eMouseMode_Cursor;
+			}
+		}
+
 		const POINT& aCursorPos = WindowManager::mouseToOverlayPos();
 		POINT anExpectedPos = { 0, 0 };
 		const EMouseLookStartStyle kMLStartStyle =
-			sTracker.outputMode == eOutputMode_None
-				? eMouseLookStartStyle_ContinuousMotion
-				: sTracker.mouseMode == eMouseMode_LookTurn
-					? kConfig.turnStartStyle
-					: kConfig.lookStartStyle;
+			sTracker.mouseMode == eMouseMode_LookTurn
+				? kConfig.turnStartStyle
+				: kConfig.lookStartStyle;
 		switch(kMLStartStyle)
 		{
 		case eMouseLookStartStyle_ContinuousMotion:
@@ -2009,25 +2041,37 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		else if( aDistX > kMouseLookMaxCursorDeviation ||
 				 aDistY > kMouseLookMaxCursorDeviation )
 		{// Cursor is NOT (yet) where game puts it during Mouse Look
-			if( sTracker.mouseLookState != eMouseLookState_Throttle )
-			{// Don't worry about it during throttling, and allow time leeway
+			// Don't react to this in certain states - just test next update
+			if( sTracker.mouseLookState != eMouseLookState_Throttle &&
+				expectedButtonIsPressed )
+			{
 				// Each time not in expected position reduce timer by 1 frame,
 				// until reach negative leeway time before declaring failure
 				sTracker.mouseLookPosVerifyTime = clamp(
 					sTracker.mouseLookPosVerifyTime - gAppFrameTime,
 					-kMouseLookCursorLeeway, -gAppFrameTime);
 				if( sTracker.mouseLookPosVerifyTime == -kMouseLookCursorLeeway )
-				{// Off for a while now - retry from start by releasing button
-					#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-					debugPrint("InputDispatcher: Emergency restart ML mode!"
-						"(was %d x %d should by %d x %d!)\n",
-						aCursorPos.x, aCursorPos.y,
-						anExpectedPos.x, anExpectedPos.y);
-					#endif
-					if( theWantedMode == eMouseMode_LookTurn )
-						setKeyDown(VK_RBUTTON, false);
+				{// Off for a while now
+					if( sTracker.mouseLookFailCount == kMaxMouseLookFailCount )
+					{
+						logNotice(
+							"Failed to start Mouse Look mode - "
+							"try clicking on empty part of game window first?");
+						theWantedMode = eMouseMode_Cursor;
+						gNeedLayerReset = true;
+					}
 					else
-						setKeyDown(VK_LBUTTON, false);
+					{// Retry from start by releasing button
+						#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+						debugPrint(
+							"InputDispatcher: Emergency restart ML mode!"
+							"(was %d x %d should be %d x %d!)\n",
+							aCursorPos.x, aCursorPos.y,
+							anExpectedPos.x, anExpectedPos.y);
+						#endif
+						setKeyDown(anExpectedVKey, false);
+					}
+					++sTracker.mouseLookFailCount;
 				}
 			}
 		}
@@ -2046,6 +2090,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 			}
 			else
 			{// Everything seems fine - can wait a while for next re-check
+				sTracker.mouseLookFailCount = 0;
 				sTracker.mouseLookPosVerifyTime =
 					gAppRunTime + kMouseLookCursorPosReCheckRate;
 				// Can possibly report fully stabilized Mouse Look mode now
@@ -2683,9 +2728,13 @@ void update()
 			{
 				wantDifferentMode = true;
 			}
-			// Allow transitioning between look modes even while moving mouse
+			// Allow transitioning between look modes even while moving mouse,
+			// and if mouse isn't actually able to move due to being locked
+			// (mode still starting up) then clear mouseMoving flag.
 			if( aNextMouseMode == eMouseMode_LookOnly ||
-				aNextMouseMode == eMouseMode_LookTurn )
+				aNextMouseMode == eMouseMode_LookTurn ||
+				sTracker.mouseLookState == eMouseLookState_WaitForGameJump ||
+				(!holdingLMB && !!holdingRMB) )
 			{
 				mouseMoving = false;
 			}
@@ -2737,7 +2786,6 @@ void update()
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowMidJumpControl = false;
-					sTracker.mouseLookState = eMouseLookState_Off;
 				}
 				break;
 			case eMouseMode_LookTurn:
@@ -2821,7 +2869,6 @@ void update()
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowMidJumpControl = false;
-					sTracker.mouseLookState = eMouseLookState_Off;
 				}
 				break;
 			case eMouseMode_LookReady:
@@ -2835,7 +2882,6 @@ void update()
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowMidJumpControl = false;
-					sTracker.mouseLookState = eMouseLookState_Off;
 				}
 				break;
 			default:
