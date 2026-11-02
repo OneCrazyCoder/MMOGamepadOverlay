@@ -233,6 +233,8 @@ public:
 	int quickFindIndex(const Key& theKey) const;
 	// Returns true if any keys start with thePrefix
 	bool containsPrefix(const Key& thePrefix) const;
+	// If have an index, confirms it uses passed-in key
+	bool indexUsesKey(const int theIndex, const Key& theKey) const;
 	// Calls theCallback for each key that starts with thePrefix, or until the
 	// callback returns false. Can be used after freeKeys() with known prefix.
 	void findAllWithPrefix(const Key& thePrefix,

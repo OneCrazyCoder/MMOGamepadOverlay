@@ -362,6 +362,16 @@ bool StringToValueMap<V, I, S>::containsPrefix(const Key& thePrefix) const
 
 
 template<class V, class I, bool S> inline
+bool StringToValueMap<V, I, S>::indexUsesKey(
+	const int theIndex, const Key& theKey) const
+{
+	DBG_ASSERT(size_t(theIndex) < mKeys.size());
+
+	return FindKey(mKeys[theIndex]) == theKey;
+}
+
+
+template<class V, class I, bool S> inline
 void StringToValueMap<V, I, S>::findAllWithPrefix(
 	const Key& thePrefix, FoundIndexCallback theCallback, void* theData) const
 {

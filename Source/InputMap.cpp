@@ -1370,11 +1370,15 @@ static Command stringToSetVariableCommand(
 static Command wordsToSpecialCommand(
 	const std::vector<std::string>& theWords,
 	int theButtonLayerIdx,
+	int theRootMenuIdx,
+	bool allowMenuControlActions,
 	bool allowHoldActions,
 	bool allow4DirActions)
 {
 	// Don't allow actions assigned only to buttons if this isn't for a layer
 	const bool allowButtonActions = theButtonLayerIdx >= 0;
+	DBG_ASSERT(theRootMenuIdx < 0 ||
+		sMenus.vals()[theRootMenuIdx].rootMenuID == theRootMenuIdx);
 
 	// Can't allow hold actions if don't also allow button actions
 	DBG_ASSERT(!allowHoldActions || allowButtonActions);
@@ -1661,24 +1665,8 @@ static Command wordsToSpecialCommand(
 		}
 	}
 
-	// "= [Force] Remove [this] Layer"
-	allowedKeyWords.reset();
-	allowedKeyWords.set(eCmdWord_Layer);
-	allowedKeyWords.set(eCmdWord_Remove);
-	allowedKeyWords.set(eCmdWord_Force);
-	if( theButtonLayerIdx >= 0 &&
-		keyWordsFound.test(eCmdWord_Remove) &&
-		(keyWordsFound & ~allowedKeyWords).none() )
-	{
-		result.type = eCmdType_RemoveControlsLayer;
-		result.layerID = dropTo<u16>(theButtonLayerIdx);
-		if( keyWordsFound.test(eCmdWord_Force) )
-			result.forced = true;
-		return result;
-	}
-
-	// The remainng Layer-related commands need one extra word that is
-	// not a key word related to layers, which will be the name of the
+	// Layer-related commands may need one extra word that is not itself
+	// a key word related to layers, which will be the name of the
 	// layer (likely, but not always, the eCmdWord_Unknown entry).
 	// Start by defining what key words are related to layer commands
 	allowedKeyWords.reset();
@@ -1712,10 +1700,9 @@ static Command wordsToSpecialCommand(
 	}
 	// Convert allowedKeyWords into all non-layer-related words found
 	allowedKeyWords = keyWordsFound & (~allowedKeyWords);
-	// If no extra words found, default to anIgnoredWord
-	const std::string* aLayerName = anIgnoredWord;
-	// If no ignored word either, default to anIntegerWord
-	if( !aLayerName ) aLayerName = anIntegerWord;
+	const std::string* aLayerName = null;
+	// Now can override above by selecting the one remaining
+	// allowed word (again probably _Unknown)
 	if( (allowedKeyWords.count() == 1 && theWords.size() > 1) ||
 		(aSecondLayerName && allowedKeyWords.count() == 2) )
 	{
@@ -1725,22 +1712,36 @@ static Command wordsToSpecialCommand(
 		if( itr != sKeyWordMap.end() )
 			aLayerName = &theWords[itr->second];
 	}
-	if( aSecondLayerName &&
-		aLayerName == aSecondLayerName &&
-		theWords.size() > 1 &&
-		allowedKeyWords.count() == 2 )
+	// Above may have found aSecondLayerName - try for a different unknown word
+	if( aSecondLayerName && aLayerName == aSecondLayerName )
 	{
-		aLayerName = anIgnoredWord;
-		if( !aLayerName ) aLayerName = anIntegerWord;
-		VectorMap<ECommandKeyWord, int>::const_iterator itr =
-			sKeyWordMap.find(ECommandKeyWord(
-				allowedKeyWords.nextSetBit(allowedKeyWords.firstSetBit())));
-		if( itr != sKeyWordMap.end() )
-			aLayerName = &theWords[itr->second];
+		aLayerName = null;
+		if( theWords.size() > 1 && allowedKeyWords.count() == 2 )
+		{
+			VectorMap<ECommandKeyWord, int>::const_iterator itr =
+				sKeyWordMap.find(ECommandKeyWord(
+					allowedKeyWords.nextSetBit(allowedKeyWords.firstSetBit())));
+			if( itr != sKeyWordMap.end() )
+				aLayerName = &theWords[itr->second];
+		}
 	}
 	u16 aLayerID = kInvalidID;
-	if( aLayerName )
+	// If no extra words found, default to anIgnoredWord
+	if( !aLayerName ) aLayerName = anIgnoredWord;
+	// If no ignored word either, default to anIntegerWord
+	if( !aLayerName ) aLayerName = anIntegerWord;
+	// If still no extra word, use passed-in layer ID's name ("this layer")
+	if( !aLayerName && theButtonLayerIdx > 0 &&
+		theWords.size() > 1 &&
+		allowedKeyWords.count() == (aSecondLayerName ? 1 : 0) )
+	{
+		aLayerName = &sLayers.keys()[theButtonLayerIdx];
+		aLayerID = dropTo<u16>(theButtonLayerIdx);
+	}
+	else if( aLayerName )
+	{
 		aLayerID = dropTo<u16>(sLayers.findIndex(*aLayerName));
+	}
 	u16 aSecondLayerID = kInvalidID;
 	if( aSecondLayerName )
 		aSecondLayerID = dropTo<u16>(sLayers.findIndex(*aSecondLayerName));
@@ -1787,21 +1788,6 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Toggle);
 
-		// "= Replace [this layer with] <aLayerName>"
-		// allowedKeyWords = Layer
-		allowedKeyWords.set(eCmdWord_Replace);
-		if( theButtonLayerIdx >= 0 &&
-			keyWordsFound.test(eCmdWord_Replace) &&
-			(!aSecondLayerName || aSecondLayerID == aLayerID) &&
-			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
-		{
-			result.type = eCmdType_ReplaceControlsLayer;
-			result.layerID = dropTo<u16>(theButtonLayerIdx);
-			result.replacementLayer = aLayerID;
-			return result;
-		}
-		allowedKeyWords.reset(eCmdWord_Replace);
-
 		// "= 'Hold'|'Layer'|'Hold Layer' <aLayerName>"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Hold);
@@ -1835,7 +1821,7 @@ static Command wordsToSpecialCommand(
 
 	// Same deal as aLayerName for the Menu-related commands needing a name
 	// of the menu in question as the one otherwise-unrelated word.
-	const std::string* aMenuName = anIgnoredWord;
+	const std::string* aMenuName = null;
 	allowedKeyWords = keyWordsFound;
 	allowedKeyWords.reset(eCmdWord_Menu);
 	allowedKeyWords.reset(eCmdWord_Reset);
@@ -1859,8 +1845,20 @@ static Command wordsToSpecialCommand(
 			aMenuName = &theWords[itr->second];
 	}
 	u16 aRootMenuID = kInvalidID;
-	if( aMenuName )
-		aRootMenuID = dropTo<u16>(getOnlyRootMenuID(*aMenuName));
+	if( !aMenuName ) aMenuName = anIgnoredWord;
+	if( !aMenuName ) aMenuName = anIntegerWord;
+	if( !aMenuName && theRootMenuIdx >= 0 && allowedKeyWords.count() == 0 )
+	{
+		aMenuName = &sLayers.keys()[theRootMenuIdx];
+		aRootMenuID = dropTo<u16>(theRootMenuIdx);
+	}
+	else if( aMenuName )
+	{
+		aRootMenuID = dropTo<u16>(sMenus.findIndex(*aMenuName));
+	}
+	// Menus are allowed to use menu control commands on OTHER root menus
+	if( theRootMenuIdx >= 0 && theRootMenuIdx != aRootMenuID )
+		allowMenuControlActions = true;
 
 	if( aRootMenuID < sMenus.size() )
 	{
@@ -1880,12 +1878,13 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset(eCmdWord_Reset);
 		allowedKeyWords.reset(eCmdWord_Default);
 	}
-	if( allowButtonActions && aRootMenuID < sMenus.size() )
+	if( allowMenuControlActions && aRootMenuID < sMenus.size() )
 	{
 		// "= Confirm <aMenuName> [Menu]"
 		// allowedKeyWords = Menu
 		allowedKeyWords.set(eCmdWord_Confirm);
-		if( keyWordsFound.test(eCmdWord_Confirm) &&
+		if( theRootMenuIdx != aRootMenuID && // menu can never confirm itself!
+			keyWordsFound.test(eCmdWord_Confirm) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_MenuConfirm;
@@ -2025,7 +2024,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.reset(eCmdWord_Back);
 	keyWordsFound &= ~allowedKeyWords;
 
-	if( allowButtonActions && aRootMenuID < sMenus.size() &&
+	if( allowMenuControlActions && aRootMenuID < sMenus.size() &&
 		(allow4DirActions || result.dir != eCmdDir_None) )
 	{
 		// "= 'Select'|'Menu'|'Select Menu'
@@ -2165,7 +2164,7 @@ static Command wordsToSpecialCommand(
 		return result;
 	}
 
-	if( allowButtonActions && aRootMenuID < sMenus.size() )
+	if( allowMenuControlActions && aRootMenuID < sMenus.size() )
 	{
 		// This is all the way down here because "back" could be a direction
 		// for another command, OR mean backing out of a sub-menu, and want
@@ -2235,6 +2234,8 @@ static Command* specialKeyBindNameToCommand(const std::string& theName)
 static Command stringToCommand(
 	const std::string& theString,
 	int theButtonLayerIdx = -1,
+	int theRootMenuIdx = -1,
+	bool allowMenuControlActions = false,
 	bool allowHoldActions = false,
 	bool allow4DirActions = false)
 {
@@ -2288,6 +2289,8 @@ static Command stringToCommand(
 	result = wordsToSpecialCommand(
 		sParsedString,
 		theButtonLayerIdx,
+		theRootMenuIdx,
+		allowMenuControlActions,
 		allowHoldActions,
 		allow4DirActions);
 	if( result.type != eCmdType_Invalid )
@@ -2376,7 +2379,8 @@ static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
 }
 
 
-static MenuItem stringToMenuItem(int theMenuID, std::string theString)
+static MenuItem stringToMenuItem(
+	int theMenuID, std::string theString, bool allowControlCmds = false)
 {
 	MenuItem aMenuItem;
 	if( isEffectivelyEmptyString(theString) )
@@ -2477,7 +2481,10 @@ static MenuItem stringToMenuItem(int theMenuID, std::string theString)
 		return aMenuItem;
 	}
 
-	aMenuItem.cmd = stringToCommand(theString);
+	aMenuItem.cmd = stringToCommand(
+		theString, -1,
+		sMenus.vals()[theMenuID].rootMenuID,
+		allowControlCmds);
 	aMenuItem.cmd.skipMenuConfirm = shouldSkipMenuConfirm;
 	if( aMenuItem.cmd.type == eCmdType_Invalid )
 	{
@@ -2555,20 +2562,9 @@ static void applyMenuProperty(
 	case ePropType_Auto:
 	case ePropType_Back:
 		{
-			Command aCmd = stringToCommand(thePropVal);
-			switch(aCmd.type)
-			{
-			case eCmdType_OpenSubMenu:
-			case eCmdType_OpenSideMenu:
-			case eCmdType_MenuConfirm:
-			case eCmdType_MenuBack:
-			case eCmdType_MenuEdit:
-			case eCmdType_MenuSelect:
-			case eCmdType_MenuEditDir:
-				// Don't allow assigning menu control commands
-				aCmd = Command();
-				break;
-			}
+			Command aCmd = stringToCommand(
+				thePropVal, -1,
+				sMenus.vals()[theMenuID].rootMenuID, false);
 			reportCommandAssignment(aCmd, thePropVal);
 			if( aPropType == ePropType_Auto )
 				theMenu.autoCommand = aCmd;
@@ -2594,9 +2590,10 @@ static void applyMenuProperty(
 
 	case ePropType_Confirm:
 		{
-			// Acts like a menu item command without a label
-			// (so can support ".." etc)
-			MenuItem aTmpMenuItem = stringToMenuItem(theMenuID, ":"+thePropVal);
+			// Acts like a menu item command (so can support ".." etc),
+			// but also use menu control commands (label/etc will be ignored)
+			MenuItem aTmpMenuItem = stringToMenuItem(
+				theMenuID, "Confirm :"+thePropVal, true);
 			theMenu.confirmCommand = aTmpMenuItem.cmd;
 			reportCommandAssignment(theMenu.confirmCommand, thePropVal);
 		}
@@ -3024,7 +3021,8 @@ static void addButtonAction(
 
 	// Parse command string into a Command struct
 	Command aCmd = stringToCommand(
-		theCmdStr, theLayerIdx, aBtnAct == eBtnAct_Down, isMultiDirButton);
+		theCmdStr, theLayerIdx, -1, true,
+		aBtnAct == eBtnAct_Down, isMultiDirButton);
 
 	// If the command is type _Empty, remove or don't create command set
 	// for this button - unless another action has set something for it
@@ -3095,7 +3093,7 @@ static void addWhenSignalCommand(
 	DBG_ASSERT(theLayerIdx < sLayers.size());
 	DBG_ASSERT(!theSignalKeyName.empty());
 
-	Command aCmd = stringToCommand(theCmdStr, theLayerIdx);
+	Command aCmd = stringToCommand(theCmdStr, theLayerIdx, -1, true);
 	// Only report assignment when have an error parsing command
 	if( aCmd.type == eCmdType_Invalid )
 		reportCommandAssignment(aCmd, theCmdStr);
