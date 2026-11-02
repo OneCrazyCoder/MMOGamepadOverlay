@@ -266,8 +266,8 @@ struct Menu
 	u16 keyBindCycleID;
 	u16 posHotspotID;
 	u16 profileSectionID;
-	u8 defaultMenuItemIdx;
-	u8 gridWidth;
+	s16 defaultMenuItemIdx; // -1 = auto-pick, -2 = recall last
+	u16 gridWidth;
 	// Visual details will be parsed by the WindowPainter module
 
 	Menu() :
@@ -279,7 +279,7 @@ struct Menu
 		overlayID(),
 		keyBindCycleID(kInvalidID),
 		posHotspotID(),
-		defaultMenuItemIdx(),
+		defaultMenuItemIdx(-1),
 		gridWidth(0)
 	{}
 };
@@ -2341,7 +2341,7 @@ static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
 {
 	Menu& theMenu = sMenus.vals()[theMenuID];
 
-	int result = theString.empty() ? 1 : stringToInt(theString);
+	int result = theString.empty() ? -1 : stringToInt(theString);
 	if( result > 0 )
 	{// Assume indicating a menu item number (starting with 1)
 		if( result > intSize(theMenu.items.size()) )
@@ -2626,22 +2626,37 @@ static void applyMenuProperty(
 		break;
 
 	case ePropType_Default:
+		switch(commandWordToID(thePropVal))
 		{
-			const int aMenuItemIdx = stringToMenuItemIdx(theMenuID, thePropVal);
-			if( aMenuItemIdx < 0 )
+		case eCmdWord_Skip:
+			theMenu.defaultMenuItemIdx = -1;
+			mapDebugPrint("%s: Default menu item set to auto-pick\n");
+			break;
+		case eCmdWord_Last:
+			theMenu.defaultMenuItemIdx = -2;
+			mapDebugPrint("%s: Default menu item set to recall last\n");
+			break;
+		default:
 			{
-				logError(
-					"%s: Not sure how to assign default menu item to '%s'!",
-					sSectionPrintName.c_str(),
-					thePropVal.c_str());
+				const int aMenuItemIdx =
+					stringToMenuItemIdx(theMenuID, thePropVal);
+				if( aMenuItemIdx < 0 )
+				{
+					logError(
+						"%s: Not sure how to assign default menu item to '%s'!",
+						sSectionPrintName.c_str(),
+						thePropVal.c_str());
+				}
+				else
+				{
+					theMenu.defaultMenuItemIdx =
+						s16(clamp(aMenuItemIdx, 0, 0x7FFF));
+					mapDebugPrint("%s: Default menu item set to %d\n",
+						sSectionPrintName.c_str(),
+						aMenuItemIdx+1);
+				}
 			}
-			else
-			{
-				theMenu.defaultMenuItemIdx = u8(min(aMenuItemIdx, 255));
-				mapDebugPrint("%s: Default menu item set to %d\n",
-					sSectionPrintName.c_str(),
-					aMenuItemIdx+1);
-			}
+			break;
 		}
 		break;
 
@@ -2857,8 +2872,8 @@ static void validateMenu(int theMenuID)
 		theMenu.items.resize(theMenu.items.size()-1);
 		gReshapeOverlays.set(theMenu.overlayID);
 	}
-	theMenu.defaultMenuItemIdx = dropTo<u8>(min<size_t>(
-		theMenu.items.size()-1, theMenu.defaultMenuItemIdx));
+	if( theMenu.defaultMenuItemIdx >= intSize(theMenu.items.size()) )
+		theMenu.defaultMenuItemIdx = s16(theMenu.items.size()-1);
 	// Any empty items between first and last must be a missing gap
 	for(int i = 1, end = intSize(theMenu.items.size()) - 1; i < end; ++i)
 	{
@@ -4195,7 +4210,16 @@ int overlayRootMenuID(int theOverlayID)
 int menuDefaultItemIdx(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
-	return sMenus.vals()[theMenuID].defaultMenuItemIdx;
+	int result = sMenus.vals()[theMenuID].defaultMenuItemIdx;
+	// If set to auto-pick (-1) but root uses recall (-2), use that instead
+	if( result == -1 &&
+		sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
+		sMenus.vals()[theMenuID].rootMenuID < sMenus.size() &&
+		menuDefaultItemIdx(sMenus.vals()[theMenuID].rootMenuID) == -2 )
+	{
+		result = -2;
+	}
+	return result;
 }
 
 

@@ -94,7 +94,7 @@ int rootMenuOfMenu(int theMenuID);
 int parentMenuOfMenu(int theMenuID);
 int menuOverlayID(int theMenuID);
 int overlayRootMenuID(int theOverlayID);
-int menuDefaultItemIdx(int theMenuID);
+int menuDefaultItemIdx(int theMenuID); // -1 = auto-pick, -2 = recall mode
 int menuItemHotspotID(int theMenuID, int theMenuItemIdx); // or 0
 int menuOriginHotspotID(int theMenuID); // usually _None or _LastCursorPos
 int menuKeyBindCycleID(int theMenuID); // for _KBCycle styles

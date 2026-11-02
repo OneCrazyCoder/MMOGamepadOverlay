@@ -158,7 +158,7 @@ void init()
 	const int kMenuCount = InputMap::menuCount();
 	sSelectedItem.resize(kMenuCount);
 	for(int aMenuID = 0; aMenuID < kMenuCount; ++aMenuID)
-		sSelectedItem[aMenuID] = InputMap::menuDefaultItemIdx(aMenuID);
+		sSelectedItem[aMenuID] = max(0, InputMap::menuDefaultItemIdx(aMenuID));
 }
 
 
@@ -181,7 +181,7 @@ void loadProfileChanges()
 		{
 			// Select default selection for newly-added sub-menus
 			if( i >= oldMenuCount )
-				sSelectedItem[i] = InputMap::menuDefaultItemIdx(i);
+				sSelectedItem[i] = max(0, InputMap::menuDefaultItemIdx(i));
 			switch(InputMap::menuStyle(i))
 			{
 			case eMenuStyle_Hotspots:
@@ -207,7 +207,7 @@ void loadProfileChanges()
 					}
 					// No valid menu items at all, guess it doesn't matter now?
 					if( !isValidItem )
-						sSelectedItem[i] = InputMap::menuDefaultItemIdx(i);
+						sSelectedItem[i] = 0;
 				}
 				break;
 			default:
@@ -479,6 +479,8 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 		theMenuItem = sSelectedItem[theSubMenuID];
 	else
 		theMenuItem = InputMap::menuDefaultItemIdx(theSubMenuID);
+	if( theMenuItem == -2 ) // always recall last selected
+		theMenuItem = sSelectedItem[theSubMenuID];
 	theMenuItem = min(theMenuItem, InputMap::menuItemCount(theSubMenuID) - 1);
 	theMenuItem = max(theMenuItem, 0);
 
@@ -506,81 +508,89 @@ Command openSideMenu(int theRootMenuID, int theSideMenuID, ECommandDir theDir)
 	// Remember that openSubMenu takes 1-based index, or 0 == use default,
 	// so remaining code needs to add 1 to whatever selection is desired
 	int aNextSel = 0;
-	const EMenuStyle aNewMenuStyle = InputMap::menuStyle(theSideMenuID);
-	const int aNewItemCount = InputMap::menuItemCount(theSideMenuID);
-	const int anOldMenuID = activeSubMenu(theRootMenuID);
-	switch(aNewMenuStyle)
-	{
-	case eMenuStyle_Slots:
-		// Retain whatever selection the side menu had previously
-		// rather than resetting to the menu's default when using left/right
-		if( theDir == eCmdDir_L || theDir == eCmdDir_R )
-			aNextSel = sSelectedItem[theSideMenuID] + 1;
-		else if( theDir == eCmdDir_U )
-			aNextSel = aNewItemCount;
-		else if( theDir == eCmdDir_D )
-			aNextSel = 1;
-		break;
-	case eMenuStyle_List:
-		// Wrap to other side if changed menus with up/down
-		if( theDir == eCmdDir_U )
-			aNextSel = aNewItemCount;
-		else if( theDir == eCmdDir_D )
-			aNextSel = 1;
-		else
-			aNextSel = min(selectedYPos(anOldMenuID)+1, aNewItemCount);
-		break;
-	case eMenuStyle_Bar:
-		// Wrap to other side if changed menus with left/right
-		if( theDir == eCmdDir_L )
-			aNextSel = aNewItemCount;
-		else if( theDir == eCmdDir_R )
-			aNextSel = 1;
-		else
-			aNextSel = min(selectedXPos(anOldMenuID)+1, aNewItemCount);
-		break;
-	case eMenuStyle_Grid:
-	case eMenuStyle_Columns:
+	const int aNewMenuDefaultIdx = InputMap::menuDefaultItemIdx(theSideMenuID);
+	if( aNewMenuDefaultIdx == -2 )
+	{// Keep last selected item
+		aNextSel = sSelectedItem[theSideMenuID] + 1;
+	}
+	else if( aNewMenuDefaultIdx >= 0 )
+	{// Use specified default for new sub-menu every time
+		aNextSel = aNewMenuDefaultIdx + 1;
+	}
+	else
+	{// Auto-pick selection based on position in previous menu
+		const EMenuStyle aNewMenuStyle = InputMap::menuStyle(theSideMenuID);
+		const int aNewItemCount = InputMap::menuItemCount(theSideMenuID);
+		const int anOldMenuID = activeSubMenu(theRootMenuID);
+		switch(aNewMenuStyle)
 		{
-			int aNewX = selectedXPos(anOldMenuID);
-			int aNewY = selectedYPos(anOldMenuID);
-			switch(theDir)
+		case eMenuStyle_Slots:
+			// Only worry about changing menus with L or R
+			if( theDir == eCmdDir_L || theDir == eCmdDir_R )
+				aNextSel = min(selectedYPos(anOldMenuID)+1, aNewItemCount);
+			break;
+		case eMenuStyle_List:
+			// Wrap to other side if changed menus with up/down
+			if( theDir == eCmdDir_U )
+				aNextSel = aNewItemCount;
+			else if( theDir == eCmdDir_D )
+				aNextSel = 1;
+			else
+				aNextSel = min(selectedYPos(anOldMenuID)+1, aNewItemCount);
+			break;
+		case eMenuStyle_Bar:
+			// Wrap to other side if changed menus with left/right
+			if( theDir == eCmdDir_L )
+				aNextSel = aNewItemCount;
+			else if( theDir == eCmdDir_R )
+				aNextSel = 1;
+			else
+				aNextSel = min(selectedXPos(anOldMenuID)+1, aNewItemCount);
+			break;
+		case eMenuStyle_Grid:
+		case eMenuStyle_Columns:
 			{
-			case eCmdDir_L: aNewX = INT_MAX;	break;
-			case eCmdDir_R: aNewX = 0;			break;
-			case eCmdDir_U: aNewY = INT_MAX;	break;
-			case eCmdDir_D: aNewY = 0;			break;
-			}
-			aNextSel = xyToSelectionIndex(theSideMenuID, aNewX, aNewY);
-			if( aNextSel >= aNewItemCount )
-			{
-				switch(aNewMenuStyle)
+				int aNewX = selectedXPos(anOldMenuID);
+				int aNewY = selectedYPos(anOldMenuID);
+				switch(theDir)
 				{
-				case eMenuStyle_Grid:
-					if( theDir == eCmdDir_L )
-						aNextSel = aNewItemCount-1;
-					else
-						aNextSel -= InputMap::menuGridWidth(theSideMenuID);
-					break;
-				case eMenuStyle_Columns:
-					if( theDir == eCmdDir_U )
-						aNextSel = aNewItemCount-1;
-					else
-						aNextSel -= InputMap::menuGridHeight(theSideMenuID);
-					break;
-				default:
-					aNextSel = clamp(aNextSel,
-						0, InputMap::menuItemCount(theSideMenuID));
-					break;
+				case eCmdDir_L: aNewX = INT_MAX;	break;
+				case eCmdDir_R: aNewX = 0;			break;
+				case eCmdDir_U: aNewY = INT_MAX;	break;
+				case eCmdDir_D: aNewY = 0;			break;
+				}
+				aNextSel = xyToSelectionIndex(theSideMenuID, aNewX, aNewY);
+				if( aNextSel >= aNewItemCount )
+				{
+					switch(aNewMenuStyle)
+					{
+					case eMenuStyle_Grid:
+						if( theDir == eCmdDir_L )
+							aNextSel = aNewItemCount-1;
+						else
+							aNextSel -= InputMap::menuGridWidth(theSideMenuID);
+						break;
+					case eMenuStyle_Columns:
+						if( theDir == eCmdDir_U )
+							aNextSel = aNewItemCount-1;
+						else
+							aNextSel -= InputMap::menuGridHeight(theSideMenuID);
+						break;
+					default:
+						aNextSel = clamp(aNextSel,
+							0, InputMap::menuItemCount(theSideMenuID));
+						break;
+					}
 				}
 			}
+			break;
+		case eMenuStyle_Hotspots:
+		case eMenuStyle_Highlight:
+			aNextSel = 1 + HotspotMap::getEdgeMenuItem(
+				theSideMenuID,
+				oppositeDir(theDir), sSelectedItem[theSideMenuID]);
+			break;
 		}
-		break;
-	case eMenuStyle_Hotspots:
-	case eMenuStyle_Highlight:
-		aNextSel = 1 + HotspotMap::getEdgeMenuItem(
-			theSideMenuID, oppositeDir(theDir), sSelectedItem[theSideMenuID]);
-		break;
 	}
 
 	return openSubMenu(theRootMenuID, theSideMenuID, aNextSel);

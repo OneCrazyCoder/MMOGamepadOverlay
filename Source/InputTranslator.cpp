@@ -1431,7 +1431,7 @@ static void processCommand(
 			aForwardCmd = Menus::confirmCommand(theCmd.rootMenuID, true);
 			// Allow holding this button to auto-repeat after a delay, OR
 			// use confirm command if menu has a valid one for selection dir
-			// and the selection command and command not set to skip it
+			// and the selection command is not set to skip it
 			// (just having a confirm command at all blocks repeat)
 			if( aForwardCmd.type < eCmdType_FirstValid )
 				sState.exclusiveAutoRepeatButton = theBtnState;

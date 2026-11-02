@@ -1893,7 +1893,8 @@ HotspotLinkNode getMenuHotspotsLink(int theMenuID, int theMenuItemIdx)
 			dropTo<u16>(aHotspotID), dropTo<u8>(aNodeIdx));
 		if( !isValidHotspotID(aHotspotID) )
 		{
-			const int aDefaultItemIdx = InputMap::menuDefaultItemIdx(theMenuID);
+			const int aDefaultItemIdx =
+				clamp(InputMap::menuDefaultItemIdx(theMenuID), 0, 255);
 			for(int aDir = 0; aDir < eCmdDir_Num; ++aDir)
 			{
 				aLinkVec[aNodeIdx].next[aDir] = dropTo<u8>(aDefaultItemIdx);
