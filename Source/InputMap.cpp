@@ -1749,7 +1749,7 @@ static Command wordsToSpecialCommand(
 
 	if( aLayerID < sLayers.size() )
 	{
-		// "= Replace [Layer] <aLayerName> with <aSecondLayerName>"
+		// "= Replace <aLayerName/this> [Layer] with <aSecondLayerName>"
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Layer);
 		allowedKeyWords.set(eCmdWord_Replace);
@@ -1764,10 +1764,11 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Replace);
 
-		// "= Add [Layer] <aLayerName>"
+		// "= Add <aLayerName>[Layer] "
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Add);
 		if( keyWordsFound.test(eCmdWord_Add) &&
+			aLayerID != theButtonLayerIdx &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_AddControlsLayer;
@@ -1776,10 +1777,11 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Add);
 
-		// "= Toggle [Layer] <aLayerName>"
+		// "= Toggle <aLayerName> [Layer]"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Toggle);
 		if( keyWordsFound.test(eCmdWord_Toggle) &&
+			aLayerID != theButtonLayerIdx &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
 		{
 			result.type = eCmdType_ToggleControlsLayer;
@@ -1792,6 +1794,7 @@ static Command wordsToSpecialCommand(
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Hold);
 		if( allowHoldActions &&
+			aLayerID != theButtonLayerIdx &&
 			(keyWordsFound.test(eCmdWord_Hold) ||
 			 keyWordsFound.test(eCmdWord_Layer)) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -1802,7 +1805,7 @@ static Command wordsToSpecialCommand(
 		}
 		allowedKeyWords.reset(eCmdWord_Hold);
 
-		// "= [Force] Remove [Layer] <aLayerName>"
+		// "= [Force] Remove <aLayerName/this> [Layer]"
 		// allowedKeyWords = Layer
 		allowedKeyWords.set(eCmdWord_Remove);
 		allowedKeyWords.set(eCmdWord_Force);
