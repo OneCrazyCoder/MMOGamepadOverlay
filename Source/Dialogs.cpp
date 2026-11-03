@@ -966,6 +966,14 @@ static INT_PTR CALLBACK editMenuCommandProc(
 		// Initialize contents
 		theData = (std::pair<const std::string*, std::string*>*)(UINT_PTR)
 			lParam;
+		SetWindowText(GetDlgItem(theDialog, IDC_STATIC_PROMPT),
+			L"Format is \"Label: Command\" (without quotes), or just "
+			L"\": Command\" for blank label.\n\"Label\" without : makes "
+			L"a sub-menu. Label name can be in quotes, like \"A: B\":cmd.\n"
+			L"Chat box macro Commands start with '>' or '/' and use '\\n' "
+			L"for \"line breaks.\n"
+			L"Use \"Label: *Command\" for spam-able items "
+			L"(* blocks auto-exit or auto-advance).");
 		// Allow other messages to access theData later
 		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theData);
 		DBG_ASSERT(theData);
