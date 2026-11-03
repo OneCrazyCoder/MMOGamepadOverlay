@@ -1977,9 +1977,9 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 	if( inMouseLookMode &&
 		theWantedMode != eMouseMode_LookReady &&
 		gAppRunTime >= sTracker.mouseLookPosVerifyTime &&
+		sTracker.outputMode == eOutputMode_Full &&
 		sTracker.keysHeldDown.test(anExpectedVKey) )
 	{
-		DBG_ASSERT(sTracker.outputMode == eOutputMode_Full);
 		const bool expectedButtonIsPressed =
 			keyLockDownRemainingTime(anExpectedVKey) > 0 ||
 			(GetAsyncKeyState(anExpectedVKey) & 0x8000) != 0;
