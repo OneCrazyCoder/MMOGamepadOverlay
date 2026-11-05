@@ -955,7 +955,7 @@ static INT_PTR CALLBACK knownIssuesDialogProc(
 }
 
 
-static INT_PTR CALLBACK editMenuCommandProc(
+static INT_PTR CALLBACK editStringProc(
 	HWND theDialog, UINT theMessage, WPARAM wParam, LPARAM lParam)
 {
 	std::pair<const std::string*, std::string*>* theData = NULL;
@@ -966,14 +966,17 @@ static INT_PTR CALLBACK editMenuCommandProc(
 		// Initialize contents
 		theData = (std::pair<const std::string*, std::string*>*)(UINT_PTR)
 			lParam;
-		SetWindowText(GetDlgItem(theDialog, IDC_STATIC_PROMPT),
-			L"Format is \"Label: Command\" (without quotes), or just "
-			L"\": Command\" for blank label.\n\"Label\" without : makes "
-			L"a sub-menu. Label name can be in quotes, like \"A: B\":cmd.\n"
-			L"Chat box macro Commands start with '>' or '/' and use '\\n' "
-			L"for \"line breaks.\n"
-			L"Use \"Label: *Command\" for spam-able items "
-			L"(* blocks auto-exit or auto-advance).");
+		if( HWND aStaticPrompt = GetDlgItem(theDialog, IDC_STATIC_PROMPT) )
+		{
+			SetWindowText(aStaticPrompt,
+				L"Format is \"Label: Command\" (without quotes), or just "
+				L"\": Command\" for blank label.\n\"Label\" without : makes "
+				L"a sub-menu. Label name can be in quotes, like \"A: B\":cmd.\n"
+				L"Chat box macro Commands start with '>' or '/' and use '\\n' "
+				L"for \"line breaks.\n"
+				L"Use \"Label: *Command\" for spam-able items "
+				L"(* blocks auto-exit or auto-advance).");
+		}
 		// Allow other messages to access theData later
 		SetWindowLongPtr(theDialog, GWLP_USERDATA, (LONG_PTR)theData);
 		DBG_ASSERT(theData);
@@ -1778,11 +1781,27 @@ EResult editMenuCommand(
 		allowInsert
 			? IDD_DIALOG_EDIT_MOVE_COMMAND
 			: IDD_DIALOG_EDIT_COMMAND,
-		editMenuCommandProc,
+		editStringProc,
 		reinterpret_cast<LPARAM>(&data)),
 		eDialogLayout_Basic);
 
 	return (theString != anOriginalString) ? eResult_Ok : eResult_Cancel;
+}
+
+
+std::string getString(
+	const std::string& thePrompt,
+	std::string theString)
+{
+	std::pair<const std::string*, std::string*> data(&thePrompt, &theString);
+
+	runDialog(openDialog(
+		IDD_DIALOG_EDIT_VARIABLE,
+		editStringProc,
+		reinterpret_cast<LPARAM>(&data)),
+		eDialogLayout_Basic);
+
+	return theString;
 }
 
 

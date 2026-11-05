@@ -4,6 +4,7 @@
 
 #include "InputTranslator.h"
 
+#include "Dialogs.h"
 #include "Gamepad.h"
 #include "HotspotMap.h"
 #include "InputDispatcher.h"
@@ -1316,6 +1317,14 @@ static void processCommand(
 		Profile::setVariable(
 			theCmd.variableID,
 			InputMap::cmdString(theCmd),
+			theCmd.temporary);
+		break;
+	case eCmdType_RequestVariable:
+		Profile::setVariable(
+			theCmd.variableID,
+			 Dialogs::getString(
+				 InputMap::cmdString(theCmd),
+				 Profile::getVariable(theCmd.variableID)),
 			theCmd.temporary);
 		break;
 	case eCmdType_StartAutoRun:

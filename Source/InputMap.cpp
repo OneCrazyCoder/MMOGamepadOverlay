@@ -1279,9 +1279,10 @@ static Command stringToSetVariableCommand(
 {
 	Command result;
 
-	// First search for key word "set" (and maybe "temp")
+	// First search for key word "set" or "ask" (and maybe "temp")
 	const int kWordCount = intSize(theWords.size());
 	bool requestedTemporary = false;
+	bool askingFromUser = false;
 	ECommandKeyWord aKeyWordID = eCmdWord_Unknown;
 	int aWordIdx = 0;
 	for(; aWordIdx < kWordCount; ++aWordIdx)
@@ -1289,80 +1290,112 @@ static Command stringToSetVariableCommand(
 		aKeyWordID = commandWordToID(theWords[aWordIdx]);
 		if( aKeyWordID == eCmdWord_Set )
 			break;
+		if( aKeyWordID == eCmdWord_Ask )
+		{
+			askingFromUser = true;
+			break;
+		}
 		if( aKeyWordID == eCmdWord_Temp )
 			requestedTemporary = true;
-		if( aKeyWordID == eCmdWord_To ) // too early!
+		if( aKeyWordID == eCmdWord_To ||
+			aKeyWordID == eCmdWord_Prompt ||
+			aKeyWordID == eCmdWord_AskFiller ||
+			aKeyWordID == eCmdWord_With )
+		{// too early!
 			return result;
+		}
 	}
-	if( aKeyWordID != eCmdWord_Set )
+	if( aKeyWordID != eCmdWord_Set && aKeyWordID != eCmdWord_Ask )
 		return result;
 
-	// Search for a valid variable between "set" and "to"
+	// Search for a valid variable between "set/ask" and "to/prompt/with"
 	int aVarNameIdx = 0;
 	for(++aWordIdx; aWordIdx < kWordCount; ++aWordIdx)
 	{
 		aKeyWordID = commandWordToID(theWords[aWordIdx]);
-		if( aKeyWordID == eCmdWord_To )
+		if( aKeyWordID == eCmdWord_To && !askingFromUser )
 			break;
+		if( askingFromUser &&
+			(aKeyWordID == eCmdWord_With ||
+			 aKeyWordID == eCmdWord_Prompt) )
+		{
+			break;
+		}
 		if( aKeyWordID == eCmdWord_Temp )
 		{
 			requestedTemporary = true;
 			continue;
 		}
-		if( aKeyWordID == eCmdWord_Variable )
+		if( aKeyWordID == eCmdWord_Variable ||
+			aKeyWordID == eCmdWord_Set ||
+			aKeyWordID == eCmdWord_Filler ||
+			aKeyWordID == eCmdWord_AskFiller )
+		{
 			continue;
-		if( aKeyWordID == eCmdWord_Filler )
-			continue;
-		// If more than one candidate for variabe name - abort!
+		}
+		// If more than one candidate for variable name - abort!
 		if( aVarNameIdx )
 			return result;
 		aVarNameIdx = aWordIdx;
 	}
-	if( aKeyWordID != eCmdWord_To || !aVarNameIdx )
+	if( !aVarNameIdx )
+		return result;
+
+	if( !askingFromUser && aKeyWordID != eCmdWord_To )
 		return result;
 
 	const int aVariableID = Profile::variableNameToID(theWords[aVarNameIdx]);
 	if( aVariableID < 0 )
 		return result;
 
-	// We now have "Set <varname> to", now need to get string to set it to
-	// Need to find " to " in the original string
-	int aPatternIdx = 0;
-	const char aPattern[5] = " to ";
-	// Start search after "set" and <varname> in terms of character count
-	for(const char* c = &(theString.c_str()[4 + theWords[aVarNameIdx].size()]);
-		; ++c)
+	// We now have "Set <varname> to", now need to get string to set it to,
+	// meaning need to find location of " to " in the original string.
+	// Unless actual command was "Request <varname> with prompt"...
+	if( askingFromUser )
 	{
-		const u8 aTestChar(*c);
-		const u8 aPatternChar(aPattern[aPatternIdx]);
-		if( aPatternChar == '\0' )
-		{// Pattern matched!
-			if( aTestChar > ' ' || aTestChar == '\0' )
-			{// Found start of string to store in the variable!
-				result.type = eCmdType_SetVariable;
-				result.variableID = dropTo<u16>(aVariableID);
-				result.stringID = dropTo<u16>(sCmdStrings.findOrAddIndex(c));
-				result.temporary = requestedTemporary;
-				break;
-			}
-			continue;
-		}
-		if( (aTestChar <= ' ' && aPatternChar == ' ') ||
-			(aTestChar == 't' && aPatternChar == 't') ||
-			(aTestChar == 'T' && aPatternChar == 't') ||
-			(aTestChar == 'o' && aPatternChar == 'o') ||
-			(aTestChar == 'O' && aPatternChar == 'o') )
+		// First first word that isn't "ask", "temp", "prompt", or fillers
+		while(aWordIdx < kWordCount &&
+			(aKeyWordID == eCmdWord_AskFiller ||
+			 aKeyWordID == eCmdWord_Prompt ||
+			 aKeyWordID == eCmdWord_With ||
+			 aKeyWordID == eCmdWord_Temp) )
 		{
-			++aPatternIdx;
+			aKeyWordID = commandWordToID(theWords[++aWordIdx]);
 		}
-		else
+		// Take original string and start search for the last word found
+		// that doesn't seem to be part of the prompt itself
+		// (including a space just before and after the word)
+		--aWordIdx;
+	}
+	
+	// To speed up search, can start after at minimum all the characters in
+	// all previous words (+ 1 space after each) before the search target
+	size_t aStrPos = 0;
+	for(int i = 0; i < aWordIdx; ++i)
+		aStrPos += theWords[i].size() + 1;
+
+	for(;;)
+	{
+		aStrPos = theString.find_first_of(theWords[aWordIdx], aStrPos);
+		if( aStrPos >= theString.size() )
+			return result; // shouldn't have been possible...
+		// Make sure word is surrounded by whitespace to be valid
+		if( theString[aStrPos-1] <= ' ' &&
+			theString[aStrPos + theWords[aWordIdx].size()] <= ' ' )
 		{
-			aPatternIdx = 0;
-		}
-		if( *c == '\0' )
+			aStrPos += theWords[aWordIdx].size() + 1;
 			break;
+		}
+		++aStrPos;
 	}
 
+	result.type = askingFromUser
+		? eCmdType_RequestVariable
+		: eCmdType_SetVariable;
+	result.variableID = dropTo<u16>(aVariableID);
+	result.stringID = dropTo<u16>(sCmdStrings.findOrAddIndex(
+		fetchNextItem(theString, aStrPos, "", askingFromUser)));
+	result.temporary = requestedTemporary;
 	return result;
 }
 
@@ -1488,9 +1521,11 @@ static Command wordsToSpecialCommand(
 		switch(aKeyWordID)
 		{
 		case eCmdWord_Filler:
+		case eCmdWord_AskFiller:
 		case eCmdWord_To:
 			break;
 		case eCmdWord_Ignored:
+		case eCmdWord_Prompt:
 		case eCmdWord_Temp:
 			anIgnoredWord = &theWords[i];
 			break;
@@ -1536,6 +1571,7 @@ static Command wordsToSpecialCommand(
 	}
 	if( sKeyWordMap.empty() )
 		return result;
+
 	sKeyWordMap.sort();
 	// If have no "unknown" word (layer name/etc), use "ignored" word as one
 	// This is the only difference between "ignored" and "filler" words
@@ -1568,7 +1604,6 @@ static Command wordsToSpecialCommand(
 	// "= Defer [to] [lower] [layers]
 	allowedKeyWords.reset();
 	allowedKeyWords.set(eCmdWord_Defer);
-	allowedKeyWords.set(eCmdWord_To);
 	allowedKeyWords.set(eCmdWord_Lower);
 	allowedKeyWords.set(eCmdWord_Layer);
 	if( allowButtonActions &&
@@ -1954,7 +1989,6 @@ static Command wordsToSpecialCommand(
 		allowedKeyWords.reset();
 		allowedKeyWords.set(eCmdWord_Set);
 		allowedKeyWords.set(eCmdWord_Default);
-		allowedKeyWords.set(eCmdWord_To);
 		allowedKeyWords.set(eCmdWord_Last);
 		if( keyWordsFound.test(eCmdWord_Set) &&
 			(keyWordsFound & ~allowedKeyWords).count() <= 1 )
@@ -1964,7 +1998,6 @@ static Command wordsToSpecialCommand(
 			return result;
 		}
 		allowedKeyWords.reset(eCmdWord_Set);
-		allowedKeyWords.reset(eCmdWord_To);
 		allowedKeyWords.reset(eCmdWord_Default);
 		// "= <aKeyBindCycleID> 'Repeat'|'Last'|'Repeat Last'"
 		// allowedKeyWords = Last
@@ -2280,7 +2313,7 @@ static Command stringToCommand(
 		return result;
 	}
 
-	// Check for set variable command
+	// Check for set/request variable command
 	result = stringToSetVariableCommand(theString, sParsedString);
 	if( result.type != eCmdType_Invalid )
 	{
@@ -2632,12 +2665,20 @@ static void applyMenuProperty(
 		switch(commandWordToID(thePropVal))
 		{
 		case eCmdWord_Skip:
+		case eCmdWord_Default:
 			theMenu.defaultMenuItemIdx = -1;
-			mapDebugPrint("%s: Default menu item set to auto-pick\n");
+			mapDebugPrint("%s: Default menu item set to auto-pick\n",
+				sSectionPrintName.c_str());
 			break;
 		case eCmdWord_Last:
 			theMenu.defaultMenuItemIdx = -2;
-			mapDebugPrint("%s: Default menu item set to recall last\n");
+			mapDebugPrint("%s: Default menu item set to recall last\n",
+				sSectionPrintName.c_str());
+			break;
+		case eCmdWord_Reset:
+			theMenu.defaultMenuItemIdx = 0;
+			mapDebugPrint("%s: Default menu item set to 1\n",
+				sSectionPrintName.c_str());
 			break;
 		default:
 			{
@@ -3931,7 +3972,8 @@ const char* cmdString(const Command& theCommand)
 {
 	DBG_ASSERT(
 		theCommand.type == eCmdType_ChatBoxString ||
-		theCommand.type == eCmdType_SetVariable);
+		theCommand.type == eCmdType_SetVariable ||
+		theCommand.type == eCmdType_RequestVariable);
 	DBG_ASSERT(theCommand.stringID < sCmdStrings.size());
 	return sCmdStrings.keys()[theCommand.stringID].c_str();
 }

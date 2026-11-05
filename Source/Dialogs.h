@@ -67,6 +67,10 @@ EResult editMenuCommand(
 	std::string& theString,
 	bool allowInsert);
 
+std::string getString(
+	const std::string& thePrompt,
+	std::string theDefaultString);
+
 void showError(
 	const std::string& theError);
 void showNotice(

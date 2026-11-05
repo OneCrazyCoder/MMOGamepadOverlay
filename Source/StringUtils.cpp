@@ -468,7 +468,7 @@ std::string fetchNextItem(
 	bool stripOuterQuotes)
 {
 	#ifndef NDEBUG
-	DBG_ASSERT(theDelimiter && *theDelimiter);
+	DBG_ASSERT(theDelimiter);
 	for(const char* c = theDelimiter; *c; ++c)
 	{
 		DBG_ASSERT(*c != '\'');

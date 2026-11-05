@@ -63,6 +63,7 @@ enum ECommandType
 
 	// These are just a mix of special-case one-off commands
 	eCmdType_SetVariable,
+	eCmdType_RequestVariable,
 	eCmdType_StartAutoRun,
 	eCmdType_ChangeProfile,
 	eCmdType_EditLayout,
@@ -376,6 +377,7 @@ enum ECommandKeyWord
 	eCmdWord_DownNoWrap,
 	eCmdWord_Default,
 	eCmdWord_Set,
+	eCmdWord_Ask,
 	eCmdWord_Variable,
 	eCmdWord_Last,
 	eCmdWord_Repeat,
@@ -386,10 +388,12 @@ enum ECommandKeyWord
 	eCmdWord_File,
 	eCmdWord_App,
 	eCmdWord_Temp,
+	eCmdWord_Prompt,
 
 	eCmdWord_Integer,
 	eCmdWord_Ignored,
 	eCmdWord_Filler,
+	eCmdWord_AskFiller,
 	eCmdWord_Num,
 
 	eCmdWord_Forward = eCmdWord_Up,
