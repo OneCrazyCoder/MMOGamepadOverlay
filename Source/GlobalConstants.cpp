@@ -658,6 +658,8 @@ ECommandKeyWord commandWordToID(const std::string& theWord)
 				{ "Favorite",		eCmdWord_Default	},
 				{ "Saved",			eCmdWord_Default	},
 				{ "Default",		eCmdWord_Default	},
+				{ "Match",			eCmdWord_Default	},
+				{ "Maintain",		eCmdWord_Default	},
 				{ "Save",			eCmdWord_Set		},
 				{ "Store",			eCmdWord_Set		},
 				{ "Set",			eCmdWord_Set		},

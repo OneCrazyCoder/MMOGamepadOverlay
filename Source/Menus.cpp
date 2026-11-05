@@ -517,8 +517,8 @@ Command openSideMenu(int theRootMenuID, int theSideMenuID, ECommandDir theDir)
 	{// Use specified default for new sub-menu every time
 		aNextSel = aNewMenuDefaultIdx + 1;
 	}
-	else
-	{// Auto-pick selection based on position in previous menu
+	else //if( aNewMenuDefaultIdx == -1 )
+	{// Match selection position of menu just left
 		const EMenuStyle aNewMenuStyle = InputMap::menuStyle(theSideMenuID);
 		const int aNewItemCount = InputMap::menuItemCount(theSideMenuID);
 		const int anOldMenuID = activeSubMenu(theRootMenuID);

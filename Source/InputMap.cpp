@@ -266,7 +266,7 @@ struct Menu
 	u16 keyBindCycleID;
 	u16 posHotspotID;
 	u16 profileSectionID;
-	s16 defaultMenuItemIdx; // -1 = auto-pick, -2 = recall last
+	s16 defaultMenuItemIdx; // 1-based, -1 = match prev, -2 = recall last
 	u16 gridWidth;
 	// Visual details will be parsed by the WindowPainter module
 
@@ -279,7 +279,7 @@ struct Menu
 		overlayID(),
 		keyBindCycleID(kInvalidID),
 		posHotspotID(),
-		defaultMenuItemIdx(-1),
+		defaultMenuItemIdx(),
 		gridWidth(0)
 	{}
 };
@@ -2377,7 +2377,7 @@ static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
 {
 	Menu& theMenu = sMenus.vals()[theMenuID];
 
-	int result = theString.empty() ? -1 : stringToInt(theString);
+	int result = theString.empty() ? 0 : stringToInt(theString);
 	if( result > 0 )
 	{// Assume indicating a menu item number (starting with 1)
 		if( result > intSize(theMenu.items.size()) )
@@ -2385,30 +2385,29 @@ static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
 			theMenu.items.resize(result);
 			gReshapeOverlays.set(theMenu.overlayID);
 		}
-		--result;
 	}
 	else if( int aHotspotID = HotspotMap::hotspotIDFromName(theString) )
 	{// Find or add a menu item for this hotspot ID
 		const int aMenuLen = intSize(theMenu.items.size());
-		result = aMenuLen;
+		result = aMenuLen+1;
 		for(int i = 0; i < aMenuLen; ++i)
 		{
 			if( theMenu.items[i].hotspotID == aHotspotID )
 			{
-				result = i;
+				result = i+1;
 				break;
 			}
 		}
-		if( result >= aMenuLen )
+		if( result > aMenuLen )
 		{
-			theMenu.items.resize(result+1);
+			theMenu.items.resize(result);
 			theMenu.items.back().hotspotID = dropTo<u16>(aHotspotID);
 			gReshapeOverlays.set(theMenu.overlayID);
 		}
 	}
 	else
 	{// Couldn't find a hotspot or menu item number from this
-		result = -1;
+		result = 0;
 	}
 
 	return result;
@@ -2479,7 +2478,7 @@ static MenuItem stringToMenuItem(
 				{
 					const int aMenuItemIdx =
 						stringToMenuItemIdx(aSubMenuID, aParamStr);
-					if( aMenuItemIdx < 0 )
+					if( !aMenuItemIdx )
 					{
 						logError("'%s / %s' redirecting to sub-menu with item "
 							"'%s' which is not a valid number or hotspot name!",
@@ -2489,7 +2488,7 @@ static MenuItem stringToMenuItem(
 					}
 					else
 					{
-						aMenuItem.cmd.menuItemID = dropTo<u16>(aMenuItemIdx+1);
+						aMenuItem.cmd.menuItemID = dropTo<u16>(aMenuItemIdx);
 					}
 				}
 			}
@@ -2665,9 +2664,11 @@ static void applyMenuProperty(
 		switch(commandWordToID(thePropVal))
 		{
 		case eCmdWord_Skip:
+			theMenu.defaultMenuItemIdx = 0; // use root's setting
+			break;
 		case eCmdWord_Default:
 			theMenu.defaultMenuItemIdx = -1;
-			mapDebugPrint("%s: Default menu item set to auto-pick\n",
+			mapDebugPrint("%s: Default menu item set to match side menu\n",
 				sSectionPrintName.c_str());
 			break;
 		case eCmdWord_Last:
@@ -2676,7 +2677,7 @@ static void applyMenuProperty(
 				sSectionPrintName.c_str());
 			break;
 		case eCmdWord_Reset:
-			theMenu.defaultMenuItemIdx = 0;
+			theMenu.defaultMenuItemIdx = 1;
 			mapDebugPrint("%s: Default menu item set to 1\n",
 				sSectionPrintName.c_str());
 			break;
@@ -2684,7 +2685,7 @@ static void applyMenuProperty(
 			{
 				const int aMenuItemIdx =
 					stringToMenuItemIdx(theMenuID, thePropVal);
-				if( aMenuItemIdx < 0 )
+				if( !aMenuItemIdx )
 				{
 					logError(
 						"%s: Not sure how to assign default menu item to '%s'!",
@@ -2693,11 +2694,10 @@ static void applyMenuProperty(
 				}
 				else
 				{
-					theMenu.defaultMenuItemIdx =
-						s16(clamp(aMenuItemIdx, 0, 0x7FFF));
+					theMenu.defaultMenuItemIdx = s16(min(aMenuItemIdx, 0x7FFF));
 					mapDebugPrint("%s: Default menu item set to %d\n",
 						sSectionPrintName.c_str(),
-						aMenuItemIdx+1);
+						theMenu.defaultMenuItemIdx);
 				}
 			}
 			break;
@@ -4256,14 +4256,21 @@ int menuDefaultItemIdx(int theMenuID)
 {
 	DBG_ASSERT(theMenuID >= 0 && theMenuID < sMenus.size());
 	int result = sMenus.vals()[theMenuID].defaultMenuItemIdx;
-	// If set to auto-pick (-1) but root uses recall (-2), use that instead
-	if( result == -1 &&
+	if( !result &&
 		sMenus.vals()[theMenuID].rootMenuID != theMenuID &&
-		sMenus.vals()[theMenuID].rootMenuID < sMenus.size() &&
-		menuDefaultItemIdx(sMenus.vals()[theMenuID].rootMenuID) == -2 )
-	{
-		result = -2;
+		sMenus.vals()[theMenuID].rootMenuID < sMenus.size() )
+	{// Sub-menu without value set
+		result = menuDefaultItemIdx(sMenus.vals()[theMenuID].rootMenuID);
+		// Use root value only if root is special (-1 or -2)
+		if( result > 0 )
+			result = 0;
 	}
+	// If not specifically specified, use -1 (match), otherwise subtract 1
+	// to get a 0-based menu item index
+	if( !result )
+		result = -1;
+	else if( result > 0 )
+		--result;
 	return result;
 }
 
