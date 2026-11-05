@@ -2407,7 +2407,7 @@ static int stringToMenuItemIdx(int theMenuID, const std::string& theString)
 	}
 	else
 	{// Couldn't find a hotspot or menu item number from this
-		result = 0;
+		result = -1;
 	}
 
 	return result;
@@ -2478,7 +2478,7 @@ static MenuItem stringToMenuItem(
 				{
 					const int aMenuItemIdx =
 						stringToMenuItemIdx(aSubMenuID, aParamStr);
-					if( !aMenuItemIdx )
+					if( aMenuItemIdx < 0 )
 					{
 						logError("'%s / %s' redirecting to sub-menu with item "
 							"'%s' which is not a valid number or hotspot name!",
@@ -2486,7 +2486,7 @@ static MenuItem stringToMenuItem(
 							sPropertyPrintName.c_str(),
 							aParamStr.c_str());
 					}
-					else
+					else if( aMenuItemIdx > 0 )
 					{
 						aMenuItem.cmd.menuItemID = dropTo<u16>(aMenuItemIdx);
 					}
@@ -2595,6 +2595,20 @@ static void applyMenuProperty(
 		return;
 
 	case ePropType_Auto:
+		if( !thePropVal.empty() &&
+			thePropVal[0] == '.' &&
+			theMenu.rootMenuID == theMenuID )
+		{// Allow an alternate root menu (borrowing menu item code to identify)
+			MenuItem aTmpMenuItem = stringToMenuItem(
+				theMenuID, "Auto :"+thePropVal);
+			if( aTmpMenuItem.cmd.type == eCmdType_OpenSubMenu )
+			{
+				theMenu.autoCommand = aTmpMenuItem.cmd;
+				reportCommandAssignment(theMenu.autoCommand, thePropVal);
+				return;
+			}
+		}
+		// Fall through
 	case ePropType_Back:
 		{
 			Command aCmd = stringToCommand(
@@ -2685,14 +2699,14 @@ static void applyMenuProperty(
 			{
 				const int aMenuItemIdx =
 					stringToMenuItemIdx(theMenuID, thePropVal);
-				if( !aMenuItemIdx )
+				if( aMenuItemIdx < 0 )
 				{
 					logError(
 						"%s: Not sure how to assign default menu item to '%s'!",
 						sSectionPrintName.c_str(),
 						thePropVal.c_str());
 				}
-				else
+				else if( aMenuItemIdx > 0 )
 				{
 					theMenu.defaultMenuItemIdx = s16(min(aMenuItemIdx, 0x7FFF));
 					mapDebugPrint("%s: Default menu item set to %d\n",
@@ -2879,8 +2893,9 @@ static void validateMenu(int theMenuID)
 	if( aMenuStyle == eMenuStyle_4Dir )
 		return;
 
-	// Guarantee at least 1 menu item
-	if( theMenu.items.empty() )
+	// Guarantee at least 1 menu item, or that Auto opens a sub-menu
+	if( theMenu.items.empty() &&
+		theMenu.autoCommand.type != eCmdType_OpenSubMenu )
 	{
 		if( !styleIsInvalid )
 		{

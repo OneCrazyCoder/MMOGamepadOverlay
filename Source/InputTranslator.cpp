@@ -1398,8 +1398,10 @@ static void processCommand(
 	case eCmdType_MenuReset:
 		aForwardCmd = Menus::reset(theCmd.rootMenuID);
 		if( aForwardCmd.type != eCmdType_Invalid )
+		{
 			processCommand(theBtnState, aForwardCmd);
-		updateMouseForMenu(theCmd.rootMenuID);
+			updateMouseForMenu(theCmd.rootMenuID);
+		}
 		break;
 	case eCmdType_MenuConfirm:
 		updateMouseForMenu(theCmd.rootMenuID, true);

@@ -40,6 +40,14 @@ static inline int getMenuOverlayID(int theRootMenuID)
 }
 
 
+static inline int initialMenu(int theRootMenuID)
+{
+	const Command& aCmd = InputMap::menuAutoCommand(theRootMenuID);
+	if( aCmd.type == eCmdType_OpenSubMenu )
+		return aCmd.subMenuID;
+	return theRootMenuID;
+}
+
 static inline int activeSubMenu(int theRootMenuID)
 {
 	const int anOverlayID = getMenuOverlayID(theRootMenuID);
@@ -151,7 +159,7 @@ void init()
 	for(int anOverlayID = 0; anOverlayID < kMenuStackCount; ++anOverlayID)
 	{
 		sActiveSubMenu[anOverlayID] = dropTo<u16>(
-			InputMap::overlayRootMenuID(anOverlayID));
+			initialMenu(InputMap::overlayRootMenuID(anOverlayID)));
 	}
 
 	DBG_ASSERT(sSelectedItem.empty());
@@ -473,10 +481,9 @@ Command openSubMenu(int theRootMenuID, int theSubMenuID, int theMenuItem)
 	// If theMenuItem > 0 select requested menu item directly.
 	// Otherwise, if going back to a parent menu then keep previous selection
 	// for that menu, and if not doing that then select default menu item.
-	// -1 (such as from reset()) forces default item
 	if( theMenuItem > 0 )
 		--theMenuItem;
-	else if( !theMenuItem && isParentOfActiveMenu(theRootMenuID, theSubMenuID) )
+	else if( isParentOfActiveMenu(theRootMenuID, theSubMenuID) )
 		theMenuItem = sSelectedItem[theSubMenuID];
 	else
 		theMenuItem = InputMap::menuDefaultItemIdx(theSubMenuID);
@@ -604,8 +611,8 @@ Command closeActiveSubMenu(int theRootMenuID)
 	const int theOldSubMenuID = sActiveSubMenu[theOverlayID];
 
 	Command result;
-	if( theOldSubMenuID == theRootMenuID )
-	{// Can't close root menu, but mark as attempted a change still
+	if( theOldSubMenuID == initialMenu(theRootMenuID) )
+	{// Can't close initial menu, but mark as attempted a change still
 		gActiveOverlays.set(theOverlayID);
 		return result;
 	}
@@ -631,17 +638,32 @@ Command reset(int theRootMenuID)
 {
 	const int theOverlayID = getMenuOverlayID(theRootMenuID);
 	const int theOldSubMenuID = sActiveSubMenu[theOverlayID];
+	const int theNewMenuID = initialMenu(theRootMenuID);
+	const int theMenuItem = clamp(
+		InputMap::menuDefaultItemIdx(theNewMenuID) - 1,
+		0, InputMap::menuItemCount(theNewMenuID) - 1);
 
-	// Borrow openSubMenu() even if already at root to reset default selection
-	const bool wasActivatedThisUpdate = gActiveOverlays.test(theOverlayID);
-	Command result = openSubMenu(theRootMenuID, theRootMenuID, -1);
-	DBG_ASSERT(activeSubMenu(theRootMenuID) == theRootMenuID);
+	bool changeMade = false;
+	if( theOldSubMenuID != theNewMenuID )
+	{
+		sActiveSubMenu[theOverlayID] = dropTo<u16>(theNewMenuID);
+		gFullRedrawOverlays.set(theOverlayID);
+		changeMade = true;
+	}
 
-	// UN-mark menu as being activated by this action (if nothing else did)
-	gActiveOverlays.set(theOverlayID, wasActivatedThisUpdate);
+	if( sSelectedItem[theNewMenuID] != theMenuItem )
+	{
+		sSelectedItem[theNewMenuID] = theMenuItem;
+		gRefreshOverlays.set(theOverlayID);
+		changeMade = true;
+		// Cancel any confirmation flashes when back out of a sub-menu
+		gConfirmedMenuItem[theOverlayID] = kInvalidID;
+	}
 
-	// Make sure even if command is empty caller knows when active menu changed
-	if( result.type == eCmdType_Invalid && theRootMenuID != theOldSubMenuID )
+	Command result = InputMap::menuAutoCommand(theNewMenuID);
+
+	// Make sure even if command is empty caller knows something changed
+	if( result.type == eCmdType_Invalid && changeMade )
 		result.type = eCmdType_Unassigned;
 
 	return result;
@@ -656,7 +678,16 @@ Command autoCommand(int theRootMenuID)
 
 Command backCommand(int theRootMenuID)
 {
-	return InputMap::menuBackCommand(activeSubMenu(theRootMenuID));
+	const int theActiveMenu = activeSubMenu(theRootMenuID);
+	const int theInitialMenu = initialMenu(theRootMenuID);
+	Command result = InputMap::menuBackCommand(theActiveMenu);
+	if( theInitialMenu != theRootMenuID &&
+		theActiveMenu == theInitialMenu &&
+		result.type < eCmdType_FirstValid )
+	{// Use root menu's back command if this is initial menu and it has none
+		result = InputMap::menuBackCommand(theRootMenuID);
+	}
+	return result;
 }
 
 
