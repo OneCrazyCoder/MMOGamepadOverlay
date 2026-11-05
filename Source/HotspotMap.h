@@ -17,6 +17,7 @@ namespace HotspotMap
 // Load configuration settings from current profile
 void loadProfile();
 void loadProfileChanges();
+void loadMenuLinkChanges();
 
 // Remove/disable all hotspots for app shutdown or profile change
 void cleanup();

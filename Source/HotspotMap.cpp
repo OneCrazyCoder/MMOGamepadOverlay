@@ -1557,6 +1557,23 @@ void loadProfileChanges()
 		}
 	}
 
+	// Check for any hotspots need to re-normalize and thus re-process grid
+	sHotspotsToNormalize |= sChangedHotspots;
+	sHotspotsToNormalize.reset(eSpecialHotspot_None);
+	sHotspotsToNormalize.reset(eSpecialHotspot_LastCursorPos);
+	if( sHotspotsToNormalize.any() )
+	{
+		sNewTasks.set(eTask_Normalize);
+		sNewTasks.set(eTask_AddToGrid);
+		sNewTasks.set(eTask_BeginSearch);
+		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
+			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
+	}
+}
+
+
+void loadMenuLinkChanges()
+{
 	// Check for hotspot changes for any menu link maps
 	for(int i = 0, end = intSize(sLinkMaps.size()); i < end; ++i)
 	{
@@ -1584,19 +1601,6 @@ void loadProfileChanges()
 			anEdgeMap.edge[eCmdDir_U].clear();
 			anEdgeMap.edge[eCmdDir_D].clear();
 		}
-	}
-
-	// Check for any hotspots need to re-normalize and thus re-process grid
-	sHotspotsToNormalize |= sChangedHotspots;
-	sHotspotsToNormalize.reset(eSpecialHotspot_None);
-	sHotspotsToNormalize.reset(eSpecialHotspot_LastCursorPos);
-	if( sHotspotsToNormalize.any() )
-	{
-		sNewTasks.set(eTask_Normalize);
-		sNewTasks.set(eTask_AddToGrid);
-		sNewTasks.set(eTask_BeginSearch);
-		if( gHotspotsGuideMode == eHotspotGuideMode_Showing )
-			gHotspotsGuideMode = eHotspotGuideMode_Redraw;
 	}
 }
 

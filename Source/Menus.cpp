@@ -171,6 +171,7 @@ void cleanup()
 
 void loadProfileChanges()
 {
+	HotspotMap::loadMenuLinkChanges();
 	const Profile::SectionsMap& theProfileMap = Profile::changedSections();
 	if( theProfileMap.containsPrefix("Menu.") ||
 		HotspotMap::changedHotspots().any() )
