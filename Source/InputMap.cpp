@@ -3111,7 +3111,9 @@ static void addButtonAction(
 			bool shouldRemoveEntirely = true;
 			for(int i = 0; i < eBtnAct_Num; ++i)
 			{
-				if( aBtnItr->second.cmd[i].type >= eCmdType_DoNothing )
+				if( aBtnItr->second.cmd[i].type != eCmdType_Invalid &&
+					aBtnItr->second.cmd[i].type != eCmdType_Empty &&
+					aBtnItr->second.cmd[i].type != eCmdType_Unassigned )
 				{
 					shouldRemoveEntirely = false;
 					break;
