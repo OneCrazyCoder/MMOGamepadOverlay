@@ -2893,11 +2893,11 @@ static void validateMenu(int theMenuID)
 	if( aMenuStyle == eMenuStyle_4Dir )
 		return;
 
-	// Guarantee at least 1 menu item, or that Auto opens a sub-menu
-	if( theMenu.items.empty() &&
-		theMenu.autoCommand.type != eCmdType_OpenSubMenu )
+	// Guarantee at least 1 menu item
+	if( theMenu.items.empty() )
 	{
-		if( !styleIsInvalid )
+		if( !styleIsInvalid &&
+			theMenu.autoCommand.type != eCmdType_OpenSubMenu )
 		{
 			logError("%s: No menu items found! If empty menu intended, "
 				"Set \"1 = :\" to suppress this error",

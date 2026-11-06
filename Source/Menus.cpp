@@ -221,8 +221,8 @@ void loadProfileChanges()
 				break;
 			default:
 				// Clamp current selection to current menu item count
-				sSelectedItem[i] = clamp(
-					sSelectedItem[i], 0, InputMap::menuItemCount(i)-1);
+				sSelectedItem[i] = max(0, min(
+					sSelectedItem[i], InputMap::menuItemCount(i)-1));
 			}
 		}
 	}
@@ -442,7 +442,7 @@ Command selectMenuItem(
 		break;
 	}
 
-	aSelection = min(aSelection, theItemCount-1);
+	aSelection = max(0, min(aSelection, theItemCount-1));
 	if( !pushedPastEdge )
 		aDirCmd = Command();
 
@@ -639,9 +639,9 @@ Command reset(int theRootMenuID)
 	const int theOverlayID = getMenuOverlayID(theRootMenuID);
 	const int theOldSubMenuID = sActiveSubMenu[theOverlayID];
 	const int theNewMenuID = initialMenu(theRootMenuID);
-	const int theMenuItem = clamp(
+	const int theMenuItem = max(0, min(
 		InputMap::menuDefaultItemIdx(theNewMenuID) - 1,
-		0, InputMap::menuItemCount(theNewMenuID) - 1);
+		InputMap::menuItemCount(theNewMenuID) - 1));
 
 	bool changeMade = false;
 	if( theOldSubMenuID != theNewMenuID )
