@@ -755,6 +755,25 @@ static std::string namesToVKeySequence(
 }
 
 
+static void createEmptyKeyBind(const std::string& thePropKey)
+{
+	int aRangeStartIdx, aRangeEndIdx;
+	std::string aRangeBaseKey;
+	if( fetchRangeSuffix(
+			thePropKey, aRangeBaseKey,
+			aRangeStartIdx, aRangeEndIdx, true) )
+	{
+		for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
+			createEmptyKeyBind(aRangeBaseKey + toString(i));
+		return;
+	}
+
+	Command aDoNothingCommand = Command();
+	aDoNothingCommand.type = eCmdType_DoNothing;
+	sKeyBinds.setValue(thePropKey, aDoNothingCommand);
+}
+
+
 static int applyKeyBindProperty(
 	const std::string& theKey,
 	const std::string& theCmdStr)
@@ -3748,26 +3767,39 @@ static void loadDataFromProfile(
 			for(int aPropIdx = 0; aPropIdx < aPropMap->size(); ++aPropIdx)
 			{
 				sPropertyPrintName = aPropMap->keys()[aPropIdx];
-				const int aKeyBindID = applyKeyBindProperty(
-					aPropMap->keys()[aPropIdx],
-					aPropMap->vals()[aPropIdx].str);
-				if( aKeyBindID < eSpecialKey_Num &&
-					sKeyBinds.vals()[aKeyBindID].type != eCmdType_TapKey &&
-					sKeyBinds.vals()[aKeyBindID].type >= eCmdType_FirstValid )
+				std::string aVal = aPropMap->vals()[aPropIdx].str;
+				int aRangeStartIdx, aRangeEndIdx;
+				std::string aRangeBaseKey;
+				fetchRangeSuffix(
+					sPropertyPrintName, aRangeBaseKey,
+					aRangeStartIdx, aRangeEndIdx, true);
+				for(int i = aRangeStartIdx; i <= aRangeEndIdx; ++i)
 				{
-					logError(
-						"Special key bind '%s' may only be assigned to a "
-						"single key or modifier+key (or nothing)! "
-						"Could not assign %s!",
-						aPropMap->keys()[aPropIdx].c_str(),
-						aPropMap->vals()[aPropIdx].str.c_str());
-					sKeyBinds.vals()[aKeyBindID].type = eCmdType_DoNothing;
+					if( aRangeStartIdx != aRangeEndIdx )
+					{
+						sPropertyPrintName = aRangeBaseKey + toString(i);
+						aVal = replaceAllCharWithInt(
+							aPropMap->vals()[aPropIdx].str, '#', i);
+					}
+					const int aKeyBindID = applyKeyBindProperty(
+						sPropertyPrintName, aVal);
+					Command& aCmd = sKeyBinds.vals()[aKeyBindID];
+					if( aKeyBindID < eSpecialKey_Num &&
+						aCmd.type != eCmdType_TapKey &&
+						aCmd.type >= eCmdType_FirstValid )
+					{
+						logError(
+							"Special key bind '%s' may only be assigned to a "
+							"single key or modifier+key (or nothing)! "
+							"Could not assign %s!",
+							aPropMap->keys()[aPropIdx].c_str(),
+							aPropMap->vals()[aPropIdx].str.c_str());
+						aCmd.type = eCmdType_DoNothing;
+					}
+					reportCommandAssignment(
+						aCmd, aVal, keyBindSignalID(aKeyBindID));
+					loadedKeyBinds.set(aKeyBindID);
 				}
-				reportCommandAssignment(
-					sKeyBinds.vals()[aKeyBindID],
-					aPropMap->vals()[aPropIdx].str,
-					keyBindSignalID(aKeyBindID));
-				loadedKeyBinds.set(aKeyBindID);
 			}
 			break;
 		case ePropType_KeyBindCycles:
@@ -3860,14 +3892,16 @@ void loadProfile()
 
 	// Allocate key binds
 	// Start with the special keys so they get correct IDs
-	Command aDoNothingCommand = Command();
-	aDoNothingCommand.type = eCmdType_DoNothing;
 	for(int i = 0; i < eSpecialKey_Num; ++i)
-		sKeyBinds.findOrAdd(kSpecialKeyBindNames[i], aDoNothingCommand);
+	{
+		Command aDoNothingCommand = Command();
+		aDoNothingCommand.type = eCmdType_DoNothing;
+		sKeyBinds.setValue(kSpecialKeyBindNames[i], aDoNothingCommand);
+	}
 	 Profile::PropertyMapPtr aPropMapPtr =
 		 Profile::getSectionProperties(kKeyBindsSectionName);
 	for(int i = 0; i < aPropMapPtr->size(); ++i)
-		sKeyBinds.findOrAdd(aPropMapPtr->keys()[i], aDoNothingCommand);
+		createEmptyKeyBind(aPropMapPtr->keys()[i]);
 	sKeyBinds.trim();
 
 	// Allocate key bind cycles
