@@ -2069,7 +2069,10 @@ static void setPropertyAfterLoad(
 
 	if( saveToMap )
 	{
-		// Set pattern string (at least temporarily - below may clear it)
+		// Clear string derived from previous pattern
+		aProp.str.clear();
+
+		// Set new pattern string (at least temporarily - below may clear it)
 		aProp.pattern = theValue;
 
 		// Apply variable expansion (or just move from .pattern to .str),
