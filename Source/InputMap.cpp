@@ -1730,6 +1730,7 @@ static Command wordsToSpecialCommand(
 	allowedKeyWords.set(eCmdWord_Hold);
 	allowedKeyWords.set(eCmdWord_Replace);
 	allowedKeyWords.set(eCmdWord_Toggle);
+	allowedKeyWords.set(eCmdWord_Force);
 	// Directionals aren't layer-related but also not allowed as layer names
 	allowedKeyWords.set(eCmdWord_Left);
 	allowedKeyWords.set(eCmdWord_Right);

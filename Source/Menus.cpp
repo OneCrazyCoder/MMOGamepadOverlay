@@ -67,7 +67,7 @@ static inline bool isParentOfActiveMenu(int theRootMenuID, int theMenuID)
 	const int theActiveMenu = activeSubMenu(theRootMenuID);
 	if( theActiveMenu == theMenuID )
 		return false;
-	if( theMenuID == theRootMenuID )
+	if( theMenuID == initialMenu(theRootMenuID) )
 		return true;
 
 	int aTestMenu = InputMap::parentMenuOfMenu(theActiveMenu);
