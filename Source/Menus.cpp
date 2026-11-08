@@ -262,8 +262,7 @@ Command selectedMenuItemCommand(int theRootMenuID)
 Command selectMenuItem(
 	int theRootMenuID,
 	ECommandDir theDir,
-	bool wrap,
-	bool repeat)
+	bool wrap, bool repeat, bool multiStep)
 {
 	const int theOverlayID = getMenuOverlayID(theRootMenuID);
 	const int theSubMenuID = sActiveSubMenu[theOverlayID];
@@ -422,16 +421,20 @@ Command selectMenuItem(
 		switch(theDir)
 		{
 		case eCmdDir_L:
-			pushedPastEdge = !repeat;
-			break;
 		case eCmdDir_R:
-			pushedPastEdge = !repeat;
+			pushedPastEdge = true;
 			break;
 		case eCmdDir_U:
-			aSelection = decWrap(aSelection, theItemCount);
+			if( wrap || !multiStep )
+				aSelection = decWrap(aSelection, theItemCount);
+			else
+				--aSelection;
 			break;
 		case eCmdDir_D:
-			aSelection = incWrap(aSelection, theItemCount);
+			if( wrap || !multiStep )
+				aSelection = incWrap(aSelection, theItemCount);
+			else
+				++aSelection;
 			break;
 		}
 		break;

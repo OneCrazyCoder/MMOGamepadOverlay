@@ -1432,7 +1432,7 @@ static void processCommand(
 			DBG_ASSERT(theCmd.dir >= 0 && theCmd.dir < eCmdDir_Num);
 			aForwardCmd = Menus::selectMenuItem(
 				theCmd.rootMenuID, ECommandDir(theCmd.dir),
-				theCmd.wrap, repeated || i < theCmd.count-1);
+				theCmd.wrap, repeated || i < theCmd.count-1, theCmd.count != 0);
 			processCommand(theBtnState, aForwardCmd);
 		}
 		updateMouseForMenu(theCmd.rootMenuID);

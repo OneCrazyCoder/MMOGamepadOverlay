@@ -35,7 +35,8 @@ Command selectedMenuItemCommand(int theRootMenuID);
 // Changes currently selected menu item.
 // In some menu styles, the act of selecting a menu item should also
 // trigger an associated Command to execute immediately, which is returned.
-Command selectMenuItem(int theRootMenuID, ECommandDir, bool wrap, bool repeat);
+Command selectMenuItem(
+	int theRootMenuID, ECommandDir, bool wrap, bool repeat, bool multiStep);
 
 // Opens a sub-menu, meaning all references to the menu ID will actually refer
 // to the sub-menu's data instead untli it is closed. Returns its Auto command.
