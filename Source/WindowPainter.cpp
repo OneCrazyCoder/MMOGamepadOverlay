@@ -24,6 +24,10 @@ namespace WindowPainter
 
 enum {
 kMinFontPixelHeight = 6,
+kMinTextPaddingX = 3,
+kMinTextPaddingY = 2,
+kTextPaddingDivX = 3,
+kTextPaddingDivY = 5,
 kNoticeStringDisplayTimePerChar = 50,
 kNoticeStringMinTime = 3000,
 kSystemOverlayFlashFreq = 125,
@@ -288,6 +292,7 @@ struct StringScaleCacheEntry
 {
 	HFONT fontHandle;
 	u16 width, height;
+	u16 padX, padY;
 };
 
 struct MultiIconCacheEntry
@@ -1840,6 +1845,14 @@ static LONG getFontHeightToFit(
 
 	// First check if base font will fit fine on its own
 	RECT aCalcRect = theClipRect;
+
+	// Shrink calc rect by expected padding first
+	TEXTMETRIC tm;
+	GetTextMetrics(hdc, &tm);
+	InflateRect(&aCalcRect,
+		-max<LONG>(kMinTextPaddingX, tm.tmHeight / kTextPaddingDivX),
+		-max<LONG>(kMinTextPaddingY, tm.tmHeight / kTextPaddingDivY));
+
 	// DT_SINGLELINE prevents DT_CALCRECT from calculating height
 	theFormat &= ~DT_SINGLELINE;
 	aCalcRect.bottom = aCalcRect.top;
@@ -1858,10 +1871,9 @@ static LONG getFontHeightToFit(
 	// Base font is too big, need a smaller font size!
 	LOGFONT aBaseFont;
 	GetObject(GetCurrentObject(hdc, OBJ_FONT), sizeof(LOGFONT), &aBaseFont);
-	// Use this method instead of checking aBaseFont.lfHeight because
+	// Use TEXTMETRIC instead of checking aBaseFont.lfHeight because
 	// TEXTMETRIC.tmHeight is always a positive value in pixels but
 	// aBaseFont.lfHeight can be a negative value of "logical units"
-	TEXTMETRIC tm;
 	GetTextMetrics(hdc, &tm);
 
 	// Use binary search to find largest font that will still fit
@@ -1877,6 +1889,10 @@ static LONG getFontHeightToFit(
 		aFont.lfHeight = mid;
 		HFONT hOldFont = (HFONT)SelectObject(hdc, CreateFontIndirect(&aFont));
 		aCalcRect = theClipRect;
+		GetTextMetrics(hdc, &tm);
+		InflateRect(&aCalcRect,
+			-max<LONG>(kMinTextPaddingX, tm.tmHeight / kTextPaddingDivX),
+			-max<LONG>(kMinTextPaddingY, tm.tmHeight / kTextPaddingDivY));
 		aCalcRect.bottom = aCalcRect.top;
 		DrawText(hdc, theStr.c_str(), -1, &aCalcRect,
 			theFormat | DT_CALCRECT | DT_NOPREFIX);
@@ -1963,6 +1979,13 @@ static void initStringCacheEntry(
 		aNeededRect.right - aNeededRect.left, 1, 0xFFFF));
 	theCacheEntry.height = u16(clamp(
 		aNeededRect.bottom - aNeededRect.top, 1, 0xFFFF));
+	SelectObject(dd.hdc, aChosenFontHandle);
+	TEXTMETRIC tm;
+	GetTextMetrics(dd.hdc, &tm);
+	theCacheEntry.padX = dropTo<u16>(
+		max<LONG>(kMinTextPaddingX, tm.tmHeight / kTextPaddingDivX));
+	theCacheEntry.padY = dropTo<u16>(
+		max<LONG>(kMinTextPaddingY, tm.tmHeight / kTextPaddingDivY));
 }
 
 
@@ -1979,12 +2002,15 @@ static void drawLabelString(
 
 	theFormat |= DT_NOPREFIX;
 
-	// Initialize cache entry to get font & height
+	// Initialize cache entry to get font, height, and padding
 	initStringCacheEntry(
 		dd, theRect, theStr, theBaseFontHandle, theFormat, theCacheEntry);
 
-	// Adjust vertial draw position manually when not using DT_SINGLELINE,
-	// which is the only time DT_VCENTER and DT_BOTTOM work normally
+	// Subtract out padding to calculate final position
+	InflateRect(&theRect, -theCacheEntry.padX, -theCacheEntry.padY);
+
+	// Adjust vertical draw position manually when not using DT_SINGLELINE
+	// (DT_VCENTER/BOTTOM only work natively when combined with DT_SINGLELINE)
 	if( !(theFormat & DT_SINGLELINE) )
 	{
 		if( theFormat & DT_VCENTER )
@@ -2348,8 +2374,10 @@ static void drawMenuTitle(
 		aBGRect.left =
 			aRect.right - theCacheEntry.str.width - aBorderSize;
 	}
-	aBGRect.right = aBGRect.left + theCacheEntry.str.width + aBorderSize * 2;
-	aBGRect.top = aBGRect.bottom - theCacheEntry.str.height - aBorderSize * 2;
+	aBGRect.right = aBGRect.left +
+		theCacheEntry.str.width + theCacheEntry.str.padX * 2 + aBorderSize * 2;
+	aBGRect.top = aBGRect.bottom -
+		theCacheEntry.str.height - theCacheEntry.str.padY * 2 - aBorderSize * 2;
 
 	const MenuItemAppearance& theTitleApp =
 		getMenuItemAppearance(dd.menuID, eMenuItemDrawState_Normal);
@@ -2958,12 +2986,14 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 		break;
 	case ePropChangeImpact_BaseApp:
 		aMenuCache.labelCache.clear();
+		aMenuCache.maxBorderSize = -1;
 		aMenuCache.appearanceID = kInvalidID;
 		if( menuIsActive)
 			gFullRedrawOverlays.set(anOverlayID);
 		break;
 	case ePropChangeImpact_ItemApp:
 		aMenuCache.labelCache.clear();
+		aMenuCache.maxBorderSize = -1;
 		for(int i = 0; i < eMenuItemDrawState_Num; ++i)
 			aMenuCache.itemAppearanceID[i] = kInvalidID;
 		if( menuIsActive)
