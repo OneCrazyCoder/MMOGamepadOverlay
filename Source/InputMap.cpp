@@ -1550,12 +1550,10 @@ static Command wordsToSpecialCommand(
 			break;
 		case eCmdWord_Wrap:
 			result.wrap = true;
-			anIgnoredWord = &theWords[i];
 			wrapSpecified = true;
 			break;
 		case eCmdWord_NoWrap:
 			result.wrap = false;
-			anIgnoredWord = &theWords[i];
 			wrapSpecified = true;
 			break;
 		case eCmdWord_Integer:
