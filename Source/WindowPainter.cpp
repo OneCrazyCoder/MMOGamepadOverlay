@@ -55,6 +55,7 @@ enum EMenuItemDrawState
 enum EMenuItemLabelType
 {
 	eMenuItemLabelType_Unknown,
+	eMenuItemLabelType_Empty,
 	eMenuItemLabelType_String,
 	eMenuItemLabelType_Bitmap,
 	eMenuItemLabelType_CopyRect,
@@ -2042,6 +2043,12 @@ static void initializeLabelDrawCacheEntry(
 	bool ignoreRangeSuffix = false)
 {
 	DBG_ASSERT(theCacheEntry.type == eMenuItemLabelType_Unknown);
+	if( theLabel.empty() )
+	{
+		theCacheEntry.type = eMenuItemLabelType_Empty;
+		return;
+	}
+
 	LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
 
 	if( aLabelIcon && aLabelIcon->copyFromTarget && dd.useCopyIcons )
@@ -2318,6 +2325,7 @@ static void drawMenuItemLabel(
 				theMenuApp, theItemApp, 0, 0, theCacheEntryID, i);
 		}
 	}
+	// else if( theCacheEntry.type == eMenuItemLabelType_Empty ) return;
 }
 
 
@@ -2419,21 +2427,18 @@ static void drawMenuItem(
 	drawMenuItemBG(dd, menuApp, itemApp, ps.rects[theRectIdx]);
 
 	// Label (usually word-wrapped and centered text)
-	if( !theLabel.empty() )
-	{
-		int aBorderSize = itemApp.borderSize;
-		if( menuApp.itemType == eMenuItemType_RndRect )
-			aBorderSize = max(aBorderSize, menuApp.radius / 4);
-		drawMenuItemLabel(
-			dd,
-			ps.rects[theRectIdx],
-			theRectIdx,
-			theLabel,
-			menuApp, itemApp,
-			aBorderSize,
-			getMaxBorderSize(dd.menuID),
-			theCacheEntryID);
-	}
+	int aBorderSize = itemApp.borderSize;
+	if( menuApp.itemType == eMenuItemType_RndRect )
+		aBorderSize = max(aBorderSize, menuApp.radius / 4);
+	drawMenuItemLabel(
+		dd,
+		ps.rects[theRectIdx],
+		theRectIdx,
+		theLabel,
+		menuApp, itemApp,
+		aBorderSize,
+		getMaxBorderSize(dd.menuID),
+		theCacheEntryID);
 }
 
 
