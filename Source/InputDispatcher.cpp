@@ -1994,7 +1994,8 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 					"detected button not held!");
 				// Skip mode transition
 				sTracker.mouseMode = eMouseMode_Cursor;
-				gNeedLayerReset = true;
+				gFiredSignals.set(
+					InputMap::keyBindSignalID(eSpecialKey_FocusLost));
 				return eMouseMode_Cursor;
 			}
 		}
@@ -2058,7 +2059,8 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 							"Failed to start Mouse Look mode - "
 							"try clicking on empty part of game window first?");
 						theWantedMode = eMouseMode_Cursor;
-						gNeedLayerReset = true;
+						gFiredSignals.set(
+							InputMap::keyBindSignalID(eSpecialKey_FocusLost));
 					}
 					else
 					{// Retry from start by releasing button

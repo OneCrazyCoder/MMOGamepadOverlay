@@ -57,6 +57,7 @@ const char* const kSpecialKeyBindNames[] =
 	"~MoveStop~",			// eSpecialKey_MoveStop
 	"~MoveMouse~",			// eSpecialKey_MoveMouse
 	"~MouseStop~",			// eSpecialKey_StopMouse
+	"~FocusLost~",			// eSpecialKey_FocusLost
 };
 DBG_CTASSERT(ARRAYSIZE(kSpecialKeyBindNames) == eSpecialKey_Num);
 
@@ -3244,7 +3245,7 @@ static void addWhenSignalCommand(
 		}
 	}
 
-	// Check for special cases - Move, Stop, Turn, Strafe, Mouse Move/Stop
+	// Check for special-case signals
 	struct NameToSignalMapper
 	{
 		typedef StringToValueMap<ESpecialKey, u8> NameToSignalMap;
@@ -3271,6 +3272,8 @@ static void addWhenSignalCommand(
 				{ "Move Mouse Stop",			eSpecialKey_MouseStop	},
 				{ "Move Mouse Stops",			eSpecialKey_MouseStop	},
 				{ "Mouse Stops Moving",			eSpecialKey_MouseStop	},
+				{ "Focus Lost",					eSpecialKey_FocusLost	},
+				{ "Lost Focus",					eSpecialKey_FocusLost	},
 			};
 			map.reserve(ARRAYSIZE(kEntries));
 			for(int i = 0; i < ARRAYSIZE(kEntries); ++i)

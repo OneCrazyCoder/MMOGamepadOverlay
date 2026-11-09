@@ -311,7 +311,7 @@ static void checkWindowActive()
 		// Release held keys when target window deactivates
 		targetDebugPrint("Target window inactive! Halting sent input!\n");
 		InputDispatcher::forceReleaseHeldKeys();
-		gNeedLayerReset = true;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_FocusLost));
 		sTargetWindowKeyboardLayout = NULL;
 		sLastTargetWindowKeyboardLayout = NULL;
 		// Don't interfere with other applications by keeping hotkey registered
@@ -387,7 +387,7 @@ static void checkWindowClosed()
 	else
 	{
 		InputDispatcher::forceReleaseHeldKeys();
-		gNeedLayerReset = true;
+		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_FocusLost));
 		targetDebugPrint("Target window closed!\n");
 	}
 	dropTargetWindow();

@@ -593,7 +593,7 @@ static void	loadCommandsForCurrentLayers()
 
 static bool removeControlsLayer(int theLayerID, bool force = false)
 {
-	DBG_ASSERT(theLayerID != 0 || gNeedLayerReset);
+	DBG_ASSERT(theLayerID != 0);
 
 	if( force && sState.layers[theLayerID].heldActiveByButton() )
 	{// Force remove layer held active by a button or buttons
@@ -2131,19 +2131,6 @@ static void updateMouseModeForCurrentLayers()
 }
 
 
-void resetLayers()
-{
-	// Failure recovery - attempt to restore to some kind of "cursor mode"
-	// that is assumed the initial setup would be by removing and re-adding
-	// the main "scheme" layer, which should remove all non-held layers in
-	// the process since all are descended from Scheme.
-	transDebugPrint("Resetting to default layer setup!");
-	removeControlsLayer(0);
-	addControlsLayer(0);
-	gNeedLayerReset = false;
-}
-
-
 //------------------------------------------------------------------------------
 // Global Functions
 //------------------------------------------------------------------------------
@@ -2197,7 +2184,6 @@ void cleanup()
 	}
 	sState.clear();
 	sResults.clear();
-	gNeedLayerReset = false;
 }
 
 
@@ -2210,9 +2196,6 @@ void update()
 	// sure that combinations enabled through layers like 'L2+X' work when
 	// both buttons are pressed at exactly the same time.
 	processLayerHoldButtons();
-
-	if( gNeedLayerReset )
-		resetLayers();
 
 	// Treat each layer as also being a virtual button ("Auto" button)
 	for(int i = 0, end = intSize(sState.layers.size()); i < end; ++i)

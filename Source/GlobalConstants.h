@@ -298,6 +298,7 @@ enum ESpecialKey
 	eSpecialKey_MoveStop,
 	eSpecialKey_MouseMove,
 	eSpecialKey_MouseStop,
+	eSpecialKey_FocusLost,
 
 	eSpecialKey_Num,
 
