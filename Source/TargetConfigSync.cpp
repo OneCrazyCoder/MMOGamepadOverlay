@@ -1390,106 +1390,111 @@ protected:
 			
 		FILETIME aMostRecentFileTime = mCandidates[0].metaData.lastModTime;
  		int aBestIdx = 0;
-		if( mCandidates.size() > 1 )
+
+		// If not set to auto-select most-recent but did not find any
+		// previously-selected file (or one was never set), always prompt.
+		if( !sPreferMostRecentFiles && aLastSelCandidateIdx < 0 )
+			sForcePromptForWildcardFiles = true;
+
+		// Find candidate with most recent modification time
+		FILETIME aBestTime = FILETIME();
+		for(int i = 0, end = intSize(mCandidates.size()); i < end; ++i)
 		{
-			// If not set to auto-select most-recent but did not find any
-			// previously-selected file (or one was never set), always prompt.
-			if( !sPreferMostRecentFiles && aLastSelCandidateIdx < 0 )
-				sForcePromptForWildcardFiles = true;
-
-			// Find candidate with most recent modification time
-			FILETIME aBestTime = FILETIME();
-			for(int i = 0, end = intSize(mCandidates.size()); i < end; ++i)
+			FILETIME aTestTime = mCandidates[i].metaData.lastModTime;
+			// Treat last selected candidate as having last mod time of
+			// at least sLastTimeWildcardFileSelected time, so it will
+			// be preferred over candidates that may have been modified
+			// after it was, yet not modified since a selection was made.
+			if( i == aLastSelCandidateIdx &&
+				CompareFileTime(
+					&aTestTime,
+					&sLastTimeWildcardFileSelected) < 0 )
 			{
-				FILETIME aTestTime = mCandidates[i].metaData.lastModTime;
-				// Treat last selected candidate as having last mod time of
-				// at least sLastTimeWildcardFileSelected time, so it will
-				// be preferred over candidates that may have been modified
-				// after it was, yet not modified since a selection was made.
-				if( i == aLastSelCandidateIdx &&
-					CompareFileTime(
-						&aTestTime,
-						&sLastTimeWildcardFileSelected) < 0 )
-				{
-					aTestTime = sLastTimeWildcardFileSelected;
-				}
-				LONG aComp = CompareFileTime(&aTestTime, &aBestTime);
-				if( aComp > 0 ||
-					(aComp == 0 && i == aLastSelCandidateIdx) )
-				{// Has better time (or equal and last selected is tie breaker)
-					aBestIdx = i;
-					aBestTime = aTestTime;
-					aMostRecentFileTime = aBestTime;
-				}
+				aTestTime = sLastTimeWildcardFileSelected;
 			}
+			LONG aComp = CompareFileTime(&aTestTime, &aBestTime);
+			if( aComp > 0 ||
+				(aComp == 0 && i == aLastSelCandidateIdx) )
+			{// Has better time (or equal and last selected is tie breaker)
+				aBestIdx = i;
+				aBestTime = aTestTime;
+				aMostRecentFileTime = aBestTime;
+			}
+		}
 
-			// If requested prompting for multiple found, and best candidate
-			// isn't the last one selected, and are in initialization phase,
-			// then bring up the dialog. Or if directly requested dialog.
-			if( sForcePromptForWildcardFiles ||
-				(sPromptForWildcardFiles &&
-				 aBestIdx != aLastSelCandidateIdx &&
-				 !sInitialized) )
+		// If requested prompting for multiple found, and best candidate
+		// isn't the last one selected, and are in initialization phase,
+		// then bring up the dialog. Or if directly requested dialog.
+		if( sForcePromptForWildcardFiles ||
+			(sPromptForWildcardFiles &&
+			 aBestIdx != aLastSelCandidateIdx &&
+			 !sInitialized) )
+		{
+			sForcePromptForWildcardFiles = false;
+			sLastWildcardFileSelected.clear();
+			sAutoWildcardSwitchCount = 0;
+			Dialogs::CharacterSelectResult aDialogResult;
+			if( mCandidates.size() == 1 )
+			{// Only having 1 candidate should act the same as cancelling out
+				aDialogResult.cancelled = true;
+			}
+			else
 			{
-				sForcePromptForWildcardFiles = false;
-				sLastWildcardFileSelected.clear();
-				sAutoWildcardSwitchCount = 0;
-				Dialogs::CharacterSelectResult aDialogResult =
-					Dialogs::characterSelect(
-						mCandidateNames, aBestIdx,
-						sPromptForWildcardFiles,
-						sPreferMostRecentFiles);
-				GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
-				aMostRecentFileTime = sLastTimeWildcardFileSelected;
-				if( !aDialogResult.cancelled )
+				aDialogResult = Dialogs::characterSelect(
+					mCandidateNames, aBestIdx,
+					sPromptForWildcardFiles,
+					sPreferMostRecentFiles);
+			}
+			GetSystemTimeAsFileTime(&sLastTimeWildcardFileSelected);
+			aMostRecentFileTime = sLastTimeWildcardFileSelected;
+			if( !aDialogResult.cancelled )
+			{
+				aBestIdx = aDialogResult.selectedIndex;
+				sPromptForWildcardFiles = aDialogResult.promptAgain;
+				sPreferMostRecentFiles = aDialogResult.preferMostRecent;
+				// Save selection to profile unless set to always prompt
+				// every time or to always auto-pick most recent changed
+				if( sPromptForWildcardFiles == sPreferMostRecentFiles )
 				{
-					aBestIdx = aDialogResult.selectedIndex;
-					sPromptForWildcardFiles = aDialogResult.promptAgain;
-					sPreferMostRecentFiles = aDialogResult.preferMostRecent;
-					// Save selection to profile unless set to always prompt
-					// every time or to always auto-pick most recent changed
-					if( sPromptForWildcardFiles == sPreferMostRecentFiles )
-					{
-						Profile::setStr(
-							kTargetConfigSettingsSectionName,
-							kLastFileSelectedPropertyName,
-							narrow(mCandidateNames[aBestIdx]));
-					}
-					else
-					{
-						Profile::setStr(
-							kTargetConfigSettingsSectionName,
-							kLastFileSelectedPropertyName,
-							"");
-					}
-
-					// Only save time stamp for "prompt unless other changed"
-					if( sPromptForWildcardFiles && sPreferMostRecentFiles )
-					{
-						Profile::setStr(
-							kTargetConfigSettingsSectionName,
-							kLastTimeFileSelectedPropertyName,
-							toString(sLastTimeWildcardFileSelected));
-					}
-					else
-					{
-						Profile::setStr(
-							kTargetConfigSettingsSectionName,
-							kLastTimeFileSelectedPropertyName,
-							"");
-					}
-					// Always save out choice for if want future prompts or not
 					Profile::setStr(
 						kTargetConfigSettingsSectionName,
-						kPromptForFilesPropertyName,
-						sPromptForWildcardFiles ? "Yes" : "No");
+						kLastFileSelectedPropertyName,
+						narrow(mCandidateNames[aBestIdx]));
 				}
+				else
+				{
+					Profile::setStr(
+						kTargetConfigSettingsSectionName,
+						kLastFileSelectedPropertyName,
+						"");
+				}
+
+				// Only save time stamp for "prompt unless other changed"
+				if( sPromptForWildcardFiles && sPreferMostRecentFiles )
+				{
+					Profile::setStr(
+						kTargetConfigSettingsSectionName,
+						kLastTimeFileSelectedPropertyName,
+						toString(sLastTimeWildcardFileSelected));
+				}
+				else
+				{
+					Profile::setStr(
+						kTargetConfigSettingsSectionName,
+						kLastTimeFileSelectedPropertyName,
+						"");
+				}
+				// Always save out choice for if want future prompts or not
+				Profile::setStr(
+					kTargetConfigSettingsSectionName,
+					kPromptForFilesPropertyName,
+					sPromptForWildcardFiles ? "Yes" : "No");
 			}
 		}
 
 		if( sLastWildcardFileSelected.empty() )
 		{
-			// Haven't picked a wilcard match string yet - use this one!
+			// Haven't picked a wildcard match string yet - use this one!
 			sLastWildcardFileSelected = mCandidateNames[aBestIdx];
 		}
 		else if( aLastSelCandidateIdx < 0 )
