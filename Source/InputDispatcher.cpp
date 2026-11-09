@@ -1796,36 +1796,43 @@ static EMouseMode checkMouseLookModeTransitions()
 
 	if( sTracker.mouseModeExpected == eMouseMode_LookAuto )
 	{
-		EMouseMode aDesiredMode = sTracker.mouseMode;
-
 		if( sTracker.moveKeysHeld.any() ||
 			sTracker.mouseLookNeededToStrafe ||
 			sTracker.autoRunMode != eAutoRunMode_Off )
 		{// Want to be in look turn mode for any character movement
-			aDesiredMode = eMouseMode_LookTurn;
+			if( sTracker.mouseMode != eMouseMode_LookTurn )
+			{// Smoothly transition to LookTurn if not already in it
+				sTracker.mouseModeExpected = eMouseMode_SwapToTurn;
+				const EMouseMode aNewMode = checkMouseLookModeTransitions();
+				sTracker.mouseModeExpected = eMouseMode_LookAuto;
+				return aNewMode;
+			}
+			return eMouseMode_LookTurn;
+		}
+		else if( sTracker.mouseMode != eMouseMode_LookTurn &&
+				 sTracker.mouseMode != eMouseMode_LookOnly &&
+				 sTracker.mouseMode != eMouseMode_LookReady )
+		{// Give a frame in LookReady first to let queued move keys register
+			return eMouseMode_LookReady;
 		}
 		else if( sTracker.mouseVelX != 0 ||
-				 sTracker.mouseMode == eMouseMode_LookOnly )
+				 (sTracker.mouseVelY != 0 &&
+				  sTracker.mouseMode == eMouseMode_LookReady) )
 		{// Want to be in look only mode for horizontal pans while stationary
-			aDesiredMode = eMouseMode_LookOnly;
+			// Or for ANY stationary panning if just waiting in LookReady
+			if( sTracker.mouseMode != eMouseMode_LookOnly )
+			{// Smoothly transition to LookOnly if not already in it
+				sTracker.mouseModeExpected = eMouseMode_SwapToLook;
+				const EMouseMode aNewMode = checkMouseLookModeTransitions();
+				sTracker.mouseModeExpected = eMouseMode_LookAuto;
+				return aNewMode;
+			}
+			return eMouseMode_LookOnly;
 		}
 		else
-		{// Default to look turn mode
-			aDesiredMode = eMouseMode_LookTurn;
+		{// Must be LookOnly/Turn/Ready already and don't need to change it yet
+			return sTracker.mouseMode;
 		}
-
-		// Smoothly swap to desired mode if necessary
-		if( aDesiredMode != sTracker.mouseMode )
-		{
-			sTracker.mouseModeExpected =
-				aDesiredMode == eMouseMode_LookOnly
-					? eMouseMode_SwapToLook
-					: eMouseMode_SwapToTurn;
-			aDesiredMode = checkMouseLookModeTransitions();
-			sTracker.mouseModeExpected = eMouseMode_LookAuto;
-		}
-
-		return aDesiredMode;
 	}
 
 	if( sTracker.mouseModeExpected == eMouseMode_SwapToLook )
@@ -2061,8 +2068,9 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 						theWantedMode = eMouseMode_Cursor;
 						gFiredSignals.set(
 							InputMap::keyBindSignalID(eSpecialKey_FocusLost));
+						++sTracker.mouseLookFailCount;
 					}
-					else
+					else if( setKeyDown(anExpectedVKey, false) == eResult_Ok )
 					{// Retry from start by releasing button
 						#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 						debugPrint(
@@ -2071,9 +2079,8 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 							aCursorPos.x, aCursorPos.y,
 							anExpectedPos.x, anExpectedPos.y);
 						#endif
-						setKeyDown(anExpectedVKey, false);
+						++sTracker.mouseLookFailCount;
 					}
-					++sTracker.mouseLookFailCount;
 				}
 			}
 		}
