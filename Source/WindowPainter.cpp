@@ -2362,30 +2362,27 @@ static void drawMenuTitle(
 	case eAlignment_Center: aFormat |= DT_CENTER; break;
 	case eAlignment_Max: aFormat |= DT_RIGHT; break;
 	}
-	const int aBorderSize = 2;
-	InflateRect(&aRect, -aBorderSize, -aBorderSize);
 
 	const HFONT aFont = sFonts[theMenuApp.fontID].handle;
 	initStringCacheEntry(dd, aRect, aWStr, aFont, aFormat, theCacheEntry.str);
 
-	// Fill in 2px margin around text with titleBG (border) color
+	// Fill in padding margin around text with titleBG (border) color
 	RECT aBGRect = aRect;
-	InflateRect(&aBGRect, aBorderSize, aBorderSize);
 	if( theAlignment == eAlignment_Center )
 	{
 		aBGRect.left =
 			((ps.rects[0].left + ps.rects[0].right) / 2) -
-			(theCacheEntry.str.width / 2) - aBorderSize;
+			(theCacheEntry.str.width / 2) - theCacheEntry.str.padX;
 	}
 	else if( theAlignment == eAlignment_Max )
 	{
 		aBGRect.left =
-			aRect.right - theCacheEntry.str.width - aBorderSize;
+			aRect.right - theCacheEntry.str.width - theCacheEntry.str.padX * 2;
 	}
 	aBGRect.right = aBGRect.left +
-		theCacheEntry.str.width + theCacheEntry.str.padX * 2 + aBorderSize * 2;
+		theCacheEntry.str.width + theCacheEntry.str.padX * 2;
 	aBGRect.top = aBGRect.bottom -
-		theCacheEntry.str.height - theCacheEntry.str.padY * 2 - aBorderSize * 2;
+		theCacheEntry.str.height - theCacheEntry.str.padY * 2;
 
 	const MenuItemAppearance& theTitleApp =
 		getMenuItemAppearance(dd.menuID, eMenuItemDrawState_Normal);
@@ -2987,7 +2984,10 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 		aMenuCache.labelCache.clear();
 		aMenuCache.layoutID = kInvalidID;
 		if( menuIsActive)
+		{
 			gReshapeOverlays.set(anOverlayID);
+			gFullRedrawOverlays.set(anOverlayID);
+		}
 		break;
 	case ePropChangeImpact_BaseApp:
 		aMenuCache.labelCache.clear();
