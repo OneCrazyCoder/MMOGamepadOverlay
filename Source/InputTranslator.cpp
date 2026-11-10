@@ -60,8 +60,8 @@ struct ZERO_INIT(Config)
 		hotspotAutoRepeatRate =
 			max(0, Profile::getInt("System", "SelectHotspotRepeatRate", 75));
 		hotspotJumpAccelRate =
-			max(0, Profile::getInt("Mouse", "HotspotJumpAccelRate", 15))
-			/ 100.0;
+			max(0, Profile::getInt("Mouse", "HotspotJumpAccelRate", 10))
+			/ 2560.0;
 		u8 aThreshold = u8(clamp(
 			Profile::getInt("Gamepad", "LStickThreshold", 40),
 				0, 100) * 255 / 100);
@@ -2314,14 +2314,7 @@ void update()
 	{
 		if( aJumpDistMult < kMaxHotspotJumpDistMult )
 		{
-			// Shift to being the delta between start (1.0) and max (3.0)
-			// but make sure is above 0 or won't get a curve at all
-			aJumpDistMult =
-				max(aJumpDistMult - 1.0,
-				kConfig.hotspotJumpAccelRate * gAppFrameTime / 15.0);
-			const double t = aJumpDistMult / (kMaxHotspotJumpDistMult - 1.0);
-			aJumpDistMult +=
-				1.0 + kConfig.hotspotJumpAccelRate * t * t * gAppFrameTime;
+			aJumpDistMult += kConfig.hotspotJumpAccelRate * gAppFrameTime;
 			if( aJumpDistMult > kMaxHotspotJumpDistMult )
 				aJumpDistMult = kMaxHotspotJumpDistMult;
 			HotspotMap::setJumpDistMult(aJumpDistMult);

@@ -733,8 +733,8 @@ static void processSetDistancesTask()
 	u64 aMaxDetectionRadius = u64(aJumpDist * kDetectionRadiusMult);
 
 	// Now get actual distance with multiplier applied
-	sNonNormalizedJumpDist = max(1, int(kProfileJumpDist * sJumpDistMult));
-	aJumpDist = u64(kProfileJumpDist * sJumpDistMult * 0x10000);
+	sNonNormalizedJumpDist = max(1, int(kProfileJumpDist) * int(sJumpDistMult));
+	aJumpDist = u64(kProfileJumpDist * int(sJumpDistMult) * 0x10000);
 	
 	if( aScaleFactor > 0 )
 	{
@@ -1767,12 +1767,12 @@ void setLastCursorPos(POINT theNewPos)
 void setJumpDistMult(double theJumpDistMult)
 {
 	DBG_ASSERT(theJumpDistMult > 0.5);
-	if( theJumpDistMult != sJumpDistMult )
+	if( int(theJumpDistMult) != int(sJumpDistMult) )
 	{
-		sJumpDistMult = theJumpDistMult;
 		sNewTasks.set(eTask_SetDistances);
 		sNewTasks.set(eTask_BeginSearch);
 	}
+	sJumpDistMult = theJumpDistMult;
 }
 
 
