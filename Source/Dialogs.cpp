@@ -1596,7 +1596,7 @@ ProfileSelectResult profileSelect(
 		result,
 		theCurrentProfileID,
 		firstRun,
-		!TargetApp::targetWindowIsTopMost() &&
+		!TargetApp::targetWindowIsTopMost() ||
 		!TargetApp::targetWindowIsFullScreen());
 
 	runDialog(openDialog(

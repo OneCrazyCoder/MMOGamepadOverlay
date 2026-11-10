@@ -457,6 +457,16 @@ static std::string shapeCompToProfString(
 	bool asOffset = false)
 {
 	std::string result = theComponent.base;
+	// L or T can be left off as implied for components that are just a
+	// positive offset from the top-left corner of the screen.
+	// However, components that can be offsets (hotspots with parents), which
+	// would have asOffset here, should NOT leave off L/T, because they are
+	// used to override being an offset for that coordinate and use direct pos.
+	if( !asOffset && theComponent.offset > 0 &&
+		(result == "L" || result == "T") )
+	{
+		result.clear();
+	}
 	if( result.empty() )
 	{
 		if( asOffset && theComponent.offset >= 0 )
@@ -798,7 +808,7 @@ static void applyNewLayoutProperties(bool toFile = false)
 			std::string aProfileStr;
 			if( !aNewShape->w.useDefault )
 			{
-				aProfileStr += ", " +
+				aProfileStr =
 					shapeCompToProfString(aNewShape->w) + ", " +
 					shapeCompToProfString(aNewShape->h);
 			}
@@ -1382,7 +1392,7 @@ static void processCoordFieldChange(
 			}
 			aNewValue += theDelta;
 			// Auto-swap basic basic named anchor type if new position is
-			// very clase to a different basic named anchor point (edge/center)
+			// very close to a different basic named anchor point (edge/center)
 			const double anAnchorPercent =
 				isY && aBaseControlStr == "T"	? 0.0 :
 				isY && aBaseControlStr == "CY"	? 0.5 :
@@ -1993,17 +2003,9 @@ static INT_PTR CALLBACK editLayoutToolbarProc(
 				else
 				{
 					aComp.base = aSelectedText;
-					// Treat as having no base if just acting as an offset, or
-					// for menus or no-parent hotspots, don't bother having a
-					// base string for L/T as those are implied (for hotspots
-					// with parents, L/T being included indicates parent should
-					// be ignored and to not act as an offset, so keep them).
-					if( aSelectedText == narrow(kOffsetOnlyLabel) ||
-						((entryIsMenu(anEntry) || !anEntry.parentID) &&
-						 (aSelectedText == "L" || aSelectedText == "T")) )
-					{
+					// Treat as having no base if just acting as an offset
+					if( aSelectedText == narrow(kOffsetOnlyLabel) )
 						aComp.base.clear();
-					}
 					aComp.offset = 0;
 					// Set offset to delta from old drawn pos to new base
 					updateDrawHotspot(anEntry, sState->entered, false, false);
