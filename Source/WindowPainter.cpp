@@ -68,13 +68,18 @@ const char* kBitmapsSectionName = "Bitmaps";
 const char* kIconsSectionName = "LabelIcons";
 const char* kAppVersionString = "Version: " __DATE__;
 const char* kPositionPropName = "Position";
+const char* kSyncPositionPropName = "SyncPosition";
 const char* kItemTypePropName = "ItemType";
 const char* kItemSizePropName = "ItemSize";
+const char* kSyncItemSizePropName = "SyncItemSize";
 const char* kAlignmentPropName = "Alignment";
+const char* kSyncAlignmentPropName = "SyncAlignment";
 const char* kFontNamePropName = "Font";
 const char* kFontSizePropName = "FontSize";
+const char* kSyncFontSizePropName = "SyncFontSize";
 const char* kFontWeightPropName = "FontWeight";
 const char* kGapSizePropName = "GapSize";
+const char* kSyncGapSizePropName = "SyncGapSize";
 const char* kTitleColorPropName = "TitleRGB";
 const char* kTransColorPropName = "TransRGB";
 const char* kMaxAlphaPropName = "MaxAlpha";
@@ -87,7 +92,9 @@ const char* kInactiveAlphaPropName = "InactiveAlpha";
 const char* kActiveFadeInDelayPropName = "ActiveFadeInDelay";
 const char* kRadiusPropName = "Radius";
 const char* kTitleHeightPropName = "TitleHeight";
+const char* kSyncTitleHeightPropName = "SyncTitleHeight";
 const char* kAltLabelWidthPropName = "AltLabelWidth";
+const char* kSyncAltLabelWidthPropName = "SyncAltLabelWidth";
 const char* kFlashTimePropName = "FlashTime";
 const char* kDrawPriorityPropName = "Priority";
 const char* const kBorderSizePropName[] = {
@@ -903,12 +910,33 @@ static inline PropString getPropString(
 }
 
 
+static PropString getSyncingPropString(
+	Profile::PropertyMapPtr thePropMap,
+	const std::string& theNormalPropName,
+	const std::string& theSyncPropName)
+{
+	PropString result;
+	result.str = Profile::getStr(thePropMap, theSyncPropName);
+	result.valid = !isEffectivelyEmptyString(result.str);
+	sParsePropName = theSyncPropName;
+	if( !result.valid )
+	{
+		result.str = Profile::getStr(thePropMap, theNormalPropName);
+		result.valid = !isEffectivelyEmptyString(result.str);
+		sParsePropName = theNormalPropName;
+	}
+	return result;
+}
+
+
+
 static void fetchMenuPositionProperties(
 	Profile::PropertyMapPtr thePropMap,
 	MenuPosition& theDestPosition)
 {
 	sNewProfileDataFetched = true;
-	if( PropString p = getPropString(thePropMap, kPositionPropName) )
+	if( PropString p = getSyncingPropString(
+			thePropMap, kPositionPropName, kSyncPositionPropName) )
 	{
 		// Might be the name of a hotspot, or just in the format of one
 		if( HotspotMap::hotspotIDFromName(p.str) )
@@ -951,7 +979,8 @@ static void fetchMenuLayoutProperties(
 	MenuLayout& theDestLayout)
 {
 	sNewProfileDataFetched = true;
-	if( PropString p = getPropString(thePropMap, kAlignmentPropName) )
+	if( PropString p = getSyncingPropString(
+			thePropMap, kAlignmentPropName, kSyncAlignmentPropName) )
 	{
 		size_t aPos = 0;
 		Hotspot::Coord aCoord = stringToCoord(p.str, aPos);
@@ -980,7 +1009,8 @@ static void fetchMenuLayoutProperties(
 		}	
 	}
 
-	if( PropString p = getPropString(thePropMap, kItemSizePropName) )
+	if( PropString p = getSyncingPropString(
+			thePropMap, kItemSizePropName, kSyncItemSizePropName) )
 	{
 		const SIZE& aSize = stringToSize(p.str);
 		if( aSize.cx <= 0 || aSize.cx > 0xFFFF ||
@@ -997,7 +1027,8 @@ static void fetchMenuLayoutProperties(
 		}
 	}
 
-	if( PropString p = getPropString(thePropMap, kGapSizePropName) )
+	if( PropString p = getSyncingPropString(
+			thePropMap, kGapSizePropName, kSyncGapSizePropName) )
 	{
 		const SIZE& aSize = stringToSize(p.str);
 		if( aSize.cx < -0x8000 || aSize.cx > 0x7FFF ||
@@ -1014,7 +1045,8 @@ static void fetchMenuLayoutProperties(
 		}
 	}
 
-	if( PropString p = getPropString(thePropMap, kTitleHeightPropName) )
+	if( PropString p = getSyncingPropString(
+			thePropMap, kTitleHeightPropName, kSyncTitleHeightPropName) )
 	{
 		size_t aPos = 0;
 		const LONG aHeight = stringToWidth(p.str, aPos);
@@ -1029,7 +1061,8 @@ static void fetchMenuLayoutProperties(
 		}
 	}
 
-	if( PropString p = getPropString(thePropMap, kAltLabelWidthPropName) )
+	if( PropString p = getSyncingPropString(
+			thePropMap, kAltLabelWidthPropName, kSyncAltLabelWidthPropName) )
 	{
 		size_t aPos = 0;
 		const LONG aWidth = stringToWidth(p.str, aPos);
@@ -1096,7 +1129,8 @@ static void fetchBaseAppearanceProperties(
 	
 	PropString aFontNameProp = getPropString(thePropMap, kFontNamePropName);
 	PropString aFontWeightProp = getPropString(thePropMap, kFontWeightPropName);
-	PropString aFontSizeProp = getPropString(thePropMap, kFontSizePropName);
+	PropString aFontSizeProp = getSyncingPropString(
+		thePropMap, kFontSizePropName, kSyncFontSizePropName);
 	if( aFontNameProp || aFontSizeProp || aFontWeightProp )
 	{
 		FontInfo aNewFont = sFonts[theDestAppearance.fontID];
@@ -2891,6 +2925,7 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 				{ "Name",						ePropChangeImpact_Labels	},
 				{ "String",						ePropChangeImpact_Labels	},
 				{ kPositionPropName,			ePropChangeImpact_Position	},
+				{ kSyncPositionPropName,		ePropChangeImpact_Position	},
 				{ kDrawPriorityPropName,		ePropChangeImpact_Position	},
 				{ "Keybinds",					ePropChangeImpact_Position	},
 				{ "KeyBindCycle",				ePropChangeImpact_Position	},
@@ -2901,13 +2936,19 @@ static void markMenuCacheDirtyFor(int theMenuID, const std::string& thePropName)
 				{ "Style",						ePropChangeImpact_Layout	},
 				{ "Type",						ePropChangeImpact_Layout	},
 				{ kTitleHeightPropName,			ePropChangeImpact_Layout	},
+				{ kSyncTitleHeightPropName,		ePropChangeImpact_Layout	},
 				{ kItemSizePropName,			ePropChangeImpact_Layout	},
+				{ kSyncItemSizePropName,		ePropChangeImpact_Layout	},
 				{ kGapSizePropName,				ePropChangeImpact_Layout	},
+				{ kSyncGapSizePropName,			ePropChangeImpact_Layout	},
 				{ kAlignmentPropName,			ePropChangeImpact_Layout	},
+				{ kSyncAlignmentPropName,		ePropChangeImpact_Layout	},
 				{ kAltLabelWidthPropName,		ePropChangeImpact_Layout	},
+				{ kSyncAltLabelWidthPropName,	ePropChangeImpact_Layout	},
 				{ kItemTypePropName,			ePropChangeImpact_BaseApp	},
 				{ kFontNamePropName,			ePropChangeImpact_BaseApp	},
 				{ kFontSizePropName,			ePropChangeImpact_BaseApp	},
+				{ kSyncFontSizePropName,		ePropChangeImpact_BaseApp	},
 				{ kFontWeightPropName,			ePropChangeImpact_BaseApp	},
 				{ kTitleColorPropName,			ePropChangeImpact_BaseApp	},
 				{ kTransColorPropName,			ePropChangeImpact_BaseApp	},

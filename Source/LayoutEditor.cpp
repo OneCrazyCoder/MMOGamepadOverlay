@@ -39,6 +39,12 @@ const WCHAR* kAnchorOnlyLabel = L"Scaling:";
 const WCHAR* kOffsetOnlyLabel = L"Offset:";
 const WCHAR* kValueOnlyLabel = L"Value:";
 
+const char* kSyncedMenuPropNames[] =
+{
+	"SyncPosition", "SyncItemSize", "SyncAlignment", "SyncGapSize",
+	"SyncFontSize", "SyncTitleHeight", "SyncAltLabelWidth"
+};
+
 enum EAlignment
 {
 	eAlignment_L_T,
@@ -2977,6 +2983,22 @@ void init()
 		}
 		aNewEntry.menuID = aMenuID;
 		aPropMap = Profile::getSectionProperties(aNewEntry.propSectID);
+		bool autoSynced = false;
+		if( !isMenuDefaults )
+		{
+			for(int i = 0; i < ARRAYSIZE(kSyncedMenuPropNames); ++i)
+			{
+				if( const Profile::Property* aPosProp =
+						aPropMap->find(kSyncedMenuPropNames[i]) )
+				{
+					if( !isEffectivelyEmptyString(aPosProp->str) )
+					{
+						autoSynced = true;
+						break;
+					}
+				}
+			}
+		}
 		bool valid = true;
 		if( const Profile::Property* aPosProp =
 				aPropMap->find(kPositionPropName) )
@@ -3058,7 +3080,7 @@ void init()
 		{// Default alignment if unspecified at all should be TL
 			aNewEntry.shape.alignment = eAlignment_L_T;
 		}
-		if( !valid )
+		if( !valid || autoSynced )
 			aNewEntry.item.immutable = true; // TODO - better solution
 	}
 
