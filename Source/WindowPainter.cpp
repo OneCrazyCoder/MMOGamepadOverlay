@@ -352,7 +352,6 @@ struct ZERO_INIT(CopyRectRequest)
 	u16 labelCacheIdx;
 	s8 multiIconIdx;
 	u8 drawCount;
-	bool useClipRect;
 	bool lowPriority;
 
 	bool operator==(const CopyRectRequest& rhs) const
@@ -361,9 +360,7 @@ struct ZERO_INIT(CopyRectRequest)
 			dstL == rhs.dstL && dstT == rhs.dstT &&
 			dstW == rhs.dstW && dstH == rhs.dstH &&
 			innerDstW == rhs.innerDstW && innerDstH == rhs.innerDstH &&
-			useClipRect == rhs.useClipRect &&
-			(!useClipRect ||
-			 EqualRect(&clipRect, &rhs.clipRect)) &&
+			EqualRect(&clipRect, &rhs.clipRect) &&
 			overlayID == rhs.overlayID &&
 			menuID == rhs.menuID &&
 			rectIdx == rhs.rectIdx &&
@@ -1466,6 +1463,17 @@ static void drawBitmapIcon(
 	DBG_ASSERT(theIcon.image && sBitmapDrawSrc);
 	HBITMAP hOldBitmap = NULL;
 
+	POINT oldOrg = {0, 0};
+	int oldMode = 0;
+	const bool needShrink =
+		theIcon.size.cx > theRect.right - theRect.left ||
+		theIcon.size.cy > theRect.bottom - theRect.top;
+	if( needShrink )
+	{
+		oldMode = SetStretchBltMode(dd.hdc, HALFTONE);
+		SetBrushOrgEx(dd.hdc, 0, 0, &oldOrg);
+	}
+
 	if( !theIcon.mask )
 	{
 		hOldBitmap = (HBITMAP)
@@ -1512,6 +1520,11 @@ static void drawBitmapIcon(
 
 	// Cleanup
 	SelectObject(sBitmapDrawSrc, hOldBitmap);
+	if( needShrink )
+	{
+		SetBrushOrgEx(dd.hdc, oldOrg.x, oldOrg.y, NULL);
+		SetStretchBltMode(dd.hdc, oldMode);
+	}
 }
 
 
@@ -1605,21 +1618,21 @@ static void drawCopiedBitmapIcon(
 	int aSrcW = theIcon.size.cx;
 	int aSrcH = theIcon.size.cy;
 
-	// Stretch (or shrink) but maintain aspect ratio as long as icon is larger
-	// than DstW/H or smaller than clipRectW/H (and expansion is allowed, i.e.
-	// destination is a rectangle). Otherwise just draw centered.
-	const bool needShrink = aSrcW > aDstW || aSrcH > aDstH;
-	const bool needExpand = !needShrink &&
-		 aSrcW < theCopyRequest.innerDstW && aSrcH < theCopyRequest.innerDstH;
 
-	if( theCopyRequest.useClipRect && !needExpand )
-	{
-		DBG_ASSERT(sClipRegion);
-		SetRectRgn(sClipRegion,
-			theCopyRequest.clipRect.left, theCopyRequest.clipRect.top,
-			theCopyRequest.clipRect.right, theCopyRequest.clipRect.bottom);
-		SelectClipRgn(dd.hdc, sClipRegion);
-	}
+	DBG_ASSERT(sClipRegion);
+	SetRectRgn(sClipRegion,
+		theCopyRequest.clipRect.left, theCopyRequest.clipRect.top,
+		theCopyRequest.clipRect.right, theCopyRequest.clipRect.bottom);
+	SelectClipRgn(dd.hdc, sClipRegion);
+
+	// Stretch (or shrink) but maintain aspect ratio as long as icon is larger
+	// than DstW/H or notably smaller than innerDstW/H (which is 0 in cases
+	// where expansion is not allowed - i.e. destination is not a rectangle).
+	// Otherwise just draw centered.
+	const bool needShrink = aSrcW > aDstW + 1 || aSrcH > aDstH + 1;
+	const bool needExpand = !needShrink &&
+		 aSrcW < int(theCopyRequest.innerDstW * 0.9f)  &&
+		 aSrcH < int(theCopyRequest.innerDstH * 0.9f);
 
 	if( !needShrink && !needExpand )
 	{
@@ -1634,12 +1647,19 @@ static void drawCopiedBitmapIcon(
 	}
 	else
 	{
+		POINT oldOrg = {0, 0};
+		int oldMode = 0;
 		if( needExpand )
 		{
 			aDstL += (aDstW - theCopyRequest.innerDstW) / 2;
 			aDstT += (aDstH - theCopyRequest.innerDstH) / 2;
 			aDstW = theCopyRequest.innerDstW;
 			aDstH = theCopyRequest.innerDstH;
+		}
+		else if( needShrink )
+		{
+			oldMode = SetStretchBltMode(dd.hdc, HALFTONE);
+			SetBrushOrgEx(dd.hdc, 0, 0, &oldOrg);
 		}
 
 		const double aSrcAspectRatio = double(aSrcW) / aSrcH;
@@ -1665,11 +1685,16 @@ static void drawCopiedBitmapIcon(
 		StretchBlt(dd.hdc, aDstL, aDstT, aDstW, aDstH,
 			sBitmapDrawSrc, 0, 0, aSrcW, aSrcH, SRCCOPY);
 		SelectObject(sBitmapDrawSrc, hOldBitmap);
+
+		if( needShrink )
+		{
+			SetBrushOrgEx(dd.hdc, oldOrg.x, oldOrg.y, NULL);
+			SetStretchBltMode(dd.hdc, oldMode);
+		}
 	}
 
 	// Reset clipping
-	if( theCopyRequest.useClipRect && !needExpand )
-		SelectClipRgn(dd.hdc, NULL);
+	SelectClipRgn(dd.hdc, NULL);
 }
 
 
@@ -2192,7 +2217,7 @@ static void drawMenuItemLabel(
 	const std::string& theLabel,
 	const MenuAppearance& theMenuApp,
 	const MenuItemAppearance& theItemApp,
-	int theCurrBorderSize, int theMaxBorderSize,
+	int theCurrBorderSize, int theBaseBorderSize, int theMaxBorderSize,
 	int theCacheEntryID, int theMultiIconIdx = -1)
 {
 	DBG_ASSERT(
@@ -2262,19 +2287,15 @@ static void drawMenuItemLabel(
 		aCopyRequest.dstT = theDrawRect.top;
 		aCopyRequest.dstW = theDrawRect.right - theDrawRect.left;
 		aCopyRequest.dstH = theDrawRect.bottom - theDrawRect.top;
-		aCopyRequest.useClipRect = theCurrBorderSize > 0;
-		if( aCopyRequest.useClipRect )
-		{
-			aCopyRequest.clipRect =
-				sOverlayPaintStates[dd.overlayID].rects[theRectIdx];
-			InflateRect(&aCopyRequest.clipRect,
-				-theCurrBorderSize, -theCurrBorderSize);
-		}
+		aCopyRequest.clipRect =
+			sOverlayPaintStates[dd.overlayID].rects[theRectIdx];
+		InflateRect(&aCopyRequest.clipRect,
+			-theCurrBorderSize, -theCurrBorderSize);
 		if( theMenuApp.itemType == eMenuItemType_Rect ||
 			theMenuApp.itemType == eMenuItemType_Label )
 		{
-			aCopyRequest.innerDstW = aCopyRequest.dstW - theMaxBorderSize * 2;
-			aCopyRequest.innerDstH = aCopyRequest.dstH - theMaxBorderSize * 2;
+			aCopyRequest.innerDstW = aCopyRequest.dstW - theBaseBorderSize * 2;
+			aCopyRequest.innerDstH = aCopyRequest.dstH - theBaseBorderSize * 2;
 		}
 		aCopyRequest.overlayID = dropTo<u16>(dd.overlayID);
 		aCopyRequest.menuID = dropTo<u16>(dd.menuID);
@@ -2312,12 +2333,12 @@ static void drawMenuItemLabel(
 		DBG_ASSERT(!theCacheEntry.subLabels.empty());
 		DBG_ASSERT(theCacheEntry.multiIcon.srcWidth > 0);
 		DBG_ASSERT(theCacheEntry.multiIcon.srcHeight > 0);
-		// Multi-icons always draw to the inner rect (at max border size) only
+		// Multi-icons always draw to the inner rect (at base border size) only
 		RECT aRect;
-		aRect.left = theDrawRect.left + theMaxBorderSize;
-		aRect.top = theDrawRect.top + theMaxBorderSize;
-		aRect.right = theDrawRect.right - theMaxBorderSize;
-		aRect.bottom = theDrawRect.bottom - theMaxBorderSize;
+		aRect.left = theDrawRect.left + theBaseBorderSize;
+		aRect.top = theDrawRect.top + theBaseBorderSize;
+		aRect.right = theDrawRect.right - theBaseBorderSize;
+		aRect.bottom = theDrawRect.bottom - theBaseBorderSize;
 		if( aRect.right <= aRect.left ||
 			aRect.bottom <= aRect.top )
 		{ return; }
@@ -2356,7 +2377,7 @@ static void drawMenuItemLabel(
 			aRect.left = aRect.right;
 			aRect.right += aSrcWidth * aDestWidth / aTotalSrcWidth;
 			drawMenuItemLabel(dd, aRect, theRectIdx, theLabel,
-				theMenuApp, theItemApp, 0, 0, theCacheEntryID, i);
+				theMenuApp, theItemApp, 0, 0, 0, theCacheEntryID, i);
 		}
 	}
 	// else if( theCacheEntry.type == eMenuItemLabelType_Empty ) return;
@@ -2458,16 +2479,26 @@ static void drawMenuItem(
 	drawMenuItemBG(dd, menuApp, itemApp, ps.rects[theRectIdx]);
 
 	// Label (usually word-wrapped and centered text)
-	int aBorderSize = itemApp.borderSize;
+	int aCurrBorderSize = itemApp.borderSize;
 	if( menuApp.itemType == eMenuItemType_RndRect )
-		aBorderSize = max(aBorderSize, menuApp.radius / 4);
+		aCurrBorderSize = max(aCurrBorderSize, menuApp.radius / 4);
+	int aBaseBorderSize = aCurrBorderSize;
+	if( dd.itemDrawState != eMenuItemDrawState_Normal )
+	{
+		const MenuItemAppearance& itemNormalApp =
+			getMenuItemAppearance(dd.menuID, eMenuItemDrawState_Normal);
+		aBaseBorderSize = itemNormalApp.borderSize;
+		if( menuApp.itemType == eMenuItemType_RndRect )
+			aBaseBorderSize = max(aBaseBorderSize, menuApp.radius / 4);
+	}
 	drawMenuItemLabel(
 		dd,
 		ps.rects[theRectIdx],
 		theRectIdx,
 		theLabel,
 		menuApp, itemApp,
-		aBorderSize,
+		aCurrBorderSize,
+		aBaseBorderSize,
 		getMaxBorderSize(dd.menuID),
 		theCacheEntryID);
 }
@@ -2589,6 +2620,7 @@ static void drawSlotsMenu(DrawData& dd)
 				intSize(ps.rects.size())-1,
 				anAltLabel,
 				menuApp, itemApp,
+				itemApp.borderSize,
 				itemApp.borderSize,
 				getMaxBorderSize(dd.menuID),
 				anItemCount+ps.selection+hasTitle);
@@ -3976,17 +4008,10 @@ void updateWindowLayout(
 			aWinScalingPosY += aHotspot.y.offset;
 			if( aHotspot.w != 0 || aHotspot.h != 0 )
 			{
-				// Border size is added to the hotspot size in this case,
-				// since hotspot size is potentially the size of an icon
-				// (for copy-icon-from-dest) and border ought to be drawn
-				// around the icon rather than overlapping it
-				const int aSelectedBorderSize = getMenuItemAppearance(
-					theMenuID, eMenuItemDrawState_Selected).borderSize;
-				aWinScalingSizeX = aHotspot.w + aSelectedBorderSize * 2;
-				aWinScalingSizeY = aHotspot.h + aSelectedBorderSize * 2;
-				const double aHotspotScale = HotspotMap::hotspotScale(aHotspotID);
-				aWinScalingSizeX *= aHotspotScale;
-				aWinScalingSizeY *= aHotspotScale;
+				const double aHotspotScale =
+					HotspotMap::hotspotScale(aHotspotID);
+				aWinScalingSizeX = aHotspot.w * aHotspotScale;
+				aWinScalingSizeY = aHotspot.h * aHotspotScale;
 			}
 		}
 		break;
