@@ -3689,7 +3689,8 @@ void moveMouse(int dx, int dy, int lookX, bool digital)
 	}
 
 	// Add lookX to dx in mouselook modes while moving
-	if( lookX != 0 && sTracker.moveKeysHeld.any() &&
+	if( kConfig.moveLookSpeed && lookX != 0 && 
+		sTracker.moveKeysHeld.any() &&
 		(kMouseSpeedMode == eMouseMode_LookTurn ||
 		 kMouseSpeedMode == eMouseMode_LookReady) )
 	{
