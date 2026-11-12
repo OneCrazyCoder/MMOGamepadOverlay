@@ -193,6 +193,7 @@ struct ZERO_INIT(LabelIcon)
 		u16 hotspotID;
 	};
 	bool copyFromTarget;
+	bool valid;
 };
 
 struct ZERO_INIT(MenuPosition)
@@ -862,8 +863,14 @@ static void setLabelIcon(
 		}
 	}
 
-	// Check if is a bitmap icon description
 	LabelIcon aNewIcon;
+	if( isEffectivelyEmptyString(theIconDesc) )
+	{
+		sLabelIcons.setValue(theTextLabel, aNewIcon);
+		return;
+	}
+
+	// Check if is a bitmap icon description
 	aNewIcon.bitmapIconID =
 		dropTo<u16>(getOrCreateBitmapIconID(theIconDesc));
 	if( !aNewIcon.bitmapIconID )
@@ -876,6 +883,7 @@ static void setLabelIcon(
 				"description for label icon \"%s\"!", 
 				theIconDesc.c_str(),
 				theTextLabel.c_str());
+			sLabelIcons.setValue(theTextLabel, aNewIcon);
 			return;
 		}
 		const Hotspot& aNewHotspot = HotspotMap::getHotspot(aNewIcon.hotspotID);
@@ -886,11 +894,13 @@ static void setLabelIcon(
 				"which has 0 for width or height, so nothing to copy!",
 				theTextLabel.c_str(),
 				HotspotMap::hotspotLabel(aNewIcon.hotspotID));
+			sLabelIcons.setValue(theTextLabel, aNewIcon);
 			return;
 		}
 		aNewIcon.copyFromTarget = true;
 	}
 
+	aNewIcon.valid = true;
 	sLabelIcons.setValue(theTextLabel, aNewIcon);
 }
 
@@ -2110,7 +2120,8 @@ static void initializeLabelDrawCacheEntry(
 
 	LabelIcon* aLabelIcon = sLabelIcons.find(theLabel);
 
-	if( aLabelIcon && aLabelIcon->copyFromTarget && dd.useCopyIcons )
+	if( aLabelIcon && aLabelIcon->valid &&
+		aLabelIcon->copyFromTarget && dd.useCopyIcons )
 	{
 		// Copy-from-target rect icon
 		int anID = 1;
@@ -2143,7 +2154,7 @@ static void initializeLabelDrawCacheEntry(
 		}
 	}
 
-	if( aLabelIcon && !aLabelIcon->copyFromTarget )
+	if(  aLabelIcon && aLabelIcon->valid && !aLabelIcon->copyFromTarget )
 	{// Bitmap icon
 		theCacheEntry.type = eMenuItemLabelType_Bitmap;
 		theCacheEntry.bitmapIconID = aLabelIcon->bitmapIconID;
