@@ -2851,7 +2851,8 @@ void update()
 						setKeyDown(aMouseLookStartKey & kVKeyMask, true);
 						startMouseLookMode(aMouseLookStartKey & kVKeyMask);
 						// Skip initial throttling and so on
-						sTracker.mouseLookState = eMouseLookState_Verify;
+						sTracker.mouseLookState = eMouseLookState_Stabilized;
+						sTracker.mouseLookPosVerifyTime = gAppFrameTime;
 					}
 				}
 				else if( !sTracker.queue.mouseJumpQueued() )
