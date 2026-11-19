@@ -2467,7 +2467,7 @@ static bool forceReleaseAllMoveKeys()
 		if( sTracker.keysHeldDown.test(aVKey) )
 		{
 			sTracker.charMoveRequestedThisUpdate = true;
-			// If key couldn't be released yet return false so try again next frame
+			// If key couldn't be released yet return false so try again
 			if( setKeyDown(aVKey, false) != eResult_Ok )
 				return false;
 		}
@@ -2494,6 +2494,26 @@ static bool forceReleaseAllMoveKeys()
 		// to halt until at least one of them is released
 		if( sTracker.keysHeldDown.test(VK_LBUTTON) )
 			return false;
+	}
+
+	// Abort auto-run modes as well
+	if( sTracker.autoRunMode != eAutoRunMode_Off )
+	{
+		sTracker.charMoveRequestedThisUpdate = true;
+		if( (sTracker.autoRunMode == eAutoRunMode_Started ||
+			 sTracker.autoRunMode == eAutoRunMode_Active) &&
+			InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
+		{// Need to tap a movement key to halt true auto-run
+			Command aCmd;
+			aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_MoveB);
+			aCmd.hasKeybindSignal = true;
+			aCmd.keyBindID = dropTo<u16>(eSpecialKey_MoveB);
+			aCmd.type = eCmdType_TriggerKeyBind;
+			sendCommand(aCmd);
+			return false;
+		}
+		// Above handled releasing of actual keys for all other states
+		sTracker.autoRunMode = eAutoRunMode_Off;
 	}
 
 	return true;
@@ -3126,10 +3146,9 @@ void update()
 				sTracker.allowFastTasksDuringQueuePause = false;
 				aTaskResult = eResult_Incomplete;
 			}
-			else
+			else if( !taskIsPastDue )
 			{
-				if( !taskIsPastDue )
-					sTracker.nextQueuedKey = aCmd.vKey;
+				sTracker.nextQueuedKey = aCmd.vKey;
 			}
 			break;
 		case eCmdType_VKeySequence:
@@ -3572,11 +3591,19 @@ void update()
 		int aVKeyBase = aVKey & kVKeyMask;
 		const bool wantRelease = !!(sTracker.nextQueuedKey & kVKeyReleaseFlag);
 
-		if( aVKey == kVkeyCancelMove )
+		if( aVKeyBase == kVkeyCancelMove )
 		{
 			DBG_ASSERT(wantRelease);
-			if( forceReleaseAllMoveKeys() )
-				sTracker.nextQueuedKey = 0;
+			sTracker.nextQueuedKey = 0;
+			if( !forceReleaseAllMoveKeys() )
+			{
+				// May need to flush more from queue or just wait for a bit
+				// Queue stop command again, repeatedly, until successful
+				Command aCmd;
+				aCmd.type = eCmdType_TapKey;
+				aCmd.vKey = kVKeyForceRelease | kVkeyCancelMove;
+				sTracker.queue.push_back(aCmd);
+			}
 		}
 		else if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
 		{
