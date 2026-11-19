@@ -62,6 +62,9 @@ enum EAutoRunMode
 	eAutoRunMode_StartLockX,
 	eAutoRunMode_StartLockY,
 	eAutoRunMode_StartLockXY,
+	eAutoRunMode_HoldingLockX,
+	eAutoRunMode_HoldingLockY,
+	eAutoRunMode_HoldingLockXY,
 	eAutoRunMode_LockedX,
 	eAutoRunMode_LockedY,
 	eAutoRunMode_LockedXY,
@@ -82,7 +85,7 @@ enum EMouseLookState
 	eMouseLookState_WaitForGameJump,
 	eMouseLookState_Throttle,
 	eMouseLookState_Verify,
-	eMouseLookState_Stabilized,
+	eMouseLookState_Stable,
 };
 
 
@@ -636,8 +639,10 @@ struct ZERO_INIT(DispatchTracker)
 	bool manualCharMoveRequested;
 	bool manualCharTurnRequested;
 	bool manualCharStrafeRequested;
-	bool moveKeysForceDropped;
 	bool manualMouseMoveRequested;
+	bool charMoveForceStopped;
+	bool charMoveRequestedThisUpdate;
+	bool needSafeMouseTurnToLookTransition;
 
 	POINT mouseJumpDest;
 	EMouseMode mouseMode;
@@ -646,8 +651,8 @@ struct ZERO_INIT(DispatchTracker)
 	EMouseMode mouseJumpToMode;
 	EMouseLookState mouseLookState;
 	int mouseVelX, mouseVelY;
-	int mouseLDragX, mouseLDragY;
-	int mouseRDragX, mouseRDragY;
+	int mouseLLockTime, mouseLDragX, mouseLDragY;
+	int mouseRLockTime, mouseRDragX, mouseRDragY;
 	int mouseDigitalVel;
 	int mouseClickAllowedTime;
 	int mouseJumpAllowedTime;
@@ -707,15 +712,21 @@ static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 	switch(theKeyBindID)
 	{
 	case eSpecialKey_AutoRun:
+		sTracker.needSafeMouseTurnToLookTransition = false;
 		if( InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
 			sTracker.autoRunMode = eAutoRunMode_Started;
 		break;
 	case eSpecialKey_MoveF:
 	case eSpecialKey_MoveB:
-		if( sTracker.autoRunMode != eAutoRunMode_Queued &&
-			sTracker.autoRunMode != eAutoRunMode_StartLockX &&
-			sTracker.autoRunMode != eAutoRunMode_LockedX )
+		sTracker.needSafeMouseTurnToLookTransition = false;
+		switch(sTracker.autoRunMode)
 		{
+		case eAutoRunMode_Started:
+		case eAutoRunMode_Active:
+		case eAutoRunMode_HoldingLockY:
+		case eAutoRunMode_HoldingLockXY:
+		case eAutoRunMode_LockedY:
+		case eAutoRunMode_LockedXY:
 			sTracker.autoRunMode = eAutoRunMode_Off;
 		}
 		break;
@@ -723,9 +734,13 @@ static void signalKeyBindUsed(const Command& theCommand, bool recurse = true)
 	case eSpecialKey_TurnR:
 	case eSpecialKey_StrafeL:
 	case eSpecialKey_StrafeR:
-		if( sTracker.autoRunMode == eAutoRunMode_StartLockX ||
-			sTracker.autoRunMode == eAutoRunMode_LockedX )
+		sTracker.needSafeMouseTurnToLookTransition = false;
+		switch(sTracker.autoRunMode)
 		{
+		case eAutoRunMode_HoldingLockX:
+		case eAutoRunMode_HoldingLockXY:
+		case eAutoRunMode_LockedX:
+		case eAutoRunMode_LockedXY:
 			sTracker.autoRunMode = eAutoRunMode_Off;
 		}
 		break;
@@ -1136,6 +1151,17 @@ static void offsetMousePos()
 		return;
 	}
 
+	if( sTracker.charMoveForceStopped )
+	{
+		// RMB + horizontal mouse motion = turning = abort when force stopped
+		if( sTracker.keysHeldDown.test(VK_RBUTTON) &&
+			sTracker.mouseVelX != 0 )
+		{
+			sTracker.charMoveRequestedThisUpdate = true;
+			sTracker.mouseVelX = 0;
+		}
+	}
+
 	if( !sTracker.mouseVelX && !sTracker.mouseVelY )
 		return;
 
@@ -1200,13 +1226,14 @@ static void offsetMousePos()
 	int aMouseDragDistSq = 0;
 
 	// Allow LMB/RMB to be let up if drag mouse enough while they are down
+	// (for mouseL/RLockTime, but may still be locked down by other timers)
 	if( holdingLMB )
 	{
 		aMouseDragDistSq =
 			(sTracker.mouseLDragX * sTracker.mouseLDragX) +
 			(sTracker.mouseLDragY * sTracker.mouseLDragY);
 		if( aMouseDragDistSq >= kMouseMaxClickMoveDistSq )
-			sTracker.keysLockedDown.erase(VK_LBUTTON);
+			sTracker.mouseLLockTime = 0;
 	}
 	if( holdingRMB )
 	{
@@ -1214,7 +1241,7 @@ static void offsetMousePos()
 			(sTracker.mouseRDragX * sTracker.mouseRDragX) +
 			(sTracker.mouseRDragY * sTracker.mouseRDragY);
 		if( aMouseDragDistSq >= kMouseMaxClickMoveDistSq )
-			sTracker.keysLockedDown.erase(VK_RBUTTON);
+			sTracker.mouseRLockTime = 0;
 	}
 
 	const int aRequestedVelMagSq =
@@ -1283,7 +1310,7 @@ static void offsetMousePos()
 	case eMouseLookState_Verify:
 		// Apply motion normally and wait for checkMouseLookRestore() update
 		break;
-	case eMouseLookState_Stabilized:
+	case eMouseLookState_Stable:
 		// Continue to apply motion normally (w/ cap ease-off)
 		break;
 	default:
@@ -1612,14 +1639,21 @@ static void lockKeyDownFor(int theBaseVKey, int theLockTime)
 
 static int keyLockDownRemainingTime(int theBaseVKey)
 {
+	int result = 0;
 	VectorMap<u8, int>::iterator itr =
 		sTracker.keysLockedDown.find(dropTo<u8>(theBaseVKey));
-	if( itr == sTracker.keysLockedDown.end() )
-		return 0;
-	if( gAppRunTime < itr->second )
-		return itr->second - gAppRunTime;
-	sTracker.keysLockedDown.erase(itr);
-	return 0;
+	if( itr != sTracker.keysLockedDown.end() )
+	{
+		if( gAppRunTime < itr->second )
+			result = itr->second - gAppRunTime;
+		else
+			sTracker.keysLockedDown.erase(itr);
+	}
+	if( theBaseVKey == VK_LBUTTON )
+		result = max(result, sTracker.mouseLLockTime - gAppRunTime);
+	else if( theBaseVKey == VK_RBUTTON )
+		result = max(result, sTracker.mouseRLockTime - gAppRunTime);
+	return result;
 }
 
 
@@ -1648,11 +1682,23 @@ static EResult setKeyDown(int theKey, bool down)
 		gAppRunTime < sTracker.modKeyChangeAllowedTime )
 	{ return eResult_NotAllowed; }
 
-	// May not be allowed to click a mouse button yet
-	if( down && isMouseButton(theKey) &&
-		(sTracker.mouseJumpRequested ||
-		 gAppRunTime < sTracker.mouseClickAllowedTime) )
-	{ return eResult_NotAllowed; }
+	// May not be allowed to click or release a mouse button yet
+	if( isMouseButton(theKey) )
+	{
+		if( down &&
+			(sTracker.mouseJumpRequested ||
+			 gAppRunTime < sTracker.mouseClickAllowedTime) )
+		{ return eResult_NotAllowed; }
+
+		if( down && sTracker.charMoveForceStopped )
+		{
+			// Don't let both buttons be down at once which can cause movement
+			if( theKey == VK_LBUTTON && sTracker.keysHeldDown.test(VK_RBUTTON) )
+				return eResult_NotAllowed;
+			if( theKey == VK_RBUTTON && sTracker.keysHeldDown.test(VK_LBUTTON) )
+				return eResult_NotAllowed;
+		}
+	}
 
 	// May not be allowed to release the given key yet
 	if( !down && keyLockDownRemainingTime(theKey) > 0 )
@@ -1816,9 +1862,11 @@ static EMouseMode checkMouseLookModeTransitions()
 			return eMouseMode_LookReady;
 		}
 		else if( sTracker.mouseVelX != 0 ||
+				 sTracker.needSafeMouseTurnToLookTransition ||
 				 (sTracker.mouseVelY != 0 &&
 				  sTracker.mouseMode == eMouseMode_LookReady) )
 		{// Want to be in look only mode for horizontal pans while stationary
+			// Or if were forced to stop for a safe/slow transition
 			// Or for ANY stationary panning if just waiting in LookReady
 			if( sTracker.mouseMode != eMouseMode_LookOnly )
 			{// Smoothly transition to LookOnly if not already in it
@@ -1837,13 +1885,38 @@ static EMouseMode checkMouseLookModeTransitions()
 
 	if( sTracker.mouseModeExpected == eMouseMode_SwapToLook )
 	{
+		if( sTracker.autoRunMode == eAutoRunMode_Active &&
+			kConfig.mouseLookQuickTurnToLook > 1 )
+		{// Holding both buttons together for quick-swap could abort auto-run!
+			sTracker.needSafeMouseTurnToLookTransition = true;
+		}
+
 		// Avoid leaving _LookTurn until character stops moving
 		// and are actively trying to pan camera in X axis
 		if( sTracker.mouseMode == eMouseMode_LookTurn &&
 			sTracker.keysHeldDown.test(VK_RBUTTON) &&
 			(isManuallyMovingCharacter() || sTracker.mouseVelX == 0) )
 		{
+			if( sTracker.needSafeMouseTurnToLookTransition &&
+				sTracker.mouseVelY == 0 )
+			{// Need safe/slow transition possibly - get ready for it now
+				return eMouseMode_LookReady;
+			}
 			return eMouseMode_LookTurn;
+		}
+
+		if( sTracker.mouseMode == eMouseMode_LookReady )
+		{
+			// Was expecting looking around and completing slow transition
+			// during locked movement state, but movement started again.
+			// Likely going to transition back to _LookTurn anyway so do
+			// that now, and if not, will just swap back next update with
+			// quick-swap now potentially being available.
+			if( isManuallyMovingCharacter() )
+				return eMouseMode_LookTurn;
+			// If not attempting to move camera, continue to wait
+			if( sTracker.mouseVelX == 0 && sTracker.mouseVelY == 0 )
+				return eMouseMode_LookReady;
 		}
 
 		sTracker.mouseModeExpected = eMouseMode_LookOnly;
@@ -2064,7 +2137,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 					{
 						logNotice(
 							"Failed to start Mouse Look mode - "
-							"try clicking on empty part of game window first?");
+							"check [Hotspots]/MouseLookStart position!");
 						theWantedMode = eMouseMode_Cursor;
 						gFiredSignals.set(
 							InputMap::keyBindSignalID(eSpecialKey_FocusLost));
@@ -2109,12 +2182,12 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 				case eMouseLookStartStyle_MoveThenJumpToCenter:
 					// A verified jump to center means clearly stabilized,
 					// even if were throttling before this point
-					sTracker.mouseLookState = eMouseLookState_Stabilized;
+					sTracker.mouseLookState = eMouseLookState_Stable;
 				default:
 					// Only change current state if just _Verify -
 					// otherwise could incorrectly abort _Throttling state!
 					if( sTracker.mouseLookState == eMouseLookState_Verify )
-						sTracker.mouseLookState = eMouseLookState_Stabilized;
+						sTracker.mouseLookState = eMouseLookState_Stable;
 					break;
 				}
 			}
@@ -2158,14 +2231,14 @@ static void startMouseLookMode(int theKey)
 		// Don't let mouse look register as just a click - even if in the
 		// mode for a very short time - by forcing a long hold time OR a
 		// minimum movement amount first, so game registers it as a "drag"
-		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
+		sTracker.mouseLLockTime = gAppRunTime + kConfig.mouseLookMinHoldTime;
 		sTracker.mouseLDragX = sTracker.mouseLDragY = 0;
 		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 		debugPrint("InputDispatcher: Starting LMB (look only) Mouse Look\n");
 		#endif
 		break;
 	case VK_RBUTTON:
-		lockKeyDownFor(theKey, kConfig.mouseLookMinHoldTime);
+		sTracker.mouseRLockTime = gAppRunTime + kConfig.mouseLookMinHoldTime;
 		sTracker.mouseRDragX = sTracker.mouseRDragY = 0;
 		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 		debugPrint("InputDispatcher: Starting RMB (look+turn) Mouse Look\n");
@@ -2378,26 +2451,51 @@ static bool tryQuickSendKeyCommand(const Command& theCommand)
 
 static bool forceReleaseAllMoveKeys()
 {
+	// This prevents move keys from being held, as well as prevents both mouse
+	// buttons being held together (since that causes forward movement) and
+	// prevents horizontal mouse movement while holding RMB (since that causes
+	// turning). Cleared once none of the above are being requested by user.
+	sTracker.charMoveForceStopped = true;
+	sTracker.needSafeMouseTurnToLookTransition =
+		kConfig.mouseLookQuickTurnToLook > 1;
+
 	for(int i = eSpecialKey_FirstMove; i <= eSpecialKey_LastMove; ++i)
 	{
 		const u16 aVKey = InputMap::keyForSpecialAction(ESpecialKey(i));
 		if( !aVKey )
 			continue;
-		if( setKeyDown(aVKey, false) != eResult_Ok )
-			return false;
+		if( sTracker.keysHeldDown.test(aVKey) )
+		{
+			sTracker.charMoveRequestedThisUpdate = true;
+			// If key couldn't be released yet return false so try again next frame
+			if( setKeyDown(aVKey, false) != eResult_Ok )
+				return false;
+		}
 		for(KeysWantDownMap::iterator itr =
 			sTracker.keysWantDown.begin();
 			itr != sTracker.keysWantDown.end(); ++itr)
 		{
-			if( (itr->first & kVKeyMask) == aVKey )
+			if( (itr->first & kVKeyMask) == aVKey && itr->second.depth > 0 )
 			{
 				itr->second.depth = 0;
 				itr->second.pressed = false;
+				sTracker.charMoveRequestedThisUpdate = true;
 			}
 		}
 	}
 
-	sTracker.moveKeysForceDropped = true;
+	if( sTracker.keysHeldDown.test(VK_RBUTTON) )
+	{
+		// Since RMB held can = mouse look turn which counts as char motion,
+		// make sure sTracker.charMoveForceStopped does not insta-clear.
+		sTracker.charMoveRequestedThisUpdate = true;
+		// Both mouse buttons down at once also counts as a movement key,
+		// since in most MMO's this causes forward movement, so keep trying
+		// to halt until at least one of them is released
+		if( sTracker.keysHeldDown.test(VK_LBUTTON) )
+			return false;
+	}
+
 	return true;
 }
 
@@ -2823,13 +2921,16 @@ void update()
 				{// Skip position jump and just hold the button
 					sTracker.mouseMode = aNextMouseMode;
 					sTracker.nextQueuedKey = aMouseLookStartKey;
+					sTracker.needSafeMouseTurnToLookTransition = false;
 				}
 				else if( ((sTracker.mouseMode == eMouseMode_LookTurn &&
-						   kConfig.mouseLookQuickTurnToLook > 0) ||
+						   kConfig.mouseLookQuickTurnToLook > 0 &&
+						   !sTracker.needSafeMouseTurnToLookTransition) ||
 						  (sTracker.mouseMode == eMouseMode_LookOnly &&
 						   kConfig.mouseLookQuickLookToTurn > 0)) &&
+						 !sTracker.charMoveForceStopped &&
 						 sTracker.keysHeldDown.test(anAltMouseLookKey) &&
-						 sTracker.mouseLookState == eMouseLookState_Stabilized )
+						 sTracker.mouseLookState == eMouseLookState_Stable )
 				{// Skip full initialization of Mouse Look and swap buttons
 					// Get how long both buttons should be down together
 					int bothPressedTime =
@@ -2844,15 +2945,21 @@ void update()
 						(bothPressedTime > 0 ||
 						 setKeyDown(anAltMouseLookKey, false) == eResult_Ok) )
 					{// Ready to press new button now
-						if( bothPressedTime )
-							lockKeyDownFor(anAltMouseLookKey, bothPressedTime);
 						sTracker.mouseClickAllowedTime = 0;
-						sTracker.mouseMode = aNextMouseMode;
-						setKeyDown(aMouseLookStartKey & kVKeyMask, true);
-						startMouseLookMode(aMouseLookStartKey & kVKeyMask);
-						// Skip initial throttling and so on
-						sTracker.mouseLookState = eMouseLookState_Stabilized;
-						sTracker.mouseLookPosVerifyTime = gAppFrameTime;
+						if( setKeyDown(aMouseLookStartKey & kVKeyMask, true)
+								== eResult_Ok )
+						{// New button successfully pressed!
+							sTracker.mouseMode = aNextMouseMode;
+							if( bothPressedTime > 0 )
+							{
+								lockKeyDownFor(
+									anAltMouseLookKey, bothPressedTime);
+							}
+							startMouseLookMode(aMouseLookStartKey & kVKeyMask);
+							// Skip initial throttling and so on
+							sTracker.mouseLookState = eMouseLookState_Stable;
+							sTracker.mouseLookPosVerifyTime = gAppFrameTime;
+						}
 					}
 				}
 				else if( !sTracker.queue.mouseJumpQueued() )
@@ -2865,6 +2972,7 @@ void update()
 					sTracker.mouseAllowMidJumpControl = false;
 					// Queue holding down the appropriate mouse button after
 					sTracker.nextQueuedKey = aMouseLookStartKey;
+					sTracker.needSafeMouseTurnToLookTransition = false;
 				}
 				break;
 			case eMouseMode_Hide:
@@ -2892,6 +3000,7 @@ void update()
 					sTracker.mouseJumpRequested = true;
 					sTracker.mouseJumpInterpolate = false;
 					sTracker.mouseAllowMidJumpControl = false;
+					sTracker.needSafeMouseTurnToLookTransition = false;
 				}
 				break;
 			default:
@@ -3467,7 +3576,7 @@ void update()
 		{
 			DBG_ASSERT(wantRelease);
 			if( forceReleaseAllMoveKeys() )
-				sTracker.nextQueuedKey = 0;;
+				sTracker.nextQueuedKey = 0;
 		}
 		else if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
 		{
@@ -3512,6 +3621,16 @@ void update()
 		}
 	}
 
+
+	// Release force character stop mode
+	// ---------------------------------
+	if( sTracker.charMoveForceStopped )
+	{
+		if( sTracker.charMoveRequestedThisUpdate )
+			sTracker.charMoveRequestedThisUpdate = false;
+		else
+			sTracker.charMoveForceStopped = false;
+	}
 
 	// Dispatch input to system
 	// ------------------------
@@ -3916,21 +4035,23 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		gFiredSignals.set(InputMap::keyBindSignalID(eSpecialKey_TurnAny));
 	}
 
-	if( sTracker.moveKeysForceDropped )
-	{
-		// Don't let any movement keys press until none are requested
-		if( moveKeysWantDown.any() )
-			moveKeysWantDown.reset();
-		else
-			sTracker.moveKeysForceDropped = false;
-	}
-
 	if( lock )
 	{// Send desired movement first, then lock it at end of this function
 		sTracker.autoRunMode = eAutoRunMode_Off;
 		autoRun = moveKeysWantDown.none();
-		sTracker.moveKeysForceDropped = false;
+		sTracker.charMoveForceStopped = false;
 	}
+
+	if( sTracker.charMoveForceStopped )
+	{
+		// Don't let any movement keys press until none are requested
+		if( moveKeysWantDown.any() )
+		{
+			moveKeysWantDown.reset();
+			sTracker.charMoveRequestedThisUpdate = true;
+		}
+	}
+
 	if( autoRun )
 	{// Don't necessarily send the auto run key right away...
 		sTracker.autoRunMode = eAutoRunMode_Queued;
@@ -3968,7 +4089,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			moveKeysWantDown.reset(eMoveKey_B);
 		}
 		break;
-	case eAutoRunMode_StartLockX:
+	case eAutoRunMode_HoldingLockX:
 		// Wait until release X axis so can cancel by re-press
 		if( !moveKeysWantDown.test(eMoveKey_TL) &&
 			!moveKeysWantDown.test(eMoveKey_TR) &&
@@ -3978,7 +4099,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			sTracker.autoRunMode = eAutoRunMode_LockedX;
 		}
 		break;
-	case eAutoRunMode_StartLockY:
+	case eAutoRunMode_HoldingLockY:
 		// Wait until release Y axis so can cancel by re-press
 		if( !moveKeysWantDown.test(eMoveKey_F) &&
 			!moveKeysWantDown.test(eMoveKey_B) )
@@ -3992,7 +4113,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 			}
 		}
 		break;
-	case eAutoRunMode_StartLockXY:
+	case eAutoRunMode_HoldingLockXY:
 		// Wait until release all movement so can cancel by re-press
 		if( moveKeysWantDown.none() )
 			sTracker.autoRunMode = eAutoRunMode_LockedXY;
@@ -4026,6 +4147,8 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 
 	if( sTracker.autoRunMode == eAutoRunMode_StartLockX ||
 		sTracker.autoRunMode == eAutoRunMode_StartLockXY ||
+		sTracker.autoRunMode == eAutoRunMode_HoldingLockXY ||
+		sTracker.autoRunMode == eAutoRunMode_HoldingLockXY ||
 		sTracker.autoRunMode == eAutoRunMode_LockedX ||
 		sTracker.autoRunMode == eAutoRunMode_LockedXY )
 	{// Continue using already-held keys for x axis
@@ -4043,6 +4166,8 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	}
 	if( sTracker.autoRunMode == eAutoRunMode_StartLockY ||
 		sTracker.autoRunMode == eAutoRunMode_StartLockXY ||
+		sTracker.autoRunMode == eAutoRunMode_HoldingLockY ||
+		sTracker.autoRunMode == eAutoRunMode_HoldingLockXY ||
 		sTracker.autoRunMode == eAutoRunMode_LockedY ||
 		sTracker.autoRunMode == eAutoRunMode_LockedXY )
 	{// Continue using already-held keys for y axis
@@ -4085,7 +4210,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		}
 		else
 		{
-			if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
+			if( !sTracker.keysHeldDown.test(VK_RBUTTON) && !lock )
 			{// Don't turn or strafe until RMB held down to strafe with
 				moveKeysWantDown.reset(eMoveKey_TL);
 				sTracker.mouseLookNeededToStrafe = true;
@@ -4101,7 +4226,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		}
 		else
 		{
-			if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
+			if( !sTracker.keysHeldDown.test(VK_RBUTTON) && !lock )
 			{// Don't turn or strafe until RMB held down to strafe with
 				moveKeysWantDown.reset(eMoveKey_TR);
 				sTracker.mouseLookNeededToStrafe = true;
@@ -4204,6 +4329,48 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 		else
 		{
 			sTracker.autoRunMode = eAutoRunMode_StartLockY;
+		}
+	}
+
+	switch(sTracker.autoRunMode)
+	{
+	case eAutoRunMode_StartLockX:
+		if( sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_TL + eSpecialKey_FirstMove))) ||
+			sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_TR + eSpecialKey_FirstMove))) ||
+			sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_SL + eSpecialKey_FirstMove))) ||
+			sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_SR + eSpecialKey_FirstMove))) )
+		{
+			sTracker.autoRunMode = eAutoRunMode_HoldingLockX;
+		}
+		break;
+	case eAutoRunMode_StartLockY:
+		if( sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_B + eSpecialKey_FirstMove))) ||
+			sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_F + eSpecialKey_FirstMove))) )
+		{
+			sTracker.autoRunMode = eAutoRunMode_HoldingLockY;
+		}
+		break;
+	case eAutoRunMode_StartLockXY:
+		if( (sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_TL + eSpecialKey_FirstMove))) ||
+			 sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_TR + eSpecialKey_FirstMove))) ||
+			 sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_SL + eSpecialKey_FirstMove))) ||
+			 sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_SR + eSpecialKey_FirstMove)))) &&
+			(sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_B + eSpecialKey_FirstMove))) ||
+			 sTracker.keysHeldDown.test(InputMap::keyForSpecialAction(
+				ESpecialKey(eMoveKey_F + eSpecialKey_FirstMove)))) )
+		{
+			sTracker.autoRunMode = eAutoRunMode_HoldingLockXY;
 		}
 	}
 }
