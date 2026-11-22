@@ -2987,7 +2987,7 @@ static void reload()
 
 void load()
 {
-	// Initial load for first profile
+	// Initial load for new profile
 	DBG_ASSERT(!sInitialized);
 	++sLoadCount;
 	sPromptForWildcardFiles = Profile::getBool(
@@ -3049,6 +3049,7 @@ void loadProfileChanges()
 
 void cleanup()
 {
+	delete sFinder; sFinder = null;
 	delete sReader; sReader = null;
 	delete sParser; sParser = null;
 
@@ -3063,6 +3064,9 @@ void cleanup()
 	}
 	sRegKeys.clear();
 
+	for(int i = 0; i < eValueSetSubType_Num; ++i)
+		sInvertAxis[i] = false;
+
 	sDataSources.clear();
 	sVariables.clear();
 	sValues.clear();
@@ -3071,6 +3075,7 @@ void cleanup()
 	sDataSourcesToCheck.clear();
 	sDataSourcesToRead.clear();
 	sDataSourcesToReCheck.clear();
+	sAutoWildcardSwitchCount = 0;
 	sInitialized = false;
 	sPaused = false;
 }
