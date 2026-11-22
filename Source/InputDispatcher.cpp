@@ -2500,20 +2500,20 @@ static bool forceReleaseAllMoveKeys()
 	if( sTracker.autoRunMode != eAutoRunMode_Off )
 	{
 		sTracker.charMoveRequestedThisUpdate = true;
+		sTracker.autoRunMode = eAutoRunMode_Off;
 		if( (sTracker.autoRunMode == eAutoRunMode_Started ||
 			 sTracker.autoRunMode == eAutoRunMode_Active) &&
 			InputMap::keyForSpecialAction(eSpecialKey_AutoRun) )
 		{// Need to tap a movement key to halt true auto-run
-			Command aCmd;
-			aCmd.vKey = InputMap::keyForSpecialAction(eSpecialKey_MoveB);
-			aCmd.hasKeybindSignal = true;
-			aCmd.keyBindID = dropTo<u16>(eSpecialKey_MoveB);
-			aCmd.type = eCmdType_TriggerKeyBind;
-			sendCommand(aCmd);
+			// Want to try again next update, so set halt as backup key
+			DBG_ASSERT(sTracker.backupQueuedKey == 0);
+			DBG_ASSERT(sTracker.nextQueuedKey ==
+				(kVKeyForceReleaseFlag | kVkeyCancelMove));
+			sTracker.backupQueuedKey = sTracker.nextQueuedKey;
+			sTracker.nextQueuedKey =
+				InputMap::keyForSpecialAction(eSpecialKey_MoveB);
 			return false;
 		}
-		// Above handled releasing of actual keys for all other states
-		sTracker.autoRunMode = eAutoRunMode_Off;
 	}
 
 	return true;
@@ -3032,9 +3032,11 @@ void update()
 
 	// Update queue
 	// ------------
-	if( sTracker.backupQueuedKey ) // if had backup, next was temp anyway
+	if( sTracker.backupQueuedKey && !sTracker.nextQueuedKey )
+	{
 		sTracker.nextQueuedKey = sTracker.backupQueuedKey;
-	sTracker.backupQueuedKey = 0;
+		sTracker.backupQueuedKey = 0;
+	}
 	while(sTracker.nextQueuedKey == 0 &&
 		  !sTracker.queue.empty() &&
 		  (sTracker.queuePauseTime <= 0 ||
@@ -3594,16 +3596,8 @@ void update()
 		if( aVKeyBase == kVkeyCancelMove )
 		{
 			DBG_ASSERT(wantRelease);
-			sTracker.nextQueuedKey = 0;
-			if( !forceReleaseAllMoveKeys() )
-			{
-				// May need to flush more from queue or just wait for a bit
-				// Queue stop command again, repeatedly, until successful
-				Command aCmd;
-				aCmd.type = eCmdType_TapKey;
-				aCmd.vKey = kVKeyForceRelease | kVkeyCancelMove;
-				sTracker.queue.push_back(aCmd);
-			}
+			if( forceReleaseAllMoveKeys() )
+				sTracker.nextQueuedKey = 0;
 		}
 		else if( setKeyDown(aVKeyBase, !wantRelease) == eResult_Ok )
 		{
@@ -3647,6 +3641,8 @@ void update()
 			}
 		}
 	}
+	if( heldKeyUsingNextQueuedkey )
+		sTracker.nextQueuedKey = 0;
 
 
 	// Release force character stop mode
