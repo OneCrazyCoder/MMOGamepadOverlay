@@ -24,10 +24,10 @@ namespace WindowPainter
 
 enum {
 kMinFontPixelHeight = 6,
-kMinTextPaddingX = 3,
-kMinTextPaddingY = 2,
+kMinTextPaddingX = 2,
+kMinTextPaddingY = 1,
 kTextPaddingDivX = 3,
-kTextPaddingDivY = 5,
+kTextPaddingDivY = 6,
 kNoticeStringDisplayTimePerChar = 50,
 kNoticeStringMinTime = 3000,
 kSystemOverlayFlashFreq = 125,
@@ -1922,16 +1922,17 @@ static LONG getFontHeightToFit(
 	InflateRect(&aCalcRect,
 		-max<LONG>(kMinTextPaddingX, tm.tmHeight / kTextPaddingDivX),
 		-max<LONG>(kMinTextPaddingY, tm.tmHeight / kTextPaddingDivY));
+	RECT aFitRect = aCalcRect;
 
 	// DT_SINGLELINE prevents DT_CALCRECT from calculating height
 	theFormat &= ~DT_SINGLELINE;
 	aCalcRect.bottom = aCalcRect.top;
 	DrawText(hdc, theStr.c_str(), -1, &aCalcRect,
 		theFormat | DT_CALCRECT | DT_NOPREFIX);
-	if(	aCalcRect.left >= theClipRect.left &&
-		aCalcRect.right <= theClipRect.right &&
-		aCalcRect.top >= theClipRect.top &&
-		aCalcRect.bottom <= theClipRect.bottom )
+	if(	aCalcRect.left >= aFitRect.left &&
+		aCalcRect.right <= aFitRect.right &&
+		aCalcRect.top >= aFitRect.top &&
+		aCalcRect.bottom <= aFitRect.bottom )
 	{// No need for further testing
 		if( theTextRect )
 			*theTextRect = aCalcRect;
@@ -1963,6 +1964,7 @@ static LONG getFontHeightToFit(
 		InflateRect(&aCalcRect,
 			-max<LONG>(kMinTextPaddingX, tm.tmHeight / kTextPaddingDivX),
 			-max<LONG>(kMinTextPaddingY, tm.tmHeight / kTextPaddingDivY));
+		aFitRect = aCalcRect;
 		aCalcRect.bottom = aCalcRect.top;
 		DrawText(hdc, theStr.c_str(), -1, &aCalcRect,
 			theFormat | DT_CALCRECT | DT_NOPREFIX);
@@ -1970,10 +1972,10 @@ static LONG getFontHeightToFit(
 
 		// Update result (aka best fit size so far) and search range
 		if( mid == kMinFontPixelHeight ||
-			(aCalcRect.left >= theClipRect.left &&
-			 aCalcRect.right <= theClipRect.right &&
-			 aCalcRect.top >= theClipRect.top &&
-			 aCalcRect.bottom <= theClipRect.bottom) )
+			(aCalcRect.left >= aFitRect.left &&
+			 aCalcRect.right <= aFitRect.right &&
+			 aCalcRect.top >= aFitRect.top &&
+			 aCalcRect.bottom <= aFitRect.bottom) )
 		{
 			result = mid;
 			low = mid + 1;
