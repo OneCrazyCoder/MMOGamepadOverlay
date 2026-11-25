@@ -65,4 +65,3 @@ extern double gUIScale;
 
 // Overlay-relative mouse position last time were in a "cursor mode"
 extern POINT gLastCursorPos;
-

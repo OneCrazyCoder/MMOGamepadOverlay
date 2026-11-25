@@ -45,8 +45,8 @@ int hotspotSetSectionID(int theHotspotSetID);
 const BitVector<512>& changedHotspots();
 void resetChangedHotspots();
 
-// Updates both eSpecialHotspot_LastCursorPos and gLastCursorPos
-void setLastCursorPos(POINT theNewCursorPos);
+// Updates gLastCursorPos and optionally eSpecialHotspot_LastCursorPos
+void setLastCursorPos(POINT theNewCursorPos, bool andCursorHotspot = false);
 
 // Sets a multiplier on base hotspot default jump distance
 void setJumpDistMult(double theJumpDistMult);

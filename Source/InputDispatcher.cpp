@@ -106,7 +106,7 @@ struct ZERO_INIT(DispatchTask)
 	int progress;
 	int queuedTime;
 	bool hasMouseJump;
-	bool hasMouseAction;
+	bool hasMouseClick;
 	bool slow;
 };
 
@@ -361,12 +361,21 @@ public:
 
 		switch(aFinalCmd.type)
 		{
+		case eCmdType_PressAndHoldKey:
+		case eCmdType_TapKey:
+			if( aFinalCmd.vKey == VK_LBUTTON ||
+				aFinalCmd.vKey == VK_MBUTTON ||
+				aFinalCmd.vKey == VK_RBUTTON )
+			{
+				mBuffer[mTail].hasMouseClick = true;
+			}
+			break;
 		case eCmdType_VKeySequence:
 			scanVKeySeqForFlags(
 				InputMap::cmdVKeySeq(aFinalCmd),
 				aCurrJumpHotspotID, aFinalJumpHotspotID,
 				mBuffer[mTail].hasMouseJump,
-				mBuffer[mTail].hasMouseAction,
+				mBuffer[mTail].hasMouseClick,
 				mBuffer[mTail].slow);
 			if( aCurrJumpHotspotID )
 				aFinalJumpHotspotID = aCurrJumpHotspotID;
@@ -387,7 +396,7 @@ public:
 		case eCmdType_MouseClickAtHotspot:
 		case eCmdType_RightClickAtHotspot:
 		case eCmdType_MouseWheel:
-			mBuffer[mTail].hasMouseAction = true;
+			mBuffer[mTail].hasMouseClick = true;
 			// fall through
 		case eCmdType_MoveMouseToHotspot:
 		case eCmdType_MoveMouseToMenuItem:
@@ -410,14 +419,14 @@ public:
 		DBG_ASSERT(!empty());
 		confirmCanFitOneMore();
 		const bool flagAsSlow = mBuffer[mHead].slow;
-		const bool flagAsClicks = mBuffer[mHead].hasMouseAction;
+		const bool flagAsClicks = mBuffer[mHead].hasMouseClick;
 		mHead = (mHead - 1) & dropTo<u32>(mBuffer.size() - 1);
 		mBuffer[mHead].cmd = theCommand;
 		mBuffer[mHead].progress = 0;
 		mBuffer[mHead].queuedTime = 0x7FFFFFFF;
 		mBuffer[mHead].hasMouseJump = false;
 		mBuffer[mHead].slow = flagAsSlow;
-		mBuffer[mHead].hasMouseAction = flagAsClicks;
+		mBuffer[mHead].hasMouseClick = flagAsClicks;
 	}
 
 
@@ -446,11 +455,11 @@ public:
 	}
 
 
-	bool frontTaskHasMouseAction() const
+	bool frontTaskHasMouseClick() const
 	{
 		if( empty() )
 			return false;
-		return mBuffer[mHead].hasMouseAction;
+		return mBuffer[mHead].hasMouseClick;
 	}
 
 
@@ -582,7 +591,10 @@ private:
 						if( aCmd.vKey == VK_LBUTTON ||
 							aCmd.vKey == VK_MBUTTON ||
 							aCmd.vKey == VK_RBUTTON )
-						{ theCurrJumpHotspotID = 0; }
+						{
+							hasMouseClick = true;
+							theCurrJumpHotspotID = 0;
+						}
 						break;
 					case eCmdType_ChatBoxString:
 						isSlow = true;
@@ -651,8 +663,8 @@ struct ZERO_INIT(DispatchTracker)
 	EMouseMode mouseJumpToMode;
 	EMouseLookState mouseLookState;
 	int mouseVelX, mouseVelY;
-	int mouseLLockTime, mouseLDragX, mouseLDragY;
-	int mouseRLockTime, mouseRDragX, mouseRDragY;
+	int mouseLLockTime, mouseRLockTime;
+	int mouseLookDragX, mouseLookDragY;
 	int mouseDigitalVel;
 	int mouseClickAllowedTime;
 	int mouseJumpAllowedTime;
@@ -1132,7 +1144,6 @@ static bool hiddenCursorMode(EMouseMode theMode)
 	case eMouseMode_LookOnly:
 	case eMouseMode_LookAuto:
 	case eMouseMode_Hide:
-	case eMouseMode_HideOrLook:
 	case eMouseMode_SwapToTurn:
 	case eMouseMode_SwapToLook:
 	case eMouseMode_LookReady:
@@ -1143,8 +1154,91 @@ static bool hiddenCursorMode(EMouseMode theMode)
 }
 
 
+static inline void setCurrentMouseMode(EMouseMode theMouseMode)
+{
+	#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+	// Report actual switches between major mouse modes (mouse look vs cursor)
+	EMouseMode oldMouseMode = sTracker.mouseMode;
+	EMouseMode newMouseMode = theMouseMode;
+	switch(oldMouseMode)
+	{
+	case eMouseMode_Default:
+	case eMouseMode_PostJump:
+	case eMouseMode_JumpClicked:
+		oldMouseMode = eMouseMode_Cursor;
+		break;
+	}
+	switch(newMouseMode)
+	{
+	case eMouseMode_Default:
+	case eMouseMode_PostJump:
+	case eMouseMode_JumpClicked:
+		newMouseMode = eMouseMode_Cursor;
+		break;
+	case eMouseMode_Cursor:
+	case eMouseMode_LookTurn:
+	case eMouseMode_LookOnly:
+	case eMouseMode_LookReady:
+	case eMouseMode_Hide:
+		// Valid for sTracer.mouseMode
+		break;
+	default:
+		// Other values are for .expected or .requested but not just .mouseMode!
+		DBG_ASSERT(false && "Not valid value for sTracker.mouseMode!");
+	}
+	if( newMouseMode != oldMouseMode )
+	{
+		switch(newMouseMode)
+		{
+		case eMouseMode_Cursor:
+			debugPrint("InputDispatcher: Starting Cursor Mode\n");
+			break;
+		case eMouseMode_LookTurn:
+			debugPrint("InputDispatcher: Starting RMB (look+turn) ML Mode\n");
+			break;
+		case eMouseMode_LookOnly:
+			debugPrint("InputDispatcher: Starting LMB (look only) ML Mode\n");
+			break;
+		case eMouseMode_LookReady:
+			debugPrint("InputDispatcher: Starting Mouse Look Ready mode\n");
+			break;
+		case eMouseMode_Hide:
+			debugPrint("InputDispatcher: Starting Hide Cursor Mode\n");
+			break;
+		}
+	}
+	#endif
+	
+	sTracker.mouseMode = theMouseMode;
+}
+
+
 static void offsetMousePos()
 {
+	int aMouseLookDragDistSq = 0;
+	const bool holdingLMB = sTracker.keysHeldDown.test(VK_LBUTTON);
+	const bool holdingRMB = sTracker.keysHeldDown.test(VK_RBUTTON);
+	const bool mouseLookDragging =
+		(sTracker.mouseMode == eMouseMode_LookTurn && holdingRMB) ||
+		(sTracker.mouseMode == eMouseMode_LookOnly && holdingLMB);
+	if( mouseLookDragging &&
+		(sTracker.mouseLLockTime ||
+		 sTracker.mouseRLockTime ||
+		 sTracker.mouseLookState == eMouseLookState_Throttle) )
+	{// Need to calculate how far have moved from Mouse Look start point
+		aMouseLookDragDistSq =
+			(sTracker.mouseLookDragX * sTracker.mouseLookDragX) +
+			(sTracker.mouseLookDragY * sTracker.mouseLookDragY);
+		// Allow LMB/RMB to be let up early if dragged mouse enough since
+		// started Mouse Look and first held the button, and thus won't
+		// register as just a straight mouse click any more but a "drag".
+		// Other locks may still prevent button from being released though.
+		if( aMouseLookDragDistSq >= kMouseMaxClickMoveDistSq )
+			sTracker.mouseLLockTime = sTracker.mouseRLockTime = 0;
+		// 0 value not only releases the lock but acts as a flag in other
+		// code that the lock was specifically released due to drag distance
+	}
+
 	if( sTracker.mouseVelLockedThisFrame )
 	{
 		sTracker.mouseVelLockedThisFrame = false;
@@ -1204,12 +1298,12 @@ static void offsetMousePos()
 		break;
 	case eMouseMode_LookTurn:
 		// Allow once right mouse button is held down
-		if( !sTracker.keysHeldDown.test(VK_RBUTTON) )
+		if( !holdingRMB )
 			return;
 		break;
 	case eMouseMode_LookOnly:
 		// Allow once left mouse button is held down
-		if( !sTracker.keysHeldDown.test(VK_LBUTTON) )
+		if( !holdingLMB )
 			return;
 		break;
 	default:
@@ -1220,29 +1314,6 @@ static void offsetMousePos()
 
 	int anAppliedX = sTracker.mouseVelX;
 	int anAppliedY = sTracker.mouseVelY;
-
-	const bool holdingLMB = sTracker.keysHeldDown.test(VK_LBUTTON);
-	const bool holdingRMB = sTracker.keysHeldDown.test(VK_RBUTTON);
-	int aMouseDragDistSq = 0;
-
-	// Allow LMB/RMB to be let up if drag mouse enough while they are down
-	// (for mouseL/RLockTime, but may still be locked down by other timers)
-	if( holdingLMB )
-	{
-		aMouseDragDistSq =
-			(sTracker.mouseLDragX * sTracker.mouseLDragX) +
-			(sTracker.mouseLDragY * sTracker.mouseLDragY);
-		if( aMouseDragDistSq >= kMouseMaxClickMoveDistSq )
-			sTracker.mouseLLockTime = 0;
-	}
-	if( holdingRMB )
-	{
-		aMouseDragDistSq =
-			(sTracker.mouseRDragX * sTracker.mouseRDragX) +
-			(sTracker.mouseRDragY * sTracker.mouseRDragY);
-		if( aMouseDragDistSq >= kMouseMaxClickMoveDistSq )
-			sTracker.mouseRLockTime = 0;
-	}
 
 	const int aRequestedVelMagSq =
 		(sTracker.mouseVelX * sTracker.mouseVelX) +
@@ -1269,12 +1340,12 @@ static void offsetMousePos()
 					? kConfig.mouseTurnStartThrottleDistance :
 				sTracker.mouseMode == eMouseMode_LookOnly
 					? kConfig.mouseLookStartThrottleDistance : 0;
-			if( aMouseDragDistSq < kClampDist * kClampDist )
+			if( aMouseLookDragDistSq < kClampDist * kClampDist )
 			{
 				sTracker.mouseLookState = eMouseLookState_Throttle;
 				const int kVelCap =  
 					max(1, kClampDist / kConfig.mouseLookThrottleSteps);
-				const int aCurrDist = int(sqrt(double(aMouseDragDistSq)));
+				const int aCurrDist = int(sqrt(double(aMouseLookDragDistSq)));
 				const int aDistLeft = kClampDist - aCurrDist;
 				// The math below is a linear velocity cap (kVelCap per frame)
 				// if the request is consistently >= kVelCap from the start and
@@ -1356,16 +1427,11 @@ static void offsetMousePos()
 		}
 	}
 
-	// Track total drag delta when holding a mouse button
-	if( holdingLMB )
+	// Track total drag delta when holding a mouse button for mouse look mode
+	if( mouseLookDragging )
 	{
-		sTracker.mouseLDragX += anAppliedX;
-		sTracker.mouseLDragY += anAppliedY;
-	}
-	if( holdingRMB )
-	{
-		sTracker.mouseRDragX += anAppliedX;
-		sTracker.mouseRDragY += anAppliedY;
+		sTracker.mouseLookDragX += anAppliedX;
+		sTracker.mouseLookDragY += anAppliedY;
 	}
 
 	Input anInput;
@@ -1455,7 +1521,7 @@ static bool verifyCursorJumpedTo(const POINT& theDestPos)
 	sTracker.mouseAllowMidJumpControl = false;
 
 	// Reached jump destination and can update mouse mode accordingly
-	sTracker.mouseMode = sTracker.mouseJumpToMode;
+	setCurrentMouseMode(sTracker.mouseJumpToMode);
 	return true;
 }
 
@@ -2073,7 +2139,7 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 					"Mouse Look mode aborted - "
 					"detected button not held!");
 				// Skip mode transition
-				sTracker.mouseMode = eMouseMode_Cursor;
+				setCurrentMouseMode(eMouseMode_Cursor);
 				gFiredSignals.set(
 					InputMap::keyBindSignalID(eSpecialKey_FocusLost));
 				return eMouseMode_Cursor;
@@ -2194,14 +2260,6 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 		}
 	}
 
-	#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-	if( theWantedMode == eMouseMode_LookReady &&
-		sTracker.mouseMode != eMouseMode_LookReady )
-	{
-		debugPrint("InputDispatcher: Resetting Mouse Look mode\n");
-	}
-	#endif
-
 	return theWantedMode;
 }
 
@@ -2225,24 +2283,17 @@ static EMouseMode getNextMouseMode()
 
 static void startMouseLookMode(int theKey)
 {
+	// Don't let mouse look register as just a click - even if in the
+	// mode for a very short time - by forcing a long hold time OR a
+	// minimum movement amount first, so game registers it as a "drag"
+	sTracker.mouseLookDragX = sTracker.mouseLookDragY = 0;
 	switch(theKey)
 	{
 	case VK_LBUTTON:
-		// Don't let mouse look register as just a click - even if in the
-		// mode for a very short time - by forcing a long hold time OR a
-		// minimum movement amount first, so game registers it as a "drag"
 		sTracker.mouseLLockTime = gAppRunTime + kConfig.mouseLookMinHoldTime;
-		sTracker.mouseLDragX = sTracker.mouseLDragY = 0;
-		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-		debugPrint("InputDispatcher: Starting LMB (look only) Mouse Look\n");
-		#endif
 		break;
 	case VK_RBUTTON:
 		sTracker.mouseRLockTime = gAppRunTime + kConfig.mouseLookMinHoldTime;
-		sTracker.mouseRDragX = sTracker.mouseRDragY = 0;
-		#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-		debugPrint("InputDispatcher: Starting RMB (look+turn) Mouse Look\n");
-		#endif
 		break;
 	default:
 		DBG_ASSERT(false && "Invalid key value to start a mouse look mode");
@@ -2795,7 +2846,7 @@ void update()
 		!sTracker.chatBoxActive &&
 		(!sTracker.longTaskInProgress ||
 		 (sTracker.queuePauseTime > 0 &&
-		  !sTracker.queue.frontTaskHasMouseAction())) )
+		  !sTracker.queue.frontTaskHasMouseClick())) )
 	{// No tasks in progress that mouse mode change could interfere with
 
 		EMouseMode aNextMouseMode = getNextMouseMode();
@@ -2821,7 +2872,7 @@ void update()
 		case eMouseMode_PostJump:
 			// If mouse was jumped but didn't click after the jump, no need for
 			// any further action - just treat as new cursor mode position
-			sTracker.mouseMode = eMouseMode_Cursor;
+			setCurrentMouseMode(eMouseMode_Cursor);
 			wantDifferentMode = false;
 			break;
 		case eMouseMode_LookTurn:
@@ -2903,7 +2954,7 @@ void update()
 				if( sTracker.outputMode == eOutputMode_NeedCursor ||
 					sTracker.outputMode == eOutputMode_MouseOnly )
 				{// Skip restore jump if cursor mode being forced
-					sTracker.mouseMode = eMouseMode_Cursor;
+					setCurrentMouseMode(eMouseMode_Cursor);
 				}
 				else
 				{// Jump cursor to last normal cursor position
@@ -2935,11 +2986,11 @@ void update()
 				if( sTracker.mouseMode == eMouseMode_JumpClicked )
 				{// Give one more update to process queue before resuming
 					// (in case have multiple jump-clicks queued in a row)
-					sTracker.mouseMode = eMouseMode_Default;
+					setCurrentMouseMode(eMouseMode_Default);
 				}
 				else if( sTracker.mouseMode == eMouseMode_LookReady )
 				{// Skip position jump and just hold the button
-					sTracker.mouseMode = aNextMouseMode;
+					setCurrentMouseMode(aNextMouseMode);
 					sTracker.nextQueuedKey = aMouseLookStartKey;
 					sTracker.needSafeMouseTurnToLookTransition = false;
 				}
@@ -2969,16 +3020,34 @@ void update()
 						if( setKeyDown(aMouseLookStartKey & kVKeyMask, true)
 								== eResult_Ok )
 						{// New button successfully pressed!
-							sTracker.mouseMode = aNextMouseMode;
-							if( bothPressedTime > 0 )
-							{
-								lockKeyDownFor(
-									anAltMouseLookKey, bothPressedTime);
-							}
+							setCurrentMouseMode(aNextMouseMode);
 							startMouseLookMode(aMouseLookStartKey & kVKeyMask);
 							// Skip initial throttling and so on
 							sTracker.mouseLookState = eMouseLookState_Stable;
 							sTracker.mouseLookPosVerifyTime = gAppFrameTime;
+							if( bothPressedTime > 0 )
+							{// Have both buttons held at same time briefly
+								lockKeyDownFor(
+									anAltMouseLookKey, bothPressedTime);
+								// Pause queue until swap fully finished
+								sTracker.queuePauseTime = max(
+									sTracker.queuePauseTime,
+									bothPressedTime);
+								if( (anAltMouseLookKey == VK_LBUTTON &&
+									 sTracker.mouseLLockTime == 0) ||
+									(anAltMouseLookKey == VK_RBUTTON &&
+									 sTracker.mouseRLockTime == 0) )
+								{
+									// When moved enough to abort button lock
+									// time in previous mode, brief taps of
+									// one button while holding the other
+									// should only count as movement request
+									// and not a "click" (drop item etc), so
+									// no need for these special lock timers.
+									sTracker.mouseRLockTime = 0;
+									sTracker.mouseLLockTime = 0;
+								}
+							}
 						}
 					}
 				}
@@ -3329,12 +3398,18 @@ void update()
 		}
 
 		if( (aBaseVKey == VK_LBUTTON || aBaseVKey == VK_RBUTTON) &&
-			!sTracker.mouseAllowMidJumpControl &&
-			(sTracker.mouseMode == eMouseMode_Hide ||
-			 sTracker.mouseMode == eMouseMode_PostJump ||
-			 sTracker.mouseMode == eMouseMode_JumpClicked ||
-			 sTracker.mouseJumpRequested) )
-		{// Mouse not in a state where can hold a mouse button
+			(sTracker.mouseMode == eMouseMode_Hide || // no clicks during hide
+			 // No clicks when trying to exit a mouse look mode
+			 ((sTracker.mouseMode == eMouseMode_LookTurn ||
+		       sTracker.mouseMode == eMouseMode_LookOnly) &&
+			  (sTracker.mouseModeExpected == eMouseMode_Cursor ||
+			   sTracker.mouseModeExpected == eMouseMode_Hide)) ||
+			 // No clicks when about to jump unless allow mid-jump control
+			 (!sTracker.mouseAllowMidJumpControl &&
+			  (sTracker.mouseJumpRequested ||
+			   sTracker.mouseMode == eMouseMode_PostJump ||
+			   sTracker.mouseMode == eMouseMode_JumpClicked))) )
+		{// Mouse not in a state where can start holding a mouse button
 			readyForIdleModKeys = false;
 			continue;
 		}
@@ -3427,7 +3502,7 @@ void update()
 			(hiddenCursorMode(sTracker.mouseMode) ||
 			 hiddenCursorMode(sTracker.mouseModeRequested)) )
 		{// Update cursor pos to return to later rather than actually jumping
-			HotspotMap::setLastCursorPos(sTracker.mouseJumpDest);
+			HotspotMap::setLastCursorPos(sTracker.mouseJumpDest, true);
 			readyForMouseJump = sTracker.mouseJumpRequested = false;
 		}
 		else if( !sTracker.mouseAllowMidJumpControl )
@@ -3534,7 +3609,7 @@ void update()
 		// Also avoid while holding down LMB or RMB because in some games that
 		// causes the cursor to automatically jump to center-screen briefly
 		// even for quick clicks (just in case user starts mouse-look mode)
-		HotspotMap::setLastCursorPos(WindowManager::mouseToOverlayPos());
+		HotspotMap::setLastCursorPos(WindowManager::mouseToOverlayPos(), true);
 	}
 	// Return speed from digital mouse acceleration back to 0 over time
 	sTracker.mouseDigitalVel = max(0,
@@ -3636,7 +3711,7 @@ void update()
 				sTracker.nextQueuedKey = dropTo<u16>(aVKey | kVKeyReleaseFlag);
 				if( sTracker.mouseMode == eMouseMode_PostJump )
 				{// If jumped first then clicked, next restore previous pos
-					sTracker.mouseMode = eMouseMode_JumpClicked;
+					setCurrentMouseMode(eMouseMode_JumpClicked);
 				}
 			}
 		}

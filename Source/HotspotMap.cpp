@@ -1750,16 +1750,24 @@ void resetChangedHotspots()
 }
 
 
-void setLastCursorPos(POINT theNewPos)
+void setLastCursorPos(POINT theNewPos, bool andCursorHotspot)
 {
 	theNewPos = WindowManager::overlayPosValidated(theNewPos);
 	if( theNewPos.x != gLastCursorPos.x || theNewPos.y != gLastCursorPos.y )
 	{
 		gLastCursorPos = theNewPos;
-		sChangedHotspots.set(eSpecialHotspot_LastCursorPos);
-		sHotspots.vals()[eSpecialHotspot_LastCursorPos].hs =
-			WindowManager::overlayPosToHotspot(theNewPos);
 		sNewTasks.set(eTask_BeginSearch);
+	}
+
+	if( andCursorHotspot )
+	{
+		const Hotspot& aNewHotspot =
+			WindowManager::overlayPosToHotspot(theNewPos);
+		if( aNewHotspot != sHotspots.vals()[eSpecialHotspot_LastCursorPos].hs )
+		{
+			sChangedHotspots.set(eSpecialHotspot_LastCursorPos);
+			sHotspots.vals()[eSpecialHotspot_LastCursorPos].hs = aNewHotspot;
+		}
 	}
 }
 
