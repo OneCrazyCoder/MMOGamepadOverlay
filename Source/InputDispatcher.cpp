@@ -703,6 +703,19 @@ static DispatchTracker sTracker;
 
 
 //------------------------------------------------------------------------------
+// Debugging
+//------------------------------------------------------------------------------
+
+#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
+#define disDebugPrint(fmt, ...) debugPrint( \
+	(strFormat("InputDispatcher: On update %d (%dms): ", \
+	gAppUpdateCount, gAppRunTime) + fmt).c_str(), __VA_ARGS__)
+#else
+#define disDebugPrint(...) ((void)0)
+#endif
+
+
+//------------------------------------------------------------------------------
 // Local Functions
 //------------------------------------------------------------------------------
 
@@ -1191,19 +1204,19 @@ static inline void setCurrentMouseMode(EMouseMode theMouseMode)
 		switch(newMouseMode)
 		{
 		case eMouseMode_Cursor:
-			debugPrint("InputDispatcher: Starting Cursor Mode\n");
+			disDebugPrint("Starting Cursor Mode\n");
 			break;
 		case eMouseMode_LookTurn:
-			debugPrint("InputDispatcher: Starting RMB (look+turn) ML Mode\n");
+			disDebugPrint("Starting RMB (look+turn) ML Mode\n");
 			break;
 		case eMouseMode_LookOnly:
-			debugPrint("InputDispatcher: Starting LMB (look only) ML Mode\n");
+			disDebugPrint("Starting LMB (look only) ML Mode\n");
 			break;
 		case eMouseMode_LookReady:
-			debugPrint("InputDispatcher: Starting Mouse Look Ready mode\n");
+			disDebugPrint("Starting Mouse Look Ready mode\n");
 			break;
 		case eMouseMode_Hide:
-			debugPrint("InputDispatcher: Starting Hide Cursor Mode\n");
+			disDebugPrint("Starting Hide Cursor Mode\n");
 			break;
 		}
 	}
@@ -1496,12 +1509,10 @@ static bool verifyCursorJumpedTo(const POINT& theDestPos)
 			abs(aCurrentPos.y - theDestPos.y) >= 2 )
 		{
 			const bool retryJump = ++sFailedJumpAttemptsInARow < 5;
-			#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-			debugPrint(
-				"InputDispatcher: Cursor jump to %d x %d failed! %s\n",
+			disDebugPrint(
+				"Cursor jump to %d x %d failed! %s\n",
 				theDestPos.x, theDestPos.y,
 				retryJump ? "Will attempt jump again" : "Giving up!");
-			#endif
 			if( retryJump )
 				return false;
 		}
@@ -2211,13 +2222,11 @@ static EMouseMode checkMouseLookRestore(EMouseMode theWantedMode)
 					}
 					else if( setKeyDown(anExpectedVKey, false) == eResult_Ok )
 					{// Retry from start by releasing button
-						#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-						debugPrint(
-							"InputDispatcher: Emergency restart ML mode!"
+						disDebugPrint(
+							"Emergency restart ML mode!"
 							"(was %d x %d should be %d x %d!)\n",
 							aCursorPos.x, aCursorPos.y,
 							anExpectedPos.x, anExpectedPos.y);
-						#endif
 						++sTracker.mouseLookFailCount;
 					}
 				}
@@ -2573,13 +2582,7 @@ static bool forceReleaseAllMoveKeys()
 
 static void debugPrintInputVector()
 {
-	static int sUpdateCount = 0;
-	++sUpdateCount;
-#ifndef NDEBUG
 #ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
-#define siPrint(fmt, ...) debugPrint( \
-	(strFormat("InputDispatcher: On update %d (%dms): ", \
-	sUpdateCount, gAppRunTime) + fmt).c_str(), __VA_ARGS__)
 
 	for(int i = 0, end = intSize(sTracker.inputs.size()); i < end; ++i)
 	{
@@ -2588,16 +2591,16 @@ static void debugPrintInputVector()
 		{
 			switch(anInput.mi.dwFlags)
 			{
-			case MOUSEEVENTF_LEFTDOWN: siPrint("LMB pressed\n"); break;
-			case MOUSEEVENTF_LEFTUP: siPrint("LMB released\n"); break;
-			case MOUSEEVENTF_RIGHTDOWN: siPrint("RMB pressed\n"); break;
-			case MOUSEEVENTF_RIGHTUP: siPrint("RMB released\n"); break;
-			case MOUSEEVENTF_MIDDLEDOWN: siPrint("MMB pressed\n"); break;
-			case MOUSEEVENTF_MIDDLEUP: siPrint("MMB released\n"); break;
+			case MOUSEEVENTF_LEFTDOWN: disDebugPrint("LMB pressed\n"); break;
+			case MOUSEEVENTF_LEFTUP: disDebugPrint("LMB released\n"); break;
+			case MOUSEEVENTF_RIGHTDOWN: disDebugPrint("RMB pressed\n"); break;
+			case MOUSEEVENTF_RIGHTUP: disDebugPrint("RMB released\n"); break;
+			case MOUSEEVENTF_MIDDLEDOWN: disDebugPrint("MMB pressed\n"); break;
+			case MOUSEEVENTF_MIDDLEUP: disDebugPrint("MMB released\n"); break;
 			case MOUSEEVENTF_MOVE:
 				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
 				{
-					siPrint("Mouse vel: %dx x %dy\n",
+					disDebugPrint("Mouse vel: %dx x %dy\n",
 						anInput.mi.dx, anInput.mi.dy);
 				}
 				#endif
@@ -2605,7 +2608,7 @@ static void debugPrintInputVector()
 			case MOUSEEVENTF_WHEEL:
 				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
 				{
-					siPrint("Mouse wheel: %.02f steps\n",
+					disDebugPrint("Mouse wheel: %.02f steps\n",
 						double(-int(anInput.mi.mouseData)) / WHEEL_DELTA);
 				}
 				#endif
@@ -2616,7 +2619,7 @@ static void debugPrintInputVector()
 				{
 					POINT aPos = { anInput.mi.dx, anInput.mi.dy };
 					aPos = WindowManager::normalizedMouseToOverlayPos(aPos);
-					siPrint("Jumped cursor to %dx x %dy\n",
+					disDebugPrint("Jumped cursor to %dx x %dy\n",
 						aPos.x, aPos.y);
 				}
 				#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
@@ -2625,7 +2628,8 @@ static void debugPrintInputVector()
 					POINT anOldPos = WindowManager::mouseToOverlayPos();
 					POINT aPos = { anInput.mi.dx, anInput.mi.dy };
 					aPos = WindowManager::normalizedMouseToOverlayPos(aPos);
-					siPrint("Mouse shifted by: %dx x %dy to reach %d x %d\n",
+					disDebugPrint(
+						"Mouse shifted by: %dx x %dy to reach %d x %d\n",
 						aPos.x - anOldPos.x, aPos.y - anOldPos.y,
 						aPos.x, aPos.y);
 				}
@@ -2635,14 +2639,12 @@ static void debugPrintInputVector()
 		}
 		else if( anInput.type == INPUT_KEYBOARD )
 		{
-			siPrint("%s %s\n",
+			disDebugPrint("%s %s\n",
 				virtualKeyToName(anInput.ki.wVk).c_str(),
 				(anInput.ki.dwFlags & KEYEVENTF_KEYUP)
 					? "released" : "pressed");
 		}
 	}
-#undef siPrint
-#endif
 #endif
 }
 
@@ -2825,7 +2827,7 @@ void update()
 	#ifdef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 	if( sTracker.outputMode != oldMode )
 	{
-		debugPrint("InputDispatcher: Output mode changed to: %s\n",
+		disDebugPrint("Output mode changed to: %s\n",
 			sTracker.outputMode == eOutputMode_None ? "None" :
 			sTracker.outputMode == eOutputMode_MouseOnly ? "Mouse Only" :
 			sTracker.outputMode == eOutputMode_NeedCursor ? "No Mouse Look" :
@@ -3275,13 +3277,28 @@ void update()
 		case eCmdType_MoveMouseToMenuItem:
 		case eCmdType_MoveMouseToOffset:
 			if( sTracker.mouseJumpRequested && !sTracker.mouseJumpInterpolate )
-			{// Finish instant jump first
-				sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
-				sTracker.allowFastTasksDuringQueuePause = false;
-				aTaskResult = eResult_Incomplete;
+			{// An instant-jump has already been requested
+				if( !taskIsPastDue &&
+					!sTracker.mouseJumpAttempted &&
+					(sTracker.mouseJumpToMode == eMouseMode_Cursor ||
+					 sTracker.mouseJumpToMode == eMouseMode_PostJump) )
+				{// Override its destination
+					sTracker.mouseJumpDest = aCmd.pos;
+					sTracker.mouseJumpToMode = eMouseMode_PostJump;
+					if( aCmd.type == eCmdType_RightClickAtHotspot )
+						sTracker.nextQueuedKey = VK_RBUTTON;
+					else if( aCmd.type == eCmdType_MouseClickAtHotspot )
+						sTracker.nextQueuedKey = VK_LBUTTON;
+				}
+				else
+				{// Wait until it is done first
+					sTracker.queuePauseTime = max(sTracker.queuePauseTime, 1);
+					sTracker.allowFastTasksDuringQueuePause = false;
+					aTaskResult = eResult_Incomplete;
+				}
 			}
 			else if( !taskIsPastDue )
-			{
+			{// Start or re-direct an interpolated mouse move
 				sTracker.mouseInterpolateRestart =
 					sTracker.mouseInterpolateRestart ||
 					!sTracker.mouseJumpInterpolate ||
@@ -4473,6 +4490,7 @@ void moveCharacter(int move, int turn, int strafe, bool autoRun, bool lock)
 	}
 }
 
+#undef disDebugPrint
 #undef INPUT_DISPATCHER_DEBUG_PRINT_SENT_INPUT
 #undef INPUT_DISPATCHER_DEBUG_PRINT_SENT_MOUSE_MOTION
 #undef INPUT_DISPATCHER_SIMULATION_ONLY

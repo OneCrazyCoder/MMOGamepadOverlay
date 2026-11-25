@@ -18,6 +18,9 @@ extern bool gLayoutEditorRequested;
 // Which profile (by name) to load
 extern std::string gProfileToLoad;
 
+// Updates (frames) since app started main loop
+extern int gAppUpdateCount;
+
 // Milliseconds since app started main loop
 extern int gAppRunTime;
 

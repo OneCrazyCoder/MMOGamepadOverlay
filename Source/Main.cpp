@@ -126,6 +126,7 @@ void mainModulesUpdate()
 	if( !gProfileToLoad.empty() )
 		return;
 
+	++gAppUpdateCount;
 	Gamepad::update();
 	HotspotMap::update();
 	HotspotMap::resetChangedHotspots();

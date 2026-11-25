@@ -11,6 +11,7 @@
 bool gShutdown = false;
 bool gLayoutEditorRequested = false;
 std::string gProfileToLoad; // empty = auto-load or prompt user
+int gAppUpdateCount = 0;
 int gAppRunTime = 0;
 int gAppFrameTime = 0;
 int gAppTargetFrameTime = 15; // allows >= 60 fps without taxing CPU
